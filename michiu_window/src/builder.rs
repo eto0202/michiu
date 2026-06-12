@@ -14,7 +14,12 @@ use windows::Win32::{
     },
 };
 
-/// A builder helper used to configure the properties and styles of a Win32 window.
+/// A builder helper used to configure the properties, styles, and subsystems of a Win32 window before creation.
+///
+/// `WindowBuilder` implements [`Default`] and [`Validate`] (from `michiu_guard`).
+/// It ensures that all specified Win32 styles and custom configurations are mutually consistent
+/// during validation. Any conflicting styles (e.g., transparent window with OS borders enabled)
+/// are caught at compile-time or run-time before the window is physically allocated by the OS.
 #[derive(Debug, Clone)]
 pub struct WindowBuilder<'a> {
     pub(crate) title: Cow<'static, str>,
@@ -92,54 +97,57 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
+    /// Assigns a custom [`Icon`] for the window.
     pub fn with_icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
-    /// Sets the client area size of the window.
+    /// Sets the initial client area size of the window (in logical pixels).
     pub fn with_inner_size(mut self, size: LogicalSize) -> Self {
         self.inner_size = Some(size);
         self
     }
 
-    /// Sets the minimum window size (in logical pixels).
+    /// Limits the minimum window client size (in logical pixels).
     pub fn with_min_size(mut self, size: LogicalSize) -> Self {
         self.min_inner_size = Some(size);
         self
     }
 
-    /// Limits the maximum size of the window (in logical pixels).
+    /// Limits the maximum window client size (in logical pixels).
     pub fn with_max_size(mut self, size: LogicalSize) -> Self {
         self.max_inner_size = Some(size);
         self
     }
 
-    /// Sets the initial screen position of the window.
+    /// Sets the initial screen position of the window (in logical pixels).
     pub fn with_position(mut self, position: LogicalPoint) -> Self {
         self.position = Some(position);
         self
     }
 
-    /// Sets whether the window is visible upon creation.
+    /// Sets whether the window should be visible upon creation. (Default: `true`)
     pub fn with_visible(mut self, is_visible: bool) -> Self {
         self.visible = is_visible;
         self
     }
 
-    /// Sets whether the window can be resized by the user.
+    /// Sets whether the window is resizable by the user. (Default: `true`)
     pub fn with_resizable(mut self, is_resizable: bool) -> Self {
         self.resizable = is_resizable;
         self
     }
 
-    /// Sets whether the window should have standard OS window decorations (such as titlebar, borders).
+    /// Sets whether the window has standard OS decorations like a titlebar and borders. (Default: `true`)
     pub fn with_decorations(mut self, is_decorations: bool) -> Self {
         self.decorations = is_decorations;
         self
     }
 
     /// Sets whether the window background is transparent.
+    ///
+    /// Requires decorations to be disabled ([`WindowBuilder::with_decorations(false)`]) to prevent artifacts.
     pub fn with_transparent(mut self, is_transparent: bool) -> Self {
         self.transparent = is_transparent;
         self
@@ -151,43 +159,48 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
-    /// Sets whether the window permits hit testing (mouse click intercepts).
+    /// Sets whether the window permits mouse click hits. If set to `false`, clicks pass through.
     pub fn with_hittest(mut self, is_hittest: bool) -> Self {
         self.hittest = is_hittest;
         self
     }
 
-    /// Sets whether the window is constructed as a standard overlapped window.
+    /// Sets whether the window is constructed as a standard overlapped window. (Default: `true`)
     pub fn with_overlapped_window(mut self, is_enabled: bool) -> Self {
         self.overlapped_window = is_enabled;
         self
     }
 
-    /// Sets whether the window displays a button in the OS taskbar.
+    /// Sets whether the window displays a button in the OS taskbar. (Default: `true`)
     pub fn with_taskbar_button(mut self, is_taskbar_button: bool) -> Self {
         self.taskbar_button = is_taskbar_button;
         self
     }
 
-    /// Configures the window to request no redirection bitmap (required for DirectComposition rendering).
+    /// Configures the window to request no redirection bitmap (required for DirectComposition).
+    ///
+    /// Requires a valid [`ComContext`] and disabled decorations.
     pub fn with_no_redirection_bitmap(mut self, is_enabled: bool) -> Self {
         self.no_redirection_bitmap = is_enabled;
         self
     }
 
-    /// Binds a valid [`ComContext`] reference to the window creation lifetime.
+    /// Binds a valid [`ComContext`] reference.
     pub fn with_com_context(mut self, com_context: &'a ComContext) -> Self {
         self.com_context = Some(com_context);
         self
     }
 
-    /// Associates an optional system tray ([`Tray`]) control with the window.
+    /// Associates an optional system tray ([`Tray`]) control.
     pub fn with_tray(mut self, tray: Tray) -> Self {
         self.tray = Some(tray);
         self
     }
 
     /// Configures the window as a child of another active window handle.
+    ///
+    /// This method automatically adjusts internal flags: `overlapped_window` and `taskbar_button`
+    /// are set to `false`, and Win32 raw styles are adjusted to safely support parent-child bounds.
     pub fn with_child_of(mut self, parent_hwnd: HWND) -> Self {
         self.parent_hwnd = Some(parent_hwnd);
 
@@ -206,30 +219,62 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
-    /// Sets a custom window class name instead of the default framework-defined one.
+    /// Overwrites a custom window class name instead of the default framework-defined one.
     ///
     /// # Warning
     /// If utilizing a custom window class name via `custom_class_name`, please note that if its class styles include
     /// `CS_OWNDC` or `CS_CLASSDC`, you cannot use `WS_EX_COMPOSITED` (double buffering) or `WS_EX_LAYERED` (transparency)
     /// as doing so can trigger rendering artifacts.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::WindowBuilder;
+    /// let builder = WindowBuilder::new()
+    ///     .with_custom_class_name("MyCustomAppWindowClass");
+    /// ```
     pub fn with_custom_class_name(mut self, class_name: impl Into<Cow<'static, str>>) -> Self {
         self.custom_class_name = Some(class_name.into());
         self
     }
 
-    /// Force overwrites the window's basic Win32 styles (`WINDOW_STYLE`).
+    /// Overwrites raw basic Win32 styles (`WINDOW_STYLE`).
     pub fn with_raw_style(mut self, style: WINDOW_STYLE) -> Self {
         self.raw_style = Some(style);
         self
     }
 
-    /// Force overwrites the window's extended Win32 styles (`WINDOW_EX_STYLE`).
+    /// Overwrites raw extended Win32 styles (`WINDOW_EX_STYLE`).
     pub fn with_raw_ex_style(mut self, ex_style: WINDOW_EX_STYLE) -> Self {
         self.raw_ex_style = Some(ex_style);
         self
     }
 
     /// Registers a custom closure filter that executes inside the raw `WndProc` loop.
+    ///
+    /// The registered filter runs at the very beginning of the window procedure. If it returns
+    /// `Some(LRESULT)`, the message is considered handled, and it bypasses all subsequent processing
+    /// (including [`Event`] translation and the default OS procedure).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use michiu_window::{WindowBuilder, LogicalSize};
+    /// use windows::Win32::Foundation::LRESULT;
+    /// use windows::Win32::UI::WindowsAndMessaging::WM_USER;
+    ///
+    /// let builder = WindowBuilder::new()
+    ///     .with_title("Custom WndProc Filter")
+    ///     .with_message_filter(|_hwnd, msg, _wparam, _lparam| {
+    ///         // Intercept a custom user message (WM_USER + 100)
+    ///         if msg == WM_USER + 100 {
+    ///             println!("Raw user message intercepted!");
+    ///             // Bypass default wnd_proc and return a custom result synchronously
+    ///             return Some(LRESULT(42));
+    ///         }
+    ///         None // Continue standard message propagation for other messages
+    ///     });
+    /// ```
     pub fn with_message_filter<F>(mut self, filter: F) -> Self
     where
         F: Fn(HWND, u32, WPARAM, LPARAM) -> Option<LRESULT> + 'static,
@@ -238,31 +283,33 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
+    /// Sets whether the window scales its dimensions automatically based on monitor DPI shifts. (Default: `true`)
     pub fn with_auto_dpi_scaling(mut self, is_enabled: bool) -> Self {
         self.auto_dpi_scaling = is_enabled;
         self
     }
 
-    /// At startup, sets the entire window (including the title bar and context menus such as right-click menus)
-    /// to the native dark mode of Windows 11.
+    /// Applies Windows 11 native dark mode styling to the window frame and menus at startup.
     pub fn with_dark_mode(mut self, enabled: bool) -> Self {
         self.dark_mode = enabled;
         self
     }
 
-    /// Enables OLE file Drag & Drop support for the window (IDropTarget).
+    /// Enables OLE file Drag & Drop support.
+    ///
+    /// Requires a valid, OLE-initialized (single-threaded) [`ComContext`].
     pub fn with_drag_and_drop(mut self, enabled: bool) -> Self {
         self.drag_and_drop = enabled;
         self
     }
 
-    /// Activates the secure localhost OLE/TSF IME JSON Relay API on the specified TCP port.
+    /// Exposes active IME/TSF updates on the specified localhost TCP port.
     pub fn with_ime_expose_port(mut self, port: u16) -> Self {
         self.ime_expose_port = Some(port);
         self
     }
 
-    /// Wraps the current builder state into an [`Unvalidated`] handle ready for validation.
+    /// Wraps the current builder state into an [`Unvalidated`] wrapper ready for validation.
     pub fn into_unvalidated(self) -> Unvalidated<Self> {
         Unvalidated::new(self)
     }
@@ -271,6 +318,39 @@ impl<'a> WindowBuilder<'a> {
 impl<'a> Validate for WindowBuilder<'a> {
     type Error = MichiuError;
 
+    /// Validates all configuration parameters to ensure Win32 style consistency and subsystem compatibility.
+    ///
+    /// # Conflicting Rules checked:
+    /// 1. `no_redirection_bitmap` requires a valid `ComContext` and disabled decorations.
+    /// 2. `drag_and_drop` requires an OLE-initialized (single-threaded apartment) `ComContext`.
+    /// 3. `transparent` requires standard decorations to be disabled to prevent rendering artifacts.
+    /// 4. Child windows (`WS_CHILD`) cannot have a taskbar button (`WS_EX_APPWINDOW`) or topmost style (`WS_EX_TOPMOST`).
+    /// 5. Raw styles:
+    ///    - `WS_CHILD` and `WS_POPUP` are mutually exclusive.
+    ///    - `WS_CHILD` requires a valid `parent_hwnd`.
+    ///    - `WS_CAPTION` and `WS_DLGFRAME` are mutually exclusive.
+    ///    - `WS_MINIMIZEBOX` or `WS_MAXIMIZEBOX` requires `WS_SYSMENU`.
+    ///    - `WS_EX_CONTEXTHELP` cannot be combined with maximize/minimize buttons.
+    ///    - `WS_EX_TOOLWINDOW` and `WS_EX_APPWINDOW` are mutually exclusive.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::ValidationError`] detailing the specific conflicting parameter on failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use michiu_window::{WindowBuilder, LogicalSize};
+    /// # use michiu_guard::Validated;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let builder = WindowBuilder::new()
+    ///     .with_title("Main Frame")
+    ///     .with_inner_size(LogicalSize::new(800.0, 600.0));
+    ///
+    /// // Safe validation step
+    /// let validated: Validated<WindowBuilder> = builder.into_unvalidated().try_into()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     fn validate(self) -> Result<Self> {
         if self.no_redirection_bitmap && self.com_context.is_none() {
             return Err(MichiuError::ValidationError {
@@ -304,7 +384,7 @@ impl<'a> Validate for WindowBuilder<'a> {
             });
         }
 
-        // Check for inconsistencies between transparent windows and standard decorations.
+        // 透明ウィンドウと標準の装飾の間に不整合がないか確認
         if self.transparent && self.decorations {
             return Err(MichiuError::ValidationError {
                 parameter: "decorations",
@@ -312,7 +392,7 @@ impl<'a> Validate for WindowBuilder<'a> {
             });
         }
 
-        // Check for conflicts between child windows and taskbar buttons.
+        // 子ウィンドウとタスクバーのボタンとの競合を確認
         let is_child =
             self.parent_hwnd.is_some() || self.raw_style.is_some_and(|s| s.contains(WS_CHILD));
         if is_child && self.taskbar_button {
@@ -332,9 +412,9 @@ impl<'a> Validate for WindowBuilder<'a> {
             });
         }
 
-        // Validate raw styles for mutual exclusion and dependency constraints.
+        // 生のスタイルについて、排他制約および依存制約の検証
         if let Some(raw) = self.raw_style {
-            // Validate mutual exclusion of WS_CHILD and WS_POPUP.
+            // WS_CHILD と WS_POPUP の排他性を検証
             if raw.contains(WS_CHILD) && raw.contains(WS_POPUP) {
                 return Err(MichiuError::ValidationError {
                     parameter: "raw_style",
@@ -342,7 +422,7 @@ impl<'a> Validate for WindowBuilder<'a> {
                 });
             }
 
-            // Validate if a valid parent window is provided for WS_CHILD.
+            // WS_CHILD に対して有効な親ウィンドウが指定されているかを確認
             if raw.contains(WS_CHILD) && self.parent_hwnd.is_none() {
                 return Err(MichiuError::ValidationError {
                     parameter: "parent_hwnd",
@@ -351,7 +431,7 @@ impl<'a> Validate for WindowBuilder<'a> {
                 });
             }
 
-            // Validate mutual exclusion of WS_CAPTION and WS_DLGFRAME.
+            // WS_CAPTION と WS_DLGFRAME の排他性を検証
             if raw.contains(WS_CAPTION) && raw.contains(WS_DLGFRAME) {
                 return Err(MichiuError::ValidationError {
                     parameter: "raw_style",
@@ -367,7 +447,7 @@ impl<'a> Validate for WindowBuilder<'a> {
                 });
             }
 
-            // Validate conflicts between WS_EX_CONTEXTHELP and minimize/maximize buttons.
+            // WS_EX_CONTEXTHELP と最小化／最大化ボタンとの競合を確認する。
             if let Some(raw_ex) = self.raw_ex_style
                 && raw_ex.contains(WS_EX_CONTEXTHELP)
                 && (raw.contains(WS_MAXIMIZEBOX) || raw.contains(WS_MINIMIZEBOX))

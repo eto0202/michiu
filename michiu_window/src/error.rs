@@ -3,6 +3,12 @@ use std::{borrow::Cow, fmt};
 use thiserror::Error;
 use windows::Win32::Foundation::HWND;
 
+/// The unified error type returned by all windowing, tray, and input method subsystems.
+///
+/// Under the hood, this integrates with [`thiserror`] to provide localized system context.
+/// It encapsulates raw Win32 system errors ([`windows::core::Error`]) where applicable,
+/// and provides helpful developer diagnostics and remedy advice.
+///
 /// # Error Handling Policy
 ///
 /// `michiu_window` aims to provide "Context-Aware" errors. Instead of just giving you
@@ -142,9 +148,13 @@ pub enum MichiuError {
     UnexpectedOsError(#[from] windows::core::Error),
 }
 
-/// A specialized Result type for Michiu operations.
+/// A specialized Type Alias representing the result of any `michiu_window` operation.
 pub type Result<T> = std::result::Result<T, MichiuError>;
 
+/// A wrapper format designed to print a rich, easy-to-read troubleshooting report.
+///
+/// When printed using standard `{}` formatting, it prints the base error message,
+/// followed by raw OS HRESULT codes (with common explanations) and helpful remedy advice.
 pub struct RichReport<'a>(&'a MichiuError);
 
 impl<'a> fmt::Display for RichReport<'a> {
@@ -195,15 +205,15 @@ impl fmt::Display for SysErrorInfo {
 }
 
 impl MichiuError {
+    /// Wraps this error in a helper type designed to render a beautiful diagnostic report.
     pub fn report(&self) -> RichReport<'_> {
         RichReport(self)
     }
-    /// Returns concrete troubleshooting advice (remedy hint) to resolve the error.
-    /// Returns `None` if no specific remedy is defined for the variant.
+    /// Returns explicit, practical remedy advice (troubleshooting hints) to resolve this error.
+    /// Returns `None` if no specific remedy is defined.
     pub fn remedy(&self) -> Option<&'static str> {
         match self {
             Self::WindowCreationFailed { class_name, .. } => {
-                // Branching logic can be used here if custom class names are specified.
                 if class_name.starts_with("MichiuWindowClass_") {
                     Some(
                         "This is an internal framework error. Please ensure your Windows OS supports basic Win32 window creation.",
@@ -225,22 +235,19 @@ impl MichiuError {
                 only from the thread that created it (typically the thread that runs the main message loop).",
             ),
 
-            Self::ValidationError { parameter, .. } => {
-                // Finer-grained hints can be returned based on the specific parameter.
-                match *parameter {
-                    "no_redirection_bitmap" => Some(
-                        "DirectComposition (no_redirection_bitmap) requires a valid ComContext. \
+            Self::ValidationError { parameter, .. } => match *parameter {
+                "no_redirection_bitmap" => Some(
+                    "DirectComposition (no_redirection_bitmap) requires a valid ComContext. \
                         Please initialize a ComContext and pass it to your WindowBuilder.",
-                    ),
-                    "transparent" => Some(
-                        "Transparent windows cannot have standard OS decorations. \
+                ),
+                "transparent" => Some(
+                    "Transparent windows cannot have standard OS decorations. \
                         Please call `with_decorations(false)` on your WindowBuilder.",
-                    ),
-                    _ => Some(
-                        "Review the WindowBuilder parameters to ensure they satisfy the window specifications.",
-                    ),
-                }
-            }
+                ),
+                _ => Some(
+                    "Review the WindowBuilder parameters to ensure they satisfy the window specifications.",
+                ),
+            },
 
             Self::ComInitializationFailed { context_type, .. } => {
                 if *context_type == "COM Single" || *context_type == "COM Multi" {
@@ -283,7 +290,7 @@ impl MichiuError {
         }
     }
 
-    /// Retrieves the raw Windows error information (HRESULT and system message) as a bundled struct.
+    /// Extracts the raw Windows OS error details (HRESULT and system message).
     /// Returns `None` if the error variant is not derived from an underlying OS error (such as `ThreadMismatch`).
     pub fn sys_error_info(&self) -> Option<SysErrorInfo> {
         let win_err = match self {
@@ -310,15 +317,14 @@ impl MichiuError {
 }
 
 impl SysErrorInfo {
-    /// Formats the HRESULT error code as a standard hexadecimal string (e.g., "0x80070057").
+    /// Formats the HRESULT error code as a standard hexadecimal string (e.g., `"0x80070005"`).
     pub fn hex_code(&self) -> String {
         format!("0x{:08X}", self.hresult.0 as u32)
     }
 
-    /// Returns a clear English explanation for common Windows HRESULT codes.
+    /// Returns a clear, human-readable English explanation for common Win32 HRESULT codes (e.g., E_ACCESSDENIED).
     /// Returns `None` if the error code is unrecognized.
     pub fn common_explanation(&self) -> Option<&'static str> {
-        // Cast the HRESULT value to u32 to match against common hexadecimal codes.
         match self.hresult.0 as u32 {
             0x80070005 => Some(
                 "E_ACCESSDENIED: Access is denied. The operation might require administrator privileges, \

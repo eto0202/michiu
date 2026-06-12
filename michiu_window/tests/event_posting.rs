@@ -1,6 +1,5 @@
 use michiu_window::{
-    EventPump, LogicalSize, MichiuEvent, PhysicalSize, WindowBuilder, WindowEvent,
-    init_dpi_awareness,
+    Event, EventPump, LogicalSize, MichiuEvent, PhysicalSize, WindowBuilder, init_dpi_awareness,
 };
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
@@ -58,20 +57,20 @@ fn test_integration_event_posting_and_translation_lifecycle() {
             let bg_hwnd = handle_clone.hwnd();
 
             // 通常のウィンドウメッセージ (WM_CLOSE) の生ポスト
-            // UIスレッド側で WindowEvent::CloseRequested に翻訳
+            // UIスレッド側で Event::CloseRequested に翻訳
             unsafe {
                 let _ = PostMessageW(Some(bg_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
 
             // 未知のユーザー定義メッセージ (WM_USER + 888) の生ポスト
-            // UIスレッド側で WindowEvent::UnsafeRaw に翻訳
+            // UIスレッド側で Event::UnsafeRaw に翻訳
             unsafe {
                 let _ = PostMessageW(Some(bg_hwnd), WM_USER + 888, WPARAM(777), LPARAM(999));
             }
 
             // 標準ウィンドウメッセージ (WM_SIZE) の生ポスト
             // LPARAM に幅 800 (下位16ビット)、高さ 600 (上位16ビット) をビットパッキング
-            // UIスレッド側で WindowEvent::Resized(Unvalidated<PhysicalSize>) に翻訳
+            // UIスレッド側で Event::Resized(Unvalidated<PhysicalSize>) に翻訳
             let size_lparam = LPARAM(800 | (600 << 16));
             unsafe {
                 let _ = PostMessageW(Some(bg_hwnd), WM_SIZE, WPARAM(0), size_lparam);
@@ -94,11 +93,11 @@ fn test_integration_event_posting_and_translation_lifecycle() {
         while start_time.elapsed() < Duration::from_secs(2) {
             if let Some(event) = event_pump.poll_event() {
                 match event {
-                    MichiuEvent::UserEvent(boxed_any) => {
+                    MichiuEvent::User(boxed_any) => {
                         let downcasted = boxed_any.downcast::<MyCustomPayload>();
                         assert!(
                             downcasted.is_ok(),
-                            "Failed to downcast UserEvent back to MyCustomPayload"
+                            "Failed to downcast User back to MyCustomPayload"
                         );
 
                         let payload = downcasted.unwrap();
@@ -108,13 +107,13 @@ fn test_integration_event_posting_and_translation_lifecycle() {
                         custom_event_received = true;
                     }
 
-                    MichiuEvent::WindowEvent { event, .. } => {
+                    MichiuEvent::Window { event, .. } => {
                         match event {
-                            WindowEvent::CloseRequested => {
+                            Event::CloseRequested => {
                                 close_event_received = true;
                             }
 
-                            WindowEvent::UnsafeRaw {
+                            Event::UnsafeRaw {
                                 msg,
                                 wparam,
                                 lparam,
@@ -127,7 +126,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
                                     raw_event_received = true;
                                 }
                             }
-                            WindowEvent::Resized(unvalidated_size) => {
+                            Event::Resized(unvalidated_size) => {
                                 // michiu_guard の validate_with を用いて境界検証を実行
                                 let validation_result = unvalidated_size.validate_with(|size| {
                                     // 渡されたサイズが想定（800x600）と一致するか検証
@@ -165,7 +164,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
         // すべてのポスト＆翻訳経路が正しく完結したことをアサーション
         assert!(
             custom_event_received,
-            "Failed to receive or verify custom UserEvent"
+            "Failed to receive or verify custom User"
         );
         assert!(
             close_event_received,

@@ -8,8 +8,25 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::PCWSTR;
 
-/// A thread-safe, reference-counted Win32 Icon handle wrapper.
-/// Automatically destroys the underlying OS resource when the last instance is dropped.
+/// Loads an icon from the specified image file path.
+///
+/// Under the hood, this converts the path to a wide string and invokes `LoadImageW`
+/// with `LR_LOADFROMFILE | LR_DEFAULTSIZE`.
+///
+/// # Errors
+/// Returns [`MichiuError::ResourceLoadFailed`] if the file does not exist, is inaccessible,
+/// or if the OS fails to decode the image format.
+///
+/// # Examples
+///
+/// ```no_run
+/// use michiu_window::Icon;
+///
+/// fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let icon = Icon::from_path("assets/app_icon.ico")?;
+///     Ok(())
+/// }
+/// ```
 #[derive(Clone, Debug)]
 pub struct Icon {
     inner: Arc<IconInner>,
@@ -35,7 +52,25 @@ impl Drop for IconInner {
 }
 
 impl Icon {
-    /// Loads an icon from a file path.
+    /// Loads an icon from the specified image file path.
+    ///
+    /// Under the hood, this converts the path to a wide string and invokes `LoadImageW`
+    /// with `LR_LOADFROMFILE | LR_DEFAULTSIZE`.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::ResourceLoadFailed`] if the file does not exist, is inaccessible,
+    /// or if the OS fails to decode the image format.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use michiu_window::Icon;
+    ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let icon = Icon::from_path("assets/app_icon.ico")?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
         let path_wide: Vec<u16> = path
             .as_ref()
@@ -69,7 +104,34 @@ impl Icon {
         })
     }
 
-    /// Generates an icon directly from the byte array of an image file in memory.
+    /// Decodes and generates an icon directly from the byte array of an ICO image file in memory.
+    ///
+    /// This method automatically parses the ICO directory header in memory using `LookupIconIdFromDirectoryEx`
+    /// to locate the optimal icon size matching the current system display context, and then instantiates
+    /// the icon using `CreateIconFromResourceEx`.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::ValidationError`] if the byte array is empty, or if parsing the image directory
+    /// header fails due to malformed data.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use michiu_window::Icon;
+    /// # const ICO_BYTES: &[u8] = &[
+    /// #     0, 0, 1, 0, 1, 0, 16, 16, 2, 0, 1, 0, 1, 0, 176, 0, 0, 0, 22, 0, 0, 0,
+    /// #     40, 0, 0, 0, 16, 0, 0, 0, 32, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    /// # ];
+    /// // In your real application, you can load the ICO file directly at compile-time:
+    ///
+    /// // Load the raw binary bytes of an ICO file at compile-time
+    /// // const ICO_BYTES: &[u8] = include_bytes!("../assets/app_icon.ico");
+    ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let icon = Icon::from_bytes(ICO_BYTES)?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.is_empty() {
             return Err(MichiuError::ValidationError {
@@ -116,12 +178,32 @@ impl Icon {
         }
     }
 
-    /// Escape hatch to generate a wrapper from an existing raw HICON (for integration with other libraries)
+    /// An escape hatch used to wrap an existing raw Win32 `HICON` handle.
+    ///
+    /// Useful for integrating with other external Win32/GUI libraries.
     ///
     /// # Safety
-    /// The HICON passed in must be valid.
-    /// Icons generated in this way are not automatically destroyed (via `DestroyIcon`),
-    /// as it is assumed that the caller is responsible for disposing of them.
+    /// The caller must ensure that the provided `hicon` is a valid, active Win32 icon resource.
+    /// Note that icons generated this way are considered **non-owned**; they are not automatically
+    /// destroyed on drop. The caller is responsible for disposing of the raw `HICON` if necessary.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use michiu_window::Icon;
+    /// use windows::Win32::UI::WindowsAndMessaging::{LoadIconW, IDI_APPLICATION};
+    ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     // Load a standard built-in system application icon
+    ///     let hicon_system = unsafe {
+    ///         LoadIconW(None, IDI_APPLICATION).expect("Failed to load system icon")
+    ///     };
+    ///
+    ///     // Safely wrap the system icon as a non-owned Icon wrapper
+    ///     let icon = unsafe { Icon::from_raw(hicon_system) };
+    ///     Ok(())
+    /// }
+    /// ```
     pub unsafe fn from_raw(hicon: HICON) -> Self {
         Self {
             inner: Arc::new(IconInner {

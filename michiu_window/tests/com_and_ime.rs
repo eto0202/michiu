@@ -1,7 +1,7 @@
 use michiu_guard::Validated;
 use michiu_window::{
     ComContext, EventPump, FileDropTarget, ImeContext, LogicalSize, MichiuEvent, WindowBuilder,
-    WindowEvent, init_dpi_awareness,
+    Event, init_dpi_awareness,
 };
 use std::io::Read;
 use std::net::TcpStream;
@@ -18,7 +18,7 @@ use windows::Win32::System::Ole::{CF_HDROP, DROPEFFECT_COPY, DROPEFFECT_NONE, ID
 use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Shell::DROPFILES;
-use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_IME_COMPOSITION};
+use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_IME_COMPOSITION, WM_IME_NOTIFY};
 use windows_core::{BOOL, HRESULT, Ref, implement};
 
 // cargo test --test com_and_ime
@@ -148,17 +148,17 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
         assert!(res_drop.is_ok(), "Simulated drop target call failed");
         assert_eq!(effect, DROPEFFECT_COPY);
 
-        // イベントループを回し、プッシュされた WindowEvent::FileDropped を回収する
+        // イベントループを回し、プッシュされた Event::FileDropped を回収する
         let loop_start_dnd = Instant::now();
         let mut dnd_verified = false;
 
         while loop_start_dnd.elapsed() < Duration::from_secs(2) {
             if let Some(event) = event_pump.poll_event()
-                && let MichiuEvent::WindowEvent { window_id, event } = event
+                && let MichiuEvent::Window { id, event } = event
             {
-                assert_eq!(window_id, main_id);
+                assert_eq!(id, main_id);
 
-                if let WindowEvent::FileDropped(unvalidated_files) = event {
+                if let Event::FileDropped(unvalidated_files) = event {
                     // 検証を行いドロップされたファイルの中身をチェック
                     let validated_res: Result<Validated<Vec<PathBuf>>, &str> = unvalidated_files
                         .validate_with(|files| {
@@ -196,6 +196,163 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
         );
 
         // クリーンアップ
+        window.destroy();
+    });
+}
+
+// tests/com_and_ime.rs へもう1つのテストとして追加
+
+#[test]
+fn test_integration_ime_relay_multi_client_robustness() {
+    let _ = init_dpi_awareness();
+
+    run_on_clean_thread(|| {
+        let com_ctx = ComContext::new_com_single().expect("Failed to initialize OLE STA context");
+
+        let thread_id = unsafe { GetCurrentThreadId() };
+        // テスト衝突防止用の一意なポート
+        let test_port = 20000 + (thread_id % 10000) as u16;
+
+        let builder = WindowBuilder::new()
+            .with_title("IME Robustness Window")
+            .with_com_context(&com_ctx)
+            .with_ime_expose_port(test_port)
+            .with_inner_size(LogicalSize::new(400.0, 300.0));
+
+        let window =
+            michiu_window::Window::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
+
+        // 同時に2つのクライアント（A と B）を同じローカルポートに接続させる
+        let mut client_a = None;
+        let mut client_b = None;
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(1) {
+            if client_a.is_none()
+                && let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{}", test_port))
+            {
+                stream.set_nonblocking(true).unwrap();
+                client_a = Some(stream);
+            }
+            if client_a.is_some()
+                && client_b.is_none()
+                && let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{}", test_port))
+            {
+                stream.set_nonblocking(true).unwrap();
+                client_b = Some(stream);
+            }
+
+            if client_a.is_some() && client_b.is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        let mut stream_a = client_a.expect("Failed to connect client A");
+        let mut stream_b = client_b.expect("Failed to connect client B");
+
+        // テスト用IMEステート変更 (変換モード: 1)
+        if let Ok(ctx) = ImeContext::new(window.hwnd()) {
+            ctx.set_open(true);
+            ctx.set_conversion_status(1, 0);
+        }
+
+        // 1回目のIMEメッセージ送信（両方へ同時ブロードキャスト）
+        unsafe {
+            let _ = SendMessageW(
+                window.hwnd(),
+                WM_IME_NOTIFY,
+                Some(WPARAM(0)),
+                Some(LPARAM(0)),
+            );
+        }
+
+        let mut event_pump = EventPump::new();
+        let loop_start = Instant::now();
+        let mut a_received = false;
+        let mut b_received = false;
+
+        // 両クライアントが同じJSONを同時に正常に受け取れることを検証
+        while loop_start.elapsed() < Duration::from_secs(2) {
+            let _ = event_pump.poll_event();
+
+            let mut buf_a = [0u8; 1024];
+            if !a_received
+                && let Ok(n) = stream_a.read(&mut buf_a)
+                && n > 0
+            {
+                let json = String::from_utf8_lossy(&buf_a[..n]);
+                if json.contains("\"conversion_mode\":1") {
+                    a_received = true;
+                }
+            }
+
+            let mut buf_b = [0u8; 1024];
+            if !b_received
+                && let Ok(n) = stream_b.read(&mut buf_b)
+                && n > 0
+            {
+                let json = String::from_utf8_lossy(&buf_b[..n]);
+                if json.contains("\"conversion_mode\":1") {
+                    b_received = true;
+                }
+            }
+
+            if a_received && b_received {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(a_received, "Client A failed to receive first broadcast");
+        assert!(b_received, "Client B failed to receive first broadcast");
+
+        // クライアント A を突然故意に切断 (Drop)
+        drop(stream_a);
+        std::thread::sleep(Duration::from_millis(50)); // ソケット切断がOSと中継サーバー側で認識されるまでウェイト
+
+        // IMEステートを再変更 (変換モード: 0)
+        if let Ok(ctx) = ImeContext::new(window.hwnd()) {
+            ctx.set_conversion_status(0, 0);
+        }
+
+        // 2回目のIMEメッセージ送信
+        // 内部で TcpStream の write_all が A に対して失敗し、中継サーバーはクラッシュせず
+        // A をリストから自動排除（retain_mut）する動きがここでトリガー
+        unsafe {
+            let _ = SendMessageW(
+                window.hwnd(),
+                WM_IME_COMPOSITION,
+                Some(WPARAM(0)),
+                Some(LPARAM(0)),
+            );
+        }
+
+        let loop_start_2 = Instant::now();
+        let mut b_received_again = false;
+
+        // Aが切断されていても、中継サーバーやメインUIスレッドが一切道連れクラッシュすることなく、
+        // 生き残ったクライアント B に対して正常に2回目の更新情報が届き続けるかをアサーション
+        while loop_start_2.elapsed() < Duration::from_secs(2) {
+            let _ = event_pump.poll_event();
+
+            let mut buf_b = [0u8; 1024];
+            if let Ok(n) = stream_b.read(&mut buf_b)
+                && n > 0
+            {
+                let json = String::from_utf8_lossy(&buf_b[..n]);
+                if json.contains("\"conversion_mode\":0") {
+                    b_received_again = true;
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(
+            b_received_again,
+            "Client B failed to receive second broadcast after client A abruptly disconnected"
+        );
+
         window.destroy();
     });
 }

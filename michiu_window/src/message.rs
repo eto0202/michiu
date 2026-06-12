@@ -1,7 +1,7 @@
 use crate::{
-    ElementState, ImeContext, ImeStateUpdate, MichiuEvent, Modifiers, MouseButton, PhysicalPoint,
-    PhysicalRect, PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD, WM_WINDOW_COMMAND,
-    WindowEvent, WindowId, WindowState,
+    ElementState, Event, ImeContext, ImeStateUpdate, MichiuEvent, Modifiers, MouseButton,
+    PhysicalPoint, PhysicalRect, PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD,
+    WM_WINDOW_COMMAND, WindowId, WindowState,
 };
 use michiu_guard::Unvalidated;
 use std::{
@@ -21,15 +21,7 @@ use windows::{
                 VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
             },
             WindowsAndMessaging::{
-                DispatchMessageW, HTCAPTION, PM_REMOVE, PeekMessageW, PostMessageW, SW_HIDE,
-                SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW,
-                SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CHAR, WM_CLOSE,
-                WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
-                WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP,
-                WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP,
-                WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCLBUTTONDOWN, WM_PAINT, WM_QUIT,
-                WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN,
-                WM_SYSKEYUP, WM_USER,
+                DestroyWindow, DispatchMessageW, HTCAPTION, IsWindow, PM_REMOVE, PeekMessageW, PostMessageW, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCLBUTTONDOWN, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER
             },
         },
     },
@@ -42,6 +34,7 @@ thread_local! {
     static PUMP_ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Message ID used internally for posting custom user-defined events ([`MichiuEvent::User`]) to the UI thread.
 pub const WM_USER_EVENT: u32 = WM_USER + 101;
 
 // WndProc の中でイベントを蓄積する関数
@@ -49,6 +42,18 @@ pub(crate) fn push_event(event: MichiuEvent) {
     EVENT_QUEUE.with(|q| q.borrow_mut().push_back(event));
 }
 
+/// A thread-affine message pump responsible for polling OS messages and driving the event loop.
+///
+/// `EventPump` manages a thread-local FIFO event queue and processes Win32 window messages.
+/// It must be instantiated and driven exclusively on the UI thread where the windows are created.
+///
+/// # Threading & Safety Constraints
+/// Only one active `EventPump` should run per thread. Creating multiple `EventPump` instances on the
+/// same thread will trigger a runtime warning via the `tracing` library to prevent message
+/// competition and skipped events.
+///
+/// Dropping `EventPump` automatically flushes any unprocessed pointer-carrying messages (such as
+/// asynchronous closures and commands) remaining in the thread's Win32 message queue to prevent memory leaks.
 pub struct EventPump {
     _marker: std::marker::PhantomData<*const ()>,
 }
@@ -60,6 +65,9 @@ impl Default for EventPump {
 }
 
 impl EventPump {
+    /// Creates a default configured `EventPump` instance.
+    ///
+    /// Warns if another `EventPump` is already active on the current thread.
     pub fn new() -> Self {
         PUMP_ACTIVE.with(|active| {
                 if active.get() {
@@ -76,7 +84,37 @@ impl EventPump {
         }
     }
 
-    /// Retrieves a single event (non-blocking).
+    /// Non-blockingly polls and retrieves a single event from the event queue.
+    ///
+    /// First checks the internal thread-local FIFO queue. If empty, it queries the OS message queue
+    /// via `PeekMessageW`. If a message is processed and pushes a translated event, it immediately
+    /// returns it to prevent 1-frame input latency.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, EventPump, Event, MichiuEvent};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// let mut event_pump = EventPump::new();
+    ///
+    /// 'main_loop: loop {
+    ///     while let Some(event) = event_pump.poll_event() {
+    ///         match event {
+    ///             MichiuEvent::Window { id, event } => match event {
+    ///                 Event::CloseRequested => {
+    ///                     break 'main_loop;
+    ///                 }
+    ///                 _ => {}
+    ///             },
+    ///             _ => {}
+    ///         }
+    ///     }
+    ///     std::thread::sleep(std::time::Duration::from_millis(16)); // ~60 FPS
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn poll_event(&mut self) -> Option<MichiuEvent> {
         // すでにキューにたまっているイベントがあればそれを返す
         if let Some(event) = EVENT_QUEUE.with(|q| q.borrow_mut().pop_front()) {
@@ -123,7 +161,7 @@ impl EventPump {
     }
 }
 
-/// Parses received Win32 messages, translates them into safe WindowEvents, and stores them.
+/// Parses received Win32 messages, translates them into safe Events, and stores them.
 ///
 /// If `Some(LRESULT)` is returned,
 /// the WndProc bypasses further processing (such as DefWindowProcW) and returns immediately.
@@ -136,33 +174,33 @@ pub(crate) fn translate_and_push(
     lparam: LPARAM,
     state: &mut WindowState,
 ) -> Option<LRESULT> {
-    // 渡された WindowEvent を自動的に Event::WindowEvent に包んでキューに積む
-    let push_win_event = |e: WindowEvent| {
-        push_event(MichiuEvent::WindowEvent {
-            window_id: WindowId(hwnd.0 as isize),
+    // 渡された Event を自動的に Event::Event に包んでキューに積む
+    let push_win_event = |e: Event| {
+        push_event(MichiuEvent::Window {
+            id: WindowId(hwnd.0 as isize),
             event: e,
         });
     };
 
     match msg {
         WM_CREATE => {
-            push_win_event(WindowEvent::Created);
+            push_win_event(Event::Created);
             None // DefWindowProcW に流して正常に初期化を完了させる
         }
         WM_CLOSE => {
-            push_win_event(WindowEvent::CloseRequested);
+            push_win_event(Event::CloseRequested);
             // 早期リターンして DefWindowProcW に渡るのをせき止める
             Some(LRESULT(0))
         }
         WM_DESTROY => {
-            push_win_event(WindowEvent::Destroyed);
+            push_win_event(Event::Destroyed);
             // DefWindowProcW を通して解体を続けさせたいので None を返す
             None
         }
         WM_SIZE => {
             let width = (lparam.0 & 0xffff) as i32;
             let height = ((lparam.0 >> 16) & 0xffff) as i32;
-            push_win_event(WindowEvent::Resized(Unvalidated::new(PhysicalSize::new(
+            push_win_event(Event::Resized(Unvalidated::new(PhysicalSize::new(
                 width, height,
             ))));
             None
@@ -170,22 +208,20 @@ pub(crate) fn translate_and_push(
         WM_MOVE => {
             let x = (lparam.0 & 0xffff) as i16 as i32;
             let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
-            push_win_event(WindowEvent::Moved(Unvalidated::new(PhysicalPoint::new(
-                x, y,
-            ))));
+            push_win_event(Event::Moved(Unvalidated::new(PhysicalPoint::new(x, y))));
             None
         }
         WM_SETFOCUS => {
-            push_win_event(WindowEvent::Focused(true));
+            push_win_event(Event::Focused(true));
             None
         }
         WM_KILLFOCUS => {
-            push_win_event(WindowEvent::Focused(false));
+            push_win_event(Event::Focused(false));
             None
         }
         WM_KEYDOWN | WM_SYSKEYDOWN => {
             let key_code = VIRTUAL_KEY(wparam.0 as u16);
-            push_win_event(WindowEvent::KeyboardInput {
+            push_win_event(Event::KeyboardInput {
                 key_code: Unvalidated::new(key_code),
                 modifiers: get_active_modifiers(),
                 state: ElementState::Pressed,
@@ -194,7 +230,7 @@ pub(crate) fn translate_and_push(
         }
         WM_KEYUP | WM_SYSKEYUP => {
             let key_code = VIRTUAL_KEY(wparam.0 as u16);
-            push_win_event(WindowEvent::KeyboardInput {
+            push_win_event(Event::KeyboardInput {
                 key_code: Unvalidated::new(key_code),
                 modifiers: get_active_modifiers(),
                 state: ElementState::Released,
@@ -203,14 +239,14 @@ pub(crate) fn translate_and_push(
         }
         WM_CHAR => {
             if let Some(c) = char::from_u32(wparam.0 as u32) {
-                push_win_event(WindowEvent::CharacterInput(c));
+                push_win_event(Event::CharacterInput(c));
             }
             None
         }
         WM_MOUSEMOVE => {
             if !state.is_cursor_inside {
                 state.is_cursor_inside = true;
-                push_win_event(WindowEvent::CursorEntered);
+                push_win_event(Event::CursorEntered);
 
                 let mut tme = TRACKMOUSEEVENT {
                     cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
@@ -226,18 +262,18 @@ pub(crate) fn translate_and_push(
             let x = (lparam.0 & 0xffff) as i16 as i32;
             let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
 
-            push_win_event(WindowEvent::CursorMoved {
+            push_win_event(Event::CursorMoved {
                 position: Unvalidated::new(PhysicalPoint::new(x, y)),
             });
             None
         }
         WM_MOUSELEAVE => {
             state.is_cursor_inside = false;
-            push_win_event(WindowEvent::CursorLeft);
+            push_win_event(Event::CursorLeft);
             None
         }
         WM_LBUTTONDOWN => {
-            push_win_event(WindowEvent::MouseInput {
+            push_win_event(Event::MouseInput {
                 button: MouseButton::Left,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Pressed,
@@ -245,7 +281,7 @@ pub(crate) fn translate_and_push(
             None
         }
         WM_LBUTTONUP => {
-            push_win_event(WindowEvent::MouseInput {
+            push_win_event(Event::MouseInput {
                 button: MouseButton::Left,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Released,
@@ -253,7 +289,7 @@ pub(crate) fn translate_and_push(
             None
         }
         WM_RBUTTONDOWN => {
-            push_win_event(WindowEvent::MouseInput {
+            push_win_event(Event::MouseInput {
                 button: MouseButton::Right,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Pressed,
@@ -261,7 +297,7 @@ pub(crate) fn translate_and_push(
             None
         }
         WM_RBUTTONUP => {
-            push_win_event(WindowEvent::MouseInput {
+            push_win_event(Event::MouseInput {
                 button: MouseButton::Right,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Released,
@@ -269,7 +305,7 @@ pub(crate) fn translate_and_push(
             None
         }
         WM_MBUTTONDOWN => {
-            push_win_event(WindowEvent::MouseInput {
+            push_win_event(Event::MouseInput {
                 button: MouseButton::Middle,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Pressed,
@@ -277,7 +313,7 @@ pub(crate) fn translate_and_push(
             None
         }
         WM_MBUTTONUP => {
-            push_win_event(WindowEvent::MouseInput {
+            push_win_event(Event::MouseInput {
                 button: MouseButton::Middle,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Released,
@@ -288,14 +324,14 @@ pub(crate) fn translate_and_push(
             // wparam の上位16ビットに回転量
             // （WHEEL_DELTA = 120 の倍数が入るため、120で割って値を規格化する）
             let delta = (wparam.0 >> 16) as i16 as f32 / 120.0;
-            push_win_event(WindowEvent::MouseWheel { delta });
+            push_win_event(Event::MouseWheel { delta });
             None
         }
         WM_PAINT => {
             let mut ps = PAINTSTRUCT::default();
             unsafe {
                 let _hdc = BeginPaint(hwnd, &mut ps);
-                push_win_event(WindowEvent::RedrawRequested);
+                push_win_event(Event::RedrawRequested);
                 let _ = EndPaint(hwnd, &ps);
             }
             // DefWindowProcW のデフォルト描画をスキップ
@@ -313,7 +349,7 @@ pub(crate) fn translate_and_push(
                 let rect = unsafe { *rect_ptr };
                 let bounds = PhysicalRect::new(rect.left, rect.top, rect.right, rect.bottom);
 
-                push_win_event(WindowEvent::ScaleFactorChanged {
+                push_win_event(Event::ScaleFactorChanged {
                     scale_factor,
                     suggested_bounds: Unvalidated::new(bounds),
                 });
@@ -436,6 +472,12 @@ pub(crate) fn translate_and_push(
                             // その場でカーソルを即座に更新
                             let _ = crate::apply_cursor_icon_impl(hwnd, cursor);
                         }
+                        SetWindowCommand::Destroy => {
+                            let is_alive = IsWindow(Some(hwnd)).as_bool();
+                            if is_alive {
+                                let _ = DestroyWindow(hwnd);
+                            }
+                        }
                     }
                 }
             }
@@ -466,14 +508,14 @@ pub(crate) fn translate_and_push(
             if !raw_ptr.is_null() {
                 unsafe {
                     let boxed_any = Box::from_raw(raw_ptr);
-                    push_event(MichiuEvent::UserEvent(*boxed_any));
+                    push_event(MichiuEvent::User(*boxed_any));
                 }
             }
 
             Some(LRESULT(0)) // 処理完了
         }
         _ => {
-            push_win_event(WindowEvent::UnsafeRaw {
+            push_win_event(Event::UnsafeRaw {
                 msg,
                 wparam,
                 lparam,
@@ -504,6 +546,14 @@ fn get_active_modifiers() -> Modifiers {
     modifiers
 }
 
+/// A thread-safe, cloneable sender handle used to dispatch user-defined events from background threads to the UI thread.
+///
+/// `EventSender` wraps the target window's raw handle and leverages `PostMessageW` (with [`WM_USER_EVENT`])
+/// to safely marshal arbitrary types `T: Any + Send + 'static` across thread boundaries.
+///
+/// Dispatched events are received by the UI thread's [`EventPump`] as [`MichiuEvent::User`].
+/// Since it utilizes Win32's OS message queue under the hood, calling `send_event` automatically and
+/// safely wakes up the UI thread's message loop if it was asleep.
 #[derive(Clone)]
 pub struct EventSender {
     hwnd: HWND,
@@ -513,11 +563,35 @@ unsafe impl Send for EventSender {}
 unsafe impl Sync for EventSender {}
 
 impl EventSender {
+    /// Creates a default configured `EventSender` instance.
     pub fn new(hwnd: HWND) -> Self {
         Self { hwnd }
     }
 
-    /// Sends an arbitrary custom event from the background thread to the UI thread.
+    /// Dispatches an arbitrary custom event from a background thread to the UI thread.
+    ///
+    /// Under the hood, this converts the event into a type-erased raw pointer (`Box<dyn Any + Send>`)
+    /// and posts it to the UI thread via `PostMessageW`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, EventSender, MichiuEvent};
+    /// # struct MyData { score: u32 }
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// let sender = window.handle().assume_valid().sender();
+    ///
+    /// std::thread::spawn(move || {
+    ///     // Process some heavy tasks...
+    ///     let result = MyData { score: 100 };
+    ///
+    ///     // Send the result safely to the UI thread
+    ///     sender.send_event(result);
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn send_event<T: Any + Send + 'static>(&self, event: T) {
         let boxed: Box<dyn Any + Send> = Box::new(event);
         // Box を生ポインタに変換し、所有権を一時的に破棄する
@@ -589,31 +663,38 @@ impl Drop for EventPump {
 // コールバック関数を保持するための型
 type Listener = Rc<dyn Fn(&dyn Any)>;
 
-/// A lightweight publish/subscribe system designed exclusively for the UI thread.
+/// A lightweight, single-threaded Publish/Subscribe event bus designed for high-performance, synchronous GUI event routing.
 ///
-/// Used to broadcast events between components.
-/// Since it is based on `Rc` and `RefCell`,
-/// it has absolutely no locking overhead—unlike `Mutex` in multithreaded environments—
-/// and runs extremely fast even in a 60 FPS GUI loop.
+/// Based entirely on `Rc` and `RefCell`, `EventBus` has absolutely zero thread-locking overhead,
+/// making it ideal for rendering cycles and frame-by-frame updates (e.g., 60 FPS loops).
+///
+/// It is designed exclusively for UI thread communications. To prevent `RefCell` double-borrow panics,
+/// it safely supports nested publishes (publishing an event within another event's subscriber callback)
+/// and dynamic subscriptions by cloning the listener lists before triggering dispatch.
 #[derive(Clone, Default)]
 pub struct EventBus {
     listeners: Rc<RefCell<HashMap<TypeId, Vec<Listener>>>>,
 }
 
 impl EventBus {
-    /// Create a new EventBus.
+    /// Creates a new, empty `EventBus` instance.
     pub fn new() -> Self {
         Self {
             listeners: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 
-    /// Registers (subscribes to) a callback that is called when an event of a specific type `T` is emitted.
+    /// Registers a callback closure that triggers when an event of type `T` is published.
     ///
-    /// # Example
-    /// ```rust
-    /// bus.subscribe(|event: &MyCustomEvent| {
-    ///     println!("Received: {:?}", event);
+    /// # Examples
+    ///
+    /// ```
+    /// # use michiu_window::EventBus;
+    /// # struct ScoreUpdate { player: String, points: u32 }
+    /// let bus = EventBus::new();
+    ///
+    /// bus.subscribe(|event: &ScoreUpdate| {
+    ///     println!("Player {} scored {} points!", event.player, event.points);
     /// });
     /// ```
     pub fn subscribe<T, F>(&self, callback: F)
@@ -638,7 +719,20 @@ impl EventBus {
             .push(wrapper);
     }
 
-    /// Broadcasts an event of a specific type `T` and propagates it to all subscribed callbacks.
+    /// Broadcasts an event of type `T` and synchronously propagates it to all subscribed callbacks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use michiu_window::EventBus;
+    /// # struct ScoreUpdate { player: String, points: u32 }
+    /// # let bus = EventBus::new();
+    /// // Triggers all callbacks registered for `ScoreUpdate` synchronously
+    /// bus.publish(&ScoreUpdate {
+    ///     player: "Michiu".to_string(),
+    ///     points: 150,
+    /// });
+    /// ```
     pub fn publish<T: Any>(&self, event: &T) {
         let type_id = TypeId::of::<T>();
 
@@ -693,9 +787,9 @@ fn push_ime_state_update(hwnd: HWND, state: &WindowState) {
         }
 
         // 本ライブラリのメインイベントキューへバンドルイベントとしてプッシュ
-        push_event(MichiuEvent::WindowEvent {
-            window_id: WindowId(hwnd.0 as isize),
-            event: WindowEvent::Ime(Unvalidated::new(update)),
+        push_event(MichiuEvent::Window {
+            id: WindowId(hwnd.0 as isize),
+            event: Event::Ime(Unvalidated::new(update)),
         });
     }
 }

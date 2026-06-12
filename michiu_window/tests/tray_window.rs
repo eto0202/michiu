@@ -1,6 +1,6 @@
 use michiu_window::{
     CustomTrayMenu, EventPump, Icon, LogicalSize, MichiuEvent, TrayBuilder, TrayMenuItem,
-    WindowBuilder, WindowEvent, init_dpi_awareness,
+    WindowBuilder, Event, init_dpi_awareness,
 };
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{LPARAM, WPARAM};
@@ -114,12 +114,12 @@ fn test_integration_tray_and_multi_window_routing() {
         // 両ウィンドウのクローズイベントを、ID識別を介して正しく検知するまで回す
         while start_time.elapsed() < Duration::from_secs(2) {
             if let Some(event) = event_pump.poll_event()
-                && let MichiuEvent::WindowEvent { window_id, event } = event
-                && let WindowEvent::CloseRequested = event
+                && let MichiuEvent::Window { id, event } = event
+                && let Event::CloseRequested = event
             {
-                if window_id == main_id {
+                if id == main_id {
                     main_close_received = true;
-                } else if window_id == menu_id {
+                } else if id == menu_id {
                     menu_close_received = true;
                 } else {
                     panic!("Received CloseRequested from an unrecognized WindowId");

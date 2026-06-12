@@ -111,7 +111,7 @@ fn test_integration_event_bus_and_sender_cooperation() {
         while start_time.elapsed() < Duration::from_secs(3) {
             // 各バックグラウンドから返ってきた WM_USER_EVENT を回収する
             if let Some(event) = event_pump.poll_event()
-                && let MichiuEvent::UserEvent(boxed_any) = event
+                && let MichiuEvent::User(boxed_any) = event
             {
                 // 送信されてきた TaskResult 型にダウンキャスト
                 if let Ok(res) = boxed_any.downcast::<TaskResult>() {

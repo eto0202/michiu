@@ -24,8 +24,14 @@ use crate::{MichiuError, PhysicalPoint};
 const IMM_ERROR_NODATA: i32 = -1;
 const IMM_ERROR_GENERAL: i32 = -2;
 
-/// A safe, thread-affine wrapper managing the Win32 Input Method Context (HIMC).
-/// Handles queries and modifications for the active IME / TSF state.
+/// A safe, thread-affine RAII wrapper managing the Win32 Input Method Context (HIMC).
+///
+/// Under the hood, this handles safe acquisition ([`ImmGetContext`]) and guaranteed OS release
+/// ([`ImmReleaseContext`]) of the IME context. It is strictly thread-affine and should remain
+/// on the UI thread of the target window.
+///
+/// It provides high-level APIs to query and modify the active IME/TSF open status, conversion modes,
+/// and composition/result string buffers.
 #[derive(Debug)]
 pub struct ImeContext {
     hwnd: HWND,
@@ -33,9 +39,23 @@ pub struct ImeContext {
 }
 
 impl ImeContext {
-    /// Attempts to acquire the IME context for the specified window handle.
+    /// Attempts to acquire the IME context (HIMC) for the specified window handle.
     ///
-    /// Returns `None` if the window is invalid or the system does not support IME on this thread.
+    /// # Errors
+    /// Returns [`MichiuError::ImeContextAcquisitionFailed`] if the window handle is invalid
+    /// or if the OS fails to allocate an IME context for this window.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, ImeContext};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// // Safely acquire the IME context for the window
+    /// let ime_ctx = ImeContext::new(window.hwnd())?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new(hwnd: HWND) -> crate::Result<Self> {
         let himc = unsafe { ImmGetContext(hwnd) };
         if himc.is_invalid() {
@@ -45,19 +65,19 @@ impl ImeContext {
         }
     }
 
-    /// Checks whether the IME is currently active/open (e.g., Japanese input mode is turned ON).
+    /// Checks whether the IME is currently active/open (e.g., Japanese/Chinese input mode is ON).
     pub fn is_open(&self) -> bool {
         unsafe { ImmGetOpenStatus(self.himc).as_bool() }
     }
 
-    /// Turns the IME state ON (true) or OFF (false) programmatically.
+    /// Programmatically turns the IME open status ON (`true`) or OFF (`false`).
     pub fn set_open(&self, open: bool) {
         unsafe {
             let _ = ImmSetOpenStatus(self.himc, open);
         }
     }
 
-    /// Retrieves the raw conversion mode and sentence mode (completely generic across all world languages).
+    /// Retrieves the raw conversion mode and sentence mode flags.
     pub fn get_conversion_status(&self) -> (u32, u32) {
         let mut conversion = IME_CONVERSION_MODE::default();
         let mut sentence = IME_SENTENCE_MODE::default();
@@ -75,7 +95,7 @@ impl ImeContext {
         }
     }
 
-    /// Programmatically sets the active raw conversion mode and sentence mode.
+    /// Programmatically sets the active raw conversion mode and sentence mode flags.
     pub fn set_conversion_status(&self, conversion: u32, sentence: u32) {
         let conversion = IME_CONVERSION_MODE(conversion);
         let sentence = IME_SENTENCE_MODE(sentence);
@@ -84,18 +104,29 @@ impl ImeContext {
         }
     }
 
-    /// Safely retrieves the current active composition text (unconfirmed text buffer).
+    /// Safely retrieves the current active composition text (the unconfirmed/preedit text buffer).
+    ///
+    /// Returns `Ok(None)` if there is no active composition string.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::ImeStringQueryFailed`] if querying the OS buffer fails.
     pub fn get_composition_string(&self) -> crate::Result<Option<String>> {
         self.get_string(GCS_COMPSTR)
     }
 
-    /// Safely retrieves the finalized result text (newly confirmed text buffer).
+    /// Safely retrieves the finalized result text (the newly confirmed/committed text buffer).
+    ///
+    /// Returns `Ok(None)` if there is no result string currently available.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::ImeStringQueryFailed`] if querying the OS buffer fails.
     pub fn get_result_string(&self) -> crate::Result<Option<String>> {
         self.get_string(GCS_RESULTSTR)
     }
 
-    /// Synchronizes and moves the physical pop-up position of the IME candidate window (caret coordinates).
-    /// This keeps the OS composition candidate box aligned correctly with your cursor.
+    /// Relocates the physical popup position of the IME candidate window (caret coordinate position).
+    ///
+    /// This keeps the OS composition candidate box (candidate window) aligned correctly with your cursor.
     pub fn set_composition_window_position(&self, position: PhysicalPoint) {
         let form = COMPOSITIONFORM {
             dwStyle: CFS_POINT,
@@ -110,8 +141,7 @@ impl ImeContext {
         }
     }
 
-    /// Retrieves the current position of the IME candidate window (cursor coordinates)
-    /// as set by the operating system.
+    /// Retrieves the current physical coordinate position of the IME candidate window as set by the OS.
     pub fn get_composition_window_position(&self) -> Option<PhysicalPoint> {
         let mut form = COMPOSITIONFORM::default();
         unsafe {
@@ -181,8 +211,9 @@ impl Drop for ImeContext {
     }
 }
 
-/// Helper function to retrieve the active thread's keyboard layout Language ID (LANGID).
-/// Returns e.g. `0x0411` (1041) for Japanese, `0x0409` (1033) for US English.
+/// Retrieves the active thread's keyboard layout Language ID (LANGID).
+///
+/// Returns standard LANGIDs, such as `0x0411` (1041) for Japanese, `0x0409` (1033) for US English, etc.
 pub fn get_active_keyboard_layout_id() -> u32 {
     unsafe {
         let hkl = GetKeyboardLayout(0);
@@ -191,7 +222,10 @@ pub fn get_active_keyboard_layout_id() -> u32 {
     }
 }
 
-/// Represents a bundled, complete snapshot of the IME and Input Method state.
+/// Represents a bundled, complete snapshot of the IME and Input Method status for a window.
+///
+/// This structure implements [`serde::Serialize`] and [`serde::Deserialize`] when the `serde`
+/// feature is enabled, allowing seamless serialization into JSON for cross-process communication.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImeStateUpdate {
     /// The unique ID of the window where this IME state update occurred (HWND as isize).
@@ -212,14 +246,34 @@ pub struct ImeStateUpdate {
     pub caret_position: Option<PhysicalPoint>,
 }
 
-/// A lightweight, zero-dependency TCP JSON broadcast server.
-/// Exposes the active window's IME state to external helper tools securely on localhost.
+/// A lightweight, zero-dependency TCP JSON broadcast server designed to stream the active window's IME state securely on localhost.
+///
+/// This server accepts multiple client connections on the local loopback interface. Whenever a window processes
+/// IME messages, it pushes an [`ImeStateUpdate`] snapshot to the server, which then serializes and streams it as
+/// compliant JSON.
+///
+/// It runs entirely on dedicated background threads, ensuring that slow or blocked clients do not freeze
+/// the main UI thread's rendering loop.
 pub struct ImeRelayServer {
     tx: Sender<ImeStateUpdate>,
 }
 
 impl ImeRelayServer {
     /// Starts the OLE/TSF IME Relay Server on the specified localhost port.
+    ///
+    /// # Errors
+    /// Returns `std::io::Error` if binding to the localhost port fails.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::ImeRelayServer;
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     // Spin up the local broadcast server on port 12345
+    ///     let server = ImeRelayServer::start(12345)?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn start(port: u16) -> std::io::Result<Self> {
         let (tx, rx) = channel::<ImeStateUpdate>();
         let clients: Arc<Mutex<Vec<TcpStream>>> = Arc::new(Mutex::new(Vec::new()));
@@ -230,7 +284,7 @@ impl ImeRelayServer {
 
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                // ソケットを非ブロッキングに設定（送信詰まりによるUIスレッドフリーズ防止）
+                // スレッドをフリーズさせないよう非ブロッキングに
                 let _ = stream.set_nonblocking(true);
                 let mut guard = clients_listener.lock().unwrap();
                 guard.push(stream);
@@ -260,7 +314,21 @@ impl ImeRelayServer {
                 let mut guard = clients.lock().unwrap();
                 // 切断されたクライアントを自動検知してリストから安全に除外 (retain_mut)
                 guard.retain_mut(|stream| {
-                    stream.write_all(json.as_bytes()).is_ok() && stream.flush().is_ok()
+                    // 本体の書き込み
+                    match stream.write_all(json.as_bytes()) {
+                        Ok(()) => {
+                            // キャッシュのフラッシュ
+                            match stream.flush() {
+                                Ok(()) => true, // 配信成功
+                                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                    true // 一時的な待機状態は生存とみなす
+                                }
+                                Err(_) => false, // 致命的なエラーは切断とみなす
+                            }
+                        }
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => true,
+                        Err(_) => false,
+                    }
                 });
             }
         });
@@ -268,7 +336,7 @@ impl ImeRelayServer {
         Ok(Self { tx })
     }
 
-    /// Sends a new IME update snapshot to all connected external processes.
+    /// Dispatches an [`ImeStateUpdate`] snapshot to the server to broadcast to all connected clients.
     pub fn send(&self, update: ImeStateUpdate) {
         let _ = self.tx.send(update);
     }

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{ComContext, EventPump, Window, WindowBuilder};
-use michiu_guard::{Validate, Validated};
+use michiu_guard::{Unvalidated, Validate, Validated};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use windows::Win32::UI::WindowsAndMessaging::GetDesktopWindow;
@@ -240,5 +240,65 @@ fn test_handle_wake_up_with_mpsc_channel_normal() {
         );
 
         window.destroy();
+    });
+}
+
+#[test]
+fn test_handle_asynchronous_destroy_and_zombie_validation() {
+    run_on_clean_thread(|| {
+        let builder = WindowBuilder::new().with_title("AsyncDestroyTestWindow");
+        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let handle = window.handle().assume_valid();
+
+        // 初期状態では当然 IsWindow は true
+        assert!(unsafe { IsWindow(Some(handle.hwnd())).as_bool() });
+
+        // バックグラウンドスレッドから非同期に物理破棄を要求させる
+        let handle_clone = handle.clone();
+        let bg_thread = std::thread::spawn(move || {
+            // 他スレッドから安全に destroy をキック
+            handle_clone.destroy();
+        });
+        bg_thread.join().expect("Background thread panicked");
+
+        // メッセージループを回して、UIスレッド側で非同期破棄コマンドを実行させる
+        let mut event_pump = EventPump::new();
+        let start_time = std::time::Instant::now();
+        let mut window_destroyed = false;
+
+        while start_time.elapsed() < std::time::Duration::from_secs(2) {
+            let _ = event_pump.poll_event();
+
+            // OSの IsWindow APIを用いて、ウィンドウが物理的に解体されたか監視
+            let is_alive = unsafe {
+                windows::Win32::UI::WindowsAndMessaging::IsWindow(Some(handle.hwnd())).as_bool()
+            };
+            if !is_alive {
+                window_destroyed = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        // バックグラウンドからの非同期 destroy 要求により、無事に物理破棄が完了したことを確認
+        assert!(
+            window_destroyed,
+            "Asynchronous destroy command failed to destroy the window"
+        );
+
+        // 破棄されたあとのハンドルは、バリデーションでゾンビを即座に検知してエラーを返すことを確認
+        let validation_res: Result<Validated<WindowHandle>> =
+            Unvalidated::new(handle.into_inner()).try_into();
+        assert!(
+            validation_res.is_err(),
+            "A handle to a destroyed window must fail validation"
+        );
+        assert!(
+            matches!(
+                validation_res.unwrap_err(),
+                MichiuError::InvalidHandleState { .. }
+            ),
+            "Expected InvalidHandleState error"
+        );
     });
 }

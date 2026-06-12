@@ -24,7 +24,20 @@ use windows::Win32::{
     },
 };
 
-/// A lightweight, cloneable reference to a Win32 window that can be safely passed across thread boundaries.
+/// A lightweight, cloneable, and thread-safe reference to an active Win32 window.
+///
+/// Unlike [`Window`], `WindowHandle` implements **`Send` and `Sync`**, allowing it to be
+/// safely transferred to background worker threads.
+///
+/// Methods on this type are designed to be thread-aware:
+/// - If called from the UI thread, they execute the raw Win32 APIs immediately and synchronously.
+/// - If called from a background thread, they automatically wrap the command and asynchronously
+///   route it to the UI thread's message loop using `PostMessageW`.
+///
+/// This structure implements [`raw_window_handle::HasWindowHandle`] and
+/// [`raw_window_handle::HasDisplayHandle`] (v0.6).
+///
+/// It also implements [`Validate`] from `michiu_guard` for checking the liveness of the underlying window.
 #[derive(Debug, Clone)]
 pub struct WindowHandle {
     pub(crate) hwnd: HWND,
@@ -47,13 +60,15 @@ pub(crate) enum SetWindowCommand {
     CenterOnScreen,
     StartDragging,
     SetCursor(CursorIcon),
+    Destroy,
 }
 
-// 競合しないプライベートなメッセージID
+/// Message ID used internally for posting async Window commands to the UI thread.
 pub const WM_WINDOW_COMMAND: u32 = WM_USER + 102;
+
+/// Message ID used internally for dispatching arbitrary closures to the UI thread.
 pub const WM_RUN_ON_UI_THREAD: u32 = WM_USER + 103;
 
-// TODO: PeekMessage の使用メソッド
 impl WindowHandle {
     /// Checks whether the current thread is the UI thread that originally created this window.
     pub fn is_on_ui_thread(&self) -> bool {
@@ -61,9 +76,10 @@ impl WindowHandle {
         self.thread_id == current_tid
     }
 
-    /// Ensures that the current thread is the UI thread (for error checking and early return).
+    /// Assures that the current thread is the UI thread.
     ///
-    /// If the thread is not the UI thread, returns a ThreadMismatch error.
+    /// # Errors
+    /// Returns [`MichiuError::ThreadMismatch`] if called from a foreign thread.
     pub fn assert_ui_thread(&self) -> Result<()> {
         if self.is_on_ui_thread() {
             Ok(())
@@ -76,35 +92,55 @@ impl WindowHandle {
         }
     }
 
-    /// Retrieves the raw HWND of the referenced window.
+    /// Returns the raw Win32 `HWND` associated with the referenced window.
     pub fn hwnd(&self) -> HWND {
         self.hwnd
     }
 
-    /// Retrieves the HINSTANCE of the referenced window.
+    /// Returns the raw Win32 `HINSTANCE` associated with the referenced window.
     pub fn hinstance(&self) -> HINSTANCE {
         self.hinstance
     }
 
-    /// Retrieves the UI thread ID associated with this window handle.
+    /// Returns the thread ID of the UI thread that created the referenced window.
     pub fn thread_id(&self) -> u32 {
         self.thread_id
     }
 
-    /// Retrieves the window's unique WindowId
+    /// Returns the unique `WindowId` of the referenced window.
     pub fn id(&self) -> WindowId {
         WindowId(self.hwnd().0 as isize)
     }
 
-    /// Creates a thread-safe EventSender that targets its own HWND.
+    /// Creates a thread-safe [`EventSender`] that targets this window's raw handle.
     pub fn sender(&self) -> EventSender {
         EventSender::new(self.hwnd)
     }
 
-    /// Posts a harmless empty message (WM_NULL) to the window to wake up the message loop asynchronously.
+    /// Posts a harmless empty message (`WM_NULL`) to the window to wake up the message loop asynchronously.
     ///
-    /// This is useful when using standard Rust channels (`std::sync::mpsc`) or Tokio channels
-    /// to signal the UI thread that new data has arrived in the channel.
+    /// This is highly recommended when using standard Rust channels ([`std::sync::mpsc`])
+    /// or async channels (e.g., Tokio) in background threads to signal the UI thread that new data
+    /// has arrived without triggering busy polling.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use std::sync::mpsc;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// let (tx, rx) = mpsc::channel();
+    /// let handle = window.handle().assume_valid();
+    ///
+    /// std::thread::spawn(move || {
+    ///     tx.send("Task Finished").unwrap();
+    ///     // Wake up the main message loop so it can process the channel immediately
+    ///     handle.wake_up();
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn wake_up(&self) {
         unsafe {
             // WM_NULL (0) を投げることで、GetMessageW などのスリープ待機を解除させ、
@@ -113,10 +149,9 @@ impl WindowHandle {
         }
     }
 
-    /// Changes the window title (thread-safe).
+    /// Thread-safely updates the window title.
     ///
-    /// If called from the UI thread, the change takes effect immediately;
-    /// if called from a background thread, it is automatically and safely passed to the UI thread asynchronously.
+    /// If called from a background thread, the request is automatically routed to the UI thread.
     pub fn set_title(&self, title: impl Into<Cow<'static, str>>) {
         let title_str = title.into();
 
@@ -131,20 +166,7 @@ impl WindowHandle {
         }
     }
 
-    /// Sets whether the window should be visible or hidden.
-    ///
-    /// This method is safe to call from any thread. If called from a background thread,
-    /// the request is automatically and asynchronously routed to the UI thread.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// // Hide the window
-    /// window_handle.set_visible(false);
-    ///
-    /// // Show the window
-    /// window_handle.set_visible(true);
-    /// ```
+    /// Thread-safely updates the window visibility.
     pub fn set_visible(&self, visible: bool) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -156,19 +178,7 @@ impl WindowHandle {
         }
     }
 
-    /// Resizes the client area of the window using the provided physical size.
-    ///
-    /// This method is safe to call from any thread. If called from a background thread,
-    /// the request is automatically and asynchronously routed to the UI thread.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use michiu_window::PhysicalSize;
-    ///
-    /// // Resize the window to 1024x768 physical pixels
-    /// window_handle.set_size(PhysicalSize { width: 1024, height: 768 });
-    /// ```
+    /// Thread-safely updates the physical client size of the window.
     pub fn set_size(&self, size: PhysicalSize) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -187,19 +197,7 @@ impl WindowHandle {
         }
     }
 
-    /// Moves the window to the specified physical screen position.
-    ///
-    /// This method is safe to call from any thread. If called from a background thread,
-    /// the request is automatically and asynchronously routed to the UI thread.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use michiu_window::PhysicalPoint;
-    ///
-    /// // Move the window to the coordinate (100, 100) on the screen
-    /// window_handle.set_position(PhysicalPoint { x: 100, y: 100 });
-    /// ```
+    /// Thread-safely updates the physical coordinate position of the window.
     pub fn set_position(&self, position: PhysicalPoint) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -218,8 +216,7 @@ impl WindowHandle {
         }
     }
 
-    /// Dynamically sets the menu theme for the entire application
-    /// and the appearance of this window's title bar (thread-safe).
+    /// Thread-safely applies Windows 11 dark/light theme contexts asynchronously to the UI thread.
     pub fn set_theme(&self, mode: PreferredAppMode) {
         unsafe {
             // run_on_ui_thread に乗せて、安全にUIスレッドで代行実行する
@@ -242,7 +239,7 @@ impl WindowHandle {
         }
     }
 
-    /// Copies the specified text to the system clipboard (thread-safe).
+    /// Thread-safely copies text to the system clipboard.
     pub fn set_clipboard_text(&self, text: impl Into<Cow<'static, str>>) {
         let text_str = text.into();
         if self.is_on_ui_thread() {
@@ -252,14 +249,20 @@ impl WindowHandle {
         }
     }
 
-    /// Retrieves the current text content from the system clipboard (thread-safe, synchronous on calling thread).
+    /// Retrieves text from the system clipboard synchronously.
+    ///
+    /// Since reading the clipboard is thread-safe on the OS level, this method executes
+    /// immediately on the calling thread without message loop dispatch.
+    ///
+    /// # Errors
+    /// Returns an error if the clipboard cannot be opened or if the data format is invalid.
     pub fn get_clipboard_text(&self) -> Result<String> {
         // クリップボード読み出し自体はOSレベルでどのスレッドから呼んでも安全なので、
         // メッセージループを介さずその場で同期実行して返す。
         crate::get_clipboard_text_impl(self.hwnd)
     }
 
-    /// Captures the mouse cursor so that the window continues to receive mouse events (thread-safe).
+    /// Thread-safely captures the mouse cursor.
     pub fn set_cursor_capture(&self, capture: bool) {
         if self.is_on_ui_thread() {
             crate::set_cursor_capture_impl(self.hwnd, capture);
@@ -268,7 +271,7 @@ impl WindowHandle {
         }
     }
 
-    /// Restricts the mouse cursor within the client area of this window (thread-safe).
+    /// Thread-safely clips the mouse cursor to the client area.
     pub fn set_cursor_clipping(&self, clip: bool) {
         if self.is_on_ui_thread() {
             crate::set_cursor_clipping_impl(self.hwnd, clip);
@@ -277,7 +280,7 @@ impl WindowHandle {
         }
     }
 
-    /// Moves the window to the exact center of the monitor screen it is currently on (thread-safe).
+    /// Thread-safely moves the window to the physical center of the monitor.
     pub fn center_on_screen(&self) {
         if self.is_on_ui_thread() {
             crate::center_on_screen_impl(self.hwnd);
@@ -286,7 +289,7 @@ impl WindowHandle {
         }
     }
 
-    /// Toggles the borderless fullscreen mode on or off (thread-safe).
+    /// Thread-safely toggles borderless fullscreen mode.
     pub fn set_fullscreen(&self, fullscreen: bool) {
         if self.is_on_ui_thread() {
             crate::set_fullscreen_impl(self.hwnd, fullscreen);
@@ -295,6 +298,7 @@ impl WindowHandle {
         }
     }
 
+    /// Thread-safely triggers a custom titlebar dragging operation.
     pub fn set_start_dragging(&self) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -313,7 +317,7 @@ impl WindowHandle {
         }
     }
 
-    /// Changes the mouse cursor icon shape for the window (thread-safe).
+    /// Thread-safely updates the mouse cursor icon shape.
     pub fn set_cursor_icon(&self, cursor: CursorIcon) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -328,16 +332,36 @@ impl WindowHandle {
         }
     }
 
-    /// Executes an arbitrary closure on the UI thread.
+    /// Dispatches an arbitrary closure to be executed asynchronously on the UI thread.
+    ///
+    /// This acts as the ultimate escape hatch for custom Win32 operations that are not natively
+    /// wrapped by the library, allowing you to manipulate the window without thread-affinity crashes.
     ///
     /// # Safety
-    ///
-    /// This function is unsafe because it executes code asynchronously on the UI thread.
     /// The caller must ensure that:
+    /// 1. The underlying window remains alive during the closure's deferred execution.
+    /// 2. The closure's internal operations do not violate Win32 thread-affinity or cause undefined behavior.
     ///
-    /// 1. The window represented by this handle is still alive when the closure is executed.
-    /// 2. The operations performed inside the closure do not violate Win32 thread-safety
-    ///    rules or cause undefined behavior (such as dereferencing invalid window pointers).
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use windows::Win32::Graphics::Gdi::InvalidateRect;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// let handle = window.handle().assume_valid();
+    ///
+    /// std::thread::spawn(move || {
+    ///     // Execute custom raw Win32 calls on the UI thread
+    ///     unsafe {
+    ///         handle.run_on_ui_thread(|hwnd| {
+    ///             InvalidateRect(Some(hwnd), None, true);
+    ///         });
+    ///     }
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
     pub unsafe fn run_on_ui_thread<F>(&self, f: F)
     where
         F: FnOnce(HWND) + Send + 'static,
@@ -383,11 +407,70 @@ impl WindowHandle {
             }
         }
     }
+
+    /// Thread-safely destroys the window and releases all associated OS resources (thread-safe).
+    ///
+    /// If called from the UI thread, this executes `DestroyWindow` immediately;
+    /// if called from a background thread, the request is automatically and safely routed
+    /// to the UI thread asynchronously.
+    ///
+    /// Once the window is destroyed, all cloned `WindowHandle` instances referencing this window
+    /// will fail validation (returning [`MichiuError::InvalidHandleState`]), preventing zombie access.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// let handle = window.handle().assume_valid();
+    ///
+    /// // Destroy the window thread-safely from a background thread
+    /// std::thread::spawn(move || {
+    ///     handle.destroy();
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn destroy(&self) {
+        if self.is_on_ui_thread() {
+            unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
+                let _ = DestroyWindow(self.hwnd);
+            }
+        } else {
+            self.post_command(SetWindowCommand::Destroy);
+        }
+    }
 }
 
 impl Validate for WindowHandle {
     type Error = MichiuError;
 
+    /// Validates whether the window is still alive and belongs to the current process.
+    ///
+    /// Checks:
+    /// 1. If the underlying `HWND` is still recognized as a valid window by the OS (`IsWindow`).
+    /// 2. If the window's owner Process ID (PID) matches the current process's PID (detects recycled HWNDs).
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::InvalidHandleState`] if the window was already destroyed,
+    /// or [`MichiuError::ValidationError`] if the handle was recycled by another process.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use michiu_guard::{Unvalidated, Validated};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// let unvalidated_handle: Unvalidated<WindowHandle> = window.handle();
+    ///
+    /// // Safe validation check before usage
+    /// let validated_handle: Validated<WindowHandle> = unvalidated_handle.try_into()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     fn validate(self) -> Result<Self> {
         let is_alive = unsafe { IsWindow(Some(self.hwnd)).as_bool() };
         if !is_alive {

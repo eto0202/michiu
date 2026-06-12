@@ -67,11 +67,18 @@ use windows::{
     core::{PCSTR, PCWSTR},
 };
 
-/// Represents an active Win32 window created by the framework.
+/// Represents an active, on-screen Win32 window created by the framework.
 ///
-/// Since standard Windows UI elements are strictly thread-affine, this type does not
-/// implement `Send` or `Sync`. To manipulate or reference this window across thread
-/// boundaries, obtain an unvalidated handle using [`handle`](Window::handle).
+/// Due to strict Win32 thread-affinity rules, `Window` is marked as **`!Send` and `!Sync`**.
+/// All UI mutations and message loops using this type must remain on the specific UI thread
+/// that instantiated the window.
+///
+/// To reference or manipulate this window from other background threads, obtain an unvalidated,
+/// cloneable handle using [`Window::handle`].
+///
+/// This structure automatically implements [`raw_window_handle::HasWindowHandle`] and
+/// [`raw_window_handle::HasDisplayHandle`] (v0.6)
+/// for seamless integration with external rendering libraries.
 pub struct Window {
     hwnd: HWND,
     hinstance: HINSTANCE,
@@ -85,7 +92,11 @@ pub struct Window {
     _marker: PhantomData<*const ()>, // !Send and !Sync
 }
 
-/// A thread-safe ID used to uniquely identify a window
+/// A thread-safe, unique identifier used to distinguish windows from each other.
+///
+/// Under the hood, this wraps the raw `HWND` pointer representation as an `isize` integer.
+/// It implements `Clone`, `Copy`, `PartialEq`, `Eq`, and `Hash`, making it suitable
+/// for use as keys in hash maps or routing events in multi-window environments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowId(pub(crate) isize);
 
@@ -98,7 +109,24 @@ impl WindowId {
 const DEFAULT_CLASS_NAME: &str = concat!("MichiuWindowClass_", env!("CARGO_PKG_VERSION"));
 
 impl Window {
-    /// Builds a new Win32 window using the validated builder parameters.
+    /// Instantiates a new Win32 window based on the validated configuration parameters.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::WindowCreationFailed`] if class registration fails or `CreateWindowExW`
+    /// returns a null handle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let builder = WindowBuilder::new().with_title("Main Frame");
+    /// let validated = builder.into_unvalidated().try_into()?;
+    ///
+    /// let window = Window::build(validated)?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn build(builder: Validated<WindowBuilder<'_>>) -> Result<Self> {
         let hmodule = unsafe { GetModuleHandleW(None).map_err(MichiuError::UnexpectedOsError)? };
         let hinstance = HINSTANCE(hmodule.0);
@@ -124,7 +152,7 @@ impl Window {
             _ => (CW_USEDEFAULT, CW_USEDEFAULT),
         };
 
-        // Note: The window size will be adjusted later if a WM_DPICHANGED message is received.
+        // WM_DPICHANGED メッセージを受信した場合、ウィンドウサイズは後で調整される
         let (width, height) = calc_window_rect(style, ex_style, &builder, dpi, scale_factor)?;
 
         let title_wide: Vec<u16> = builder.title.encode_utf16().chain(Some(0)).collect();
@@ -158,7 +186,6 @@ impl Window {
         };
 
         let hwnd_parent = builder.parent_hwnd;
-        // Call CreateWindowExW to instantiate the window.
         let hwnd_result = unsafe {
             CreateWindowExW(
                 ex_style,
@@ -180,7 +207,7 @@ impl Window {
         let hwnd = match hwnd_result {
             Ok(h) => h,
             Err(err) => {
-                // コンテキストが WndProc に受け取られていなければ、ここで安全に手動解放
+                // コンテキストが WndProc に受け取られていなければここで安全に手動解放
                 // すでに受け取られていた場合は、WM_NCDESTROY 側で解放されるため何もしない（二重解放を防ぐ）
                 if !context.was_taken && !state_raw_ptr.is_null() {
                     unsafe {
@@ -239,7 +266,26 @@ impl Window {
         })
     }
 
-    /// Returns a cloneable, thread-safe, unvalidated handle referencing this window.
+    /// Obtains a cloneable, thread-safe, unvalidated handle referencing this window.
+    ///
+    /// The returned [`WindowHandle`] can be safely sent to background worker threads.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// let unvalidated_handle = window.handle();
+    ///
+    /// // Safely pass the handle to a background thread
+    /// std::thread::spawn(move || {
+    ///     let handle = unvalidated_handle.assume_valid();
+    ///     handle.set_title("Processing Complete");
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn handle(&self) -> Unvalidated<WindowHandle> {
         Unvalidated::new(WindowHandle {
             hwnd: self.hwnd,
@@ -248,19 +294,42 @@ impl Window {
         })
     }
 
+    /// Retrieves the current physical DPI value for this window.
     pub fn dpi(&self) -> u32 {
         unsafe { GetDpiForWindow(self.hwnd) }
     }
 
+    /// Retrieves the current scaling ratio between physical pixels and logical pixels (e.g., `1.5` for 150% scaling).
     pub fn scale_factor(&self) -> f64 {
         self.dpi() as f64 / 96.0
     }
 
-    /// Safely registers a high-level subclassing callback for this window.
+    /// Safely registers a high-level subclassing callback closure for this window.
     ///
-    /// The handler receives OS window messages and returns a [`SubclassResult`].
-    /// If `SubclassResult::Continue` is returned, the next subclass procedure in the chain
-    /// (including the window's main procedure, custom message filters, and event translators) is automatically called.
+    /// The handler closure processes Win32 messages and returns a [`SubclassResult`].
+    /// If [`SubclassResult::Continue`] is returned, the next subclass, main wnd_proc, and custom
+    /// filters in the chain are automatically and safely called.
+    ///
+    /// Upon receiving `WM_NCDESTROY`, the heap-allocated closure is automatically and safely freed,
+    /// preventing any memory leaks.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, SubclassResult};
+    /// # use windows::Win32::UI::WindowsAndMessaging::WM_USER;
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// window.subclass(101, |hwnd, msg, wparam, lparam| {
+    ///     if msg == WM_USER + 100 {
+    ///         println!("Custom hook executed!");
+    ///         return SubclassResult::Intercept(windows::Win32::Foundation::LRESULT(1));
+    ///     }
+    ///     SubclassResult::Continue
+    /// })?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn subclass<F>(&self, id_subclass: usize, handler: F) -> Result<()>
     where
         F: FnMut(HWND, u32, WPARAM, LPARAM) -> SubclassResult + 'static,
@@ -338,11 +407,45 @@ impl Window {
         }
     }
 
-    /// Registers a raw window subclass callback for this window.
+    /// Registers an unsafe raw Win32 subclass procedure for this window.
     ///
     /// # Safety
-    /// The caller must ensure that the subclass procedure (`subclass_proc`) is a valid,
-    /// thread-safe external system function and that its state remains valid for the lifetime of the subclassing.
+    /// The caller must ensure that:
+    /// 1. The subclass procedure (`subclass_proc`) is valid and its context remains active.
+    /// 2. Unhandled messages are correctly forwarded to [`windows::Win32::UI::Shell::DefSubclassProc`].
+    ///
+    /// Failing to forward messages, or dereferencing invalid raw pointers passed in `ref_data`,
+    /// can cause memory leaks, visual hangs, or fatal crashes in the OS message loop.
+    ///
+    /// # Examples
+    ///
+    /// Here is how to register the custom subclass procedure callback with a window instance:
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, RawSubclassProc};
+    /// # use windows::Win32::Foundation::{HWND, WPARAM, LPARAM, LRESULT};
+    /// # use windows::Win32::UI::Shell::DefSubclassProc;
+    /// # use windows::Win32::UI::WindowsAndMessaging::WM_USER;
+    /// #
+    /// # unsafe extern "system" fn my_custom_subclass_proc(
+    /// #     hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, id_subclass: usize, ref_data: usize
+    /// # ) -> LRESULT {
+    /// #     DefSubclassProc(hwnd, msg, wparam, lparam)
+    /// # }
+    /// #
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// // Subclass ID to uniquely identify this registration
+    /// let subclass_id = 999;
+    /// // Arbitrary user data passed down to the procedure (e.g., pointer to a state structure)
+    /// let ref_data = 0;
+    ///
+    /// unsafe {
+    ///     window.raw_subclass(subclass_id, ref_data, my_custom_subclass_proc)?;
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub unsafe fn raw_subclass(
         &self,
         id_subclass: usize,
@@ -363,32 +466,33 @@ impl Window {
         }
     }
 
-    /// Retrieves the raw HWND associated with this window.
+    /// Returns the raw Win32 `HWND` handle associated with the window.
     pub fn hwnd(&self) -> HWND {
         self.hwnd
     }
 
-    /// Retrieves the HINSTANCE associated with this window.
+    /// Returns the raw Win32 `HINSTANCE` module handle associated with the window.
     pub fn hinstance(&self) -> HINSTANCE {
         self.hinstance
     }
 
-    /// Retrieves the thread ID of the thread that created this window.
+    /// Returns the OS Thread ID of the UI thread that created this window.
     pub fn thread_id(&self) -> u32 {
         self.thread_id
     }
 
-    /// Retrieves the window's unique WindowId
+    /// Returns the unique `WindowId` of this window.
     pub fn id(&self) -> WindowId {
         WindowId(self.hwnd().0 as isize)
     }
 
-    /// Explicitly destroys the window and releases all associated OS resources.
+    /// Explicitly consumes and destroys the window on the UI thread, releasing all OS resources.
     ///
-    /// Because this method consumes the window's ownership (`self`),
-    /// this window variable cannot be reused after this method is called (doing so will result in a compile error).
+    /// Since this method consumes the ownership (`self`), the window variable cannot be used
+    /// after calling this method.
     pub fn destroy(self) {}
 
+    /// Updates the window caption (title) text.
     pub fn set_title(&self, title: impl Into<Cow<'static, str>>) {
         let title_str = title.into();
 
@@ -398,6 +502,7 @@ impl Window {
         }
     }
 
+    /// Shows or hides the window based on the provided boolean value.
     pub fn set_visible(&self, visible: bool) {
         unsafe {
             let show_cmd = if visible { SW_SHOW } else { SW_HIDE };
@@ -405,6 +510,7 @@ impl Window {
         }
     }
 
+    /// Resizes the physical client area of the window.
     pub fn set_size(&self, size: PhysicalSize) {
         unsafe {
             let _ = SetWindowPos(
@@ -419,6 +525,7 @@ impl Window {
         }
     }
 
+    /// Relocates the window to the specified physical screen coordinates.
     pub fn set_position(&self, position: PhysicalPoint) {
         unsafe {
             let _ = SetWindowPos(
@@ -433,6 +540,19 @@ impl Window {
         }
     }
 
+    /// Applies native Windows 11 dark or light modes to the title bar and context menus.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, PreferredAppMode};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// // Forces native dark mode theme across the window and context menus
+    /// window.set_theme(PreferredAppMode::ForceDark);
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn set_theme(&self, mode: PreferredAppMode) {
         unsafe {
             // テーマ設定に応じて、タイトルバーを黒にするかどうかを動的に判定する
@@ -452,37 +572,47 @@ impl Window {
         }
     }
 
-    /// Copies the specified text to the system clipboard.
+    /// Copies the specified text content to the Win32 system clipboard.
+    ///
+    /// # Errors
+    /// Returns an error if opening or emptying the clipboard fails, or memory allocation fails.
     pub fn set_clipboard_text(&self, text: impl Into<Cow<'static, str>>) -> Result<()> {
         set_clipboard_text_impl(self.hwnd, &text.into())
     }
 
     /// Retrieves the current text content from the system clipboard.
+    ///
+    /// # Errors
+    /// Returns an error if the clipboard cannot be opened, or the data is not Unicode text.
     pub fn get_clipboard_text(&self) -> Result<String> {
         get_clipboard_text_impl(self.hwnd)
     }
 
     /// Captures the mouse cursor so that the window continues to receive mouse events
-    /// even if the cursor moves outside the window's boundaries.
+    /// even if the cursor moves outside the window's boundary.
     pub fn set_cursor_capture(&self, capture: bool) {
         set_cursor_capture_impl(self.hwnd, capture);
     }
 
-    /// Restricts the mouse cursor within the client area of this window.
+    /// Restricts the mouse cursor within the physical client area of the window.
     pub fn set_cursor_clipping(&self, clip: bool) {
         set_cursor_clipping_impl(self.hwnd, clip);
     }
 
-    /// Moves the window to the exact center of the monitor screen it is currently on.
+    /// Moves the window to the exact physical center of the monitor screen it is currently on.
     pub fn center_on_screen(&self) {
         center_on_screen_impl(self.hwnd);
     }
 
-    /// Toggles the borderless fullscreen mode on or off.
+    /// Toggles borderless fullscreen mode on or off.
+    ///
+    /// This temporarily removes window borders and expands to cover the current active monitor.
     pub fn set_fullscreen(&self, fullscreen: bool) {
         set_fullscreen_impl(self.hwnd, fullscreen);
     }
 
+    /// Sends a Win32 non-client click signal (HTCAPTION) to the OS, allowing the user
+    /// to drag and move the window by clicking on custom regions (e.g., custom client title bars).
     pub fn set_start_dragging(&self) {
         unsafe {
             // もしマウスキャプチャ中なら解除する
@@ -497,7 +627,7 @@ impl Window {
         }
     }
 
-    /// Changes the mouse cursor icon shape for the window.
+    /// Changes the standard mouse cursor shape (arrow, hand, text field, wait) for the window.
     pub fn set_cursor_icon(&self, cursor: CursorIcon) {
         unsafe {
             let state_ptr = GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as *mut WindowState;
@@ -509,8 +639,6 @@ impl Window {
     }
 }
 
-// Handles detecting when the window has been destroyed on the OS side in the message loop,
-// allowing the application to safely transition to cleanup.
 impl Drop for Window {
     fn drop(&mut self) {
         unsafe {
@@ -544,19 +672,35 @@ impl HasDisplayHandle for Window {
     }
 }
 
-/// Initializes the entire application process for high-DPI support (Per-Monitor DPI v2)
-/// (Windows 10 version 1703 and later).
+/// Initializes the entire application process for High-DPI support (Per-Monitor DPI v2).
 ///
-/// This must be called before creating any windows (typically at the beginning of the `main` function).
-/// If you skip this call, the OS will render the entire window blurry and stretched.
+/// This must be called at the very beginning of the `main` function before creating any window.
+/// If skipped, Windows OS will render the entire application window blurry and stretched.
+///
+/// # Returns
+/// Returns `true` if High-DPI initialization succeeded, or `false` (e.g., already set).
+///
+/// # Examples
+///
+/// ```no_run
+/// use michiu_window::init_dpi_awareness;
+///
+/// fn main() {
+///     if init_dpi_awareness() {
+///         println!("High-DPI Per-Monitor v2 initialized successfully.");
+///     }
+/// }
+/// ```
 pub fn init_dpi_awareness() -> bool {
     unsafe {
-        // Windows 10 Creators Update以降の標準的かつ最も推奨されるDPIモード
+        // Windows 10 Creators Update以降の推奨されるDPIモード
         SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2).is_ok()
     }
 }
 
 /// Describes the action to take after custom subclass message processing.
+///
+/// Used alongside [`Window::subclass`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubclassResult {
     /// Completely intercepts the message, blocking further propagation to downstream procedures (including MessageFilter).
@@ -565,7 +709,39 @@ pub enum SubclassResult {
     Continue,
 }
 
-/// Raw representation of a window subclassing procedure.
+/// The raw system function pointer signature required for Win32 subclass procedures.
+///
+/// Under the hood, this targets Win32 subclass callbacks. Any message not handled by this
+/// procedure must be forwarded down the subclass chain by calling [`windows::Win32::UI::Shell::DefSubclassProc`].
+///
+/// # Examples
+///
+/// Here is how to create a compliant subclass procedure callback function:
+///
+/// ```no_run
+/// use windows::Win32::Foundation::{HWND, WPARAM, LPARAM, LRESULT};
+/// use windows::Win32::UI::WindowsAndMessaging::WM_USER;
+/// use windows::Win32::UI::Shell::DefSubclassProc;
+///
+/// // Note: Subclass procedures must be marked `unsafe extern "system"`
+/// unsafe extern "system" fn my_custom_subclass_proc(
+///     hwnd: HWND,
+///     msg: u32,
+///     wparam: WPARAM,
+///     lparam: LPARAM,
+///     id_subclass: usize,
+///     ref_data: usize,
+/// ) -> LRESULT {
+///     // Handle a specific custom message and block further propagation
+///     if msg == WM_USER + 1 {
+///         println!("Raw custom message intercepted in subclass proc!");
+///         return LRESULT(100);
+///     }
+///
+///     // Crucial: You MUST forward unhandled messages to the next procedure in the chain
+///     DefSubclassProc(hwnd, msg, wparam, lparam)
+/// }
+/// ```
 pub type RawSubclassProc = unsafe extern "system" fn(
     hwnd: HWND,
     msg: u32,
@@ -575,7 +751,15 @@ pub type RawSubclassProc = unsafe extern "system" fn(
     ref_data: usize,
 ) -> LRESULT;
 
-/// WndProc callbacks are strictly bound to the thread running the message loop, so Send and Sync are not implemented.
+/// A safe wrapper around a custom closure used to intercept and pre-filter raw Windows messages
+/// directly at the beginning of the `global_wnd_proc` handler.
+///
+/// If the closure returns `Some(LRESULT)`, the message bypasses the rest of the message loop,
+/// including standard translate handlers and default window procedures.
+///
+/// # Safety
+/// To prevent resource leaks and fatal crashes, `WM_NCDESTROY` is protected internally
+/// and cannot be bypassed by this filter.
 #[derive(Clone)]
 pub struct MessageFilter(pub Arc<dyn Fn(HWND, u32, WPARAM, LPARAM) -> Option<LRESULT>>);
 
@@ -725,9 +909,8 @@ fn register_window_class(
     if atom == 0 {
         let err = windows::core::Error::from_thread();
 
-        // If the error is already registered (ERROR_CLASS_ALREADY_EXISTS),
-        // since this is the second or subsequent window,
-        // it is safe to proceed as if the operation completed successfully
+        // エラーがすでに登録されている場合（ERROR_CLASS_ALREADY_EXISTS）、
+        // これは2回目以降のウィンドウであるため、操作が正常に完了したかのように処理を進めても問題ない
         if err.code() != ERROR_CLASS_ALREADY_EXISTS.to_hresult() {
             let class_str_to_report = builder
                 .custom_class_name

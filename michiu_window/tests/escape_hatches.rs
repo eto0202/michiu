@@ -1,5 +1,5 @@
 use michiu_window::{
-    EventPump, LogicalSize, MichiuEvent, SubclassResult, WindowBuilder, WindowEvent,
+    EventPump, LogicalSize, MichiuEvent, SubclassResult, WindowBuilder, Event,
     init_dpi_awareness,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -113,8 +113,8 @@ fn test_integration_escape_hatches_coexistence_and_precedence() {
         let start_time = Instant::now();
         while start_time.elapsed() < Duration::from_secs(1) {
             if let Some(event) = event_pump.poll_event()
-                && let MichiuEvent::WindowEvent {
-                    event: WindowEvent::UnsafeRaw { msg, .. },
+                && let MichiuEvent::Window {
+                    event: Event::UnsafeRaw { msg, .. },
                     ..
                 } = event
                 && msg == WM_USER + 500
@@ -165,8 +165,8 @@ fn test_integration_escape_hatches_coexistence_and_precedence() {
         let start_time_501 = Instant::now();
         while start_time_501.elapsed() < Duration::from_millis(100) {
             if let Some(event) = event_pump.poll_event()
-                && let MichiuEvent::WindowEvent {
-                    event: WindowEvent::UnsafeRaw { msg, .. },
+                && let MichiuEvent::Window {
+                    event: Event::UnsafeRaw { msg, .. },
                     ..
                 } = event
                 && msg == WM_USER + 501
@@ -200,8 +200,8 @@ fn test_integration_escape_hatches_coexistence_and_precedence() {
         let start_time_502 = Instant::now();
         while start_time_502.elapsed() < Duration::from_millis(100) {
             if let Some(event) = event_pump.poll_event()
-                && let MichiuEvent::WindowEvent {
-                    event: WindowEvent::UnsafeRaw { msg, .. },
+                && let MichiuEvent::Window {
+                    event: Event::UnsafeRaw { msg, .. },
                     ..
                 } = event
                 && msg == WM_USER + 502

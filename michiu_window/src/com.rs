@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use crate::error::{MichiuError, Result};
-use crate::{MichiuEvent, WindowEvent, WindowId, push_event};
+use crate::{Event, MichiuEvent, WindowId, push_event};
 use michiu_guard::Unvalidated;
 use windows::Win32::{
     Foundation::{HWND, POINTL},
@@ -25,7 +25,16 @@ use windows::Win32::{
 };
 use windows::core::{Ref, implement};
 
-/// Inner enumeration representing the specific API used to initialize the context.
+/// A thread-affine RAII guard managing the lifecycle of COM or Windows Runtime (WinRT) initialization on the current thread.
+///
+/// Since COM and WinRT threading apartments are strictly thread-affine, `ComContext` is **`!Send` and `!Sync`**.
+///
+/// Cloning a `ComContext` correctly increments the underlying OS-side initialization reference counter
+/// on the same thread, and dropping a `ComContext` automatically decrements it by calling the appropriate
+/// uninitialization API (`CoUninitialize`, `OleUninitialize`, or `RoUninitialize`).
+///
+/// Under the hood, this helps prevent runtime threading model conflicts (e.g., `RPC_E_CHANGED_MODE` (0x80010106))
+/// by consolidating thread-apartment initialization inside a safe Rust scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ComContextKind {
     Classic(COINIT),
@@ -46,6 +55,25 @@ pub struct ComContext {
 }
 
 impl ComContext {
+    /// Initializes the OLE library on the current thread under the Single-Threaded Apartment (STA) model.
+    ///
+    /// This apartment model is highly recommended and required if your window utilizes standard system clipboard
+    /// operations, IME, or OLE file drag-and-drop ([`WindowBuilder::with_drag_and_drop`]).
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::ComInitializationFailed`] if the underlying `OleInitialize` fails.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use michiu_window::ComContext;
+    ///
+    /// fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     // Initialize OLE STA on the main UI thread
+    ///     let com_ctx = ComContext::new_com_single()?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn new_com_single() -> Result<Self> {
         unsafe {
             OleInitialize(None).map_err(|err| MichiuError::ComInitializationFailed {
@@ -60,6 +88,11 @@ impl ComContext {
     }
 
     /// Initializes the COM library on the current thread under the Multi-Threaded Apartment (MTA) model.
+    ///
+    /// Useful for background worker threads that handle high-performance, non-GUI COM interfaces.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::ComInitializationFailed`] if `CoInitializeEx` fails.
     pub fn new_com_multi() -> Result<Self> {
         unsafe {
             CoInitializeEx(None, COINIT_MULTITHREADED)
@@ -75,7 +108,10 @@ impl ComContext {
         })
     }
 
-    /// Initializes the Windows Runtime (WinRT) on the current thread under the Single-Threaded model.
+    /// Initializes the Windows Runtime (WinRT) on the current thread under the Single-Threaded Apartment model.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
     pub fn new_ro_single() -> Result<Self> {
         unsafe {
             RoInitialize(RO_INIT_SINGLETHREADED).map_err(|err| {
@@ -91,7 +127,10 @@ impl ComContext {
         })
     }
 
-    /// Initializes the Windows Runtime (WinRT) on the current thread under the Multi-Threaded model.
+    /// Initializes the Windows Runtime (WinRT) on the current thread under the Multi-Threaded Apartment model.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
     pub fn new_ro_multi() -> Result<Self> {
         unsafe {
             RoInitialize(RO_INIT_MULTITHREADED).map_err(|err| {
@@ -149,15 +188,64 @@ impl Drop for ComContext {
     }
 }
 
+/// A helper struct used to implement OLE File Drag and Drop functionality for a window.
+///
+/// This implements the raw Win32 COM `IDropTarget` interface. It processes incoming file drag-and-drop
+/// operations (verifying `CF_HDROP` data format), extracts dropped file paths, and automatically
+/// posts a [`WindowEvent::FileDropped`] event containing an [`Unvalidated<Vec<PathBuf>>`] payload
+/// to the event queue.
+///
+/// # Examples
+///
+/// This struct can also be used manually in integration tests to emulate drag-and-drop actions on a window:
+///
+/// ```no_run
+/// # use michiu_window::{Window, WindowBuilder, FileDropTarget, ComContext};
+/// # use windows::Win32::System::Ole::IDropTarget;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # let com_ctx = ComContext::new_com_single()?;
+/// # let window = Window::build(WindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
+/// let drop_target_impl = FileDropTarget::new(window.hwnd());
+/// // Convert to raw COM IDropTarget interface for invocation
+/// let drop_target: IDropTarget = drop_target_impl.into();
+/// # Ok(())
+/// # }
+/// ```
 #[implement(IDropTarget)]
 pub struct FileDropTarget {
     hwnd: HWND,
 }
 
 impl FileDropTarget {
+    /// Creates a new `FileDropTarget` helper instance bound to the specified window handle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{Window, WindowBuilder, FileDropTarget, ComContext};
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// # let com_ctx = ComContext::new_com_single()?;
+    /// # let window = Window::build(WindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
+    /// // Create a drop target bound to the window's HWND
+    /// let drop_target = FileDropTarget::new(window.hwnd());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn new(hwnd: HWND) -> Self {
         Self { hwnd }
     }
+
+    /// Retrieves the raw window handle (`HWND`) bound to this drop target.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use michiu_window::{FileDropTarget};
+    /// # use windows::Win32::Foundation::HWND;
+    /// # let drop_target = FileDropTarget::new(HWND(std::ptr::null_mut()));
+    /// let target_hwnd = drop_target.hwnd();
+    /// assert!(target_hwnd.is_invalid());
+    /// ```
     pub fn hwnd(&self) -> HWND {
         self.hwnd
     }
@@ -248,9 +336,9 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
 
                     if !files.is_empty() {
                         // イベントキューに通知
-                        push_event(MichiuEvent::WindowEvent {
-                            window_id: WindowId(self.hwnd.0 as isize),
-                            event: WindowEvent::FileDropped(Unvalidated::new(files)),
+                        push_event(MichiuEvent::Window {
+                            id: WindowId(self.hwnd.0 as isize),
+                            event: Event::FileDropped(Unvalidated::new(files)),
                         });
                         *effect = DROPEFFECT_COPY;
                     }
@@ -558,7 +646,7 @@ mod tests {
         h_mem
     }
 
-    // Drop メソッドが正常に動作し、WindowEvent::FileDropped がイベントキューにプッシュされるかのテスト
+    // Drop メソッドが正常に動作し、Event::FileDropped がイベントキューにプッシュされるかのテスト
     #[test]
     fn test_file_drop_target_drop_integration_normal() {
         run_on_clean_thread(|| {
@@ -601,10 +689,10 @@ mod tests {
             assert!(ev.is_some());
 
             match ev.unwrap() {
-                MichiuEvent::WindowEvent { window_id, event } => {
-                    assert_eq!(window_id, WindowId(dummy_hwnd.0 as isize));
+                MichiuEvent::Window { id, event } => {
+                    assert_eq!(id, WindowId(dummy_hwnd.0 as isize));
                     match event {
-                        WindowEvent::FileDropped(unvalidated_files) => {
+                        Event::FileDropped(unvalidated_files) => {
                             // 境界防御の validate_with で安全に検査
                             let validated: Result<Validated<Vec<PathBuf>>> = unvalidated_files
                                 .validate_with(|files| {
@@ -613,10 +701,10 @@ mod tests {
                                 });
                             assert!(validated.is_ok());
                         }
-                        other => panic!("Expected WindowEvent::FileDropped, got {:?}", other),
+                        other => panic!("Expected Event::FileDropped, got {:?}", other),
                     }
                 }
-                _ => panic!("Expected WindowEvent"),
+                _ => panic!("Expected Event"),
             }
         });
     }
