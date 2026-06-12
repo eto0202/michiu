@@ -1,0 +1,19 @@
+[package]
+name = "michiu"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+michiu_guard = { workspace = true, optional = true }
+michiu_window = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+
+[features]
+default = ["guard", "window"]
+guard = ["dep:michiu_guard"]
+window = ["dep:michiu_window"]
+serde = ["dep:serde", "michiu_guard?/serde", "michiu_window?/serde"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

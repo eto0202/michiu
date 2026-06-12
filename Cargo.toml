@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = [
+    "michiu",
+    "michiu_guard",
+    "michiu_window",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+michiu = { version = "0.1.0", path = "michiu" }
+michiu_guard = { version = "0.1.0", path = "michiu_guard" }
+michiu_window = { version = "0.1.0", path = "michiu_window" }
+serde = { version = "1.0.228", features = ["derive"] }
