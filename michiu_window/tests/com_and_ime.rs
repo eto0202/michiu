@@ -24,7 +24,7 @@ use windows::Win32::{
     },
     UI::{
         Shell::DROPFILES,
-        WindowsAndMessaging::{SendMessageW, WM_IME_COMPOSITION, WM_IME_NOTIFY},
+        WindowsAndMessaging::{SendMessageW, WM_IME_COMPOSITION},
     },
 };
 use windows_core::{BOOL, HRESULT, Ref, implement};
@@ -207,8 +207,6 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
     });
 }
 
-// tests/com_and_ime.rs へもう1つのテストとして追加
-
 #[test]
 fn test_integration_ime_relay_multi_client_robustness() {
     let _ = init_dpi_awareness();
@@ -264,10 +262,11 @@ fn test_integration_ime_relay_multi_client_robustness() {
         }
 
         // 1回目のIMEメッセージ送信（両方へ同時ブロードキャスト）
+        // 常に確実に push_ime_state_update をトリガーする WM_IME_COMPOSITION を使用
         unsafe {
             let _ = SendMessageW(
                 window.hwnd(),
-                WM_IME_NOTIFY,
+                WM_IME_COMPOSITION,
                 Some(WPARAM(0)),
                 Some(LPARAM(0)),
             );
