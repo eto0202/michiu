@@ -255,6 +255,11 @@ fn test_integration_ime_relay_multi_client_robustness() {
         let mut stream_a = client_a.expect("Failed to connect client A");
         let mut stream_b = client_b.expect("Failed to connect client B");
 
+        // OSがTCP接続を確立した直後、中継サーバー側の非同期スレッドが
+        // 接続を受け入れて `clients` ベクターにプッシュし終えるまで、
+        // 100ms ほど待機してスレッド間のタイミングを同期
+        std::thread::sleep(Duration::from_millis(100));
+
         // テスト用IMEステート変更 (変換モード: 1)
         if let Ok(ctx) = ImeContext::new(window.hwnd()) {
             ctx.set_open(true);
