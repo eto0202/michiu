@@ -26,7 +26,7 @@ use windows::Win32::{
 
 /// A lightweight, cloneable, and thread-safe reference to an active Win32 window.
 ///
-/// Unlike [`Window`], `WindowHandle` implements **`Send` and `Sync`**, allowing it to be
+/// Unlike [`crate::window::Window`], `WindowHandle` implements **`Send` and `Sync`**, allowing it to be
 /// safely transferred to background worker threads.
 ///
 /// Methods on this type are designed to be thread-aware:

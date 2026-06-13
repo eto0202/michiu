@@ -1,3 +1,6 @@
+#[cfg(any(feature = "serde", docsrs))]
+use serde as _;
+use crate::{MichiuError, PhysicalPoint};
 use std::{
     io::Write,
     net::{TcpListener, TcpStream},
@@ -18,8 +21,6 @@ use windows::Win32::{
         KeyboardAndMouse::GetKeyboardLayout,
     },
 };
-
-use crate::{MichiuError, PhysicalPoint};
 
 const IMM_ERROR_NODATA: i32 = -1;
 const IMM_ERROR_GENERAL: i32 = -2;
@@ -224,7 +225,7 @@ pub fn get_active_keyboard_layout_id() -> u32 {
 
 /// Represents a bundled, complete snapshot of the IME and Input Method status for a window.
 ///
-/// This structure implements [`serde::Serialize`] and [`serde::Deserialize`] when the `serde`
+/// This structure implements ([`serde::Serialize`]) and ([`serde::Deserialize`]) when the `serde`
 /// feature is enabled, allowing seamless serialization into JSON for cross-process communication.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImeStateUpdate {

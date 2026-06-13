@@ -77,8 +77,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Process OS window and input events first (DPI, close requested, resize, drag & drop, etc.)
     while let Some(event) = event_pump.wait_event()? {
-        match event {
-            MichiuEvent::Window { event, .. } => match event {
+        if let MichiuEvent::Window { event, .. } = event {
+            match event {
                 Event::CloseRequested => {
                     // Safely trigger window destruction directly from the event loop using the handle
                     handle.destroy();
@@ -110,8 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 _ => {}
-            },
-            MichiuEvent::User(_) => {}
+            }
         }
 
         // Process custom application commands sequentially (Safe UI mutations on the UI thread)
@@ -126,6 +125,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-
     Ok(())
 }

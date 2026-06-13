@@ -99,7 +99,7 @@ pub enum Event {
 
     /// Issued when files are dragged and dropped onto the window client area.
     ///
-    /// Requires `with_drag_and_drop(true)` and an OLE-initialized [`ComContext`].
+    /// Requires `with_drag_and_drop(true)` and an OLE-initialized [`crate::com::ComContext`].
     FileDropped(Unvalidated<Vec<PathBuf>>),
 
     /// Issued when any active Input Method (IME/TSF) state update occurs.

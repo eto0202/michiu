@@ -4,7 +4,7 @@ use michiu_window::{
     TrayMenuItem, Window, WindowBuilder, WindowHandle, init_dpi_awareness,
 };
 use std::sync::{Arc, Condvar, Mutex, mpsc};
-use windows::Win32::Foundation::CloseHandle;
+use windows::Win32::Foundation::{CloseHandle, HWND};
 use windows::Win32::System::Threading::{
     CreateWaitableTimerW, INFINITE, SetWaitableTimer, WaitForSingleObject,
 };
@@ -13,21 +13,21 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, IDI_APPLICATION, KillTimer, LoadIconW, SetTimer,
 };
 
-// タイマーを識別するための一意なID
+// A unique ID to identify the timer
 const TIMER_ID: usize = 777;
 
-// 1. スレッド間およびトレイメニュー間でやり取りする、型安全にマージされる結果 enum
+// 1. A type-safe enum that is merged when exchanged between threads and via the tray menu
 #[derive(Debug, Clone)]
 enum WorkerReport {
-    // スレッドAから報告される、画面上の物理マウス座標
+    // Physical mouse coordinates on the screen reported by Thread A
     CursorPos(PhysicalPoint),
-    // スレッドBから報告される、高負荷計算の結果値
+    // Results of the high-load calculation reported by Thread B
     Calculation(u128),
-    // トレイメニューから送られる終了要求コマンド
+    // Quit command sent from the tray menu
     Exit,
 }
 
-// スレッドごとの処理特性を識別する区分
+// Categories for identifying the processing characteristics of each thread
 enum WorkerRole {
     CursorTracker,
     HeavyCalculator,
@@ -40,7 +40,7 @@ struct WorkerControl {
 
 type ThreadSignal = Arc<(Mutex<WorkerControl>, Condvar)>;
 
-// ワーカースレッドB側で実行させるダミー計算
+// Dummy calculation to be executed on worker thread B
 fn heavy_calculation(n: u32) -> u128 {
     let mut sum: u128 = 0;
     for i in 0..n {
@@ -49,8 +49,8 @@ fn heavy_calculation(n: u32) -> u128 {
     sum
 }
 
-// 2. Waitable Timer を用いて高精度にスリープ駆動するワーカー
-// 帰りのデータは mpsc::Sender で送り、handle.wake_up() でメインを起こす
+// 2. A worker that uses a Waitable Timer for high-precision sleep-driven operation
+// Return data is sent using mpsc::Sender, and the main thread is woken up with handle.wake_up()
 fn spawn_worker_thread(
     role: WorkerRole,
     signal: ThreadSignal,
@@ -62,60 +62,74 @@ fn spawn_worker_thread(
 
         let mut loop_count: u32 = 0;
 
-        unsafe {
-            // Windows OS の Waitable Timer オブジェクトを作成
-            let h_timer = CreateWaitableTimerW(None, false, windows::core::PCWSTR::null())
-                .expect("Failed to create waitable timer");
+        // Create a Waitable Timer object in Windows OS
+        let h_timer = unsafe {
+            CreateWaitableTimerW(None, false, windows::core::PCWSTR::null())
+                .expect("Failed to create waitable timer")
+        };
 
-            loop {
-                let mut control = lock.lock().unwrap();
+        loop {
+            let mut control = lock.lock().unwrap();
 
-                // マウス無移動時は、条件変数によりスレッドをサスペンド
-                while !control.active && !control.quit {
-                    control = cvar.wait(control).unwrap();
-                }
-
-                if control.quit {
-                    break;
-                }
-
-                drop(control);
-
-                match role {
-                    // スレッドA: マウス座標取得
-                    WorkerRole::CursorTracker => {
-                        let mut pt = windows::Win32::Foundation::POINT::default();
-                        let _ = GetCursorPos(&mut pt);
-                        // mpsc で送信し、即座にUIスレッドのメッセージスリープを起こす
-                        tx.send(WorkerReport::CursorPos(PhysicalPoint::new(pt.x, pt.y)))
-                            .unwrap();
-                        handle.wake_up();
-                    }
-                    // スレッドB: 重い数値計算
-                    WorkerRole::HeavyCalculator => {
-                        loop_count = loop_count.wrapping_add(1);
-                        let calculated_val = heavy_calculation(100_000 + (loop_count % 1000));
-                        tx.send(WorkerReport::Calculation(calculated_val)).unwrap();
-                        handle.wake_up();
-                    }
-                }
-
-                // Waitable Timer による高精度な5msスリープ
-                let due_time: i64 = -50_000;
-                let _ = SetWaitableTimer(h_timer, &due_time as *const i64, 0, None, None, false);
-
-                // タイマーがシグナル状態（5ms経過）になるまでスレッドを休止
-                let _ = WaitForSingleObject(h_timer, INFINITE);
+            // When the mouse is not moving, suspend the thread using a condition variable
+            while !control.active && !control.quit {
+                control = cvar.wait(control).unwrap();
             }
 
-            // タイマーハンドルのクローズ
-            let _ = CloseHandle(h_timer);
+            if control.quit {
+                break;
+            }
+
+            drop(control);
+
+            match role {
+                // Thread A: Get mouse coordinates
+                WorkerRole::CursorTracker => {
+                    let mut pt = windows::Win32::Foundation::POINT::default();
+                    let _ = unsafe { GetCursorPos(&mut pt) };
+                    // mpsc で送信し、即座にUIスレッドのメッセージスリープを起こす
+                    tx.send(WorkerReport::CursorPos(PhysicalPoint::new(pt.x, pt.y)))
+                        .unwrap();
+                    handle.wake_up();
+                }
+                // Thread B: Heavy numerical calculations
+                WorkerRole::HeavyCalculator => {
+                    loop_count = loop_count.wrapping_add(1);
+                    let calculated_val = heavy_calculation(100_000 + (loop_count % 1000));
+                    tx.send(WorkerReport::Calculation(calculated_val)).unwrap();
+                    handle.wake_up();
+                }
+            }
+
+            // High-precision 5-millisecond sleep using a Waitable Timer
+            let due_time: i64 = -50_000;
+            let _ =
+                unsafe { SetWaitableTimer(h_timer, &due_time as *const i64, 0, None, None, false) };
+
+            // Suspend the thread until the timer enters the signal state (5 ms have elapsed)
+            let _ = unsafe { WaitForSingleObject(h_timer, INFINITE) };
         }
+
+        let _ = unsafe { CloseHandle(h_timer) };
     })
 }
 
+// Helper function for registering RawInput with the Windows OS
+fn register_rawinput_devices(hwnd: HWND) {
+    let rid = RAWINPUTDEVICE {
+        usUsagePage: 1, // Generic Desktop Page
+        usUsage: 2,     // Mouse Usage ID
+        dwFlags: RIDEV_INPUTSINK,
+        hwndTarget: hwnd,
+    };
+    unsafe {
+        RegisterRawInputDevices(&[rid], std::mem::size_of::<RAWINPUTDEVICE>() as u32)
+            .expect("Failed to register raw input mouse device");
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 高DPIサポートの初期化
+    // Initialize high-DPI support
     init_dpi_awareness();
 
     let com_ctx = ComContext::new_com_single()?;
@@ -123,10 +137,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hicon = unsafe { LoadIconW(None, IDI_APPLICATION)? };
     let icon = unsafe { Icon::from_raw(hicon) };
 
-    // 各スレッド・トレイ等から指示を集中回収するチャネルの準備
+    // Preparing a channel to centrally collect instructions from each thread, tray, etc.
     let (tx, rx) = mpsc::channel();
 
-    // 3. システムトレイアイコンの構築 (Exit メニュー項目の追加)
+    // 3. Creating a system tray icon (Adding an Exit menu item)
     let tx_for_menu = tx.clone();
     let tray_builder = TrayBuilder::new()
         .with_icon(icon.clone())
@@ -140,7 +154,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let tray = Tray::build(tray_builder.into_unvalidated().try_into()?)?;
     let tray_clone = tray.clone();
 
-    // ワーカースレッド用の制御信号
+    // Control signals for worker threads
     let signal: ThreadSignal = Arc::new((
         Mutex::new(WorkerControl {
             active: false,
@@ -149,10 +163,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Condvar::new(),
     ));
 
-    // MessageFilter用のクローン
+    // Clone for MessageFilter
     let signal_for_filter = signal.clone();
 
-    // 不可視、ヒットテストなしの特殊ウィンドウの構築
+    // Creating a special window that is invisible and does not perform hit testing
     let builder = WindowBuilder::new()
         .with_title("RawInput Invisible Window")
         .with_visible(false)
@@ -163,39 +177,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_message_filter(move |hwnd, msg, _wparam, _lparam| {
             if msg == 0x00FF {
                 // WM_INPUT
-                unsafe {
-                    // マウスが動くたびに、既存の2秒タイマーをリセットして再起動
-                    let _ = KillTimer(Some(hwnd), TIMER_ID);
-                    let _ = SetTimer(Some(hwnd), TIMER_ID, 2000, None);
-                }
+
+                // Reset and restart the existing 2-second timer every time the mouse moves
+                let _ = unsafe { KillTimer(Some(hwnd), TIMER_ID) };
+                let _ = unsafe { SetTimer(Some(hwnd), TIMER_ID, 2000, None) };
 
                 let (lock, cvar) = &*signal_for_filter;
                 let mut control = lock.lock().unwrap();
                 if !control.active {
                     control.active = true;
-                    cvar.notify_all(); // A/B両ワーカーを一挙に起こす
+                    cvar.notify_all(); // Start both Worker A and Worker B at once
                     println!("[UI Thread] Mouse raw input detected! Activating special workers...");
                 }
             }
+            // Continue with normal processing
             None
         });
 
     let window = Window::build(builder.into_unvalidated().try_into()?)?;
     let handle = window.handle().assume_valid();
 
-    // Windows OS へ RawInput の登録
-    let rid = RAWINPUTDEVICE {
-        usUsagePage: 1, // Generic Desktop Page
-        usUsage: 2,     // Mouse Usage ID
-        dwFlags: RIDEV_INPUTSINK,
-        hwndTarget: window.hwnd(),
-    };
-    unsafe {
-        RegisterRawInputDevices(&[rid], std::mem::size_of::<RAWINPUTDEVICE>() as u32)
-            .expect("Failed to register raw input mouse device");
-    }
+    // Registering RawInput with the Windows OS
+    register_rawinput_devices(window.hwnd());
 
-    // 4. ワーカースレッドの起動
+    // 4. Starting the worker thread
     let worker_a = spawn_worker_thread(
         WorkerRole::CursorTracker,
         signal.clone(),
@@ -209,10 +214,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         handle.clone(),
     );
 
-    // UIスレッドを駆動させるメッセージポンプ
+    // Message pump that drives the UI thread
     let mut event_pump = EventPump::new();
 
-    // データ管理用変数
+    // Variables for data management
     let mut total_mouse_samples = 0u64;
     let mut total_calc_samples = 0u64;
     let mut last_position = PhysicalPoint::new(0, 0);
@@ -222,18 +227,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "System ready. Move your physical mouse to wake up specialized worker threads. Right-click the tray icon to Exit."
     );
 
-    // 5. wait_event() を用いたイベント駆動ループ
+    // 5. Event-driven loop using `wait_event()`
     while let Some(event) = event_pump.wait_event()? {
-        #[allow(clippy::single_match)]
-        match event {
-            MichiuEvent::Window { id: _id, event } => match event {
+        if let MichiuEvent::Window { event, .. } = event {
+            match event {
                 Event::CloseRequested => {
                     handle.destroy();
                 }
                 Event::Destroyed => {
                     break;
                 }
-                // C. マウスが止まって2秒が経過すると、OSが自動的に `WM_TIMER` をポストして目覚めさせる
+                // If the mouse remains idle for 2 seconds,
+                // the OS automatically posts a `WM_TIMER` message to wake it up
                 Event::UnsafeRaw { msg: 0x0113, .. } => {
                     println!(
                         "[UI Thread] 2 seconds of silence detected. Suspending all specialized workers..."
@@ -246,7 +251,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     drop(control);
 
-                    // 集約された統計結果をシステムトースト通知
+                    // System toast notifications for aggregated statistics
                     let notification_text = format!(
                         "Threads suspended safely.\nFinal Mouse Pos: ({}, {})\nFinal Calc Val: ({})\nProcessed Samples: (Mouse: {}, Calc: {})",
                         last_position.x,
@@ -258,22 +263,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     let _ = tray_clone.show_balloon("System Idle Detected", &notification_text);
 
-                    // タイマーはワンショットとして機能させるため、一度 Kill して解除
-                    unsafe {
-                        let _ = KillTimer(Some(window.hwnd()), TIMER_ID);
-                    }
+                    // Set the timer to function as a one-shot timer
 
-                    // 次の起床に向けて統計データをクリーンアップ
+                    let _ = unsafe { KillTimer(Some(window.hwnd()), TIMER_ID) };
+
+                    // Clean up statistical data in preparation for the next wake-up
                     total_mouse_samples = 0;
                     total_calc_samples = 0;
                 }
                 _ => {}
-            },
-            _ => {}
+            }
         }
 
-        // D. wake_up()（WM_NULL）による起床の直後、チャネルに溜まっている全ワーカーの結果を
-        // UIスレッド上で一括マージ
+        // Immediately after waking up via wake_up() (WM_NULL),
+        // merge all worker results queued in the channel at once on the UI thread
         while let Ok(report) = rx.try_recv() {
             match report {
                 WorkerReport::CursorPos(pos) => {
@@ -291,7 +294,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let total_combined = total_mouse_samples + total_calc_samples;
-            // 適度に間引いて表示
+            // Display with appropriate spacing
             if total_combined.is_multiple_of(100) {
                 println!(
                     "[UI Thread] Mouse Pos: ({:4}, {:4}) | Last Calc Val: {:10} | Samples: (Mouse: {}, Calc: {})",
@@ -305,7 +308,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // 6. 全てのスレッドを Quit 状態にして安全に終了させる
+    // 6. Set all threads to the Quit state to ensure a safe shutdown
     {
         let (lock, cvar) = &*signal;
         let mut control = lock.lock().unwrap();

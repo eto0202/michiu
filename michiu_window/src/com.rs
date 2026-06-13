@@ -1,9 +1,8 @@
-use std::marker::PhantomData;
-use std::path::PathBuf;
-
 use crate::error::{MichiuError, Result};
 use crate::{Event, MichiuEvent, WindowId, push_event};
 use michiu_guard::Unvalidated;
+use std::marker::PhantomData;
+use std::path::PathBuf;
 use windows::Win32::{
     Foundation::{HWND, POINTL},
     System::{
@@ -58,7 +57,7 @@ impl ComContext {
     /// Initializes the OLE library on the current thread under the Single-Threaded Apartment (STA) model.
     ///
     /// This apartment model is highly recommended and required if your window utilizes standard system clipboard
-    /// operations, IME, or OLE file drag-and-drop ([`WindowBuilder::with_drag_and_drop`]).
+    /// operations, IME, or OLE file drag-and-drop ([`crate::builder::WindowBuilder::with_drag_and_drop`]).
     ///
     /// # Errors
     /// Returns [`MichiuError::ComInitializationFailed`] if the underlying `OleInitialize` fails.
@@ -192,7 +191,7 @@ impl Drop for ComContext {
 ///
 /// This implements the raw Win32 COM `IDropTarget` interface. It processes incoming file drag-and-drop
 /// operations (verifying `CF_HDROP` data format), extracts dropped file paths, and automatically
-/// posts a [`WindowEvent::FileDropped`] event containing an [`Unvalidated<Vec<PathBuf>>`] payload
+/// posts a [`crate::events::Event::FileDropped`] event containing an [`Unvalidated<Vec<PathBuf>>`] payload
 /// to the event queue.
 ///
 /// # Examples

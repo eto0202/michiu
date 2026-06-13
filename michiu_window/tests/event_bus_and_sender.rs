@@ -137,7 +137,7 @@ fn test_integration_event_bus_and_sender_cooperation() {
             }
         }
 
-        // 双方向のブロードキャスト＆ポストバック連携が完璧に完結したことを確認
+        // 双方向のブロードキャスト＆ポストバック連携が完結したことを確認
         assert!(
             b_completed,
             "Failed to capture or verify the result from Window B's background task"

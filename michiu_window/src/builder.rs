@@ -147,7 +147,7 @@ impl<'a> WindowBuilder<'a> {
 
     /// Sets whether the window background is transparent.
     ///
-    /// Requires decorations to be disabled ([`WindowBuilder::with_decorations(false)`]) to prevent artifacts.
+    /// Requires decorations to be disabled `WindowBuilder::with_decorations(false)` to prevent artifacts.
     pub fn with_transparent(mut self, is_transparent: bool) -> Self {
         self.transparent = is_transparent;
         self
@@ -254,7 +254,7 @@ impl<'a> WindowBuilder<'a> {
     ///
     /// The registered filter runs at the very beginning of the window procedure. If it returns
     /// `Some(LRESULT)`, the message is considered handled, and it bypasses all subsequent processing
-    /// (including [`Event`] translation and the default OS procedure).
+    /// (including ([`crate::events::Event`]) translation and the default OS procedure).
     ///
     /// # Examples
     ///

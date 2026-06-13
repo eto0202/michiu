@@ -84,7 +84,7 @@ fn test_integration_clipboard_lock_conflict_and_recovery() {
         // バックグラウンドスレッドの終了とロック解放を同期
         bg_thread.join().expect("Background thread panicked");
 
-        // ロック解除後、速やかに通常の読み書きが正常に機能する（復帰できる）ことを検証
+        // ロック解除後、速やかに通常の読み書きが正常に機能することを検証
         let success_write = window.set_clipboard_text("Normal Write After Conflict Resolution");
         assert!(
             success_write.is_ok(),

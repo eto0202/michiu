@@ -1,13 +1,13 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! # michiu_window
 //!
 //! `michiu_window` is a lightweight, robust, and modern Win32 window management library
 //! designed with strict thread-safety and modern Rust paradigms.
 //! ## Quick Start Guide
 //!
-//! Here is a complete, production-ready example demonstrating how to initialize the system,
-//! initialize COM, build a window with an icon, spawn a background worker thread, wake up
-//! the message loop, process events safely using the `michiu_guard` firewall, and cleanly destroy the window.
-//!
+//! Here is a minimal, production-ready example demonstrating how to initialize High-DPI support,
+//! configure and build a simple window, drive the event loop efficiently using `wait_event` ,
+//! and cleanly destroy the window directly from within the loop using its thread-safe handle.
 //! ```no_run
 //! use michiu_window::{init_dpi_awareness, WindowBuilder, Window, Event, EventPump, MichiuEvent};
 //!
@@ -52,7 +52,7 @@
 //! ### Option A: `wait_event` (Blocking / Event-Driven) — Recommended
 //! **Best Used For**: Desktop utilities, system tray tools, office applications, and general GUI software.
 //!
-//! It completely suspends the UI thread (utilizing **0.0% CPU**) while idle. It unblocks immediately
+//! It completely suspends the UI thread while idle. It unblocks immediately
 //! when the OS generates window messages or when a background thread calls [`WindowHandle::wake_up()`] or
 //! [`EventSender::send_event()`].
 //!
