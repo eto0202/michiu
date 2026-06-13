@@ -1,8 +1,10 @@
 use michiu_window::{
     ComContext, EventPump, LogicalSize, WindowBuilder, WindowHandle, init_dpi_awareness,
 };
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::time::{Duration, Instant};
+use std::{
+    sync::mpsc::{self, Receiver, Sender},
+    time::{Duration, Instant},
+};
 
 // cargo test --test multi_thread_windows
 
@@ -97,7 +99,6 @@ fn spawn_isolated_ui_thread(
             if start_time.elapsed() > Duration::from_secs(5) {
                 break;
             }
-
         }
 
         window.destroy();

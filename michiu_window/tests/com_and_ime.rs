@@ -1,24 +1,32 @@
 use michiu_guard::Validated;
 use michiu_window::{
-    ComContext, EventPump, FileDropTarget, ImeContext, LogicalSize, MichiuEvent, WindowBuilder,
-    Event, init_dpi_awareness,
+    ComContext, Event, EventPump, FileDropTarget, ImeContext, LogicalSize, MichiuEvent,
+    WindowBuilder, init_dpi_awareness,
 };
-use std::io::Read;
-use std::net::TcpStream;
-use std::os::windows::ffi::OsStrExt;
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{E_NOTIMPL, HGLOBAL, LPARAM, POINT, POINTL, S_OK, WPARAM};
-use windows::Win32::System::Com::{
-    FORMATETC, IAdviseSink, IDataObject, IDataObject_Impl, IEnumFORMATETC, IEnumSTATDATA,
-    STGMEDIUM, TYMED_HGLOBAL,
+use std::{
+    io::Read,
+    net::TcpStream,
+    os::windows::ffi::OsStrExt,
+    path::PathBuf,
+    time::{Duration, Instant},
 };
-use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
-use windows::Win32::System::Ole::{CF_HDROP, DROPEFFECT_COPY, DROPEFFECT_NONE, IDropTarget};
-use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
-use windows::Win32::System::Threading::GetCurrentThreadId;
-use windows::Win32::UI::Shell::DROPFILES;
-use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_IME_COMPOSITION, WM_IME_NOTIFY};
+use windows::Win32::{
+    Foundation::{E_NOTIMPL, HGLOBAL, LPARAM, POINT, POINTL, S_OK, WPARAM},
+    System::{
+        Com::{
+            FORMATETC, IAdviseSink, IDataObject, IDataObject_Impl, IEnumFORMATETC, IEnumSTATDATA,
+            STGMEDIUM, TYMED_HGLOBAL,
+        },
+        Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
+        Ole::{CF_HDROP, DROPEFFECT_COPY, DROPEFFECT_NONE, IDropTarget},
+        SystemServices::MODIFIERKEYS_FLAGS,
+        Threading::GetCurrentThreadId,
+    },
+    UI::{
+        Shell::DROPFILES,
+        WindowsAndMessaging::{SendMessageW, WM_IME_COMPOSITION, WM_IME_NOTIFY},
+    },
+};
 use windows_core::{BOOL, HRESULT, Ref, implement};
 
 // cargo test --test com_and_ime

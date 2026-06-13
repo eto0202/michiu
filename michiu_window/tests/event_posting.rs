@@ -2,8 +2,10 @@ use michiu_window::{
     Event, EventPump, LogicalSize, MichiuEvent, PhysicalSize, WindowBuilder, init_dpi_awareness,
 };
 use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE, WM_SIZE, WM_USER};
+use windows::Win32::{
+    Foundation::{LPARAM, WPARAM},
+    UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE, WM_SIZE, WM_USER},
+};
 
 // cargo test --test event_posting
 

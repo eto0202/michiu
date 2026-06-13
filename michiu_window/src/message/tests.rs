@@ -1,11 +1,13 @@
-use std::cell::Cell;
 use super::*;
 use crate::{CursorIcon, PhysicalPoint, PhysicalSize, Window, WindowBuilder, WindowId};
 use michiu_guard::{Validate, Validated};
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use windows::Win32::UI::Input::KeyboardAndMouse::{VK_A, VK_SPACE};
-use windows::Win32::UI::WindowsAndMessaging::{
-    WM_LBUTTONDOWN, WM_MOVE, WM_SIZE,
+use std::cell::Cell;
+use windows::Win32::{
+    Foundation::{HWND, LPARAM, WPARAM},
+    UI::{
+        Input::KeyboardAndMouse::{VK_A, VK_SPACE},
+        WindowsAndMessaging::{WM_LBUTTONDOWN, WM_MOVE, WM_SIZE},
+    },
 };
 
 fn clear_event_queue() {

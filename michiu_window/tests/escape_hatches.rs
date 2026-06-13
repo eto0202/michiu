@@ -1,13 +1,20 @@
 use michiu_window::{
-    EventPump, LogicalSize, MichiuEvent, SubclassResult, WindowBuilder, Event,
-    init_dpi_awareness,
+    Event, EventPump, LogicalSize, MichiuEvent, SubclassResult, WindowBuilder, init_dpi_awareness,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::UI::Shell::DefSubclassProc;
-use windows::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_USER};
+use std::{
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
+};
+use windows::Win32::{
+    Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+    UI::{
+        Shell::DefSubclassProc,
+        WindowsAndMessaging::{SendMessageW, WM_USER},
+    },
+};
 
 // cargo test --test escape_hatches
 

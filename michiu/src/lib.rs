@@ -28,6 +28,7 @@ mod window_facade {
         CustomTrayMenu,
         // 入力状態・座標型
         ElementState,
+        Event,
         EventBus,
         EventPump,
         EventSender,
@@ -60,7 +61,6 @@ mod window_facade {
         // ウィンドウ・ハンドル・ビルダ
         Window,
         WindowBuilder,
-        Event,
         WindowHandle,
         WindowId,
         get_active_keyboard_layout_id,

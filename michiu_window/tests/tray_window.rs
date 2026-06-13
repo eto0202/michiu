@@ -1,10 +1,12 @@
 use michiu_window::{
-    CustomTrayMenu, EventPump, Icon, LogicalSize, MichiuEvent, TrayBuilder, TrayMenuItem,
-    WindowBuilder, Event, init_dpi_awareness,
+    CustomTrayMenu, Event, EventPump, Icon, LogicalSize, MichiuEvent, TrayBuilder, TrayMenuItem,
+    WindowBuilder, init_dpi_awareness,
 };
 use std::time::{Duration, Instant};
-use windows::Win32::Foundation::{LPARAM, WPARAM};
-use windows::Win32::UI::WindowsAndMessaging::{IDI_APPLICATION, LoadIconW, PostMessageW, WM_CLOSE};
+use windows::Win32::{
+    Foundation::{LPARAM, WPARAM},
+    UI::WindowsAndMessaging::{IDI_APPLICATION, LoadIconW, PostMessageW, WM_CLOSE},
+};
 
 // cargo test --test tray_window
 

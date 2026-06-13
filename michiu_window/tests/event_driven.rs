@@ -1,6 +1,8 @@
 use michiu_window::{EventPump, LogicalSize, WindowBuilder, init_dpi_awareness};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::{
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 
 // cargo test --test event_driven
 

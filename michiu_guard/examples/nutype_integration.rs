@@ -1,15 +1,15 @@
+use michiu_guard::{Unvalidated, Validate as MichiuValidate, Validated};
 use nutype::nutype;
-use michiu_guard::{Unvalidated, Validated, Validate as MichiuValidate};
 
 #[nutype(
     validate(not_empty, len_char_max = 20),
-    derive(Debug, PartialEq, Eq, Clone),
+    derive(Debug, PartialEq, Eq, Clone)
 )]
 pub struct Username(String);
 
 #[nutype(
     validate(not_empty, len_char_max = 100),
-    derive(Debug, PartialEq, Eq, Clone),
+    derive(Debug, PartialEq, Eq, Clone)
 )]
 pub struct Email(String);
 
@@ -41,7 +41,9 @@ fn main() {
     println!("=== Running Pattern A: Auto-validation with TryFrom (nutype) ===");
     run_pattern_a();
 
-    println!("\n=== Running Pattern B: On-the-fly preprocessing with map & validate_with (nutype) ===");
+    println!(
+        "\n=== Running Pattern B: On-the-fly preprocessing with map & validate_with (nutype) ==="
+    );
     run_pattern_b();
 }
 
