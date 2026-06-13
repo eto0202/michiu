@@ -1,6 +1,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 //! # michiu_guard
-//! 
+//!
 //! To myself tomorrow...
 //!
 //! The sentinel of the `michiu` GUI ecosystem.
@@ -57,7 +57,7 @@
 //! By making raw data mutation an explicit "ritual" rather than an implicit side-effect,
 //! we ensure that every single manipulation of untrusted data is clear, intentional, and
 //! extremely easy to track during security audits and code reviews.
-//! 
+//!
 //! ### A Note on Interior Mutability
 //!
 //! While `Validated<T>` does not implement `DerefMut` or `AsMut` to prevent direct mutation,
@@ -668,5 +668,3 @@ impl<T: serde::Serialize> serde::Serialize for Unvalidated<T> {
         self.0.serialize(serializer)
     }
 }
-
-

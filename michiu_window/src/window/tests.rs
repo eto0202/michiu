@@ -727,4 +727,3 @@ fn test_safe_subclass_intercept_and_continue_lifecycle() {
         window.destroy();
     });
 }
-
