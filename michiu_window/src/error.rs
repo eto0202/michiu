@@ -148,6 +148,9 @@ pub enum MichiuError {
     UnexpectedOsError(#[from] windows::core::Error),
 }
 
+unsafe impl Send for MichiuError {}
+unsafe impl Sync for MichiuError {}
+
 /// A specialized Type Alias representing the result of any `michiu_window` operation.
 pub type Result<T> = std::result::Result<T, MichiuError>;
 

@@ -110,7 +110,7 @@ fn test_integration_event_bus_and_sender_cooperation() {
 
         while start_time.elapsed() < Duration::from_secs(3) {
             // 各バックグラウンドから返ってきた WM_USER_EVENT を回収する
-            if let Some(event) = event_pump.poll_event()
+            if let Some(event) = event_pump.wait_event().unwrap()
                 && let MichiuEvent::User(boxed_any) = event
             {
                 // 送信されてきた TaskResult 型にダウンキャスト
@@ -135,7 +135,6 @@ fn test_integration_event_bus_and_sender_cooperation() {
             if b_completed && c_completed {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(10));
         }
 
         // 双方向のブロードキャスト＆ポストバック連携が完璧に完結したことを確認

@@ -1,6 +1,6 @@
 use michiu_window::{
-    ComContext, Event, EventPump, Icon, LogicalSize, MichiuEvent, Tray, TrayBuilder,
-    TrayMenuItem, Window, WindowBuilder, init_dpi_awareness,
+    ComContext, Event, EventPump, Icon, LogicalSize, MichiuEvent, Tray, TrayBuilder, TrayMenuItem,
+    Window, WindowBuilder, init_dpi_awareness,
 };
 use std::sync::mpsc;
 use windows::Win32::UI::WindowsAndMessaging::{IDI_APPLICATION, LoadIconW};
@@ -75,45 +75,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 6. Initialize the EventPump to drive the message loop on the UI thread
     let mut event_pump = EventPump::new();
 
-    'main_loop: loop {
-        // Process OS window and input events first (DPI, close requested, resize, drag & drop, etc.)
-        while let Some(event) = event_pump.poll_event() {
-            match event {
-                MichiuEvent::Window { event, .. } => match event {
-                    Event::CloseRequested => {
-                        // Safely trigger window destruction directly from the event loop using the handle
-                        handle.destroy();
-                    }
-                    Event::Destroyed => {
-                        // Exit the message loop cleanly after the window is physically destroyed
-                        break 'main_loop;
-                    }
-                    Event::FileDropped(unvalidated_files) => {
-                        // Securely validate raw OS inputs before letting them mutate application state
-                        // For example, verify that all dropped paths actually exist on the disk.
-                        let validated_files = unvalidated_files.validate_with(|paths| {
-                            if paths.iter().all(|path| path.exists() && path.is_file()) {
-                                Ok(paths)
-                            } else {
-                                Err("Some dropped paths do not exist or are directories.")
-                            }
-                        });
-
-                        if let Ok(files) = validated_files {
-                            // `files` is now a safe `Validated<Vec<PathBuf>>`
-                            println!("Dropped files validated: {:?}", files.into_inner());
-                            let _ = tray_clone.show_balloon(
-                                "File Received",
-                                "The dropped file has been verified and processed.",
-                            );
+    // Process OS window and input events first (DPI, close requested, resize, drag & drop, etc.)
+    while let Some(event) = event_pump.wait_event()? {
+        match event {
+            MichiuEvent::Window { event, .. } => match event {
+                Event::CloseRequested => {
+                    // Safely trigger window destruction directly from the event loop using the handle
+                    handle.destroy();
+                }
+                Event::Destroyed => {
+                    // Exit the message loop cleanly after the window is physically destroyed
+                    break;
+                }
+                Event::FileDropped(unvalidated_files) => {
+                    // Securely validate raw OS inputs before letting them mutate application state
+                    // For example, verify that all dropped paths actually exist on the disk.
+                    let validated_files = unvalidated_files.validate_with(|paths| {
+                        if paths.iter().all(|path| path.exists() && path.is_file()) {
+                            Ok(paths)
                         } else {
-                            eprintln!("File drop validation failed!");
+                            Err("Some dropped paths do not exist or are directories.")
                         }
+                    });
+
+                    if let Ok(files) = validated_files {
+                        // `files` is now a safe `Validated<Vec<PathBuf>>`
+                        println!("Dropped files validated: {:?}", files.into_inner());
+                        let _ = tray_clone.show_balloon(
+                            "File Received",
+                            "The dropped file has been verified and processed.",
+                        );
+                    } else {
+                        eprintln!("File drop validation failed!");
                     }
-                    _ => {}
-                },
-                MichiuEvent::User(_) => {},
-            }
+                }
+                _ => {}
+            },
+            MichiuEvent::User(_) => {}
         }
 
         // Process custom application commands sequentially (Safe UI mutations on the UI thread)
@@ -127,9 +125,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-
-        // Throttle the loop to prevent 100% CPU utilization (~60 FPS)
-        std::thread::sleep(std::time::Duration::from_millis(16));
     }
 
     Ok(())

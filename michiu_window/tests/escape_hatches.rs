@@ -112,7 +112,7 @@ fn test_integration_escape_hatches_coexistence_and_precedence() {
         let mut raw_event_received = false;
         let start_time = Instant::now();
         while start_time.elapsed() < Duration::from_secs(1) {
-            if let Some(event) = event_pump.poll_event()
+            if let Some(event) = event_pump.wait_event().unwrap()
                 && let MichiuEvent::Window {
                     event: Event::UnsafeRaw { msg, .. },
                     ..
@@ -122,7 +122,6 @@ fn test_integration_escape_hatches_coexistence_and_precedence() {
                 raw_event_received = true;
                 break;
             }
-            std::thread::sleep(Duration::from_millis(10));
         }
 
         // 全てのエスケープハッチをすり抜けてイベントキューまで届いていること

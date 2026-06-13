@@ -56,7 +56,7 @@ fn spawn_isolated_ui_thread(
 
         'message_loop: loop {
             // wake_up() で送られた WM_NULL 等によってメッセージループを安全に1周回転させる
-            let _ = event_pump.poll_event();
+            let _ = event_pump.wait_event();
 
             // 自分のチャンネルから溜まっているタスクを回収して処理
             while let Ok(msg) = rx.try_recv() {
@@ -98,7 +98,6 @@ fn spawn_isolated_ui_thread(
                 break;
             }
 
-            std::thread::sleep(Duration::from_millis(10));
         }
 
         window.destroy();

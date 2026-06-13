@@ -23,9 +23,7 @@
 //!
 //!     // 3. Initialize the EventPump to drive the message loop on the UI thread
 //!     let mut event_pump = EventPump::new();
-//!
-//!     'main_loop: loop {
-//!         while let Some(event) = event_pump.poll_event() {
+//!         while let Some(event) = event_pump.wait_event()? {
 //!             match event {
 //!                 MichiuEvent::Window { id, event } => match event {
 //!                     Event::CloseRequested => {
@@ -34,6 +32,58 @@
 //!                     }
 //!                     Event::Destroyed => {
 //!                     // Exit the loop cleanly after the window is fully destroyed
+//!                         break;
+//!                     }
+//!                     _ => {}
+//!                 }
+//!                 _ => {}
+//!             }
+//!         }
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ---
+//!
+//! ## Choosing Your Event Loop Model
+//!
+//! `michiu_window` provides two distinct message-polling models designed for different application architectures.
+//!
+//! ### Option A: `wait_event` (Blocking / Event-Driven) — Recommended
+//! **Best Used For**: Desktop utilities, system tray tools, office applications, and general GUI software.
+//!
+//! It completely suspends the UI thread (utilizing **0.0% CPU**) while idle. It unblocks immediately
+//! when the OS generates window messages or when a background thread calls [`WindowHandle::wake_up()`] or
+//! [`EventSender::send_event()`].
+//!
+//! ---
+//!
+//! ### Option B: `poll_event` (Non-blocking / Polling)
+//! **Best Used For**: Real-time games, CAD systems, and high-performance interactive graphics canvases.
+//!
+//! This method is non-blocking. It instantly processes all available OS messages and continues running,
+//! allowing you to update state and render frames continuously (e.g. 60 FPS rendering cycle).
+//!
+//! ```no_run
+//! use michiu_window::{init_dpi_awareness, WindowBuilder, Window, EventPump, MichiuEvent, Event};
+//!
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     init_dpi_awareness();
+//!
+//!     let builder = WindowBuilder::new().with_title("Michiu Real-Time Window");
+//!     let window = Window::build(builder.into_unvalidated().try_into()?)?;
+//!     let handle = window.handle().assume_valid();
+//!     let mut event_pump = EventPump::new();
+//!
+//!     'main_loop: loop {
+//!         // Non-blocking poll; processes all currently pending OS messages instantly
+//!         while let Some(event) = event_pump.poll_event() {
+//!             match event {
+//!                 MichiuEvent::Window { id, event } => match event {
+//!                     Event::CloseRequested => {
+//!                         handle.destroy();
+//!                     }
+//!                     Event::Destroyed => {
 //!                         break 'main_loop;
 //!                     }
 //!                     _ => {}
@@ -41,7 +91,10 @@
 //!                 _ => {}
 //!             }
 //!         }
-//!         // Throttle the loop (~60 FPS)
+//!
+//!         // Update your game states and redraw frames continuously here...
+//!
+//!         // Throttle the loop to target ~60 FPS
 //!         std::thread::sleep(std::time::Duration::from_millis(16));
 //!     }
 //!
@@ -135,9 +188,9 @@
 //! internally to send a `Box<dyn Any + Send>` to the UI thread, waking up the event loop safely.
 //!
 //! ### Option B: Standard Rust `std::sync::mpsc` Channels (With wake_up)
-//! You can use standard Rust channels alongside the non-blocking `poll_event` loop.
+//! You can use standard Rust channels alongside the blocking `wait_event` loop.
 //! By calling `handle.wake_up()` after sending data to the channel, you can safely wake up
-//! the UI thread's sleep state to process the queue immediately, avoiding any busy polling.
+//! the UI thread's sleep state (GetMessage) to process the queue immediately, avoiding any busy polling.
 //!
 //! ```no_run
 //! use std::sync::mpsc;
@@ -177,7 +230,8 @@
 //!
 //! 'main_loop: loop {
 //!     // 1. Process OS window events first (DPI, close requested, resize, etc.)
-//!     while let Some(event) = event_pump.poll_event() {
+//!     // Blocks on wait_event (0.0% CPU) when idle!
+//!     if let Some(event) = event_pump.wait_event()? {
 //!         match event {
 //!             MichiuEvent::Window { id, event } => match event {
 //!                 Event::CloseRequested => {
@@ -205,9 +259,6 @@
 //!             }
 //!         }
 //!     }
-//!
-//!     // Update state and render frames here...
-//!     std::thread::sleep(std::time::Duration::from_millis(16)); // ~60 FPS
 //! }
 //! # Ok(())
 //! # }
@@ -217,14 +268,13 @@
 //!
 //! ## Comparison Matrix
 //!
-//! | Feature / Metric | Approach 1: Direct Manipulation | Approach 2: Centralized Architecture |
+//! | Feature / Metric | Option A: `wait_event` (Event-Driven) | Option B: `poll_event` (Real-Time) |
 //! | :--- | :--- | :--- |
-//! | **Primary Object** | [`WindowHandle`] + direct methods | [`EventSender`] or `mpsc::Sender` |
-//! | **Data Flow** | Scattered / Bidirectional | Unidirectional (Concentrated) |
-//! | **Best Used For** | Small scripts, helper tools, quick title updates | Large GUI apps, strict state machines |
-//! | **Boilerplate** | Extremely low (one-line method calls) | Moderate (requires defining command Enums) |
-//! | **Safety Risk** | Low, but requires `unsafe` for custom raw closures | Absolute Zero (100% safe, unified state) |
-//! | **Execution** | Asynchronous (queued via OS message loop) | Synchronous / Sequenced inside the main loop |
+//! | **Primary Method** | [`EventPump::wait_event`] | [`EventPump::poll_event`] |
+//! | **Idle CPU Usage** | **0.0% (OS-level Sleep)** | High (requires manual thread sleep) |
+//! | **Primary Use Case** | Desktop apps, system trays, utilities | Games, CAD, high-performance rendering |
+//! | **Latency** | Immediate (unblocks on interrupt) | Under 16ms (tied to throttle sleep) |
+//! | **Wake-up Support** | Fully integrated via [`WindowHandle::wake_up`] | N/A (loop runs constantly anyway) |
 //!
 
 mod builder;

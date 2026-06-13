@@ -1,11 +1,12 @@
 use std::cell::Cell;
-
 use super::*;
 use crate::{CursorIcon, PhysicalPoint, PhysicalSize, Window, WindowBuilder, WindowId};
 use michiu_guard::{Validate, Validated};
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{VK_A, VK_SPACE};
-use windows::Win32::UI::WindowsAndMessaging::{WM_LBUTTONDOWN, WM_MOVE, WM_SIZE};
+use windows::Win32::UI::WindowsAndMessaging::{
+    WM_LBUTTONDOWN, WM_MOVE, WM_SIZE,
+};
 
 fn clear_event_queue() {
     let mut pump = EventPump::new();
@@ -1079,5 +1080,65 @@ fn test_event_pump_duplicate_detection_lifecycle() {
 
         // フラグが初期化されているため、3つ目の生成がエラーなく新規活性として受け入れられるか検証
         let _pump3 = EventPump::new();
+    });
+}
+
+#[test]
+fn test_event_pump_wait_event_blocking_lifecycle() {
+    run_on_clean_thread(|| {
+        let builder = WindowBuilder::new().with_title("WaitEventTestWindow");
+        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let handle = window.handle().assume_valid();
+
+        let start_time = std::time::Instant::now();
+
+        // 100ms 後にカスタムメッセージ (WM_USER + 777) をポスト
+        let bg_thread = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            unsafe {
+                let _ = PostMessageW(Some(handle.hwnd()), WM_USER + 777, WPARAM(444), LPARAM(555));
+            }
+        });
+
+        let mut event_pump = EventPump::new();
+        let mut target_event_received = false;
+
+        // メッセージループを回して待機
+        while start_time.elapsed() < std::time::Duration::from_secs(3) {
+            if let Some(event) = event_pump.wait_event().unwrap()
+                && let MichiuEvent::Window { event, .. } = event
+                && let Event::UnsafeRaw {
+                    msg,
+                    wparam,
+                    lparam,
+                } = event
+            {
+                // 本命のメッセージ（WM_USER + 777）が届いた時のみアサーションしてループを脱出
+                if msg == WM_USER + 777 {
+                    assert_eq!(wparam.0, 444);
+                    assert_eq!(lparam.0, 555);
+                    target_event_received = true;
+                    break;
+                }
+            }
+        }
+
+        assert!(
+            target_event_received,
+            "Failed to receive the custom wake up message within timeout"
+        );
+
+        // 経過時間を計測し、OSのノイズメッセージを正しくスルーした上で、
+        // 100ms後の本命メッセージで初めて目覚めてループを抜けたことを検証
+        let elapsed = start_time.elapsed();
+        assert!(
+            elapsed >= std::time::Duration::from_millis(80),
+            "wait_event returned prematurely due to OS system message noise. Elapsed: {:?}",
+            elapsed
+        );
+
+        // クリーンアップ
+        bg_thread.join().expect("Background thread panicked");
+        window.destroy();
     });
 }

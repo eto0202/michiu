@@ -113,7 +113,7 @@ fn test_integration_tray_and_multi_window_routing() {
 
         // 両ウィンドウのクローズイベントを、ID識別を介して正しく検知するまで回す
         while start_time.elapsed() < Duration::from_secs(2) {
-            if let Some(event) = event_pump.poll_event()
+            if let Some(event) = event_pump.wait_event().unwrap()
                 && let MichiuEvent::Window { id, event } = event
                 && let Event::CloseRequested = event
             {
@@ -129,7 +129,6 @@ fn test_integration_tray_and_multi_window_routing() {
             if main_close_received && menu_close_received {
                 break;
             }
-            std::thread::sleep(Duration::from_millis(10));
         }
 
         // マルチウィンドウイベントの個別のルーティングが成功したことを確認

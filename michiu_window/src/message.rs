@@ -1,6 +1,6 @@
 use crate::{
-    ElementState, Event, ImeContext, ImeStateUpdate, MichiuEvent, Modifiers, MouseButton,
-    PhysicalPoint, PhysicalRect, PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD,
+    ElementState, Event, ImeContext, ImeStateUpdate, MichiuError, MichiuEvent, Modifiers,
+    MouseButton, PhysicalPoint, PhysicalRect, PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD,
     WM_WINDOW_COMMAND, WindowId, WindowState,
 };
 use michiu_guard::Unvalidated;
@@ -21,7 +21,15 @@ use windows::{
                 VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
             },
             WindowsAndMessaging::{
-                DestroyWindow, DispatchMessageW, HTCAPTION, IsWindow, PM_REMOVE, PeekMessageW, PostMessageW, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCLBUTTONDOWN, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER
+                DestroyWindow, DispatchMessageW, GetMessageW, HTCAPTION, IsWindow, PM_REMOVE,
+                PeekMessageW, PostMessageW, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE,
+                SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow,
+                TranslateMessage, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED,
+                WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION,
+                WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN,
+                WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE,
+                WM_NCLBUTTONDOWN, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR,
+                WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
             },
         },
     },
@@ -82,6 +90,57 @@ impl EventPump {
         Self {
             _marker: std::marker::PhantomData,
         }
+    }
+
+    /// Blocks the current thread (completely suspends CPU usage to 0%) until a new windowing
+    /// or user-defined event arrives.
+    ///
+    /// # Returns
+    /// - `Ok(Some(event))` if an event was successfully processed.
+    /// - `Ok(None)` if the loop received a normal quit signal (`WM_QUIT`).
+    /// - `Err(MichiuError)` if a low-level Win32 system error occurred.
+    ///
+    /// # Errors
+    /// Returns [`MichiuError::UnexpectedOsError`] if `GetMessageW` returns `-1`.
+    pub fn wait_event(&mut self) -> crate::Result<Option<MichiuEvent>> {
+        // すでにキューに溜まっているイベントがあれば即座に返す (ブロッキングしない)
+        if let Some(event) = EVENT_QUEUE.with(|q| q.borrow_mut().pop_front()) {
+            return Ok(Some(event));
+        }
+
+        unsafe {
+            let mut msg = std::mem::zeroed();
+
+            // GetMessageW を呼び出し、次のメッセージがメッセージキューに来るまでスレッドを完全にサスペンド
+            // - GetMessageW は WM_QUIT を受信した際に FALSE (0) を返す
+            // - エラーが発生した場合は -1 を返す
+            loop {
+                let res = GetMessageW(&mut msg, None, 0, 0);
+
+                if res.0 == 0 {
+                    // WM_QUIT (0) を受信した場合は正常終了とみなし、残りのメモリをフラッシュして Ok(None)
+                    flush_remaining_pointer_messages();
+                    break;
+                } else if res.0 == -1 {
+                    // GetMessageW がエラー (-1) を返した場合は、OSエラーを安全に早期リターン
+                    return Err(MichiuError::UnexpectedOsError(
+                        windows::core::Error::from_thread(),
+                    ));
+                }
+
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+
+                // メッセージ処理によってイベント（WindowEvent や UserEvent）がキューに積まれた場合、
+                // 即座にブロックを解除してそのイベントを呼び出し元に返す。
+                // wake_up() による WM_NULL などの場合、空のイベントとしてループが解除される
+                if let Some(event) = EVENT_QUEUE.with(|q| q.borrow_mut().pop_front()) {
+                    return Ok(Some(event));
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Non-blockingly polls and retrieves a single event from the event queue.

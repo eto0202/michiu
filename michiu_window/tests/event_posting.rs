@@ -89,7 +89,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
         let mut raw_event_received = false;
         let mut size_event_received = false;
 
-        // 3つの異なるイベントがすべて順番に正しく回収されるまで、メッセージループを回します
+        // 3つの異なるイベントがすべて順番に正しく回収されるまで、メッセージループを回す
         while start_time.elapsed() < Duration::from_secs(2) {
             if let Some(event) = event_pump.poll_event() {
                 match event {

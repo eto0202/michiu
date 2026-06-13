@@ -100,7 +100,7 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
 
         // まずはTCP経由でJSONテキストを受信する
         while loop_start.elapsed() < Duration::from_secs(2) {
-            let _ = event_pump.poll_event();
+            let _ = event_pump.wait_event();
 
             let mut buf = [0u8; 1024];
             if let Ok(bytes_read) = stream.read(&mut buf)
@@ -113,7 +113,6 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
                     break;
                 }
             }
-            std::thread::sleep(Duration::from_millis(10));
         }
 
         assert!(
