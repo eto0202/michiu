@@ -1,6 +1,6 @@
+use crate::{MichiuError, PhysicalPoint};
 #[cfg(any(feature = "serde", docsrs))]
 use serde as _;
-use crate::{MichiuError, PhysicalPoint};
 use std::{
     io::Write,
     net::{TcpListener, TcpStream},
@@ -57,6 +57,7 @@ impl ImeContext {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn new(hwnd: HWND) -> crate::Result<Self> {
         let himc = unsafe { ImmGetContext(hwnd) };
         if himc.is_invalid() {
@@ -67,11 +68,13 @@ impl ImeContext {
     }
 
     /// Checks whether the IME is currently active/open (e.g., Japanese/Chinese input mode is ON).
+    #[inline]
     pub fn is_open(&self) -> bool {
         unsafe { ImmGetOpenStatus(self.himc).as_bool() }
     }
 
     /// Programmatically turns the IME open status ON (`true`) or OFF (`false`).
+    #[inline]
     pub fn set_open(&self, open: bool) {
         unsafe {
             let _ = ImmSetOpenStatus(self.himc, open);
@@ -79,6 +82,7 @@ impl ImeContext {
     }
 
     /// Retrieves the raw conversion mode and sentence mode flags.
+    #[inline]
     pub fn get_conversion_status(&self) -> (u32, u32) {
         let mut conversion = IME_CONVERSION_MODE::default();
         let mut sentence = IME_SENTENCE_MODE::default();
@@ -97,6 +101,7 @@ impl ImeContext {
     }
 
     /// Programmatically sets the active raw conversion mode and sentence mode flags.
+    #[inline]
     pub fn set_conversion_status(&self, conversion: u32, sentence: u32) {
         let conversion = IME_CONVERSION_MODE(conversion);
         let sentence = IME_SENTENCE_MODE(sentence);
@@ -111,6 +116,7 @@ impl ImeContext {
     ///
     /// # Errors
     /// Returns [`MichiuError::ImeStringQueryFailed`] if querying the OS buffer fails.
+    #[inline]
     pub fn get_composition_string(&self) -> crate::Result<Option<String>> {
         self.get_string(GCS_COMPSTR)
     }
@@ -121,6 +127,7 @@ impl ImeContext {
     ///
     /// # Errors
     /// Returns [`MichiuError::ImeStringQueryFailed`] if querying the OS buffer fails.
+    #[inline]
     pub fn get_result_string(&self) -> crate::Result<Option<String>> {
         self.get_string(GCS_RESULTSTR)
     }
@@ -128,6 +135,7 @@ impl ImeContext {
     /// Relocates the physical popup position of the IME candidate window (caret coordinate position).
     ///
     /// This keeps the OS composition candidate box (candidate window) aligned correctly with your cursor.
+    #[inline]
     pub fn set_composition_window_position(&self, position: PhysicalPoint) {
         let form = COMPOSITIONFORM {
             dwStyle: CFS_POINT,
@@ -143,6 +151,7 @@ impl ImeContext {
     }
 
     /// Retrieves the current physical coordinate position of the IME candidate window as set by the OS.
+    #[inline]
     pub fn get_composition_window_position(&self) -> Option<PhysicalPoint> {
         let mut form = COMPOSITIONFORM::default();
         unsafe {
@@ -215,6 +224,7 @@ impl Drop for ImeContext {
 /// Retrieves the active thread's keyboard layout Language ID (LANGID).
 ///
 /// Returns standard LANGIDs, such as `0x0411` (1041) for Japanese, `0x0409` (1033) for US English, etc.
+#[inline]
 pub fn get_active_keyboard_layout_id() -> u32 {
     unsafe {
         let hkl = GetKeyboardLayout(0);
@@ -338,6 +348,7 @@ impl ImeRelayServer {
     }
 
     /// Dispatches an [`ImeStateUpdate`] snapshot to the server to broadcast to all connected clients.
+    #[inline]
     pub fn send(&self, update: ImeStateUpdate) {
         let _ = self.tx.send(update);
     }

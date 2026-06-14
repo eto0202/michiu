@@ -1,7 +1,7 @@
 use crate::{
     ElementState, Event, ImeContext, ImeStateUpdate, MichiuError, MichiuEvent, Modifiers,
     MouseButton, PhysicalPoint, PhysicalRect, PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD,
-    WM_WINDOW_COMMAND, WindowId, WindowState,
+    WM_WINDOW_COMMAND, WindowId, WindowState, ZOrder,
 };
 use michiu_guard::Unvalidated;
 use std::{
@@ -21,15 +21,16 @@ use windows::{
                 VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
             },
             WindowsAndMessaging::{
-                DestroyWindow, DispatchMessageW, GetMessageW, HTCAPTION, IsWindow, PM_REMOVE,
-                PeekMessageW, PostMessageW, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE,
-                SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow,
-                TranslateMessage, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED,
-                WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION,
-                WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN,
-                WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE,
-                WM_NCLBUTTONDOWN, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR,
-                WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
+                DestroyWindow, DispatchMessageW, GetMessageW, HTCAPTION, HWND_BOTTOM,
+                HWND_NOTOPMOST, HWND_TOPMOST, IsWindow, PM_REMOVE, PeekMessageW, PostMessageW,
+                SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+                SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CHAR,
+                WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_IME_COMPOSITION,
+                WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE,
+                WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
+                WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCLBUTTONDOWN, WM_PAINT,
+                WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE,
+                WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
             },
         },
     },
@@ -67,6 +68,7 @@ pub struct EventPump {
 }
 
 impl Default for EventPump {
+    #[inline]
     fn default() -> Self {
         Self::new()
     }
@@ -480,6 +482,23 @@ pub(crate) fn translate_and_push(
                             let show_cmd = if visible { SW_SHOW } else { SW_HIDE };
                             let _ = ShowWindow(hwnd, show_cmd);
                         }
+                        SetWindowCommand::ZOrder(z_order) => {
+                            let hwnd_insert_after = match z_order {
+                                ZOrder::Topmost => HWND_TOPMOST,
+                                ZOrder::Default => HWND_NOTOPMOST,
+                                ZOrder::Bottom => HWND_BOTTOM,
+                            };
+
+                            let _ = SetWindowPos(
+                                hwnd,
+                                Some(hwnd_insert_after),
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                            );
+                        }
                         SetWindowCommand::Size(size) => {
                             let _ = SetWindowPos(
                                 hwnd,
@@ -585,6 +604,7 @@ pub(crate) fn translate_and_push(
 }
 
 // 装飾キーの現在の押し込み状態を非同期的にポーリング。
+#[inline]
 fn get_active_modifiers() -> Modifiers {
     let mut modifiers = Modifiers::empty();
     unsafe {
@@ -623,6 +643,7 @@ unsafe impl Sync for EventSender {}
 
 impl EventSender {
     /// Creates a default configured `EventSender` instance.
+    #[inline]
     pub fn new(hwnd: HWND) -> Self {
         Self { hwnd }
     }
@@ -651,21 +672,26 @@ impl EventSender {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn send_event<T: Any + Send + 'static>(&self, event: T) {
         let boxed: Box<dyn Any + Send> = Box::new(event);
-        // Box を生ポインタに変換し、所有権を一時的に破棄する
+        self.send_event_inner(boxed);
+    }
+
+    fn send_event_inner(&self, boxed: Box<dyn Any + Send>) {
+        // Fatポインタを LPARAM (1ポインタ幅) に収めるためにダブルボクシングして生ポインタ化
         let raw_ptr = Box::into_raw(Box::new(boxed));
 
-        unsafe {
-            // PostMessageW を呼んでUIスレッドのメッセージキューに投げる
-            // LPARAM に生ポインタを乗せて引き渡す
-            let _ = PostMessageW(
+        // PostMessageW を呼んでUIスレッドのメッセージキューに投げる
+        // LPARAM に生ポインタを乗せて引き渡す
+        let _ = unsafe {
+            PostMessageW(
                 Some(self.hwnd),
                 WM_USER_EVENT,
                 WPARAM(0),
                 LPARAM(raw_ptr as isize),
-            );
-        }
+            )
+        };
     }
 }
 
@@ -737,6 +763,7 @@ pub struct EventBus {
 
 impl EventBus {
     /// Creates a new, empty `EventBus` instance.
+    #[inline]
     pub fn new() -> Self {
         Self {
             listeners: Rc::new(RefCell::new(HashMap::new())),

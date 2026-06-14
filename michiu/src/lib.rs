@@ -63,6 +63,7 @@ mod window_facade {
         WindowBuilder,
         WindowHandle,
         WindowId,
+        ZOrder,
         get_active_keyboard_layout_id,
 
         init_dpi_awareness,
@@ -71,3 +72,9 @@ mod window_facade {
 
 #[cfg(feature = "window")]
 pub use window_facade::*;
+
+mod array;
+mod style;
+mod types;
+
+pub use types::*;

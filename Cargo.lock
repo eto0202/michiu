@@ -1850,9 +1850,11 @@ dependencies = [
 name = "michiu"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "michiu_guard",
  "michiu_window",
  "serde",
+ "slotmap",
 ]
 
 [[package]]

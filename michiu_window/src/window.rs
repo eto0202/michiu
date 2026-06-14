@@ -1,7 +1,7 @@
 use crate::error::{MichiuError, Result};
 use crate::{
     CursorIcon, FileDropTarget, ImeRelayServer, LogicalSize, PhysicalPoint, PhysicalSize,
-    PreferredAppMode, Tray, WindowBuilder, WindowHandle, translate_and_push,
+    PreferredAppMode, Tray, WindowBuilder, WindowHandle, ZOrder, translate_and_push,
 };
 use michiu_guard::{Unvalidated, Validated};
 use raw_window_handle::{
@@ -13,7 +13,8 @@ use windows::Win32::Foundation::{FreeLibrary, GlobalFree};
 use windows::Win32::System::Memory::GlobalSize;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    HTCAPTION, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_WAIT, SetCursor, WM_NCLBUTTONDOWN,
+    HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_WAIT,
+    SetCursor, WM_NCLBUTTONDOWN,
 };
 use windows::{
     Win32::{
@@ -101,6 +102,7 @@ pub struct Window {
 pub struct WindowId(pub(crate) isize);
 
 impl WindowId {
+    #[inline]
     pub fn id(&self) -> isize {
         self.0
     }
@@ -286,6 +288,7 @@ impl Window {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn handle(&self) -> Unvalidated<WindowHandle> {
         Unvalidated::new(WindowHandle {
             hwnd: self.hwnd,
@@ -295,11 +298,13 @@ impl Window {
     }
 
     /// Retrieves the current physical DPI value for this window.
+    #[inline]
     pub fn dpi(&self) -> u32 {
         unsafe { GetDpiForWindow(self.hwnd) }
     }
 
     /// Retrieves the current scaling ratio between physical pixels and logical pixels (e.g., `1.5` for 150% scaling).
+    #[inline]
     pub fn scale_factor(&self) -> f64 {
         self.dpi() as f64 / 96.0
     }
@@ -467,21 +472,25 @@ impl Window {
     }
 
     /// Returns the raw Win32 `HWND` handle associated with the window.
+    #[inline]
     pub fn hwnd(&self) -> HWND {
         self.hwnd
     }
 
     /// Returns the raw Win32 `HINSTANCE` module handle associated with the window.
+    #[inline]
     pub fn hinstance(&self) -> HINSTANCE {
         self.hinstance
     }
 
     /// Returns the OS Thread ID of the UI thread that created this window.
+    #[inline]
     pub fn thread_id(&self) -> u32 {
         self.thread_id
     }
 
     /// Returns the unique `WindowId` of this window.
+    #[inline]
     pub fn id(&self) -> WindowId {
         WindowId(self.hwnd().0 as isize)
     }
@@ -490,19 +499,24 @@ impl Window {
     ///
     /// Since this method consumes the ownership (`self`), the window variable cannot be used
     /// after calling this method.
+    #[inline]
     pub fn destroy(self) {}
 
     /// Updates the window caption (title) text.
+    #[inline]
     pub fn set_title(&self, title: impl Into<Cow<'static, str>>) {
-        let title_str = title.into();
+        self.set_title_inner(title.into());
+    }
 
+    fn set_title_inner(&self, title: Cow<'static, str>) {
         unsafe {
-            let title_wide: Vec<u16> = title_str.encode_utf16().chain(std::iter::once(0)).collect();
+            let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
             let _ = SetWindowTextW(self.hwnd, PCWSTR(title_wide.as_ptr()));
         }
     }
 
     /// Shows or hides the window based on the provided boolean value.
+    #[inline]
     pub fn set_visible(&self, visible: bool) {
         unsafe {
             let show_cmd = if visible { SW_SHOW } else { SW_HIDE };
@@ -510,7 +524,30 @@ impl Window {
         }
     }
 
+    /// Thread-safely updates the window's Z-order (Topmost, Default, or Bottom).
+    #[inline]
+    pub fn set_z_order(&self, z_order: ZOrder) {
+        let hwnd_insert_after = match z_order {
+            ZOrder::Topmost => HWND_TOPMOST,
+            ZOrder::Default => HWND_NOTOPMOST,
+            ZOrder::Bottom => HWND_BOTTOM,
+        };
+
+        let _ = unsafe {
+            SetWindowPos(
+                self.hwnd,
+                Some(hwnd_insert_after),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+        };
+    }
+
     /// Resizes the physical client area of the window.
+    #[inline]
     pub fn set_size(&self, size: PhysicalSize) {
         unsafe {
             let _ = SetWindowPos(
@@ -526,6 +563,7 @@ impl Window {
     }
 
     /// Relocates the window to the specified physical screen coordinates.
+    #[inline]
     pub fn set_position(&self, position: PhysicalPoint) {
         unsafe {
             let _ = SetWindowPos(
@@ -613,6 +651,7 @@ impl Window {
 
     /// Sends a Win32 non-client click signal (HTCAPTION) to the OS, allowing the user
     /// to drag and move the window by clicking on custom regions (e.g., custom client title bars).
+    #[inline]
     pub fn set_start_dragging(&self) {
         unsafe {
             // もしマウスキャプチャ中なら解除する
@@ -651,6 +690,7 @@ impl Drop for Window {
 }
 
 impl HasWindowHandle for Window {
+    #[inline]
     fn window_handle(&self) -> std::result::Result<RwhWindowHandle<'_>, HandleError> {
         let hwnd_val = self.hwnd.0 as isize;
         let non_zero_hwnd = NonZeroIsize::new(hwnd_val).ok_or(HandleError::Unavailable)?;
@@ -667,6 +707,7 @@ impl HasWindowHandle for Window {
 }
 
 impl HasDisplayHandle for Window {
+    #[inline]
     fn display_handle(&self) -> std::result::Result<RwhDisplayHandle<'_>, HandleError> {
         Ok(RwhDisplayHandle::windows())
     }
@@ -691,6 +732,7 @@ impl HasDisplayHandle for Window {
 ///     }
 /// }
 /// ```
+#[inline]
 pub fn init_dpi_awareness() -> bool {
     unsafe {
         // Windows 10 Creators Update以降の推奨されるDPIモード

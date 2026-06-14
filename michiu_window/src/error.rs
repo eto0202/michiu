@@ -209,6 +209,7 @@ impl fmt::Display for SysErrorInfo {
 
 impl MichiuError {
     /// Wraps this error in a helper type designed to render a beautiful diagnostic report.
+    #[inline]
     pub fn report(&self) -> RichReport<'_> {
         RichReport(self)
     }

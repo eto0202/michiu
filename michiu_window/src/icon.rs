@@ -204,6 +204,7 @@ impl Icon {
     ///     Ok(())
     /// }
     /// ```
+    #[inline]
     pub unsafe fn from_raw(hicon: HICON) -> Self {
         Self {
             inner: Arc::new(IconInner {

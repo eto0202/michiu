@@ -42,17 +42,9 @@ pub const WM_TRAY_CALLBACK: u32 = WM_USER + 100;
 ///
 /// When all cloned instances of this `Tray` are dropped, the tray icon is automatically
 /// deleted from the system shell and its hidden dummy window is safely destroyed.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Tray {
     inner: Arc<TrayInner>,
-}
-
-impl Clone for Tray {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -472,6 +464,7 @@ impl CustomTrayMenu {
     ///
     /// Under the hood, clicking the tray icon will automatically relocate the target window
     /// to the cursor position, set it as topmost, and show it.
+    #[inline]
     pub fn new(window_handle: WindowHandle) -> Self {
         Self { window_handle }
     }
@@ -501,6 +494,7 @@ impl std::fmt::Debug for TrayMenuItem {
 
 impl TrayMenuItem {
     /// Creates a new native menu item with the specified label text.
+    #[inline]
     pub fn new(text: impl Into<Cow<'static, str>>) -> Self {
         Self {
             id: 0,
@@ -512,6 +506,7 @@ impl TrayMenuItem {
     }
 
     /// Registers a callback triggered when clicking this menu item.
+    #[inline]
     pub fn with_on_click<F>(mut self, on_click: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -521,6 +516,7 @@ impl TrayMenuItem {
     }
 
     /// Registers a callback triggered when hovering over this menu item.
+    #[inline]
     pub fn with_on_hover<F>(mut self, on_hover: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -530,6 +526,7 @@ impl TrayMenuItem {
     }
 
     /// Sets whether the menu item is enabled (clickable) or grayed out. (Default: `true`)
+    #[inline]
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
@@ -573,6 +570,7 @@ impl std::fmt::Debug for TrayBuilder {
 }
 
 impl Default for TrayBuilder {
+    #[inline]
     fn default() -> Self {
         Self {
             tooltip: None,
@@ -589,6 +587,7 @@ impl Default for TrayBuilder {
 
 impl TrayBuilder {
     /// Creates a default configured `TrayBuilder` instance.
+    #[inline]
     pub fn new() -> Self {
         Self::default()
     }
@@ -596,18 +595,21 @@ impl TrayBuilder {
     /// Sets the tooltip text displayed when hovering over the tray icon.
     ///
     /// Must be under 128 characters.
+    #[inline]
     pub fn with_tooltip(mut self, tooltip: impl Into<Cow<'static, str>>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
     }
 
     /// Assigns a custom [`Icon`] for the tray. (Required)
+    #[inline]
     pub fn with_icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
     /// Registers a callback triggered when left-clicking (or double-clicking) the tray icon.
+    #[inline]
     pub fn on_left_click<F>(mut self, callback: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -620,6 +622,7 @@ impl TrayBuilder {
     ///
     /// Note: This is mutually exclusive with custom menu items. If menu items or custom menus
     /// are configured, right-clicking will show the menu instead.
+    #[inline]
     pub fn on_right_click<F>(mut self, callback: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -629,6 +632,7 @@ impl TrayBuilder {
     }
 
     /// Appends a standard native item to the tray context menu.
+    #[inline]
     pub fn with_menu_item(mut self, mut item: TrayMenuItem) -> Self {
         item.id = self.next_menu_id;
         self.next_menu_id += 1;
@@ -638,18 +642,21 @@ impl TrayBuilder {
     }
 
     /// Registers a custom popup window to display when right-clicking the tray icon.
+    #[inline]
     pub fn with_custom_menu(mut self, custom_menu: CustomTrayMenu) -> Self {
         self.custom_menu = Some(custom_menu);
         self
     }
 
     /// Forces the tray native context menu to Windows 11's native dark mode.
+    #[inline]
     pub fn with_dark_mode_menus(mut self, enabled: bool) -> Self {
         self.dark_mode_menus = enabled;
         self
     }
 
     /// Wraps the current builder state into an [`Unvalidated`] wrapper.
+    #[inline]
     pub fn into_unvalidated(self) -> Unvalidated<Self> {
         Unvalidated::new(self)
     }
@@ -666,6 +673,7 @@ impl Validate for TrayBuilder {
     ///
     /// # Errors
     /// Returns [`MichiuError::ValidationError`] on failure.
+    #[inline]
     fn validate(self) -> Result<Self> {
         // アイコンの存在検証
         if self.icon.is_none() {

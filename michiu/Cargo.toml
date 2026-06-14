@@ -4,9 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+bytemuck = "1.25.0"
 michiu_guard = { workspace = true, optional = true }
 michiu_window = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
+slotmap = "1.1.1"
 
 [features]
 default = ["guard", "window"]

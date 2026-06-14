@@ -1,14 +1,11 @@
 use eframe::egui;
 use michiu_window::{
     ComContext, Event, EventPump, Icon, LogicalSize, MichiuEvent, Tray, TrayBuilder, Window,
-    WindowBuilder, WindowHandle, init_dpi_awareness,
+    WindowBuilder, WindowHandle, ZOrder, init_dpi_awareness,
 };
 use std::path::PathBuf;
 use std::sync::mpsc;
-use windows::Win32::UI::WindowsAndMessaging::{
-    HWND_NOTOPMOST, HWND_TOPMOST, IDI_APPLICATION, LoadIconW, SWP_NOACTIVATE, SWP_NOMOVE,
-    SWP_NOSIZE, SetWindowPos,
-};
+use windows::Win32::UI::WindowsAndMessaging::{IDI_APPLICATION, LoadIconW};
 
 // Do we really need to implement this in michiu_window...?
 
@@ -241,37 +238,14 @@ fn spawn_win32_backend(
                         // Display the window in the center of the screen and bring it into focus
                         window.set_visible(true);
                         window.center_on_screen();
-
-                        // Call the Win32 API directly to keep the window always on top (HWND_TOPMOST)
-                        // Sorry, I hadn't implemented it yet.
-                        let _ = unsafe {
-                            SetWindowPos(
-                                window.hwnd(),
-                                Some(HWND_TOPMOST),
-                                0,
-                                0,
-                                0,
-                                0,
-                                SWP_NOMOVE | SWP_NOSIZE,
-                            )
-                        };
+                        window.set_z_order(ZOrder::Topmost);
 
                         let _ = tx_ipc.send(IpcMessage::DropWindowStatus(true));
                         egui_ctx.request_repaint();
                     }
                     GuiCommand::CloseDropWindow => {
                         window.set_visible(false);
-                        let _ = unsafe {
-                            SetWindowPos(
-                                window.hwnd(),
-                                Some(HWND_NOTOPMOST),
-                                0,
-                                0,
-                                0,
-                                0,
-                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                            )
-                        };
+                        window.set_z_order(ZOrder::Default);
 
                         let _ = tx_ipc.send(IpcMessage::DropWindowStatus(false));
                         egui_ctx.request_repaint();

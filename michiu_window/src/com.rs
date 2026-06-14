@@ -73,6 +73,7 @@ impl ComContext {
     ///     Ok(())
     /// }
     /// ```
+    #[inline]
     pub fn new_com_single() -> Result<Self> {
         unsafe {
             OleInitialize(None).map_err(|err| MichiuError::ComInitializationFailed {
@@ -92,6 +93,7 @@ impl ComContext {
     ///
     /// # Errors
     /// Returns [`MichiuError::ComInitializationFailed`] if `CoInitializeEx` fails.
+    #[inline]
     pub fn new_com_multi() -> Result<Self> {
         unsafe {
             CoInitializeEx(None, COINIT_MULTITHREADED)
@@ -111,6 +113,7 @@ impl ComContext {
     ///
     /// # Errors
     /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
+    #[inline]
     pub fn new_ro_single() -> Result<Self> {
         unsafe {
             RoInitialize(RO_INIT_SINGLETHREADED).map_err(|err| {
@@ -130,6 +133,7 @@ impl ComContext {
     ///
     /// # Errors
     /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
+    #[inline]
     pub fn new_ro_multi() -> Result<Self> {
         unsafe {
             RoInitialize(RO_INIT_MULTITHREADED).map_err(|err| {
@@ -145,6 +149,7 @@ impl ComContext {
         })
     }
 
+    #[inline]
     pub(crate) fn is_ole(&self) -> bool {
         matches!(self.kind, ComContextKind::Ole)
     }
@@ -153,20 +158,20 @@ impl ComContext {
 // When cloning the context, we must also increment the OS-side initialization reference counter
 // to maintain a correct balance when drops occur.
 impl Clone for ComContext {
+    #[inline]
     fn clone(&self) -> Self {
-        unsafe {
-            match self.kind {
-                ComContextKind::Classic(init) => {
-                    let _ = CoInitializeEx(None, init);
-                }
-                ComContextKind::Ole => {
-                    let _ = OleInitialize(None);
-                }
-                ComContextKind::WinRt(init) => {
-                    let _ = RoInitialize(init);
-                }
+        match self.kind {
+            ComContextKind::Classic(init) => {
+                let _ = unsafe { CoInitializeEx(None, init) };
+            }
+            ComContextKind::Ole => {
+                let _ = unsafe { OleInitialize(None) };
+            }
+            ComContextKind::WinRt(init) => {
+                let _ = unsafe { RoInitialize(init) };
             }
         }
+
         Self {
             kind: self.kind,
             _marker: PhantomData,
@@ -230,6 +235,7 @@ impl FileDropTarget {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn new(hwnd: HWND) -> Self {
         Self { hwnd }
     }
@@ -245,6 +251,7 @@ impl FileDropTarget {
     /// let target_hwnd = drop_target.hwnd();
     /// assert!(target_hwnd.is_invalid());
     /// ```
+    #[inline]
     pub fn hwnd(&self) -> HWND {
         self.hwnd
     }

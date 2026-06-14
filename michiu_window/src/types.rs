@@ -1,5 +1,5 @@
 /// Describes the state of a physical input element (e.g., Keyboard Key, Mouse Button).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ElementState {
     /// The element is currently pressed down.
     Pressed,
@@ -20,11 +20,13 @@ impl Modifiers {
     pub const LOGO: Self = Self(1 << 3);
 
     /// Creates an empty modifier state.
+    #[inline]
     pub const fn empty() -> Self {
         Self(0)
     }
 
     /// Inserts a specific modifier key flag into the active state.
+    #[inline]
     pub fn insert(&mut self, other: Self) {
         self.0 |= other.0;
     }
@@ -43,13 +45,14 @@ impl Modifiers {
     /// assert!(mods.contains(Modifiers::CONTROL));
     /// assert!(!mods.contains(Modifiers::ALT));
     /// ```
+    #[inline]
     pub fn contains(&self, other: Self) -> bool {
         (self.0 & other.0) == other.0
     }
 }
 
 /// Identifies a specific mouse button.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MouseButton {
     /// The left mouse button.
     Left,
@@ -62,7 +65,7 @@ pub enum MouseButton {
 }
 
 /// Represents standard system mouse cursor shapes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum CursorIcon {
     /// The standard arrow cursor.
     #[default]
@@ -77,8 +80,21 @@ pub enum CursorIcon {
     Cross,
 }
 
+/// Specifies the positioning (Z-order) of a window relative to other windows on the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ZOrder {
+    /// Places the window above all non-topmost windows. The window maintains its topmost
+    /// position even when deactivated. (Always on Top)
+    Topmost,
+    /// Places the window in the default non-topmost position (behind all topmost windows).
+    /// This is the standard, default Win32 Z-order.
+    Default,
+    /// Places the window at the bottom of the Z-order, behind all other windows.
+    Bottom,
+}
+
 /// A point coordinate defined in physical screen pixels.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PhysicalPoint {
     pub x: i32,
     pub y: i32,
@@ -86,11 +102,13 @@ pub struct PhysicalPoint {
 
 impl PhysicalPoint {
     /// Creates `PhysicalPoint` instance.
+    #[inline]
     pub fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
 
     /// Converts this physical coordinate point to a logical point based on the specified DPI scaling factor.
+    #[inline]
     pub fn to_logical(&self, scale_factor: f64) -> LogicalPoint {
         LogicalPoint {
             x: self.x as f64 / scale_factor,
@@ -100,7 +118,7 @@ impl PhysicalPoint {
 }
 
 /// A window size dimension defined in physical screen pixels.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PhysicalSize {
     pub width: i32,
     pub height: i32,
@@ -108,10 +126,12 @@ pub struct PhysicalSize {
 
 impl PhysicalSize {
     /// Creates `PhysicalSize` instance.
+    #[inline]
     pub fn new(width: i32, height: i32) -> Self {
         Self { width, height }
     }
     /// Converts this physical size to a logical size based on the specified DPI scaling factor.
+    #[inline]
     pub fn to_logical(&self, scale_factor: f64) -> LogicalSize {
         LogicalSize {
             width: self.width as f64 / scale_factor,
@@ -121,7 +141,7 @@ impl PhysicalSize {
 }
 
 /// A rectangle bounds representation defined in physical screen pixels.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PhysicalRect {
     pub left: i32,
     pub top: i32,
@@ -131,6 +151,7 @@ pub struct PhysicalRect {
 
 impl PhysicalRect {
     /// Creates `PhysicalRect` instance.
+    #[inline]
     pub fn new(left: i32, top: i32, right: i32, bottom: i32) -> Self {
         Self {
             left,
@@ -140,6 +161,7 @@ impl PhysicalRect {
         }
     }
     /// Converts this physical rect to a logical rect based on the specified DPI scaling factor.
+    #[inline]
     pub fn to_logical(&self, scale_factor: f64) -> LogicalRect {
         LogicalRect {
             left: self.left as f64 / scale_factor,
@@ -159,11 +181,13 @@ pub struct LogicalPoint {
 
 impl LogicalPoint {
     /// Creates `LogicalPoint` instance.
+    #[inline]
     pub fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
     /// Converts this logical coordinate point to a physical point based on the specified DPI scaling factor,
     /// applying standard round-to-nearest rounding.
+    #[inline]
     pub fn to_physical(&self, scale_factor: f64) -> PhysicalPoint {
         PhysicalPoint {
             x: (self.x * scale_factor).round() as i32,
@@ -181,10 +205,12 @@ pub struct LogicalSize {
 
 impl LogicalSize {
     /// Creates `LogicalSize` instance.
+    #[inline]
     pub fn new(width: f64, height: f64) -> Self {
         Self { width, height }
     }
     /// Converts this logical size to a physical size, applying standard round-to-nearest rounding.
+    #[inline]
     pub fn to_physical(&self, scale_factor: f64) -> PhysicalSize {
         PhysicalSize {
             width: (self.width * scale_factor).round() as i32,
@@ -204,6 +230,7 @@ pub struct LogicalRect {
 
 impl LogicalRect {
     /// Creates `LogicalRect` instance.
+    #[inline]
     pub fn new(left: f64, top: f64, right: f64, bottom: f64) -> Self {
         Self {
             left,
@@ -213,6 +240,7 @@ impl LogicalRect {
         }
     }
     /// Converts this logical rect to a physical rect, applying standard round-to-nearest rounding.
+    #[inline]
     pub fn to_physical(&self, scale_factor: f64) -> PhysicalRect {
         PhysicalRect {
             left: (self.left * scale_factor).round() as i32,

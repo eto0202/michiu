@@ -132,11 +132,13 @@ pub struct Unvalidated<T>(T);
 
 impl<T> Unvalidated<T> {
     /// Creates a new `Unvalidated` wrapper containing the raw value.
+    #[inline]
     pub fn new(val: T) -> Self {
         Self(val)
     }
 
     /// Consumes the wrapper and returns the underlying unvalidated value.
+    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
@@ -147,6 +149,7 @@ impl<T> Unvalidated<T> {
     /// This method bypasses validation. Use this only when you are certain
     /// that the value already meets all required validation invariants (for example,
     /// when restoring verified data from a trusted database).
+    #[inline]
     pub fn assume_valid(self) -> Validated<T> {
         Validated::new_unchecked(self.0)
     }
@@ -181,6 +184,7 @@ impl<T> Unvalidated<T> {
     ///
     /// assert!(validated_path.is_ok());
     /// ```
+    #[inline]
     pub fn validate_with<U, E>(
         self,
         validator: impl FnOnce(T) -> Result<U, E>,
@@ -227,6 +231,7 @@ impl<T> Unvalidated<T> {
     /// assert!(retry.is_ok());
     /// assert_eq!(retry.unwrap().into_inner(), "https://michiu.org");
     /// ```
+    #[inline]
     pub fn try_validate_with<U, E>(
         self,
         validator: impl FnOnce(T) -> Result<U, (E, T)>,
@@ -265,6 +270,7 @@ impl<T> Unvalidated<T> {
     /// // Since validation failed, the original raw data is safely returned
     /// assert_eq!(recovered.into_inner(), "secret");
     /// ```
+    #[inline]
     pub fn try_validate_ref<E>(
         self,
         validator: impl FnOnce(&T) -> Result<(), E>,
@@ -308,12 +314,14 @@ impl<T> Unvalidated<T> {
     /// assert!(validated_url.is_ok());
     /// assert_eq!(validated_url.unwrap().into_inner(), "https://michiu.org");
     /// ```
+    #[inline]
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Unvalidated<U> {
         Unvalidated(f(self.0))
     }
 }
 
 impl<T> AsRef<T> for Unvalidated<T> {
+    #[inline]
     fn as_ref(&self) -> &T {
         &self.0
     }
@@ -354,11 +362,13 @@ impl<T> Validated<T> {
     ///
     /// Under normal circumstances, prefer using [`validate_with`](Unvalidated::validate_with)
     /// or the [`TryFrom`] implementation on [`Unvalidated`].
+    #[inline]
     pub fn new_unchecked(val: T) -> Self {
         Self(val)
     }
 
     /// Consumes the wrapper and returns the underlying validated value.
+    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
@@ -367,6 +377,7 @@ impl<T> Validated<T> {
 impl<T> Deref for Validated<T> {
     type Target = T;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -450,6 +461,7 @@ pub trait Validate: Sized {
     /// let validated: Validated<Age> = raw_age.validate_into().unwrap();
     /// assert_eq!(validated.into_inner(), Age(17));
     /// ```
+    #[inline]
     fn validate_into(self) -> Result<Validated<Self>, Self::Error> {
         Unvalidated::new(self).try_into()
     }
@@ -475,6 +487,7 @@ impl<T: Validate> TryFrom<Unvalidated<T>> for Validated<T> {
     ///
     /// assert_eq!(validated.into_inner(), Age(17));
     /// ```
+    #[inline]
     fn try_from(unvalidated: Unvalidated<T>) -> Result<Self, Self::Error> {
         let raw = unvalidated.0;
         let validated_inner = raw.validate()?;
@@ -483,42 +496,49 @@ impl<T: Validate> TryFrom<Unvalidated<T>> for Validated<T> {
 }
 
 impl<T> AsRef<T> for Validated<T> {
+    #[inline]
     fn as_ref(&self) -> &T {
         &self.0
     }
 }
 
 impl<T> Borrow<T> for Validated<T> {
+    #[inline]
     fn borrow(&self) -> &T {
         &self.0
     }
 }
 
 impl Borrow<str> for Validated<String> {
+    #[inline]
     fn borrow(&self) -> &str {
         &self.0
     }
 }
 
 impl Borrow<Path> for Validated<PathBuf> {
+    #[inline]
     fn borrow(&self) -> &Path {
         &self.0
     }
 }
 
 impl<T> Borrow<[T]> for Validated<Vec<T>> {
+    #[inline]
     fn borrow(&self) -> &[T] {
         &self.0
     }
 }
 
 impl Borrow<OsStr> for Validated<OsString> {
+    #[inline]
     fn borrow(&self) -> &OsStr {
         &self.0
     }
 }
 
 impl Borrow<CStr> for Validated<CString> {
+    #[inline]
     fn borrow(&self) -> &CStr {
         &self.0
     }

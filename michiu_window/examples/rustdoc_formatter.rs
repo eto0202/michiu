@@ -148,65 +148,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     msg: 0x0312, // WM_HOTKEY
                     wparam,
                     ..
-                } => {
-                    if wparam.0 == HOTKEY_ID as usize {
-                        println!("[UI Thread] Formatter hotkey triggered!");
+                } if wparam.0 == HOTKEY_ID as usize => {
+                    println!("[UI Thread] Formatter hotkey triggered!");
 
-                        // Retrieve a string from the clipboard
-                        match window.get_clipboard_text() {
-                            Ok(raw_text) => {
-                                if raw_text.trim().is_empty() {
-                                    let _ = tray_clone
-                                        .show_balloon("Formatter Warning", "Clipboard is empty.");
-                                    continue;
-                                }
+                    // Retrieve a string from the clipboard
+                    match window.get_clipboard_text() {
+                        Ok(raw_text) => {
+                            if raw_text.trim().is_empty() {
+                                let _ = tray_clone
+                                    .show_balloon("Formatter Warning", "Clipboard is empty.");
+                                continue;
+                            }
 
-                                let handle_clone = handle.clone();
-                                let tray_inner_clone = tray_clone.clone();
+                            let handle_clone = handle.clone();
+                            let tray_inner_clone = tray_clone.clone();
 
-                                // Format in a background thread
-                                std::thread::spawn(move || {
-                                    // 1. Detect and strip comment prefixes (such as /// or //!)
-                                    let (raw_code, detected_prefix) =
-                                        strip_rustdoc_prefix(&raw_text);
+                            // Format in a background thread
+                            std::thread::spawn(move || {
+                                // 1. Detect and strip comment prefixes (such as /// or //!)
+                                let (raw_code, detected_prefix) = strip_rustdoc_prefix(&raw_text);
 
-                                    // 2. Format raw code using the system's `rustfmt`
-                                    match run_rustfmt(&raw_code) {
-                                        Ok(formatted_code) => {
-                                            // 3. Restore the document by reapplying the first prefix found
-                                            let final_text = match detected_prefix {
-                                                Some(prefix) => {
-                                                    add_rustdoc_prefix(&formatted_code, prefix)
-                                                }
-                                                None => formatted_code,
-                                            };
+                                // 2. Format raw code using the system's `rustfmt`
+                                match run_rustfmt(&raw_code) {
+                                    Ok(formatted_code) => {
+                                        // 3. Restore the document by reapplying the first prefix found
+                                        let final_text = match detected_prefix {
+                                            Some(prefix) => {
+                                                add_rustdoc_prefix(&formatted_code, prefix)
+                                            }
+                                            None => formatted_code,
+                                        };
 
-                                            // 4. Overwrite the clipboard
-                                            handle_clone.set_clipboard_text(final_text);
+                                        // 4. Overwrite the clipboard
+                                        handle_clone.set_clipboard_text(final_text);
 
-                                            let _ = tray_inner_clone.show_balloon(
+                                        let _ = tray_inner_clone.show_balloon(
                                             "Rustdoc Formatted!",
                                             "The internal code has been beautifully formatted with rustfmt!"
                                         );
-                                        }
-                                        Err(err) => {
-                                            // Notification when formatting fails due to a syntax error or similar issue
-                                            let err_msg = format!("rustfmt failed:\n{}", err);
-                                            eprintln!("{}", err_msg);
-                                            let _ = tray_inner_clone.show_balloon(
+                                    }
+                                    Err(err) => {
+                                        // Notification when formatting fails due to a syntax error or similar issue
+                                        let err_msg = format!("rustfmt failed:\n{}", err);
+                                        eprintln!("{}", err_msg);
+                                        let _ = tray_inner_clone.show_balloon(
                                             "Format Failed (Syntax Error)",
                                             "Please verify that the code inside the comment has no syntax errors."
                                         );
-                                        }
                                     }
-                                });
-                            }
-                            Err(_) => {
-                                let _ = tray_clone.show_balloon(
-                                    "Formatter Error",
-                                    "Failed to retrieve clipboard text.",
-                                );
-                            }
+                                }
+                            });
+                        }
+                        Err(_) => {
+                            let _ = tray_clone.show_balloon(
+                                "Formatter Error",
+                                "Failed to retrieve clipboard text.",
+                            );
                         }
                     }
                 }

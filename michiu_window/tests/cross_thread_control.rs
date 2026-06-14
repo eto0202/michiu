@@ -56,6 +56,8 @@ fn test_integration_cross_thread_control_lifecycle() {
                     executed_clone.store(true, Ordering::SeqCst);
                 });
             }
+            // バックグラウンドから非同期にZオーダーを最前面に変更
+            handle_clone.set_z_order(michiu_window::ZOrder::Topmost);
         });
 
         // バックグラウンドスレッドの処理が確実に完了するのを待つ

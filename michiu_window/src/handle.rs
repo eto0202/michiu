@@ -5,14 +5,15 @@ use raw_window_handle::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWLP_USERDATA, GetWindowLongPtrW, HTCAPTION, SendMessageW, WM_NCLBUTTONDOWN, WM_NULL,
+    DestroyWindow, GWLP_USERDATA, GetWindowLongPtrW, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST,
+    HWND_TOPMOST, SendMessageW, WM_NCLBUTTONDOWN, WM_NULL,
 };
 use windows::core::PCWSTR;
 
 use crate::error::{MichiuError, Result};
 use crate::{
     CursorIcon, EventSender, PhysicalPoint, PhysicalSize, PreferredAppMode, WindowId, WindowState,
-    enable_dark_mode_titlebar, is_system_dark_mode, set_app_theme,
+    ZOrder, enable_dark_mode_titlebar, is_system_dark_mode, set_app_theme,
 };
 use std::{borrow::Cow, num::NonZeroIsize};
 use windows::Win32::{
@@ -51,6 +52,7 @@ unsafe impl Sync for WindowHandle {}
 pub(crate) enum SetWindowCommand {
     Title(Cow<'static, str>),
     Visible(bool),
+    ZOrder(ZOrder),
     Size(PhysicalSize),
     Position(PhysicalPoint),
     SetClipboardText(String),
@@ -71,6 +73,7 @@ pub const WM_RUN_ON_UI_THREAD: u32 = WM_USER + 103;
 
 impl WindowHandle {
     /// Checks whether the current thread is the UI thread that originally created this window.
+    #[inline]
     pub fn is_on_ui_thread(&self) -> bool {
         let current_tid = unsafe { GetCurrentThreadId() };
         self.thread_id == current_tid
@@ -80,11 +83,12 @@ impl WindowHandle {
     ///
     /// # Errors
     /// Returns [`MichiuError::ThreadMismatch`] if called from a foreign thread.
+    #[inline]
     pub fn assert_ui_thread(&self) -> Result<()> {
-        if self.is_on_ui_thread() {
+        let current_tid = unsafe { GetCurrentThreadId() };
+        if self.thread_id == current_tid {
             Ok(())
         } else {
-            let current_tid = unsafe { GetCurrentThreadId() };
             Err(MichiuError::ThreadMismatch {
                 expected: self.thread_id,
                 actual: current_tid,
@@ -93,26 +97,31 @@ impl WindowHandle {
     }
 
     /// Returns the raw Win32 `HWND` associated with the referenced window.
+    #[inline]
     pub fn hwnd(&self) -> HWND {
         self.hwnd
     }
 
     /// Returns the raw Win32 `HINSTANCE` associated with the referenced window.
+    #[inline]
     pub fn hinstance(&self) -> HINSTANCE {
         self.hinstance
     }
 
     /// Returns the thread ID of the UI thread that created the referenced window.
+    #[inline]
     pub fn thread_id(&self) -> u32 {
         self.thread_id
     }
 
     /// Returns the unique `WindowId` of the referenced window.
+    #[inline]
     pub fn id(&self) -> WindowId {
         WindowId(self.hwnd().0 as isize)
     }
 
     /// Creates a thread-safe [`EventSender`] that targets this window's raw handle.
+    #[inline]
     pub fn sender(&self) -> EventSender {
         EventSender::new(self.hwnd)
     }
@@ -141,6 +150,7 @@ impl WindowHandle {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn wake_up(&self) {
         unsafe {
             // WM_NULL (0) を投げることで、GetMessageW などのスリープ待機を解除させ、
@@ -152,9 +162,12 @@ impl WindowHandle {
     /// Thread-safely updates the window title.
     ///
     /// If called from a background thread, the request is automatically routed to the UI thread.
+    #[inline]
     pub fn set_title(&self, title: impl Into<Cow<'static, str>>) {
-        let title_str = title.into();
+        self.set_title_inner(title.into());
+    }
 
+    fn set_title_inner(&self, title_str: Cow<'static, str>) {
         if self.is_on_ui_thread() {
             unsafe {
                 let title_wide: Vec<u16> =
@@ -167,6 +180,7 @@ impl WindowHandle {
     }
 
     /// Thread-safely updates the window visibility.
+    #[inline]
     pub fn set_visible(&self, visible: bool) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -178,7 +192,38 @@ impl WindowHandle {
         }
     }
 
+    /// Thread-safely updates the window's Z-order (Topmost, Default, or Bottom) (thread-safe).
+    ///
+    /// If called from the UI thread, this executes immediately;
+    /// if called from a background thread, the request is automatically and safely routed
+    /// to the UI thread asynchronously.
+    #[inline]
+    pub fn set_z_order(&self, z_order: ZOrder) {
+        if self.is_on_ui_thread() {
+            let hwnd_insert_after = match z_order {
+                crate::ZOrder::Topmost => HWND_TOPMOST,
+                crate::ZOrder::Default => HWND_NOTOPMOST,
+                crate::ZOrder::Bottom => HWND_BOTTOM,
+            };
+
+            let _ = unsafe {
+                SetWindowPos(
+                    self.hwnd,
+                    Some(hwnd_insert_after),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                )
+            };
+        } else {
+            self.post_command(SetWindowCommand::ZOrder(z_order));
+        }
+    }
+
     /// Thread-safely updates the physical client size of the window.
+    #[inline]
     pub fn set_size(&self, size: PhysicalSize) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -198,6 +243,7 @@ impl WindowHandle {
     }
 
     /// Thread-safely updates the physical coordinate position of the window.
+    #[inline]
     pub fn set_position(&self, position: PhysicalPoint) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -217,6 +263,7 @@ impl WindowHandle {
     }
 
     /// Thread-safely applies Windows 11 dark/light theme contexts asynchronously to the UI thread.
+    #[inline]
     pub fn set_theme(&self, mode: PreferredAppMode) {
         unsafe {
             // run_on_ui_thread に乗せて、安全にUIスレッドで代行実行する
@@ -240,12 +287,17 @@ impl WindowHandle {
     }
 
     /// Thread-safely copies text to the system clipboard.
+    #[inline]
     pub fn set_clipboard_text(&self, text: impl Into<Cow<'static, str>>) {
-        let text_str = text.into();
+        self.set_clipboard_text_inner(text.into());
+    }
+
+    fn set_clipboard_text_inner(&self, text_str: Cow<'static, str>) {
         if self.is_on_ui_thread() {
             let _ = crate::set_clipboard_text_impl(self.hwnd, &text_str);
         } else {
-            self.post_command(SetWindowCommand::SetClipboardText(text_str.into()));
+            // チャンネル経由で安全に文字列所有権をポストバック
+            self.post_command(SetWindowCommand::SetClipboardText(text_str.into_owned()));
         }
     }
 
@@ -256,6 +308,7 @@ impl WindowHandle {
     ///
     /// # Errors
     /// Returns an error if the clipboard cannot be opened or if the data format is invalid.
+    #[inline]
     pub fn get_clipboard_text(&self) -> Result<String> {
         // クリップボード読み出し自体はOSレベルでどのスレッドから呼んでも安全なので、
         // メッセージループを介さずその場で同期実行して返す。
@@ -263,6 +316,7 @@ impl WindowHandle {
     }
 
     /// Thread-safely captures the mouse cursor.
+    #[inline]
     pub fn set_cursor_capture(&self, capture: bool) {
         if self.is_on_ui_thread() {
             crate::set_cursor_capture_impl(self.hwnd, capture);
@@ -272,6 +326,7 @@ impl WindowHandle {
     }
 
     /// Thread-safely clips the mouse cursor to the client area.
+    #[inline]
     pub fn set_cursor_clipping(&self, clip: bool) {
         if self.is_on_ui_thread() {
             crate::set_cursor_clipping_impl(self.hwnd, clip);
@@ -281,6 +336,7 @@ impl WindowHandle {
     }
 
     /// Thread-safely moves the window to the physical center of the monitor.
+    #[inline]
     pub fn center_on_screen(&self) {
         if self.is_on_ui_thread() {
             crate::center_on_screen_impl(self.hwnd);
@@ -290,6 +346,7 @@ impl WindowHandle {
     }
 
     /// Thread-safely toggles borderless fullscreen mode.
+    #[inline]
     pub fn set_fullscreen(&self, fullscreen: bool) {
         if self.is_on_ui_thread() {
             crate::set_fullscreen_impl(self.hwnd, fullscreen);
@@ -299,6 +356,7 @@ impl WindowHandle {
     }
 
     /// Thread-safely triggers a custom titlebar dragging operation.
+    #[inline]
     pub fn set_start_dragging(&self) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -318,6 +376,7 @@ impl WindowHandle {
     }
 
     /// Thread-safely updates the mouse cursor icon shape.
+    #[inline]
     pub fn set_cursor_icon(&self, cursor: CursorIcon) {
         if self.is_on_ui_thread() {
             unsafe {
@@ -362,18 +421,23 @@ impl WindowHandle {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub unsafe fn run_on_ui_thread<F>(&self, f: F)
     where
         F: FnOnce(HWND) + Send + 'static,
     {
+        // ジェネリックな FnOnce クロージャを、呼び出し元で Box<dyn FnOnce> へ型消去
+        let closure: Box<dyn FnOnce(HWND) + Send + 'static> = Box::new(f);
+        unsafe { self.run_on_ui_thread_inner(closure) };
+    }
+
+    unsafe fn run_on_ui_thread_inner(&self, closure: Box<dyn FnOnce(HWND) + Send + 'static>) {
         if self.is_on_ui_thread() {
             // 自スレッド（UIスレッド）ならその場で即座に実行する
-            f(self.hwnd);
+            closure(self.hwnd);
         } else {
-            // 他スレッドなら、クロージャをダブルBox化して生ポインタに変換し、PostMessageW で投げる
-            // FnOnce をトレイトオブジェクトにするため、一度 Box で包んでから、
-            // さらにポインタ化のための外枠の Box で包む
-            let closure: Box<dyn FnOnce(HWND) + Send + 'static> = Box::new(f);
+            // 他スレッドなら、Fatポインタを LPARAM (1ポインタ幅) に収めるために
+            // ダブルボクシングして生ポインタ化
             let raw_ptr = Box::into_raw(Box::new(closure));
 
             unsafe {
@@ -432,12 +496,10 @@ impl WindowHandle {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn destroy(&self) {
         if self.is_on_ui_thread() {
-            unsafe {
-                use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
-                let _ = DestroyWindow(self.hwnd);
-            }
+            let _ = unsafe { DestroyWindow(self.hwnd) };
         } else {
             self.post_command(SetWindowCommand::Destroy);
         }
@@ -471,6 +533,7 @@ impl Validate for WindowHandle {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     fn validate(self) -> Result<Self> {
         let is_alive = unsafe { IsWindow(Some(self.hwnd)).as_bool() };
         if !is_alive {
@@ -495,6 +558,7 @@ impl Validate for WindowHandle {
 }
 
 impl HasWindowHandle for WindowHandle {
+    #[inline]
     fn window_handle(&self) -> std::result::Result<RwhWindowHandle<'_>, HandleError> {
         let hwnd_val = self.hwnd.0 as isize;
         let non_zero_hwnd = NonZeroIsize::new(hwnd_val).ok_or(HandleError::Unavailable)?;
@@ -511,6 +575,7 @@ impl HasWindowHandle for WindowHandle {
 }
 
 impl HasDisplayHandle for WindowHandle {
+    #[inline]
     fn display_handle(&self) -> std::result::Result<RwhDisplayHandle<'_>, HandleError> {
         Ok(RwhDisplayHandle::windows())
     }
