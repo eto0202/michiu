@@ -2,10 +2,14 @@
 #![allow(unused)]
 
 mod composed_renderer;
+mod init_webview2;
+mod interop;
 mod text;
 mod wgpu_renderer;
 
 pub use composed_renderer::*;
+pub use init_webview2::*;
+pub use interop::*;
 pub use text::*;
 pub use wgpu_renderer::*;
 

@@ -8,7 +8,7 @@ use crate::{
     LayoutSize, Length, Modifiers, MouseButton, MovieProperty, MovieSource, Position, QuadInstance,
     ReadSignal, Rect, RenderData, SignalId, Size, TextAlign, TextEngine, TransitionValue, UiaValue,
     Val, VirtualKey, VisualProperty, WebView2Contents, WriteSignal, bind_context, bitmap::*,
-    measure_text_mock_internal, with_context,
+    with_context,
 };
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;

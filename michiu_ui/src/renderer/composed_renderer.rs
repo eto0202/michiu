@@ -130,21 +130,14 @@ impl ComposedRenderer {
             new_physical_size.0 as f32 / scale_factor,
             new_physical_size.1 as f32 / scale_factor,
         );
-
-        // 1. wgpu のリサイズ
         self.wgpu_renderer.resize(new_physical_size, scale_factor);
-
-        unsafe {
-            let _ = self.dcomp_device.Commit();
-        }
+        let _ = unsafe { self.dcomp_device.Commit() };
     }
 
     /// 描画のトリガー
     pub fn draw(&mut self, cx: &Context) {
         self.wgpu_renderer.render(cx, self.scale_factor);
-        unsafe {
-            let _ = self.dcomp_device.Commit();
-        }
+        let _ = unsafe { self.dcomp_device.Commit() };
     }
 
     /// アニメーションが必要な要素を検出し、Compositor側に昇格させてアニメーションをバインドします
@@ -374,7 +367,7 @@ impl ComposedRenderer {
                 let slot_clone = webview_controller.clone();
 
                 // この要素の Visual ターゲットに向けて WebView2 を非同期初期化
-                let _ = init_webview2_composition_custom(
+                let _ = crate::init_webview2_composition(
                     self.hwnd,
                     visual.clone(),
                     slot_clone,
@@ -401,10 +394,8 @@ impl ComposedRenderer {
         if let Some(promoted) = self.promoted_visuals.iter().find(|v| v.entity_id == id)
             && let Some(ref controller) = *promoted.webview_controller.borrow()
         {
-            unsafe {
-                // プログラム駆動（PROGRAMMATIC）でフォーカスを WebView2 に渡す
-                let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-            }
+            // プログラム駆動（PROGRAMMATIC）でフォーカスを WebView2 に渡す
+            let _ = unsafe { controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC) };
         }
     }
 
@@ -452,209 +443,34 @@ impl ComposedRenderer {
         {
             // 5. CompositionController へのキャストとイベントの送信 [1.2.4]
             if let Ok(comp_controller) = controller.cast::<ICoreWebView2CompositionController>() {
-                unsafe {
-                    // Win32 の msg と wparam は、そのまま DComp のイベントにキャスト可能
-                    let event_kind = COREWEBVIEW2_MOUSE_EVENT_KIND(msg as i32);
-                    let virtual_keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS(wparam.0 as i32);
+                // Win32 の msg と wparam は、そのまま DComp のイベントにキャスト可能
+                let event_kind = COREWEBVIEW2_MOUSE_EVENT_KIND(msg as i32);
+                let virtual_keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS(wparam.0 as i32);
 
-                    // ホイールの回転量やXボタンなどのデータを WPARAM / LPARAM から抽出
-                    // WPARAM 上位ビットを「符号付き i16」として一旦解釈してから
-                    // 32ビットに拡張キャスト。これによってマイナス方向のスクロールが正しく動作します
-                    let mouse_data = if msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL {
-                        let delta = (wparam.0 >> 16) as i16;
-                        delta as i32 as u32
-                    } else {
-                        0
-                    };
+                // ホイールの回転量やXボタンなどのデータを WPARAM / LPARAM から抽出
+                // WPARAM 上位ビットを「符号付き i16」として一旦解釈してから
+                // 32ビットに拡張キャスト。これによってマイナス方向のスクロールが正しく動作します
+                let mouse_data = if msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL {
+                    let delta = (wparam.0 >> 16) as i16;
+                    delta as i32 as u32
+                } else {
+                    0
+                };
 
-                    let point = POINT {
-                        x: relative_x.round() as i32,
-                        y: relative_y.round() as i32,
-                    };
+                let point = POINT {
+                    x: relative_x.round() as i32,
+                    y: relative_y.round() as i32,
+                };
 
-                    // ブラウザエンジンへ入力イベントを浸透させる
-                    let _ =
-                        comp_controller.SendMouseInput(event_kind, virtual_keys, mouse_data, point);
+                // ブラウザエンジンへ入力イベントを浸透させる
+                let _ = unsafe {
+                    comp_controller.SendMouseInput(event_kind, virtual_keys, mouse_data, point)
+                };
 
-                    let _ = self.dcomp_device.Commit();
-                }
+                let _ = unsafe { self.dcomp_device.Commit() };
             }
         }
     }
-}
-
-pub(crate) unsafe fn init_webview2_composition_custom(
-    hwnd: HWND,
-    webview_visual: IDCompositionVisual2,
-    controller_slot: Rc<RefCell<Option<ICoreWebView2Controller>>>,
-    settings: WebView2Contents,
-    rect: LayoutRect,
-    scale_factor: f32,
-    env_slot: Rc<RefCell<Option<ICoreWebView2Environment3>>>, // 引数を追加
-) -> Result<(), Box<dyn std::error::Error>> {
-    let webview_visual_clone = webview_visual.clone();
-    let controller_slot_clone = controller_slot.clone();
-    let settings_clone = settings.clone();
-
-    // プリウォーム済み環境（Environment）の利用
-    if let Some(ref env3) = *env_slot.borrow() {
-        // すでに起動時に環境のロードが完了している場合
-        let env3_clone = env3.clone();
-
-        CreateCoreWebView2CompositionControllerCompletedHandler::wait_for_async_operation(
-            Box::new(move |handler| unsafe {
-                env3_clone
-                    .CreateCoreWebView2CompositionController(hwnd, &handler)
-                    .map_err(webview2_com::Error::WindowsError)
-            }),
-            Box::new(
-                move |res, controller: Option<ICoreWebView2CompositionController>| {
-                    res?;
-                    let comp_controller = controller.unwrap();
-                    unsafe { comp_controller.SetRootVisualTarget(&webview_visual_clone) }?;
-
-                    let base_controller: ICoreWebView2Controller = comp_controller.cast()?;
-
-                    let phys_x = (rect.x * scale_factor).round() as i32;
-                    let phys_y = (rect.y * scale_factor).round() as i32;
-                    let phys_w = (rect.width * scale_factor).round() as i32;
-                    let phys_h = (rect.height * scale_factor).round() as i32;
-
-                    let bounds = RECT {
-                        left: phys_x,
-                        top: phys_y,
-                        right: phys_x + phys_w,
-                        bottom: phys_y + phys_h,
-                    };
-                    unsafe {
-                        base_controller.SetBounds(bounds)?;
-                        base_controller.SetIsVisible(true)?;
-                    }
-
-                    let webview = unsafe { base_controller.CoreWebView2()? };
-                    let web_settings = unsafe { webview.Settings()? };
-
-                    unsafe {
-                        let _ = web_settings.SetIsScriptEnabled(settings_clone.enable_scripts);
-                        let _ = web_settings.SetAreDevToolsEnabled(settings_clone.enable_dev_tools);
-                        let _ = web_settings
-                            .SetAreDefaultContextMenusEnabled(settings_clone.enable_context_menu);
-                    }
-
-                    for script in &settings_clone.user_scripts {
-                        let script_u16: Vec<u16> = script.encode_utf16().chain(Some(0)).collect();
-                        let pcw_script = PCWSTR(script_u16.as_ptr());
-                        let webview_clone = webview.clone();
-
-                        // 2. WebView2にドキュメント生成（ロード）時に自動実行するスクリプトとして登録
-                        AddScriptToExecuteOnDocumentCreatedCompletedHandler::wait_for_async_operation(
-                                Box::new(move |handler| unsafe {
-                                    // 非同期でスクリプトを追加
-                                    webview_clone.AddScriptToExecuteOnDocumentCreated(pcw_script, &handler)
-                                        .map_err(webview2_com::Error::WindowsError)
-                                }),
-                                Box::new(|res, _id| {
-                                    res?; // 登録完了エラーチェック
-                                    Ok(())
-                                })
-                            ).unwrap();
-                    }
-
-                    let url_u16: Vec<u16> =
-                        settings_clone.url.encode_utf16().chain(Some(0)).collect();
-                    unsafe {
-                        webview.Navigate(PCWSTR(url_u16.as_ptr()))?;
-                    }
-
-                    *controller_slot_clone.borrow_mut() = Some(base_controller);
-                    Ok(())
-                },
-            ),
-        )?;
-
-        return Ok(());
-    }
-
-    // 万が一起動直後で環境ロードがまだ終わっていない場合
-    // 環境の作成から順に非同期で行う
-    CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
-        Box::new(|handler| unsafe {
-            CreateCoreWebView2EnvironmentWithOptions(None, None, None, &handler)
-                .map_err(webview2_com::Error::WindowsError)
-        }),
-        Box::new(move |res, environment: Option<ICoreWebView2Environment>| {
-            res?;
-            let env = environment.unwrap();
-            let env3: ICoreWebView2Environment3 = env.cast()?;
-            let webview_visual_clone2 = webview_visual_clone.clone();
-            let controller_slot_clone2 = controller_slot_clone.clone();
-            let settings_clone2 = settings_clone.clone();
-
-            CreateCoreWebView2CompositionControllerCompletedHandler::wait_for_async_operation(
-                Box::new(move |handler| unsafe {
-                    env3.CreateCoreWebView2CompositionController(hwnd, &handler)
-                        .map_err(webview2_com::Error::WindowsError)
-                }),
-                Box::new(
-                    move |res, controller: Option<ICoreWebView2CompositionController>| {
-                        res?;
-                        let comp_controller = controller.unwrap();
-                        unsafe { comp_controller.SetRootVisualTarget(&webview_visual_clone2) }?;
-
-                        let base_controller: ICoreWebView2Controller = comp_controller.cast()?;
-
-                        let phys_x = (rect.x * scale_factor).round() as i32;
-                        let phys_y = (rect.y * scale_factor).round() as i32;
-                        let phys_w = (rect.width * scale_factor).round() as i32;
-                        let phys_h = (rect.height * scale_factor).round() as i32;
-
-                        let bounds = RECT {
-                            left: phys_x,
-                            top: phys_y,
-                            right: phys_x + phys_w,
-                            bottom: phys_y + phys_h,
-                        };
-                        unsafe {
-                            base_controller.SetBounds(bounds)?;
-                            base_controller.SetIsVisible(true)?;
-                        }
-
-                        let webview = unsafe { base_controller.CoreWebView2()? };
-                        let web_settings = unsafe { webview.Settings()? };
-
-                        unsafe {
-                            let _ = web_settings.SetIsScriptEnabled(settings_clone2.enable_scripts);
-                            let _ = web_settings
-                                .SetAreDevToolsEnabled(settings_clone2.enable_dev_tools);
-                            let _ = web_settings.SetAreDefaultContextMenusEnabled(
-                                settings_clone2.enable_context_menu,
-                            );
-                        }
-
-                        for script in &settings_clone2.user_scripts {
-                            let script_u16: Vec<u16> =
-                                script.encode_utf16().chain(Some(0)).collect();
-                        }
-
-                        let url_u16: Vec<u16> =
-                            settings_clone2.url.encode_utf16().chain(Some(0)).collect();
-                        unsafe {
-                            webview.Navigate(PCWSTR(url_u16.as_ptr()))?;
-                        }
-
-                        *controller_slot_clone2.borrow_mut() = Some(base_controller);
-
-                        Ok(())
-                    },
-                ),
-            )
-            .unwrap();
-
-            Ok(())
-        }),
-    )?;
-
-    Ok(())
 }
 
 // ウィンドウハンドル (HWND) が手元にある状態からスタート
@@ -722,9 +538,9 @@ impl DCompDeviceManager {
 
     /// デバイスの生成・クエリを試みる、失敗を許容する内部ヘルパー
     fn try_create_devices() -> Result<Self, Box<dyn std::error::Error>> {
+        // D3D11 デバイスを作成
+        let mut d3d11_device: Option<ID3D11Device> = None;
         unsafe {
-            // D3D11 デバイスを作成
-            let mut d3d11_device: Option<ID3D11Device> = None;
             D3D11CreateDevice(
                 None,
                 D3D_DRIVER_TYPE_HARDWARE,
@@ -736,23 +552,23 @@ impl DCompDeviceManager {
                 None,
                 None,
             )?;
-            let d3d11_device = d3d11_device.ok_or("Failed to create D3D11 hardware device")?;
-
-            // DXGI デバイスをクエリ
-            // let dxgi_device: IDXGIDevice = d3d11_device.cast()?;
-
-            // windows-rs の型ミスマッチを防ぐため、一度 IUnknown にキャスト
-            // let rendering_device: windows::core::IUnknown = dxgi_device.cast()?;
-
-            // DCompositionCreateDevice ではなく DCompositionCreateDevice2 を使用します。
-            // これにより IDCompositionDesktopDevice の生成が正しくサポートされます。
-            let dcomp_device: IDCompositionDesktopDevice = DCompositionCreateDevice2(None)?;
-
-            Ok(DCompDeviceManager {
-                d3d11_device,
-                dcomp_device,
-            })
         }
+        let d3d11_device = d3d11_device.ok_or("Failed to create D3D11 hardware device")?;
+
+        // DXGI デバイスをクエリ
+        // let dxgi_device: IDXGIDevice = d3d11_device.cast()?;
+
+        // windows-rs の型ミスマッチを防ぐため、一度 IUnknown にキャスト
+        // let rendering_device: windows::core::IUnknown = dxgi_device.cast()?;
+
+        // DCompositionCreateDevice ではなく DCompositionCreateDevice2 を使用します。
+        // これにより IDCompositionDesktopDevice の生成が正しくサポートされます。
+        let dcomp_device: IDCompositionDesktopDevice = unsafe { DCompositionCreateDevice2(None) }?;
+
+        Ok(DCompDeviceManager {
+            d3d11_device,
+            dcomp_device,
+        })
     }
 }
 
