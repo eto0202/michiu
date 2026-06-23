@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use windows::Win32::UI::WindowsAndMessaging::{IDI_APPLICATION, LoadIconW};
 
+// cargo run --example win32_bridge
+
 // Do we really need to implement this in michiu_window...?
 
 // 1. Control commands sent from the front end to the back end

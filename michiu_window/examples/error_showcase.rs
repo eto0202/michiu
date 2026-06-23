@@ -1,6 +1,8 @@
 use michiu_guard::{Unvalidated, Validated};
 use michiu_window::{ComContext, Window, WindowBuilder, WindowHandle, init_dpi_awareness};
 
+// cargo run --example error_showcase
+
 fn main() {
     // Initialize high-DPI support
     init_dpi_awareness();

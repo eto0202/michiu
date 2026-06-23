@@ -12,6 +12,8 @@ use windows::Win32::UI::{
     WindowsAndMessaging::{IDI_APPLICATION, LoadIconW},
 };
 
+// cargo run --example rustdoc_formatter
+
 const HOTKEY_ID: i32 = 999;
 const VK_R: VIRTUAL_KEY = VIRTUAL_KEY(0x52); // R key
 

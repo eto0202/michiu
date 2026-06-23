@@ -1,0 +1,373 @@
+use crate::{Context, TaskSender, with_context};
+use slotmap::new_key_type;
+use std::cell::Cell;
+use std::marker::PhantomData;
+
+new_key_type! {
+    /// 登録されたシグナルを識別する一意なID
+    pub struct SignalId;
+    /// 登録されたエフェクトを識別する一意なID
+    pub struct EffectId;
+}
+
+thread_local! {
+    // 現在メインスレッド上で評価中のエフェクトIDを記録するスレッドローカル領域。
+    // これによりシグナル読み出し時の依存関係を自動で構築します。
+    pub(crate) static ACTIVE_EFFECT: Cell<Option<EffectId>> = const { Cell::new(None) };
+}
+
+/// シグナルの読取端。軽量で Copy 可能。
+#[derive(Debug, PartialEq, Eq)]
+pub struct ReadSignal<T> {
+    pub(crate) id: SignalId,
+    pub(crate) _marker: PhantomData<T>,
+}
+
+impl<T> Clone for ReadSignal<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for ReadSignal<T> {}
+
+impl<T: Clone + 'static> ReadSignal<T> {
+    /// シグナルの現在の値を取得（複製）します。
+    /// もし現在エフェクトの評価中であれば、そのエフェクトをこのシグナルの依存先（Subscriber）として自動登録します。
+    pub fn get(&self) -> T {
+        // 依存関係の追跡（自動サブスクライブ）
+        ACTIVE_EFFECT.with(|cell| {
+            if let Some(active_effect_id) = cell.get() {
+                with_context(|cx| {
+                    if let Some(subs) = cx.subscribers.get_mut(self.id) {
+                        // すでに依存関係リストに登録されていなければ追加
+                        if !subs.contains(&active_effect_id) {
+                            subs.push(active_effect_id);
+                        }
+                    } else {
+                        // 新規登録
+                        cx.subscribers.insert(self.id, vec![active_effect_id]);
+                    }
+                });
+            }
+        });
+
+        // 実値の取得とキャスト
+        with_context(|cx| {
+            let any_val = &cx.signals[self.id];
+            any_val
+                .downcast_ref::<T>()
+                .cloned()
+                .expect("Signal type mismatch")
+        })
+    }
+}
+
+/// シグナルの書込端（メインスレッド専用）。軽量で Copy 可能。
+#[derive(Debug, PartialEq, Eq)]
+pub struct WriteSignal<T> {
+    pub(crate) id: SignalId,
+    pub(crate) _marker: PhantomData<T>,
+}
+
+impl<T> Clone for WriteSignal<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T> Copy for WriteSignal<T> {}
+
+impl<T: Send + 'static> WriteSignal<T> {
+    /// メインスレッド上からシグナルの値を同期的に書き換えます。
+    /// 値が書き換わった場合、このシグナルに依存しているすべての子エフェクトを自動的に再評価（実行）します。
+    pub fn set(&self, new_value: T) {
+        let mut effects_to_run = Vec::new();
+
+        with_context(|cx| {
+            // 新しい値に差し替え
+            cx.signals[self.id] = Box::new(new_value);
+
+            // 依存しているエフェクトIDのリストをクローン
+            if let Some(subs) = cx.subscribers.get(self.id) {
+                effects_to_run = subs.clone();
+            }
+        });
+
+        // 依存エフェクトを順次実行
+        for effect_id in effects_to_run {
+            // エフェクトがデスポーンされて消滅していない場合のみ実行する
+            let exists = with_context(|cx| cx.effects.contains_key(effect_id));
+            if exists {
+                execute_effect(effect_id);
+            }
+        }
+    }
+
+    /// スレッドセーフな送信端（`SignalSender`）を取得します。
+    pub fn sender(&self) -> SignalSender<T> {
+        // スレッドローカルのメインコンテキストから送信端を一時的に解決
+        let sender = with_context(|cx| cx.task_sender());
+        SignalSender {
+            id: self.id,
+            task_sender: sender,
+            _marker: PhantomData,
+        }
+    }
+}
+
+/// バックグラウンドスレッドからメインスレッドのシグナルを安全に書き換えるためのスレッドセーフな送信端。
+pub struct SignalSender<T> {
+    pub(crate) id: SignalId,
+    pub(crate) task_sender: TaskSender,
+    pub(crate) _marker: PhantomData<T>,
+}
+
+impl<T> Clone for SignalSender<T> {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            task_sender: self.task_sender.clone(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T: Send + 'static> SignalSender<T> {
+    /// ワーカースレッド等から安全にメインスレッドへ更新タスクをディスパッチします。
+    pub fn send(&self, value: T) {
+        let signal_id = self.id;
+        let _ = self.task_sender.send(move |_cx| {
+            let write_signal = WriteSignal::<T> {
+                id: signal_id,
+                _marker: PhantomData,
+            };
+            write_signal.set(value);
+        });
+    }
+}
+
+/// 新しいシグナルを構築します。必ず build_ui のスコープ内で呼び出す必要があります。
+pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, WriteSignal<T>) {
+    with_context(|cx| cx.create_signal(initial_value))
+}
+
+/// 指定されたエフェクトをメインスレッドのコンテキスト下で評価（実行）する内部ユーティリティ。
+fn execute_effect(effect_id: EffectId) {
+    with_context(|cx| {
+        // エフェクトのクロージャを一時的にダミーのプレースホルダと入れ替えて安全に取り出す
+        // slotMap のキーやバージョンを完全に維持しつつ、多重借用を回避
+        let mut effect_closure = std::mem::replace(
+            cx.effects.get_mut(effect_id).expect("Effect lost"),
+            Box::new(move |_| {
+                // このプレースホルダが呼び出されたということは、
+                // 元のクロージャがまだ実行中（返却前）に、同一のエフェクトが再帰トリガーされたことを意味する
+                eprintln!(
+                    "Warning: Cyclic dependency / Infinite loop detected! \
+                                     Effect {:?} recursively triggered itself. \
+                                     To prevent stack overflow, this recursive run has been skipped.",
+                    effect_id
+                );
+            }),
+        );
+
+        // 2. 依存追跡状態を退避・更新
+        let prev_effect = ACTIVE_EFFECT.with(|cell| {
+            let prev = cell.get();
+            cell.set(Some(effect_id));
+            prev
+        });
+
+        // 実行（内部で get() が呼ばれたシグナルと、この effect_id が自動で紐づきます）
+        effect_closure(cx);
+
+        // 実行完了後、退避していた元のエフェクトIDを正確に復元する
+        ACTIVE_EFFECT.with(|cell| cell.set(prev_effect));
+
+        // プレースホルダがあった場所に元のクロージャを書き戻す
+        if let Some(slot) = cx.effects.get_mut(effect_id) {
+            *slot = effect_closure;
+        }
+    });
+}
+
+/// 新しいエフェクトを構築し、評価を開始します。
+/// このエフェクトは、内部で get() されたすべてのシグナルが変更された際に自動的に再実行されます。
+pub(crate) fn create_effect<F>(f: F) -> EffectId
+where
+    F: FnMut(&mut Context) + 'static,
+{
+    // SoA にクロージャを登録
+    let id = with_context(|cx| cx.effects.insert(Box::new(f)));
+    // 初回評価を実行し、同時にシグナルとの依存関係マップを自動構築する
+    execute_effect(id);
+    id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Context, EffectCategory, bind_context, build_ui, div_n};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    #[test]
+    fn test_signal_reactivity_sync() {
+        let mut cx = Context::new();
+        let run_count = Arc::new(AtomicU32::new(0));
+        let captured_val = Arc::new(AtomicU32::new(0));
+        let (run_count_clone, captured_val_clone) = (run_count.clone(), captured_val.clone());
+
+        // 外部に持ち出すための変数
+        let mut set_count_handle = None;
+
+        // 1. 構築フェーズ
+        build_ui(&mut cx, || {
+            let (count, set_count) = create_signal(10u32);
+            set_count_handle = Some(set_count); // 外部に退避
+
+            create_effect(move |_cx| {
+                run_count_clone.fetch_add(1, Ordering::SeqCst);
+                captured_val_clone.store(count.get(), Ordering::SeqCst);
+            });
+
+            div_n()
+        });
+
+        let set_count = set_count_handle.unwrap();
+
+        // 初回評価の確認
+        assert_eq!(run_count.load(Ordering::SeqCst), 1);
+        assert_eq!(captured_val.load(Ordering::SeqCst), 10);
+
+        // 2. 更新フェーズ（イベントループ内をシミュレートするためにバインドが必要）
+        {
+            let _guard = bind_context(&cx);
+            set_count.set(20);
+        }
+
+        // 再評価されているか確認
+        assert_eq!(run_count.load(Ordering::SeqCst), 2);
+        assert_eq!(captured_val.load(Ordering::SeqCst), 20);
+    }
+
+    #[test]
+    fn test_multiple_signals_and_dependencies() {
+        let mut cx = Context::new();
+        let combined_run_count = Arc::new(AtomicU32::new(0));
+        let combined_run_count_clone = combined_run_count.clone();
+
+        let mut signal_handles = None;
+
+        build_ui(&mut cx, || {
+            let (a, set_a) = create_signal(1);
+            let (b, set_b) = create_signal(2);
+            signal_handles = Some((set_a, set_b));
+
+            create_effect(move |_cx| {
+                combined_run_count_clone.fetch_add(1, Ordering::SeqCst);
+                let _sum = a.get() + b.get();
+            });
+
+            div_n()
+        });
+
+        let (set_a, set_b) = signal_handles.unwrap();
+        assert_eq!(combined_run_count.load(Ordering::SeqCst), 1);
+
+        {
+            let _guard = bind_context(&cx);
+            set_a.set(10);
+            assert_eq!(combined_run_count.load(Ordering::SeqCst), 2);
+
+            set_b.set(20);
+            assert_eq!(combined_run_count.load(Ordering::SeqCst), 3);
+        }
+    }
+
+    #[test]
+    fn test_signal_async_update_via_sender() {
+        let mut cx = Context::new();
+        let run_count = Arc::new(AtomicU32::new(0));
+        let run_count_clone = run_count.clone();
+
+        let mut sender_handle = None;
+
+        // 1. 構築フェーズ
+        build_ui(&mut cx, || {
+            let (count, set_count) = create_signal(0);
+            sender_handle = Some(set_count.sender());
+
+            create_effect(move |_cx| {
+                run_count_clone.fetch_add(1, Ordering::SeqCst);
+                let _ = count.get();
+            });
+
+            div_n()
+        });
+
+        let sender = sender_handle.unwrap();
+        assert_eq!(run_count.load(Ordering::SeqCst), 1);
+
+        // 2. 別スレッドからの更新（sender.send は内部でタスクを投げるだけなのでバインド不要）
+        let thread_handle = std::thread::spawn(move || {
+            sender.send(100);
+        });
+        thread_handle.join().unwrap();
+
+        // まだ実行されていない
+        assert_eq!(run_count.load(Ordering::SeqCst), 1);
+
+        // 3. メインスレッドでタスク消化（内部で bind_context される）
+        cx.process_main_thread_tasks();
+
+        assert_eq!(run_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn test_effect_cleanup_on_despawn() {
+        let mut cx = Context::new();
+        let run_count = Arc::new(AtomicU32::new(0));
+        let run_count_clone = run_count.clone();
+
+        let mut set_count_handle = None;
+        let mut element_handle = None;
+
+        build_ui(&mut cx, || {
+            let (count, set_count) = create_signal(0);
+            set_count_handle = Some(set_count);
+
+            let el = div_n();
+            element_handle = Some(el);
+            let el_id = el.id;
+
+            let effect_id = create_effect(move |_cx| {
+                run_count_clone.fetch_add(1, Ordering::SeqCst);
+                let _ = count.get();
+            });
+
+            with_context(|cx| cx.register_element_effect(el_id, EffectCategory::None, effect_id));
+
+            el
+        });
+
+        let set_count = set_count_handle.unwrap();
+        let el = element_handle.unwrap();
+
+        assert_eq!(run_count.load(Ordering::SeqCst), 1);
+
+        {
+            let _guard = bind_context(&cx);
+            set_count.set(1);
+        }
+        assert_eq!(run_count.load(Ordering::SeqCst), 2);
+
+        // 要素を削除
+        cx.despawn(el);
+
+        // 更新しても、エフェクトはもう存在しないはず
+        {
+            let _guard = bind_context(&cx);
+            set_count.set(2);
+        }
+        assert_eq!(run_count.load(Ordering::SeqCst), 2);
+    }
+}

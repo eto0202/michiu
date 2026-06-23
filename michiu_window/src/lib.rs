@@ -17,31 +17,44 @@
 //!
 //!     // 2. Configure, validate, and build a simple window
 //!     let builder = WindowBuilder::new().with_title("Michiu Minimal Window");
+//!     // Validate the builder settings here to guarantee window safety.
 //!     let validated = builder.into_unvalidated().try_into()?;
 //!     let window = Window::build(validated)?;
+//!     // Explicitly assume the handle is valid (since the window was just built).
 //!     let handle = window.handle().assume_valid();
 //!
 //!     // 3. Initialize the EventPump to drive the message loop on the UI thread
 //!     let mut event_pump = EventPump::new();
-//!         while let Some(event) = event_pump.wait_event()? {
+//!
+//!     // 4. Event-driven loop using `wait_event()`
+//!     while let Some(event) = event_pump.wait_event()? {
+//!         // Note that MichiuEvent also includes a User variant, not just Window.
+//!         if let MichiuEvent::Window { event, .. } = event {
 //!             match event {
-//!                 MichiuEvent::Window { id, event } => match event {
-//!                     Event::CloseRequested => {
-//!                         // Destroy the window directly from the event loop using the handle
-//!                         handle.destroy();
-//!                     }
-//!                     Event::Destroyed => {
-//!                     // Exit the loop cleanly after the window is fully destroyed
-//!                         break;
-//!                     }
-//!                     _ => {}
+//!                 Event::CloseRequested => {
+//!                     // You can also handle close confirmation logic here.
+//!                     // Destroy the window directly from the event loop using the handle
+//!                     handle.destroy();
+//!                 }
+//!                 Event::Destroyed => {
+//!                     // Post-processing after the window is completely destroyed.
+//!                     // Exit the event loop.
+//!                     break;
 //!                 }
 //!                 _ => {}
 //!             }
 //!         }
+//!     }
 //!     Ok(())
 //! }
 //! ```
+//! ### Architectural Note: The OS Input Firewall
+//!
+//! You might wonder why we need to call `.into_unvalidated().try_into()?` or `.assume_valid()`.
+//!
+//! Under the hood, `michiu` utilizes our core safety crate, [`michiu_guard`], to protect the framework from untrusted OS inputs. To prevent bugs and security issues, the framework enforces a strict compile-time boundary: core APIs only accept validated types (`Validated<T>`).
+//!
+//! To learn more about this design philosophy and how it secures your application, check out the [`michiu_guard`] crate documentation.
 //!
 //! ---
 //!

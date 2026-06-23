@@ -13,6 +13,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, IDI_APPLICATION, KillTimer, LoadIconW, SetTimer,
 };
 
+// cargo run --example raw_input_workers
+
 // A unique ID to identify the timer
 const TIMER_ID: usize = 777;
 

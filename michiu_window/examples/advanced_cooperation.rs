@@ -5,6 +5,8 @@ use michiu_window::{
 use std::sync::mpsc;
 use windows::Win32::UI::WindowsAndMessaging::{IDI_APPLICATION, LoadIconW};
 
+// cargo run --example advanced_cooperation
+
 // Define custom centralized application commands
 enum AppCommand {
     UpdateTitle(String),

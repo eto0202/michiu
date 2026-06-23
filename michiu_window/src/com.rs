@@ -39,6 +39,7 @@ pub(crate) enum ComContextKind {
     Classic(COINIT),
     Ole,
     WinRt(RO_INIT_TYPE),
+    WinRtOleCombo,
 }
 
 /// A thread-affine RAII guard that manages COM or Windows Runtime (WinRT) initialization.
@@ -149,6 +150,36 @@ impl ComContext {
         })
     }
 
+    /// A dedicated method for initializing WinRT (STA) and OLE in this order.
+    /// Required when using OLE drag and drop and WinRTAPI (notifications, etc.) on the same thread.
+    #[inline]
+    pub fn new_winrt_ole_combo() -> Result<Self> {
+        unsafe {
+            // 先に WinRT を STA で初期化
+            RoInitialize(RO_INIT_SINGLETHREADED).map_err(|err| {
+                MichiuError::ComInitializationFailed {
+                    context_type: "WinRT (Combo)",
+                    source: err,
+                }
+            })?;
+
+            // 次に OLE を初期化
+            if let Err(err) = OleInitialize(None) {
+                // OLEが失敗した場合はWinRT側を片付けてからエラーを返す
+                RoUninitialize();
+                return Err(MichiuError::ComInitializationFailed {
+                    context_type: "OLE (Combo)",
+                    source: err,
+                });
+            }
+        }
+
+        Ok(Self {
+            kind: ComContextKind::WinRtOleCombo,
+            _marker: PhantomData,
+        })
+    }
+
     #[inline]
     pub(crate) fn is_ole(&self) -> bool {
         matches!(self.kind, ComContextKind::Ole)
@@ -170,6 +201,11 @@ impl Clone for ComContext {
             ComContextKind::WinRt(init) => {
                 let _ = unsafe { RoInitialize(init) };
             }
+            ComContextKind::WinRtOleCombo => unsafe {
+                // 初期化時と同じ順序で参照カウントを増やす
+                let _ = RoInitialize(RO_INIT_SINGLETHREADED);
+                let _ = OleInitialize(None);
+            },
         }
 
         Self {
@@ -187,6 +223,11 @@ impl Drop for ComContext {
                 ComContextKind::Classic(_) => CoUninitialize(),
                 ComContextKind::Ole => OleUninitialize(),
                 ComContextKind::WinRt(_) => RoUninitialize(),
+                ComContextKind::WinRtOleCombo => {
+                    // 初期化時と逆の順序で解放する
+                    OleUninitialize();
+                    RoUninitialize();
+                }
             }
         }
     }

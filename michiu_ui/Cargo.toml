@@ -1,0 +1,45 @@
+[package]
+name = "michiu_ui"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+accesskit_windows = "0.33.1"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+serde = { workspace = true, optional = true }
+slotmap = "1.1.1"
+smallvec = "1.15.2"
+taffy = {version = "0.11.0", features = ["grid"] }
+wgpu = "29.0.3"
+raw-window-handle = "0.6.2"
+webview2-com = "0.39.1"
+windows-result = "0.4.1"
+pollster = "0.4.0"
+windows-numerics = "0.3.1"
+
+[dependencies.windows]
+version = "0.62.2"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_Imaging",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Com",
+    "Win32_UI_HiDpi",
+]
+
+[features]
+serde = ["dep:serde"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
