@@ -1,19 +1,20 @@
 #![allow(unused)]
 use crate::{
-    ActiveTransition, AlignContent, AlignItems, AlignSelf, BasicLayout, BoxShadow, BoxSizing,
-    Clear, Color, CornerRadius, CursorIcon, Direction, Display, DrawBatch, EdgeInsets, EffectId,
-    Element, ElementState, EventListeners, FlexDirection, FlexLayout, FlexWrap, Float,
-    GridAutoFlow, GridLayout, GridLine, GridPlacement, IDENTITY_MATRIX, ImageSource, ImeState,
-    InteractionStates, InteractionStyles, JustifyContent, LayoutOverflow, LayoutPoint, LayoutRect,
-    LayoutSize, Length, Modifiers, MouseButton, MovieProperty, MovieSource, Position, QuadInstance,
-    ReadSignal, Rect, RenderData, SignalId, Size, TextAlign, TextEngine, TransitionValue, UiaValue,
-    Val, VirtualKey, VisualProperty, WebView2Contents, WriteSignal, bind_context, bitmap::*,
-    with_context,
+    ActiveAnimation, ActiveTransition, AlignContent, AlignItems, AlignSelf, BasicLayout, BatchType,
+    BoxShadow, BoxSizing, Clear, Color, CornerRadius, CursorIcon, Direction, Display, DrawBatch,
+    EdgeInsets, EffectId, Element, ElementState, EventListeners, FlexDirection, FlexLayout,
+    FlexWrap, Float, GridAutoFlow, GridLayout, GridLine, GridPlacement, IDENTITY_MATRIX,
+    ImageSource, ImeState, InteractionStates, InteractionStyles, JustifyContent, LayoutOverflow,
+    LayoutPoint, LayoutRect, LayoutSize, Length, Modifiers, MouseButton, MovieProperty,
+    MovieSource, PlaybackCount, Position, QuadInstance, ReadSignal, Rect, RenderData, SignalId,
+    Size, TextAlign, TextEngine, TransitionValue, UiaValue, Val, VirtualKey, VisualProperty,
+    WebView2Contents, WriteSignal, bind_context, bitmap::*, with_context,
 };
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
 use std::{
     borrow::Cow,
+    collections::HashSet,
     marker::PhantomData,
     path::PathBuf,
     sync::mpsc::{Receiver, Sender},
@@ -179,7 +180,7 @@ pub struct Context {
     /// 現在のポインタの物理座標（ドラッグの移動量算出などに使用）
     pub(crate) current_pointer_position: Option<LayoutPoint>,
     /// 対称的に整理された、グローバルなインタラクション対象状態
-    pub(crate) interaction_states: InteractionStates,
+    pub interaction_states: InteractionStates,
     /// イベントハンドラを格納するSoA
     pub(crate) event_listeners: SparseSecondaryMap<EntityId, EventListeners>,
 
@@ -215,9 +216,14 @@ pub struct Context {
 
     /// 要素ごとに現在実行中のトランジションリスト
     pub(crate) active_transitions: SparseSecondaryMap<EntityId, Vec<ActiveTransition>>,
+    /// 要素ごとに現在再生中のキーフレームアニメーションリスト
+    pub(crate) active_animations: SparseSecondaryMap<EntityId, Vec<ActiveAnimation>>,
 
-    // 各要素の WebView2 の詳細な設定・URL情報（コールドデータ）
+    /// 各要素の WebView2 の詳細な設定・URL情報（コールドデータ）
     pub(crate) webview_contents: SparseSecondaryMap<EntityId, WebView2Contents>,
+
+    /// 【追加】DComp 側で初期化（コントローラー生成）が完了して表示準備が整った WebView2 の一覧
+    pub(crate) active_webviews: HashSet<EntityId>,
 }
 
 pub(crate) type Effects = Box<dyn FnMut(&mut Context)>;
@@ -277,7 +283,9 @@ impl Context {
             task_sender: TaskSender { inner: tx },
             text_engine: TextEngine::new(),
             active_transitions: SparseSecondaryMap::new(),
+            active_animations: SparseSecondaryMap::new(),
             webview_contents: SparseSecondaryMap::new(),
+            active_webviews: HashSet::new(),
         }
     }
 
@@ -368,7 +376,7 @@ impl Context {
 
     /// メインスレッドの毎フレーム開始時（またはイベントハンドラの先頭など）に呼び出され、
     /// バックグラウンドから届いたシグナル更新タスクなどの処理を安全に一括実行します。
-    pub(crate) fn process_main_thread_tasks(&mut self) {
+    pub fn process_main_thread_tasks(&mut self) {
         let _context_guard = bind_context(self);
         // キューに溜まっているクロージャをすべてメインスレッドのコンテキスト上で実行
         while let Ok(task) = self.task_receiver.try_recv() {
@@ -449,7 +457,9 @@ impl Context {
         self.subscribers.clear();
         self.effects.clear();
         self.active_transitions.clear();
+        self.active_animations.clear();
         self.webview_contents.clear();
+        self.active_webviews.clear();
         // 溜まっている未処理タスクをすべて排出してクリーンアップ
         while self.task_receiver.try_recv().is_ok() {}
     }
@@ -521,6 +531,7 @@ impl Context {
             self.event_listeners.remove(id);
             self.uia_properties.remove(id);
             self.active_transitions.remove(id);
+            self.active_animations.remove(id);
             self.webview_contents.remove(id);
 
             self.is_structure_dirty = true;
@@ -560,6 +571,15 @@ impl Context {
         }
     }
 
+    /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。
+    /// （イベント注入によって状態が変化した際に、これをチェックして Invalidate を判断します）
+    pub fn is_render_dirty(&self) -> bool {
+        // dirty_render_entities に何か登録されている、またはレイアウトに Dirty がある場合
+        !self.dirty_render_entities.is_empty()
+            || !self.dirty_layout_entities.is_empty()
+            || self.is_structure_dirty
+    }
+
     /// 非再帰スタックによるフラットDFS配列の高速構築
     fn rebuild_flat_dfs_sequence(&mut self, root: EntityId) {
         self.flat_dfs_sequence.clear();
@@ -597,8 +617,12 @@ impl Context {
         };
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
-        // Taffy計算も、ダブルバッファスワップも、4.6万回のループもすべてスキップして即時帰還する。
-        if self.dirty_layout_entities.is_empty() && !self.is_structure_dirty && !window_resized {
+        // Taffy計算も、ダブルバッファスワップもすべてスキップして即時帰還する。
+        if self.dirty_layout_entities.is_empty()
+            && !self.is_structure_dirty
+            && !window_resized
+            && !self.rects.is_empty()
+        {
             return;
         }
 
@@ -808,12 +832,15 @@ impl Context {
         self.dirty_layout_entities.clear();
     }
 
-    /// 現在の全アクティブ要素から、wgpu 用の描画バッチを生成します
+    /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
     pub fn collect_render_data(&self) -> RenderData {
         let mut batches = Vec::new();
         let mut current_instances = Vec::new();
         let mut current_ids = Vec::new();
         let mut last_clip = None;
+
+        // 現在のバッチの種類 (通常)
+        let mut current_batch_type = BatchType::Normal;
 
         // 静的なデフォルト値（一度だけ確保して使い回す）
         let default_visual = VisualProperty::default();
@@ -824,23 +851,102 @@ impl Context {
                 continue;
             }
 
-            // この要素がCompositorに昇格する（STYLE_ANIMATIONSを持つ）場合、
-            // メインのフラットな描画レイヤー（wgpu_visual）からは除外する
-            if self.active_masks[id].has(STYLE_ANIMATIONS) {
+            let clip = self.clip_rects[id];
+
+            let is_webview = self.active_masks[id].has(COMP_WEBVIEW_CONTENT);
+
+            // コントローラーがまだ初期化されていない（active_webviewsに入っていない）場合は、
+            // 紺色の背景を通常通り描き込み、デスクトップが透けるのを完全に防止します。
+            let is_webview_ready = is_webview && self.active_webviews.contains(&id);
+
+            if is_webview_ready {
+                // 1. 今まで溜まっている「通常（Normal）」のバッチがあれば一旦フラッシュ
+                if !current_instances.is_empty() {
+                    batches.push(DrawBatch {
+                        scissor_rect: last_clip.unwrap_or(LayoutRect::ZERO),
+                        instances: std::mem::take(&mut current_instances),
+                        entity_ids: std::mem::take(&mut current_ids),
+                        batch_type: current_batch_type,
+                    });
+                }
+
+                let (basic, _, _) = self.resolve_active_layouts(id);
+                let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
+                let origin = visual
+                    .transform_origin
+                    .map(|p| [p.x, p.y])
+                    .unwrap_or([0.5, 0.5]);
+
+                // 2. 「くり抜き（Punchout）」用のインスタンスを作成して登録
+                // (wgpu のバッファの背景を、角丸を維持したまま完全に透明に上書き消去するためのインスタンス)
+                let punchout_instance = QuadInstance {
+                    rect,
+                    transform: visual.transform.unwrap_or(IDENTITY_MATRIX),
+                    transform_origin: origin,
+                    // アルファを 1.0 で出力させることで、Destination Out ブレンドが
+                    // 反応して背景アルファを完全に 0.0 にくり抜くようになります。
+                    color: Color::WHITE, // 白（アルファ減算用）
+                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO), // 完璧な角丸に沿ってくり抜く
+                    border_width: EdgeInsets::ZERO, // くり抜き時は枠線は不要
+                    border_color: Color::TRANSPARENT,
+                    opacity_and_mode: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    uv_max: [0.0; 2],
+                    uv_min: [0.0; 2],
+                    gradient_end_color: Color::TRANSPARENT,
+                    gradient_angle: 0.0,
+                    _padding: 0.0,
+                };
+                current_instances.push(punchout_instance);
+                current_ids.push(id);
+
+                // くり抜き用のバッチとして即座にフラッシュ
+                batches.push(DrawBatch {
+                    scissor_rect: clip,
+                    instances: std::mem::take(&mut current_instances),
+                    entity_ids: std::mem::take(&mut current_ids),
+                    batch_type: BatchType::Punchout, // ★くり抜き用パイプラインを指示
+                });
+
+                // 3. 次に「前面装飾（通常）」用のインスタンスを作成して登録
+                // (くり抜かれた透明の窓の上に、枠線、角丸のアウトライン、影などをブレンド描画する)
+                let border_instance = QuadInstance {
+                    rect,
+                    transform: visual.transform.unwrap_or(IDENTITY_MATRIX),
+                    transform_origin: origin,
+                    color: Color::TRANSPARENT, // 背景は透明
+                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
+                    border_width: EdgeInsets {
+                        top: basic.border.top.into(),
+                        right: basic.border.right.into(),
+                        bottom: basic.border.bottom.into(),
+                        left: basic.border.left.into(),
+                    },
+                    border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
+                    opacity_and_mode: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    uv_max: [0.0; 2],
+                    uv_min: [0.0; 2],
+                    gradient_end_color: Color::TRANSPARENT,
+                    gradient_angle: 0.0,
+                    _padding: 0.0,
+                };
+                current_instances.push(border_instance);
+                current_ids.push(id);
+
+                current_batch_type = BatchType::Normal; // 以降はまた通常バッチに戻す
+                last_clip = Some(clip);
                 continue;
             }
-
-            let clip = self.clip_rects[id];
 
             // 初回の初期化を安全にキャッチし、異なるクリップ境界の時に新しいバッチを作成する
             if let Some(prev_clip) = last_clip {
                 if clip != prev_clip {
                     if !current_instances.is_empty() {
-                        batches.push(DrawBatch {
+                        let batch = DrawBatch {
                             scissor_rect: prev_clip,
                             instances: std::mem::take(&mut current_instances),
                             entity_ids: std::mem::take(&mut current_ids),
-                        });
+                            batch_type: current_batch_type,
+                        };
                     }
                     last_clip = Some(clip);
                 }
@@ -850,20 +956,19 @@ impl Context {
             }
 
             let (basic, _, _) = self.resolve_active_layouts(id);
-            // 直アクセス [id] を廃止し、安全な .get() と unwrap_or() に変更
             let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
 
             // テキスト要素の場合は「テキストの色」、それ以外は「背景色」を color にセットする
             let color = if self.active_masks[id].has(COMP_TEXT_CONTENT) {
-                visual.text_color.unwrap_or(Color::BLACK) // デフォルトは黒
+                visual.text_color.unwrap_or(Color::BLACK)
             } else {
-                visual.bg_color.unwrap_or(Color::TRANSPARENT) // デフォルトは透明
+                visual.bg_color.unwrap_or(Color::TRANSPARENT)
             };
 
-            // グラデーションの解決
+            // グラデーションの解決 (WebView2 がアクティブな場合は、グラデーションもキャンセルして透明化)
             let (gradient_end_color, gradient_angle, mode) = match visual.bg_gradient {
-                Some(g) => (g.end_color, g.angle, 1.0f32), // グラデーションモード（1u）
-                None => (color, 0.0, 0.0f32),              // 単色モード（0u）
+                Some(g) => (g.end_color, g.angle, 1.0f32),
+                None => (color, 0.0, 0.0f32),
             };
 
             // Length型 (Px / Percent) からのピクセル安全抽出用ヘルパー
@@ -903,11 +1008,13 @@ impl Context {
             current_ids.push(id);
         }
 
+        // 走査終了後、最後に残ったバッチをフラッシュ
         if !current_instances.is_empty() {
             batches.push(DrawBatch {
                 scissor_rect: last_clip.unwrap_or(LayoutRect::ZERO),
                 instances: current_instances,
                 entity_ids: current_ids,
+                batch_type: current_batch_type,
             });
         }
 
@@ -916,12 +1023,18 @@ impl Context {
 
     /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
     pub fn has_active_animations(&self) -> bool {
-        // マップが空、または登録されているすべてのベクタが空であるかを安全にチェック
-        !self.active_transitions.is_empty()
+        // 1. トランジション（CSS transition）のアクティブ判定
+        let has_transitions = !self.active_transitions.is_empty()
             && self
                 .active_transitions
                 .values()
-                .any(|list| !list.is_empty())
+                .any(|list| !list.is_empty());
+
+        // 2. キーフレームアニメーション（CSS animation）のアクティブ判定
+        let has_keyframes = !self.active_animations.is_empty()
+            && self.active_animations.values().any(|list| !list.is_empty());
+
+        has_transitions || has_keyframes
     }
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
@@ -1362,6 +1475,173 @@ impl Context {
             // 最終的に解決されたレイアウトを Taffy ツリーに即時同期させるため、
             // スタイル解決の末尾でレイアウトの Dirty マークを叩きます
             self.mark_layout_dirty(id);
+        }
+
+        // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
+        // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
+        self.trigger_keyframe_animations_if_needed(id);
+    }
+
+    /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
+    pub fn tick_animations(&mut self) {
+        let now = std::time::Instant::now();
+
+        // 借用チェッカーを回避するため、一時的にマップを take して更新
+        let mut active_map = std::mem::take(&mut self.active_animations);
+        let mut to_remove = Vec::new();
+
+        for (id, animations) in active_map.iter_mut() {
+            let mut i = 0;
+            while i < animations.len() {
+                let anim = &mut animations[i];
+                let elapsed = now.duration_since(anim.start_time);
+                let elapsed_secs = elapsed.as_secs_f32();
+                let duration_secs = anim.duration.as_secs_f32();
+
+                // 1. 現在の周回回数（ループインデックス）の算出
+                let current_iteration = (elapsed_secs / duration_secs).floor() as u32;
+
+                // ループ制限に達しているかチェック
+                let is_finished = match anim.iteration_count {
+                    PlaybackCount::Count(max_count) => current_iteration >= max_count,
+                    PlaybackCount::Infinite => false,
+                };
+
+                if is_finished {
+                    // ループ終了：目標の最終値（end_value）で固定してアニメーションを破棄
+                    self.apply_animation_value(id, anim.property, &anim.end_value);
+                    animations.remove(i);
+                    continue;
+                }
+
+                // 2. 現在のループ内での正規化進行度 (0.0 ～ 1.0) の計算
+                let local_time = elapsed_secs % duration_secs;
+                let progress = if duration_secs > 0.0 {
+                    (local_time / duration_secs).min(1.0)
+                } else {
+                    1.0
+                };
+                let eased_t = anim.curve.evaluate(progress);
+
+                // 3. 値の補間
+                let current_val = anim.start_value.lerp(&anim.end_value, eased_t);
+
+                // 4. SoA へ補間された動的スタイル値を上書き書き戻し
+                self.apply_animation_value(id, anim.property, &current_val);
+
+                // レンダラーへ再描画要求（ファストパス）
+                self.mark_render_dirty(id);
+
+                i += 1;
+            }
+
+            if animations.is_empty() {
+                to_remove.push(id);
+            }
+        }
+
+        // 空になったエントリをクリーンアップ
+        for id in to_remove {
+            active_map.remove(id);
+        }
+        self.active_animations = active_map;
+    }
+
+    /// 補間されたアニメーション値を SoA のアクティブプロパティへ安全に上書きします
+    fn apply_animation_value(
+        &mut self,
+        id: EntityId,
+        property: PropertyList,
+        value: &TransitionValue,
+    ) {
+        if !self.visual_properties.contains_key(id) {
+            self.visual_properties.insert(id, Default::default());
+        }
+        let v = self.visual_properties.get_mut(id).unwrap();
+
+        match *value {
+            TransitionValue::Color(c) => {
+                if property == PropertyList::BackgroundColor {
+                    v.bg_color = Some(c);
+                } else if property == PropertyList::BorderColor {
+                    v.border_color = Some(c);
+                }
+            }
+            TransitionValue::Opacity(o) => {
+                v.opacity = Some(o);
+            }
+            TransitionValue::Transform(m) => {
+                v.transform = Some(m);
+            }
+            TransitionValue::CornerRadius(cr) => {
+                v.corner_radius = Some(cr);
+            }
+            TransitionValue::Width(w) => {
+                if let Some(layout) = self.basic_layouts.get_mut(id) {
+                    layout.size.width = Val::Px(w);
+                }
+                self.mark_layout_dirty(id); // レイアウト再計算を要求（スローパス）
+            }
+            TransitionValue::Height(h) => {
+                if let Some(layout) = self.basic_layouts.get_mut(id) {
+                    layout.size.height = Val::Px(h);
+                }
+                self.mark_layout_dirty(id);
+            }
+        }
+    }
+
+    /// 要素が持つ静的な `KeyframeAnimation` 定義に基づいて、
+    /// CPU 側のアクティブアニメーション再生テーブルを自動起動します。
+    pub(crate) fn trigger_keyframe_animations_if_needed(&mut self, id: EntityId) {
+        if let Some(visual) = self.visual_properties.get(id) {
+            if visual.keyframe_animations.is_empty() {
+                return;
+            }
+
+            let now = std::time::Instant::now();
+
+            // 借用回避のため定義を一度クローン
+            let anims = visual.keyframe_animations.clone();
+
+            if !self.active_animations.contains_key(id) {
+                self.active_animations.insert(id, Vec::new());
+            }
+            let active_list = self.active_animations.get_mut(id).unwrap();
+
+            for anim in anims {
+                // すでに同じプロパティのアニメーションが駆動中なら重複起動をスルー
+                if active_list.iter().any(|a| a.property == anim.property) {
+                    continue;
+                }
+
+                // 初期値（開始値）と目標値（100%キーフレームに相当する値）を設定
+                // ※ ここでは例として「回転 (Transform)」の場合、0度から360度へ向かう値を算出します。
+                let (start_val, end_val) = match anim.property {
+                    PropertyList::Transform => {
+                        let start = TransitionValue::Transform(IDENTITY_MATRIX);
+                        // Z軸を1周（2PI）回転させる行列を終点にする
+                        let mut end_transform =
+                            crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
+                        let end = TransitionValue::Transform(end_transform.matrix);
+                        (start, end)
+                    }
+                    PropertyList::Opacity => {
+                        (TransitionValue::Opacity(1.0), TransitionValue::Opacity(0.0)) // フェードアウト等
+                    }
+                    _ => continue, // 必要に応じて他プロパティも定義
+                };
+
+                active_list.push(ActiveAnimation {
+                    property: anim.property,
+                    start_time: now,
+                    duration: anim.duration,
+                    iteration_count: anim.iteration_count,
+                    curve: anim.curve,
+                    start_value: start_val,
+                    end_value: end_val,
+                });
+            }
         }
     }
 
@@ -1921,6 +2201,31 @@ impl Context {
     /// 画面上でアクティブ（有効）になっている要素の総数を取得します。
     pub fn active_entities_count(&self) -> usize {
         self.active_entities.len()
+    }
+}
+
+// ヘルパー：単一背景色の単純なサブ矩形インスタンスを構築する関数
+fn build_simple_instance(
+    rect: LayoutRect,
+    color: Color,
+    opacity: f32,
+    visual: &VisualProperty,
+    basic: &BasicLayout,
+) -> QuadInstance {
+    QuadInstance {
+        rect,
+        transform: visual.transform.unwrap_or(IDENTITY_MATRIX),
+        transform_origin: [0.5, 0.5],
+        color,
+        corner_radius: CornerRadius::ZERO, // 分割された背景自体には角丸は不要
+        border_width: EdgeInsets::ZERO,
+        border_color: Color::TRANSPARENT,
+        opacity_and_mode: [opacity, 0.0, 0.0, 0.0], // Solidモード (0.0f32)
+        uv_max: [0.0; 2],
+        uv_min: [0.0; 2],
+        gradient_end_color: Color::TRANSPARENT,
+        gradient_angle: 0.0,
+        _padding: 0.0,
     }
 }
 

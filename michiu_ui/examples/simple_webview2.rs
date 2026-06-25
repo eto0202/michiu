@@ -74,10 +74,9 @@ unsafe extern "system" fn wnd_proc(
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
                 // DCompツリー側（WebView2等）のBoundsサイズもリサイズに連動して再構築
-                app.renderer.update_composition_tree(&app.context);
+                app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                let _ = unsafe { UpdateWindow(hwnd) };
                 return LRESULT(0);
             }
             WM_SIZE => {
@@ -92,19 +91,23 @@ unsafe extern "system" fn wnd_proc(
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
                 // DCompツリーのサイズ追従
-                app.renderer.update_composition_tree(&app.context);
+                app.renderer.update_composition_tree(&mut app.context);
 
                 // 再描画要求
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                let _ = unsafe { UpdateWindow(hwnd) };
                 return LRESULT(0);
             }
             WM_PAINT => {
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
-                // トランジション（アニメーション）を1フレーム進める
+                // 非同期キャプチャの完了など、バックグラウンドからメインスレッドに
+                // 届いたタスク（クロージャ）をこの描画フレーム開始時にすべて安全に実行
+                app.context.process_main_thread_tasks();
+
+                // トランジション、およびキーフレームアニメーションを 1 Tick 進める
                 app.context.tick_transitions();
+                app.context.tick_animations();
 
                 // 描画（draw）を行う直前に、必ず Taffy のレイアウトツリーの同期・再計算を実行
                 // これにより、クリックによって変化したテキスト要素の「最新の幅」が、
@@ -112,7 +115,7 @@ unsafe extern "system" fn wnd_proc(
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
                 // 描画直前にDCompツリーおよびWebView2の配置も最新状態に追従させます
-                app.renderer.update_composition_tree(&app.context);
+                app.renderer.update_composition_tree(&mut app.context);
 
                 // 描画実行
                 app.renderer.draw(&app.context);
@@ -145,8 +148,7 @@ unsafe extern "system" fn wnd_proc(
 
                 app.context.inject_pointer_move(logical_pos);
 
-                // マウス移動メッセージを WebView2 コントローラーへ透過的にフォワード！
-                // これにより、ブラウザ内のホバー反応、スクロールバードラッグなどが機能します。
+                // マウス移動メッセージを WebView2 コントローラーへ透過的にフォワード
                 app.renderer.forward_mouse_input(
                     &app.context,
                     app.webview_id,
@@ -157,12 +159,11 @@ unsafe extern "system" fn wnd_proc(
                 );
 
                 // インタラクションによる変化（ホバー状態）をリアルタイムに再描画
-                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                let _ = unsafe { UpdateWindow(hwnd) };
+                if app.context.is_render_dirty() {
+                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                }
                 return LRESULT(0);
             }
-
-            // === 【新規追加】マウスボタンの押し下げ・離しイベントの注入 ===
             WM_LBUTTONDOWN | WM_LBUTTONUP => {
                 let state = if msg == WM_LBUTTONDOWN {
                     ElementState::Pressed
@@ -184,7 +185,7 @@ unsafe extern "system" fn wnd_proc(
                 let x = (lparam.0 & 0xffff) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
 
-                // マウスクリックを WebView2 コントローラーへフォワード！
+                // マウスクリックを WebView2 コントローラーへフォワード
                 // これにより、ブラウザ内のリンククリックや各種操作が完璧に動作します。
                 app.renderer.forward_mouse_input(
                     &app.context,
@@ -195,23 +196,28 @@ unsafe extern "system" fn wnd_proc(
                     LayoutPoint::new(x, y),
                 );
 
-                // クリックした瞬間に、キーボードフォーカスをブラウザにアタッチ
-                if msg == WM_LBUTTONDOWN {
+                // クリックした要素が実際に WebView2 である場合のみ、キーボードフォーカスをブラウザにアタッチ
+                if msg == WM_LBUTTONDOWN
+                    && app.context.interaction_states.focused == Some(app.webview_id)
+                {
                     app.renderer.focus_webview(app.webview_id);
                 }
 
                 // クリックによる再描画を反映
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                let _ = unsafe { UpdateWindow(hwnd) };
                 return LRESULT(0);
             }
 
             WM_MOUSEWHEEL => {
-                let x = (lparam.0 & 0xffff) as i16 as f32;
-                let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
+                // WM_MOUSEWHEEL の座標はスクリーン座標であるため、ScreenToClient で
+                // クライアント領域の物理ピクセル座標に正確に直す必要がある
+                let mut pt = POINT {
+                    x: (lparam.0 & 0xffff) as i16 as i32,
+                    y: ((lparam.0 >> 16) & 0xffff) as i16 as i32,
+                };
+                let _ = unsafe { ScreenToClient(hwnd, &mut pt) };
 
-                let logical_pos =
-                    LayoutPoint::new(x / app.renderer.scale_factor, y / app.renderer.scale_factor);
+                let physical_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
 
                 // WebView2 へ縦スクロールイベントを転送
                 app.renderer.forward_mouse_input(
@@ -220,11 +226,10 @@ unsafe extern "system" fn wnd_proc(
                     msg,
                     wparam,
                     lparam,
-                    logical_pos,
+                    physical_pos,
                 );
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                let _ = unsafe { UpdateWindow(hwnd) };
                 return LRESULT(0);
             }
             _ => {}
@@ -267,7 +272,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let root_node = div(ts()
             .flex()
             .size(Size::pct_all(1.0))
-            .bg_color(Color::rgb(0.08, 0.08, 0.12))
+            .bg_color(Color::rgb(0.01, 0.01, 0.01))
             .align_items(AlignItems::Center)
             .justify_content(JustifyContent::Center)
             .flex_direction(michiu_ui::FlexDirection::Column)
@@ -284,13 +289,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let webview_element = {
             let wv = div(ts()
                 .size(Size::pct(0.8, 0.7))
-                .border(Rect::px_all(10.0))
-                .border_color(Color::rgb(0.01, 0.01, 0.01))
+                .border(Rect::px_all(1.0))
+                .border_color(Color::rgb(1.0, 1.0, 1.0))
+                .bg_color(Color::rgb(0.01, 0.01, 0.01))
                 .corner_radius(CornerRadius::all(12.0)))
-            .webview2(
-                WebView2Contents::new("https://github.com/microsoft/windows-rs")
-                    .allow_interaction(true),
-            );
+            .webview2(WebView2Contents::new("https://www.google.com").allow_interaction(true));
 
             // Cell::set を使用（不変参照で呼べるため、クロージャは Fn のまま安全です）
             webview_id_cell.set(Some(wv.id()));
@@ -359,10 +362,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.context
         .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
 
+    // ウィンドウが画面に露出する前に、手動で最初の DComp ツリーと描画を Commit しておきます。
+    // これにより、起動したその瞬間から美しい紺色背景が隙間なく敷かれます。
+    app.renderer.update_composition_tree(&mut app.context);
+    app.renderer.draw(&app.context);
+
     // 5. ウィンドウを表示して描画
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOW);
-        let _ = UpdateWindow(hwnd);
+        let _ = InvalidateRect(Some(hwnd), None, false);
     }
 
     // 6. Win32 メッセージループの開始

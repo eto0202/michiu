@@ -13,6 +13,8 @@ pub struct WebView2Contents {
     pub enable_scripts: bool,
     /// 起動時（ドキュメント読み込み前）に自動実行させるJavaScript
     pub user_scripts: Vec<Cow<'static, str>>,
+    /// ユーザーが操作していなくても、常にコンポジションスレッドで再生し続けるか
+    pub always_active: bool,
 }
 
 impl Default for WebView2Contents {
@@ -24,6 +26,7 @@ impl Default for WebView2Contents {
             enable_dev_tools: false,    // デフォルトはオフ
             enable_scripts: true,
             user_scripts: Vec::new(),
+            always_active: false,
         }
     }
 }
@@ -72,6 +75,13 @@ impl WebView2Contents {
     #[inline]
     pub fn add_user_script(mut self, script: impl Into<Cow<'static, str>>) -> Self {
         self.user_scripts.push(script.into());
+        self
+    }
+
+    /// 動画プレイヤーやWebGLなどの場合に常時レンダリングを有効にする
+    #[inline]
+    pub fn always_active(mut self, always: bool) -> Self {
+        self.always_active = always;
         self
     }
 }

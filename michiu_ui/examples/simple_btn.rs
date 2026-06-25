@@ -219,7 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .border_color(Color::rgb(0.1, 0.1, 0.1))
                 .align_items(AlignItems::Center)
                 .justify_content(JustifyContent::Center)
-                .corner_radius(CornerRadius::all(16.0))
+                .corner_radius(CornerRadius::all(12.0))
                 // 背景色の変化に対して滑らかなトランジションを設定（150ms でEaseInOut）
                 .transition(Transition::new(
                     PropertyList::BackgroundColor,

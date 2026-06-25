@@ -121,7 +121,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let half_size = in.size * 0.5;
     let p = in.local_pos - half_size;
 
-    // --- 外側の境界 (Outer Edge) ---
+    // 外側の境界 (Outer Edge)
     let d_outer = sd_rounded_box(p, half_size, in.corner_radius);
 
     // アンチエイリアス（1ピクセル幅で滑らかにする）
@@ -164,6 +164,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let mask = text_alpha * outer_mask;
         final_color = in.bg_color.rgb * in.bg_color.a * mask;
         final_alpha = in.bg_color.a * mask;
+    } else if (in.mode == 3u) { // 静止 WebView2 サンプリング
+        // DCompのWebView2からキャプチャしたRGBAカラーテクスチャをサンプリング
+        // 非一様制御フロー内のため、textureSampleLevel(..., 0.0) を使用してサンプリングエラーを防ぎます
+        let webview_color = textureSampleLevel(t_atlas, s_atlas, in.uv, 0.0);
+
+        // 透過角丸（outer_mask）を乗算して綺麗に PMA 合成
+        final_color = webview_color.rgb * outer_mask;
+        final_alpha = webview_color.a * outer_mask;
     } else {
         // 通常の背景 ＆ 枠線（ボーダー）の描画
         let b_width = in.border_width.x; // Topを基準とする
@@ -172,8 +180,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let d_inner = d_outer + b_width;
             let inner_mask = 1.0 - smoothstep(-edge_softness, edge_softness, d_inner);
 
-            let border_mask = outer_mask - inner_mask; // ボーダー領域のみのマスク
-            let bg_mask = inner_mask;                  // 背景（内側）領域のマスク
+            // 外側と内側の引き算ではなく、エッジの中心線からの絶対距離（abs）を用いて描画します。
+            // これにより、どれだけ枠線が太くても、内側の丸みが角ばるバグが完全に解決され、滑らかな曲線になります。
+            let d_border = abs(d_outer + b_width * 0.5) - b_width * 0.5;
+            let border_mask = 1.0 - smoothstep(-edge_softness, edge_softness, d_border);
+
+            // 背景（内側）のマスク
+            let bg_mask = 1.0 - smoothstep(-edge_softness, edge_softness, d_outer + b_width);
 
             let c_bg = base_color.rgb * base_color.a;
             let c_border = in.border_color.rgb * in.border_color.a;

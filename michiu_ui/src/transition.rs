@@ -1,4 +1,4 @@
-use crate::{AnimationCurve, Color, CornerRadius, PropertyList};
+use crate::{AnimationCurve, Color, CornerRadius, PlaybackCount, PropertyList};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -141,6 +141,20 @@ fn recompose_2d(d: &Decomposed2D) -> [[f32; 4]; 4] {
     m[3][1] = d.translation[1];
 
     m
+}
+
+/// CPU 側で現在再生中の動的なキーフレームアニメーションの状態
+#[derive(Debug, Clone)]
+pub(crate) struct ActiveAnimation {
+    pub(crate) property: PropertyList,
+    pub(crate) start_time: Instant,
+    pub(crate) duration: Duration,
+    pub(crate) iteration_count: PlaybackCount,
+    pub(crate) curve: AnimationCurve,
+
+    // 回転アニメーションなどのために、現在の周回（ループ）における開始ベース値と目標値を定義
+    pub(crate) start_value: TransitionValue,
+    pub(crate) end_value: TransitionValue,
 }
 
 #[cfg(test)]

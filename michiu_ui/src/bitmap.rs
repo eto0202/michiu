@@ -118,6 +118,11 @@ impl ComponentMask {
     }
 
     #[inline]
+    pub fn has_active_interaction_property(&self) -> bool {
+        self.has(STYLE_ACTIVE_INTERACTION_PROPERTY)
+    }
+
+    #[inline]
     pub fn has_image_content(&self) -> bool {
         self.has(COMP_IMAGE_CONTENT)
     }
@@ -279,3 +284,5 @@ pub(crate) const STYLE_INTERACTION_PROPERTY: u64 = STATE_HOVERED
     | STATE_ACTIVED
     | STATE_SELECTED
     | STATE_DRAGGED;
+
+pub(crate) const STYLE_ACTIVE_INTERACTION_PROPERTY: u64 = STATE_FOCUSED | STATE_ACTIVED;

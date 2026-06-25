@@ -1893,11 +1893,11 @@ pub(crate) struct InteractionStyles {
 
 /// 実行時にウィンドウ内で現在アクティブ（排他的）になっている、各状態の対象要素（EntityId）を管理します。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct InteractionStates {
-    pub(crate) hovered: Option<EntityId>,
-    pub(crate) focused: Option<EntityId>,
-    pub(crate) pressed: Option<EntityId>,
-    pub(crate) dragged: Option<EntityId>,
+pub struct InteractionStates {
+    pub hovered: Option<EntityId>,
+    pub focused: Option<EntityId>,
+    pub pressed: Option<EntityId>,
+    pub dragged: Option<EntityId>,
 }
 
 impl InteractionStates {

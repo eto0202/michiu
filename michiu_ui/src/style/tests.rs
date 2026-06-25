@@ -1,3 +1,5 @@
+use crate::{Context, IDENTITY_MATRIX, LayoutSize, div};
+
 use super::*;
 
 // 1. Arc を用いた Copy-on-Write（CoW）の物理メモリアドレスレベルでの検証
@@ -114,4 +116,58 @@ fn test_nested_interactive_styles() {
         hover_style.inner.visual_property.bg_color,
         Some(Color::rgb(0.0, 0.0, 1.0))
     );
+}
+
+// 1. 【リライト】CPU 駆動型キーフレームアニメーションの再生・補間・自動クリーンアップの検証
+#[test]
+fn test_cpu_animation_tick() {
+    // UI 状態の準備
+    let mut cx = Context::new();
+
+    // この要素はキーフレームアニメーション（無限回転スピナー）を持ちます
+    let root = crate::build_ui(&mut cx, || {
+        div(ts()
+            .size(Size::px(100.0, 100.0))
+            .bg_color(Color::rgb(1.0, 0.0, 0.0))
+            // 無限ループの回転アニメーションをバインド（これが 1<<51 になります）
+            .animation(KeyframeAnimation {
+                property: PropertyList::Transform,
+                duration: Duration::from_millis(1000),
+                iteration_count: PlaybackCount::Infinite,
+                curve: AnimationCurve::Linear,
+            }))
+    });
+
+    // 検証 A: スタイル適用の解決に伴い、CPU駆動アニメーションが自動起動（エンロール）されているか
+    assert!(cx.active_animations.contains_key(root.id));
+    let anim_list = &cx.active_animations[root.id];
+    assert_eq!(anim_list.len(), 1);
+    assert_eq!(anim_list[0].property, PropertyList::Transform);
+
+    // 確定座標（rects）を生成
+    cx.sync_layout_and_render_list(root.id, LayoutSize::new(800.0, 600.0));
+
+    // 初期状態では、トランスフォーム行列は None（または IDENTITY）
+    let _initial_transform = cx.visual_properties.get(root.id).and_then(|v| v.transform);
+
+    // 検証のためにスレッドを少し待機させ、tick_animations を呼び出す
+    std::thread::sleep(Duration::from_millis(100));
+    cx.tick_animations();
+
+    // 検証 B: tick_animations() を通して、回転トランスフォーム行列が
+    // ベース状態（IDENTITY_MATRIX）から時間経過に伴って滑らかに補間・変化しているか
+    let ticked_transform = cx
+        .visual_properties
+        .get(root.id)
+        .and_then(|v| v.transform)
+        .unwrap();
+    assert_ne!(ticked_transform, IDENTITY_MATRIX);
+
+    // 要素をデスポーン（アニメーション終了、または要素の消滅をシミュレート）
+    cx.despawn(root);
+    cx.gc_inactive_entities();
+
+    // 検証 C: 要素の破棄に伴い、動的に再生されていたアクティブアニメーションテーブルも
+    // 安全にメモリリークなく一掃されているか
+    assert!(!cx.active_animations.contains_key(root.id));
 }

@@ -122,11 +122,18 @@ impl QuadInstance {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchType {
+    Normal,
+    Punchout,
+}
+
 /// 同じクリップ（Scissor）範囲で描画できるインスタンスの塊
 pub struct DrawBatch {
     pub scissor_rect: LayoutRect,
     pub instances: Vec<QuadInstance>,
     pub(crate) entity_ids: Vec<EntityId>,
+    pub(crate) batch_type: BatchType,
 }
 
 pub struct RenderData {

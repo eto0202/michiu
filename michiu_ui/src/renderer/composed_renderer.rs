@@ -37,20 +37,24 @@ pub struct ComposedRenderer {
     pub layout_size: LayoutSize,
     pub scale_factor: f32,
 
-    // DirectComposition リソース
+    /// DirectComposition リソース
     pub dcomp_device: IDCompositionDesktopDevice,
     pub dcomp_target: IDCompositionTarget,
     pub root_visual: IDCompositionVisual2,
+    /// wgpu 用のビジュアルを前面・背面に分割
     pub wgpu_visual: IDCompositionVisual2,
 
-    // wgpu レンダラー
+    /// wgpu レンダラー
     pub wgpu_renderer: WgpuRenderer,
 
-    // 作成済みの WebView2 環境オブジェクト
+    /// 作成済みの WebView2 環境オブジェクト
     pub webview_env: Rc<RefCell<Option<ICoreWebView2Environment3>>>,
 
-    // 動的に昇格されたアニメーションレイヤーの一覧
+    /// 動的に昇格された WebView2 レイヤーの一覧
     pub promoted_visuals: Vec<PromotedVisual>,
+
+    /// 非同期でキャプチャデコードが完了し、正式に削除（DComp解放）可能になった ID の待ちバッファ
+    pub(crate) pending_removals: Rc<RefCell<Vec<(EntityId, wgpu::Texture)>>>,
 }
 
 #[derive(Debug)]
@@ -63,6 +67,8 @@ pub struct PromotedVisual {
     pub(crate) transform: Option<windows::core::IUnknown>,
     /// 各昇格要素ごとに独立した WebView2 非同期スロットを配備する
     pub(crate) webview_controller: Rc<RefCell<Option<ICoreWebView2Controller>>>,
+    /// 現在バックグラウンドで非同期キャプチャ（スナップショット）を実行中かどうかのフラグ
+    pub(crate) is_capturing: bool,
 }
 
 impl ComposedRenderer {
@@ -79,9 +85,9 @@ impl ComposedRenderer {
         let h_instance = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None)? };
 
         // 2. wgpu レンダラーの初期化
-        let raw_wgpu_visual_ptr = wgpu_visual.as_raw();
-        let wgpu_renderer =
-            WgpuRenderer::new(raw_wgpu_visual_ptr, layout_size, scale_factor).await?;
+        let raw_visual_ptr = wgpu_visual.as_raw();
+
+        let wgpu_renderer = WgpuRenderer::new(raw_visual_ptr, layout_size, scale_factor).await?;
 
         unsafe {
             dcomp_device.Commit()?;
@@ -117,6 +123,7 @@ impl ComposedRenderer {
             wgpu_renderer,
             webview_env,
             promoted_visuals: Vec::new(),
+            pending_removals: Rc::new(RefCell::new(Vec::new())),
         })
     }
 
@@ -141,39 +148,132 @@ impl ComposedRenderer {
     }
 
     /// アニメーションが必要な要素を検出し、Compositor側に昇格させてアニメーションをバインドします
-    pub fn update_composition_tree(&mut self, cx: &Context) {
+    pub fn update_composition_tree(&mut self, cx: &mut Context) {
         unsafe {
+            // 非同期キャプチャが完了した要素の一括 DComp 解放処理
+            let mut completed = self.pending_removals.borrow_mut().split_off(0);
+            for (id, wgpu_texture) in completed {
+                // 1. wgpu レンダラーへ静止テクスチャビューとして登録（これでwgpu単体で描画可能になる）
+                let view = wgpu_texture.create_view(&Default::default());
+                self.wgpu_renderer.webview_static_caches.insert(id, view);
+
+                // 2. DComp 側から Visual を完全に削除し、プロモートリストから除外
+                if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id) {
+                    let promoted = &self.promoted_visuals[pos];
+                    self.root_visual.RemoveVisual(&promoted.visual).unwrap();
+                    self.promoted_visuals.remove(pos);
+                }
+            }
+
             let mut current_promoted_ids = Vec::new();
 
             for &id in &cx.active_entities {
-                // キーフレームアニメーション要素、または WebView2 要素を抽出して昇格させる
-                let is_animated = cx.active_masks[id].has(STYLE_ANIMATIONS);
+                // WebView2 要素を抽出して昇格させる
                 let is_webview = cx.active_masks[id].has(COMP_WEBVIEW_CONTENT);
 
-                // STYLE_ANIMATIONS（1<<51）が立っている要素のみを抽出
-                if is_animated || is_webview {
+                let is_always_active = cx
+                    .webview_contents
+                    .get(id)
+                    .map(|c| c.always_active)
+                    .unwrap_or(false);
+
+                // フォーカスや能動状態があるか
+                let is_interactive = cx.active_masks[id].has_active_interaction_property();
+
+                // 現在非同期キャプチャの実行中かチェック
+                let is_capturing = self
+                    .promoted_visuals
+                    .iter()
+                    .any(|v| v.entity_id == id && v.is_capturing);
+                // まだ静止画のテクスチャキャッシュが作成されていないか
+                let has_no_cache = !self.wgpu_renderer.webview_static_caches.contains_key(&id);
+
+                // インタラクティブ操作中、またはまだキャッシュがなくキャプチャもキックされていない間、
+                // あるいはキャプチャ実行中（wgpuにテクスチャが届くのを待っている間）は、DComp上に実体を生かします。
+                if is_webview
+                    && (is_interactive || is_always_active || has_no_cache || is_capturing)
+                {
                     current_promoted_ids.push(id);
 
                     // すでに昇格済みかチェック
                     if !self.promoted_visuals.iter().any(|v| v.entity_id == id) {
                         self.promote_element_to_visual(cx, id);
+
+                        // アクティブ化したので、wgpu 側の静止テクスチャキャッシュがあれば削除して無効化
+                        self.wgpu_renderer.webview_static_caches.remove(&id);
+                    }
+
+                    if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id)
+                        && self.promoted_visuals[pos]
+                            .webview_controller
+                            .borrow()
+                            .is_some()
+                    {
+                        // コントローラーがバインドされた＝初期化完了したため、wgpu 側に穴あけを指示
+                        cx.active_webviews.insert(id);
                     }
                 }
             }
 
-            // アクティブから消えた（アニメーションが終了、または要素がデスポーンした）Visual をクリーンアップ
+            // アクティブから消えた（要素がデスポーンした）Visual をクリーンアップ
             let mut i = 0;
             while i < self.promoted_visuals.len() {
                 let id = self.promoted_visuals[i].entity_id;
                 if !current_promoted_ids.contains(&id) {
-                    // ルートビジュアルから切り離す
-                    self.root_visual
-                        .RemoveVisual(&self.promoted_visuals[i].visual)
-                        .unwrap();
-                    self.promoted_visuals.remove(i);
+                    let promoted = &mut self.promoted_visuals[i];
+
+                    // 要素がまだ Context 上に生きている（生存している）かチェック
+                    let is_alive = cx.entities.contains_key(id);
+
+                    if is_alive {
+                        // 単なる非アクティブ化：キャプチャをキックして静止キャッシュに流し込む
+                        if !promoted.is_capturing {
+                            promoted.is_capturing = true;
+
+                            if let Some(ref controller) = *promoted.webview_controller.borrow() {
+                                let webview = controller.CoreWebView2().unwrap();
+                                // 安全な .get() とアンラップで座標を取得
+                                let rect = cx.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+
+                                let width = (rect.width * self.scale_factor).round() as u32;
+                                let height = (rect.height * self.scale_factor).round() as u32;
+
+                                let pending_removals_clone = self.pending_removals.clone();
+                                let wgpu_device = self.wgpu_renderer.device.clone();
+                                let wgpu_queue = self.wgpu_renderer.queue.clone();
+                                let wic_factory =
+                                    self.wgpu_renderer.text_rasterizer.wic_factory.clone();
+
+                                // 非同期キャプチャをキック
+                                let _ = crate::trigger_capture_async(
+                                    webview,
+                                    width,
+                                    height,
+                                    wgpu_device,
+                                    wgpu_queue,
+                                    wic_factory,
+                                    move |result| {
+                                        if let Ok(wgpu_texture) = result {
+                                            pending_removals_clone
+                                                .borrow_mut()
+                                                .push((id, wgpu_texture));
+                                        }
+                                    },
+                                );
+                            }
+                        }
+                        i += 1;
+                    } else {
+                        // 完全に要素が消滅（デスポーン）した場合：
+                        // キャプチャは一切不要なため、ただちに DComp ツリーから Visual を除外してメモリを解放
+                        self.root_visual.RemoveVisual(&promoted.visual).unwrap();
+                        self.promoted_visuals.remove(i);
+                        // 要素を取り除いたため、インデックス（i）は進めません
+                    }
                 } else {
                     // 2. 生きている要素のサイズを追従（Taffyのレイアウトアニメーションと完全同期）
                     let rect = cx.rects[id];
+                    let clip_rect = cx.clip_rects[id]; // 親の overflow 等で制限された表示領域
                     let visual = &self.promoted_visuals[i].visual;
 
                     // 位置の同期 (物理座標)
@@ -182,25 +282,30 @@ impl ComposedRenderer {
                     visual.SetOffsetX2(phys_x).unwrap();
                     visual.SetOffsetY2(phys_y).unwrap();
 
-                    let phys_w = rect.width * self.scale_factor;
-                    let phys_h = rect.height * self.scale_factor;
-
                     // DComp の仕様に則り、通常の CreateRectangleClip から角丸設定を行います
                     if let Some(visual_prop) = cx.visual_properties.get(id) {
                         // 1. 通常の RectangleClip オブジェクトをデバイスから生成
                         let dcomp_device = self.dcomp_device.clone();
                         let rectangle_clip = dcomp_device.CreateRectangleClip().unwrap();
 
-                        // 2. クリップの矩形境界を物理ピクセルでセット
-                        rectangle_clip.SetLeft2(0.0).unwrap();
-                        rectangle_clip.SetTop2(0.0).unwrap();
-                        rectangle_clip.SetRight2(phys_w).unwrap();
-                        rectangle_clip.SetBottom2(phys_h).unwrap();
+                        // 2. 絶対クリップ境界（clip_rect）からビジュアルローカルの物理ピクセル範囲を算出してセット
+                        let clip_left = (clip_rect.x - rect.x).max(0.0) * self.scale_factor;
+                        let clip_top = (clip_rect.y - rect.y).max(0.0) * self.scale_factor;
+                        let clip_right = ((clip_rect.x + clip_rect.width) - rect.x).min(rect.width)
+                            * self.scale_factor;
+                        let clip_bottom = ((clip_rect.y + clip_rect.height) - rect.y)
+                            .min(rect.height)
+                            * self.scale_factor;
+
+                        rectangle_clip.SetLeft2(clip_left).unwrap();
+                        rectangle_clip.SetTop2(clip_top).unwrap();
+                        rectangle_clip.SetRight2(clip_right).unwrap();
+                        rectangle_clip.SetBottom2(clip_bottom).unwrap();
 
                         // 3. クリップに角丸を設定
                         if let Some(radius) = visual_prop.corner_radius {
                             let r = radius.top_left * self.scale_factor;
-                            // `windows` クレートのオーバーロード規約に従い、末尾に「2」の付くメソッドを呼び出します
+
                             rectangle_clip.SetTopLeftRadiusX2(r).unwrap();
                             rectangle_clip.SetTopLeftRadiusY2(r).unwrap();
                             rectangle_clip.SetTopRightRadiusX2(r).unwrap();
@@ -236,6 +341,18 @@ impl ComposedRenderer {
                         let _ = controller.SetBounds(bounds);
                     }
 
+                    // DComp 側への不透明度 (Opacity) の同期
+                    // 前面の wgpu 側だけでなく、背面にある WebView2 自身も滑らかに透明化させます
+                    if let Some(visual_prop) = cx.visual_properties.get(id) {
+                        let opacity = visual_prop.opacity.unwrap_or(1.0);
+                        // DComp の SetOpacity API を呼び出して不透明度をセット
+                        if let Ok(visual3) = visual.cast::<IDCompositionVisual3>() {
+                            unsafe {
+                                visual3.SetOpacity2(opacity);
+                            }
+                        }
+                    }
+
                     i += 1;
                 }
             }
@@ -258,107 +375,14 @@ impl ComposedRenderer {
             visual.SetOffsetX2(phys_x).unwrap();
             visual.SetOffsetY2(phys_y).unwrap();
 
-            // 3. ルートビジュアルの子として追加
-            // 昇格された要素は、wgpu_visual (メイン描画) の「手前」の兄弟ノードとして追加します。
-            // 親は最上位の root_visual、基準ノードを self.wgpu_visual にすることで、
-            // 完全に正しい z-order で手前に重なります。
-            self.root_visual.AddVisual(&visual, false, None).unwrap();
+            // 3. 前面 wgpu (wgpu_visual) の直下・背面（insertabove = false）に WebView2 を挿入
+            // これにより、重なり順が常に [WebView2] ➔ [wgpu_visual] となり、
+            // wgpu 側のパンチアウト透明窓を通して背面が透過。
+            self.root_visual
+                .AddVisual(&visual, false, &self.wgpu_visual)
+                .unwrap();
 
-            let mut transform_kept = None;
             let webview_controller = Rc::new(RefCell::new(None));
-
-            // 4. アニメーション設定
-            if cx.active_masks[id].has(STYLE_ANIMATIONS)
-                && let Some(visual_prop) = cx.visual_properties.get(id)
-            {
-                for anim in &visual_prop.keyframe_animations {
-                    // 1. 変形（Transform）アニメーションの動的生成
-                    if anim.property == PropertyList::Transform {
-                        let rotate_transform = self.dcomp_device.CreateRotateTransform().unwrap();
-
-                        let center_x = rect.width * self.scale_factor * 0.5;
-                        let center_y = rect.height * self.scale_factor * 0.5;
-                        rotate_transform.SetCenterX2(center_x).unwrap();
-                        rotate_transform.SetCenterY2(center_y).unwrap();
-
-                        // DComp 用アニメーションオブジェクト
-                        let dcomp_animation = self.dcomp_device.CreateAnimation().unwrap();
-                        let d_secs_f64 = anim.duration.as_secs_f64(); // ユーザー指定の秒数
-                        let d_sec_f32 = d_secs_f64 as f32;
-                        // ユーザー指定のカーブに基づいてDCompセグメントを動的構築
-                        match anim.curve {
-                            AnimationCurve::Linear => {
-                                // 等速回転: 1周360度を d_secs 秒で回る速度
-                                let velocity = 360.0 / d_sec_f32;
-                                dcomp_animation
-                                    .AddCubic(0.0, 0.0, velocity, 0.0, 0.0)
-                                    .unwrap();
-                            }
-                            AnimationCurve::EaseInQuad => {
-                                // 加速回転
-                                let accel = 360.0 / (d_sec_f32 * d_sec_f32);
-                                dcomp_animation.AddCubic(0.0, 0.0, 0.0, accel, 0.0).unwrap();
-                            }
-                            AnimationCurve::EaseOutQuad => {
-                                // 減速回転
-                                let velocity = 720.0 / d_sec_f32;
-                                let decel = -360.0 / (d_sec_f32 * d_sec_f32);
-                                dcomp_animation
-                                    .AddCubic(0.0, 0.0, velocity, decel, 0.0)
-                                    .unwrap();
-                            }
-                            AnimationCurve::EaseInOutQuad => {
-                                // C1連続（滑らかな接続）な2段階多項式セグメントの合成
-                                let half_d = d_sec_f32 * 0.5;
-
-                                // 前半（0 ～ D/2）: 加速
-                                let accel = 720.0 / (d_sec_f32 * d_sec_f32);
-                                dcomp_animation.AddCubic(0.0, 0.0, 0.0, accel, 0.0).unwrap();
-
-                                // 後半（D/2 ～ D）: 減速接続
-                                // 前半終了時点の角度180度、速度 720/D から減速開始 [2.1.2]
-                                let velocity = 720.0 / d_sec_f32;
-                                let decel = -720.0 / (d_sec_f32 * d_sec_f32);
-                                dcomp_animation
-                                    .AddCubic(half_d as f64, 180.0, velocity, decel, 0.0)
-                                    .unwrap();
-                            }
-                            AnimationCurve::Custom(f) => {
-                                // ユーザー独自カーブの場合、10分割のステップ多項式などで擬似補間
-                                // TODO: 本番では高度なスプライン補間を適用可能。まずはリニアにフォールバック
-                                let velocity = 360.0 / d_sec_f32;
-                                dcomp_animation
-                                    .AddCubic(0.0, 0.0, velocity, 0.0, 0.0)
-                                    .unwrap();
-                            }
-                        }
-
-                        // ─── 修正ポイント: ループ回数（無限・有限）の動的解決 ───
-                        match anim.iteration_count {
-                            PlaybackCount::Infinite => {
-                                // 無限ループ
-                                dcomp_animation.AddRepeat(d_secs_f64, d_secs_f64).unwrap();
-                            }
-                            PlaybackCount::Count(n) => {
-                                if n > 1 {
-                                    // 有限回数ループのバインド
-                                    let total_secs = d_secs_f64 * (n as f64);
-                                    dcomp_animation.AddRepeat(d_secs_f64, d_secs_f64).unwrap();
-
-                                    // 指定秒数経過後にループを終了させ、360度の状態で固定する [2.1.3, 2.1.6]
-                                    dcomp_animation.End(total_secs, 360.0).unwrap();
-                                }
-                            }
-                        }
-
-                        // 角度に適用
-                        rotate_transform.SetAngle(&dcomp_animation).unwrap();
-                        visual.SetTransform(&rotate_transform).unwrap();
-
-                        transform_kept = Some(rotate_transform.cast().unwrap());
-                    }
-                }
-            }
 
             // B. WebView2 設定のバインド (COMP_WEBVIEW_CONTENTフラグ)
             if cx.active_masks[id].has(COMP_WEBVIEW_CONTENT)
@@ -382,8 +406,9 @@ impl ComposedRenderer {
             self.promoted_visuals.push(PromotedVisual {
                 entity_id: id,
                 visual,
-                transform: transform_kept,
+                transform: None,
                 webview_controller,
+                is_capturing: false,
             });
         }
     }
@@ -494,10 +519,10 @@ pub(crate) unsafe fn setup_direct_composition(
         let root_visual = dcomp_device.CreateVisual().unwrap();
         dcomp_target.SetRoot(&root_visual).unwrap();
 
-        // 子ビジュアルを作成
+        // wgpu 用のメインビジュアルを1つだけ作成して登録
         let wgpu_visual = dcomp_device.CreateVisual().unwrap();
-        // ビジュアルをツリーに追加
         root_visual.AddVisual(&wgpu_visual, true, None).unwrap();
+
         // 変更をコンポジターにコミットして反映
         dcomp_device.Commit().unwrap();
 
@@ -705,82 +730,6 @@ mod tests {
         });
     }
 
-    // DComp レイヤー昇格 ＆ アニメーションバインド ＆ クリーンアップ検証
-    #[test]
-    fn test_composed_renderer_layer_promotion() {
-        pollster::block_on(async {
-            unsafe {
-                let _com = ComGuard::new();
-
-                // 1. ダミーウィンドウの作成
-                let hwnd = create_dummy_window();
-                assert!(!hwnd.is_invalid());
-
-                // 2. ComposedRenderer の初期化
-                let initial_size = LayoutSize::new(800.0, 600.0);
-                let renderer_result = ComposedRenderer::new(hwnd, initial_size, 1.0).await;
-
-                // WebView2 ランタイム非搭載環境（一部の制限されたCIなど）を考慮し、
-                // 初期化に成功した場合のみ E2E ライフサイクル検証を実行します
-                match renderer_result {
-                    Ok(mut renderer) => {
-                        // 3. UI 状態の準備
-                        // この要素はキーフレームアニメーション（無限回転スピナー）を持ちます
-                        let mut cx = Context::new();
-                        let root = build_ui(&mut cx, || {
-                            div(ts()
-                                .size(Size::px(100.0, 100.0))
-                                .bg_color(Color::rgb(1.0, 0.0, 0.0))
-                                // 無限ループの回転アニメーションをバインド（これが昇格フラグ 1<<51 になります）
-                                .animation(KeyframeAnimation {
-                                    property: PropertyList::Transform,
-                                    duration: Duration::from_millis(1000),
-                                    iteration_count: PlaybackCount::Infinite,
-                                    curve: AnimationCurve::Linear,
-                                }))
-                        });
-
-                        // 確定座標（rects）を生成
-                        cx.sync_layout_and_render_list(root.id, renderer.layout_size);
-
-                        // 4. 同期と昇格の実行 (update_composition_tree)
-                        renderer.update_composition_tree(&cx);
-
-                        // 検証 A: 要素が1つ正しく Compositor レイヤーに昇格しているか
-                        assert_eq!(renderer.promoted_visuals.len(), 1);
-                        let promoted = &renderer.promoted_visuals[0];
-                        assert_eq!(promoted.entity_id, root.id);
-
-                        // 検証 B: DComp 側の RotateTransform アニメーションが紐付いているか
-                        assert!(
-                            promoted.transform.is_some(),
-                            "RotateTransform should be attached to the promoted visual"
-                        );
-
-                        // 5. 要素のデスポーン（アニメーション終了、または要素の消滅をシミュレート）
-                        cx.despawn(root);
-                        cx.gc_inactive_entities();
-
-                        // 6. 再び DComp ツリーと同期
-                        renderer.update_composition_tree(&cx);
-
-                        // 検証 C: 要素消滅に伴い、Compositor 側の Visual も安全にデタッチされ、メモリが解放されたか
-                        assert_eq!(renderer.promoted_visuals.len(), 0);
-                    }
-                    Err(e) => {
-                        println!(
-                            "Skipping full promotion test because WebView2/DComp setup returned error: {:?}",
-                            e
-                        );
-                    }
-                }
-
-                // ウィンドウの破棄
-                DestroyWindow(hwnd).unwrap();
-            }
-        });
-    }
-
     // WebView2 の動的レイヤー昇格、バインド、および自動破棄のテスト
     #[test]
     fn test_composed_renderer_webview2_promotion() {
@@ -793,7 +742,8 @@ mod tests {
                 let hwnd = create_dummy_window();
                 assert!(!hwnd.is_invalid());
 
-                // 2. ComposedRenderer の初期化（内部で webview_env が裏で非同期ロード開始されます）
+                // 2. ComposedRenderer の初期化
+                // （内部でシングルススワップチェーン、webview_env が裏で非同期ロード開始されます）
                 let initial_size = LayoutSize::new(800.0, 600.0);
                 let renderer_result = ComposedRenderer::new(hwnd, initial_size, 1.0).await;
 
@@ -816,11 +766,14 @@ mod tests {
                         cx.sync_layout_and_render_list(root.id, renderer.layout_size);
 
                         // 4. Compositor ツリー同期を実行 (WebView2 レイヤーの自動昇格をトリガー)
-                        renderer.update_composition_tree(&cx);
+                        renderer.update_composition_tree(&mut cx);
 
                         // 検証 A: WebView2 要素が正しく個別 Visual レイヤーに昇格しているか
                         assert_eq!(renderer.promoted_visuals.len(), 1);
                         let promoted = &renderer.promoted_visuals[0];
+
+                        // DComp側のネイティブアニメーションを排除したため、transform は None であることを検証
+                        assert!(promoted.transform.is_none());
 
                         // 検証 B: 昇格した Visual が、WebView2用の非同期コントローラースロットを正しく保持しているか
                         assert!(
@@ -829,8 +782,6 @@ mod tests {
                         );
 
                         // 5. Windows のメッセージループをわずかに回して、WebView2 の非同期完了通知を処理させる
-                        // (webview2-com の wait_for_async_operation は内部でメッセージポンピングを行いますが、
-                        //  確実にスロットにコントローラーが流し込まれたかを検証するために極小のメッセージ処理を走らせます)
                         let start = std::time::Instant::now();
                         let mut msg = MSG::default();
                         while start.elapsed() < Duration::from_millis(500) {
@@ -842,7 +793,6 @@ mod tests {
                         }
 
                         // 検証 C: 非同期ロードが完了し、スロットにコントローラーが退避（保持）されているか確認
-                        // (WebView2 ランタイムが正常にロードされた場合、None ➔ Some に変化します)
                         let controller_loaded = promoted.webview_controller.borrow().is_some();
                         println!(
                             "WebView2 Controller asynchronously loaded: {}",
@@ -854,9 +804,11 @@ mod tests {
                         cx.gc_inactive_entities();
 
                         // 7. 再び同期を実行してクリーンアップをトリガー
-                        renderer.update_composition_tree(&cx);
+                        renderer.update_composition_tree(&mut cx);
 
-                        // 検証 D: 要素消滅に伴い、Compositor側の Visual や WebView2 もすべて自動消滅し、空になっているか
+                        // 検証 D: 要素消滅に伴い、Compositor側の Visual や WebView2 もすべて【即時同期的に】自動消滅し、空になっているか
+                        // (生存判定により無駄な非同期キャプチャをスキップして即時解放されるため、
+                        //  ここでのアサーションは非同期完了を待たずに即座に 0 になります)
                         assert_eq!(renderer.promoted_visuals.len(), 0);
                     }
                     Err(e) => {
