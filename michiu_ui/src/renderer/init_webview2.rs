@@ -19,6 +19,7 @@ use windows::{
             Direct3D11::*,
             DirectComposition::{IDCompositionVisual, *},
             Dxgi::*,
+            Gdi::InvalidateRect,
         },
         UI::WindowsAndMessaging::{WM_MOUSEHWHEEL, WM_MOUSEWHEEL},
     },
@@ -34,7 +35,7 @@ pub(crate) unsafe fn init_webview2_composition(
     settings: WebView2Contents,
     rect: LayoutRect,
     scale_factor: f32,
-    env_slot: Rc<RefCell<Option<ICoreWebView2Environment3>>>, // 引数を追加
+    env_slot: Rc<RefCell<Option<ICoreWebView2Environment3>>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let webview_visual_clone = webview_visual.clone();
     let controller_slot_clone = controller_slot.clone();
@@ -44,8 +45,6 @@ pub(crate) unsafe fn init_webview2_composition(
     if let Some(ref env3) = *env_slot.borrow() {
         let env3_clone = env3.clone();
 
-        // 【最重要修正】wait_for_async_operation（メッセージポンプ同期待機）を完全に排除
-        // handler の作成のみを登録して、即座に関数をリターンさせます。
         let handler = webview2_com::CreateCoreWebView2CompositionControllerCompletedHandler::create(
             Box::new(
                 move |res, controller: Option<ICoreWebView2CompositionController>| {
@@ -70,21 +69,6 @@ pub(crate) unsafe fn init_webview2_composition(
                     unsafe {
                         base_controller.SetBounds(bounds)?;
                         base_controller.SetIsVisible(true)?;
-                    }
-
-                    // DComp 側での WebView2 背景色の初期設定
-                    // ページロード前に真っ白（または真っ黒）にチラつくのを完全に防ぎます
-                    if let Ok(controller2) = base_controller.cast::<ICoreWebView2Controller2>() {
-                        // ARGB 形式で親コンテナと同じ色 (0.08, 0.08, 0.12) を透過度 255 (不透明) でセット
-                        let dcomp_bg_color = COREWEBVIEW2_COLOR {
-                            A: 255,
-                            R: 20,
-                            G: 20,
-                            B: 30,
-                        };
-                        unsafe {
-                            let _ = controller2.SetDefaultBackgroundColor(dcomp_bg_color);
-                        }
                     }
 
                     let webview = unsafe { base_controller.CoreWebView2()? };
@@ -115,13 +99,32 @@ pub(crate) unsafe fn init_webview2_composition(
                         }
                     }
 
+                    // NavigationCompleted を購読して、描画ピクセルが準備できた段階でスロットに代入する
+                    let controller_slot_inner = controller_slot_clone.clone();
+                    let base_controller_inner = base_controller.clone();
+                    let nav_handler = webview2_com::NavigationCompletedEventHandler::create(
+                        Box::new(move |_sender, _args| {
+                            // ページが完全に初期描画フェーズに移行した
+                            *controller_slot_inner.borrow_mut() =
+                                Some(base_controller_inner.clone());
+
+                            // 強制的に再描画を走らせて穴あけと描画をトリガー
+                            let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+
+                            Ok(())
+                        }),
+                    );
+
+                    unsafe {
+                        webview.add_NavigationCompleted(&nav_handler, &mut 0)?;
+                    }
+
                     let url_u16: Vec<u16> =
                         settings_clone.url.encode_utf16().chain(Some(0)).collect();
                     unsafe {
                         webview.Navigate(PCWSTR(url_u16.as_ptr()))?;
                     }
 
-                    *controller_slot_clone.borrow_mut() = Some(base_controller);
                     Ok(())
                 },
             ),
@@ -176,29 +179,31 @@ pub(crate) unsafe fn init_webview2_composition(
                                 base_controller.SetIsVisible(true)?;
                             }
 
-                            if let Ok(controller2) =
-                                base_controller.cast::<ICoreWebView2Controller2>()
-                            {
-                                // ARGB 形式で親コンテナと同じ色 (0.08, 0.08, 0.12) を透過度 255 (不透明) でセット
-                                let dcomp_bg_color = COREWEBVIEW2_COLOR {
-                                    A: 255,
-                                    R: 20,
-                                    G: 20,
-                                    B: 30,
-                                };
-                                unsafe {
-                                    let _ = controller2.SetDefaultBackgroundColor(dcomp_bg_color);
-                                }
+                            let webview = unsafe { base_controller.CoreWebView2()? };
+
+                            let controller_slot_inner = controller_slot_clone.clone();
+                            let base_controller_inner = base_controller.clone();
+                            let nav_handler = webview2_com::NavigationCompletedEventHandler::create(
+                                Box::new(move |_sender, _args| {
+                                    *controller_slot_inner.borrow_mut() =
+                                        Some(base_controller_inner.clone());
+
+                                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+
+                                    Ok(())
+                                }),
+                            );
+
+                            unsafe {
+                                webview.add_NavigationCompleted(&nav_handler, &mut 0)?;
                             }
 
-                            let webview = unsafe { base_controller.CoreWebView2()? };
                             let url_u16: Vec<u16> =
                                 settings_clone2.url.encode_utf16().chain(Some(0)).collect();
                             unsafe {
                                 webview.Navigate(PCWSTR(url_u16.as_ptr()))?;
                             }
 
-                            *controller_slot_clone2.borrow_mut() = Some(base_controller);
                             Ok(())
                         },
                     ),

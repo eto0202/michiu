@@ -26,6 +26,7 @@ use windows::{
             Direct3D11::*,
             DirectComposition::{IDCompositionVisual, *},
             Dxgi::*,
+            Gdi::InvalidateRect,
         },
         UI::WindowsAndMessaging::{WM_MOUSEHWHEEL, WM_MOUSEWHEEL},
     },
@@ -55,6 +56,13 @@ pub struct ComposedRenderer {
 
     /// 非同期でキャプチャデコードが完了し、正式に削除（DComp解放）可能になった ID の待ちバッファ
     pub(crate) pending_removals: Rc<RefCell<Vec<(EntityId, wgpu::Texture)>>>,
+    // DComp 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
+    pub(crate) pending_dcomp_releases: Vec<PendingDcompRelease>,
+}
+
+pub(crate) struct PendingDcompRelease {
+    pub(crate) entity_id: EntityId,
+    pub(crate) frames_left: u32,
 }
 
 #[derive(Debug)]
@@ -68,7 +76,7 @@ pub struct PromotedVisual {
     /// 各昇格要素ごとに独立した WebView2 非同期スロットを配備する
     pub(crate) webview_controller: Rc<RefCell<Option<ICoreWebView2Controller>>>,
     /// 現在バックグラウンドで非同期キャプチャ（スナップショット）を実行中かどうかのフラグ
-    pub(crate) is_capturing: bool,
+    pub is_capturing: bool,
 }
 
 impl ComposedRenderer {
@@ -124,6 +132,7 @@ impl ComposedRenderer {
             webview_env,
             promoted_visuals: Vec::new(),
             pending_removals: Rc::new(RefCell::new(Vec::new())),
+            pending_dcomp_releases: Vec::new(),
         })
     }
 
@@ -153,15 +162,38 @@ impl ComposedRenderer {
             // 非同期キャプチャが完了した要素の一括 DComp 解放処理
             let mut completed = self.pending_removals.borrow_mut().split_off(0);
             for (id, wgpu_texture) in completed {
-                // 1. wgpu レンダラーへ静止テクスチャビューとして登録（これでwgpu単体で描画可能になる）
+                // 1. wgpu レンダラーへ静止テクスチャビューとして登録
                 let view = wgpu_texture.create_view(&Default::default());
                 self.wgpu_renderer.webview_static_caches.insert(id, view);
 
-                // 2. DComp 側から Visual を完全に削除し、プロモートリストから除外
-                if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id) {
-                    let promoted = &self.promoted_visuals[pos];
-                    self.root_visual.RemoveVisual(&promoted.visual).unwrap();
-                    self.promoted_visuals.remove(pos);
+                cx.active_webviews.remove(&id);
+
+                self.pending_dcomp_releases.push(PendingDcompRelease {
+                    entity_id: id,
+                    frames_left: 3, // 3フレームの遅延
+                });
+            }
+
+            // 遅延キューの消化処理（1〜3フレーム目）
+            let mut idx = 0;
+            while idx < self.pending_dcomp_releases.len() {
+                if self.pending_dcomp_releases[idx].frames_left > 0 {
+                    self.pending_dcomp_releases[idx].frames_left -= 1;
+                    idx += 1;
+                } else {
+                    // ディレイ猶予が切れたため、安全に DComp から破棄を実行
+                    let release = self.pending_dcomp_releases.remove(idx);
+                    let target_id = release.entity_id;
+
+                    if let Some(pos) = self
+                        .promoted_visuals
+                        .iter()
+                        .position(|v| v.entity_id == target_id)
+                    {
+                        let promoted = &self.promoted_visuals[pos];
+                        self.root_visual.RemoveVisual(&promoted.visual).unwrap();
+                        self.promoted_visuals.remove(pos);
+                    }
                 }
             }
 
@@ -177,8 +209,8 @@ impl ComposedRenderer {
                     .map(|c| c.always_active)
                     .unwrap_or(false);
 
-                // フォーカスや能動状態があるか
-                let is_interactive = cx.active_masks[id].has_active_interaction_property();
+                // 要素自身だけでなく、上に重なっている子要素の操作中もアクティブと判定
+                let is_interactive = has_interactive_descendant(cx, id);
 
                 // 現在非同期キャプチャの実行中かチェック
                 let is_capturing = self
@@ -188,11 +220,17 @@ impl ComposedRenderer {
                 // まだ静止画のテクスチャキャッシュが作成されていないか
                 let has_no_cache = !self.wgpu_renderer.webview_static_caches.contains_key(&id);
 
+                let is_pending_release = self
+                    .pending_dcomp_releases
+                    .iter()
+                    .any(|r| r.entity_id == id);
+
                 // インタラクティブ操作中、またはまだキャッシュがなくキャプチャもキックされていない間、
                 // あるいはキャプチャ実行中（wgpuにテクスチャが届くのを待っている間）は、DComp上に実体を生かします。
-                if is_webview
-                    && (is_interactive || is_always_active || has_no_cache || is_capturing)
-                {
+                let should_promote = is_webview
+                    && !is_pending_release
+                    && (is_interactive || is_always_active || has_no_cache || is_capturing);
+                if should_promote {
                     current_promoted_ids.push(id);
 
                     // すでに昇格済みかチェック
@@ -200,7 +238,10 @@ impl ComposedRenderer {
                         self.promote_element_to_visual(cx, id);
 
                         // アクティブ化したので、wgpu 側の静止テクスチャキャッシュがあれば削除して無効化
-                        self.wgpu_renderer.webview_static_caches.remove(&id);
+                        // ここで即時キャッシュを削除（remove）するのを廃止。
+                        // 削除せず、DComp実体が整うまでwgpu側に静止画を表示させ続けます。
+                        // self.wgpu_renderer.webview_static_caches.remove(&id);
+                        // println!("静止テクスチャキャッシュを削除して無効化");
                     }
 
                     if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id)
@@ -211,6 +252,11 @@ impl ComposedRenderer {
                     {
                         // コントローラーがバインドされた＝初期化完了したため、wgpu 側に穴あけを指示
                         cx.active_webviews.insert(id);
+
+                        // 実体 WebView2 の表示が可能になった「このフレーム」で初めてキャッシュを解放。
+                        if self.wgpu_renderer.webview_static_caches.contains_key(&id) {
+                            self.wgpu_renderer.webview_static_caches.remove(&id);
+                        }
                     }
                 }
             }
@@ -219,146 +265,181 @@ impl ComposedRenderer {
             let mut i = 0;
             while i < self.promoted_visuals.len() {
                 let id = self.promoted_visuals[i].entity_id;
-                if !current_promoted_ids.contains(&id) {
-                    let promoted = &mut self.promoted_visuals[i];
 
-                    // 要素がまだ Context 上に生きている（生存している）かチェック
-                    let is_alive = cx.entities.contains_key(id);
-
-                    if is_alive {
-                        // 単なる非アクティブ化：キャプチャをキックして静止キャッシュに流し込む
-                        if !promoted.is_capturing {
-                            promoted.is_capturing = true;
-
-                            if let Some(ref controller) = *promoted.webview_controller.borrow() {
-                                let webview = controller.CoreWebView2().unwrap();
-                                // 安全な .get() とアンラップで座標を取得
-                                let rect = cx.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
-
-                                let width = (rect.width * self.scale_factor).round() as u32;
-                                let height = (rect.height * self.scale_factor).round() as u32;
-
-                                let pending_removals_clone = self.pending_removals.clone();
-                                let wgpu_device = self.wgpu_renderer.device.clone();
-                                let wgpu_queue = self.wgpu_renderer.queue.clone();
-                                let wic_factory =
-                                    self.wgpu_renderer.text_rasterizer.wic_factory.clone();
-
-                                // 非同期キャプチャをキック
-                                let _ = crate::trigger_capture_async(
-                                    webview,
-                                    width,
-                                    height,
-                                    wgpu_device,
-                                    wgpu_queue,
-                                    wic_factory,
-                                    move |result| {
-                                        if let Ok(wgpu_texture) = result {
-                                            pending_removals_clone
-                                                .borrow_mut()
-                                                .push((id, wgpu_texture));
-                                        }
-                                    },
-                                );
-                            }
-                        }
-                        i += 1;
-                    } else {
-                        // 完全に要素が消滅（デスポーン）した場合：
-                        // キャプチャは一切不要なため、ただちに DComp ツリーから Visual を除外してメモリを解放
-                        self.root_visual.RemoveVisual(&promoted.visual).unwrap();
-                        self.promoted_visuals.remove(i);
-                        // 要素を取り除いたため、インデックス（i）は進めません
-                    }
-                } else {
-                    // 2. 生きている要素のサイズを追従（Taffyのレイアウトアニメーションと完全同期）
-                    let rect = cx.rects[id];
-                    let clip_rect = cx.clip_rects[id]; // 親の overflow 等で制限された表示領域
-                    let visual = &self.promoted_visuals[i].visual;
-
-                    // 位置の同期 (物理座標)
-                    let phys_x = rect.x * self.scale_factor;
-                    let phys_y = rect.y * self.scale_factor;
-                    visual.SetOffsetX2(phys_x).unwrap();
-                    visual.SetOffsetY2(phys_y).unwrap();
-
-                    // DComp の仕様に則り、通常の CreateRectangleClip から角丸設定を行います
-                    if let Some(visual_prop) = cx.visual_properties.get(id) {
-                        // 1. 通常の RectangleClip オブジェクトをデバイスから生成
-                        let dcomp_device = self.dcomp_device.clone();
-                        let rectangle_clip = dcomp_device.CreateRectangleClip().unwrap();
-
-                        // 2. 絶対クリップ境界（clip_rect）からビジュアルローカルの物理ピクセル範囲を算出してセット
-                        let clip_left = (clip_rect.x - rect.x).max(0.0) * self.scale_factor;
-                        let clip_top = (clip_rect.y - rect.y).max(0.0) * self.scale_factor;
-                        let clip_right = ((clip_rect.x + clip_rect.width) - rect.x).min(rect.width)
-                            * self.scale_factor;
-                        let clip_bottom = ((clip_rect.y + clip_rect.height) - rect.y)
-                            .min(rect.height)
-                            * self.scale_factor;
-
-                        rectangle_clip.SetLeft2(clip_left).unwrap();
-                        rectangle_clip.SetTop2(clip_top).unwrap();
-                        rectangle_clip.SetRight2(clip_right).unwrap();
-                        rectangle_clip.SetBottom2(clip_bottom).unwrap();
-
-                        // 3. クリップに角丸を設定
-                        if let Some(radius) = visual_prop.corner_radius {
-                            let r = radius.top_left * self.scale_factor;
-
-                            rectangle_clip.SetTopLeftRadiusX2(r).unwrap();
-                            rectangle_clip.SetTopLeftRadiusY2(r).unwrap();
-                            rectangle_clip.SetTopRightRadiusX2(r).unwrap();
-                            rectangle_clip.SetTopRightRadiusY2(r).unwrap();
-                            rectangle_clip.SetBottomLeftRadiusX2(r).unwrap();
-                            rectangle_clip.SetBottomLeftRadiusY2(r).unwrap();
-                            rectangle_clip.SetBottomRightRadiusX2(r).unwrap();
-                            rectangle_clip.SetBottomRightRadiusY2(r).unwrap();
-                        } else {
-                            rectangle_clip.SetTopLeftRadiusX2(0.0).unwrap();
-                            rectangle_clip.SetTopLeftRadiusY2(0.0).unwrap();
-                        }
-
-                        // 4. クリップをビジュアルに適用
-                        visual.SetClip(&rectangle_clip).unwrap();
-                    }
-
-                    // WebView2 コントローラーの非同期初期化が完了していれば、サイズ（Bounds）も自動追従
-                    if let Some(ref controller) =
-                        *self.promoted_visuals[i].webview_controller.borrow()
-                    {
-                        let phys_x = (rect.x * self.scale_factor).round() as i32;
-                        let phys_y = (rect.y * self.scale_factor).round() as i32;
-                        let phys_w = rect.width * self.scale_factor;
-                        let phys_h = rect.height * self.scale_factor;
-
-                        let bounds = windows::Win32::Foundation::RECT {
-                            left: phys_x,
-                            top: phys_y,
-                            right: phys_x + phys_w as i32,
-                            bottom: phys_y + phys_h as i32,
-                        };
-                        let _ = controller.SetBounds(bounds);
-                    }
-
-                    // DComp 側への不透明度 (Opacity) の同期
-                    // 前面の wgpu 側だけでなく、背面にある WebView2 自身も滑らかに透明化させます
-                    if let Some(visual_prop) = cx.visual_properties.get(id) {
-                        let opacity = visual_prop.opacity.unwrap_or(1.0);
-                        // DComp の SetOpacity API を呼び出して不透明度をセット
-                        if let Ok(visual3) = visual.cast::<IDCompositionVisual3>() {
-                            unsafe {
-                                visual3.SetOpacity2(opacity);
-                            }
-                        }
-                    }
-
-                    i += 1;
+                // 生存していない（despawn済みの）要素は、直ちにクリーンアップ
+                if !cx.entities.contains_key(id) {
+                    let promoted = &self.promoted_visuals[i];
+                    self.root_visual.RemoveVisual(&promoted.visual).unwrap();
+                    self.promoted_visuals.remove(i);
+                    continue;
                 }
+
+                let is_pending_release = self
+                    .pending_dcomp_releases
+                    .iter()
+                    .any(|r| r.entity_id == id);
+
+                // キャッシュが存在し、かつアクティブでない（維持対象外になった）ものは
+                // このフレームで直ちに DComp から完全に破棄して wgpu 静止画描画へ移行させる
+                if !current_promoted_ids.contains(&id) && !is_pending_release {
+                    let promoted = &self.promoted_visuals[i];
+                    self.root_visual.RemoveVisual(&promoted.visual).unwrap();
+                    self.promoted_visuals.remove(i);
+                    continue;
+                }
+
+                let is_always_active = cx
+                    .webview_contents
+                    .get(id)
+                    .map(|c| c.always_active)
+                    .unwrap_or(false);
+                let is_interactive = has_interactive_descendant(cx, id);
+                let has_no_cache = !self.wgpu_renderer.webview_static_caches.contains_key(&id);
+
+                if !is_interactive && !is_always_active && has_no_cache && !is_pending_release {
+                    let promoted = &mut self.promoted_visuals[i];
+                    // 一度だけ非同期キャプチャを確実にキックする
+                    // コントローラーが Some であることの確認を capturing 状態の遷移よりも前に置くことでデッドロックを防止
+                    if !promoted.is_capturing
+                        && let Some(ref controller) = *promoted.webview_controller.borrow()
+                    {
+                        let rect = cx.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+                        let width = (rect.width * self.scale_factor).round() as u32;
+                        let height = (rect.height * self.scale_factor).round() as u32;
+
+                        // サイズが0の場合はエラーを避けるために早期リターン
+                        if width == 0 || height == 0 {
+                            i += 1;
+                            continue;
+                        }
+
+                        promoted.is_capturing = true;
+
+                        let webview = controller.CoreWebView2().unwrap();
+                        // 安全な .get() とアンラップで座標を取得
+                        let rect = cx.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+
+                        let width = (rect.width * self.scale_factor).round() as u32;
+                        let height = (rect.height * self.scale_factor).round() as u32;
+
+                        let pending_removals_clone = self.pending_removals.clone();
+                        let wgpu_device = self.wgpu_renderer.device.clone();
+                        let wgpu_queue = self.wgpu_renderer.queue.clone();
+                        let wic_factory = self.wgpu_renderer.text_rasterizer.wic_factory.clone();
+                        let parent_hwnd = self.hwnd; // HWNDの退避
+
+                        // 非同期キャプチャをキック
+                        let capture_res = crate::trigger_capture_async(
+                            webview,
+                            width,
+                            height,
+                            wgpu_device,
+                            wgpu_queue,
+                            wic_factory,
+                            move |result| {
+                                match result {
+                                    Ok(wgpu_texture) => {
+                                        pending_removals_clone
+                                            .borrow_mut()
+                                            .push((id, wgpu_texture));
+
+                                        // 非同期キャプチャ完了直後に強制再描画をかけて
+                                        // DComp 解放と wgpu への描画バインド切り替えを即座に適用する
+                                        let _ = InvalidateRect(Some(parent_hwnd), None, false);
+                                    }
+                                    Err(e) => {
+                                        // エラーをコンソールに出力して握りつぶしを防止
+                                        // TODO: tracing クレートに変更
+                                        eprintln!("Error during WebView2 Capture: {:?}", e);
+                                    }
+                                }
+                            },
+                        );
+
+                        if let Err(e) = capture_res {
+                            // TODO: tracing クレートに変更
+                            eprintln!("Error triggering CapturePreview API: {:?}", e);
+                            promoted.is_capturing = false; // API呼び出し自体に失敗した場合は即リセット
+                        }
+                    }
+                }
+
+                // 2. 生きている要素のサイズを追従（Taffyのレイアウトアニメーションと完全同期）
+                let rect = cx.rects[id];
+                let clip_rect = cx.clip_rects[id]; // 親の overflow 等で制限された表示領域
+                let visual = &self.promoted_visuals[i].visual;
+
+                // 位置の同期 (物理座標)
+                let phys_x = rect.x * self.scale_factor;
+                let phys_y = rect.y * self.scale_factor;
+                visual.SetOffsetX2(phys_x).unwrap();
+                visual.SetOffsetY2(phys_y).unwrap();
+
+                // DComp の仕様に則り、通常の CreateRectangleClip から角丸設定を行います
+                if let Some(visual_prop) = cx.visual_properties.get(id) {
+                    // 1. 通常の RectangleClip オブジェクトをデバイスから生成
+                    let dcomp_device = self.dcomp_device.clone();
+                    let rectangle_clip = dcomp_device.CreateRectangleClip().unwrap();
+
+                    // 2. 絶対クリップ境界（clip_rect）からビジュアルローカルの物理ピクセル範囲を算出してセット
+                    let clip_left = (clip_rect.x - rect.x).max(0.0) * self.scale_factor;
+                    let clip_top = (clip_rect.y - rect.y).max(0.0) * self.scale_factor;
+                    let clip_right = ((clip_rect.x + clip_rect.width) - rect.x).min(rect.width)
+                        * self.scale_factor;
+                    let clip_bottom = ((clip_rect.y + clip_rect.height) - rect.y).min(rect.height)
+                        * self.scale_factor;
+
+                    rectangle_clip.SetLeft2(clip_left).unwrap();
+                    rectangle_clip.SetTop2(clip_top).unwrap();
+                    rectangle_clip.SetRight2(clip_right).unwrap();
+                    rectangle_clip.SetBottom2(clip_bottom).unwrap();
+
+                    // 3. クリップに角丸を設定
+                    if let Some(radius) = visual_prop.corner_radius {
+                        let r = radius.top_left * self.scale_factor;
+
+                        rectangle_clip.SetTopLeftRadiusX2(r).unwrap();
+                        rectangle_clip.SetTopLeftRadiusY2(r).unwrap();
+                        rectangle_clip.SetTopRightRadiusX2(r).unwrap();
+                        rectangle_clip.SetTopRightRadiusY2(r).unwrap();
+                        rectangle_clip.SetBottomLeftRadiusX2(r).unwrap();
+                        rectangle_clip.SetBottomLeftRadiusY2(r).unwrap();
+                        rectangle_clip.SetBottomRightRadiusX2(r).unwrap();
+                        rectangle_clip.SetBottomRightRadiusY2(r).unwrap();
+                    } else {
+                        rectangle_clip.SetTopLeftRadiusX2(0.0).unwrap();
+                        rectangle_clip.SetTopLeftRadiusY2(0.0).unwrap();
+                    }
+
+                    // 4. クリップをビジュアルに適用
+                    visual.SetClip(&rectangle_clip).unwrap();
+                }
+
+                // WebView2 コントローラーの非同期初期化が完了していれば、サイズ（Bounds）も自動追従
+                if let Some(ref controller) = *self.promoted_visuals[i].webview_controller.borrow()
+                {
+                    // DComp でOffsetX/Yを設定しているため、WebView2自身の境界空間は常に 0, 0 起点とする。
+                    // これにより親ウィンドウの他のピクセル（タイトルテキストなど）の混入を物理的に完全に遮断します。
+                    // let phys_x = (rect.x * self.scale_factor).round() as i32;
+                    // let phys_y = (rect.y * self.scale_factor).round() as i32;
+                    let phys_w = rect.width * self.scale_factor;
+                    let phys_h = rect.height * self.scale_factor;
+
+                    let bounds = windows::Win32::Foundation::RECT {
+                        left: 0,
+                        top: 0,
+                        right: phys_w.round() as i32,
+                        bottom: phys_h.round() as i32,
+                    };
+                    let _ = controller.SetBounds(bounds);
+                }
+
+                i += 1;
             }
 
             // 変更をコンポジターにコミットして一括反映
-            self.dcomp_device.Commit().unwrap();
+            // コミットは draw の末尾で一括して 1 回だけ行い、DComp と wgpu を完全同期させます。
+            // self.dcomp_device.Commit().unwrap();
         }
     }
 
@@ -528,6 +609,23 @@ pub(crate) unsafe fn setup_direct_composition(
 
         (dcomp_device, dcomp_target, root_visual, wgpu_visual)
     }
+}
+
+// 親子関係を再帰的に走査してアクティビティを伝播するヘルパー関数の追加 ───
+fn has_interactive_descendant(cx: &Context, id: EntityId) -> bool {
+    // 自分自身がフォーカス、またはアクティブ状態のインタラクション属性を持っているか
+    if cx.active_masks[id].has_active_interaction_property() {
+        return true;
+    }
+    // 子要素を再帰的にチェック
+    if let Some(children) = cx.children.get(id) {
+        for &child_id in children {
+            if has_interactive_descendant(cx, child_id) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub(crate) struct DCompDeviceManager {

@@ -276,7 +276,8 @@ impl TextureAtlas {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             // WIC（32bppPBGRA）からの転送データと完全に一致させるため Bgra8Unorm へ変更
-            format: wgpu::TextureFormat::Bgra8Unorm,
+            // 色空間を sRGB フォーマットに明示変更
+            format: wgpu::TextureFormat::Bgra8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });

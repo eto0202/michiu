@@ -1,7 +1,7 @@
 use michiu_ui::{
-    AlignItems, Color, ComposedRenderer, Context, CornerRadius, ElementState, EntityId,
-    JustifyContent, LayoutPoint, LayoutSize, Modifiers, MouseButton, Rect, Size, WebView2Contents,
-    build_ui, div, text, ts,
+    AlignItems, Color, ComposedRenderer, Context, CornerRadius, CursorIcon, ElementState, EntityId,
+    JustifyContent, LayoutPoint, LayoutSize, Modifiers, MouseButton, Position, PropertyList, Rect,
+    Size, Transition, WebView2Contents, auto, build_ui, div, px, text, ts,
 };
 
 use windows::{
@@ -13,10 +13,12 @@ use windows::{
             WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
         },
         UI::{
+            Controls::WM_MOUSELEAVE,
             HiDpi::{
                 DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow,
                 SetProcessDpiAwarenessContext,
             },
+            Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent},
             WindowsAndMessaging::*,
         },
     },
@@ -122,8 +124,8 @@ unsafe extern "system" fn wnd_proc(
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
 
-                // アニメーションがまだ継続中の場合、次のフレームの再描画要求を自給自足してループさせます
-                if app.context.has_active_animations() {
+                // アニメーション駆動中の場合は Invalidate を自給自足する
+                if app.context.has_active_animations() || app.context.is_render_dirty() {
                     let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
                 return LRESULT(0);
@@ -141,6 +143,15 @@ unsafe extern "system" fn wnd_proc(
             WM_MOUSEMOVE => {
                 let x = (lparam.0 & 0xffff) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
+
+                // TrackMouseEvent を使って、マウスが外に出たときに WM_MOUSELEAVE を発行させる
+                let mut tme = TRACKMOUSEEVENT {
+                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                    dwFlags: TME_LEAVE,
+                    hwndTrack: hwnd,
+                    dwHoverTime: 0,
+                };
+                let _ = unsafe { TrackMouseEvent(&mut tme) };
 
                 // DPIスケールを考慮して論理座標に直して注入
                 let logical_pos =
@@ -162,6 +173,14 @@ unsafe extern "system" fn wnd_proc(
                 if app.context.is_render_dirty() {
                     let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
+                return LRESULT(0);
+            }
+            WM_MOUSELEAVE => {
+                // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
+                app.context
+                    .inject_pointer_move(LayoutPoint::new(-9999.0, -9999.0));
+
+                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             WM_LBUTTONDOWN | WM_LBUTTONUP => {
@@ -232,6 +251,20 @@ unsafe extern "system" fn wnd_proc(
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
+            WM_ACTIVATE => {
+                let activate_state = (wparam.0 & 0xffff) as u32;
+                if activate_state == WA_INACTIVE {
+                    // 他ウィンドウにフォーカスが移った瞬間、アプリ内部のフォーカスを強制的に解除
+                    if let Some(focused_id) = app.context.interaction_states.focused {
+                        app.context.set_focused(focused_id, false);
+                        app.context.interaction_states.focused = None;
+                    }
+
+                    // 非アクティブ移行時のキャプチャプロセスを即時トリガー
+                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                }
+                return LRESULT(0);
+            }
             _ => {}
         }
     }
@@ -265,6 +298,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. UI コンテキストの構築と静的テキスト要素の定義
     let mut context = Context::new();
     let webview_id_cell = std::cell::Cell::new(None);
+
+    let hovered_style = ts().bg_color(Color::rgb(0.2, 0.2, 0.2));
+
+    let btn_style = ts()
+        .flex()
+        .position(Position::Absolute)
+        .margin(Rect {
+            top: auto(),
+            right: auto(),
+            bottom: auto(),
+            left: px(20.0),
+        })
+        .size(Size::px(50.0, 150.0))
+        .bg_color(Color::rgb(0.07, 0.07, 0.07))
+        .border(Rect::px_all(3.0))
+        .border_color(Color::rgb(0.1, 0.1, 0.1))
+        .corner_radius(CornerRadius::all(5.0))
+        // 背景色の変化に対して滑らかなトランジションを設定（150ms でEaseInOut）
+        .transition(Transition::new(
+            PropertyList::BackgroundColor,
+            std::time::Duration::from_millis(150),
+            michiu_ui::ease_in_out_quad(),
+        ))
+        .transition(Transition::new(
+            michiu_ui::prop_border_color(),
+            std::time::Duration::from_millis(150),
+            michiu_ui::ease_in_out_quad(),
+        ))
+        // 擬似クラス状態のスタイルマッピング
+        .hovered(hovered_style)
+        .pressed(ts().border_color(Color::rgb(0.5, 0.5, 0.5)))
+        .cursor(CursorIcon::Pointer);
 
     // build_ui を使って要素ツリーを宣言的に組み立て
     let root = build_ui(&mut context, || {
@@ -301,7 +366,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         // 親子関係の構築
-        root_node.child(title).child(webview_element)
+        root_node
+            .child(title)
+            .child(webview_element.child(div(btn_style.bg_color(Color::WHITE))))
     });
 
     let webview_id = webview_id_cell.get().expect("WebView2 ID not assigned");
@@ -361,11 +428,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.renderer.resize((width, height), scale_factor);
     app.context
         .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
-
-    // ウィンドウが画面に露出する前に、手動で最初の DComp ツリーと描画を Commit しておきます。
-    // これにより、起動したその瞬間から美しい紺色背景が隙間なく敷かれます。
-    app.renderer.update_composition_tree(&mut app.context);
-    app.renderer.draw(&app.context);
 
     // 5. ウィンドウを表示して描画
     unsafe {

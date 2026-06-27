@@ -877,6 +877,11 @@ impl Context {
                     .map(|p| [p.x, p.y])
                     .unwrap_or([0.5, 0.5]);
 
+                // 不透明度を 1.0 固定にせず、要素自身の opacity 値を引き渡す。
+                // これにより、くり抜く強度がブレンドステート OneMinusSrcAlpha に正しく乗り、
+                // wgpu側の親の背景色が適度に残ることでグループ合成を模倣し、デスクトップ透過を完全に防ぎます。
+                let punchout_opacity = visual.opacity.unwrap_or(1.0);
+
                 // 2. 「くり抜き（Punchout）」用のインスタンスを作成して登録
                 // (wgpu のバッファの背景を、角丸を維持したまま完全に透明に上書き消去するためのインスタンス)
                 let punchout_instance = QuadInstance {
@@ -889,7 +894,7 @@ impl Context {
                     corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO), // 完璧な角丸に沿ってくり抜く
                     border_width: EdgeInsets::ZERO, // くり抜き時は枠線は不要
                     border_color: Color::TRANSPARENT,
-                    opacity_and_mode: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    opacity_and_mode: [punchout_opacity, 0.0, 0.0, 0.0],
                     uv_max: [0.0; 2],
                     uv_min: [0.0; 2],
                     gradient_end_color: Color::TRANSPARENT,
@@ -937,6 +942,63 @@ impl Context {
                 continue;
             }
 
+            // 非アクティブな WebView2（静止キャッシュ画像）のバッチ隔離
+            // 一般要素と絶対にバッチを混在させないことで、テクスチャ（アトラス）の相互汚染を100%防止します。
+            let is_webview_static = is_webview && !is_webview_ready;
+
+            if is_webview_static {
+                // 1. 現在溜まっている一般UIインスタンスがあれば一度ここで強制フラッシュ
+                if !current_instances.is_empty() {
+                    batches.push(DrawBatch {
+                        scissor_rect: last_clip.unwrap_or(LayoutRect::ZERO),
+                        instances: std::mem::take(&mut current_instances),
+                        entity_ids: std::mem::take(&mut current_ids),
+                        batch_type: current_batch_type,
+                    });
+                }
+
+                // 2. この静止 WebView2 専用のバッチを直ちに単独構築
+                let (basic, _, _) = self.resolve_active_layouts(id);
+                let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
+                let origin = visual
+                    .transform_origin
+                    .map(|p| [p.x, p.y])
+                    .unwrap_or([0.5, 0.5]);
+
+                let static_instance = QuadInstance {
+                    rect,
+                    transform: visual.transform.unwrap_or(IDENTITY_MATRIX),
+                    transform_origin: origin,
+                    color: Color::TRANSPARENT,
+                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
+                    border_width: EdgeInsets {
+                        top: basic.border.top.into(),
+                        right: basic.border.right.into(),
+                        bottom: basic.border.bottom.into(),
+                        left: basic.border.left.into(),
+                    },
+                    border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
+                    opacity_and_mode: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    uv_max: [0.0; 2],
+                    uv_min: [0.0; 2],
+                    gradient_end_color: Color::TRANSPARENT,
+                    gradient_angle: 0.0,
+                    _padding: 0.0,
+                };
+                current_instances.push(static_instance);
+                current_ids.push(id);
+
+                batches.push(DrawBatch {
+                    scissor_rect: clip,
+                    instances: std::mem::take(&mut current_instances),
+                    entity_ids: std::mem::take(&mut current_ids),
+                    batch_type: BatchType::Normal, // 静止キャッシュ表示用通常描画
+                });
+
+                last_clip = Some(clip);
+                continue;
+            }
+
             // 初回の初期化を安全にキャッチし、異なるクリップ境界の時に新しいバッチを作成する
             if let Some(prev_clip) = last_clip {
                 if clip != prev_clip {
@@ -947,6 +1009,8 @@ impl Context {
                             entity_ids: std::mem::take(&mut current_ids),
                             batch_type: current_batch_type,
                         };
+                        // 構築したバッチを確実にプッシュ（フラッシュバグの修正）
+                        batches.push(batch);
                     }
                     last_clip = Some(clip);
                 }
@@ -1388,7 +1452,7 @@ impl Context {
         let has_base_layout = self.base_basic_layouts.contains_key(id);
         let has_active_layout = self.basic_layouts.contains_key(id);
 
-        // ★ 早期リターン 2: レイアウト変更のない要素は完全にスキップ
+        // レイアウト変更のない要素は完全にスキップ
         if has_base_layout || has_active_layout {
             let active_layout = self.basic_layouts.get(id).cloned().unwrap_or_default();
 
@@ -1807,7 +1871,7 @@ impl Context {
     }
 
     /// フォーカス（Focused：キーボードタブフォーカス等）状態を更新します。
-    pub(crate) fn set_focused(&mut self, id: EntityId, focused: bool) {
+    pub fn set_focused(&mut self, id: EntityId, focused: bool) {
         self.update_state(id, STATE_FOCUSED, focused);
     }
 

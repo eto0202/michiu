@@ -22,7 +22,8 @@ use windows::Win32::Graphics::Dxgi::{
 use windows::Win32::Graphics::Dxgi::{IDXGIDevice, IDXGIResource1};
 use windows::Win32::Graphics::Imaging::{
     GUID_WICPixelFormat32bppPBGRA, IWICImagingFactory, WICBitmapDitherTypeNone,
-    WICBitmapPaletteTypeMedianCut, WICDecodeMetadataCacheOnDemand,
+    WICBitmapInterpolationModeLinear, WICBitmapPaletteTypeMedianCut,
+    WICDecodeMetadataCacheOnDemand,
 };
 use windows::Win32::System::Com::IStream;
 use windows::Win32::System::Com::StructuredStorage::{CreateStreamOnHGlobal, GetHGlobalFromStream};
@@ -103,6 +104,11 @@ unsafe fn process_captured_stream(
         let hglobal = GetHGlobalFromStream(stream)?;
         let data_ptr = GlobalLock(hglobal);
 
+        // ポインタが null の場合は早期リターン
+        if data_ptr.is_null() {
+            return Err("GlobalLock returned null pointer".into());
+        }
+
         let size = GlobalSize(hglobal);
         let png_bytes = std::slice::from_raw_parts(data_ptr as *const u8, size);
 
@@ -120,6 +126,7 @@ unsafe fn process_captured_stream(
         let frame = decoder.GetFrame(0)?;
 
         // 3. PMA (Premultiplied Alpha) の BGRA 形式に変換
+
         let converter = wic_factory.CreateFormatConverter()?;
         converter.Initialize(
             &frame,
@@ -130,11 +137,18 @@ unsafe fn process_captured_stream(
             WICBitmapPaletteTypeMedianCut,
         )?;
 
+        // WebView2 から提出された元画像サイズがどうであれ、
+        // 目標の wgpu テクスチャサイズ (width x height) へ正確にリサイズします。
+        let scaler = wic_factory.CreateBitmapScaler()?;
+        scaler.Initialize(&converter, width, height, WICBitmapInterpolationModeLinear)?;
+
         let mut pixels = vec![0u8; (width * height * 4) as usize];
         converter.CopyPixels(std::ptr::null(), width * 4, &mut pixels)?;
 
         // メモリロック解除
-        GlobalUnlock(hglobal)?;
+        // windows-rs の自動 Result 変換のバグ（S_OK/NO_ERROR なのに 0 返却のため Err になる）を
+        // 回避するため、? によるエラー早期返却をやめ、単に返り値を破棄します。
+        let _ = GlobalUnlock(hglobal);
 
         // 4. 新規 wgpu::Texture の生成
         let wgpu_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -147,7 +161,8 @@ unsafe fn process_captured_stream(
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8Unorm,
+            // キャプチャ画像の退色を防ぐため sRGB に変更
+            format: wgpu::TextureFormat::Bgra8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });

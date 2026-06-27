@@ -78,7 +78,7 @@ impl WebView2Contents {
         self
     }
 
-    /// 動画プレイヤーやWebGLなどの場合に常時レンダリングを有効にする
+    /// 動画プレイヤーやWebGL、アニメーションがある場合、常時レンダリングを有効にする
     #[inline]
     pub fn always_active(mut self, always: bool) -> Self {
         self.always_active = always;

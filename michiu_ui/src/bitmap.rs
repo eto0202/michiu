@@ -20,7 +20,7 @@ pub fn prop_bg_color() -> PropertyList {
 }
 
 #[inline]
-pub fn prop_border() -> PropertyList {
+pub fn prop_border_color() -> PropertyList {
     PropertyList::BorderColor
 }
 
@@ -285,4 +285,5 @@ pub(crate) const STYLE_INTERACTION_PROPERTY: u64 = STATE_HOVERED
     | STATE_SELECTED
     | STATE_DRAGGED;
 
-pub(crate) const STYLE_ACTIVE_INTERACTION_PROPERTY: u64 = STATE_FOCUSED | STATE_ACTIVED;
+pub(crate) const STYLE_ACTIVE_INTERACTION_PROPERTY: u64 =
+    STATE_HOVERED | STATE_FOCUSED | STATE_PRESSED | STATE_DRAGGED | STATE_ACTIVED;

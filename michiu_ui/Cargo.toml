@@ -40,7 +40,8 @@ features = [
     "UI_Composition",
     "Graphics_DirectX_Direct3D11",
     "Win32_System_Com_StructuredStorage",
-    "Win32_System_Memory", 
+    "Win32_System_Memory",
+    "Win32_UI_Controls",
 ]
 
 [features]
