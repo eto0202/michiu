@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn test_color_hex() {
-    let color = Color::hex(0xFF3300);
+    let color = hex(0xFF3300);
     assert_eq!(color.r, 1.0);
     // 0x33 は 51。51.0 / 255.0 = 0.20 の精度を検証
     assert!((color.g - 0.2).abs() < f32::EPSILON);
@@ -134,7 +134,7 @@ fn test_flex_layout_override_with() {
 #[test]
 fn test_bytemuck_pod_casting() {
     // GPU等へのアロケーション転送時における、アライメントや bytes キャストの安全性を検証
-    let color = Color::rgba(1.0, 0.5, 0.0, 1.0);
+    let color = Color::rgba_f32(1.0, 0.5, 0.0, 1.0);
     let bytes = bytemuck::bytes_of(&color);
     assert_eq!(bytes.len(), std::mem::size_of::<Color>());
 }

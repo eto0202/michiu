@@ -50,12 +50,12 @@ fn test_parent_ownership() {
 fn test_static_style_application() {
     let mut cx = Context::new();
 
-    let style = ThisStyle::new().bg_color(Color::rgb(1.0, 0.0, 0.0));
+    let style = ThisStyle::new().bg_color(Color::rgb_f32(1.0, 0.0, 0.0));
     let handle = build_ui(&mut cx, || div_n().style(style));
 
     assert!(cx.active_masks[handle.id].has(STYLE_BG_COLOR));
     let visual = cx.visual_properties.get(handle.id).unwrap();
-    assert_eq!(visual.bg_color, Some(Color::rgb(1.0, 0.0, 0.0)));
+    assert_eq!(visual.bg_color, Some(Color::rgb_f32(1.0, 0.0, 0.0)));
     assert!(cx.active_masks[handle.id].has(STATE_QUEUED_RENDER));
 }
 
@@ -71,9 +71,9 @@ fn test_reactive_style_with_signal() {
 
         div_n().style(move || {
             if is_red.get() {
-                ThisStyle::new().bg_color(Color::rgb(1.0, 0.0, 0.0))
+                ThisStyle::new().bg_color(Color::rgb_f32(1.0, 0.0, 0.0))
             } else {
-                ThisStyle::new().bg_color(Color::rgb(0.0, 0.0, 1.0))
+                ThisStyle::new().bg_color(Color::rgb_f32(0.0, 0.0, 1.0))
             }
         })
     });
@@ -83,7 +83,7 @@ fn test_reactive_style_with_signal() {
     // 初期状態: 赤
     assert_eq!(
         cx.visual_properties[handle.id].bg_color,
-        Some(Color::rgb(1.0, 0.0, 0.0))
+        Some(Color::rgb_f32(1.0, 0.0, 0.0))
     );
 
     // シグナル更新
@@ -95,7 +95,7 @@ fn test_reactive_style_with_signal() {
     // 自動的に青に更新されているか
     assert_eq!(
         cx.visual_properties[handle.id].bg_color,
-        Some(Color::rgb(0.0, 0.0, 1.0))
+        Some(Color::rgb_f32(0.0, 0.0, 1.0))
     );
 }
 
@@ -288,7 +288,7 @@ fn test_style_application() {
     custom_style.inner = Arc::new(StyleInner {
         mask: ComponentMask::new(STYLE_BG_COLOR),
         visual_property: VisualProperty {
-            bg_color: Some(Color::rgb(1.0, 0.0, 0.0)),
+            bg_color: Some(Color::rgb_f32(1.0, 0.0, 0.0)),
             ..Default::default()
         },
         ..Default::default()
@@ -300,7 +300,7 @@ fn test_style_application() {
     assert!(cx.active_masks[handle.id].has(STYLE_BG_COLOR));
     // 2. ビジュアルデータに色情報が代入されたか
     let visual = cx.visual_properties.get(handle.id).unwrap();
-    assert_eq!(visual.bg_color, Some(Color::rgb(1.0, 0.0, 0.0)));
+    assert_eq!(visual.bg_color, Some(Color::rgb_f32(1.0, 0.0, 0.0)));
     // 3. レンダリングDirtyがセットされたか
     assert!(cx.active_masks[handle.id].has(STATE_QUEUED_RENDER));
 

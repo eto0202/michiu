@@ -1,7 +1,8 @@
 use michiu_ui::{
-    AlignItems, Color, ComposedRenderer, Context, CornerRadius, CursorIcon, ElementState, EntityId,
-    JustifyContent, LayoutPoint, LayoutSize, Modifiers, MouseButton, Position, PropertyList, Rect,
-    Size, Transition, WebView2Contents, auto, build_ui, div, px, text, ts,
+    AlignItems, BoxShadow, Color, ComposedRenderer, Context, CornerRadius, CursorIcon,
+    ElementState, EntityId, JustifyContent, LayoutPoint, LayoutSize, Modifiers, MouseButton,
+    Position, PropertyList, Rect, Size, Transition, WebView2Contents, auto, build_ui, div, px, rgb,
+    text, ts, webview2,
 };
 
 use windows::{
@@ -183,7 +184,7 @@ unsafe extern "system" fn wnd_proc(
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
-            WM_LBUTTONDOWN | WM_LBUTTONUP => {
+            WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP => {
                 let state = if msg == WM_LBUTTONDOWN {
                     ElementState::Pressed
                 } else {
@@ -265,6 +266,18 @@ unsafe extern "system" fn wnd_proc(
                 }
                 return LRESULT(0);
             }
+            WM_ENTERSIZEMOVE => {
+                app.context.is_window_resizing = true;
+                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                return LRESULT(0);
+            }
+            // ウィンドウドラッグリサイズの完了をキャッチ
+            WM_EXITSIZEMOVE => {
+                app.context.is_window_resizing = false;
+                // リサイズ完了後の再描画を即座にキックして、新サイズでの静止画キャプチャを誘発
+                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                return LRESULT(0);
+            }
             _ => {}
         }
     }
@@ -299,7 +312,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::new();
     let webview_id_cell = std::cell::Cell::new(None);
 
-    let hovered_style = ts().bg_color(Color::rgb(0.2, 0.2, 0.2));
+    let hovered_style = ts().bg_color(rgb(110, 110, 110));
 
     let btn_style = ts()
         .flex()
@@ -310,10 +323,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             bottom: auto(),
             left: px(20.0),
         })
-        .size(Size::px(50.0, 150.0))
-        .bg_color(Color::rgb(0.07, 0.07, 0.07))
+        .size(Size::px(50.0, 50.0))
+        .bg_color(rgb(100, 100, 100))
         .border(Rect::px_all(3.0))
-        .border_color(Color::rgb(0.1, 0.1, 0.1))
+        .border_color(rgb(30, 30, 30))
         .corner_radius(CornerRadius::all(5.0))
         // 背景色の変化に対して滑らかなトランジションを設定（150ms でEaseInOut）
         .transition(Transition::new(
@@ -328,7 +341,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         // 擬似クラス状態のスタイルマッピング
         .hovered(hovered_style)
-        .pressed(ts().border_color(Color::rgb(0.5, 0.5, 0.5)))
+        .pressed(ts().border_color(rgb(40, 40, 40)))
         .cursor(CursorIcon::Pointer);
 
     // build_ui を使って要素ツリーを宣言的に組み立て
@@ -337,7 +350,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let root_node = div(ts()
             .flex()
             .size(Size::pct_all(1.0))
-            .bg_color(Color::rgb(0.01, 0.01, 0.01))
+            .bg_color(rgb(34, 36, 42))
             .align_items(AlignItems::Center)
             .justify_content(JustifyContent::Center)
             .flex_direction(michiu_ui::FlexDirection::Column)
@@ -351,14 +364,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         // 波括弧 `{}` による即時実行ブロックを使い、Element として作成します
+        // TODO: 影もアニメーション可能に
+        // TODO: コンテキストメニューが使えない
         let webview_element = {
-            let wv = div(ts()
-                .size(Size::pct(0.8, 0.7))
-                .border(Rect::px_all(1.0))
-                .border_color(Color::rgb(1.0, 1.0, 1.0))
-                .bg_color(Color::rgb(0.01, 0.01, 0.01))
-                .corner_radius(CornerRadius::all(12.0)))
-            .webview2(WebView2Contents::new("https://www.google.com").allow_interaction(true));
+            let wv = webview2(
+                WebView2Contents::new("https://www.google.com/maps")
+                    .enable_context_menu(true)
+                    .enable_dev_tools(true)
+                    .allow_interaction(true),
+            )
+            .style(
+                ts().size(Size::pct(0.8, 0.7))
+                    .corner_radius(CornerRadius::all(12.0))
+                    .transition(Transition::new(
+                        michiu_ui::prop_border_color(),
+                        std::time::Duration::from_millis(150),
+                        michiu_ui::ease_in_out_quad(),
+                    ))
+                    .focused(
+                        ts().border(Rect::all(px(2.0)))
+                            .border_color(rgb(150, 150, 150)),
+                    )
+                    .hovered(ts().box_shadow(BoxShadow {
+                        offset: LayoutPoint::ZERO,
+                        blur: 15.0,
+                        spread: 1.0,
+                        color: Color::BLACK,
+                    })),
+            );
 
             // Cell::set を使用（不変参照で呼べるため、クロージャは Fn のまま安全です）
             webview_id_cell.set(Some(wv.id()));

@@ -6,7 +6,7 @@ use super::*;
 #[test]
 fn test_style_cow_behavior() {
     // 白の背景色を持つベーススタイルを作成
-    let base_style = ThisStyle::new().bg_color(Color::rgb(1.0, 1.0, 1.0));
+    let base_style = ThisStyle::new().bg_color(Color::rgb_f32(1.0, 1.0, 1.0));
 
     // スタイルを複製する。この段階では Arc の参照カウントが増えるだけで、メモリはコピーされない。
     let cloned_style = base_style.clone();
@@ -28,13 +28,13 @@ fn test_style_cow_behavior() {
     );
     assert_eq!(
         base_style.inner.visual_property.bg_color,
-        Some(Color::rgb(1.0, 1.0, 1.0))
+        Some(Color::rgb_f32(1.0, 1.0, 1.0))
     );
 
     // 分岐したスタイルは、元の背景色を保持しつつ、新しく指定したサイズ情報がマージされているかを検証
     assert_eq!(
         mutated_style.inner.visual_property.bg_color,
-        Some(Color::rgb(1.0, 1.0, 1.0))
+        Some(Color::rgb_f32(1.0, 1.0, 1.0))
     );
     assert_ne!(
         mutated_style.inner.basic_layout.size,
@@ -48,7 +48,7 @@ fn test_builder_methods_and_masks() {
     let style = ThisStyle::new()
         .display(Display::Flex)
         .flex_grow(2.0)
-        .bg_color(Color::rgb(0.0, 1.0, 0.0));
+        .bg_color(Color::rgb_f32(0.0, 1.0, 0.0));
 
     let inner = &style.inner;
     let mask = inner.mask;
@@ -65,7 +65,7 @@ fn test_builder_methods_and_masks() {
     assert!(mask.has(STYLE_BG_COLOR));
     assert_eq!(
         inner.visual_property.bg_color,
-        Some(Color::rgb(0.0, 1.0, 0.0))
+        Some(Color::rgb_f32(0.0, 1.0, 0.0))
     );
 
     // メソッドを呼び出していないプロパティのフラグが、マスクに混入していないことを検証
@@ -99,10 +99,10 @@ fn test_lazy_grid_allocation() {
 // 4. インタラクティブスタイル（ホバースタイルなど）のネスト保持検証
 #[test]
 fn test_nested_interactive_styles() {
-    let hovered_override = ThisStyle::new().bg_color(Color::rgb(0.0, 0.0, 1.0));
+    let hovered_override = ThisStyle::new().bg_color(Color::rgb_f32(0.0, 0.0, 1.0));
 
     let style = ThisStyle::new()
-        .bg_color(Color::rgb(1.0, 1.0, 1.0))
+        .bg_color(Color::rgb_f32(1.0, 1.0, 1.0))
         .hovered(hovered_override);
 
     let inner = &style.inner;
@@ -114,7 +114,7 @@ fn test_nested_interactive_styles() {
     let hover_style = inner.interaction_styles.hovered.as_ref().unwrap();
     assert_eq!(
         hover_style.inner.visual_property.bg_color,
-        Some(Color::rgb(0.0, 0.0, 1.0))
+        Some(Color::rgb_f32(0.0, 0.0, 1.0))
     );
 }
 
@@ -128,7 +128,7 @@ fn test_cpu_animation_tick() {
     let root = crate::build_ui(&mut cx, || {
         div(ts()
             .size(Size::px(100.0, 100.0))
-            .bg_color(Color::rgb(1.0, 0.0, 0.0))
+            .bg_color(Color::rgb_f32(1.0, 0.0, 0.0))
             // 無限ループの回転アニメーションをバインド（これが 1<<51 になります）
             .animation(KeyframeAnimation {
                 property: PropertyList::Transform,

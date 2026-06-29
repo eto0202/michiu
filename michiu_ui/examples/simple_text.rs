@@ -1,6 +1,6 @@
 use michiu_ui::{
     AlignItems, Color, ComposedRenderer, Context, CornerRadius, EntityId, JustifyContent,
-    LayoutSize, Size, build_ui, div, text, ts,
+    LayoutSize, Size, build_ui, div, rgb, text, ts,
 };
 use windows::{
     Win32::{
@@ -154,18 +154,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // build_ui を使って要素ツリーを宣言的に組み立て
     let root = build_ui(&mut context, || {
         // 1. 親コンテナのサイズをウィンドウ全体（100%）に広げます
-        div(
-            flex_box
-                .clone()
-                .size(Size::pct_all(1.0)) // ウィンドウ全画面（100%）に広げる
-                .bg_color(Color::rgb(0.01, 0.01, 0.01)), // ダークグレー
-        )
+        div(flex_box
+            .clone()
+            .size(Size::pct_all(1.0)) // ウィンドウ全画面（100%）に広げる
+            .bg_color(rgb(1, 1, 1)))
         .child(
             // 2. その中に32px（一回り大きなサイズ）の角丸カードコンテナを配置
             div(
                 flex_box
                     .size(Size::px(450.0, 150.0)) // カードを一回り大きく (450x150)
-                    .bg_color(Color::rgb(0.05, 0.05, 0.05)) // グレー
+                    .bg_color(rgb(25, 25, 25))
                     .corner_radius(CornerRadius::all(16.0)), // 角丸も大きく (16px)
             )
             .child(text("Hello Michiu GUI!").style(font_style)),

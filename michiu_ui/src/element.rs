@@ -273,8 +273,8 @@ impl Element {
     }
 
     /// WebView2 コンポーネントを配置します（静的設定、またはSignal / クロージャに対応）。
-    pub fn webview2(self, prop: impl Into<Prop<WebView2Contents>>) -> Self {
-        match prop.into() {
+    pub fn webview2(self, contents: impl Into<Prop<WebView2Contents>>) -> Self {
+        match contents.into() {
             Prop::None => {}
             Prop::Static(contents) => {
                 with_context(|cx| {
@@ -814,6 +814,11 @@ pub fn img(source: impl Into<Prop<ImageSource>>) -> Element {
 #[inline]
 pub fn video(property: impl Into<Prop<MovieProperty>>) -> Element {
     div_n().movie(property)
+}
+
+#[inline]
+pub fn webview2(contents: impl Into<Prop<WebView2Contents>>) -> Element {
+    div_n().webview2(contents)
 }
 
 // コンテキストを復元するための一時的なガード構造体

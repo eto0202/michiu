@@ -224,6 +224,9 @@ pub struct Context {
 
     /// 【追加】DComp 側で初期化（コントローラー生成）が完了して表示準備が整った WebView2 の一覧
     pub(crate) active_webviews: HashSet<EntityId>,
+
+    /// ウィンドウの枠線ドラッグ等によるインタラクティブなリサイズ処理の最中であるかを示すフラグ
+    pub is_window_resizing: bool,
 }
 
 pub(crate) type Effects = Box<dyn FnMut(&mut Context)>;
@@ -286,6 +289,7 @@ impl Context {
             active_animations: SparseSecondaryMap::new(),
             webview_contents: SparseSecondaryMap::new(),
             active_webviews: HashSet::new(),
+            is_window_resizing: false,
         }
     }
 
@@ -894,12 +898,14 @@ impl Context {
                     corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO), // 完璧な角丸に沿ってくり抜く
                     border_width: EdgeInsets::ZERO, // くり抜き時は枠線は不要
                     border_color: Color::TRANSPARENT,
-                    opacity_and_mode: [punchout_opacity, 0.0, 0.0, 0.0],
+                    opacity_mode_sizing: [punchout_opacity, 0.0, 0.0, 0.0],
                     uv_max: [0.0; 2],
                     uv_min: [0.0; 2],
                     gradient_end_color: Color::TRANSPARENT,
                     gradient_angle: 0.0,
                     _padding: 0.0,
+                    shadow_color: Color::TRANSPARENT,
+                    shadow_params: [0.0; 4],
                 };
                 current_instances.push(punchout_instance);
                 current_ids.push(id);
@@ -927,12 +933,14 @@ impl Context {
                         left: basic.border.left.into(),
                     },
                     border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-                    opacity_and_mode: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
                     uv_max: [0.0; 2],
                     uv_min: [0.0; 2],
                     gradient_end_color: Color::TRANSPARENT,
                     gradient_angle: 0.0,
                     _padding: 0.0,
+                    shadow_color: Color::WHITE,
+                    shadow_params: [0.0; 4],
                 };
                 current_instances.push(border_instance);
                 current_ids.push(id);
@@ -978,12 +986,14 @@ impl Context {
                         left: basic.border.left.into(),
                     },
                     border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-                    opacity_and_mode: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
                     uv_max: [0.0; 2],
                     uv_min: [0.0; 2],
                     gradient_end_color: Color::TRANSPARENT,
                     gradient_angle: 0.0,
                     _padding: 0.0,
+                    shadow_color: Color::TRANSPARENT,
+                    shadow_params: [0.0; 4],
                 };
                 current_instances.push(static_instance);
                 current_ids.push(id);
@@ -993,6 +1003,38 @@ impl Context {
                     instances: std::mem::take(&mut current_instances),
                     entity_ids: std::mem::take(&mut current_ids),
                     batch_type: BatchType::Normal, // 静止キャッシュ表示用通常描画
+                });
+
+                let border_instance = QuadInstance {
+                    rect,
+                    transform: visual.transform.unwrap_or(IDENTITY_MATRIX),
+                    transform_origin: origin,
+                    color: Color::TRANSPARENT,
+                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
+                    border_width: EdgeInsets {
+                        top: basic.border.top.into(),
+                        right: basic.border.right.into(),
+                        bottom: basic.border.bottom.into(),
+                        left: basic.border.left.into(),
+                    },
+                    border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
+                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    uv_max: [0.0; 2],
+                    uv_min: [0.0; 2],
+                    gradient_end_color: Color::TRANSPARENT,
+                    gradient_angle: 0.0,
+                    _padding: 0.0,
+                    shadow_color: Color::WHITE,
+                    shadow_params: [0.0; 4],
+                };
+                current_instances.push(border_instance);
+                current_ids.push(id);
+
+                batches.push(DrawBatch {
+                    scissor_rect: clip,
+                    instances: std::mem::take(&mut current_instances),
+                    entity_ids: std::mem::take(&mut current_ids),
+                    batch_type: BatchType::Normal,
                 });
 
                 last_clip = Some(clip);
@@ -1060,12 +1102,14 @@ impl Context {
                     left: basic.border.left.into(),
                 },
                 border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-                opacity_and_mode: [visual.opacity.unwrap_or(1.0), mode, 0.0, 0.0],
+                opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), mode, 0.0, 0.0],
                 uv_max: [0.0; 2],
                 uv_min: [0.0; 2],
                 gradient_end_color,
                 gradient_angle,
                 _padding: 0.0,
+                shadow_color: Color::WHITE,
+                shadow_params: [0.0; 4],
             };
 
             current_instances.push(instance);
@@ -1261,11 +1305,11 @@ impl Context {
     pub(crate) fn resolve_element_style_state(&mut self, id: EntityId) {
         let active_mask = self.active_masks[id];
 
-        // ─── 1. ビジュアルプロパティ (bg_color, opacity等) の解決 ───
+        // ビジュアルプロパティ (bg_color, opacity等) の解決
         let has_base_visual = self.base_visual_properties.contains_key(id);
         let has_active_visual = self.visual_properties.contains_key(id);
 
-        // ★ 早期リターン 1: スタイルを一切持たない要素は、ヒープアロケーションを避けるため完全にスキップ
+        // スタイルを一切持たない要素は、ヒープアロケーションを避けるため完全にスキップ
         if has_base_visual || has_active_visual {
             // 不変参照から現在の描画用データを安全に取得 (Copy可能なプリミティブのみ)
             let current_bg = self
@@ -1309,6 +1353,11 @@ impl Context {
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.corner_radius);
+            // 影（BoxShadow）の動的ターゲットを初期化
+            let mut target_shadow = self
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.box_shadow);
 
             // 疑似クラス（Hovered等）のマージをクローンなしで解決
             if let Some(interaction) = self.interaction_properties.get(id) {
@@ -1342,6 +1391,9 @@ impl Context {
                         }
                         if inner_mask.has(STYLE_CORNER_RADIUS) {
                             target_radius = inner_vis.corner_radius;
+                        }
+                        if inner_mask.has(STYLE_BOX_SHADOW) {
+                            target_shadow = inner_vis.box_shadow;
                         }
                     }
                 }
@@ -1433,9 +1485,11 @@ impl Context {
                     active_vis.corner_radius = target_radius;
                 }
 
+                // 解決した影（target_shadow）をアクティブプロパティに代入
+                active_vis.box_shadow = target_shadow;
+
                 // コールドプロパティの即時代入
                 if let Some(target_vis) = self.base_visual_properties.get(id) {
-                    active_vis.box_shadow = target_vis.box_shadow;
                     active_vis.clip_path = target_vis.clip_path.clone();
                     active_vis.z_index = target_vis.z_index;
                     active_vis.cursor = target_vis.cursor;
@@ -1448,7 +1502,7 @@ impl Context {
             }
         }
 
-        // ─── 2. レイアウトプロパティ (Width, Height) の解決 ───
+        //  (Width, Height) の解決
         let has_base_layout = self.base_basic_layouts.contains_key(id);
         let has_active_layout = self.basic_layouts.contains_key(id);
 
@@ -2265,31 +2319,6 @@ impl Context {
     /// 画面上でアクティブ（有効）になっている要素の総数を取得します。
     pub fn active_entities_count(&self) -> usize {
         self.active_entities.len()
-    }
-}
-
-// ヘルパー：単一背景色の単純なサブ矩形インスタンスを構築する関数
-fn build_simple_instance(
-    rect: LayoutRect,
-    color: Color,
-    opacity: f32,
-    visual: &VisualProperty,
-    basic: &BasicLayout,
-) -> QuadInstance {
-    QuadInstance {
-        rect,
-        transform: visual.transform.unwrap_or(IDENTITY_MATRIX),
-        transform_origin: [0.5, 0.5],
-        color,
-        corner_radius: CornerRadius::ZERO, // 分割された背景自体には角丸は不要
-        border_width: EdgeInsets::ZERO,
-        border_color: Color::TRANSPARENT,
-        opacity_and_mode: [opacity, 0.0, 0.0, 0.0], // Solidモード (0.0f32)
-        uv_max: [0.0; 2],
-        uv_min: [0.0; 2],
-        gradient_end_color: Color::TRANSPARENT,
-        gradient_angle: 0.0,
-        _padding: 0.0,
     }
 }
 

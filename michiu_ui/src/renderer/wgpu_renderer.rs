@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use crate::{BatchType, DrawBatch};
+use crate::{BatchType, BoxSizing, DrawBatch};
 use crate::{
     COMP_TEXT_CONTENT, Color, Context, CornerRadius, EdgeInsets, EntityId, IDENTITY_MATRIX,
     LayoutRect, LayoutSize, QuadInstance, TextCacheKey, TextCacheValue, TextRasterizer,
@@ -540,13 +540,33 @@ impl WgpuRenderer {
             .unwrap_or([0.5, 0.5]);
         let opacity = visual.opacity.unwrap_or(1.0);
 
+        let box_sizing_val = match basic.box_sizing {
+            BoxSizing::BorderBox => 0.0f32,
+            BoxSizing::ContentBox => 1.0f32,
+        };
+
+        // 影 (BoxShadow) のデータを選別して適用
+        let (shadow_color, shadow_params) = if instance.shadow_color == Color::TRANSPARENT {
+            // 背面や Punchout インスタンスなど、影の除外指示がある場合
+            (Color::TRANSPARENT, [0.0; 4])
+        } else {
+            // 前面装飾や一般UI要素など、影の描画が要求されている場合
+            match visual.box_shadow {
+                Some(shadow) => (
+                    shadow.color,
+                    [shadow.offset.x, shadow.offset.y, shadow.blur, shadow.spread],
+                ),
+                None => (Color::TRANSPARENT, [0.0; 4]),
+            }
+        };
+
         let mut current_mode = if visual.bg_gradient.is_some() {
             1.0f32
         } else {
             0.0f32
         };
-        let mut uv_min = [0.0f32; 2];
-        let mut uv_max = [0.0f32; 2];
+        let mut uv_min = instance.uv_min; // collect_render_data 側での指定値を維持
+        let mut uv_max = instance.uv_max;
 
         // 静止 WebView2 キャッシュの引き当て判定
         if let Some(_cached_view) = self.webview_static_caches.get(&entity_id) {
@@ -637,22 +657,17 @@ impl WgpuRenderer {
             transform_origin: origin,
             color: instance.color,
             corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
-            border_width: EdgeInsets {
-                top: basic.border.top.into(),
-                right: basic.border.right.into(),
-                bottom: basic.border.bottom.into(),
-                left: basic.border.left.into(),
-            },
+            border_width: instance.border_width,
             border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-
             // 【パック】[opacity, mode, 0.0, 0.0] の 16B 転送
-            opacity_and_mode: [opacity, current_mode, 0.0, 0.0],
-
+            opacity_mode_sizing: [opacity, current_mode, box_sizing_val, 0.0],
             uv_min,
             uv_max,
             gradient_end_color: instance.gradient_end_color,
             gradient_angle: instance.gradient_angle,
             _padding: 0.0,
+            shadow_color,
+            shadow_params,
         }
     }
 

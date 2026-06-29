@@ -26,8 +26,8 @@ pub struct QuadInstance {
     pub(crate) border_width: EdgeInsets,    // 16B. offset: 112
     pub(crate) border_color: Color,         // 16B. offset: 128
 
-    // opacity, mode を 1つの 16B 配列 [opacity, mode, 0.0, 0.0] としてパック
-    pub(crate) opacity_and_mode: [f32; 4], // 16B. offset: 144 (16の倍数。完璧にOK)
+    // opacity, mode を 1つの 16B 配列 [opacity, mode, sizing, 0.0] としてパック
+    pub(crate) opacity_mode_sizing: [f32; 4], // 16B. offset: 144 (16の倍数。完璧にOK)
 
     pub(crate) uv_min: [f32; 2], // 8B.  offset: 160 (16の倍数。完璧にOK)
     pub(crate) uv_max: [f32; 2], // 8B.  offset: 168 (あわせて location 11 [160..176] とする)
@@ -37,6 +37,9 @@ pub struct QuadInstance {
     pub(crate) gradient_angle: f32, // 4B.  offset: 192 (16の倍数)
     pub(crate) transform_origin: [f32; 2], // 8B.  offset: 196
     pub(crate) _padding: f32,       // 4B.  offset: 204
+
+    pub(crate) shadow_color: Color,     // 16B. offset: 208
+    pub(crate) shadow_params: [f32; 4], // 16B. offset: 224 (offset_x, offset_y, blur, spread)
 }
 
 impl QuadInstance {
@@ -115,6 +118,18 @@ impl QuadInstance {
                 wgpu::VertexAttribute {
                     offset: 192,
                     shader_location: 13,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                // 14. shadow_color (location 14)
+                wgpu::VertexAttribute {
+                    offset: 208,
+                    shader_location: 14,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                // 15. shadow_params [offset_x, offset_y, blur, spread] (location 15)
+                wgpu::VertexAttribute {
+                    offset: 224,
+                    shader_location: 15,
                     format: wgpu::VertexFormat::Float32x4,
                 },
             ],

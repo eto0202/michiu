@@ -55,7 +55,8 @@ pub struct ComposedRenderer {
     pub promoted_visuals: Vec<PromotedVisual>,
 
     /// 非同期でキャプチャデコードが完了し、正式に削除（DComp解放）可能になった ID の待ちバッファ
-    pub(crate) pending_removals: Rc<RefCell<Vec<(EntityId, wgpu::Texture)>>>,
+    #[allow(clippy::type_complexity)]
+    pub(crate) pending_removals: Rc<RefCell<Vec<(EntityId, Option<wgpu::Texture>)>>>,
     // DComp 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
     pub(crate) pending_dcomp_releases: Vec<PendingDcompRelease>,
 }
@@ -77,6 +78,8 @@ pub struct PromotedVisual {
     pub(crate) webview_controller: Rc<RefCell<Option<ICoreWebView2Controller>>>,
     /// 現在バックグラウンドで非同期キャプチャ（スナップショット）を実行中かどうかのフラグ
     pub is_capturing: bool,
+    // DCompツリーにマウントされており、コントローラーが可視状態であるか
+    pub(crate) is_visible: bool,
 }
 
 impl ComposedRenderer {
@@ -147,6 +150,8 @@ impl ComposedRenderer {
             new_physical_size.1 as f32 / scale_factor,
         );
         self.wgpu_renderer.resize(new_physical_size, scale_factor);
+        //リサイズ時に静止画テクスチャキャッシュをクリア
+        self.wgpu_renderer.webview_static_caches.clear();
         let _ = unsafe { self.dcomp_device.Commit() };
     }
 
@@ -161,17 +166,24 @@ impl ComposedRenderer {
         unsafe {
             // 非同期キャプチャが完了した要素の一括 DComp 解放処理
             let mut completed = self.pending_removals.borrow_mut().split_off(0);
-            for (id, wgpu_texture) in completed {
-                // 1. wgpu レンダラーへ静止テクスチャビューとして登録
-                let view = wgpu_texture.create_view(&Default::default());
-                self.wgpu_renderer.webview_static_caches.insert(id, view);
+            for (id, texture_opt) in completed {
+                // 成功・失敗を問わず、非同期キャプチャが終了したためフラグを確実にクリアする
+                if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id) {
+                    self.promoted_visuals[pos].is_capturing = false;
+                }
 
-                cx.active_webviews.remove(&id);
+                if let Some(wgpu_texture) = texture_opt {
+                    // wgpu レンダラーへ静止テクスチャビューとして登録
+                    let view = wgpu_texture.create_view(&Default::default());
+                    self.wgpu_renderer.webview_static_caches.insert(id, view);
 
-                self.pending_dcomp_releases.push(PendingDcompRelease {
-                    entity_id: id,
-                    frames_left: 3, // 3フレームの遅延
-                });
+                    cx.active_webviews.remove(&id);
+
+                    self.pending_dcomp_releases.push(PendingDcompRelease {
+                        entity_id: id,
+                        frames_left: 3, // 3フレームの遅延
+                    });
+                }
             }
 
             // 遅延キューの消化処理（1〜3フレーム目）
@@ -190,9 +202,16 @@ impl ComposedRenderer {
                         .iter()
                         .position(|v| v.entity_id == target_id)
                     {
-                        let promoted = &self.promoted_visuals[pos];
-                        self.root_visual.RemoveVisual(&promoted.visual).unwrap();
-                        self.promoted_visuals.remove(pos);
+                        let promoted = &mut self.promoted_visuals[pos];
+                        // タイムアウトが切れたため（wgpuへのテクスチャ定着完了）、
+                        // 実体は破棄せず、DCompツリーから取り外して不可視にするのみ
+                        if promoted.is_visible {
+                            let _ = self.root_visual.RemoveVisual(&promoted.visual);
+                            if let Some(ref controller) = *promoted.webview_controller.borrow() {
+                                let _ = controller.SetIsVisible(false); // 不可視化
+                            }
+                            promoted.is_visible = false;
+                        }
                     }
                 }
             }
@@ -225,23 +244,38 @@ impl ComposedRenderer {
                     .iter()
                     .any(|r| r.entity_id == id);
 
+                // 現在ウィンドウがリアルタイムにリサイズ中であるか
+                let is_resizing = cx.is_window_resizing;
+
                 // インタラクティブ操作中、またはまだキャッシュがなくキャプチャもキックされていない間、
                 // あるいはキャプチャ実行中（wgpuにテクスチャが届くのを待っている間）は、DComp上に実体を生かします。
                 let should_promote = is_webview
                     && !is_pending_release
-                    && (is_interactive || is_always_active || has_no_cache || is_capturing);
+                    && (is_interactive
+                        || is_always_active
+                        || has_no_cache
+                        || is_capturing
+                        || is_resizing);
                 if should_promote {
                     current_promoted_ids.push(id);
 
-                    // すでに昇格済みかチェック
-                    if !self.promoted_visuals.iter().any(|v| v.entity_id == id) {
+                    if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id)
+                    {
+                        let promoted = &mut self.promoted_visuals[pos];
+                        if !promoted.is_visible {
+                            // DCompツリーに再マウント
+                            self.root_visual
+                                .AddVisual(&promoted.visual, false, &self.wgpu_visual)
+                                .unwrap();
+                            // ブラウザコントロールを再アクティブ化
+                            if let Some(ref controller) = *promoted.webview_controller.borrow() {
+                                let _ = controller.SetIsVisible(true);
+                            }
+                            promoted.is_visible = true;
+                        }
+                    } else {
+                        // プールにまだ存在しない、正真正銘の初回生成時のみ、一から非同期マウントをキック
                         self.promote_element_to_visual(cx, id);
-
-                        // アクティブ化したので、wgpu 側の静止テクスチャキャッシュがあれば削除して無効化
-                        // ここで即時キャッシュを削除（remove）するのを廃止。
-                        // 削除せず、DComp実体が整うまでwgpu側に静止画を表示させ続けます。
-                        // self.wgpu_renderer.webview_static_caches.remove(&id);
-                        // println!("静止テクスチャキャッシュを削除して無効化");
                     }
 
                     if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id)
@@ -266,10 +300,16 @@ impl ComposedRenderer {
             while i < self.promoted_visuals.len() {
                 let id = self.promoted_visuals[i].entity_id;
 
-                // 生存していない（despawn済みの）要素は、直ちにクリーンアップ
+                // 生存していない（despawn済みの）要素はクリーンアップ
                 if !cx.entities.contains_key(id) {
                     let promoted = &self.promoted_visuals[i];
-                    self.root_visual.RemoveVisual(&promoted.visual).unwrap();
+                    if promoted.is_visible {
+                        let _ = self.root_visual.RemoveVisual(&promoted.visual);
+                    }
+                    // WebView2 コントローラーの明示的な破棄クローズ
+                    if let Some(ref controller) = *promoted.webview_controller.borrow() {
+                        let _ = controller.Close();
+                    }
                     self.promoted_visuals.remove(i);
                     continue;
                 }
@@ -279,12 +319,20 @@ impl ComposedRenderer {
                     .iter()
                     .any(|r| r.entity_id == id);
 
-                // キャッシュが存在し、かつアクティブでない（維持対象外になった）ものは
-                // このフレームで直ちに DComp から完全に破棄して wgpu 静止画描画へ移行させる
+                // 生きてはいるが、アクティブ維持対象外になった（静止画像へ移行した）もの
                 if !current_promoted_ids.contains(&id) && !is_pending_release {
-                    let promoted = &self.promoted_visuals[i];
-                    self.root_visual.RemoveVisual(&promoted.visual).unwrap();
-                    self.promoted_visuals.remove(i);
+                    let promoted = &mut self.promoted_visuals[i];
+
+                    // すでにキャッシュが存在し、表示維持が不要になったため、即座に非表示常駐化
+                    if promoted.is_visible {
+                        let _ = self.root_visual.RemoveVisual(&promoted.visual);
+                        if let Some(ref controller) = *promoted.webview_controller.borrow() {
+                            let _ = controller.SetIsVisible(false); // 不可視化して常駐
+                        }
+                        promoted.is_visible = false;
+                    }
+                    // promoted_visuals 配列からは削除しない
+                    i += 1;
                     continue;
                 }
 
@@ -341,7 +389,7 @@ impl ComposedRenderer {
                                     Ok(wgpu_texture) => {
                                         pending_removals_clone
                                             .borrow_mut()
-                                            .push((id, wgpu_texture));
+                                            .push((id, Some(wgpu_texture)));
 
                                         // 非同期キャプチャ完了直後に強制再描画をかけて
                                         // DComp 解放と wgpu への描画バインド切り替えを即座に適用する
@@ -351,6 +399,9 @@ impl ComposedRenderer {
                                         // エラーをコンソールに出力して握りつぶしを防止
                                         // TODO: tracing クレートに変更
                                         eprintln!("Error during WebView2 Capture: {:?}", e);
+                                        // None を投げてメインスレッドにフラグ回収を促す
+                                        pending_removals_clone.borrow_mut().push((id, None));
+                                        let _ = InvalidateRect(Some(parent_hwnd), None, false);
                                     }
                                 }
                             },
@@ -490,6 +541,7 @@ impl ComposedRenderer {
                 transform: None,
                 webview_controller,
                 is_capturing: false,
+                is_visible: true, // 新規作成時はマウント済み
             });
         }
     }
@@ -803,7 +855,7 @@ mod tests {
                         let root = build_ui(&mut cx, || {
                             div(ts()
                                 .size(crate::Size::px(100.0, 100.0))
-                                .bg_color(Color::rgb(1.0, 0.0, 0.0)))
+                                .bg_color(Color::rgb_f32(1.0, 0.0, 0.0)))
                         });
 
                         // レイアウト同期を実行

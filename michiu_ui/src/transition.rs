@@ -166,8 +166,8 @@ mod tests {
     // 基本的なカラー / オパシティ補間 (Lerp) の検証
     #[test]
     fn test_transition_lerp_logic() {
-        let start_color = Color::rgb(1.0, 0.0, 0.0); // 赤
-        let end_color = Color::rgb(0.0, 0.0, 1.0); // 青
+        let start_color = Color::rgb_f32(1.0, 0.0, 0.0); // 赤
+        let end_color = Color::rgb_f32(0.0, 0.0, 1.0); // 青
 
         let start_val = TransitionValue::Color(start_color);
         let end_val = TransitionValue::Color(end_color);
@@ -193,11 +193,11 @@ mod tests {
         // build_ui は Element（この場合は base）のみを返します
         let _root = build_ui(&mut cx, || {
             let h_style = ThisStyle::new()
-                .bg_color(Color::rgb(0.0, 0.0, 1.0)) // ホバー時は青
+                .bg_color(Color::rgb_f32(0.0, 0.0, 1.0)) // ホバー時は青
                 .opacity(0.5);
 
             let base = div(ts()
-                .bg_color(Color::rgb(1.0, 0.0, 0.0)) // 初期は赤
+                .bg_color(Color::rgb_f32(1.0, 0.0, 0.0)) // 初期は赤
                 .opacity(1.0)
                 // 背景色は 1秒 (1000ms) で EaseInOutQuad トランジション
                 .transition(Transition::new(
@@ -217,7 +217,7 @@ mod tests {
         cx.sync_layout_and_render_list(el.id, LayoutSize::new(100.0, 100.0));
         assert_eq!(
             cx.visual_properties[el.id].bg_color,
-            Some(Color::rgb(1.0, 0.0, 0.0))
+            Some(Color::rgb_f32(1.0, 0.0, 0.0))
         );
 
         // 1. ホバー状態をオンにする
@@ -231,7 +231,7 @@ mod tests {
         // 起きた瞬間は、まだ赤（スナップしていないこと）を検証
         assert_eq!(
             cx.visual_properties[el.id].bg_color,
-            Some(Color::rgb(1.0, 0.0, 0.0))
+            Some(Color::rgb_f32(1.0, 0.0, 0.0))
         );
 
         // 2. 時間を擬似的に進める (500ms 経過状態を作る)
@@ -271,7 +271,7 @@ mod tests {
         // 目標値（青）に完全に達していること、およびアニメーションが終了してクリーンアップされたことを検証
         assert_eq!(
             cx.visual_properties[el.id].bg_color,
-            Some(Color::rgb(0.0, 0.0, 1.0))
+            Some(Color::rgb_f32(0.0, 0.0, 1.0))
         );
         assert!(!cx.has_active_animations()); // 完了したのでリストは空のはず
 
@@ -285,10 +285,10 @@ mod tests {
         let mut el_handle = None;
 
         let _root = build_ui(&mut cx, || {
-            let h_style = ts().bg_color(Color::rgb(0.0, 0.0, 1.0)); // ホバー時は青
+            let h_style = ts().bg_color(Color::rgb_f32(0.0, 0.0, 1.0)); // ホバー時は青
 
             let base = div(ts()
-                .bg_color(Color::rgb(1.0, 0.0, 0.0)) // 初期は赤
+                .bg_color(Color::rgb_f32(1.0, 0.0, 0.0)) // 初期は赤
                 .transition(Transition::new(
                     prop_bg_color(),
                     Duration::from_millis(1000),
@@ -337,7 +337,7 @@ mod tests {
                 assert!((c_start.b - 0.3).abs() < 0.01);
                 assert_eq!(
                     t.end_value,
-                    TransitionValue::Color(Color::rgb(1.0, 0.0, 0.0))
+                    TransitionValue::Color(Color::rgb_f32(1.0, 0.0, 0.0))
                 ); // 目標値は赤
             } else {
                 panic!("Expected color start value");

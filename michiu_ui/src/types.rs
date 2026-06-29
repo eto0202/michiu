@@ -1,7 +1,9 @@
 use bytemuck::{Pod, Zeroable};
 use std::{borrow::Cow, path::PathBuf, sync::Arc, time::Duration};
 
-use crate::{AnimationCurve, Context, EntityId, KeyframeAnimation, VirtualKey, bitmap::*, style::ThisStyle};
+use crate::{
+    AnimationCurve, Context, EntityId, KeyframeAnimation, VirtualKey, bitmap::*, style::ThisStyle,
+};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Default, Pod, Zeroable)]
@@ -32,23 +34,64 @@ impl Color {
         a: 1.0,
     };
 
+    /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
-    pub const fn rgb(r: f32, g: f32, b: f32) -> Self {
+    pub const fn rgb_f32(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
 
+    /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
-    pub const fn rgba(r: f32, g: f32, b: f32, a: f32) -> Self {
+    pub const fn rgba_f32(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
-    /// Helper for generating from HEX (e.g., 0xFF3300)
+    /// 色味を維持したまま、不透明度（アルファ）だけを動的に書き換えます
     #[inline]
-    pub fn hex(hex: u32) -> Self {
-        let r = ((hex >> 16) & 0xFF) as f32 / 255.0;
-        let g = ((hex >> 8) & 0xFF) as f32 / 255.0;
-        let b = (hex & 0xFF) as f32 / 255.0;
-        Self { r, g, b, a: 1.0 }
+    pub const fn with_alpha(self, a: f32) -> Self {
+        Self { a, ..self }
+    }
+}
+
+/// 0~255 の整数値（u8）で、不透明な RGB カラーを生成します
+#[inline]
+pub fn rgb(r: u8, g: u8, b: u8) -> Color {
+    Color {
+        r: r as f32 / 255.0,
+        g: g as f32 / 255.0,
+        b: b as f32 / 255.0,
+        a: 1.0,
+    }
+}
+
+/// 0~255 の整数値（u8）でRGBを、0.0~1.0（f32）で不透明度（Alpha）を指定して RGBA カラーを生成します
+#[inline]
+pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
+    Color {
+        r: r as f32 / 255.0,
+        g: g as f32 / 255.0,
+        b: b as f32 / 255.0,
+        a,
+    }
+}
+
+/// 6桁（RRGGBB、例：0x191919）または8桁（RRGGBBAA、例：0x19191980）のHEX値からカラーを自動解析して生成します
+#[inline]
+pub fn hex(value: u32) -> Color {
+    // 0xFFFFFF (最大白の6桁) 以下であるかどうかで、6桁か8桁かを自動判定
+    if value <= 0xFFFFFF {
+        // 6桁カラー (RRGGBB): アルファ 1.0 固定
+        let r = ((value >> 16) & 0xFF) as f32 / 255.0;
+        let g = ((value >> 8) & 0xFF) as f32 / 255.0;
+        let b = (value & 0xFF) as f32 / 255.0;
+        Color { r, g, b, a: 1.0 }
+    } else {
+        // 8桁カラー (RRGGBBAA): 末尾のAAをアルファにマッピング
+        let r = ((value >> 24) & 0xFF) as f32 / 255.0;
+        let g = ((value >> 16) & 0xFF) as f32 / 255.0;
+        let b = ((value >> 8) & 0xFF) as f32 / 255.0;
+        let a = (value & 0xFF) as f32 / 255.0;
+        Color { r, g, b, a }
     }
 }
 
@@ -1599,7 +1642,7 @@ impl Transition {
 pub struct LinearGradient {
     pub start_color: Color,
     pub end_color: Color,
-    pub angle: f32,         // ラジアン単位の角度
+    pub angle: f32,                // ラジアン単位の角度
     pub(crate) _padding: [f32; 3], // アライメント
 }
 

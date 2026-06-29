@@ -1,7 +1,9 @@
 use std::time::Duration;
 
 use michiu_ui::{
-    AlignItems, Color, ComposedRenderer, Context, CornerRadius, CursorIcon, ElementState, EntityId, JustifyContent, LayoutPoint, LayoutSize, Modifiers, MouseButton, PropertyList, Rect, Size, Transition, build_ui, div, ease_in_out_quad, text, ts
+    AlignItems, Color, ComposedRenderer, Context, CornerRadius, CursorIcon, ElementState, EntityId,
+    JustifyContent, LayoutPoint, LayoutSize, Modifiers, MouseButton, PropertyList, Rect, Size,
+    Transition, build_ui, div, ease_in_out_quad, rgb, text, ts,
 };
 use windows::{
     Win32::{
@@ -206,7 +208,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         div(ts()
             .flex()
             .size(Size::pct_all(1.0))
-            .bg_color(Color::rgb(0.02, 0.02, 0.02))
+            .bg_color(rgb(25, 25, 25))
             .align_items(AlignItems::Center)
             .justify_content(JustifyContent::Center))
         .child(
@@ -214,9 +216,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             div(ts()
                 .flex()
                 .size(Size::px(450.0, 150.0))
-                .bg_color(Color::rgb(0.07, 0.07, 0.07))
+                .bg_color(rgb(25, 25, 25))
                 .border(Rect::px_all(10.0))
-                .border_color(Color::rgb(0.1, 0.1, 0.1))
+                .border_color(rgb(50, 50, 50))
                 .align_items(AlignItems::Center)
                 .justify_content(JustifyContent::Center)
                 .corner_radius(CornerRadius::all(12.0))
@@ -227,8 +229,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ease_in_out_quad(),
                 ))
                 // 擬似クラス状態のスタイルマッピング
-                .hovered(ts().bg_color(Color::rgb(0.2, 0.2, 0.2)))
-                .pressed(ts().border_color(Color::rgb(0.5, 0.5, 0.5)))
+                .hovered(ts().bg_color(rgb(100, 100, 100)))
+                .pressed(ts().border_color(rgb(100, 100, 100)))
                 .cursor(CursorIcon::Pointer))
             .on_click(move || {
                 // クリックされたらシグナルをインクリメント

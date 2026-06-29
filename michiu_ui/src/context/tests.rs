@@ -811,15 +811,15 @@ fn test_single_and_global_mutation_performance() {
 
         // --- 4. ビジュアルプロパティ (VisualProperty 全12プロパティ) の同時更新・確保 ---
         let mut visual = cx.visual_properties.get(id).cloned().unwrap_or_default();
-        visual.bg_color = Some(Color::rgb(0.5, 0.5, 0.5));
-        visual.border_color = Some(Color::rgb(1.0, 1.0, 1.0));
+        visual.bg_color = Some(Color::rgb_f32(0.5, 0.5, 0.5));
+        visual.border_color = Some(Color::rgb_f32(1.0, 1.0, 1.0));
         visual.corner_radius = Some(CornerRadius::all(15.0));
         visual.opacity = Some(0.8);
         visual.box_shadow = Some(BoxShadow {
             offset: LayoutPoint::new(2.0, 2.0),
             blur: 5.0,
             spread: 1.0,
-            color: Color::rgb(0.0, 0.0, 0.0),
+            color: Color::rgb_f32(0.0, 0.0, 0.0),
         });
         visual.clip_path = Some(std::borrow::Cow::Borrowed("M 0 0 L 100 0 L 100 100 Z"));
         visual.transform = Some([
@@ -831,7 +831,7 @@ fn test_single_and_global_mutation_performance() {
         visual.z_index = Some(99);
         visual.cursor = Some(CursorIcon::Pointer);
         visual.filter = Some(std::borrow::Cow::Borrowed("blur(5px)"));
-        visual.text_color = Some(Color::rgb(1.0, 0.0, 0.0));
+        visual.text_color = Some(Color::rgb_f32(1.0, 0.0, 0.0));
         visual.font_size = Some(18.0);
         cx.visual_properties.insert(id, visual);
 
