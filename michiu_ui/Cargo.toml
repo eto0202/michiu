@@ -9,13 +9,14 @@ bytemuck = { version = "1.25.0", features = ["derive"] }
 serde = { workspace = true, optional = true }
 slotmap = "1.1.1"
 smallvec = "1.15.2"
-taffy = {version = "0.11.0", features = ["grid"] }
-wgpu = "29.0.3"
+taffy = {version = "0.11.0", features = ["grid", "block_layout", "float_layout", "flexbox"] }
+wgpu = {version= "29.0.3", default-features = false, features = ["dx12", "wgsl"]}
 raw-window-handle = "0.6.2"
 webview2-com = "0.39.1"
 windows-result = "0.4.1"
 pollster = "0.4.0"
 windows-numerics = "0.3.1"
+dhat = { version = "0.3.3", optional = true }
 
 [dependencies.windows]
 version = "0.62.2"
@@ -42,6 +43,8 @@ features = [
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Memory",
     "Win32_UI_Controls",
+    "Win32_UI_Input_Ime",
+    "Win32_System_DataExchange",
 ]
 
 [features]

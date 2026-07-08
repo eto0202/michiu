@@ -1,6 +1,7 @@
 use crate::{
-    AnimationCurve, COMP_WEBVIEW_CONTENT, Context, CornerRadius, EntityId, LayoutPoint, LayoutRect,
-    LayoutSize, PlaybackCount, PropertyList, STYLE_ANIMATIONS, WebView2Contents, WgpuRenderer,
+    AnimationCurve, Backdrop, COMP_WEBVIEW_CONTENT, Context, CornerRadius, EntityId, LayoutPoint,
+    LayoutRect, LayoutSize, PlaybackCount, PropertyList, STYLE_ANIMATIONS, WebView2Contents,
+    WgpuRenderer,
 };
 use std::{
     cell::RefCell,
@@ -28,10 +29,13 @@ use windows::{
             Dxgi::*,
             Gdi::InvalidateRect,
         },
-        UI::WindowsAndMessaging::{WM_MOUSEHWHEEL, WM_MOUSEWHEEL},
+        UI::WindowsAndMessaging::{
+            GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
+        },
     },
     core::{Interface, PCWSTR, PWSTR, w},
 };
+use windows_numerics::Matrix3x2;
 
 pub struct ComposedRenderer {
     pub hwnd: HWND,
@@ -57,8 +61,14 @@ pub struct ComposedRenderer {
     /// 非同期でキャプチャデコードが完了し、正式に削除（DComp解放）可能になった ID の待ちバッファ
     #[allow(clippy::type_complexity)]
     pub(crate) pending_removals: Rc<RefCell<Vec<(EntityId, Option<wgpu::Texture>)>>>,
-    // DComp 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
+    /// DComp 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
     pub(crate) pending_dcomp_releases: Vec<PendingDcompRelease>,
+
+    /// 現在ウィンドウに適用中のバックドロップ状態
+    pub(crate) current_backdrop: Backdrop,
+
+    /// リサイズが完全に安定するまでキャプチャを保留するカウンター
+    pub(crate) resize_cooldown_frames: u32,
 }
 
 pub(crate) struct PendingDcompRelease {
@@ -105,23 +115,6 @@ impl ComposedRenderer {
         }
 
         let webview_env = Rc::new(RefCell::new(None));
-        let env_clone = webview_env.clone();
-
-        // 起動と同時に、裏で WebView2 の「環境」だけ非同期にロードを開始する
-        CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
-            Box::new(|handler| unsafe {
-                CreateCoreWebView2EnvironmentWithOptions(None, None, None, &handler)
-                    .map_err(webview2_com::Error::WindowsError)
-            }),
-            Box::new(move |res, env| {
-                if let Ok(e) = res {
-                    let env3: ICoreWebView2Environment3 = env.unwrap().cast().unwrap();
-                    *env_clone.borrow_mut() = Some(env3);
-                }
-                Ok(())
-            }),
-        )
-        .unwrap();
 
         Ok(Self {
             hwnd,
@@ -136,7 +129,44 @@ impl ComposedRenderer {
             promoted_visuals: Vec::new(),
             pending_removals: Rc::new(RefCell::new(Vec::new())),
             pending_dcomp_releases: Vec::new(),
+            current_backdrop: Backdrop::None,
+            resize_cooldown_frames: 0,
         })
+    }
+
+    /// WebView2 の環境（Environment）をバックグラウンドで事前ロードし、
+    /// 後続のWebView2マウント時における初期化ラグを削減します。
+    ///
+    /// 本メソッドは、OS に WebView2 ランタイムがインストールされていない場合、
+    /// クラッシュを発生させずに処理を自動スキップ（サイレントフォールバック）します。
+    pub fn prewarm_webview2(&self) {
+        // 多重プリウォームロードを防止
+        if self.webview_env.borrow().is_some() {
+            return;
+        }
+
+        let env_clone = self.webview_env.clone();
+
+        unsafe {
+            // パニック（unwrap）を起こさずに処理を実行
+            let _ = CreateCoreWebView2EnvironmentCompletedHandler::wait_for_async_operation(
+                Box::new(|handler| unsafe {
+                    CreateCoreWebView2EnvironmentWithOptions(None, None, None, &handler)
+                        .map_err(webview2_com::Error::WindowsError)
+                }),
+                Box::new(move |res, env| {
+                    if let Ok(_) = res
+                        && let Some(e_ptr) = env
+                        && let Ok(env3) = e_ptr.cast::<ICoreWebView2Environment3>()
+                    {
+                        // 環境オブジェクトを書き換えて、後続のマウント処理でキャッシュが再利用されるようにする
+                        *env_clone.borrow_mut() = Some(env3);
+                    }
+
+                    Ok(())
+                }),
+            );
+        }
     }
 
     /// ウィンドウサイズ変更時に、全体の設定値を更新し wgpu をリサイズします。
@@ -152,6 +182,11 @@ impl ComposedRenderer {
         self.wgpu_renderer.resize(new_physical_size, scale_factor);
         //リサイズ時に静止画テクスチャキャッシュをクリア
         self.wgpu_renderer.webview_static_caches.clear();
+
+        // リサイズが発生したため、キャプチャクールダウンを 15 フレームに設定
+        // 拡大リサイズ中およびリサイズ直後の不安定なバッファへのキャプチャを遮断
+        self.resize_cooldown_frames = 15;
+
         let _ = unsafe { self.dcomp_device.Commit() };
     }
 
@@ -161,9 +196,25 @@ impl ComposedRenderer {
         let _ = unsafe { self.dcomp_device.Commit() };
     }
 
-    /// アニメーションが必要な要素を検出し、Compositor側に昇格させてアニメーションをバインドします
     pub fn update_composition_tree(&mut self, cx: &mut Context) {
         unsafe {
+            if self.resize_cooldown_frames > 0 {
+                self.resize_cooldown_frames -= 1;
+            }
+
+            // ルート要素（root_node）のスタイルから DWM アクリル効果を自動検出して同期
+            if let Some(&root_id) = cx.active_entities.first()
+                && let Some(visual_prop) = cx.visual_properties.get(root_id)
+            {
+                let target_backdrop = visual_prop.backdrop;
+
+                // スタイル変更があった場合のみ、拡張した apply_system_backdrop を即時更新
+                if self.current_backdrop != target_backdrop {
+                    apply_system_backdrop(self.hwnd, target_backdrop);
+                    self.current_backdrop = target_backdrop;
+                }
+            }
+
             // 非同期キャプチャが完了した要素の一括 DComp 解放処理
             let mut completed = self.pending_removals.borrow_mut().split_off(0);
             for (id, texture_opt) in completed {
@@ -236,6 +287,38 @@ impl ComposedRenderer {
                     .promoted_visuals
                     .iter()
                     .any(|v| v.entity_id == id && v.is_capturing);
+                // 対象要素が現在サイズ・トランスフォーム等のアニメーション/トランジション中であるか判定
+                let is_transitioning = cx
+                    .active_transitions
+                    .get(id)
+                    .map(|list| {
+                        list.iter().any(|t| {
+                            t.property_list == PropertyList::Width
+                                || t.property_list == PropertyList::Height
+                                || t.property_list == PropertyList::Size
+                                || t.property_list == PropertyList::Transform
+                        })
+                    })
+                    .unwrap_or(false)
+                    || cx
+                        .active_animations
+                        .get(id)
+                        .map(|list| {
+                            list.iter().any(|a| {
+                                a.property == PropertyList::Width
+                                    || a.property == PropertyList::Height
+                                    || a.property == PropertyList::Size
+                                    || a.property == PropertyList::Transform
+                            })
+                        })
+                        .unwrap_or(false);
+
+                // 要素の物理サイズが前フレームから微細変動（リサイズドラッグなど）しているか判定
+                let rect = cx.rects[id];
+                let prev_rect = cx.prev_rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+                let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
+                    || (rect.height - prev_rect.height).abs() > 0.01;
+
                 // まだ静止画のテクスチャキャッシュが作成されていないか
                 let has_no_cache = !self.wgpu_renderer.webview_static_caches.contains_key(&id);
 
@@ -249,12 +332,15 @@ impl ComposedRenderer {
 
                 // インタラクティブ操作中、またはまだキャッシュがなくキャプチャもキックされていない間、
                 // あるいはキャプチャ実行中（wgpuにテクスチャが届くのを待っている間）は、DComp上に実体を生かします。
+                // トランジションアニメーション中（is_transitioning）も実体（DComp）の昇格表示を維持
                 let should_promote = is_webview
                     && !is_pending_release
                     && (is_interactive
                         || is_always_active
                         || has_no_cache
                         || is_capturing
+                        || is_transitioning
+                        || is_size_changing
                         || is_resizing);
                 if should_promote {
                     current_promoted_ids.push(id);
@@ -344,7 +430,48 @@ impl ComposedRenderer {
                 let is_interactive = has_interactive_descendant(cx, id);
                 let has_no_cache = !self.wgpu_renderer.webview_static_caches.contains_key(&id);
 
-                if !is_interactive && !is_always_active && has_no_cache && !is_pending_release {
+                let is_transitioning = cx
+                    .active_transitions
+                    .get(id)
+                    .map(|list| {
+                        list.iter().any(|t| {
+                            t.property_list == PropertyList::Width
+                                || t.property_list == PropertyList::Height
+                                || t.property_list == PropertyList::Size
+                                || t.property_list == PropertyList::Transform
+                        })
+                    })
+                    .unwrap_or(false)
+                    || cx
+                        .active_animations
+                        .get(id)
+                        .map(|list| {
+                            list.iter().any(|a| {
+                                a.property == PropertyList::Width
+                                    || a.property == PropertyList::Height
+                                    || a.property == PropertyList::Size
+                                    || a.property == PropertyList::Transform
+                            })
+                        })
+                        .unwrap_or(false);
+
+                let rect = cx.rects[id];
+                let prev_rect = cx.prev_rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+                let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
+                    || (rect.height - prev_rect.height).abs() > 0.01;
+
+                // 要素自体のサイズ・変形アニメーションが終了（is_transitioning = false）するまでキャプチャを保留
+                let is_stable = !cx.is_window_resizing
+                    && self.resize_cooldown_frames == 0
+                    && !is_transitioning
+                    && !is_size_changing;
+
+                if !is_interactive
+                    && !is_always_active
+                    && has_no_cache
+                    && !is_pending_release
+                    && is_stable
+                {
                     let promoted = &mut self.promoted_visuals[i];
                     // 一度だけ非同期キャプチャを確実にキックする
                     // コントローラーが Some であることの確認を capturing 状態の遷移よりも前に置くことでデッドロックを防止
@@ -420,11 +547,100 @@ impl ComposedRenderer {
                 let clip_rect = cx.clip_rects[id]; // 親の overflow 等で制限された表示領域
                 let visual = &self.promoted_visuals[i].visual;
 
+                // 移動中・リサイズ中におけるDCompスワップチェーンの子の影の点滅を防止するため、
+                // 要素の絶対座標（rect）およびクリップ境界（clip_rect）が前回から1ピクセルも変化していない場合は、
+                // DComp側へのOffset/Clip/Boundsの再設定を完全にスキップして早期スルー。
+                let prev_rect = cx.prev_rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+                let prev_clip = cx
+                    .prev_clip_rects
+                    .get(id)
+                    .copied()
+                    .unwrap_or(LayoutRect::ZERO);
+
+                // 要素の物理サイズが変化した場合、古いキャッシュテクスチャを即座に破棄（無効化）
+                //  初期サイズ決定時（prev_rect が ZERO の起動時フレーム）を除外
+                if prev_rect != LayoutRect::ZERO
+                    && ((rect.width - prev_rect.width).abs() > 0.5
+                        || (rect.height - prev_rect.height).abs() > 0.5)
+                    && self.wgpu_renderer.webview_static_caches.contains_key(&id)
+                {
+                    self.wgpu_renderer.webview_static_caches.remove(&id);
+                }
+
+                // トランスフォーム（Transform）が現在トランジション中か判定
+                let has_active_transform_anim = cx
+                    .active_transitions
+                    .get(id)
+                    .map(|list| {
+                        list.iter()
+                            .any(|t| t.property_list == PropertyList::Transform)
+                    })
+                    .unwrap_or(false);
+
+                let is_resizing = cx.is_window_resizing;
+                // トランジション駆動中であれば早期スルーを確実にバイパスして毎フレームの再設定を保証
+                if !is_resizing
+                    && rect == prev_rect
+                    && clip_rect == prev_clip
+                    && !has_active_transform_anim
+                {
+                    i += 1;
+                    continue;
+                }
+
                 // 位置の同期 (物理座標)
                 let phys_x = rect.x * self.scale_factor;
                 let phys_y = rect.y * self.scale_factor;
                 visual.SetOffsetX2(phys_x).unwrap();
                 visual.SetOffsetY2(phys_y).unwrap();
+
+                // DComp 側への 2D アフィン変換行列 (Matrix3x2) の同期を追加
+                if let Some(visual_prop) = cx.visual_properties.get(id) {
+                    if let Some(m) = visual_prop.transform {
+                        let m11 = m[0][0];
+                        let m12 = m[0][1];
+                        let m21 = m[1][0];
+                        let m22 = m[1][1];
+
+                        // 平行移動量を物理ピクセルにスケーリング
+                        let tx = m[3][0] * self.scale_factor;
+                        let ty = m[3][1] * self.scale_factor;
+
+                        // トランスフォームの中心 (Transform Origin) を物理ピクセルに解決
+                        let origin = visual_prop
+                            .transform_origin
+                            .map(|p| [p.x, p.y])
+                            .unwrap_or([0.5, 0.5]);
+                        let origin_x = origin[0] * rect.width * self.scale_factor;
+                        let origin_y = origin[1] * rect.height * self.scale_factor;
+
+                        // wgpu 側シェーダーと数学的に完全一致する Origin 考慮の平行移動量 (M31, M32) を計算
+                        let m31 = (1.0 - m11) * origin_x - m21 * origin_y + tx;
+                        let m32 = -m12 * origin_x + (1.0 - m22) * origin_y + ty;
+
+                        let dcomp_matrix = Matrix3x2 {
+                            M11: m11,
+                            M12: m12,
+                            M21: m21,
+                            M22: m22,
+                            M31: m31,
+                            M32: m32,
+                        };
+
+                        let _ = visual.SetTransform2(&dcomp_matrix);
+                    } else {
+                        // トランスフォームが未定義または解除された場合は単位行列をセットして初期化
+                        let dcomp_matrix = Matrix3x2 {
+                            M11: 1.0,
+                            M12: 0.0,
+                            M21: 0.0,
+                            M22: 1.0,
+                            M31: 0.0,
+                            M32: 0.0,
+                        };
+                        let _ = visual.SetTransform2(&dcomp_matrix);
+                    }
+                }
 
                 // DComp の仕様に則り、通常の CreateRectangleClip から角丸設定を行います
                 if let Some(visual_prop) = cx.visual_properties.get(id) {
@@ -747,6 +963,98 @@ impl DCompDeviceManager {
     }
 }
 
+#[link(name = "dwmapi")]
+unsafe extern "system" {
+    fn DwmSetWindowAttribute(
+        hwnd: HWND,
+        dwattribute: u32,
+        pvattribute: *const std::ffi::c_void,
+        cbattribute: u32,
+    ) -> windows::core::HRESULT;
+}
+
+// フレーム拡張用構造体
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct Margins {
+    pub left: i32,
+    pub right: i32,
+    pub top: i32,
+    pub bottom: i32,
+}
+
+#[link(name = "dwmapi")]
+unsafe extern "system" {
+    fn DwmExtendFrameIntoClientArea(
+        hwnd: HWND,
+        pMarInset: *const Margins,
+    ) -> windows::core::HRESULT;
+}
+
+// apply_system_backdrop を拡張してダークモードとフレーム拡張を統合
+pub fn apply_system_backdrop(hwnd: HWND, backdrop: Backdrop) {
+    unsafe {
+        // DWMWA_USE_HOSTBACKDROPBRUSH (17) を TRUE に設定
+        // DComp（NOREDIRECTIONBITMAP）ウィンドウでアクリル・Micaを透かすため
+        let enable_host_backdrop: i32 = 1; // 1 = TRUE
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            17, // DWMWA_USE_HOSTBACKDROPBRUSH
+            &enable_host_backdrop as *const i32 as *const _,
+            std::mem::size_of::<i32>() as u32,
+        );
+        // 1. DWMWA_USE_IMMERSIVE_DARK_MODE (20) を true に設定（ダークアクリル下地を強制）
+        let dark_mode: i32 = 1; // 1 = true
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            20, // DWMWA_USE_IMMERSIVE_DARK_MODE
+            &dark_mode as *const i32 as *const _,
+            std::mem::size_of::<i32>() as u32,
+        );
+
+        // DWMWA_USE_HOSTBACKDROPBRUSH (36) を true に設定
+        // WS_EX_NOREDIRECTIONBITMAP ウィンドウの背後に
+        // DWM が自動でアクリル用のぼかし背景ブラシ（BackdropBrush）を合成
+        let use_host_backdrop: i32 = 1; // 1 = TRUE
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            36, // DWMWA_USE_HOSTBACKDROPBRUSH
+            &use_host_backdrop as *const i32 as *const _,
+            std::mem::size_of::<i32>() as u32,
+        );
+
+        // 2. DWMWA_SYSTEMBACKDROP_TYPE (38) の設定（アクリル/Micaの適用）
+        let backdrop_val = backdrop as i32;
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            38, // DWMWA_SYSTEMBACKDROP_TYPE
+            &backdrop_val as *const i32 as *const _,
+            std::mem::size_of::<i32>() as u32,
+        );
+
+        // 3. クライアント領域全体にアクリル・Micaを拡張 (DwmExtendFrameIntoClientArea)
+        if backdrop != Backdrop::None {
+            // margins に -1 を指定することで、ウィンドウ全体にアクリルを浸透させます
+            let margins = Margins {
+                left: -1,
+                right: -1,
+                top: -1,
+                bottom: -1,
+            };
+            let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+        } else {
+            // 通常時はフレーム拡張をクリア (0)
+            let margins = Margins {
+                left: 0,
+                right: 0,
+                top: 0,
+                bottom: 0,
+            };
+            let _ = DwmExtendFrameIntoClientArea(hwnd, &margins);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -854,7 +1162,7 @@ mod tests {
                         let mut cx = Context::new();
                         let root = build_ui(&mut cx, || {
                             div(ts()
-                                .size(crate::Size::px(100.0, 100.0))
+                                .size((100.0, 100.0))
                                 .bg_color(Color::rgb_f32(1.0, 0.0, 0.0)))
                         });
 
@@ -902,9 +1210,9 @@ mod tests {
                         // 3. UI 状態の準備 (WebView2 コンポーネントを持つ要素)
                         let mut cx = Context::new();
                         let root = build_ui(&mut cx, || {
-                            div(ts().size(Size::px(800.0, 600.0))).child(
+                            div(ts().size((800.0, 600.0))).child(
                                 // 400x300 のサイズで、特定のURLとオプションを持った WebView2 要素
-                                div(ts().size(Size::px(400.0, 300.0))).webview2(
+                                div(ts().size((400.0, 300.0))).webview2(
                                     WebView2Contents::new("https://www.wikipedia.org")
                                         .enable_dev_tools(true)
                                         .enable_context_menu(false),

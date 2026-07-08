@@ -94,7 +94,7 @@ fn test_uia_value_from() {
 fn test_basic_layout_override_with() {
     let mut base = BasicLayout::default();
     let other = BasicLayout {
-        size: Size::px(100.0, 200.0),
+        size: Size::new(Val::Px(100.0), Val::Px(200.0)),
         display: Display::None,
         ..Default::default()
     };

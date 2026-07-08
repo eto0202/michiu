@@ -1,5 +1,6 @@
 use crate::{Context, TaskSender, with_context};
 use slotmap::new_key_type;
+use smallvec::SmallVec;
 use std::cell::Cell;
 use std::marker::PhantomData;
 
@@ -45,7 +46,9 @@ impl<T: Clone + 'static> ReadSignal<T> {
                         }
                     } else {
                         // 新規登録
-                        cx.subscribers.insert(self.id, vec![active_effect_id]);
+                        let mut subs = smallvec::SmallVec::new();
+                        subs.push(active_effect_id);
+                        cx.subscribers.insert(self.id, subs);
                     }
                 });
             }
@@ -59,6 +62,85 @@ impl<T: Clone + 'static> ReadSignal<T> {
                 .cloned()
                 .expect("Signal type mismatch")
         })
+    }
+
+    /// 任意の型のシグナルに対して、条件判定クロージャ `cond_fn` の結果に基づき、
+    /// `true_val` または `false_val` を返す遅延評価クロージャを生成します。
+    #[inline]
+    pub fn get_else_by<U: Clone + 'static, F>(
+        self,
+        cond_fn: F,
+        true_val: U,
+        false_val: U,
+    ) -> impl Fn() -> U + 'static
+    where
+        F: Fn(&T) -> bool + 'static,
+    {
+        let sig = self;
+        move || {
+            let val = sig.get();
+            if cond_fn(&val) {
+                true_val.clone()
+            } else {
+                false_val.clone()
+            }
+        }
+    }
+
+    /// 任意の型のシグナルに対して、条件判定クロージャ `cond_fn` の結果に基づき、
+    /// 重いオブジェクトの生成を遅延させるクロージャ `true_fn` または `false_fn` を呼び出します。
+    #[inline]
+    pub fn get_else_with_by<U: 'static, F, FT, FF>(
+        self,
+        cond_fn: F,
+        true_fn: FT,
+        false_fn: FF,
+    ) -> impl Fn() -> U + 'static
+    where
+        F: Fn(&T) -> bool + 'static,
+        FT: Fn() -> U + 'static,
+        FF: Fn() -> U + 'static,
+    {
+        let sig = self;
+        move || {
+            let val = sig.get();
+            if cond_fn(&val) { true_fn() } else { false_fn() }
+        }
+    }
+}
+
+impl ReadSignal<bool> {
+    /// 状態が true の場合は `true_val` を、false の場合は `false_val` を返すクロージャを生成します。    #[inline]
+    pub fn get_else<U: Clone + 'static>(
+        self,
+        true_val: U,
+        false_val: U,
+    ) -> impl Fn() -> U + 'static {
+        let sig = self;
+        move || {
+            if sig.get() {
+                true_val.clone()
+            } else {
+                false_val.clone()
+            }
+        }
+    }
+
+    /// 状態に応じて重いスタイルや要素を生成する場合に、評価を遅延させるためのクロージャ版。
+    #[inline]
+    pub fn get_else_with<U: 'static, FT, FF>(
+        self,
+        true_fn: FT,
+        false_fn: FF,
+    ) -> impl Fn() -> U + 'static
+    where
+        FT: Fn() -> U + 'static,
+        FF: Fn() -> U + 'static,
+    {
+        let sig = self;
+        move || {
+            if sig.get() { true_fn() } else { false_fn() }
+        }
     }
 }
 
@@ -80,7 +162,7 @@ impl<T: Send + 'static> WriteSignal<T> {
     /// メインスレッド上からシグナルの値を同期的に書き換えます。
     /// 値が書き換わった場合、このシグナルに依存しているすべての子エフェクトを自動的に再評価（実行）します。
     pub fn set(&self, new_value: T) {
-        let mut effects_to_run = Vec::new();
+        let mut effects_to_run = SmallVec::new();
 
         with_context(|cx| {
             // 新しい値に差し替え
@@ -151,7 +233,7 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
 }
 
 /// 指定されたエフェクトをメインスレッドのコンテキスト下で評価（実行）する内部ユーティリティ。
-fn execute_effect(effect_id: EffectId) {
+pub(crate) fn execute_effect(effect_id: EffectId) {
     with_context(|cx| {
         // エフェクトのクロージャを一時的にダミーのプレースホルダと入れ替えて安全に取り出す
         // slotMap のキーやバージョンを完全に維持しつつ、多重借用を回避

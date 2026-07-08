@@ -17,30 +17,28 @@ struct VertexInput {
 };
 
 struct InstanceInput {
-    @location(1) rect: vec4<f32>, // x, y, w, h
-    @location(2) transform_0: vec4<f32>,         // 4x4 行列の列0
-    @location(3) transform_1: vec4<f32>,         // 4x4 行列の列1
-    @location(4) transform_2: vec4<f32>,         // 4x4 行列の列2
-    @location(5) transform_3: vec4<f32>,         // 4x4 行列の列3
-    @location(6) color: vec4<f32>, // bg_color
-    @location(7) corner_radius: vec4<f32>, // tl, tr, br, bl
-    @location(8) border_width: vec4<f32>, // t, r, b, l
-    @location(9) border_color: vec4<f32>,
-    @location(10) opacity_mode_sizing: vec4<f32>,
-    @location(11) uv_range: vec4<f32>, // uv_min(xy) と uv_max(zw) が入っている
-    @location(12) gradient_end_color: vec4<f32>,
-    @location(13) gradient_angle_and_origin: vec4<f32>,
-    @location(14) shadow_color: vec4<f32>,
-    @location(15) shadow_params: vec4<f32>, // offset_x, offset_y, blur, spread
+    @location(1) rect: vec4<f32>,
+    @location(2) transform_0: vec4<f32>,
+    @location(3) transform_1: vec4<f32>,
+    @location(4) transform_2: vec4<f32>,
+    @location(5) color: vec4<f32>,
+    @location(6) corner_radius: vec4<f32>,
+    @location(7) border_width: vec4<f32>,
+    @location(8) border_color: vec4<f32>,
+    @location(9) opacity_mode_sizing: vec4<f32>,
+    @location(10) uv_range: vec4<f32>,
+    @location(11) gradient_end_color: vec4<f32>,
+    @location(12) gradient_angle_and_origin: vec4<f32>,
+    @location(13) shadow_color: vec4<f32>,
+    @location(14) shadow_params: vec4<f32>,
+    @location(15) border_lengths: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) local_pos: vec2<f32>,           // 要素ローカルの物理ピクセル座標
-    @location(1) size: vec2<f32>,                // 要素の物理サイズ (width, height)
+    @location(0) local_pos: vec2<f32>,
+    @location(1) size: vec2<f32>,
     @location(2) uv: vec2<f32>,
-
-    // フラグメントへ引き渡すインスタンス属性
     @location(3) color: vec4<f32>,
     @location(4) corner_radius: vec4<f32>,
     @location(5) border_width: vec4<f32>,
@@ -51,6 +49,7 @@ struct VertexOutput {
     @location(10) gradient_angle_and_origin: vec4<f32>,
     @location(11) shadow_color: vec4<f32>,
     @location(12) shadow_params: vec4<f32>,
+    @location(13) border_lengths: vec4<f32>,
 };
 
 @vertex
@@ -81,8 +80,8 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     let transform = mat4x4<f32>(
         instance.transform_0,
         instance.transform_1,
-        instance.transform_2,
-        instance.transform_3
+        vec4<f32>(0.0, 0.0, 1.0, 0.0), // Z軸復元
+        instance.transform_2           // 平行移動部
     );
 
     // トランスフォーム中心 (Transform Origin) の考慮
@@ -118,6 +117,7 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     out.gradient_angle_and_origin = instance.gradient_angle_and_origin;
     out.shadow_color = instance.shadow_color;
     out.shadow_params = instance.shadow_params;
+    out.border_lengths = instance.border_lengths;
     return out;
 }
 
@@ -148,7 +148,7 @@ fn srgb_to_linear(srgb: vec4<f32>) -> vec4<f32> {
     let r = srgb_to_linear_scalar(srgb.r);
     let g = srgb_to_linear_scalar(srgb.g);
     let b = srgb_to_linear_scalar(srgb.b);
-    
+
     return vec4<f32>(r, g, b, srgb.a);
 }
 
@@ -167,8 +167,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let gradient_end_linear = srgb_to_linear(in.gradient_end_color);
     let shadow_color_linear = srgb_to_linear(in.shadow_color);
 
+    let min_edge = min(in.size.x, in.size.y);
+    let max_radius = min_edge * 0.5;
+    let clamped_radius = min(in.corner_radius, vec4<f32>(max_radius));
+
     // 本体および丸角の描画計算
-    let dist_to_box = sd_rounded_box(local_center, b, in.corner_radius);
+    let dist_to_box = sd_rounded_box(local_center, b, clamped_radius);
     // 1ピクセル幅のアンチエイリアシング
     let box_alpha = 1.0 - smoothstep(-0.5, 0.5, dist_to_box);
 
@@ -209,13 +213,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let has_border = border_color_linear.a > 0.0 && (in.border_width.x + in.border_width.y + in.border_width.z + in.border_width.w) > 0.0;
 
     if (has_border) {
-        // 各辺ごとの border_width [top, right, bottom, left] を反映
         let b_width = in.border_width;
 
-        // 左右・上下の非対称性をシフトさせて中心をオフセット
         let border_center_shift = vec2<f32>(
-            (b_width.w - b_width.y) * 0.5, // (left - right) / 2
-            (b_width.x - b_width.z) * 0.5  // (top - bottom) / 2
+            (b_width.w - b_width.y) * 0.5,
+            (b_width.x - b_width.z) * 0.5
         );
         let inner_b = b - vec2<f32>(
             (b_width.w + b_width.y) * 0.5,
@@ -223,15 +225,93 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         );
         let inner_pos = local_center - border_center_shift;
 
-        // 内側丸角の縮小
         let inner_radius = max(in.corner_radius - vec4<f32>(
             b_width.x, b_width.y, b_width.z, b_width.w
         ), vec4<f32>(0.0));
 
         let dist_to_inner = sd_rounded_box(inner_pos, inner_b, inner_radius);
 
-        // 外枠の内側かつ内枠の外側が border 領域
-        border_alpha = box_alpha * smoothstep(-0.5, 0.5, dist_to_inner);
+        // 1. 各ピクセルの属する辺（境界）の判定
+        let dist_to_top = local_center.y - (-b.y);
+        let dist_to_bottom = b.y - local_center.y;
+        let dist_to_left = local_center.x - (-b.x);
+        let dist_to_right = b.x - local_center.x;
+
+        let min_dist = min(min(dist_to_top, dist_to_bottom), min(dist_to_left, dist_to_right));
+
+        var edge_idx = 0u; // 0: top, 1: right, 2: bottom, 3: left
+        if (min_dist == dist_to_right) { edge_idx = 1u; }
+        else if (min_dist == dist_to_bottom) { edge_idx = 2u; }
+        else if (min_dist == dist_to_left) { edge_idx = 3u; }
+
+        // 2. ビットフラグの解凍 (デコード)
+        let flags = u32(in.opacity_mode_sizing.w);
+        let style = (flags >> (edge_idx * 4u)) & 3u;      // 0: Solid, 1: Dotted, 2: Dashed, 3: Double
+        let alignment = (flags >> (edge_idx * 4u + 2u)) & 3u; // 0: Start, 1: End, 2: Center
+
+        // 3. アライメント基準点に基づく「長さトリミング」の計算
+        let lengths = in.border_lengths;
+        var len_limit = 1.0;
+        if (edge_idx == 0u) { len_limit = lengths.x; }
+        else if (edge_idx == 1u) { len_limit = lengths.y; }
+        else if (edge_idx == 2u) { len_limit = lengths.z; }
+        else { len_limit = lengths.w; }
+
+        // 各辺に沿った横軸/縦軸の進捗比率 t (0.0 -> 1.0)
+        var t = 0.0;
+        var pos_edge = 0.0; // 物理ピクセル位置（点線等で使用）
+        if (edge_idx == 0u || edge_idx == 2u) {
+            t = (local_center.x + b.x) / (b.x * 2.0);
+            pos_edge = local_center.x + b.x;
+        } else {
+            t = (local_center.y + b.y) / (b.y * 2.0);
+            pos_edge = local_center.y + b.y;
+        }
+
+        let edge_fade = 0.5 / max(in.size.x, in.size.y);
+        var length_alpha = 1.0;
+
+        if (alignment == 0u) {
+            // Start: 基準点が左端/上端 (tが上限長さを超えたらカット)
+            length_alpha = 1.0 - smoothstep(len_limit - edge_fade, len_limit + edge_fade, t);
+        } else if (alignment == 1u) {
+            // End: 基準点が右端/下端 (tが下限に満たなければカット)
+            let lower_bound = 1.0 - len_limit;
+            length_alpha = smoothstep(lower_bound - edge_fade, lower_bound + edge_fade, t);
+        } else {
+            // Center: 基準点が中央 (中心 0.5 から対称に広げる)
+            let half_len = len_limit * 0.5;
+            let dist_from_center = abs(t - 0.5);
+            length_alpha = 1.0 - smoothstep(half_len - edge_fade, half_len + edge_fade, dist_from_center);
+        }
+
+        // 4. スタイル別の模様パターン（点線、破線、二重線）の生成
+        let w = b_width[edge_idx]; // この辺の太さ
+        var style_alpha = 1.0;
+
+        // 枠線の中心からの相対的な厚み方向割合 (外側 0.0 -> 内側 1.0)
+        let thick_t = clamp(-dist_to_box / (-dist_to_box + dist_to_inner), 0.0, 1.0);
+
+        if (style == 1u) {
+            // Dotted (丸点の連続)
+            let period = w * 2.2;
+            let cycle_t = fract(pos_edge / period) * period - (period * 0.5);
+            let radial_dist = length(vec2<f32>(cycle_t, (thick_t - 0.5) * w));
+            style_alpha = 1.0 - smoothstep(w * 0.4 - 0.5, w * 0.4 + 0.5, radial_dist);
+        } else if (style == 2u) {
+            // Dashed (破線の連続)
+            let period = w * 5.0; // 3w長さ、2w隙間
+            let cycle_t = fract(pos_edge / period) * period;
+            style_alpha = 1.0 - smoothstep(w * 3.0 - 0.5, w * 3.0 + 0.5, cycle_t);
+        } else if (style == 3u) {
+            // Double (二重枠線：外側1/3、隙間1/3、内側1/3)
+            // 外側（0.0 ~ 0.33）および 内側（0.67 ~ 1.0）の時のみアルファ 1.0
+            let is_double_void = smoothstep(0.30, 0.33, thick_t) * (1.0 - smoothstep(0.67, 0.70, thick_t));
+            style_alpha = 1.0 - is_double_void;
+        }
+
+        // すべてのアンチエイリアスマスクを合成
+        border_alpha = box_alpha * smoothstep(-0.5, 0.5, dist_to_inner) * length_alpha * style_alpha;
     }
 
     // 背景色・グラデーション・サンプリングの取得

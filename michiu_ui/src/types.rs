@@ -2,7 +2,8 @@ use bytemuck::{Pod, Zeroable};
 use std::{borrow::Cow, path::PathBuf, sync::Arc, time::Duration};
 
 use crate::{
-    AnimationCurve, Context, EntityId, KeyframeAnimation, VirtualKey, bitmap::*, style::ThisStyle,
+    AnimationCurve, Context, Convert, EntityId, IntoLayoutPoint, KeyframeAnimation, VirtualKey,
+    bitmap::*, style::ThisStyle,
 };
 
 #[repr(C)]
@@ -34,6 +35,73 @@ impl Color {
         a: 1.0,
     };
 
+    pub const RED: Self = Self {
+        r: 1.0,
+        g: 0.0,
+        b: 0.0,
+        a: 1.0,
+    };
+    pub const GREEN: Self = Self {
+        r: 0.0,
+        g: 1.0,
+        b: 0.0,
+        a: 1.0,
+    };
+    pub const BLUE: Self = Self {
+        r: 0.0,
+        g: 0.0,
+        b: 1.0,
+        a: 1.0,
+    };
+    pub const YELLOW: Self = Self {
+        r: 1.0,
+        g: 1.0,
+        b: 0.0,
+        a: 1.0,
+    };
+    pub const ORANGE: Self = Self {
+        r: 1.0,
+        g: 0.5,
+        b: 0.0,
+        a: 1.0,
+    };
+    pub const PURPLE: Self = Self {
+        r: 0.5,
+        g: 0.0,
+        b: 0.5,
+        a: 1.0,
+    };
+    pub const CYAN: Self = Self {
+        r: 0.0,
+        g: 1.0,
+        b: 1.0,
+        a: 1.0,
+    };
+    pub const MAGENTA: Self = Self {
+        r: 1.0,
+        g: 0.0,
+        b: 1.0,
+        a: 1.0,
+    };
+    pub const GRAY: Self = Self {
+        r: 0.5,
+        g: 0.5,
+        b: 0.5,
+        a: 1.0,
+    };
+    pub const LIGHT_GRAY: Self = Self {
+        r: 0.75,
+        g: 0.75,
+        b: 0.75,
+        a: 1.0,
+    };
+    pub const DARK_GRAY: Self = Self {
+        r: 0.25,
+        g: 0.25,
+        b: 0.25,
+        a: 1.0,
+    };
+
     /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
     pub const fn rgb_f32(r: f32, g: f32, b: f32) -> Self {
@@ -50,6 +118,45 @@ impl Color {
     #[inline]
     pub const fn with_alpha(self, a: f32) -> Self {
         Self { a, ..self }
+    }
+
+    /// HSL モデル（Hue: 0..360, Saturation: 0..1, Lightness: 0..1）から Color を生成します
+    #[inline]
+    pub fn hsl(h: f32, s: f32, l: f32) -> Self {
+        Self::hsla(h, s, l, 1.0)
+    }
+
+    /// HSL モデルにアルファ（0.0..1.0）を付与して Color を生成します
+    pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Self {
+        // 色相（h）を 0..360 の範囲に正規化
+        let h_mod = (h % 360.0 + 360.0) % 360.0;
+        let s = s.clamp(0.0, 1.0);
+        let l = l.clamp(0.0, 1.0);
+
+        let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+        let x = c * (1.0 - ((h_mod / 60.0) % 2.0 - 1.0).abs());
+        let m = l - c / 2.0;
+
+        let (r, g, b) = if h_mod < 60.0 {
+            (c, x, 0.0)
+        } else if h_mod < 120.0 {
+            (x, c, 0.0)
+        } else if h_mod < 180.0 {
+            (0.0, c, x)
+        } else if h_mod < 240.0 {
+            (0.0, x, c)
+        } else if h_mod < 300.0 {
+            (x, 0.0, c)
+        } else {
+            (c, 0.0, x)
+        };
+
+        Self {
+            r: r + m,
+            g: g + m,
+            b: b + m,
+            a,
+        }
     }
 }
 
@@ -93,6 +200,18 @@ pub fn hex(value: u32) -> Color {
         let a = (value & 0xFF) as f32 / 255.0;
         Color { r, g, b, a }
     }
+}
+
+/// HSL（Hue: 0..360, Saturation: 0.0..1.0, Lightness: 0.0..1.0）カラーを生成するショートハンド
+#[inline]
+pub fn hsl(h: f32, s: f32, l: f32) -> Color {
+    Color::hsl(h, s, l)
+}
+
+/// HSL にアルファ（0.0..1.0）を付与して HSLA カラーを生成するショートハンド
+#[inline]
+pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
+    Color::hsla(h, s, l, a)
 }
 
 #[repr(C)]
@@ -315,21 +434,91 @@ pub struct BoxShadow {
     pub color: Color,
 }
 
-pub trait FromPercent {
-    fn percent(val: f32) -> Self;
-}
-
-impl FromPercent for Length {
+impl Default for BoxShadow {
     #[inline]
-    fn percent(val: f32) -> Self {
-        Self::Percent(val)
+    fn default() -> Self {
+        Self {
+            offset: LayoutPoint::ZERO,
+            blur: 0.0,
+            spread: 0.0,
+            color: Color::BLACK, // デフォルトは黒
+        }
     }
 }
 
-impl FromPercent for Val {
+impl BoxShadow {
+    /// 新しいデフォルトの影設定を生成します。
     #[inline]
-    fn percent(val: f32) -> Self {
-        Self::Percent(val)
+    pub const fn new() -> Self {
+        Self {
+            offset: LayoutPoint::ZERO,
+            blur: 0.0,
+            spread: 0.0,
+            color: Color::BLACK,
+        }
+    }
+
+    /// 影のオフセット（x, y）を設定します。単一値（例: 5）やタプル（例: (0, 4)）を受け入れます。
+    #[inline]
+    pub fn offset(mut self, value: impl IntoLayoutPoint) -> Self {
+        self.offset = value.into_layout_point();
+        self
+    }
+
+    /// 影のぼかし（blur）幅を設定します。
+    #[inline]
+    pub fn blur(mut self, value: impl Convert<f32>) -> Self {
+        self.blur = value.convert();
+        self
+    }
+
+    /// 影の広がり（spread）幅を設定します。
+    #[inline]
+    pub fn spread(mut self, value: impl Convert<f32>) -> Self {
+        self.spread = value.convert();
+        self
+    }
+
+    /// 影のカラーを設定します。
+    #[inline]
+    pub fn color(mut self, value: Color) -> Self {
+        self.color = value;
+        self
+    }
+
+    /// 控えめな極小のソフトシャドウ
+    pub fn sm() -> Self {
+        BoxShadow::new()
+            .blur(2)
+            .color(rgba(0, 0, 0, 0.05))
+            .offset((0, 1))
+    }
+
+    /// 標準的な中程度のソフトシャドウ
+    pub fn md() -> Self {
+        BoxShadow::new()
+            .blur(6)
+            .spread(-1)
+            .color(rgba(0, 0, 0, 0.1))
+            .offset((0, 4))
+    }
+
+    /// やや浮き上がって見える大きめのソフトシャドウ
+    pub fn lg() -> Self {
+        BoxShadow::new()
+            .blur(15)
+            .spread(-3)
+            .color(rgba(0, 0, 0, 0.1))
+            .offset((0, 10))
+    }
+
+    pub fn none() -> Self {
+        Self {
+            offset: LayoutPoint::ZERO,
+            blur: 0.0,
+            spread: 0.0,
+            color: Color::TRANSPARENT,
+        }
     }
 }
 
@@ -343,52 +532,6 @@ impl<T> Size<T> {
     #[inline]
     pub const fn new(width: T, height: T) -> Self {
         Self { width, height }
-    }
-
-    #[inline]
-    pub fn px(width: f32, height: f32) -> Self
-    where
-        T: From<f32>,
-    {
-        Self {
-            width: T::from(width),
-            height: T::from(height),
-        }
-    }
-
-    #[inline]
-    pub fn px_all(value: f32) -> Self
-    where
-        T: From<f32> + Clone,
-    {
-        let val = T::from(value);
-        Self {
-            width: val.clone(),
-            height: val.clone(),
-        }
-    }
-
-    #[inline]
-    pub fn pct(width: f32, height: f32) -> Self
-    where
-        T: FromPercent,
-    {
-        Self {
-            width: T::percent(width),
-            height: T::percent(height),
-        }
-    }
-
-    #[inline]
-    pub fn pct_all(value: f32) -> Self
-    where
-        T: FromPercent + Clone,
-    {
-        let val = T::percent(value);
-        Self {
-            width: val.clone(),
-            height: val.clone(),
-        }
     }
 }
 
@@ -434,96 +577,6 @@ impl<T> Rect<T> {
             right,
             bottom,
             left,
-        }
-    }
-
-    /// 4方向それぞれを物理ピクセル(Px)で個別に指定します
-    #[inline]
-    pub fn px(top: f32, right: f32, bottom: f32, left: f32) -> Self
-    where
-        T: From<f32>,
-    {
-        Self {
-            top: T::from(top),
-            right: T::from(right),
-            bottom: T::from(bottom),
-            left: T::from(left),
-        }
-    }
-
-    /// 4方向すべてを一括で同じ物理ピクセル(Px)に指定します
-    #[inline]
-    pub fn px_all(value: f32) -> Self
-    where
-        T: From<f32> + Clone,
-    {
-        let val = T::from(value);
-        Self {
-            top: val.clone(),
-            right: val.clone(),
-            bottom: val.clone(),
-            left: val,
-        }
-    }
-
-    /// 上下・左右をそれぞれ物理ピクセル(Px)で対称指定します
-    #[inline]
-    pub fn px_sym(vertical: f32, horizontal: f32) -> Self
-    where
-        T: From<f32> + Clone,
-    {
-        let vert = T::from(vertical);
-        let horiz = T::from(horizontal);
-        Self {
-            top: vert.clone(),
-            right: horiz.clone(),
-            bottom: vert,
-            left: horiz,
-        }
-    }
-
-    /// 4方向それぞれをパーセント(Percent)で個別に指定します
-    #[inline]
-    pub fn pct(top: f32, right: f32, bottom: f32, left: f32) -> Self
-    where
-        T: FromPercent,
-    {
-        Self {
-            top: T::percent(top),
-            right: T::percent(right),
-            bottom: T::percent(bottom),
-            left: T::percent(left),
-        }
-    }
-
-    /// 4方向すべてを一括で同じパーセント(Percent)に指定します
-    #[inline]
-    pub fn pct_all(value: f32) -> Self
-    where
-        T: FromPercent + Clone,
-    {
-        let val = T::percent(value);
-        Self {
-            top: val.clone(),
-            right: val.clone(),
-            bottom: val.clone(),
-            left: val,
-        }
-    }
-
-    /// 上下・左右をそれぞれパーセント(Percent)で対称指定します
-    #[inline]
-    pub fn pct_sym(vertical: f32, horizontal: f32) -> Self
-    where
-        T: FromPercent + Clone,
-    {
-        let vert = T::percent(vertical);
-        let horiz = T::percent(horizontal);
-        Self {
-            top: vert.clone(),
-            right: horiz.clone(),
-            bottom: vert,
-            left: horiz,
         }
     }
 }
@@ -590,55 +643,6 @@ impl<T> Point<T> {
     #[inline]
     pub const fn new(x: T, y: T) -> Self {
         Self { x, y }
-    }
-
-    #[inline]
-    pub fn px(x: f32, y: f32) -> Self
-    where
-        T: From<f32>,
-    {
-        Self {
-            x: T::from(x),
-            y: T::from(y),
-        }
-    }
-
-    /// パーセント(Percent)で座標を生成します
-    #[inline]
-    pub fn pct(x: f32, y: f32) -> Self
-    where
-        T: FromPercent,
-    {
-        Self {
-            x: T::percent(x),
-            y: T::percent(y),
-        }
-    }
-
-    /// X軸とY軸を一括で同じ物理ピクセル(Px)に指定します
-    #[inline]
-    pub fn px_all(value: f32) -> Self
-    where
-        T: From<f32> + Clone,
-    {
-        let val = T::from(value);
-        Self {
-            x: val.clone(),
-            y: val,
-        }
-    }
-
-    /// X軸とY軸を一括で同じパーセント(Percent)に指定します
-    #[inline]
-    pub fn pct_all(value: f32) -> Self
-    where
-        T: FromPercent + Clone,
-    {
-        let val = T::percent(value);
-        Self {
-            x: val.clone(),
-            y: val,
-        }
     }
 }
 
@@ -717,7 +721,7 @@ impl From<Length> for taffy::LengthPercentage {
     fn from(len: Length) -> Self {
         match len {
             Length::Px(val) => Self::length(val),
-            Length::Percent(val) => Self::percent(val),
+            Length::Percent(val) => Self::percent(val / 100.0),
         }
     }
 }
@@ -727,7 +731,7 @@ impl From<taffy::LengthPercentage> for Length {
     fn from(t: taffy::style::LengthPercentage) -> Self {
         let raw = t.into_raw();
         match raw.tag() {
-            2 => Self::Percent(raw.value()),
+            2 => Self::Percent(raw.value() * 100.0),
             _ => Self::Px(raw.value()), // calc等未対応のものはPxにフォールバック
         }
     }
@@ -770,7 +774,7 @@ impl From<Val> for taffy::Dimension {
         match val {
             Val::Auto => Self::auto(),
             Val::Px(v) => Self::length(v),
-            Val::Percent(v) => Self::percent(v),
+            Val::Percent(v) => Self::percent(v / 100.0),
         }
     }
 }
@@ -783,7 +787,7 @@ impl From<taffy::Dimension> for Val {
             Self::Auto
         } else {
             match raw.tag() {
-                2 => Self::Percent(raw.value()),
+                2 => Self::Percent(raw.value() * 100.0),
                 _ => Self::Px(raw.value()),
             }
         }
@@ -796,7 +800,7 @@ impl From<Val> for taffy::LengthPercentage {
         match val {
             Val::Auto => Self::length(0.0),
             Val::Px(v) => Self::length(v),
-            Val::Percent(v) => Self::percent(v),
+            Val::Percent(v) => Self::percent(v / 100.0),
         }
     }
 }
@@ -809,7 +813,7 @@ impl From<taffy::LengthPercentage> for Val {
             Self::Auto
         } else {
             match raw.tag() {
-                2 => Self::Percent(raw.value()),
+                2 => Self::Percent(raw.value() * 100.0),
                 _ => Self::Px(raw.value()),
             }
         }
@@ -822,7 +826,7 @@ impl From<Val> for taffy::LengthPercentageAuto {
         match val {
             Val::Auto => Self::auto(),
             Val::Px(v) => Self::length(v),
-            Val::Percent(v) => Self::percent(v),
+            Val::Percent(v) => Self::percent(v / 100.0),
         }
     }
 }
@@ -835,7 +839,7 @@ impl From<taffy::LengthPercentageAuto> for Val {
             Self::Auto
         } else {
             match raw.tag() {
-                2 => Self::Percent(raw.value()),
+                2 => Self::Percent(raw.value() * 100.0),
                 _ => Self::Px(raw.value()),
             }
         }
@@ -1011,69 +1015,6 @@ impl From<taffy::Point<taffy::Overflow>> for LayoutOverflow {
         Self {
             x: t.x.into(),
             y: t.y.into(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum Float {
-    #[default]
-    None,
-    Left,
-    Right,
-}
-
-impl From<Float> for taffy::Float {
-    #[inline]
-    fn from(f: Float) -> Self {
-        match f {
-            Float::None => Self::None,
-            Float::Left => Self::Left,
-            Float::Right => Self::Right,
-        }
-    }
-}
-
-impl From<taffy::Float> for Float {
-    #[inline]
-    fn from(t: taffy::Float) -> Self {
-        match t {
-            taffy::Float::None => Self::None,
-            taffy::Float::Left => Self::Left,
-            taffy::Float::Right => Self::Right,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum Clear {
-    #[default]
-    None,
-    Left,
-    Right,
-    Both,
-}
-
-impl From<Clear> for taffy::Clear {
-    #[inline]
-    fn from(c: Clear) -> Self {
-        match c {
-            Clear::None => Self::None,
-            Clear::Left => Self::Left,
-            Clear::Right => Self::Right,
-            Clear::Both => Self::Both,
-        }
-    }
-}
-
-impl From<taffy::Clear> for Clear {
-    #[inline]
-    fn from(t: taffy::Clear) -> Self {
-        match t {
-            taffy::Clear::None => Self::None,
-            taffy::Clear::Left => Self::Left,
-            taffy::Clear::Right => Self::Right,
-            taffy::Clear::Both => Self::Both,
         }
     }
 }
@@ -1635,6 +1576,21 @@ impl Transition {
             curve,
         }
     }
+
+    pub fn property_list(mut self, property_list: PropertyList) -> Self {
+        self.property_list = property_list;
+        self
+    }
+
+    pub fn duration(mut self, duration: Duration) -> Self {
+        self.duration = duration;
+        self
+    }
+
+    pub fn curve(mut self, curve: AnimationCurve) -> Self {
+        self.curve = curve;
+        self
+    }
 }
 
 #[repr(C)]
@@ -1658,6 +1614,16 @@ impl LinearGradient {
     }
 }
 
+/// ポインターイベント（マウスインタラクション）の透過制御
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PointerEvents {
+    /// 通常通りポインターイベントを受け取り下にある要素に透過させない
+    #[default]
+    Auto,
+    /// ポインターイベントを無視し、下にある要素へ透過させる (CSS の pointer-events: none 相当)
+    None,
+}
+
 // 1. BasicLayout (基本レイアウト：18プロパティ) - ホットデータ
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1668,9 +1634,6 @@ pub struct BasicLayout {
     pub box_sizing: BoxSizing,
     pub direction: Direction,
     pub overflow: LayoutOverflow,
-    pub scrollbar_width: f32,
-    pub float: Float,
-    pub clear: Clear,
     pub position: Position,
     pub inset: Rect<Val>,
     pub size: Size<Val>,
@@ -1693,9 +1656,6 @@ impl Default for BasicLayout {
             box_sizing: default_style.box_sizing.into(),
             direction: default_style.direction.into(),
             overflow: default_style.overflow.into(),
-            scrollbar_width: default_style.scrollbar_width,
-            float: default_style.float.into(),
-            clear: default_style.clear.into(),
             position: default_style.position.into(),
             inset: default_style.inset.into(),
             size: default_style.size.into(),
@@ -1729,15 +1689,6 @@ impl BasicLayout {
         }
         if mask.has(STYLE_OVERFLOW) {
             self.overflow = other.overflow;
-        }
-        if mask.has(STYLE_SCROLLBAR_WIDTH) {
-            self.scrollbar_width = other.scrollbar_width;
-        }
-        if mask.has(STYLE_FLOAT) {
-            self.float = other.float;
-        }
-        if mask.has(STYLE_CLEAR) {
-            self.clear = other.clear;
         }
         if mask.has(STYLE_POSITION) {
             self.position = other.position;
@@ -1902,15 +1853,18 @@ impl Default for GridLayout {
 pub struct VisualProperty {
     pub bg_color: Option<Color>,
     pub border_color: Option<Color>,
+    pub border_lengths: Option<EdgeInsets>,
+    pub border_styles: Option<[BorderStyle; 4]>,
+    pub border_alignments: Option<[BorderAlignment; 4]>,
     pub corner_radius: Option<CornerRadius>,
     pub opacity: Option<f32>,
-    pub box_shadow: Option<BoxShadow>,
-    pub clip_path: Option<Cow<'static, str>>,
+    pub shadow_params: Option<BoxShadow>,
+    pub shadow_color: Option<Color>,
     pub transform: Option<[[f32; 4]; 4]>,
     pub transform_origin: Option<Point<f32>>,
     pub z_index: Option<i32>,
     pub cursor: Option<CursorIcon>,
-    pub filter: Option<Cow<'static, str>>,
+    pub backdrop: Backdrop,
     pub text_color: Option<Color>,
     pub font_size: Option<f32>,
     pub font_family: Option<Cow<'static, str>>,
@@ -1919,6 +1873,23 @@ pub struct VisualProperty {
     pub bg_gradient: Option<LinearGradient>,
     pub transitions: Vec<Transition>,
     pub keyframe_animations: Vec<KeyframeAnimation>,
+    pub pointer_events: Option<PointerEvents>,
+    pub user_select: Option<UserSelect>,
+    pub select_bg_color: Option<Color>,
+    pub select_text_color: Option<Color>,
+}
+
+/// 子要素から伝播して解決可能なインタラクション定義
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InteractionName {
+    Hover,
+    Focus,
+    Press,
+    Disable,
+    Active,
+    Select,
+    Drag,
+    All,
 }
 
 /// インタラクション（動的状態）ごとにオーバーライドして適用される、追加のスタイル表現。
@@ -1932,10 +1903,19 @@ pub(crate) struct InteractionStyles {
     pub(crate) actived: Option<ThisStyle>,
     pub(crate) selected: Option<ThisStyle>,
     pub(crate) dragged: Option<ThisStyle>,
+
+    pub(crate) hovered_within: Option<ThisStyle>,
+    pub(crate) focused_within: Option<ThisStyle>,
+    pub(crate) pressed_within: Option<ThisStyle>,
+    pub(crate) disabled_within: Option<ThisStyle>,
+    pub(crate) actived_within: Option<ThisStyle>,
+    pub(crate) selected_within: Option<ThisStyle>,
+    pub(crate) dragged_within: Option<ThisStyle>,
+    pub(crate) any_within: Option<ThisStyle>, // All（いずれかのインタラクションがあればON）
 }
 
 /// 実行時にウィンドウ内で現在アクティブ（排他的）になっている、各状態の対象要素（EntityId）を管理します。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct InteractionStates {
     pub hovered: Option<EntityId>,
     pub focused: Option<EntityId>,
@@ -1953,7 +1933,7 @@ pub type ClickCallback = Box<dyn FnMut(&mut Context) + 'static>;
 pub type MouseCallback =
     Box<dyn FnMut(&mut Context, MouseButton, Modifiers, ElementState) + 'static>;
 pub type CursorMovedCallback = Box<dyn FnMut(&mut Context, LayoutPoint) + 'static>;
-pub type MouseWheelCallback = Box<dyn FnMut(&mut Context, f32) + 'static>;
+pub type MouseWheelCallback = Box<dyn FnMut(&mut Context, f32, f32) + 'static>;
 pub type DragCallback = Box<dyn FnMut(&mut Context, LayoutPoint) + 'static>;
 pub type KeyCallback = Box<dyn FnMut(&mut Context, VirtualKey, Modifiers, ElementState) + 'static>;
 pub type CharCallback = Box<dyn FnMut(&mut Context, char) + 'static>;
@@ -2016,7 +1996,7 @@ pub(crate) struct EventListeners {
     /// 画像のデコード・ロードが完了し、メタデータが確定した瞬間に発火します
     pub(crate) on_image_loaded: Option<ImageLoadedCallback>,
     /// 動画等のメディアファイルのロードが完了し、メタデータが確定した瞬間に発火します
-    pub(crate) on_media_opened: Option<MediaOpenedCallback>,
+    pub(crate) on_media_loaded: Option<MediaOpenedCallback>,
 
     pub(crate) on_hover: Option<SimpleCallback>,
     pub(crate) on_focus: Option<SimpleCallback>,
@@ -2069,11 +2049,11 @@ impl std::fmt::Debug for EventListeners {
                 &self.on_file_dropped.as_ref().map(|_| "FnMut(Vec<PathBuf>)"),
             )
             .field(
-                "on_media_opened",
+                "on_media_loaded",
                 &self
-                    .on_media_opened
+                    .on_media_loaded
                     .as_ref()
-                    .map(|_| "FnMut(MediaOpenedCallback)"),
+                    .map(|_| "FnMut(MediaLoadedCallback)"),
             )
             .field("on_hover", &self.on_hover.as_ref().map(|_| "FnMut"))
             .field("on_focus", &self.on_focus.as_ref().map(|_| "FnMut"))
@@ -2129,6 +2109,8 @@ pub struct ImeState {
     pub composition_text: String,
     pub result_text: String,
     pub caret_position: Option<LayoutPoint>,
+    pub composition_cursor: usize,
+    pub composition_attrs: Vec<u8>,
 }
 
 /// 画像のデータソースの表現
@@ -2273,6 +2255,123 @@ impl From<bool> for UiaValue {
 impl From<i32> for UiaValue {
     fn from(i: i32) -> Self {
         Self::Int(i)
+    }
+}
+
+/// Windows 11 のネイティブシステムバックドロップ（ウィンドウ背景ぼかし）効果
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(i32)]
+pub enum Backdrop {
+    #[default]
+    None = 0, // 透過無効（通常の wgpu 背景）
+    Mica = 2,    // Mica（デスクトップ壁紙をサンプリングする不透明調）
+    Acrylic = 3, // Acrylic（背後の他アプリ・デスクトップを半透明にぼかす）
+    MicaAlt = 4, // Mica Alt (Tabbed)（ダーク調向けの濃いMica）
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UserSelect {
+    #[default]
+    None,
+    Text,
+    All,
+}
+
+/// 枠線のスタイル
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u32)]
+pub enum BorderStyle {
+    #[default]
+    Solid = 0,
+    Dotted = 1,
+    Dashed = 2,
+    Double = 3,
+}
+
+/// 枠線描画の基準方向
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u32)]
+pub enum BorderAlignment {
+    #[default]
+    Start = 0, // 左・上が基準 (左から右、上から下へ伸びる)
+    End = 1,    // 右・下が基準 (右から左、下から上へ伸びる)
+    Center = 2, // 中心が基準 (中心から両方向へ対称に広がる)
+}
+
+/// スクロールバーを表示する配置モード
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScrollbarMode {
+    /// コンテンツの横/下にレイアウト領域を確保して配置（コンテンツが狭まる）
+    Layout,
+    /// コンテンツの最前面に重ねて配置（コンテンツ領域を侵食しない）
+    #[default]
+    Overlay,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScrollbarDisplay {
+    None,
+    Always,
+    #[default]
+    Auto,
+    Transient,
+}
+
+/// スクロールコンテナが保持するスタイリング設定
+#[derive(Debug, Clone)]
+pub struct ScrollbarStyle {
+    /// スクロールバーの太さ（縦スクロールバー時は幅、横スクロールバー時は高さ）
+    pub width: f32,
+    /// 表示
+    pub display: ScrollbarDisplay,
+    /// スクロールバーの表示モード
+    pub mode: ScrollbarMode,
+    /// スクロールバーのレール（トラック背景）部分のスタイル
+    pub track: Option<ThisStyle>,
+    /// つまみ（サム）部分のスタイル
+    pub thumb: Option<ThisStyle>,
+}
+
+impl Default for ScrollbarStyle {
+    fn default() -> Self {
+        Self {
+            width: 10.0,
+            display: ScrollbarDisplay::Auto,
+            mode: ScrollbarMode::Overlay,
+            track: None,
+            thumb: None,
+        }
+    }
+}
+
+impl ScrollbarStyle {
+    pub fn new(width: f32) -> Self {
+        Self {
+            width,
+            display: ScrollbarDisplay::Auto,
+            mode: ScrollbarMode::Overlay,
+            track: None,
+            thumb: None,
+        }
+    }
+
+    pub fn mode(mut self, mode: ScrollbarMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub fn display(mut self, display: ScrollbarDisplay) -> Self {
+        self.display = display;
+        self
+    }
+
+    pub fn track(mut self, style: ThisStyle) -> Self {
+        self.track = Some(style);
+        self
+    }
+
+    pub fn thumb(mut self, style: ThisStyle) -> Self {
+        self.thumb = Some(style);
+        self
     }
 }
 

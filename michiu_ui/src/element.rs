@@ -1,8 +1,17 @@
+use windows::Win32::UI::Input::{
+    Ime::{
+        CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, ImmGetContext, ImmReleaseContext,
+        ImmSetCandidateWindow, ImmSetCompositionWindow,
+    },
+    KeyboardAndMouse::GetFocus,
+};
+
 use crate::{
-    Context, EffectCategory, ElementState, EntityId, EventListeners, ImageMetadata, ImageSource,
-    ImeState, LayoutPoint, LinearGradient, Modifiers, MouseButton, MovieMetadata, MovieProperty,
-    ReadSignal, Transform, UiaValue, VirtualKey, WebView2Contents, bitmap::*, create_effect,
-    style::ThisStyle,
+    Color, Context, EffectCategory, ElementState, EntityId, EventListeners, ImageMetadata,
+    ImageSource, ImeState, InputContents, LayoutPoint, LayoutRect, Length, LinearGradient,
+    Modifiers, MouseButton, MovieMetadata, MovieProperty, ReadSignal, TextSpan, Transform,
+    UiaValue, UnderlineStyle, VirtualKey, VisualProperty, WebView2Contents, bitmap::*,
+    create_effect, div_n, style::ThisStyle,
 };
 use std::{borrow::Cow, cell::Cell, path::PathBuf};
 
@@ -37,10 +46,10 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
     unsafe { f(&mut *ptr) }
 }
 
-/// 構築が完了したUI要素を表す、軽量なハンドル
+/// 構築が完了したUI要素を表す軽量なハンドル
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Element {
-    pub(crate) id: EntityId,
+    pub id: EntityId,
 }
 
 impl Default for Element {
@@ -61,6 +70,11 @@ impl Element {
     #[inline]
     pub fn id(&self) -> EntityId {
         self.id
+    }
+
+    #[inline]
+    pub fn from_id(id: EntityId) -> Element {
+        Element { id }
     }
 
     /// スタイルを適用します（静的な値、Signal、またはクロージャ）。
@@ -98,11 +112,16 @@ impl Element {
             // サイズ等の基本レイアウトが静的に指定されたことをマーク
             cx.mark_layout_dirty(self.id);
         }
-        if mask.has_visual_property() {
+
+        let has_visual =
+            mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
+        if has_visual {
             cx.base_visual_properties
                 .insert(self.id, inner.visual_property.clone());
         }
-        if mask.has_interaction_property() {
+
+        // within 系スタイルが指定されている場合もSoAへ差し込む
+        if mask.has_interaction_property() || mask.has(STYLE_INTERACTION_WITHIN) {
             cx.interaction_properties
                 .insert(self.id, inner.interaction_styles.clone());
         }
@@ -121,6 +140,14 @@ impl Element {
             && let Some(ref grid) = inner.grid_layout
         {
             cx.grid_layouts.insert(self.id, grid.clone());
+            cx.mark_layout_dirty(self.id);
+        }
+
+        if mask.has(STYLE_SCROLLBAR)
+            && let Some(ref sb) = inner.scrollbar_style
+        {
+            // 動的 Element のマウントと生成を Context 側に委譲
+            cx.ensure_scrollbar_elements(self.id, sb);
             cx.mark_layout_dirty(self.id);
         }
 
@@ -145,6 +172,36 @@ impl Element {
             }
         }
         self
+    }
+
+    /// 複数の子要素を一括して追加します。
+    /// 静的な要素、シグナル、またはクロージャ（Prop<Element> に変換可能なオブジェクト）のコレクションを受け入れます。
+    #[inline]
+    pub fn children<I, E>(mut self, elements: I) -> Self
+    where
+        I: IntoIterator<Item = E>,
+        E: Into<Prop<Element>>,
+    {
+        for el in elements {
+            self = self.child(el);
+        }
+        self
+    }
+
+    /// 子要素として、インタラクション（クリック等）を自動的に透過するテキストラベルを挿入します。
+    #[inline]
+    pub fn label(
+        self,
+        content: impl Into<Prop<Cow<'static, str>>>,
+        style: impl Into<Prop<ThisStyle>>,
+    ) -> Self {
+        let style = match style.into() {
+            Prop::None => Prop::Static(ThisStyle::new().pointer_events_none()),
+            Prop::Static(s) => Prop::Static(s.pointer_events_none()),
+            Prop::Dynamic(f) => Prop::Dynamic(Box::new(move || f().pointer_events_none())),
+        };
+        let label_el = div_n().text(content).style(style);
+        self.child(label_el)
     }
 
     /// このコンテナの内容を差し替えます。以前の内容はすべて破棄されます。
@@ -199,6 +256,7 @@ impl Element {
                 with_context(|cx| {
                     cx.text_contents.insert(self.id, val);
                     cx.active_masks[self.id].set(COMP_TEXT_CONTENT);
+                    cx.clear_layout_cache(self.id);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
                 });
@@ -209,6 +267,7 @@ impl Element {
                     let new_text = f();
                     cx.text_contents.insert(id, new_text);
                     cx.active_masks[id].set(COMP_TEXT_CONTENT);
+                    cx.clear_layout_cache(self.id);
                     cx.mark_layout_dirty(id);
                     cx.mark_render_dirty(id);
                 });
@@ -301,6 +360,697 @@ impl Element {
         self
     }
 
+    /// このコンテナを入力フィールド（テキストボックス）化し、IME制御や入力ロジックをバインドします。
+    pub fn input(self, contents: impl Into<Prop<InputContents>>) -> Self {
+        match contents.into() {
+            Prop::None => {}
+            Prop::Static(c) => {
+                with_context(|cx| self.input_internal(cx, c));
+            }
+            Prop::Dynamic(f) => {
+                let id = self.id;
+                let effect_id = create_effect(move |cx| {
+                    let c = f();
+                    let el = Element { id };
+                    el.input_internal(cx, c);
+                });
+                with_context(|cx| cx.register_element_effect(id, EffectCategory::Text, effect_id));
+            }
+        }
+        self
+    }
+
+    /// 複数行入力（テキストエリア）をバインドします。
+    pub fn input_area(self, contents: impl Into<Prop<InputContents>>) -> Self {
+        match contents.into() {
+            Prop::None => {}
+            Prop::Static(mut c) => {
+                c.is_multiline = true; // マルチライン化を強制
+                with_context(|cx| self.input_internal(cx, c));
+            }
+            Prop::Dynamic(f) => {
+                let id = self.id;
+                let effect_id = create_effect(move |cx| {
+                    let mut c = f();
+                    c.is_multiline = true;
+                    let el = Element { id };
+                    el.input_internal(cx, c);
+                });
+                with_context(|cx| cx.register_element_effect(id, EffectCategory::Text, effect_id));
+            }
+        }
+        self
+    }
+
+    /// 入力イベント（キー、IME、文字入力、フォーカス）を自動的にマッピングして代行するロジック
+    fn input_internal(self, cx: &mut Context, mut c: InputContents) {
+        let id = self.id;
+
+        // 最初のロード時、シグナルから現在値を取得して内部カーソルを末尾に合わせる
+        let current_text = c.text.0.get();
+        let current_len = current_text.encode_utf16().count();
+        c.selected_range = current_len..current_len;
+
+        cx.input_contents.insert(id, c);
+        cx.active_masks[id].set(COMP_INPUT_CONTENT);
+        cx.active_masks[id].set(COMP_TEXT_CONTENT);
+
+        self.get_or_create_listeners(|l| {
+            l.on_mouse_input = Some(Box::new(move |cx, button, modifiers, state| {
+                if button == MouseButton::Left
+                    && state == ElementState::Pressed
+                    && let Some(pointer_pos) = cx.current_pointer_position
+                {
+                    let rect = cx.rects[id];
+
+                    // 要素の境界枠（border + padding）を取得してローカル座標を算出
+                    let (basic, _, _) = cx.resolve_active_layouts(id);
+                    let border_top = match basic.border.top {
+                        Length::Px(v) => v,
+                        _ => 0.0,
+                    };
+                    let border_left = match basic.border.left {
+                        Length::Px(v) => v,
+                        _ => 0.0,
+                    };
+                    let padding_top = match basic.padding.top {
+                        Length::Px(v) => v,
+                        _ => 0.0,
+                    };
+                    let padding_left = match basic.padding.left {
+                        Length::Px(v) => v,
+                        _ => 0.0,
+                    };
+
+                    // テキスト本来の描画領域に対する相対マウス座標
+                    let local_x = pointer_pos.x - (rect.x + border_left + padding_left);
+                    let local_y = pointer_pos.y - (rect.y + border_top + padding_top);
+
+                    let mut update_rects_needed = false;
+
+                    if let Some(contents) = cx.input_contents.get_mut(id) {
+                        let text_val = contents.text.0.get();
+
+                        // 逆引きレイアウト時もプレースホルダーは含まない
+                        let editable_text_for_caret = if text_val.is_empty() {
+                            if let Some(ref ime) = contents.ime_state
+                                && !ime.composition_text.is_empty()
+                            {
+                                ime.composition_text.clone()
+                            } else {
+                                String::new()
+                            }
+                        } else if contents.is_password {
+                            let mask = contents.mask_text.as_deref().unwrap_or("●");
+                            mask.repeat(text_val.chars().count())
+                        } else if let Some(ref ime) = contents.ime_state
+                            && !ime.composition_text.is_empty()
+                        {
+                            crate::input_get_display_text(
+                                &text_val,
+                                contents.selected_range.start,
+                                &ime.composition_text,
+                            )
+                        } else {
+                            text_val.clone()
+                        };
+
+                        let default_visual = VisualProperty::default();
+                        let visual = cx.visual_properties.get(id).unwrap_or(&default_visual);
+                        let font_size = visual.font_size.unwrap_or(16.0);
+                        let font_family = visual.font_family.as_deref();
+                        let font_weight = visual.font_weight;
+                        let font_style = visual.font_style;
+
+                        let spans = cx.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+
+                        let layout = cx.text_engine.create_layout(
+                            &editable_text_for_caret,
+                            font_size,
+                            font_family,
+                            font_weight,
+                            font_style,
+                            None,
+                            spans,
+                        );
+
+                        // 物理クリック座標から文字インデックスを逆引き
+                        let (new_caret, is_trailing) =
+                            cx.text_engine.hit_test_point(&layout, local_x, local_y);
+
+                        let final_caret = if is_trailing {
+                            new_caret + 1
+                        } else {
+                            new_caret
+                        };
+
+                        let editable_len = editable_text_for_caret.encode_utf16().count();
+                        let final_caret_clamped = final_caret.min(editable_len);
+
+                        // プレースホルダーが表示状態にあるか
+                        let is_placeholder = text_val.is_empty()
+                            && contents
+                                .ime_state
+                                .as_ref()
+                                .map(|s| s.composition_text.is_empty())
+                                .unwrap_or(true);
+
+                        // プレースホルダーではない、またはプレースホルダー選択が明示許可されていること
+                        let allow_selection = !is_placeholder || contents.placeholder_select;
+
+                        if modifiers.shift && allow_selection {
+                            let anchor = cx
+                                .selection_start_index
+                                .get(id)
+                                .copied()
+                                .unwrap_or(contents.selected_range.start);
+
+                            if !cx.selection_start_index.contains_key(id) {
+                                cx.selection_start_index
+                                    .insert(id, contents.selected_range.start);
+                            }
+
+                            let range = if anchor <= final_caret_clamped {
+                                contents.selection_reversed = false;
+                                anchor..final_caret_clamped
+                            } else {
+                                contents.selection_reversed = true;
+                                final_caret_clamped..anchor
+                            };
+
+                            contents.selected_range = range.clone();
+                            cx.text_selections.insert(id, range);
+                            update_rects_needed = true;
+                        } else {
+                            contents.selected_range = final_caret_clamped..final_caret_clamped;
+                            cx.text_selections
+                                .insert(id, final_caret_clamped..final_caret_clamped);
+                            cx.selection_start_index.insert(id, final_caret_clamped);
+                            cx.selected_rects.remove(id);
+                            contents.selection_reversed = false;
+                        }
+
+                        contents.last_interacted_time = Some(std::time::Instant::now());
+
+                        // キャレットの絶対座標と表示情報を一括更新
+                        update_input_caret_position(cx, id);
+                    }
+
+                    if update_rects_needed {
+                        cx.update_selection_rects(id);
+                    }
+
+                    cx.mark_render_dirty(id);
+                }
+            }));
+
+            // フォーカス取得（点滅カーソルの有効化等）
+            l.on_focus = Some(Box::new(move |cx| {
+                if let Some(contents) = cx.input_contents.get_mut(id) {
+                    contents.is_selecting = false;
+                    // フォーカス獲得時も操作時刻を記録して即座にキャレットを表示
+                    contents.last_interacted_time = Some(std::time::Instant::now());
+                }
+                cx.mark_render_dirty(id);
+            }));
+
+            // 確定した1文字の文字入力 (WM_CHAR)
+            l.on_char_input = Some(Box::new(move |cx, mut ch| {
+                // IME未変換の入力中 (composition_textがある間) は文字入力を無視
+                let is_ime_active = cx
+                    .input_contents
+                    .get(id)
+                    .and_then(|c| c.ime_state.as_ref())
+                    .map(|s| !s.composition_text.is_empty())
+                    .unwrap_or(false);
+
+                if !is_ime_active {
+                    let mut is_allowed = !ch.is_control();
+                    let is_multiline = cx
+                        .input_contents
+                        .get(id)
+                        .map(|c| c.is_multiline)
+                        .unwrap_or(false);
+
+                    // 複数行入力時に、Enterキー（'\r' / '\n'）が押された場合は改行コードとして許可
+                    if is_multiline && (ch == '\r' || ch == '\n') {
+                        ch = '\n';
+                        is_allowed = true;
+                    }
+
+                    if is_allowed && let Some(contents) = cx.input_contents.get_mut(id) {
+                        contents.last_interacted_time = Some(std::time::Instant::now());
+
+                        let text_val = contents.text.0.get();
+
+                        // 数値制限フィルター
+                        if contents.numeric_only && !ch.is_numeric() && ch != '.' && ch != '-' {
+                            return;
+                        }
+
+                        let range = contents.selected_range.clone();
+
+                        // 変更発生前に現在の状態をセーブ
+                        contents.record_undo(text_val.clone(), range.clone());
+
+                        let u16_text: Vec<u16> = text_val.encode_utf16().collect();
+
+                        // 選択範囲が削除された後の長さ
+                        let u16_len_after_delete = u16_text.len()
+                            - (range.end.min(u16_text.len()) - range.start.min(u16_text.len()));
+                        let mut buf = [0u16; 2];
+                        let ch_u16_slice = ch.encode_utf16(&mut buf);
+
+                        // 文字数制限
+                        if let Some(max) = contents.max_length
+                            && u16_len_after_delete + ch_u16_slice.len() > max
+                        {
+                            return; // 制限を超えるため入力を中断
+                        }
+
+                        contents.last_interacted_time = Some(std::time::Instant::now());
+                        contents.record_undo(text_val.clone(), range.clone());
+
+                        let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
+                        let right = u16_text[range.end.min(u16_text.len())..].to_vec();
+
+                        left.extend_from_slice(ch_u16_slice);
+                        left.extend_from_slice(&right);
+
+                        let new_text = String::from_utf16_lossy(&left);
+                        let new_caret = range.start + ch_u16_slice.len();
+
+                        contents.selected_range = new_caret..new_caret;
+                        cx.text_selections.insert(id, new_caret..new_caret); // 選択表示をリセット
+                        cx.selected_rects.remove(id);
+                        contents.text.1.set(new_text);
+                        cx.mark_render_dirty(id);
+                    }
+                }
+            }));
+
+            // 物理キーボード操作 (Backspace, Delete, 矢印キー)
+            l.on_keyboard_input = Some(Box::new(move |cx, key, modifiers, state| {
+                if state == ElementState::Pressed
+                    && let Some(contents) = cx.input_contents.get_mut(id)
+                {
+                    let default_visual = VisualProperty::default();
+                    let text_val = contents.text.0.get();
+                    let u16_len = text_val.encode_utf16().count();
+
+                    contents.selected_range = (contents.selected_range.start.min(u16_len))
+                        ..(contents.selected_range.end.min(u16_len));
+
+                    let raw_caret = if contents.selection_reversed {
+                        contents.selected_range.start
+                    } else {
+                        contents.selected_range.end
+                    };
+                    let mut caret = raw_caret.min(u16_len);
+                    let mut changed = false; // 状態変更フラグ
+
+                    match key {
+                        VirtualKey::BACK => {
+                            let range = contents.selected_range.clone();
+                            contents.record_undo(text_val.clone(), range.clone());
+
+                            if range.start < range.end {
+                                // 選択範囲を一撃で消去
+                                let u16_text: Vec<u16> = text_val.encode_utf16().collect();
+                                let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
+                                let right = u16_text[range.end.min(u16_text.len())..].to_vec();
+                                left.extend_from_slice(&right);
+
+                                let new_text = String::from_utf16_lossy(&left);
+                                contents.selected_range = range.start..range.start;
+                                cx.text_selections.insert(id, range.start..range.start);
+                                contents.text.1.set(new_text);
+                            } else {
+                                // 通常の1文字バックスペース
+                                let new_text = crate::input_backspace(&text_val, &mut caret);
+                                contents.selected_range = caret..caret;
+                                contents.text.1.set(new_text);
+                            }
+                            contents.last_interacted_time = Some(std::time::Instant::now());
+                            changed = true;
+                        }
+                        VirtualKey::DELETE => {
+                            let range = contents.selected_range.clone();
+                            contents.record_undo(text_val.clone(), range.clone());
+                            if range.start < range.end {
+                                let u16_text: Vec<u16> = text_val.encode_utf16().collect();
+                                let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
+                                let right = u16_text[range.end.min(u16_text.len())..].to_vec();
+                                left.extend_from_slice(&right);
+
+                                let new_text = String::from_utf16_lossy(&left);
+                                contents.selected_range = range.start..range.start;
+                                cx.text_selections.insert(id, range.start..range.start);
+                                contents.text.1.set(new_text);
+                            } else {
+                                // 通常の1文字デリート
+                                let new_text = crate::input_delete(&text_val, caret);
+                                contents.text.1.set(new_text);
+                            }
+                            contents.last_interacted_time = Some(std::time::Instant::now());
+                            changed = true;
+                        }
+                        VirtualKey::LEFT => {
+                            let range = contents.selected_range.clone();
+                            // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時
+                            if range.start < range.end && !modifiers.shift {
+                                // 選択範囲をすべて解除し、キャレットを左端（start）に収束
+                                let new_caret = range.start;
+                                contents.selected_range = new_caret..new_caret;
+                                cx.text_selections.insert(id, new_caret..new_caret);
+                                cx.selected_rects.remove(id);
+                                cx.selection_start_index.remove(id);
+                                contents.selection_reversed = false;
+                                contents.last_interacted_time = Some(std::time::Instant::now());
+                                changed = true;
+                            } else if caret > 0 {
+                                let new_caret = caret - 1;
+
+                                if modifiers.shift {
+                                    // Shiftキー押下中：選択の拡張
+                                    let anchor =
+                                        cx.selection_start_index.get(id).copied().unwrap_or(caret);
+                                    if !cx.selection_start_index.contains_key(id) {
+                                        cx.selection_start_index.insert(id, caret);
+                                    }
+                                    let range = if anchor <= new_caret {
+                                        contents.selection_reversed = false;
+                                        anchor..new_caret
+                                    } else {
+                                        contents.selection_reversed = true;
+                                        new_caret..anchor
+                                    };
+                                    contents.selected_range = range.clone();
+                                    cx.text_selections.insert(id, range);
+                                } else {
+                                    // Shiftキー非押下：選択解除して単なる移動
+                                    contents.selected_range = new_caret..new_caret;
+                                    cx.text_selections.insert(id, new_caret..new_caret);
+                                    cx.selected_rects.remove(id);
+                                    cx.selection_start_index.remove(id);
+                                }
+                                contents.last_interacted_time = Some(std::time::Instant::now());
+                                changed = true;
+                            }
+                        }
+                        VirtualKey::RIGHT => {
+                            let range = contents.selected_range.clone();
+                            // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時（全選択中での右移動に完全対応）
+                            if range.start < range.end && !modifiers.shift {
+                                let new_caret = range.end;
+                                contents.selected_range = new_caret..new_caret;
+                                cx.text_selections.insert(id, new_caret..new_caret);
+                                cx.selected_rects.remove(id);
+                                cx.selection_start_index.remove(id);
+                                contents.selection_reversed = false;
+                                contents.last_interacted_time = Some(std::time::Instant::now());
+                                changed = true;
+                            } else if caret < u16_len {
+                                let new_caret = caret + 1;
+
+                                if modifiers.shift {
+                                    let anchor =
+                                        cx.selection_start_index.get(id).copied().unwrap_or(caret);
+                                    if !cx.selection_start_index.contains_key(id) {
+                                        cx.selection_start_index.insert(id, caret);
+                                    }
+                                    let range = if anchor <= new_caret {
+                                        contents.selection_reversed = false;
+                                        anchor..new_caret
+                                    } else {
+                                        contents.selection_reversed = true;
+                                        new_caret..anchor
+                                    };
+                                    contents.selected_range = range.clone();
+                                    cx.text_selections.insert(id, range);
+                                } else {
+                                    contents.selected_range = new_caret..new_caret;
+                                    cx.text_selections.insert(id, new_caret..new_caret);
+                                    cx.selected_rects.remove(id);
+                                    cx.selection_start_index.remove(id);
+                                }
+                                contents.last_interacted_time = Some(std::time::Instant::now());
+                                changed = true;
+                            }
+                        }
+                        VirtualKey::UP => {
+                            if contents.is_multiline {
+                                let visual =
+                                    cx.visual_properties.get(id).unwrap_or(&default_visual);
+                                let font_size = visual.font_size.unwrap_or(16.0);
+                                let font_family = visual.font_family.as_deref();
+                                let font_weight = visual.font_weight;
+                                let font_style = visual.font_style;
+
+                                let spans =
+                                    cx.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+
+                                let layout = cx.text_engine.create_layout(
+                                    &text_val,
+                                    font_size,
+                                    font_family,
+                                    font_weight,
+                                    font_style,
+                                    None,
+                                    spans,
+                                );
+
+                                let (cx_offset, cy_offset, _) =
+                                    cx.text_engine.get_caret_position(&layout, caret, u16_len);
+
+                                let line_height = font_size * 1.3;
+                                let target_y = (cy_offset - line_height * 1.1).max(0.0); // 1行分＋マージン
+
+                                let (new_caret, is_trailing) =
+                                    cx.text_engine.hit_test_point(&layout, cx_offset, target_y);
+                                let final_caret = if is_trailing {
+                                    new_caret + 1
+                                } else {
+                                    new_caret
+                                };
+
+                                if modifiers.shift {
+                                    let anchor =
+                                        cx.selection_start_index.get(id).copied().unwrap_or(caret);
+                                    if !cx.selection_start_index.contains_key(id) {
+                                        cx.selection_start_index.insert(id, caret);
+                                    }
+                                    let range = if anchor <= final_caret {
+                                        contents.selection_reversed = false;
+                                        anchor..final_caret
+                                    } else {
+                                        contents.selection_reversed = true;
+                                        final_caret..anchor
+                                    };
+                                    contents.selected_range = range.clone();
+                                    cx.text_selections.insert(id, range);
+                                } else {
+                                    contents.selected_range = final_caret..final_caret;
+                                    cx.text_selections.insert(id, final_caret..final_caret);
+                                    cx.selection_start_index.remove(id);
+                                    contents.selection_reversed = false;
+                                }
+
+                                contents.last_interacted_time = Some(std::time::Instant::now());
+                                changed = true;
+                            }
+                        }
+                        VirtualKey::DOWN if contents.is_multiline => {
+                            let visual = cx.visual_properties.get(id).unwrap_or(&default_visual);
+                            let font_size = visual.font_size.unwrap_or(16.0);
+                            let font_family = visual.font_family.as_deref();
+                            let font_weight = visual.font_weight;
+                            let font_style = visual.font_style;
+
+                            let spans = cx.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+
+                            let layout = cx.text_engine.create_layout(
+                                &text_val,
+                                font_size,
+                                font_family,
+                                font_weight,
+                                font_style,
+                                None,
+                                spans,
+                            );
+
+                            let (cx_offset, cy_offset, _) =
+                                cx.text_engine.get_caret_position(&layout, caret, u16_len);
+
+                            let line_height = font_size * 1.3;
+                            let target_y = cy_offset + line_height * 1.5;
+                            let (new_caret, is_trailing) =
+                                cx.text_engine.hit_test_point(&layout, cx_offset, target_y);
+                            let final_caret = if is_trailing {
+                                new_caret + 1
+                            } else {
+                                new_caret
+                            };
+
+                            if modifiers.shift {
+                                let anchor =
+                                    cx.selection_start_index.get(id).copied().unwrap_or(caret);
+                                if !cx.selection_start_index.contains_key(id) {
+                                    cx.selection_start_index.insert(id, caret);
+                                }
+                                let range = if anchor <= final_caret {
+                                    contents.selection_reversed = false;
+                                    anchor..final_caret
+                                } else {
+                                    contents.selection_reversed = true;
+                                    final_caret..anchor
+                                };
+                                contents.selected_range = range.clone();
+                                cx.text_selections.insert(id, range);
+                            } else {
+                                contents.selected_range = final_caret..final_caret;
+                                cx.text_selections.insert(id, final_caret..final_caret);
+                                cx.selection_start_index.remove(id);
+                                contents.selection_reversed = false;
+                            }
+
+                            contents.last_interacted_time = Some(std::time::Instant::now());
+                            changed = true;
+                        }
+                        _ => {}
+                    }
+
+                    if changed {
+                        cx.update_selection_rects(id);
+                        update_input_caret_position(cx, id);
+                        cx.mark_render_dirty(id);
+                    }
+                }
+            }));
+
+            // IME連動
+            l.on_ime = Some(Box::new(move |cx, ime| {
+                if let Some(contents) = cx.input_contents.get_mut(id) {
+                    contents.last_interacted_time = Some(std::time::Instant::now());
+                    contents.ime_state = Some(ime.clone());
+
+                    // IME 確定文字の書き込み
+                    if !ime.result_text.is_empty() {
+                        let text_val = contents.text.0.get();
+                        let mut caret = contents.selected_range.start;
+
+                        // 確定した文字列を1文字ずつ安全に挿入
+                        let mut temp_text = text_val;
+                        for ch in ime.result_text.chars() {
+                            temp_text = crate::input_insert_char(
+                                &temp_text,
+                                &mut caret,
+                                ch,
+                                contents.max_length,
+                                contents.numeric_only,
+                            );
+                        }
+
+                        contents.selected_range = caret..caret;
+                        contents.text.1.set(temp_text);
+                        contents.marked_range = None;
+                    } else if !ime.composition_text.is_empty() {
+                        // IME 未変換中
+                        let caret = contents.selected_range.start;
+                        let comp_len = ime.composition_text.encode_utf16().count();
+                        contents.marked_range = Some(caret..(caret + comp_len));
+                    } else {
+                        contents.marked_range = None;
+                    }
+
+                    // IME の未確定状態（未確定波線、変換フォーカス太線/細線）を TextSpan に自動マッピング
+                    if !ime.composition_text.is_empty() {
+                        let mut spans = Vec::new();
+                        let caret = contents.selected_range.start;
+
+                        if !ime.composition_attrs.is_empty() {
+                            let attrs = &ime.composition_attrs;
+                            let mut start_idx = 0;
+
+                            // 同一のIME属性が連続する境界ごとに TextSpan を分割
+                            while start_idx < attrs.len() {
+                                let attr = attrs[start_idx];
+                                let mut end_idx = start_idx + 1;
+                                while end_idx < attrs.len() && attrs[end_idx] == attr {
+                                    end_idx += 1;
+                                }
+
+                                // Windows IME 属性定数:
+                                // ATTR_INPUT (0): 未変換入力 ➔ 波線 (Wave)
+                                // ATTR_TARGET_CONVERTED (1): フォーカス（ターゲット）文節 ➔ 太実線 (Thick)
+                                // ATTR_CONVERTED (2): 変換済み非フォーカス文節 ➔ 細実線 (Solid)
+                                let underline_style = match attr {
+                                    1 => Some(UnderlineStyle::Thick),
+                                    2 => Some(UnderlineStyle::Solid),
+                                    _ => Some(UnderlineStyle::Wave),
+                                };
+
+                                spans.push(TextSpan {
+                                    range: (caret + start_idx)..(caret + end_idx),
+                                    color: None,
+                                    bg_color: None,
+                                    font_size: None,
+                                    font_family: None,
+                                    font_weight: None,
+                                    font_style: None,
+                                    underline: underline_style,
+                                    underline_color: None,
+                                    strikethrough: None,
+                                    strikethrough_color: None,
+                                    link_id: None,
+                                });
+
+                                start_idx = end_idx;
+                            }
+                        } else {
+                            // 属性が取得できない場合のフォールバック（全体を未確定波線に設定）
+                            let comp_len = ime.composition_text.encode_utf16().count();
+                            spans.push(TextSpan {
+                                range: caret..(caret + comp_len),
+                                underline: Some(UnderlineStyle::Wave),
+                                ..Default::default()
+                            });
+                        }
+
+                        cx.text_spans.insert(id, spans);
+                        cx.active_masks[id].set(STYLE_TEXT_SPANS);
+                    } else {
+                        cx.text_spans.remove(id);
+                        cx.active_masks[id].unset(STYLE_TEXT_SPANS);
+                    }
+
+                    // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
+                    update_input_caret_position(cx, id);
+
+                    cx.mark_render_dirty(id);
+                }
+            }));
+        });
+
+        // テキスト表示内容をシグナルやIME状態と完全同期させるエフェクト
+        let text_sync_effect = create_effect(move |cx| {
+            // シグナルを get() して依存関係を構築
+            if let Some(contents) = cx.input_contents.get(id) {
+                let _base_text_val = contents.text.0.get();
+            }
+
+            // 表示テキストとキャレット位置を完全同期
+            update_input_caret_position(cx, id);
+
+            // 物理サイズ変更や再描画を確実に要求
+            cx.mark_layout_dirty(id);
+            cx.mark_render_dirty(id);
+        });
+
+        // エフェクトを要素に紐付け登録
+        cx.register_element_effect(id, EffectCategory::Text, text_sync_effect);
+    }
+
     /// 内部ヘルパー：この要素に対応する `EventListeners` が SoA 上に存在しない場合は新規に作成し、
     /// 可変参照を取得して渡されたクロージャを実行します。
     #[inline(always)]
@@ -330,7 +1080,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_click = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_click.take() {
+                let mut f = f;
+                l.on_click = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_click = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -348,7 +1108,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_right_click = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_right_click.take() {
+                let mut f = f;
+                l.on_right_click = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_right_click = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -366,7 +1136,17 @@ impl Element {
     where
         F: FnMut(&mut Context, MouseButton, Modifiers, ElementState) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_mouse_input = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_mouse_input.take() {
+                let mut f = f;
+                l.on_mouse_input = Some(Box::new(move |cx, btn, mods, state| {
+                    existing(cx, btn, mods, state);
+                    f(cx, btn, mods, state);
+                }));
+            } else {
+                l.on_mouse_input = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -384,7 +1164,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_mouse_enter = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_mouse_enter.take() {
+                let mut f = f;
+                l.on_mouse_enter = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_mouse_enter = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -402,7 +1192,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_mouse_leave = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_mouse_leave.take() {
+                let mut f = f;
+                l.on_mouse_leave = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_mouse_leave = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -421,26 +1221,76 @@ impl Element {
     where
         F: FnMut(&mut Context, LayoutPoint) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_cursor_moved = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_cursor_moved.take() {
+                let mut f = f;
+                l.on_cursor_moved = Some(Box::new(move |cx, p| {
+                    existing(cx, p);
+                    f(cx, p);
+                }));
+            } else {
+                l.on_cursor_moved = Some(Box::new(f));
+            }
+        });
         self
     }
 
-    /// マウスホイール（縦スクロール）が回転した際に発火するイベントを登録します。
+    /// マウスホイールスクロールがこの要素上で検知された際のイベントをバインドします。
+    /// コールバック引数には、論理ピクセル単位に換算された (scroll_x, scroll_y) が渡されます。
     #[inline]
     pub fn on_mouse_wheel<F>(self, mut f: F) -> Self
     where
-        F: FnMut(f32) + 'static,
+        F: FnMut(f32, f32) + 'static,
     {
-        self.on_mouse_wheel_with(move |_cx, delta| f(delta))
+        self.on_mouse_wheel_with(move |_cx, sx, sy| f(sx, sy))
     }
 
     #[inline]
     pub fn on_mouse_wheel_with<F>(self, f: F) -> Self
     where
-        F: FnMut(&mut Context, f32) + 'static,
+        F: FnMut(&mut Context, f32, f32) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_mouse_wheel = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_mouse_wheel.take() {
+                let mut f = f;
+                l.on_mouse_wheel = Some(Box::new(move |cx, sx, sy| {
+                    existing(cx, sx, sy);
+                    f(cx, sx, sy);
+                }));
+            } else {
+                l.on_mouse_wheel = Some(Box::new(f));
+            }
+        });
         self
+    }
+
+    /// スクロールコンテナの指定軸方向のオフセット（スクロール位置）を強制変更します。
+    #[inline]
+    pub fn scroll_to(self, x: f32, y: f32) -> Self {
+        with_context(|cx| {
+            cx.scroll_to(self.id, x, y);
+        });
+        self
+    }
+
+    /// スクロールコンテナを指定ピクセル分だけ相対移動させます。
+    #[inline]
+    pub fn scroll_by(self, dx: f32, dy: f32) -> Self {
+        with_context(|cx| {
+            cx.scroll_by(self.id, dx, dy);
+        });
+        self
+    }
+
+    /// このコンテナの現在のスクロール位置 (x, y) を安全に取得します。
+    #[inline]
+    pub fn scroll_offset(self) -> LayoutPoint {
+        with_context(|cx| {
+            cx.scroll_offsets
+                .get(self.id)
+                .copied()
+                .unwrap_or(LayoutPoint::ZERO)
+        })
     }
 
     /// 要素のドラッグ（左クリック押し下げ中のマウス移動）が発生した際に発火するイベントを登録します。
@@ -458,7 +1308,17 @@ impl Element {
     where
         F: FnMut(&mut Context, LayoutPoint) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_drag = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_drag.take() {
+                let mut f = f;
+                l.on_drag = Some(Box::new(move |cx, p| {
+                    existing(cx, p);
+                    f(cx, p);
+                }));
+            } else {
+                l.on_drag = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -476,7 +1336,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_hover = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_hover.take() {
+                let mut f = f;
+                l.on_hover = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_hover = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -494,7 +1364,17 @@ impl Element {
     where
         F: FnMut(&mut Context, VirtualKey, Modifiers, ElementState) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_keyboard_input = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_keyboard_input.take() {
+                let mut f = f;
+                l.on_keyboard_input = Some(Box::new(move |cx, key, mods, state| {
+                    existing(cx, key, mods, state);
+                    f(cx, key, mods, state);
+                }));
+            } else {
+                l.on_keyboard_input = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -512,7 +1392,17 @@ impl Element {
     where
         F: FnMut(&mut Context, char) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_char_input = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_char_input.take() {
+                let mut f = f;
+                l.on_char_input = Some(Box::new(move |cx, c| {
+                    existing(cx, c);
+                    f(cx, c);
+                }));
+            } else {
+                l.on_char_input = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -530,7 +1420,17 @@ impl Element {
     where
         F: FnMut(&mut Context, ImeState) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_ime = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_ime.take() {
+                let mut f = f;
+                l.on_ime = Some(Box::new(move |cx, state| {
+                    existing(cx, state.clone());
+                    f(cx, state);
+                }));
+            } else {
+                l.on_ime = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -548,7 +1448,17 @@ impl Element {
     where
         F: FnMut(&mut Context, Vec<PathBuf>) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_file_dropped = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_file_dropped.take() {
+                let mut f = f;
+                l.on_file_dropped = Some(Box::new(move |cx, paths| {
+                    existing(cx, paths.clone());
+                    f(cx, paths);
+                }));
+            } else {
+                l.on_file_dropped = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -567,7 +1477,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_file_drag_enter = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_file_drag_enter.take() {
+                let mut f = f;
+                l.on_file_drag_enter = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_file_drag_enter = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -586,7 +1506,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_file_drag_leave = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_file_drag_leave.take() {
+                let mut f = f;
+                l.on_file_drag_leave = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_file_drag_leave = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -605,7 +1535,17 @@ impl Element {
     where
         F: FnMut(&mut Context, ImageMetadata) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_image_loaded = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_image_loaded.take() {
+                let mut f = f;
+                l.on_image_loaded = Some(Box::new(move |cx, img| {
+                    existing(cx, img.clone());
+                    f(cx, img);
+                }));
+            } else {
+                l.on_image_loaded = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -623,7 +1563,17 @@ impl Element {
     where
         F: FnMut(&mut Context, MovieMetadata) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_media_opened = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_media_loaded.take() {
+                let mut f = f;
+                l.on_media_loaded = Some(Box::new(move |cx, movie| {
+                    existing(cx, movie.clone());
+                    f(cx, movie);
+                }));
+            } else {
+                l.on_media_loaded = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -641,7 +1591,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_focus = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_focus.take() {
+                let mut f = f;
+                l.on_focus = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_focus = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -659,7 +1619,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_blur = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_blur.take() {
+                let mut f = f;
+                l.on_blur = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_blur = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -677,7 +1647,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_disable = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_disable.take() {
+                let mut f = f;
+                l.on_disable = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_disable = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -695,7 +1675,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_active = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_active.take() {
+                let mut f = f;
+                l.on_active = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_active = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -713,7 +1703,17 @@ impl Element {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        self.get_or_create_listeners(|l| l.on_select = Some(Box::new(f)));
+        self.get_or_create_listeners(|l| {
+            if let Some(mut existing) = l.on_select.take() {
+                let mut f = f;
+                l.on_select = Some(Box::new(move |cx| {
+                    existing(cx);
+                    f(cx);
+                }));
+            } else {
+                l.on_select = Some(Box::new(f));
+            }
+        });
         self
     }
 
@@ -785,40 +1785,208 @@ impl Element {
     }
 }
 
-/// スタイルを適用して生成するコンテナ。
-/// 静的な ThisStyle、ReadSignal<ThisStyle>、クロージャ、または None (Option) を受け入れます。
-#[inline]
-pub fn div(style: impl Into<Prop<ThisStyle>>) -> Element {
-    let el = Element::new();
-    el.style(style)
-}
+/// 内部ヘルパー: 現在のテキスト・IME状態・フォントサイズから、
+/// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して SoA を更新します。
+pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
+    cx.clear_layout_cache(id); // IMEやタイピング中の古いキャッシュを破棄
+    if let Some(contents) = cx.input_contents.get_mut(id) {
+        let text_val = contents.text.0.get();
+        contents.total_len = text_val.chars().count();
 
-pub const NO_STYLE: Option<ThisStyle> = None;
+        // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
+        let display_text = if let Some(ref ime) = contents.ime_state
+            && !ime.composition_text.is_empty()
+        {
+            crate::input_get_display_text(
+                &text_val,
+                contents.selected_range.start,
+                &ime.composition_text,
+            )
+        } else if text_val.is_empty() {
+            contents
+                .placeholder
+                .as_ref()
+                .map(|s| s.to_string())
+                .unwrap_or_default()
+        } else if contents.is_password {
+            let mask = contents.mask_text.as_deref().unwrap_or("●");
+            mask.repeat(text_val.chars().count())
+        } else {
+            text_val.clone()
+        };
 
-/// 現時点ではスタイルを適用しないことを明示したコンテナ。
-#[inline]
-pub fn div_n() -> Element {
-    div(NO_STYLE)
-}
+        let caret_text = if let Some(ref ime) = contents.ime_state
+            && !ime.composition_text.is_empty()
+        {
+            crate::input_get_display_text(
+                &text_val,
+                contents.selected_range.start,
+                &ime.composition_text,
+            )
+        } else if text_val.is_empty() {
+            String::new()
+        } else if contents.is_password {
+            let mask = contents.mask_text.as_deref().unwrap_or("●");
+            mask.repeat(text_val.chars().count())
+        } else {
+            text_val.clone()
+        };
 
-#[inline]
-pub fn text(content: impl Into<Prop<Cow<'static, str>>>) -> Element {
-    div_n().text(content)
-}
+        let font_size = cx
+            .visual_properties
+            .get(id)
+            .and_then(|v| v.font_size)
+            .unwrap_or(16.0);
+        let font_family = cx
+            .visual_properties
+            .get(id)
+            .and_then(|v| v.font_family.as_deref());
+        let font_weight = cx.visual_properties.get(id).and_then(|v| v.font_weight);
+        let font_style = cx.visual_properties.get(id).and_then(|v| v.font_style);
 
-#[inline]
-pub fn img(source: impl Into<Prop<ImageSource>>) -> Element {
-    div_n().image(source)
-}
+        let spans = cx.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
 
-#[inline]
-pub fn video(property: impl Into<Prop<MovieProperty>>) -> Element {
-    div_n().movie(property)
-}
+        // 描画テキスト全体のレイアウトサイズを Taffy 測定用に設定
+        let display_layout = cx.text_engine.create_layout(
+            &display_text,
+            font_size,
+            font_family,
+            font_weight,
+            font_style,
+            None,
+            spans,
+        );
+        let text_size = cx.text_engine.get_layout_size(&display_layout);
+        contents.last_layout = Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
 
-#[inline]
-pub fn webview2(contents: impl Into<Prop<WebView2Contents>>) -> Element {
-    div_n().webview2(contents)
+        // キャレット位置測定用のレイアウトをプレースホルダー抜きで作成
+        let caret_layout = cx.text_engine.create_layout(
+            &caret_text,
+            font_size,
+            font_family,
+            font_weight,
+            font_style,
+            None,
+            spans,
+        );
+
+        let composition_offset = if let Some(ref ime) = contents.ime_state
+            && !ime.composition_text.is_empty()
+        {
+            // 組成文字全体の文字数をオフセットとして適用
+            ime.composition_text.encode_utf16().count()
+        } else {
+            0
+        };
+
+        // ドラッグの方向を判定しマウス位置にキャレットを固定
+        let current_caret_relative = if contents.selection_reversed {
+            contents.selected_range.start // 逆方向（左ドラッグ）時は左端がマウス位置
+        } else {
+            contents.selected_range.end // 順方向（右ドラッグ）時は右端がマウス位置
+        };
+
+        let caret_index = current_caret_relative + composition_offset;
+        let u16_len_caret = caret_text.encode_utf16().count();
+
+        // プレースホルダーに干渉されない純粋なキャレット位置を算出
+        let (cx_offset, cy_offset, ch_height) =
+            cx.text_engine
+                .get_caret_position(&caret_layout, caret_index, u16_len_caret);
+
+        contents.caret_offset_x = cx_offset;
+        contents.caret_offset_y = cy_offset;
+        contents.caret_line_height = ch_height;
+
+        let (curr_line, tot_lines) = crate::calculate_line_indices(&display_text, caret_index);
+        contents.current_line_index = curr_line;
+        contents.total_lines = tot_lines;
+
+        // 最終表示用テキストを Context 側に反映
+        cx.text_contents.insert(id, display_text.into());
+
+        if let Some(visual) = cx.visual_properties.get_mut(id) {
+            let is_ime_active = contents
+                .ime_state
+                .as_ref()
+                .map(|ime| !ime.composition_text.is_empty())
+                .unwrap_or(false);
+
+            if text_val.is_empty() && !is_ime_active {
+                // 確定文字列が空で、かつ未確定文字列も存在しない状態のみグレー表示
+                visual.text_color = contents.placeholder_color;
+            } else {
+                let base_color = cx
+                    .base_visual_properties
+                    .get(id)
+                    .and_then(|v| v.text_color)
+                    .unwrap_or(Color::WHITE);
+                visual.text_color = Some(base_color);
+            }
+        }
+
+        // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
+        unsafe {
+            let hwnd = GetFocus();
+            let himc = ImmGetContext(hwnd);
+            if !himc.is_invalid() {
+                let rect = cx.rects[id];
+                let (basic, _, _) = cx.resolve_active_layouts(id);
+                let border_top = match basic.border.top {
+                    Length::Px(v) => v,
+                    _ => 0.0,
+                };
+                let border_left = match basic.border.left {
+                    Length::Px(v) => v,
+                    _ => 0.0,
+                };
+                let padding_top = match basic.padding.top {
+                    Length::Px(v) => v,
+                    _ => 0.0,
+                };
+                let padding_left = match basic.padding.left {
+                    Length::Px(v) => v,
+                    _ => 0.0,
+                };
+
+                let scale = cx.scale_factor;
+                let caret_phys_x =
+                    ((rect.x + border_left + padding_left + cx_offset) * scale).round() as i32;
+                let caret_phys_y =
+                    ((rect.y + border_top + padding_top + cy_offset) * scale).round() as i32;
+                let caret_phys_h = (ch_height * scale).round() as i32;
+
+                // コンポジションウィンドウ位置の指定 (CFS_POINT)
+                let comp_form = COMPOSITIONFORM {
+                    dwStyle: CFS_POINT,
+                    ptCurrentPos: windows::Win32::Foundation::POINT {
+                        x: caret_phys_x,
+                        y: caret_phys_y,
+                    },
+                    rcArea: windows::Win32::Foundation::RECT::default(),
+                };
+                let _ = ImmSetCompositionWindow(himc, &comp_form);
+
+                // 候補ウィンドウ位置の指定 (CFS_EXCLUDE)
+                let candidate_form = CANDIDATEFORM {
+                    dwIndex: 0,
+                    dwStyle: CFS_EXCLUDE,
+                    ptCurrentPos: windows::Win32::Foundation::POINT {
+                        x: caret_phys_x,
+                        y: caret_phys_y,
+                    },
+                    rcArea: windows::Win32::Foundation::RECT {
+                        left: caret_phys_x,
+                        top: caret_phys_y,
+                        right: caret_phys_x + 1,
+                        bottom: caret_phys_y + caret_phys_h,
+                    },
+                };
+                let _ = ImmSetCandidateWindow(himc, &candidate_form);
+                let _ = ImmReleaseContext(hwnd, himc);
+            }
+        }
+    }
 }
 
 // コンテキストを復元するための一時的なガード構造体
@@ -1050,6 +2218,37 @@ impl From<WebView2Contents> for Prop<WebView2Contents> {
 impl From<ReadSignal<WebView2Contents>> for Prop<WebView2Contents> {
     fn from(sig: ReadSignal<WebView2Contents>) -> Self {
         Self::Dynamic(Box::new(move || sig.get()))
+    }
+}
+
+impl From<InputContents> for Prop<InputContents> {
+    #[inline]
+    fn from(c: InputContents) -> Self {
+        Self::Static(c)
+    }
+}
+
+impl From<ReadSignal<InputContents>> for Prop<InputContents> {
+    #[inline]
+    fn from(sig: ReadSignal<InputContents>) -> Self {
+        Self::Dynamic(Box::new(move || sig.get()))
+    }
+}
+
+impl<F> From<F> for Prop<InputContents>
+where
+    F: Fn() -> InputContents + 'static,
+{
+    #[inline]
+    fn from(f: F) -> Self {
+        Self::Dynamic(Box::new(f))
+    }
+}
+
+impl From<&ThisStyle> for Prop<ThisStyle> {
+    #[inline]
+    fn from(s: &ThisStyle) -> Self {
+        Self::Static(s.clone())
     }
 }
 

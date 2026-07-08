@@ -1,9 +1,6 @@
-use michiu_ui::{
-    AlignItems, BoxShadow, Color, ComposedRenderer, Context, CornerRadius, CursorIcon,
-    ElementState, EntityId, JustifyContent, LayoutPoint, LayoutSize, Modifiers, MouseButton,
-    Position, PropertyList, Rect, Size, Transition, WebView2Contents, auto, build_ui, div, px, rgb,
-    text, ts, webview2,
-};
+use std::time::Duration;
+
+use michiu_ui::{ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, prelude::*};
 
 use windows::{
     Win32::{
@@ -122,6 +119,8 @@ unsafe extern "system" fn wnd_proc(
 
                 // 描画実行
                 app.renderer.draw(&app.context);
+                app.context.clear_layout_dirty();
+                app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
 
@@ -161,14 +160,18 @@ unsafe extern "system" fn wnd_proc(
                 app.context.inject_pointer_move(logical_pos);
 
                 // マウス移動メッセージを WebView2 コントローラーへ透過的にフォワード
-                app.renderer.forward_mouse_input(
-                    &app.context,
-                    app.webview_id,
-                    msg,
-                    wparam,
-                    lparam,
-                    LayoutPoint::new(x, y),
-                );
+                // 最前面にヒットした要素が WebView2 自身である場合のみ、イベントをフォワードする
+                let hit_element = app.context.hit_test(logical_pos);
+                if hit_element == Some(app.webview_id) {
+                    app.renderer.forward_mouse_input(
+                        &app.context,
+                        app.webview_id,
+                        msg,
+                        wparam,
+                        lparam,
+                        LayoutPoint::new(x, y),
+                    );
+                }
 
                 // インタラクションによる変化（ホバー状態）をリアルタイムに再描画
                 if app.context.is_render_dirty() {
@@ -207,14 +210,21 @@ unsafe extern "system" fn wnd_proc(
 
                 // マウスクリックを WebView2 コントローラーへフォワード
                 // これにより、ブラウザ内のリンククリックや各種操作が完璧に動作します。
-                app.renderer.forward_mouse_input(
-                    &app.context,
-                    app.webview_id,
-                    msg,
-                    wparam,
-                    lparam,
-                    LayoutPoint::new(x, y),
-                );
+                // クリック座標の最前面が WebView2 自身である場合のみフォワード
+                let logical_pos =
+                    LayoutPoint::new(x / app.renderer.scale_factor, y / app.renderer.scale_factor);
+                let hit_element = app.context.hit_test(logical_pos);
+
+                if hit_element == Some(app.webview_id) {
+                    app.renderer.forward_mouse_input(
+                        &app.context,
+                        app.webview_id,
+                        msg,
+                        wparam,
+                        lparam,
+                        LayoutPoint::new(x, y),
+                    );
+                }
 
                 // クリックした要素が実際に WebView2 である場合のみ、キーボードフォーカスをブラウザにアタッチ
                 if msg == WM_LBUTTONDOWN
@@ -240,14 +250,23 @@ unsafe extern "system" fn wnd_proc(
                 let physical_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
 
                 // WebView2 へ縦スクロールイベントを転送
-                app.renderer.forward_mouse_input(
-                    &app.context,
-                    app.webview_id,
-                    msg,
-                    wparam,
-                    lparam,
-                    physical_pos,
+                // スクロール位置の最前面が WebView2 自身である場合のみフォワード
+                let logical_pos = LayoutPoint::new(
+                    physical_pos.x / app.renderer.scale_factor,
+                    physical_pos.y / app.renderer.scale_factor,
                 );
+                let hit_element = app.context.hit_test(logical_pos);
+
+                if hit_element == Some(app.webview_id) {
+                    app.renderer.forward_mouse_input(
+                        &app.context,
+                        app.webview_id,
+                        msg,
+                        wparam,
+                        lparam,
+                        physical_pos,
+                    );
+                }
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -315,46 +334,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hovered_style = ts().bg_color(rgb(110, 110, 110));
 
     let btn_style = ts()
-        .flex()
-        .position(Position::Absolute)
-        .margin(Rect {
-            top: auto(),
-            right: auto(),
-            bottom: auto(),
-            left: px(20.0),
-        })
-        .size(Size::px(50.0, 50.0))
+        .absolute()
+        .m_auto()
+        .m_l(20.0)
+        .size(50.0)
         .bg_color(rgb(100, 100, 100))
-        .border(Rect::px_all(3.0))
-        .border_color(rgb(30, 30, 30))
-        .corner_radius(CornerRadius::all(5.0))
-        // 背景色の変化に対して滑らかなトランジションを設定（150ms でEaseInOut）
-        .transition(Transition::new(
-            PropertyList::BackgroundColor,
-            std::time::Duration::from_millis(150),
-            michiu_ui::ease_in_out_quad(),
-        ))
-        .transition(Transition::new(
-            michiu_ui::prop_border_color(),
-            std::time::Duration::from_millis(150),
-            michiu_ui::ease_in_out_quad(),
-        ))
+        .rounded(5.0)
+        .box_shadow(blur(5.0).spread(1.0).color(Color::BLACK))
+        .transform(Transform::new().scale(1.0, 1.0))
+        .trans_bg_color(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
+        .trans_size(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
+        .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
+        .trans_box_shadow(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
         // 擬似クラス状態のスタイルマッピング
-        .hovered(hovered_style)
-        .pressed(ts().border_color(rgb(40, 40, 40)))
+        .hovered(
+            hovered_style
+                .size(150.0)
+                .box_shadow(blur(10.0).spread(2.0).color(Color::BLACK)),
+        )
+        .pressed(ts().transform(Transform::new().scale(0.95, 0.95)))
         .cursor(CursorIcon::Pointer);
 
     // build_ui を使って要素ツリーを宣言的に組み立て
     let root = build_ui(&mut context, || {
         // 親コンテナ（100%全画面）
-        let root_node = div(ts()
+        let root_node = v_flex(
+            ts().size_full()
+                .bg_color(rgba(34, 36, 42, 0.3))
+                .items_center()
+                .justify_center()
+                .flex_col()
+                .gap_col(15.0)
+                .backdrop_acrylic(),
+        );
+
+        let main = div(ts()
             .flex()
-            .size(Size::pct_all(1.0))
-            .bg_color(rgb(34, 36, 42))
-            .align_items(AlignItems::Center)
-            .justify_content(JustifyContent::Center)
-            .flex_direction(michiu_ui::FlexDirection::Column)
-            .gap(Size::px(0.0, 15.0)));
+            .items_center()
+            .justify_center()
+            .flex_col()
+            .size_full()
+            .m(20.0)
+            .bg_color(rgba(34, 36, 42, 0.6)));
 
         // タイトルテキスト
         let title = text("Michiu WebView2 Composition Demo").style(
@@ -364,8 +385,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         // 波括弧 `{}` による即時実行ブロックを使い、Element として作成します
-        // TODO: 影もアニメーション可能に
-        // TODO: コンテキストメニューが使えない
         let webview_element = {
             let wv = webview2(
                 WebView2Contents::new("https://www.google.com/maps")
@@ -374,34 +393,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .allow_interaction(true),
             )
             .style(
-                ts().size(Size::pct(0.8, 0.7))
-                    .corner_radius(CornerRadius::all(12.0))
-                    .transition(Transition::new(
-                        michiu_ui::prop_border_color(),
-                        std::time::Duration::from_millis(150),
-                        michiu_ui::ease_in_out_quad(),
-                    ))
-                    .focused(
-                        ts().border(Rect::all(px(2.0)))
-                            .border_color(rgb(150, 150, 150)),
-                    )
-                    .hovered(ts().box_shadow(BoxShadow {
-                        offset: LayoutPoint::ZERO,
-                        blur: 15.0,
-                        spread: 1.0,
-                        color: Color::BLACK,
-                    })),
+                ts().size((pct(80.0), pct(70.0)))
+                    .rounded(12.0)
+                    .transform(Transform::new().scale(1.0, 1.0))
+                    .trans_border_color(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
+                    .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
+                    .focused(ts().border_solid(2.0).border_color(rgb(150, 150, 150)))
+                    .pressed(ts().transform(Transform::new().scale(1.01, 1.01)))
+                    .hovered(ts().box_shadow(blur(15.0).spread(1.0).color(Color::BLACK))),
             );
 
-            // Cell::set を使用（不変参照で呼べるため、クロージャは Fn のまま安全です）
             webview_id_cell.set(Some(wv.id()));
             wv
         };
 
         // 親子関係の構築
-        root_node
-            .child(title)
-            .child(webview_element.child(div(btn_style.bg_color(Color::WHITE))))
+        root_node.child(
+            main.child(title)
+                .child(webview_element.child(div(btn_style.bg_color(Color::WHITE)))),
+        )
     });
 
     let webview_id = webview_id_cell.get().expect("WebView2 ID not assigned");

@@ -1,5 +1,8 @@
 #![allow(dead_code)]
-use crate::{BatchType, BoxSizing, DrawBatch};
+use crate::{
+    BatchType, BorderAlignment, BorderStyle, BoxSizing, COMP_INPUT_CONTENT, COMP_WEBVIEW_CONTENT,
+    DrawBatch, Length, TextSpan,
+};
 use crate::{
     COMP_TEXT_CONTENT, Color, Context, CornerRadius, EdgeInsets, EntityId, IDENTITY_MATRIX,
     LayoutRect, LayoutSize, QuadInstance, TextCacheKey, TextCacheValue, TextRasterizer,
@@ -20,6 +23,7 @@ use windows::Win32::Graphics::Direct3D11::{
     ID3D11Texture2D,
 };
 use windows::Win32::Graphics::Direct3D12::ID3D12Resource;
+use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
 use windows::Win32::Graphics::Dxgi::{
     DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE, IDXGIResource1,
@@ -75,11 +79,10 @@ impl WgpuRenderer {
         // 1. インスタンス生成（DX12を明示的に指定）
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::DX12,
-            flags: wgpu::InstanceFlags::default(),
+            flags: wgpu::InstanceFlags::empty(),
             memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
             backend_options: wgpu::BackendOptions {
                 dx12: wgpu::Dx12BackendOptions {
-                    // Dxc (最新) または Fxc (レガシー) を選択。Windows 10/11 なら Dxc 推奨
                     shader_compiler: wgpu::Dx12Compiler::default(),
                     presentation_system: wgpu::Dx12SwapchainKind::DxgiFromVisual, // // DComp用スワップチェーン
                     ..Default::default()
@@ -97,21 +100,26 @@ impl WgpuRenderer {
         // 3. アダプター（GPU）の取得
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface), // 代表として bg で適合検証
+                power_preference: wgpu::PowerPreference::default(),
+                compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
             .await
             .map_err(|_| "Failed to find an appropriate adapter")?;
 
         // 4. デバイスとキューの取得
+        let mut custom_limits = wgpu::Limits::downlevel_defaults();
+        custom_limits.max_non_sampler_bindings = 2048;
+        custom_limits.max_bind_groups = 2;
+        custom_limits.max_vertex_buffers = 2;
+        custom_limits.max_texture_dimension_2d = 8192;
+
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Michiu Renderer Device"),
                 required_features: wgpu::Features::empty(),
-                // DX12 ならば制限（Limits）は比較的一般的
-                required_limits: wgpu::Limits::default(),
-                memory_hints: wgpu::MemoryHints::default(),
+                required_limits: custom_limits,
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
                 experimental_features: wgpu::ExperimentalFeatures::default(),
                 trace: wgpu::Trace::Off,
             })
@@ -286,14 +294,14 @@ impl WgpuRenderer {
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::Zero,
-                            // アルファが 0.0 に消去される場所では、カラーも同時に 0.0 になるように
+                            // アルファが 0.0 に消去される場所ではカラーも同時に 0.0 になるように
                             // OneMinusSrcAlpha で元の背景色を減算（消去）します。
                             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                             operation: wgpu::BlendOperation::Add,
                         },
                         alpha: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::Zero,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, // アルファは SDF マスク (src) 分だけ消去
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, // アルファは SDF マスク分だけ消去
                             operation: wgpu::BlendOperation::Add,
                         },
                     }),
@@ -393,6 +401,7 @@ impl WgpuRenderer {
     }
 
     pub(crate) fn render(&mut self, cx: &Context, scale_factor: f32) {
+        let _context_guard = crate::bind_context(cx);
         // 1. 前面と背面に分類されたバッチを Context から引き出す
         let render_data = cx.collect_render_data();
         if render_data.batches.is_empty() {
@@ -429,7 +438,6 @@ impl WgpuRenderer {
         );
 
         // PASS 1: 背面 (Background) の描画実行
-
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -485,6 +493,9 @@ impl WgpuRenderer {
         }
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
+
+        // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュする
+        self.device.poll(wgpu::PollType::Poll);
     }
 
     /// ヘルパー: バッチ内に静止 WebView2 テクスチャが含まれる場合、バインドグループを動的に切り替える
@@ -545,22 +556,69 @@ impl WgpuRenderer {
             BoxSizing::ContentBox => 1.0f32,
         };
 
+        // 四辺個別長さの抽出（設定が無ければ 1.0 (100% 描画) とする）
+        let border_lengths = visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+        let styles = visual.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+        let aligns = visual
+            .border_alignments
+            .unwrap_or([BorderAlignment::Start; 4]);
+
+        let mut border_flags = 0u32;
+        for i in 0..4 {
+            let s_val = styles[i] as u32; // 0..3 (2ビット)
+            let a_val = aligns[i] as u32; // 0..2 (2ビット)
+
+            border_flags |= s_val << (i * 4); // スタイル用： bit 0, 4, 8, 12 起点
+            border_flags |= a_val << (i * 4 + 2); // アライメント用： bit 2, 6, 10, 14 起点
+        }
+
         // 影 (BoxShadow) のデータを選別して適用
-        let (shadow_color, shadow_params) = if instance.shadow_color == Color::TRANSPARENT {
-            // 背面や Punchout インスタンスなど、影の除外指示がある場合
-            (Color::TRANSPARENT, [0.0; 4])
-        } else {
-            // 前面装飾や一般UI要素など、影の描画が要求されている場合
-            match visual.box_shadow {
-                Some(shadow) => (
-                    shadow.color,
-                    [shadow.offset.x, shadow.offset.y, shadow.blur, shadow.spread],
-                ),
-                None => (Color::TRANSPARENT, [0.0; 4]),
+        // テンプレート側が影なしを指定している場合は SoA を無視して完全透明にする
+        let mut shadow_color =
+            if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
+                visual.shadow_color.unwrap_or(Color::TRANSPARENT)
+            } else {
+                Color::TRANSPARENT // テンプレートが透明を指定、または SoA に形状が無いなら影を完全無効化
+            };
+
+        // WebView2 がアクティブ（昇格表示）の時は、
+        // 透過スナップショットを突き抜けて DComp コンポジターでブレンドされるため、
+        // 影の黒さが非線形（ガンマ空間）で強調されて濃く見えてしまう。
+        // これを防ぐため、親要素に COMP_WEBVIEW_CONTENT があり、かつそれが active_webviews (準備完了) に
+        // 入っている場合は、影のアルファを 45% に補正して、静止画キャッシュ時と視覚的な濃さを統一。
+        if shadow_color != Color::TRANSPARENT {
+            let mut has_active_webview_parent = false;
+            let mut curr_id = entity_id;
+            while let Some(Some(parent_id)) = cx.parents.get(curr_id) {
+                if cx.active_masks[*parent_id].has(COMP_WEBVIEW_CONTENT)
+                    && cx.active_webviews.contains(parent_id)
+                {
+                    has_active_webview_parent = true;
+                    break;
+                }
+                curr_id = *parent_id;
             }
+
+            if has_active_webview_parent {
+                shadow_color.a *= 0.45;
+            }
+        }
+
+        // 影のパラメータ（形状）も上記カラーが透明なら 0 に落とす
+        let shadow_params = if shadow_color != Color::TRANSPARENT {
+            match visual.shadow_params {
+                Some(shadow) => [shadow.offset.x, shadow.offset.y, shadow.blur, shadow.spread],
+                None => [0.0; 4],
+            }
+        } else {
+            [0.0; 4]
         };
 
-        let mut current_mode = if visual.bg_gradient.is_some() {
+        let is_decorator = instance.opacity_mode_sizing[1] < -0.5; // mode == -1.0 なら true
+
+        let mut current_mode = if is_decorator {
+            0.0f32 // 装飾モード時は実質的なプレーンな Solid（0.0）として処理
+        } else if visual.bg_gradient.is_some() {
             1.0f32
         } else {
             0.0f32
@@ -568,43 +626,188 @@ impl WgpuRenderer {
         let mut uv_min = instance.uv_min; // collect_render_data 側での指定値を維持
         let mut uv_max = instance.uv_max;
 
+        let mut final_rect = instance.rect;
+        let mut final_color = instance.color;
+
+        if !is_decorator && cx.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
+            let spans = cx
+                .text_spans
+                .get(entity_id)
+                .map(|s| s.as_slice())
+                .unwrap_or(&[]);
+
+            let text_size = if cx.active_masks[entity_id].has(COMP_INPUT_CONTENT)
+                && let Some(contents) = cx.input_contents.get(entity_id)
+                && let Some(layout_rect) = contents.last_layout
+            {
+                LayoutSize::new(layout_rect.width, layout_rect.height)
+            } else {
+                let text = &cx.text_contents[entity_id];
+                let visual = cx
+                    .visual_properties
+                    .get(entity_id)
+                    .unwrap_or(&default_visual);
+                let layout = cx.text_engine.create_layout(
+                    text,
+                    visual.font_size.unwrap_or(16.0),
+                    visual.font_family.as_deref(),
+                    visual.font_weight,
+                    visual.font_style,
+                    None,
+                    spans,
+                );
+                cx.text_engine.get_layout_size(&layout)
+            };
+
+            let border_left = match basic.border.left {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_left = match basic.padding.left {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let border_top = match basic.border.top {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_top = match basic.padding.top {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+
+            // 完全に整数ピクセルサイズにスナップし、にじみとピクピク揺れを完全に阻止
+            final_rect = LayoutRect::new(
+                instance.rect.x + border_left + padding_left,
+                instance.rect.y + border_top + padding_top,
+                text_size.width.ceil(),
+                text_size.height.ceil(),
+            );
+        }
+
         // 静止 WebView2 キャッシュの引き当て判定
-        if let Some(_cached_view) = self.webview_static_caches.get(&entity_id) {
+        if !is_decorator && let Some(_cached_view) = self.webview_static_caches.get(&entity_id) {
             // 描画モードを 3.0f32 (静止 WebView2 サンプリング) にスイッチ
             current_mode = 3.0;
             uv_min = [0.0, 0.0];
             uv_max = [1.0, 1.0];
-        } else if cx.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
+        } else if !is_decorator && cx.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
             // テキスト要素である場合
-            let text = &cx.text_contents[entity_id];
+            let text = cx
+                .text_contents
+                .get(entity_id)
+                .cloned()
+                .unwrap_or_else(|| "".into());
+
             let font_size = cx
                 .visual_properties
                 .get(entity_id)
                 .and_then(|v| v.font_size)
                 .unwrap_or(16.0);
 
+            // IME 未確定テキストが入力中か否かを判定
+            let is_ime_active = cx
+                .input_contents
+                .get(entity_id)
+                .and_then(|c| c.ime_state.as_ref())
+                .map(|ime| !ime.composition_text.is_empty())
+                .unwrap_or(false);
+
+            let base_text_empty = cx
+                .input_contents
+                .get(entity_id)
+                .map(|c| c.text.0.get().is_empty())
+                .unwrap_or(false);
+
+            let placeholder_color = cx
+                .input_contents
+                .get(entity_id)
+                .and_then(|p| p.placeholder_color)
+                .unwrap_or(Color::rgb_f32(0.5, 0.5, 0.5));
+
+            let resolved_color = if base_text_empty && !is_ime_active {
+                // プレースホルダー時は半透明の薄いグレー
+                // 確定文字列が空、かつ IME 未変換も空の場合のみプレースホルダー色
+                placeholder_color
+            } else {
+                // 通常文字入力中はユーザー指定色、無ければ不透明白
+                cx.visual_properties
+                    .get(entity_id)
+                    .and_then(|v| v.text_color)
+                    .unwrap_or(Color::WHITE)
+            };
+
+            let mut spans = cx
+                .text_spans
+                .get(entity_id)
+                .cloned()
+                .unwrap_or_else(Vec::new);
+
+            // 選択範囲がある場合、ハイライトスパンをキャッシュ判定の前にマージ
+            if let Some(selection) = cx.text_selections.get(entity_id)
+                && selection.start < selection.end
+                && let Some(sel_text) = visual.select_text_color
+            {
+                spans.push(TextSpan {
+                    range: selection.clone(),
+                    color: Some(sel_text), // 文字色の変更がある時だけアトラス側でラスタライズ
+                    bg_color: None,        // 背景色は wgpu-Quad 側に描画させるためここでは None
+                    underline: None,
+                    ..Default::default()
+                });
+            }
+
+            // マージされたスパン全体から正確なキャッシュ用ハッシュ値を算出
+            let spans_hash = crate::hash_text_spans(&spans);
+
+            let text_clone = text.clone();
             let key = TextCacheKey {
-                text: text.to_string(),
+                text,
                 font_size_bits: font_size.to_bits(),
-                font_style: None,
-                font_family: None,
-                font_weight: None,
+                font_style: cx
+                    .visual_properties
+                    .get(entity_id)
+                    .and_then(|v| v.font_style),
+                font_family: cx
+                    .visual_properties
+                    .get(entity_id)
+                    .and_then(|f| f.font_family.clone()),
+                font_weight: cx
+                    .visual_properties
+                    .get(entity_id)
+                    .and_then(|v| v.font_weight),
+                spans_hash,
             };
 
             let uv = if let Some(cached) = self.text_cache.get(&key) {
                 (cached.uv_min, cached.uv_max)
             } else {
-                let layout = cx.text_engine.create_layout(
-                    text,
-                    font_size,
-                    key.font_family.as_deref(),
-                    key.font_weight,
-                    key.font_style,
-                    None,
-                );
+                let layout = cx
+                    .get_or_create_layout(entity_id)
+                    .expect("Layout cache must be populated at render time");
+
+                let mut spans = cx
+                    .text_spans
+                    .get(entity_id)
+                    .cloned()
+                    .unwrap_or_else(Vec::new);
+
+                // 選択範囲が存在する場合、カラーハイライト用の TextSpan を動的にマージ
+                if let Some(selection) = cx.text_selections.get(entity_id)
+                    && selection.start < selection.end
+                    && let Some(sel_text) = visual.select_text_color
+                {
+                    spans.push(TextSpan {
+                        range: selection.clone(),
+                        color: Some(sel_text),
+                        bg_color: None,
+                        underline: None,
+                        ..Default::default()
+                    });
+                }
 
                 let size = cx.text_engine.get_layout_size(&layout);
-                let pixels = self.text_rasterizer.rasterize(&layout, size);
+                let pixels = self.text_rasterizer.rasterize(&layout, size, &spans);
 
                 let width = size.width.ceil() as u32;
                 let height = size.height.ceil() as u32;
@@ -648,19 +851,28 @@ impl WgpuRenderer {
             current_mode = 2.0; // テキストモード（2.0f32）
             uv_min = uv.0;
             uv_max = uv.1;
+
+            final_color = resolved_color;
         }
+
+        let full_transform = visual.transform.unwrap_or(IDENTITY_MATRIX);
+        let packed_transform = [
+            full_transform[0], // X軸基底
+            full_transform[1], // Y軸基底
+            full_transform[3], // 平行移動部
+        ];
 
         // 完全に 16B 境界にアラインされたインスタンス構造体をビルド
         QuadInstance {
-            rect: instance.rect,
-            transform: visual.transform.unwrap_or(IDENTITY_MATRIX),
+            rect: final_rect,
+            transform: packed_transform,
             transform_origin: origin,
-            color: instance.color,
+            color: final_color,
             corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
             border_width: instance.border_width,
             border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-            // 【パック】[opacity, mode, 0.0, 0.0] の 16B 転送
-            opacity_mode_sizing: [opacity, current_mode, box_sizing_val, 0.0],
+            border_lengths,
+            opacity_mode_sizing: [opacity, current_mode, box_sizing_val, border_flags as f32],
             uv_min,
             uv_max,
             gradient_end_color: instance.gradient_end_color,
@@ -740,14 +952,14 @@ mod tests {
         let font_size = 24.0;
 
         // 1. テキストの計測を検証
-        let size = engine.measure_text(sample_text, font_size, None, None, None, None);
+        let size = engine.measure_text(sample_text, font_size, None, None, None, None, &[]);
         assert!(size.width > 0.0);
         assert!(size.height > 0.0);
 
         // 2. ラスタライズの実行を検証
-        let layout = engine.create_layout(sample_text, font_size, None, None, None, None);
+        let layout = engine.create_layout(sample_text, font_size, None, None, None, None, &[]);
         let size = engine.get_layout_size(&layout);
-        let pixels = rasterizer.rasterize(&layout, size);
+        let pixels = rasterizer.rasterize(&layout, size, &[]);
 
         // ピクセルバッファのサイズが正しく RGBA8 (width * height * 4) になっているか検証
         let expected_width = (size.width.ceil() as u32).max(1);

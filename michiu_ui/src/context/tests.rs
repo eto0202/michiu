@@ -1,6 +1,13 @@
 use super::*;
 use crate::{
-    AlignContent, AlignItems, AlignSelf, BasicLayout, BoxShadow, BoxSizing, Clear, Color, CornerRadius, CursorIcon, Direction, Display, Element, ElementState, EventListeners, FlexDirection, FlexLayout, FlexWrap, Float, GridAutoFlow, GridLayout, GridLine, GridPlacement, ImageSource, ImeState, InteractionStates, InteractionStyles, JustifyContent, LayoutOverflow, LayoutPoint, LayoutRect, LayoutSize, Length, Modifiers, MouseButton, MovieProperty, MovieSource, Overflow, Point, Position, Rect, Size, StyleInner, TextAlign, ThisStyle, UiaValue, Val, VirtualKey, VisualProperty, auto, bitmap::*, build_ui, create_effect, create_signal, div, div_n, px, with_context
+    AlignContent, AlignItems, AlignSelf, BasicLayout, BoxShadow, BoxSizing, Color, CornerRadius,
+    CursorIcon, Direction, Display, Element, ElementState, EventListeners, FlexDirection,
+    FlexLayout, FlexWrap, GridAutoFlow, GridLayout, GridLine, GridPlacement, ImageSource, ImeState,
+    InteractionStates, InteractionStyles, JustifyContent, LayoutOverflow, LayoutPoint, LayoutRect,
+    LayoutSize, Length, Modifiers, MouseButton, MovieProperty, MovieSource, Overflow, Point,
+    Position, Rect, Size, StyleInner, TextAlign, ThisStyle, UiaValue, Val, VirtualKey,
+    VisualProperty, auto, bitmap::*, build_ui, create_effect, create_signal, div, div_n, px,
+    with_context,
 };
 use std::{
     sync::{
@@ -98,7 +105,7 @@ fn test_dfs_layout_resolution_clip_and_scroll() {
     cx.basic_layouts.insert(
         root,
         BasicLayout {
-            size: Size::px(200.0, 200.0),
+            size: Size::new(Val::Px(200.0), Val::Px(200.0)),
             ..BasicLayout::default()
         },
     );
@@ -109,8 +116,8 @@ fn test_dfs_layout_resolution_clip_and_scroll() {
         child,
         BasicLayout {
             position: Position::Absolute,
-            inset: Rect::new(px(50.0), auto(), auto(), px(50.0)),
-            size: Size::px(100.0, 100.0),
+            inset: Rect::new(Val::Px(50.0), Val::Auto, Val::Auto, Val::Px(50.0)),
+            size: Size::new(Val::Px(100.0), Val::Px(100.0)),
             ..BasicLayout::default()
         },
     );
@@ -160,7 +167,7 @@ fn test_hit_testing_with_clipping() {
     cx.basic_layouts.insert(
         root,
         BasicLayout {
-            size: Size::px(200.0, 200.0),
+            size: Size::new(Val::Px(200.0), Val::Px(200.0)),
             ..BasicLayout::default()
         },
     );
@@ -171,7 +178,7 @@ fn test_hit_testing_with_clipping() {
         BasicLayout {
             position: Position::Absolute,
             inset: Rect::new(Val::Auto, Val::Px(50.0), Val::Auto, Val::Px(50.0)),
-            size: Size::px(100.0, 100.0),
+            size: Size::new(Val::Px(100.0), Val::Px(100.0)),
             ..BasicLayout::default()
         },
     );
@@ -205,7 +212,7 @@ fn test_style_cascade_overrides() {
     let id = cx.spawn(None);
 
     let mut base_layout = BasicLayout {
-        size: Size::px(10.0, 10.0),
+        size: Size::new(Val::Px(10.0), Val::Px(10.0)),
         ..Default::default()
     };
     cx.basic_layouts.insert(id, base_layout);
@@ -215,7 +222,7 @@ fn test_style_cascade_overrides() {
     hovered_style.inner = Arc::new(StyleInner {
         mask: ComponentMask::new(STYLE_SIZE),
         basic_layout: BasicLayout {
-            size: Size::px(50.0, 50.0),
+            size: Size::new(Val::Px(50.0), Val::Px(50.0)),
             ..Default::default()
         },
         ..Default::default()
@@ -225,7 +232,7 @@ fn test_style_cascade_overrides() {
     disabled_style.inner = Arc::new(StyleInner {
         mask: ComponentMask::new(STYLE_SIZE),
         basic_layout: BasicLayout {
-            size: Size::px(100.0, 100.0),
+            size: Size::new(Val::Px(100.0), Val::Px(100.0)),
             ..Default::default()
         },
         ..Default::default()
@@ -263,7 +270,7 @@ fn test_pointer_and_focus_event_injection() {
     cx.basic_layouts.insert(
         super_root,
         BasicLayout {
-            size: Size::px(800.0, 600.0),
+            size: Size::new(Val::Px(800.0), Val::Px(600.0)),
             ..BasicLayout::default()
         },
     );
@@ -275,7 +282,7 @@ fn test_pointer_and_focus_event_injection() {
         BasicLayout {
             position: Position::Absolute,
             inset: Rect::new(Val::Px(50.0), Val::Auto, Val::Auto, Val::Px(50.0)),
-            size: Size::px(100.0, 100.0),
+            size: Size::new(Val::Px(100.0), Val::Px(100.0)),
             ..BasicLayout::default()
         },
     );
@@ -361,7 +368,7 @@ fn test_pointer_button_click_and_right_click() {
     cx.basic_layouts.insert(
         super_root,
         BasicLayout {
-            size: Size::px(800.0, 600.0),
+            size: Size::new(Val::Px(800.0), Val::Px(600.0)),
             ..BasicLayout::default()
         },
     );
@@ -372,7 +379,7 @@ fn test_pointer_button_click_and_right_click() {
         BasicLayout {
             position: Position::Absolute,
             inset: Rect::new(Val::Auto, Val::Px(0.0), Val::Auto, Val::Px(0.0)),
-            size: Size::px(100.0, 100.0),
+            size: Size::new(Val::Px(100.0), Val::Px(100.0)),
             ..BasicLayout::default()
         },
     );
@@ -383,7 +390,7 @@ fn test_pointer_button_click_and_right_click() {
         BasicLayout {
             position: Position::Absolute,
             inset: Rect::new(Val::Auto, Val::Px(0.0), Val::Auto, Val::Px(100.0)),
-            size: Size::px(100.0, 100.0),
+            size: Size::new(Val::Px(100.0), Val::Px(100.0)),
             ..BasicLayout::default()
         },
     );
@@ -778,18 +785,25 @@ fn test_single_and_global_mutation_performance() {
                 x: Overflow::Scroll,
                 y: Overflow::Scroll,
             };
-            layout.scrollbar_width = 15.0;
-            layout.float = Float::Left;
-            layout.clear = Clear::Both;
             layout.position = Position::Absolute;
-            layout.inset = Rect::px_all(10.0);
-            layout.size = Size::px(200.0, 200.0);
-            layout.min_size = Size::px(50.0, 50.0);
-            layout.max_size = Size::px(500.0, 500.0);
+            layout.inset = Rect::new(Val::Px(10.0), Val::Px(10.0), Val::Px(10.0), Val::Px(10.0));
+            layout.size = Size::new(Val::Px(200.0), Val::Px(200.0));
+            layout.min_size = Size::new(Val::Px(50.0), Val::Px(50.0));
+            layout.max_size = Size::new(Val::Px(500.0), Val::Px(500.0));
             layout.aspect_ratio = Some(1.5);
-            layout.margin = Rect::px_all(5.0);
-            layout.padding = Rect::px_all(10.0);
-            layout.border = Rect::px_all(2.0);
+            layout.margin = Rect::new(Val::Px(5.0), Val::Px(5.0), Val::Px(5.0), Val::Px(5.0));
+            layout.padding = Rect::new(
+                Length::Px(10.0),
+                Length::Px(10.0),
+                Length::Px(10.0),
+                Length::Px(10.0),
+            );
+            layout.border = Rect::new(
+                Length::Px(2.0),
+                Length::Px(2.0),
+                Length::Px(2.0),
+                Length::Px(2.0),
+            );
         }
 
         // --- 3. Flexレイアウトプロパティ (FlexLayout 全13プロパティ) の同時更新・確保 ---
@@ -800,7 +814,7 @@ fn test_single_and_global_mutation_performance() {
         flex.justify_self = Some(AlignSelf::Baseline);
         flex.align_content = Some(AlignContent::SpaceBetween);
         flex.justify_content = Some(JustifyContent::SpaceAround);
-        flex.gap = Size::px(10.0, 10.0);
+        flex.gap = Size::new(Val::Px(10.0), Val::Px(10.0));
         flex.text_align = TextAlign::Center;
         flex.flex_direction = FlexDirection::Column;
         flex.flex_wrap = FlexWrap::Wrap;
@@ -815,13 +829,12 @@ fn test_single_and_global_mutation_performance() {
         visual.border_color = Some(Color::rgb_f32(1.0, 1.0, 1.0));
         visual.corner_radius = Some(CornerRadius::all(15.0));
         visual.opacity = Some(0.8);
-        visual.box_shadow = Some(BoxShadow {
+        visual.shadow_params = Some(BoxShadow {
             offset: LayoutPoint::new(2.0, 2.0),
             blur: 5.0,
             spread: 1.0,
             color: Color::rgb_f32(0.0, 0.0, 0.0),
         });
-        visual.clip_path = Some(std::borrow::Cow::Borrowed("M 0 0 L 100 0 L 100 100 Z"));
         visual.transform = Some([
             [1.0, 0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0, 0.0],
@@ -830,7 +843,6 @@ fn test_single_and_global_mutation_performance() {
         ]);
         visual.z_index = Some(99);
         visual.cursor = Some(CursorIcon::Pointer);
-        visual.filter = Some(std::borrow::Cow::Borrowed("blur(5px)"));
         visual.text_color = Some(Color::rgb_f32(1.0, 0.0, 0.0));
         visual.font_size = Some(18.0);
         cx.visual_properties.insert(id, visual);
@@ -887,14 +899,14 @@ fn test_realistic_app_lifecycle_performance() {
                 .flex_direction(FlexDirection::Column),
         );
 
-        let mut header = div_n().style(ThisStyle::new().size(Size::px(1920.0, 60.0)));
+        let mut header = div_n().style(ThisStyle::new().size((1920.0, 60.0)));
         for _ in 0..19 {
             header = header.child(div_n());
         }
         root = root.child(header);
 
         let mut main = div_n().style(ThisStyle::new().flex_direction(FlexDirection::Row));
-        let mut sidebar = div_n().style(ThisStyle::new().size(Size::px(250.0, 1020.0)));
+        let mut sidebar = div_n().style(ThisStyle::new().size((250.0, 1020.0)));
         for _ in 0..49 {
             sidebar = sidebar.child(div_n());
         }

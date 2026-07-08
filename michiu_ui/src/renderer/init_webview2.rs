@@ -138,8 +138,7 @@ pub(crate) unsafe fn init_webview2_composition(
         return Ok(());
     }
 
-    // 万が一初期起動時（env_slot がまだロード途中）の場合のフォールバック
-    // こちらも同様に非同期コールバックのみで繋ぐように修正します
+    // 初期起動時（env_slot がまだロード途中）の場合のフォールバック
     let env_slot_clone = env_slot.clone();
     let handler = webview2_com::CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(
         move |res, environment: Option<ICoreWebView2Environment>| {

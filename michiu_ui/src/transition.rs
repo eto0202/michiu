@@ -1,4 +1,4 @@
-use crate::{AnimationCurve, Color, CornerRadius, PlaybackCount, PropertyList};
+use crate::{AnimationCurve, BoxShadow, Color, CornerRadius, LayoutPoint, PlaybackCount, PropertyList};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -9,6 +9,7 @@ pub(crate) enum TransitionValue {
     CornerRadius(CornerRadius),
     Width(f32),
     Height(f32),
+    BoxShadow(BoxShadow),
 }
 
 impl TransitionValue {
@@ -70,6 +71,22 @@ impl TransitionValue {
             (TransitionValue::Height(s), TransitionValue::Height(e)) => {
                 TransitionValue::Height(s + (e - s) * t)
             }
+            (TransitionValue::BoxShadow(s), TransitionValue::BoxShadow(e)) => {
+                TransitionValue::BoxShadow(BoxShadow {
+                    offset: LayoutPoint {
+                        x: s.offset.x + (e.offset.x - s.offset.x) * t,
+                        y: s.offset.y + (e.offset.y - s.offset.y) * t,
+                    },
+                    blur: s.blur + (e.blur - s.blur) * t,
+                    spread: s.spread + (e.spread - s.spread) * t,
+                    color: Color {
+                        r: s.color.r + (e.color.r - s.color.r) * t,
+                        g: s.color.g + (e.color.g - s.color.g) * t,
+                        b: s.color.b + (e.color.b - s.color.b) * t,
+                        a: s.color.a + (e.color.a - s.color.a) * t,
+                    },
+                })
+            }
             _ => *self, // 型不一致の場合は遷移せずに自己を返す
         }
     }
@@ -79,7 +96,7 @@ impl TransitionValue {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ActiveTransition {
     pub(crate) property_list: PropertyList,
-    pub(crate) start_time: Instant,
+    pub(crate) start_time: Option<Instant>,
     pub(crate) duration: Duration,
     pub(crate) curve: AnimationCurve,
     pub(crate) start_value: TransitionValue,
@@ -201,9 +218,9 @@ mod tests {
                 .opacity(1.0)
                 // 背景色は 1秒 (1000ms) で EaseInOutQuad トランジション
                 .transition(Transition::new(
-                    prop_bg_color(),
+                    PropertyList::BackgroundColor,
                     Duration::from_millis(1000),
-                    ease_in_out_quad(),
+                    AnimationCurve::EaseInOutQuad,
                 ))
                 .hovered(h_style));
 
@@ -237,7 +254,7 @@ mod tests {
         // 2. 時間を擬似的に進める (500ms 経過状態を作る)
         if let Some(list) = cx.active_transitions.get_mut(el.id) {
             for t in list.iter_mut() {
-                t.start_time = Instant::now() - Duration::from_millis(500);
+                t.start_time = Some(Instant::now() - Duration::from_millis(500));
             }
         }
 
@@ -261,7 +278,7 @@ mod tests {
         // 3. さらに時間を進めて完了させる (1200ms 経過状態を作る)
         if let Some(list) = cx.active_transitions.get_mut(el.id) {
             for t in list.iter_mut() {
-                t.start_time = Instant::now() - Duration::from_millis(1200);
+                t.start_time = Some(Instant::now() - Duration::from_millis(1200));
             }
         }
 
@@ -290,9 +307,9 @@ mod tests {
             let base = div(ts()
                 .bg_color(Color::rgb_f32(1.0, 0.0, 0.0)) // 初期は赤
                 .transition(Transition::new(
-                    prop_bg_color(),
+                    PropertyList::BackgroundColor,
                     Duration::from_millis(1000),
-                    linear(), // 線形変化
+                    AnimationCurve::Linear, // 線形変化
                 ))
                 .hovered(h_style));
 
@@ -313,7 +330,7 @@ mod tests {
         // 300ms (30%) 経過させる
         if let Some(list) = cx.active_transitions.get_mut(el.id) {
             for t in list.iter_mut() {
-                t.start_time = Instant::now() - Duration::from_millis(300);
+                t.start_time = Some(Instant::now() - Duration::from_millis(300));
             }
         }
         cx.tick_transitions();

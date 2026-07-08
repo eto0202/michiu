@@ -110,6 +110,13 @@ unsafe fn process_captured_stream(
         }
 
         let size = GlobalSize(hglobal);
+
+        // 正常な PNG ファイルとして不十分なサイズの場合は即座にエラーとする
+        if size < 128 {
+            let _ = GlobalUnlock(hglobal);
+            return Err("Captured stream contains insufficient PNG data".into());
+        }
+
         let png_bytes = std::slice::from_raw_parts(data_ptr as *const u8, size);
 
         // 1. wgpu 内にすでに定義されている WIC ファクトリ（IWICImagingFactory）を利用

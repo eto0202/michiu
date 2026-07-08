@@ -1,5 +1,5 @@
 use michiu_ui::{
-    ComposedRenderer, Element, ElementState, EntityId, Modifiers, MouseButton, prelude::*,
+    ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, Point, prelude::*,
 };
 use std::time::Duration;
 use windows::{
@@ -107,7 +107,6 @@ unsafe extern "system" fn wnd_proc(
 
                 // 描画実行
                 app.renderer.draw(&app.context);
-                app.context.clear_layout_dirty();
                 app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
@@ -201,88 +200,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         RegisterClassW(&wnd_class);
     }
 
-    // 3. UI コンテキストの構築と静的テキスト要素の定義
     let mut context = Context::new();
-    let (count, set_count) = context.create_signal(0u32);
+    let (menu_open, set_menu_open) = context.create_signal(false);
 
-    let font_style = ts()
-        .font_size(24.0)
-        .text_color(Color::WHITE)
-        .font_family("Segoe UI")
-        .pointer_events_none();
-
-    // 共通のボタン基本スタイル
-    let button_style = ts()
-        .size((200.0, 130.0))
-        .transform(Transform::new().scale(1.0, 1.0))
-        .bg_color(hsl(0.0, 0.0, 0.1))
-        .border_solid(10.0)
-        .border_color(hex(0x323232))
-        .box_shadow(blur(8.0).color(Color::BLACK).offset(0.0).spread(2.0))
-        .items_center()
-        .justify_center()
-        .rounded(12.0)
-        .trans_bg_color(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-        .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-        .trans_box_shadow(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-        .hovered(
-            ts().bg_color(rgb(100, 100, 100))
-                .transform(Transform::new().scale(1.05, 1.05))
-                .box_shadow(blur(12.0).color(Color::BLACK).offset(0.0).spread(2.0)),
-        )
-        .pressed(ts().transform(Transform::new().scale(1.02, 1.02)))
-        .cursor(CursorIcon::Pointer);
-
-    // build_ui を使って要素ツリーを宣言的に組み立て
     let root = build_ui(&mut context, || {
-        // ボタン 1 (Signal リアクティブ更新)
-        let btn1 = v_flex(&button_style)
-            .on_click(move || {
-                set_count.set(count.get() + 1);
-            })
-            .child(text(move || format!("Signal: {}", count.get())).style(&font_style));
-
-        // ボタン 2 (set_contents による自己破壊的・直接的なコンテンツ差し替え更新)
-        let font_style_clone = font_style.clone();
-        let btn2 = v_flex(&button_style);
-        let mut static_count = 0u32;
-        let btn2 = btn2
-            .child(text(format!("Static: {}", static_count)).style(&font_style))
-            .on_click(move || {
-                static_count += 1;
-                // btn2 を用いて子要素を直接新しいテキスト要素へ差し替え
-                btn2.set_contents(
-                    text(format!("Static: {}", static_count)).style(&font_style_clone),
-                );
-            });
-
-        let mut static2_count = 0u32;
-        let btn3 = v_flex(&button_style)
-            .child(text(format!("Static 2: {}", static2_count)).style(&font_style))
-            .on_click_with(move |cx| {
-                static2_count += 1;
-
-                // イベント発生時に、コンテキストから現在クリックされた自分自身の Element を特定
-                let self_id = cx.entity_id_pressed().unwrap();
-                let self_element = Element::from_id(self_id);
-
-                // 特定した自分自身に対して子要素を差し替え
-                self_element
-                    .set_contents(text(format!("Static 2: {}", static2_count)).style(&font_style));
-            });
-
-        // 親コンテナ（100%全画面、横並び配置に設定）
-        h_flex(
-            ts().size_full()
-                .bg_color(rgba(25, 25, 25, 0.4))
-                .items_center()
-                .justify_center()
-                .gap_col(30.0)
-                .backdrop_acrylic(),
+        let menu_trigger = div(ts()
+            .p(10.0)
+            .r(3.0)
+            .bg_color(hsl(0.0, 0.0, 0.2))
+            .pressed(ts().transform_scale(1.05, 1.05))
+            .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad))
+        .label(
+            menu_open.get_else("Close", "Open"),
+            menu_open.get_else(ts().text_color(Color::RED), ts().text_color(Color::WHITE)),
         )
-        .child(btn1)
-        .child(btn2)
-        .child(btn3)
+        .on_click(move || {
+            set_menu_open.set(!menu_open.get());
+        });
+
+        let menu_item = ts()
+            .text_color(Color::WHITE)
+            .p((10.0, 30.0))
+            .hovered(ts().bg_color(hsl(0.0, 0.0, 0.27)));
+
+        let menu_dropdown = v_flex(move || {
+            let base_style = ts()
+                .absolute()
+                .top(45.0)
+                .left(0.0)
+                .z_1()
+                .bg_color(hsl(0.0, 0.0, 0.2))
+                .r(3.0)
+                .transform_origin(Point::new(0.5, 0.0))
+                .trans_transform(Duration::from_millis(100), AnimationCurve::EaseInOutQuad)
+                .trans_opacity(Duration::from_millis(150), AnimationCurve::EaseOutQuad);
+
+            if menu_open.get() {
+                base_style.transform(Transform::new())
+            } else {
+                base_style
+                    .hidden()
+                    .opacity_0()
+                    .transform_translate(0.0, -30.0)
+                    .transform_scale(1.0, 0.8)
+                    .pointer_events_none()
+            }
+        })
+        .children([
+            div(menu_item.clone().rounded_top(3.0)).label("Item 1", None),
+            div(None).style(&menu_item).label("Item 2", None),
+            div_n().text("Item 3").style(&menu_item),
+            text("Item 4").style(&menu_item),
+            text("Item 5").style(menu_item.clone().rounded_bottom(3.0)),
+        ]);
+
+        v_flex(
+            ts().size_full()
+                .gap(10.0)
+                .bg_color(hsl(0.0, 0.0, 0.1))
+                .items_center()
+                .justify_center(),
+        )
+        .child(menu_trigger.child(menu_dropdown))
+        .child(div(ts()
+            .size((200.0, 100.0))
+            .bg_color(hsl(0.0, 0.0, 0.4))
+            .r(3.0)
+            .pressed(ts().bg_color(hsl(0.0, 0.0, 0.5)))))
     });
 
     // 4. アプリケーション状態をヒープ上に準備

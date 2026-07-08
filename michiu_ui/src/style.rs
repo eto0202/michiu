@@ -1,9 +1,11 @@
 use crate::{
-    AlignContent, AlignItems, AlignSelf, BasicLayout, BoxShadow, BoxSizing, Clear, Color,
-    CornerRadius, CursorIcon, Direction, Display, FlexDirection, FlexLayout, FlexWrap, Float,
-    FromPercent, GridAutoFlow, GridLayout, GridLine, GridPlacement, InteractionStyles,
-    JustifyContent, LayoutOverflow, Length, LinearGradient, Point, Position, Rect, Size, TextAlign,
-    Transform, Transition, Val, VisualProperty, bitmap::*,
+    AlignContent, AlignItems, AlignSelf, Backdrop, BasicLayout, BorderAlignment, BorderStyle,
+    BoxShadow, BoxSizing, Color, Convert, CornerRadius, CursorIcon, Direction, Display, EdgeInsets,
+    FlexDirection, FlexLayout, FlexWrap, GridAutoFlow, GridLayout, GridLine, GridPlacement,
+    InteractionName, InteractionStyles, IntoCornerRadius, IntoRect, IntoSize, JustifyContent,
+    LayoutOverflow, Length, LinearGradient, Overflow, Point, PointerEvents, Position,
+    ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TextAlign, Transform, Transition, UserSelect,
+    Val, VisualProperty, auto, bitmap::*, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -23,6 +25,7 @@ pub(crate) struct StyleInner {
     pub(crate) grid_layout: Option<GridLayout>,
     pub(crate) visual_property: VisualProperty,
     pub(crate) interaction_styles: InteractionStyles,
+    pub(crate) scrollbar_style: Option<ScrollbarStyle>,
 }
 
 // Debug トレイトの手動実装 (クロージャを含むため)
@@ -60,35 +63,23 @@ impl ThisStyle {
     }
 
     #[inline]
-    pub fn hidden(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.display = Display::None;
-        inner.mask.set(STYLE_DISPLAY);
-        self
+    pub fn hidden(self) -> Self {
+        self.display(Display::None)
     }
 
     #[inline]
-    pub fn flex(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.display = Display::Flex;
-        inner.mask.set(STYLE_DISPLAY);
-        self
+    pub fn flex(self) -> Self {
+        self.display(Display::Flex)
     }
 
     #[inline]
-    pub fn grid(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.display = Display::Grid;
-        inner.mask.set(STYLE_DISPLAY);
-        self
+    pub fn grid(self) -> Self {
+        self.display(Display::Grid)
     }
 
     #[inline]
-    pub fn block(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.display = Display::Block;
-        inner.mask.set(STYLE_DISPLAY);
-        self
+    pub fn block(self) -> Self {
+        self.display(Display::Block)
     }
 
     /// 要素がテーブルアイテムとして振る舞うかどうかを設定します。
@@ -119,19 +110,13 @@ impl ThisStyle {
     }
 
     #[inline]
-    pub fn box_border(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.box_sizing = BoxSizing::BorderBox;
-        inner.mask.set(STYLE_BOX_SIZING);
-        self
+    pub fn box_border(self) -> Self {
+        self.box_sizing(BoxSizing::BorderBox)
     }
 
     #[inline]
-    pub fn box_content(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.box_sizing = BoxSizing::ContentBox;
-        inner.mask.set(STYLE_BOX_SIZING);
-        self
+    pub fn box_content(self) -> Self {
+        self.box_sizing(BoxSizing::ContentBox)
     }
 
     /// テキストや要素のインライン方向（Direction）を設定します。
@@ -140,6 +125,94 @@ impl ThisStyle {
         let inner = Arc::make_mut(&mut self.inner);
         inner.basic_layout.direction = value;
         inner.mask.set(STYLE_DIRECTION);
+        self
+    }
+
+    /// スクロールバーのスタイル（太さ、トラック、サム、および疑似クラス）を登録します。
+    #[inline]
+    pub fn scrollbar(mut self, style: ScrollbarStyle) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.scrollbar_style = Some(style);
+        inner.mask.set(STYLE_SCROLLBAR);
+        self
+    }
+
+    /// スクロールバーの太さ（物理幅/高さ）を直接指定します。
+    #[inline]
+    pub fn scrollbar_width(mut self, width: f32) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let sb = inner
+            .scrollbar_style
+            .get_or_insert_with(ScrollbarStyle::default);
+        sb.width = width;
+        inner.mask.set(STYLE_SCROLLBAR);
+        self
+    }
+
+    /// スクロールバーの表示条件（None / Always / Auto）を直接指定します。
+    #[inline]
+    pub fn scrollbar_display(mut self, display: ScrollbarDisplay) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let sb = inner
+            .scrollbar_style
+            .get_or_insert_with(ScrollbarStyle::default);
+        sb.display = display;
+        inner.mask.set(STYLE_SCROLLBAR);
+        self
+    }
+
+    #[inline]
+    pub fn scrollbar_auto(self) -> Self {
+        self.scrollbar_display(ScrollbarDisplay::Auto)
+    }
+
+    #[inline]
+    pub fn scrollbar_none(self) -> Self {
+        self.scrollbar_display(ScrollbarDisplay::None)
+    }
+
+    #[inline]
+    pub fn scrollbar_always(self) -> Self {
+        self.scrollbar_display(ScrollbarDisplay::Always)
+    }
+    #[inline]
+    pub fn scrollbar_transient(self) -> Self {
+        self.scrollbar_display(ScrollbarDisplay::Transient)
+    }
+
+    /// スクロールバーの配置モード（Layout: コンテンツ縮小 / Overlay: 前面重ね）を直接指定します。
+    #[inline]
+    pub fn scrollbar_mode(mut self, mode: ScrollbarMode) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let sb = inner
+            .scrollbar_style
+            .get_or_insert_with(ScrollbarStyle::default);
+        sb.mode = mode;
+        inner.mask.set(STYLE_SCROLLBAR);
+        self
+    }
+
+    /// スクロールバーのレール（トラック背景）部分の装飾スタイルを直接指定します。
+    #[inline]
+    pub fn scrollbar_track(mut self, style: ThisStyle) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let sb = inner
+            .scrollbar_style
+            .get_or_insert_with(ScrollbarStyle::default);
+        sb.track = Some(style);
+        inner.mask.set(STYLE_SCROLLBAR);
+        self
+    }
+
+    /// スクロールバーのつまみ（サム）部分の装飾スタイルを直接指定します。
+    #[inline]
+    pub fn scrollbar_thumb(mut self, style: ThisStyle) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let sb = inner
+            .scrollbar_style
+            .get_or_insert_with(ScrollbarStyle::default);
+        sb.thumb = Some(style);
+        inner.mask.set(STYLE_SCROLLBAR);
         self
     }
 
@@ -152,30 +225,99 @@ impl ThisStyle {
         self
     }
 
-    /// スクロールバーの幅を物理的なピクセル数などで設定します。
     #[inline]
-    pub fn scrollbar_width(mut self, value: f32) -> Self {
+    pub fn overflow_auto(self) -> Self {
+        self.overflow(LayoutOverflow {
+            x: Overflow::Visible,
+            y: Overflow::Visible,
+        })
+    }
+
+    #[inline]
+    pub fn overflow_hidden(self) -> Self {
+        self.overflow(LayoutOverflow {
+            x: Overflow::Hidden,
+            y: Overflow::Hidden,
+        })
+    }
+
+    #[inline]
+    pub fn overflow_scroll(self) -> Self {
+        self.overflow(LayoutOverflow {
+            x: Overflow::Scroll,
+            y: Overflow::Scroll,
+        })
+    }
+
+    #[inline]
+    pub fn overflow_clip(self) -> Self {
+        self.overflow(LayoutOverflow {
+            x: Overflow::Clip,
+            y: Overflow::Clip,
+        })
+    }
+
+    #[inline]
+    pub fn overflow_x_auto(mut self) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.scrollbar_width = value;
-        inner.mask.set(STYLE_SCROLLBAR_WIDTH);
+        inner.basic_layout.overflow.x = Overflow::Visible;
+        inner.mask.set(STYLE_OVERFLOW);
         self
     }
 
-    /// 要素を左右のどちらに回り込ませるか（Float）を設定します。
     #[inline]
-    pub fn float(mut self, value: Float) -> Self {
+    pub fn overflow_x_hidden(mut self) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.float = value;
-        inner.mask.set(STYLE_FLOAT);
+        inner.basic_layout.overflow.x = Overflow::Hidden;
+        inner.mask.set(STYLE_OVERFLOW);
         self
     }
 
-    /// 回り込み（Float）を解除するかどうか（Clear）を設定します。
     #[inline]
-    pub fn clear(mut self, value: Clear) -> Self {
+    pub fn overflow_x_scroll(mut self) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.clear = value;
-        inner.mask.set(STYLE_CLEAR);
+        inner.basic_layout.overflow.x = Overflow::Scroll;
+        inner.mask.set(STYLE_OVERFLOW);
+        self
+    }
+
+    #[inline]
+    pub fn overflow_x_clip(mut self) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.basic_layout.overflow.x = Overflow::Clip;
+        inner.mask.set(STYLE_OVERFLOW);
+        self
+    }
+
+    #[inline]
+    pub fn overflow_y_auto(mut self) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.basic_layout.overflow.y = Overflow::Visible;
+        inner.mask.set(STYLE_OVERFLOW);
+        self
+    }
+
+    #[inline]
+    pub fn overflow_y_hidden(mut self) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.basic_layout.overflow.y = Overflow::Hidden;
+        inner.mask.set(STYLE_OVERFLOW);
+        self
+    }
+
+    #[inline]
+    pub fn overflow_y_scroll(mut self) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.basic_layout.overflow.y = Overflow::Scroll;
+        inner.mask.set(STYLE_OVERFLOW);
+        self
+    }
+
+    #[inline]
+    pub fn overflow_y_clip(mut self) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.basic_layout.overflow.y = Overflow::Clip;
+        inner.mask.set(STYLE_OVERFLOW);
         self
     }
 
@@ -188,76 +330,535 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn absolute(self) -> Self {
+        self.position(Position::Absolute)
+    }
+
+    #[inline]
+    pub fn relative(self) -> Self {
+        self.position(Position::Relative)
+    }
+
     /// 要素の配置インセット（inset：top, right, bottom, left）を設定します。
     #[inline]
-    pub fn inset(mut self, value: Rect<Val>) -> Self {
+    pub fn inset(mut self, value: impl IntoRect<Val>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.inset = value;
+        inner.basic_layout.inset = value.into_rect();
         inner.mask.set(STYLE_INSET);
         self
     }
 
+    /// 要素を絶対配置 (Position::Absolute) に設定し、同時に配置インセットを設定します。
+    #[inline]
+    pub fn absolute_inset(self, value: impl IntoRect<Val>) -> Self {
+        self.position(Position::Absolute).inset(value)
+    }
+
+    /// 左右の配置インセット（left, right）を一括設定します。
+    #[inline]
+    pub fn inset_x(self, value: impl IntoSize<Val>) -> Self {
+        let size = value.into_size();
+        let current_top = self.inner.basic_layout.inset.top;
+        let current_bottom = self.inner.basic_layout.inset.bottom;
+        self.inset((current_top, size.width, current_bottom, size.height))
+    }
+
+    /// 上下の配置インセット（top, bottom）を一括設定します。
+    #[inline]
+    pub fn inset_y(self, value: impl IntoSize<Val>) -> Self {
+        let size = value.into_size();
+        let current_left = self.inner.basic_layout.inset.left;
+        let current_right = self.inner.basic_layout.inset.right;
+        self.inset((size.width, current_right, size.height, current_left))
+    }
+
+    #[inline]
+    pub fn top(self, value: impl Convert<Val>) -> Self {
+        let current = self.inner.basic_layout.inset;
+        self.inset((value.convert(), current.right, current.bottom, current.left))
+    }
+
+    #[inline]
+    pub fn right(self, value: impl Convert<Val>) -> Self {
+        let current = self.inner.basic_layout.inset;
+        self.inset((current.top, value.convert(), current.bottom, current.left))
+    }
+
+    #[inline]
+    pub fn bottom(self, value: impl Convert<Val>) -> Self {
+        let current = self.inner.basic_layout.inset;
+        self.inset((current.top, current.right, value.convert(), current.left))
+    }
+
+    #[inline]
+    pub fn left(self, value: impl Convert<Val>) -> Self {
+        let current = self.inner.basic_layout.inset;
+        self.inset((current.top, current.right, current.bottom, value.convert()))
+    }
+
     /// 要素の基本サイズ（width, height）を設定します。
     #[inline]
-    pub fn size(mut self, value: Size<Val>) -> Self {
+    pub fn size(mut self, value: impl IntoSize<Val>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.size = value;
+        inner.basic_layout.size = value.into_size();
         inner.mask.set(STYLE_SIZE);
         self
     }
 
+    #[inline]
+    pub fn size_full(self) -> Self {
+        self.size(pct(100.0))
+    }
+
+    #[inline]
+    pub fn size_auto(self) -> Self {
+        self.size(auto())
+    }
+
+    /// 要素の幅（width）のみを設定します（高さは既存の値を維持）。
+    #[inline]
+    pub fn width(self, value: impl Convert<Val>) -> Self {
+        let current_h = self.inner.basic_layout.size.height;
+        self.size((value.convert(), current_h))
+    }
+
+    #[inline]
+    pub fn w_full(self) -> Self {
+        self.width(pct(100.0))
+    }
+
+    #[inline]
+    pub fn w_auto(self) -> Self {
+        self.width(auto())
+    }
+
+    /// 要素の高さ（height）のみを設定します（幅は既存の値を維持）。
+    #[inline]
+    pub fn height(self, value: impl Convert<Val>) -> Self {
+        let current_w = self.inner.basic_layout.size.width;
+        self.size((current_w, value.convert()))
+    }
+
+    #[inline]
+    pub fn h_full(self) -> Self {
+        self.height(pct(100.0))
+    }
+
+    #[inline]
+    pub fn h_auto(self) -> Self {
+        self.height(auto())
+    }
+
     /// 要素の最小サイズを設定します。
     #[inline]
-    pub fn min_size(mut self, value: Size<Val>) -> Self {
+    pub fn min_size(mut self, value: impl IntoSize<Val>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.min_size = value;
+        inner.basic_layout.min_size = value.into_size();
         inner.mask.set(STYLE_MIN_SIZE);
         self
     }
 
     /// 要素の最大サイズを設定します。
     #[inline]
-    pub fn max_size(mut self, value: Size<Val>) -> Self {
+    pub fn max_size(mut self, value: impl IntoSize<Val>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.max_size = value;
+        inner.basic_layout.max_size = value.into_size();
         inner.mask.set(STYLE_MAX_SIZE);
         self
     }
 
-    /// アスペクト比を設定します。
+    /// 任意の比率（幅 / 高さ）でアスペクト比を設定します。
     #[inline]
-    pub fn aspect_ratio(mut self, value: Option<f32>) -> Self {
+    pub fn aspect_ratio(mut self, width: f32, height: f32) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.aspect_ratio = value;
+        if height <= 0.0 {
+            inner.basic_layout.aspect_ratio = None;
+        } else {
+            inner.basic_layout.aspect_ratio = Some(width / height);
+        }
         inner.mask.set(STYLE_ASPECT_RATIO);
         self
     }
 
+    #[inline]
+    pub fn ratio_16_9(self) -> Self {
+        self.aspect_ratio(16.0, 9.0)
+    }
+
+    #[inline]
+    pub fn ratio_9_16(self) -> Self {
+        self.aspect_ratio(9.0, 16.0)
+    }
+
+    #[inline]
+    pub fn ratio_4_3(self) -> Self {
+        self.aspect_ratio(4.0, 3.0)
+    }
+
+    #[inline]
+    pub fn ratio_3_4(self) -> Self {
+        self.aspect_ratio(3.0, 4.0)
+    }
+
+    #[inline]
+    pub fn ratio_1_1(self) -> Self {
+        self.aspect_ratio(1.0, 1.0)
+    }
+
+    #[inline]
+    pub fn ratio_21_9(self) -> Self {
+        self.aspect_ratio(21.0, 9.0)
+    }
+
+    #[inline]
+    pub fn ratio_9_21(self) -> Self {
+        self.aspect_ratio(9.0, 21.0)
+    }
+
+    #[inline]
+    pub fn clear_aspect_ratio(self) -> Self {
+        self.aspect_ratio(0.0, 0.0)
+    }
+
     /// 外側余白（margin）を設定します。
     #[inline]
-    pub fn margin(mut self, value: Rect<Val>) -> Self {
+    pub fn margin(mut self, value: impl IntoRect<Val>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.margin = value;
+        inner.basic_layout.margin = value.into_rect();
         inner.mask.set(STYLE_MARGIN);
         self
     }
 
+    #[inline]
+    pub fn m(self, value: impl IntoRect<Val>) -> Self {
+        self.margin(value)
+    }
+
+    #[inline]
+    pub fn m_0(self) -> Self {
+        self.margin(0.0)
+    }
+
+    #[inline]
+    pub fn m_auto(self) -> Self {
+        self.margin(auto())
+    }
+
+    /// 左右の外側余白（margin-left, margin-right）を一括設定します。
+    #[inline]
+    pub fn m_x(self, value: impl IntoSize<Val>) -> Self {
+        let size = value.into_size();
+        let current_top = self.inner.basic_layout.margin.top;
+        let current_bottom = self.inner.basic_layout.margin.bottom;
+        self.margin((current_top, size.width, current_bottom, size.height))
+    }
+
+    /// 上下の外側余白（margin-top, margin-bottom）を一括設定します。
+    #[inline]
+    pub fn m_y(self, value: impl IntoSize<Val>) -> Self {
+        let size = value.into_size();
+        let current_left = self.inner.basic_layout.margin.left;
+        let current_right = self.inner.basic_layout.margin.right;
+        self.margin((size.width, current_right, size.height, current_left))
+    }
+
+    #[inline]
+    pub fn m_t(self, value: impl Convert<Val>) -> Self {
+        let current = self.inner.basic_layout.margin;
+        self.margin((value.convert(), current.right, current.bottom, current.left))
+    }
+
+    #[inline]
+    pub fn m_r(self, value: impl Convert<Val>) -> Self {
+        let current = self.inner.basic_layout.margin;
+        self.margin((current.top, value.convert(), current.bottom, current.left))
+    }
+
+    #[inline]
+    pub fn m_b(self, value: impl Convert<Val>) -> Self {
+        let current = self.inner.basic_layout.margin;
+        self.margin((current.top, current.right, value.convert(), current.left))
+    }
+
+    #[inline]
+    pub fn m_l(self, value: impl Convert<Val>) -> Self {
+        let current = self.inner.basic_layout.margin;
+        self.margin((current.top, current.right, current.bottom, value.convert()))
+    }
+
     /// 内側余白（padding）を設定します。
     #[inline]
-    pub fn padding(mut self, value: Rect<Length>) -> Self {
+    pub fn padding(mut self, value: impl IntoRect<Length>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.padding = value;
+        inner.basic_layout.padding = value.into_rect();
         inner.mask.set(STYLE_PADDING);
         self
     }
 
+    #[inline]
+    pub fn p(self, value: impl IntoRect<Length>) -> Self {
+        self.padding(value)
+    }
+
+    #[inline]
+    pub fn p_0(self) -> Self {
+        self.padding(0.0)
+    }
+
+    /// 左右の内側余白（padding-left, padding-right）を一括設定します。
+    #[inline]
+    pub fn p_x(self, value: impl IntoSize<Length>) -> Self {
+        let size = value.into_size();
+        let current_top = self.inner.basic_layout.padding.top;
+        let current_bottom = self.inner.basic_layout.padding.bottom;
+        self.padding((current_top, size.width, current_bottom, size.height))
+    }
+
+    /// 上下の内側余白（padding-top, padding-bottom）を一括設定します。
+    #[inline]
+    pub fn p_y(self, value: impl IntoSize<Length>) -> Self {
+        let size = value.into_size();
+        let current_left = self.inner.basic_layout.padding.left;
+        let current_right = self.inner.basic_layout.padding.right;
+        self.padding((size.width, current_right, size.height, current_left))
+    }
+
+    #[inline]
+    pub fn p_t(self, value: impl Convert<Length>) -> Self {
+        let current = self.inner.basic_layout.padding;
+        self.padding((value.convert(), current.right, current.bottom, current.left))
+    }
+
+    #[inline]
+    pub fn p_r(self, value: impl Convert<Length>) -> Self {
+        let current = self.inner.basic_layout.padding;
+        self.padding((current.top, value.convert(), current.bottom, current.left))
+    }
+
+    #[inline]
+    pub fn p_b(self, value: impl Convert<Length>) -> Self {
+        let current = self.inner.basic_layout.padding;
+        self.padding((current.top, current.right, value.convert(), current.left))
+    }
+
+    #[inline]
+    pub fn p_l(self, value: impl Convert<Length>) -> Self {
+        let current = self.inner.basic_layout.padding;
+        self.padding((current.top, current.right, current.bottom, value.convert()))
+    }
+
     /// 境界線の太さ（border）を設定します。
     #[inline]
-    pub fn border(mut self, value: Rect<Length>) -> Self {
+    pub fn border(mut self, style: BorderStyle, width: impl IntoRect<Length>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.border = value;
+        inner.basic_layout.border = width.into_rect();
+        inner.visual_property.border_styles = Some([style; 4]);
         inner.mask.set(STYLE_BORDER);
         self
+    }
+
+    /// 実線（Solid）の枠線と太さを一括設定します。
+    #[inline]
+    pub fn border_solid(self, width: impl IntoRect<Length>) -> Self {
+        self.border(BorderStyle::Solid, width)
+    }
+
+    /// 丸点線（Dotted）の枠線と太さを一括設定します。
+    #[inline]
+    pub fn border_dotted(self, width: impl IntoRect<Length>) -> Self {
+        self.border(BorderStyle::Dotted, width)
+    }
+
+    /// 破線（Dashed）の枠線と太さを一括設定します。
+    #[inline]
+    pub fn border_dashed(self, width: impl IntoRect<Length>) -> Self {
+        self.border(BorderStyle::Dashed, width)
+    }
+
+    /// 二重線（Double）の枠線と太さを一括設定します。
+    #[inline]
+    pub fn border_double(self, width: impl IntoRect<Length>) -> Self {
+        self.border(BorderStyle::Double, width)
+    }
+
+    /// 上枠線（Border Top）の種類と太さを個別に設定します。
+    #[inline]
+    pub fn border_top(mut self, style: BorderStyle, value: impl Convert<Length>) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.basic_layout.border.top = value.convert();
+
+        let mut styles = inner
+            .visual_property
+            .border_styles
+            .unwrap_or([BorderStyle::Solid; 4]);
+        styles[0] = style;
+        inner.visual_property.border_styles = Some(styles);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    /// 右枠線（Border Right）の種類と太さを個別に設定します。
+    #[inline]
+    pub fn border_right(mut self, style: BorderStyle, value: impl Convert<Length>) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.basic_layout.border.right = value.convert();
+
+        let mut styles = inner
+            .visual_property
+            .border_styles
+            .unwrap_or([BorderStyle::Solid; 4]);
+        styles[1] = style;
+        inner.visual_property.border_styles = Some(styles);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    /// 下枠線（Border Bottom）の種類と太さを個別に設定します。
+    #[inline]
+    pub fn border_bottom(mut self, style: BorderStyle, value: impl Convert<Length>) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.basic_layout.border.bottom = value.convert();
+
+        let mut styles = inner
+            .visual_property
+            .border_styles
+            .unwrap_or([BorderStyle::Solid; 4]);
+        styles[2] = style;
+        inner.visual_property.border_styles = Some(styles);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    /// 左枠線（Border Left）の種類と太さを個別に設定します。
+    #[inline]
+    pub fn border_left(mut self, style: BorderStyle, value: impl Convert<Length>) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.basic_layout.border.left = value.convert();
+
+        let mut styles = inner
+            .visual_property
+            .border_styles
+            .unwrap_or([BorderStyle::Solid; 4]);
+        styles[3] = style;
+        inner.visual_property.border_styles = Some(styles);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    /// 四辺個別の枠線の長さ比率（0.0 ~ 1.0）を設定します。
+    /// 単一値、2連タプル (縦, 横)、4連タプル (上, 右, 下, 左) を受け入れます。
+    #[inline]
+    pub fn border_lengths(mut self, value: impl IntoRect<f32>) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let rect = value.into_rect();
+        inner.visual_property.border_lengths = Some(EdgeInsets {
+            top: rect.top,
+            right: rect.right,
+            bottom: rect.bottom,
+            left: rect.left,
+        });
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    #[inline]
+    pub fn border_top_length(mut self, value: f32) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let mut lengths = inner
+            .visual_property
+            .border_lengths
+            .unwrap_or(EdgeInsets::px_all(1.0));
+        lengths.top = value;
+        inner.visual_property.border_lengths = Some(lengths);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    #[inline]
+    pub fn border_right_length(mut self, value: f32) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let mut lengths = inner
+            .visual_property
+            .border_lengths
+            .unwrap_or(EdgeInsets::px_all(1.0));
+        lengths.right = value;
+        inner.visual_property.border_lengths = Some(lengths);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    #[inline]
+    pub fn border_bottom_length(mut self, value: f32) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let mut lengths = inner
+            .visual_property
+            .border_lengths
+            .unwrap_or(EdgeInsets::px_all(1.0));
+        lengths.bottom = value;
+        inner.visual_property.border_lengths = Some(lengths);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    #[inline]
+    pub fn border_left_length(mut self, value: f32) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let mut lengths = inner
+            .visual_property
+            .border_lengths
+            .unwrap_or(EdgeInsets::px_all(1.0));
+        lengths.left = value;
+        inner.visual_property.border_lengths = Some(lengths);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    /// すべての辺の枠線基準点（伸縮方向）を一括設定します。
+    #[inline]
+    pub fn border_align(mut self, value: BorderAlignment) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.visual_property.border_alignments = Some([value; 4]);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    /// 四辺個別の枠線基準点を設定します。[Top, Right, Bottom, Left]
+    #[inline]
+    pub fn border_aligns(mut self, values: [BorderAlignment; 4]) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.visual_property.border_alignments = Some(values);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    fn set_border_align_idx(mut self, idx: usize, value: BorderAlignment) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        let mut aligns = inner
+            .visual_property
+            .border_alignments
+            .unwrap_or([BorderAlignment::Start; 4]);
+        aligns[idx] = value;
+        inner.visual_property.border_alignments = Some(aligns);
+        inner.mask.set(STYLE_BORDER);
+        self
+    }
+
+    #[inline]
+    pub fn border_top_align(self, value: BorderAlignment) -> Self {
+        self.set_border_align_idx(0, value)
+    }
+    #[inline]
+    pub fn border_right_align(self, value: BorderAlignment) -> Self {
+        self.set_border_align_idx(1, value)
+    }
+    #[inline]
+    pub fn border_bottom_align(self, value: BorderAlignment) -> Self {
+        self.set_border_align_idx(2, value)
+    }
+    #[inline]
+    pub fn border_left_align(self, value: BorderAlignment) -> Self {
+        self.set_border_align_idx(3, value)
     }
 
     /// コンテナ内の一括交差軸配置を設定します。
@@ -269,6 +870,66 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn items_start(self) -> Self {
+        self.align_items(AlignItems::Start)
+    }
+
+    #[inline]
+    pub fn items_end(self) -> Self {
+        self.align_items(AlignItems::End)
+    }
+
+    #[inline]
+    pub fn items_flex_start(self) -> Self {
+        self.align_items(AlignItems::FlexStart)
+    }
+
+    #[inline]
+    pub fn items_flex_end(self) -> Self {
+        self.align_items(AlignItems::FlexEnd)
+    }
+
+    #[inline]
+    pub fn items_center(self) -> Self {
+        self.align_items(AlignItems::Center)
+    }
+
+    #[inline]
+    pub fn items_baseline(self) -> Self {
+        self.align_items(AlignItems::Baseline)
+    }
+
+    #[inline]
+    pub fn items_stretch(self) -> Self {
+        self.align_items(AlignItems::Stretch)
+    }
+
+    #[inline]
+    pub fn items_start_safe(self) -> Self {
+        self.align_items(AlignItems::SafeStart)
+    }
+
+    #[inline]
+    pub fn items_end_safe(self) -> Self {
+        self.align_items(AlignItems::SafeEnd)
+    }
+
+    #[inline]
+    pub fn items_flex_start_safe(self) -> Self {
+        self.align_items(AlignItems::SafeFlexStart)
+    }
+
+    #[inline]
+    pub fn items_flex_end_safe(self) -> Self {
+        self.align_items(AlignItems::SafeFlexEnd)
+    }
+
+    #[inline]
+    pub fn items_center_safe(self) -> Self {
+        self.align_items(AlignItems::SafeCenter)
+    }
+
     /// 個別要素の交差軸配置を設定します。
     #[inline]
     pub fn align_self(mut self, value: impl Into<Option<AlignSelf>>) -> Self {
@@ -276,6 +937,71 @@ impl ThisStyle {
         inner.flex_layout.align_self = value.into();
         inner.mask.set(STYLE_ALIGN_SELF);
         self
+    }
+
+    #[inline]
+    pub fn self_auto(self) -> Self {
+        self.align_self(None)
+    }
+
+    #[inline]
+    pub fn self_start(self) -> Self {
+        self.align_self(AlignSelf::Start)
+    }
+
+    #[inline]
+    pub fn self_end(self) -> Self {
+        self.align_self(AlignSelf::End)
+    }
+
+    #[inline]
+    pub fn self_flex_start(self) -> Self {
+        self.align_self(AlignSelf::FlexStart)
+    }
+
+    #[inline]
+    pub fn self_flex_end(self) -> Self {
+        self.align_self(AlignSelf::FlexEnd)
+    }
+
+    #[inline]
+    pub fn self_center(self) -> Self {
+        self.align_self(AlignSelf::Center)
+    }
+
+    #[inline]
+    pub fn self_baseline(self) -> Self {
+        self.align_self(AlignSelf::Baseline)
+    }
+
+    #[inline]
+    pub fn self_stretch(self) -> Self {
+        self.align_self(AlignSelf::Stretch)
+    }
+
+    #[inline]
+    pub fn self_start_safe(self) -> Self {
+        self.align_self(AlignSelf::SafeStart)
+    }
+
+    #[inline]
+    pub fn self_end_safe(self) -> Self {
+        self.align_self(AlignSelf::SafeEnd)
+    }
+
+    #[inline]
+    pub fn self_flex_start_safe(self) -> Self {
+        self.align_self(AlignSelf::SafeFlexStart)
+    }
+
+    #[inline]
+    pub fn self_flex_end_safe(self) -> Self {
+        self.align_self(AlignSelf::SafeFlexEnd)
+    }
+
+    #[inline]
+    pub fn self_center_safe(self) -> Self {
+        self.align_self(AlignSelf::SafeCenter)
     }
 
     /// コンテナ内の一括主軸配置を設定します。
@@ -287,6 +1013,66 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn justify_items_center(self) -> Self {
+        self.justify_items(AlignItems::Center)
+    }
+
+    #[inline]
+    pub fn justify_items_center_safe(self) -> Self {
+        self.justify_items(AlignItems::SafeCenter)
+    }
+
+    #[inline]
+    pub fn justify_items_end(self) -> Self {
+        self.justify_items(AlignItems::End)
+    }
+
+    #[inline]
+    pub fn justify_items_end_safe(self) -> Self {
+        self.justify_items(AlignItems::SafeEnd)
+    }
+
+    #[inline]
+    pub fn justify_items_start(self) -> Self {
+        self.justify_items(AlignItems::Start)
+    }
+
+    #[inline]
+    pub fn justify_items_start_safe(self) -> Self {
+        self.justify_items(AlignItems::SafeStart)
+    }
+
+    #[inline]
+    pub fn justify_items_stretch(self) -> Self {
+        self.justify_items(AlignItems::Stretch)
+    }
+
+    #[inline]
+    pub fn justify_items_flex_start(self) -> Self {
+        self.justify_items(AlignItems::FlexStart)
+    }
+
+    #[inline]
+    pub fn justify_items_flex_end(self) -> Self {
+        self.justify_items(AlignItems::FlexEnd)
+    }
+
+    #[inline]
+    pub fn justify_items_flex_start_safe(self) -> Self {
+        self.justify_items(AlignItems::SafeFlexStart)
+    }
+
+    #[inline]
+    pub fn justify_items_flex_end_safe(self) -> Self {
+        self.justify_items(AlignItems::SafeFlexEnd)
+    }
+
+    #[inline]
+    pub fn justify_items_baseline(self) -> Self {
+        self.justify_items(AlignItems::Baseline)
+    }
+
     /// 個別要素の主軸配置を設定します。
     #[inline]
     pub fn justify_self(mut self, value: impl Into<Option<AlignSelf>>) -> Self {
@@ -294,6 +1080,71 @@ impl ThisStyle {
         inner.flex_layout.justify_self = value.into();
         inner.mask.set(STYLE_JUSTIFY_SELF);
         self
+    }
+
+    #[inline]
+    pub fn justify_self_auto(self) -> Self {
+        self.justify_self(None)
+    }
+
+    #[inline]
+    pub fn justify_self_baseline(self) -> Self {
+        self.justify_self(AlignSelf::Baseline)
+    }
+
+    #[inline]
+    pub fn justify_self_center(self) -> Self {
+        self.justify_self(AlignSelf::Center)
+    }
+
+    #[inline]
+    pub fn justify_self_center_safe(self) -> Self {
+        self.justify_self(AlignSelf::SafeCenter)
+    }
+
+    #[inline]
+    pub fn justify_self_end(self) -> Self {
+        self.justify_self(AlignSelf::End)
+    }
+
+    #[inline]
+    pub fn justify_self_end_safe(self) -> Self {
+        self.justify_self(AlignSelf::SafeEnd)
+    }
+
+    #[inline]
+    pub fn justify_self_start(self) -> Self {
+        self.justify_self(AlignSelf::Start)
+    }
+
+    #[inline]
+    pub fn justify_self_start_safe(self) -> Self {
+        self.justify_self(AlignSelf::SafeStart)
+    }
+
+    #[inline]
+    pub fn justify_self_stretch(self) -> Self {
+        self.justify_self(AlignSelf::Stretch)
+    }
+
+    #[inline]
+    pub fn justify_self_flex_start(self) -> Self {
+        self.justify_self(AlignSelf::FlexStart)
+    }
+
+    #[inline]
+    pub fn justify_self_flex_end(self) -> Self {
+        self.justify_self(AlignSelf::FlexEnd)
+    }
+
+    #[inline]
+    pub fn justify_self_flex_start_safe(self) -> Self {
+        self.justify_self(AlignSelf::SafeFlexStart)
+    }
+
+    #[inline]
+    pub fn justify_self_flex_end_safe(self) -> Self {
+        self.justify_self(AlignSelf::SafeFlexEnd)
     }
 
     /// 複数行にまたがる場合のコンテンツ一括配置を設定します。
@@ -305,6 +1156,76 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn content_around(self) -> Self {
+        self.align_content(AlignContent::SpaceAround)
+    }
+
+    #[inline]
+    pub fn content_between(self) -> Self {
+        self.align_content(AlignContent::SpaceBetween)
+    }
+
+    #[inline]
+    pub fn content_center(self) -> Self {
+        self.align_content(AlignContent::Center)
+    }
+
+    #[inline]
+    pub fn content_center_safe(self) -> Self {
+        self.align_content(AlignContent::SafeCenter)
+    }
+
+    #[inline]
+    pub fn content_end(self) -> Self {
+        self.align_content(AlignContent::End)
+    }
+
+    #[inline]
+    pub fn content_end_safe(self) -> Self {
+        self.align_content(AlignContent::SafeEnd)
+    }
+
+    #[inline]
+    pub fn content_evenly(self) -> Self {
+        self.align_content(AlignContent::SpaceEvenly)
+    }
+
+    #[inline]
+    pub fn content_start(self) -> Self {
+        self.align_content(AlignContent::Start)
+    }
+
+    #[inline]
+    pub fn content_start_safe(self) -> Self {
+        self.align_content(AlignContent::SafeStart)
+    }
+
+    #[inline]
+    pub fn content_stretch(self) -> Self {
+        self.align_content(AlignContent::Stretch)
+    }
+
+    #[inline]
+    pub fn content_flex_start(self) -> Self {
+        self.align_content(AlignContent::FlexStart)
+    }
+
+    #[inline]
+    pub fn content_flex_end(self) -> Self {
+        self.align_content(AlignContent::FlexEnd)
+    }
+
+    #[inline]
+    pub fn content_flex_start_safe(self) -> Self {
+        self.align_content(AlignContent::SafeFlexStart)
+    }
+
+    #[inline]
+    pub fn content_flex_end_safe(self) -> Self {
+        self.align_content(AlignContent::SafeFlexEnd)
+    }
+
     /// 主軸方向のコンテンツ配置を設定します。
     #[inline]
     pub fn justify_content(mut self, value: impl Into<Option<JustifyContent>>) -> Self {
@@ -314,13 +1235,119 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn justify_around(self) -> Self {
+        self.justify_content(JustifyContent::SpaceAround)
+    }
+
+    #[inline]
+    pub fn justify_between(self) -> Self {
+        self.justify_content(JustifyContent::SpaceBetween)
+    }
+
+    #[inline]
+    pub fn justify_center(self) -> Self {
+        self.justify_content(JustifyContent::Center)
+    }
+
+    #[inline]
+    pub fn justify_center_safe(self) -> Self {
+        self.justify_content(JustifyContent::SafeCenter)
+    }
+
+    #[inline]
+    pub fn justify_end(self) -> Self {
+        self.justify_content(JustifyContent::End)
+    }
+
+    #[inline]
+    pub fn justify_end_safe(self) -> Self {
+        self.justify_content(JustifyContent::SafeEnd)
+    }
+
+    #[inline]
+    pub fn justify_evenly(self) -> Self {
+        self.justify_content(JustifyContent::SpaceEvenly)
+    }
+
+    #[inline]
+    pub fn justify_start(self) -> Self {
+        self.justify_content(JustifyContent::Start)
+    }
+
+    #[inline]
+    pub fn justify_start_safe(self) -> Self {
+        self.justify_content(JustifyContent::SafeStart)
+    }
+
+    #[inline]
+    pub fn justify_stretch(self) -> Self {
+        self.justify_content(JustifyContent::Stretch)
+    }
+
+    #[inline]
+    pub fn justify_flex_start(self) -> Self {
+        self.justify_content(JustifyContent::FlexStart)
+    }
+
+    #[inline]
+    pub fn justify_flex_end(self) -> Self {
+        self.justify_content(JustifyContent::FlexEnd)
+    }
+
+    #[inline]
+    pub fn justify_flex_start_safe(self) -> Self {
+        self.justify_content(JustifyContent::SafeFlexStart)
+    }
+
+    #[inline]
+    pub fn justify_flex_end_safe(self) -> Self {
+        self.justify_content(JustifyContent::SafeFlexEnd)
+    }
+
     /// 要素間の行・列方向の隙間（gap）を設定します。
     #[inline]
-    pub fn gap(mut self, value: Size<Val>) -> Self {
+    pub fn gap(mut self, value: impl IntoSize<Val>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.gap = value;
+        inner.flex_layout.gap = value.into_size();
         inner.mask.set(STYLE_GAP);
         self
+    }
+
+    #[inline]
+    pub fn gap_0(self) -> Self {
+        self.gap(0.0)
+    }
+
+    #[inline]
+    pub fn gap_auto(self) -> Self {
+        self.gap(auto())
+    }
+
+    /// 子要素同士の行方向（縦方向、row-gap）の隙間を設定します。
+    #[inline]
+    pub fn gap_row(self, value: impl Convert<Val>) -> Self {
+        let current_column_gap = self.inner.flex_layout.gap.width;
+        self.gap((current_column_gap, value.convert()))
+    }
+
+    /// 子要素同士の列方向（横方向、column-gap）の隙間を設定します。
+    #[inline]
+    pub fn gap_col(self, value: impl Convert<Val>) -> Self {
+        let current_row_gap = self.inner.flex_layout.gap.height;
+        self.gap((value.convert(), current_row_gap))
+    }
+
+    /// エイリアス：子要素同士の縦方向の隙間を設定します。
+    #[inline]
+    pub fn gap_y(self, value: impl Convert<Val>) -> Self {
+        self.gap_row(value)
+    }
+
+    /// エイリアス：子要素同士の横方向の隙間を設定します。
+    #[inline]
+    pub fn gap_x(self, value: impl Convert<Val>) -> Self {
+        self.gap_col(value)
     }
 
     /// テキストの配置揃え方向を設定します。
@@ -332,6 +1359,26 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn text_center(self) -> Self {
+        self.text_align(TextAlign::Center)
+    }
+
+    #[inline]
+    pub fn text_auto(self) -> Self {
+        self.text_align(TextAlign::Auto)
+    }
+
+    #[inline]
+    pub fn text_left(self) -> Self {
+        self.text_align(TextAlign::Left)
+    }
+
+    #[inline]
+    pub fn text_right(self) -> Self {
+        self.text_align(TextAlign::Right)
+    }
+
     /// Flexコンテナ内での主軸の方向を設定します。
     #[inline]
     pub fn flex_direction(mut self, value: FlexDirection) -> Self {
@@ -341,40 +1388,116 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn flex_col(self) -> Self {
+        self.flex_direction(FlexDirection::Column)
+    }
+
+    #[inline]
+    pub fn flex_col_reverse(self) -> Self {
+        self.flex_direction(FlexDirection::ColumnReverse)
+    }
+
+    #[inline]
+    pub fn flex_row(self) -> Self {
+        self.flex_direction(FlexDirection::Row)
+    }
+
+    #[inline]
+    pub fn flex_row_reverse(self) -> Self {
+        self.flex_direction(FlexDirection::RowReverse)
+    }
+
     /// 子要素を複数行に折り返すかどうかを設定します。
     #[inline]
-    pub fn flex_wrap(mut self, value: FlexWrap) -> Self {
+    pub fn flex_wrap_internal(mut self, value: FlexWrap) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
         inner.flex_layout.flex_wrap = value;
         inner.mask.set(STYLE_FLEX_WRAP);
         self
     }
 
+    #[inline]
+    pub fn flex_wrap(self) -> Self {
+        self.flex_wrap_internal(FlexWrap::Wrap)
+    }
+
+    #[inline]
+    pub fn flex_nowrap(self) -> Self {
+        self.flex_wrap_internal(FlexWrap::NoWrap)
+    }
+
+    #[inline]
+    pub fn flex_wrap_reverse(self) -> Self {
+        self.flex_wrap_internal(FlexWrap::WrapReverse)
+    }
+
     /// 子要素の基準となる基本寸法を設定します。
     #[inline]
-    pub fn flex_basis(mut self, value: Val) -> Self {
+    pub fn basis(mut self, value: impl Convert<Val>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.flex_basis = value;
+        inner.flex_layout.flex_basis = value.convert();
         inner.mask.set(STYLE_FLEX_BASIS);
         self
     }
 
-    /// 要素の伸長係数を設定します。
     #[inline]
-    pub fn flex_grow(mut self, value: f32) -> Self {
+    pub fn basis_0(self) -> Self {
+        self.basis(0.0)
+    }
+
+    #[inline]
+    pub fn basis_auto(self) -> Self {
+        self.basis(auto())
+    }
+
+    #[inline]
+    pub fn basis_full(self) -> Self {
+        self.basis(pct(100.0))
+    }
+
+    /// 要素の伸長比率（flex-grow）を直接設定します。
+    /// bool（true/false）または数値（f32/i32）を受け入れます。
+    #[inline]
+    pub fn flex_grow(mut self, value: impl Convert<f32>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.flex_grow = value;
+        inner.flex_layout.flex_grow = value.convert();
         inner.mask.set(STYLE_FLEX_GROW);
         self
     }
 
-    /// 要素の縮小係数を設定します。
+    /// 要素を引き伸ばすように設定します (flex-grow: 1.0)。
     #[inline]
-    pub fn flex_shrink(mut self, value: f32) -> Self {
+    pub fn grow(self) -> Self {
+        self.flex_grow(1.0)
+    }
+
+    /// 要素を引き伸ばさないように設定します (flex-grow: 0.0)。
+    #[inline]
+    pub fn grow_0(self) -> Self {
+        self.flex_grow(0.0)
+    }
+
+    /// 要素の縮小比率（flex-shrink）を直接設定します。
+    /// bool（true/false）または数値（f32/i32）を受け入れます。
+    #[inline]
+    pub fn flex_shrink(mut self, value: impl Convert<f32>) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.flex_shrink = value;
+        inner.flex_layout.flex_shrink = value.convert();
         inner.mask.set(STYLE_FLEX_SHRINK);
         self
+    }
+
+    /// 要素を縮小可能に設定します (flex-shrink: 1.0)。
+    #[inline]
+    pub fn shrink(self) -> Self {
+        self.flex_shrink(1.0)
+    }
+
+    /// 要素を絶対に縮小させない（サイズを潰さない）ように設定します (flex-shrink: 0.0)。
+    #[inline]
+    pub fn shrink_0(self) -> Self {
+        self.flex_shrink(0.0)
     }
 
     /// 要素の背景色（Background Color）を設定します。
@@ -397,11 +1520,78 @@ impl ThisStyle {
 
     /// 要素の角丸の半径を設定します。
     #[inline]
-    pub fn corner_radius(mut self, value: CornerRadius) -> Self {
+    pub fn corner_radius(mut self, value: impl IntoCornerRadius) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.corner_radius = Some(value);
+        inner.visual_property.corner_radius = Some(value.into_corner_radius());
         inner.mask.set(STYLE_CORNER_RADIUS);
         self
+    }
+
+    /// `corner_radius` の短縮エイリアス。要素の角丸を設定します。
+    /// 単一値、2連タプル、4連タプルを受け入れます。
+    #[inline]
+    pub fn rounded(self, value: impl IntoCornerRadius) -> Self {
+        self.corner_radius(value)
+    }
+
+    /// `corner_radius` の超短縮エイリアス。要素の角丸を設定します。
+    #[inline]
+    pub fn r(self, value: impl IntoCornerRadius) -> Self {
+        self.corner_radius(value)
+    }
+
+    /// 要素を完全なサークル（またはカプセル型、Tailwind CSS の rounded-full 相当）にします。
+    #[inline]
+    pub fn rounded_full(self) -> Self {
+        self.corner_radius(9999.0)
+    }
+
+    /// 上半分の角（top-left, top-right）にのみ角丸を設定します。
+    #[inline]
+    pub fn rounded_top(self, value: impl Convert<f32>) -> Self {
+        let val = value.convert();
+        let current = self
+            .inner
+            .visual_property
+            .corner_radius
+            .unwrap_or(CornerRadius::ZERO);
+        self.corner_radius((val, val, current.bottom_right, current.bottom_left))
+    }
+
+    /// 下半分の角（bottom-left, bottom-right）にのみ角丸を設定します。
+    #[inline]
+    pub fn rounded_bottom(self, value: impl Convert<f32>) -> Self {
+        let val = value.convert();
+        let current = self
+            .inner
+            .visual_property
+            .corner_radius
+            .unwrap_or(CornerRadius::ZERO);
+        self.corner_radius((current.top_left, current.top_right, val, val))
+    }
+
+    /// 左半分の角（top-left, bottom-left）にのみ角丸を設定します。
+    #[inline]
+    pub fn rounded_left(self, value: impl Convert<f32>) -> Self {
+        let val = value.convert();
+        let current = self
+            .inner
+            .visual_property
+            .corner_radius
+            .unwrap_or(CornerRadius::ZERO);
+        self.corner_radius((val, current.top_right, current.bottom_right, val))
+    }
+
+    /// 右半分の角（top-right, bottom-right）にのみ角丸を設定します。
+    #[inline]
+    pub fn rounded_right(self, value: impl Convert<f32>) -> Self {
+        let val = value.convert();
+        let current = self
+            .inner
+            .visual_property
+            .corner_radius
+            .unwrap_or(CornerRadius::ZERO);
+        self.corner_radius((current.top_left, val, val, current.bottom_left))
     }
 
     /// 要素全体の不透明度を設定します。
@@ -413,21 +1603,37 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn opacity_0(self) -> Self {
+        self.opacity(0.0)
+    }
+
+    #[inline]
+    pub fn opacity_50(self) -> Self {
+        self.opacity(0.5)
+    }
+
+    #[inline]
+    pub fn opacity_100(self) -> Self {
+        self.opacity(1.0)
+    }
+
     /// 要素の外側に配置する影を設定します。
     #[inline]
     pub fn box_shadow(mut self, value: BoxShadow) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.box_shadow = Some(value);
+        inner.visual_property.shadow_params = Some(value);
+        inner.visual_property.shadow_color = Some(value.color);
         inner.mask.set(STYLE_BOX_SHADOW);
         self
     }
 
-    /// クリップパスの定義文字列を設定します。
+    /// 影の色（shadow_color）のみを設定・上書きします。
     #[inline]
-    pub fn clip_path(mut self, path: impl Into<Cow<'static, str>>) -> Self {
+    pub fn shadow_color(mut self, value: Color) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.clip_path = Some(path.into());
-        inner.mask.set(STYLE_CLIP_PATH);
+        inner.visual_property.shadow_color = Some(value);
+        inner.mask.set(STYLE_BOX_SHADOW);
         self
     }
 
@@ -440,6 +1646,26 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn z(self, value: i32) -> Self {
+        self.z_index(value)
+    }
+
+    #[inline]
+    pub fn z_neg_1(self) -> Self {
+        self.z_index(-1)
+    }
+
+    #[inline]
+    pub fn z_0(self) -> Self {
+        self.z_index(0)
+    }
+
+    #[inline]
+    pub fn z_1(self) -> Self {
+        self.z_index(1)
+    }
+
     /// この要素の上にマウスが乗った際のマウスクラスアイコンを設定します。
     #[inline]
     pub fn cursor(mut self, value: CursorIcon) -> Self {
@@ -449,13 +1675,62 @@ impl ThisStyle {
         self
     }
 
-    /// 描画フィルター効果を設定します。
     #[inline]
-    pub fn filter(mut self, filter: impl Into<Cow<'static, str>>) -> Self {
+    pub fn cursor_default(self) -> Self {
+        self.cursor(CursorIcon::Default)
+    }
+
+    #[inline]
+    pub fn cursor_grab(self) -> Self {
+        self.cursor(CursorIcon::Grab)
+    }
+
+    #[inline]
+    pub fn cursor_grabbing(self) -> Self {
+        self.cursor(CursorIcon::Grabbing)
+    }
+
+    #[inline]
+    pub fn cursor_not_allowed(self) -> Self {
+        self.cursor(CursorIcon::NotAllowed)
+    }
+
+    #[inline]
+    pub fn cursor_pointer(self) -> Self {
+        self.cursor(CursorIcon::Pointer)
+    }
+
+    #[inline]
+    pub fn cursor_text(self) -> Self {
+        self.cursor(CursorIcon::Text)
+    }
+
+    #[inline]
+    pub fn backdrop(mut self, backdrop: Backdrop) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.filter = Some(filter.into());
-        inner.mask.set(STYLE_FILTER);
+        inner.visual_property.backdrop = backdrop;
+        inner.mask.set(STYLE_BACKDROP);
         self
+    }
+
+    #[inline]
+    pub fn backdrop_acrylic(self) -> Self {
+        self.backdrop(Backdrop::Acrylic)
+    }
+
+    #[inline]
+    pub fn backdrop_mica(self) -> Self {
+        self.backdrop(Backdrop::Mica)
+    }
+
+    #[inline]
+    pub fn backdrop_mica_alt(self) -> Self {
+        self.backdrop(Backdrop::MicaAlt)
+    }
+
+    #[inline]
+    pub fn backdrop_none(self) -> Self {
+        self.backdrop(Backdrop::None)
     }
 
     /// 要素内でレンダリングされるテキストの基本色を設定します。
@@ -630,6 +1905,86 @@ impl ThisStyle {
         self
     }
 
+    /// 子孫要素のインタラクション状態に連動して親のスタイルを変化させる伝播設定
+    #[inline]
+    pub fn interaction_within(mut self, name: InteractionName, style: ThisStyle) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        match name {
+            InteractionName::Hover => inner.interaction_styles.hovered_within = Some(style),
+            InteractionName::Focus => inner.interaction_styles.focused_within = Some(style),
+            InteractionName::Press => inner.interaction_styles.pressed_within = Some(style),
+            InteractionName::Disable => inner.interaction_styles.disabled_within = Some(style),
+            InteractionName::Active => inner.interaction_styles.actived_within = Some(style),
+            InteractionName::Select => inner.interaction_styles.selected_within = Some(style),
+            InteractionName::Drag => inner.interaction_styles.dragged_within = Some(style),
+            InteractionName::All => inner.interaction_styles.any_within = Some(style),
+        }
+        // 動的withinプロパティがこのスタイルに格納されていることをビットマーク
+        inner.mask.set(STYLE_INTERACTION_WITHIN);
+        self
+    }
+
+    #[inline]
+    pub fn hover_within(self, style: ThisStyle) -> Self {
+        self.interaction_within(InteractionName::Hover, style)
+    }
+
+    #[inline]
+    pub fn focus_within(self, style: ThisStyle) -> Self {
+        self.interaction_within(InteractionName::Focus, style)
+    }
+
+    #[inline]
+    pub fn press_within(self, style: ThisStyle) -> Self {
+        self.interaction_within(InteractionName::Press, style)
+    }
+
+    #[inline]
+    pub fn disable_within(self, style: ThisStyle) -> Self {
+        self.interaction_within(InteractionName::Disable, style)
+    }
+
+    #[inline]
+    pub fn active_within(self, style: ThisStyle) -> Self {
+        self.interaction_within(InteractionName::Active, style)
+    }
+
+    #[inline]
+    pub fn select_within(self, style: ThisStyle) -> Self {
+        self.interaction_within(InteractionName::Select, style)
+    }
+
+    #[inline]
+    pub fn drag_within(self, style: ThisStyle) -> Self {
+        self.interaction_within(InteractionName::Drag, style)
+    }
+
+    #[inline]
+    pub fn all_within(self, style: ThisStyle) -> Self {
+        self.interaction_within(InteractionName::All, style)
+    }
+
+    /// ポインターメッセージ（マウスインタラクションなど）の透過を制御します。
+    #[inline]
+    pub fn pointer_events(mut self, value: PointerEvents) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.visual_property.pointer_events = Some(value);
+        inner.mask.set(STYLE_POINTER_EVENTS);
+        self
+    }
+
+    /// 要素がマウスインタラクションを無視し、背後にある要素へイベントを透過させます。
+    #[inline]
+    pub fn pointer_events_none(self) -> Self {
+        self.pointer_events(PointerEvents::None)
+    }
+
+    /// 要素が通常通りマウスインタラクションを受け取ります（デフォルト）。
+    #[inline]
+    pub fn pointer_events_auto(self) -> Self {
+        self.pointer_events(PointerEvents::Auto)
+    }
+
     /// 要素にアフィン変換（平行移動・拡大・回転）を適用します。
     #[inline]
     pub fn transform(mut self, value: Transform) -> Self {
@@ -637,6 +1992,39 @@ impl ThisStyle {
         inner.visual_property.transform = Some(value.matrix);
         inner.mask.set(STYLE_TRANSFORM);
         self
+    }
+
+    #[inline]
+    pub fn transform_scale(self, x: f32, y: f32) -> Self {
+        let current = self
+            .inner
+            .visual_property
+            .transform
+            .map(|m| Transform { matrix: m })
+            .unwrap_or_default();
+        self.transform(current.scale(x, y))
+    }
+
+    #[inline]
+    pub fn transform_translate(self, x: f32, y: f32) -> Self {
+        let current = self
+            .inner
+            .visual_property
+            .transform
+            .map(|m| Transform { matrix: m })
+            .unwrap_or_default();
+        self.transform(current.translate(x, y))
+    }
+
+    #[inline]
+    pub fn transform_rotate(self, radians: f32) -> Self {
+        let current = self
+            .inner
+            .visual_property
+            .transform
+            .map(|m| Transform { matrix: m })
+            .unwrap_or_default();
+        self.transform(current.rotate(radians))
     }
 
     #[inline]
@@ -654,6 +2042,55 @@ impl ThisStyle {
         inner.visual_property.transitions.push(transition);
         inner.mask.set(STYLE_TRANSITIONS);
         self
+    }
+
+    #[inline]
+    pub fn trans_bg_color(self, duration: Duration, curve: AnimationCurve) -> Self {
+        self.transition(Transition::new(
+            PropertyList::BackgroundColor,
+            duration,
+            curve,
+        ))
+    }
+
+    #[inline]
+    pub fn trans_border_color(self, duration: Duration, curve: AnimationCurve) -> Self {
+        self.transition(Transition::new(PropertyList::BorderColor, duration, curve))
+    }
+
+    #[inline]
+    pub fn trans_box_shadow(self, duration: Duration, curve: AnimationCurve) -> Self {
+        self.transition(Transition::new(PropertyList::BoxShadow, duration, curve))
+    }
+
+    #[inline]
+    pub fn trans_corder_radius(self, duration: Duration, curve: AnimationCurve) -> Self {
+        self.transition(Transition::new(PropertyList::CornerRadius, duration, curve))
+    }
+
+    #[inline]
+    pub fn trans_opacity(self, duration: Duration, curve: AnimationCurve) -> Self {
+        self.transition(Transition::new(PropertyList::Opacity, duration, curve))
+    }
+
+    #[inline]
+    pub fn trans_transform(self, duration: Duration, curve: AnimationCurve) -> Self {
+        self.transition(Transition::new(PropertyList::Transform, duration, curve))
+    }
+
+    #[inline]
+    pub fn trans_size(self, duration: Duration, curve: AnimationCurve) -> Self {
+        self.transition(Transition::new(PropertyList::Size, duration, curve))
+    }
+
+    #[inline]
+    pub fn trans_width(self, duration: Duration, curve: AnimationCurve) -> Self {
+        self.transition(Transition::new(PropertyList::Width, duration, curve))
+    }
+
+    #[inline]
+    pub fn trans_height(self, duration: Duration, curve: AnimationCurve) -> Self {
+        self.transition(Transition::new(PropertyList::Height, duration, curve))
     }
 
     /// キーフレームアニメーション（CSS animation）を設定します。
@@ -709,49 +2146,48 @@ impl ThisStyle {
         inner.mask.set(STYLE_EXT_PROPERTIES);
         self
     }
-}
 
-pub fn ts() -> ThisStyle {
-    ThisStyle::new()
-}
-
-/// 呼び出し側の文脈（代入先）に応じて、自動的に `Length::Px` または `Val::Px` に解決される物理ピクセル値を生成します。
-#[inline]
-pub fn px<T>(val: f32) -> T
-where
-    T: From<f32>,
-{
-    T::from(val)
-}
-
-/// 呼び出し側の文脈に応じて、自動的に `Length::Percent` または `Val::Percent` に解決されるパーセント値を生成します。
-#[inline]
-pub fn pct<T>(val: f32) -> T
-where
-    T: FromPercent,
-{
-    T::percent(val)
-}
-
-/// 呼び出し側の文脈が `Val` を期待している場合に、自動的に `Val::Auto` に解決して生成します。
-/// (※ `Length` はAutoを許容しないため、Lengthを期待する文脈では安全にコンパイルエラーになります)
-#[inline]
-pub fn auto<T>() -> T
-where
-    T: FromAuto,
-{
-    T::auto()
-}
-
-/// `auto()` 関数の自動解決を支援するための補助トレイト
-pub trait FromAuto {
-    fn auto() -> Self;
-}
-
-impl FromAuto for Val {
+    /// ユーザーによるテキスト選択・コピーの挙動を設定します
     #[inline]
-    fn auto() -> Self {
-        Self::Auto
+    pub fn user_select(mut self, value: UserSelect) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.visual_property.user_select = Some(value);
+        inner.mask.set(STYLE_USER_SELECT);
+        self
+    }
+
+    /// テキストのドラッグ範囲選択を許可します (user-select: text 相当)
+    #[inline]
+    pub fn select_text(self) -> Self {
+        self.user_select(UserSelect::Text)
+    }
+
+    /// テキストを全選択します
+    #[inline]
+    pub fn select_all(self) -> Self {
+        self.user_select(UserSelect::All)
+    }
+
+    /// テキストの範囲選択を禁止します
+    #[inline]
+    pub fn select_none(self) -> Self {
+        self.user_select(UserSelect::None)
+    }
+
+    #[inline]
+    pub fn select_bg_color(mut self, color: Color) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.visual_property.select_bg_color = Some(color);
+        inner.mask.set(STYLE_USER_SELECT);
+        self
+    }
+
+    #[inline]
+    pub fn select_text_color(mut self, color: Color) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.visual_property.select_text_color = Some(color);
+        inner.mask.set(STYLE_USER_SELECT);
+        self
     }
 }
 
@@ -769,31 +2205,6 @@ pub enum AnimationCurve {
     EaseOutQuad,
     /// ユーザーが独自のイージング計算（0.0～1.0 を受け取り 0.0～1.0 を返す）を行えるエスケープハッチ
     Custom(fn(f32) -> f32),
-}
-
-#[inline]
-pub fn linear() -> AnimationCurve {
-    AnimationCurve::Linear
-}
-
-#[inline]
-pub fn ease_in_out_quad() -> AnimationCurve {
-    AnimationCurve::EaseInOutQuad
-}
-
-#[inline]
-pub fn ease_in_quad() -> AnimationCurve {
-    AnimationCurve::EaseInQuad
-}
-
-#[inline]
-pub fn ease_out_quad() -> AnimationCurve {
-    AnimationCurve::EaseOutQuad
-}
-
-#[inline]
-pub fn custom_curve(f: fn(f32) -> f32) -> AnimationCurve {
-    AnimationCurve::Custom(f)
 }
 
 impl AnimationCurve {
@@ -833,16 +2244,6 @@ impl PartialEq for AnimationCurve {
 pub enum PlaybackCount {
     Infinite,
     Count(u32),
-}
-
-#[inline]
-pub fn playback_count_inf() -> PlaybackCount {
-    PlaybackCount::Infinite
-}
-
-#[inline]
-pub fn playback_count(count: u32) -> PlaybackCount {
-    PlaybackCount::Count(count)
 }
 
 /// CSS Animation 相当の設定を定義

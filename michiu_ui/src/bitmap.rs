@@ -12,41 +12,8 @@ pub enum PropertyList {
     CornerRadius,
     Width,
     Height,
-}
-
-#[inline]
-pub fn prop_bg_color() -> PropertyList {
-    PropertyList::BackgroundColor
-}
-
-#[inline]
-pub fn prop_border_color() -> PropertyList {
-    PropertyList::BorderColor
-}
-
-#[inline]
-pub fn prop_opacity() -> PropertyList {
-    PropertyList::Opacity
-}
-
-#[inline]
-pub fn prop_transform() -> PropertyList {
-    PropertyList::Transform
-}
-
-#[inline]
-pub fn prop_radius() -> PropertyList {
-    PropertyList::CornerRadius
-}
-
-#[inline]
-pub fn prop_width() -> PropertyList {
-    PropertyList::Width
-}
-
-#[inline]
-pub fn prop_height() -> PropertyList {
-    PropertyList::Height
+    Size,
+    BoxShadow,
 }
 
 impl PropertyList {
@@ -59,7 +26,8 @@ impl PropertyList {
             PropertyList::Opacity => STYLE_OPACITY,
             PropertyList::Transform => STYLE_TRANSFORM,
             PropertyList::CornerRadius => STYLE_CORNER_RADIUS,
-            PropertyList::Width | PropertyList::Height => STYLE_SIZE,
+            PropertyList::Width | PropertyList::Height | PropertyList::Size => STYLE_SIZE,
+            PropertyList::BoxShadow => STYLE_BOX_SHADOW,
         }
     }
 }
@@ -140,9 +108,8 @@ pub(crate) const STYLE_ITEM_IS_REPLACED: u64 = 1 << 2;
 pub(crate) const STYLE_BOX_SIZING: u64 = 1 << 3;
 pub(crate) const STYLE_DIRECTION: u64 = 1 << 4;
 pub(crate) const STYLE_OVERFLOW: u64 = 1 << 5;
-pub(crate) const STYLE_SCROLLBAR_WIDTH: u64 = 1 << 6;
-pub(crate) const STYLE_FLOAT: u64 = 1 << 7;
-pub(crate) const STYLE_CLEAR: u64 = 1 << 8;
+pub(crate) const STYLE_SCROLLBAR: u64 = 1 << 6;
+
 pub(crate) const STYLE_POSITION: u64 = 1 << 9;
 pub(crate) const STYLE_INSET: u64 = 1 << 10; // top, right, bottom, left
 pub(crate) const STYLE_SIZE: u64 = 1 << 11; // width, height
@@ -174,11 +141,11 @@ pub(crate) const STYLE_BORDER_COLOR: u64 = 1 << 32;
 pub(crate) const STYLE_CORNER_RADIUS: u64 = 1 << 33; // top_left, top_right...
 pub(crate) const STYLE_OPACITY: u64 = 1 << 34;
 pub(crate) const STYLE_BOX_SHADOW: u64 = 1 << 35;
-pub(crate) const STYLE_CLIP_PATH: u64 = 1 << 36;
+// pub(crate) const RESERVED_36: u64 = 1 << 36;
 pub(crate) const STYLE_TRANSFORM: u64 = 1 << 37; // 2D/3D 座標変換行列
 pub(crate) const STYLE_Z_INDEX: u64 = 1 << 38;
 pub(crate) const STYLE_CURSOR: u64 = 1 << 39;
-pub(crate) const STYLE_FILTER: u64 = 1 << 40; // ぼかし(Blur)やグレースケール
+pub(crate) const STYLE_BACKDROP: u64 = 1 << 40;
 pub(crate) const STYLE_TEXT_COLOR: u64 = 1 << 41;
 pub(crate) const STYLE_FONT_SIZE: u64 = 1 << 42;
 
@@ -190,6 +157,7 @@ pub(crate) const STATE_DISABLED: u64 = 1 << 46;
 pub(crate) const STATE_ACTIVED: u64 = 1 << 47;
 pub(crate) const STATE_SELECTED: u64 = 1 << 48;
 pub(crate) const STATE_DRAGGED: u64 = 1 << 49;
+pub(crate) const STYLE_INTERACTION_WITHIN: u64 = 1 << 7; // 親に focus_within 等のスタイル定義が存在することを示す
 
 // セグメント 5: 可変長・コールドデータ拡張領域 (48..55ビット) - 計8個
 // ※ Vec等を含む重い構造体。SparseSecondaryMap に実体を逃がす。
@@ -205,6 +173,7 @@ pub(crate) const STYLE_CLIP_AREAS: u64 = 1 << 53;
 pub(crate) const STYLE_TRANSITIONS: u64 = 1 << 54;
 /// テキスト内容そのものを示す
 pub(crate) const COMP_TEXT_CONTENT: u64 = 1 << 55;
+pub(crate) const COMP_INPUT_CONTENT: u64 = 1 << 36;
 
 pub(crate) const STATE_QUEUED_LAYOUT: u64 = 1 << 56;
 pub(crate) const STATE_QUEUED_RENDER: u64 = 1 << 57;
@@ -214,14 +183,15 @@ pub(crate) const COMP_MOVIE_CONTENT: u64 = 1 << 59;
 
 pub(crate) const COMP_UIA_CONTENT: u64 = 1 << 60;
 
-/// カスタムのCSS変数や開発者の動的プロパティ（HashMap等含む）
+/// カスタムのCSS変数や動的プロパティ（HashMap等含む）
 pub(crate) const STYLE_EXT_PROPERTIES: u64 = 1 << 61;
 
 /// WebView2 のコンテンツを持っているか
 pub const COMP_WEBVIEW_CONTENT: u64 = 1 << 62;
-// セグメント 6: 完全予約領域
-// あと1つしかにゃい．．．
-pub(crate) const RESERVED_63: u64 = 1 << 63;
+
+pub(crate) const STYLE_POINTER_EVENTS: u64 = 1 << 63;
+
+pub(crate) const STYLE_USER_SELECT: u64 = 1 << 8;
 
 // 基本レイアウト一括判定マスク (STYLE_DISPLAY から STYLE_BORDER まで：ビット0..17)
 /// 基本レイアウトの個別プロパティの「どれか1つでも有効化されているか」を判定するマスク。
@@ -232,9 +202,7 @@ pub(crate) const STYLE_BASIC_LAYOUT: u64 = STYLE_DISPLAY
     | STYLE_BOX_SIZING
     | STYLE_DIRECTION
     | STYLE_OVERFLOW
-    | STYLE_SCROLLBAR_WIDTH
-    | STYLE_FLOAT
-    | STYLE_CLEAR
+    | STYLE_SCROLLBAR
     | STYLE_POSITION
     | STYLE_INSET
     | STYLE_SIZE
@@ -268,13 +236,15 @@ pub(crate) const STYLE_VISUAL_PROPERTY: u64 = STYLE_BG_COLOR
     | STYLE_CORNER_RADIUS
     | STYLE_OPACITY
     | STYLE_BOX_SHADOW
-    | STYLE_CLIP_PATH
     | STYLE_TRANSFORM
     | STYLE_Z_INDEX
     | STYLE_CURSOR
-    | STYLE_FILTER
+    | STYLE_BACKDROP
     | STYLE_TEXT_COLOR
-    | STYLE_FONT_SIZE;
+    | STYLE_FONT_SIZE
+    | STYLE_EXT_PROPERTIES
+    | STYLE_POINTER_EVENTS
+    | STYLE_USER_SELECT;
 
 // インタラクションプロパティの一括判定用マスク（ビット43..49の論理和：16進数表現 0x3F80000000000）
 pub(crate) const STYLE_INTERACTION_PROPERTY: u64 = STATE_HOVERED

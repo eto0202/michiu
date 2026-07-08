@@ -1,7 +1,4 @@
-use michiu_ui::{
-    AlignItems, Color, ComposedRenderer, Context, CornerRadius, EntityId, JustifyContent,
-    LayoutSize, Size, build_ui, div, rgb, text, ts,
-};
+use michiu_ui::{ComposedRenderer, EntityId, prelude::*};
 use windows::{
     Win32::{
         Foundation::*,
@@ -95,6 +92,7 @@ unsafe extern "system" fn wnd_proc(
 
                 // 描画実行
                 app.renderer.draw(&app.context);
+                app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
                 return LRESULT(0);
@@ -141,10 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. UI コンテキストの構築と静的テキスト要素の定義
     let mut context = Context::new();
 
-    let flex_box = ts()
-        .flex()
-        .align_items(AlignItems::Center)
-        .justify_content(JustifyContent::Center);
+    let flex_box = ts().flex().items_center().justify_center();
 
     let font_style = ts()
         .font_size(32.0) // 文字を 32px に拡大
@@ -156,15 +151,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // 1. 親コンテナのサイズをウィンドウ全体（100%）に広げます
         div(flex_box
             .clone()
-            .size(Size::pct_all(1.0)) // ウィンドウ全画面（100%）に広げる
+            .size(pct(100.0)) // ウィンドウ全画面（100%）に広げる
             .bg_color(rgb(1, 1, 1)))
         .child(
             // 2. その中に32px（一回り大きなサイズ）の角丸カードコンテナを配置
             div(
                 flex_box
-                    .size(Size::px(450.0, 150.0)) // カードを一回り大きく (450x150)
+                    .size((450.0, 150.0)) // カードを一回り大きく (450x150)
                     .bg_color(rgb(25, 25, 25))
-                    .corner_radius(CornerRadius::all(16.0)), // 角丸も大きく (16px)
+                    .corner_radius(16.0), // 角丸も大きく (16px)
             )
             .child(text("Hello Michiu GUI!").style(font_style)),
         )

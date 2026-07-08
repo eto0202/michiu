@@ -237,6 +237,7 @@ impl VirtualKey {
     pub const NONAME: Self = Self(0xFC); // Reserved
     pub const PA1: Self = Self(0xFD); // PA1
     pub const OEM_CLEAR: Self = Self(0xFE); // Clear
+    pub const UNKNOWN: Self = Self(0xFF);
 }
 
 impl From<VirtualKey> for VIRTUAL_KEY {

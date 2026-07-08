@@ -1,4 +1,4 @@
-use crate::{Context, IDENTITY_MATRIX, LayoutSize, div};
+use crate::{Context, IDENTITY_MATRIX, LayoutSize, div, ts};
 
 use super::*;
 
@@ -16,7 +16,7 @@ fn test_style_cow_behavior() {
 
     // 複製したスタイルをメソッドチェーンで部分書き換え（サイズを設定）。
     // ここで Arc::make_mut が走り、ディープコピー（メモリの分岐）が実行されるべき。
-    let mutated_style = cloned_style.size(Size::px(100.0, 200.0));
+    let mutated_style = cloned_style.size((100.0, 200.0));
 
     // 物理メモリアドレスが変化し、安全に分岐（隔離）されたかを検証
     assert!(!Arc::ptr_eq(&base_style.inner, &mutated_style.inner));
@@ -127,7 +127,7 @@ fn test_cpu_animation_tick() {
     // この要素はキーフレームアニメーション（無限回転スピナー）を持ちます
     let root = crate::build_ui(&mut cx, || {
         div(ts()
-            .size(Size::px(100.0, 100.0))
+            .size((100.0, 100.0))
             .bg_color(Color::rgb_f32(1.0, 0.0, 0.0))
             // 無限ループの回転アニメーションをバインド（これが 1<<51 になります）
             .animation(KeyframeAnimation {
