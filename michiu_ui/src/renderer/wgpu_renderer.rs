@@ -496,6 +496,8 @@ impl WgpuRenderer {
 
         // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュする
         self.device.poll(wgpu::PollType::Poll);
+
+        std::mem::drop(_context_guard);
     }
 
     /// ヘルパー: バッチ内に静止 WebView2 テクスチャが含まれる場合、バインドグループを動的に切り替える
@@ -617,7 +619,7 @@ impl WgpuRenderer {
         let is_decorator = instance.opacity_mode_sizing[1] < -0.5; // mode == -1.0 なら true
 
         let mut current_mode = if is_decorator {
-            0.0f32 // 装飾モード時は実質的なプレーンな Solid（0.0）として処理
+            -1.0f32 // 0.0f32 から -1.0f32 に修正。装飾/キャレット用にそのまま -1.0 をシェーダーへ伝える
         } else if visual.bg_gradient.is_some() {
             1.0f32
         } else {

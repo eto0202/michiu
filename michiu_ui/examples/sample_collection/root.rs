@@ -1,14 +1,12 @@
-use michiu_ui::{Element, prelude::*};
-
 use crate::{components, theme::Theme};
+use michiu_ui::prelude::*;
 
-pub fn create_root(cx: &mut Context) -> Element {
-    build_ui(cx, || {
-        v_flex(ts().size_full().bg_color(Theme::DARK_BG))
-            .child(components::header())
-            .child(
-                h_flex(ts().size_full().grow())
-                    .children([components::sidebar(), components::main_area()]),
-            )
-    })
+pub fn create_root(t: ReadSignal<Theme>) -> Element {
+    v_flex(move || ts().size_full().bg_color(t.get().background))
+        .provide(t)
+        .children([
+            components::header(),
+            h_flex(ts().size_full().grow())
+                .children([components::sidebar(), components::main_area()]),
+        ])
 }

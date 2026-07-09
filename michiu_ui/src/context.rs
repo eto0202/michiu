@@ -14,9 +14,10 @@ use crate::{
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
 use std::{
+    any::TypeId,
     borrow::Cow,
     cell::RefCell,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     marker::PhantomData,
     path::PathBuf,
     sync::mpsc::{Receiver, Sender},
@@ -123,6 +124,7 @@ pub(crate) enum EffectCategory {
     None,
     Style,
     Text,
+    Input,
     Image,
     Movie,
     WebView2,
@@ -289,6 +291,13 @@ pub struct Context {
     pub(crate) selected_rects: SparseSecondaryMap<EntityId, Vec<LayoutRect>>,
     // DWrite レイアウトキャッシュSoA
     pub(crate) dwrite_layouts: RefCell<SparseSecondaryMap<EntityId, IDWriteTextLayout>>,
+
+    /// 各要素が提供する型 (TypeId) とその SignalId のマッピング
+    pub(crate) providers: SparseSecondaryMap<EntityId, HashMap<TypeId, SignalId>>,
+    /// エフェクトIDから所有する要素IDへの逆引き用
+    pub(crate) effect_to_element: SecondaryMap<EffectId, EntityId>,
+    /// 構築中に登録され、トポロジー完成まで初回評価が保留されている要素エフェクトのキュー
+    pub(crate) pending_element_effects: Vec<EffectId>,
 }
 
 pub(crate) type Effects = Box<dyn FnMut(&mut Context)>;
@@ -360,6 +369,9 @@ impl Context {
             selected_rects: SparseSecondaryMap::new(),
             dwrite_layouts: RefCell::new(SparseSecondaryMap::new()),
             scrollbar_styles: SparseSecondaryMap::new(),
+            providers: SparseSecondaryMap::new(),
+            effect_to_element: SecondaryMap::new(),
+            pending_element_effects: Vec::new(),
         }
     }
 
@@ -479,6 +491,157 @@ impl Context {
         }
     }
 
+    /// 要素に動的エフェクト（Style、Text等のリアクティブクロージャ）を安全に登録し、初期評価を実行します。
+    pub(crate) fn create_element_effect<F>(
+        &mut self,
+        element_id: EntityId,
+        category: EffectCategory,
+        f: F,
+    ) -> EffectId
+    where
+        F: FnMut(&mut Context) + 'static,
+    {
+        let effect_id = self.effects.insert(Box::new(f));
+
+        // 初回評価が走る前に要素との紐付けを確実に登録
+        self.effect_to_element.insert(effect_id, element_id);
+
+        // 要素のエフェクトリストに登録し、既存の同じカテゴリの古いエフェクトは自動破棄
+        if !self.element_effects.contains_key(element_id) {
+            self.element_effects
+                .insert(element_id, smallvec::smallvec![]);
+        }
+        let list = self.element_effects.get_mut(element_id).unwrap();
+        if let Some(pos) = list.iter().position(|(cat, _)| *cat == category) {
+            let (_, old_id) = list.remove(pos);
+            self.effects.remove(old_id);
+            self.effect_to_element.remove(old_id);
+            self.pending_element_effects.retain(|&x| x != old_id); // キューから古いものを排除
+        }
+        list.push((category, effect_id));
+
+        // 即時実行を廃止。トポロジーが整うまで初回評価を一時保留
+        self.pending_element_effects.push(effect_id);
+
+        effect_id
+    }
+
+    /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に安全実行します
+    pub(crate) fn evaluate_pending_element_effects(&mut self) {
+        if self.pending_element_effects.is_empty() {
+            return;
+        }
+
+        // 評価中に別のネストしたエフェクトが追加されるケースを許容するため、drain で一度排出して処理
+        let pending: Vec<EffectId> = self.pending_element_effects.drain(..).collect();
+        for effect_id in pending {
+            if self.effects.contains_key(effect_id) {
+                crate::execute_effect(effect_id);
+            }
+        }
+    }
+
+    /// 指定された要素に対してシグナルコンテキストを提供します
+    pub(crate) fn provide_context<T: Send + 'static>(&mut self, id: EntityId, signal_id: SignalId) {
+        if !self.providers.contains_key(id) {
+            self.providers.insert(id, std::collections::HashMap::new());
+        }
+        let map = self.providers.get_mut(id).unwrap();
+        map.insert(std::any::TypeId::of::<T>(), signal_id);
+    }
+
+    /// 要素の階層トポロジーを親（Ancestor）に向かって遡り、最初に見つかった型 T の ReadSignal を解決して返します
+    pub(crate) fn use_provided_from<T: Clone + 'static>(
+        &self,
+        id: EntityId,
+    ) -> Option<ReadSignal<T>> {
+        let mut curr = Some(id);
+        let type_id = std::any::TypeId::of::<T>();
+
+        while let Some(curr_id) = curr {
+            if let Some(map) = self.providers.get(curr_id)
+                && let Some(&signal_id) = map.get(&type_id)
+            {
+                return Some(ReadSignal::new(signal_id));
+            }
+            // トポロジー親を安全に探索
+            curr = self.parents.get(curr_id).copied().flatten();
+        }
+        None
+    }
+
+    /// 現在のスレッドローカルコンテキスト（アクティブなエフェクト、またはイベントハンドラ）から、
+    /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の ReadSignal を解決します。
+    pub fn use_provided<T: Clone + 'static>(&self) -> ReadSignal<T> {
+        // 1. ACTIVE_EFFECT（エフェクト実行中）から解決を試みる
+        let element_id = if let Some(active_effect_id) =
+            crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
+        {
+            self.effect_to_element
+                .get(active_effect_id)
+                .copied()
+                .expect("use_provided failed: active effect is not associated with any UI Element")
+        } else if let Some(active_element_id) =
+            crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
+        {
+            // 2. ACTIVE_EFFECTがNoneであれば、ACTIVE_ELEMENT（イベントハンドラ実行中）にフォールバック
+            active_element_id
+        } else {
+            panic!(
+                "use_provided must be called inside a dynamic style, text, content closure, or an active event handler context"
+            );
+        };
+
+        // 3. 親ツリーを遡って解決
+        self.use_provided_from::<T>(element_id)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
+                        std::any::type_name::<T>()
+                    )
+                })
+    }
+
+    /// 現在のスレッドローカルコンテキストから、
+    /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+    pub fn use_provided_setter<T: Send + 'static>(&self) -> WriteSignal<T> {
+        let element_id = if let Some(active_effect_id) =
+            crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
+        {
+            self.effect_to_element
+                .get(active_effect_id)
+                .copied()
+                .expect("use_provided_setter failed: active effect not associated with an Element")
+        } else if let Some(active_element_id) =
+            crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
+        {
+            active_element_id
+        } else {
+            panic!(
+                "use_provided_setter must be called inside a dynamic reactive context or an active event handler context"
+            );
+        };
+
+        let mut curr = Some(element_id);
+        let type_id = std::any::TypeId::of::<T>();
+
+        while let Some(curr_id) = curr {
+            if let Some(map) = self.providers.get(curr_id)
+                && let Some(&signal_id) = map.get(&type_id)
+            {
+                return WriteSignal {
+                    id: signal_id,
+                    _marker: std::marker::PhantomData,
+                };
+            }
+            curr = self.parents.get(curr_id).copied().flatten();
+        }
+        panic!(
+            "Dependency resolution failed: No Provider Setter found in ancestor sub-tree for type: '{}'",
+            std::any::type_name::<T>()
+        )
+    }
+
     /// 親子関係の追加と、永続Taffy構造のリアルタイム同期
     pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
         self.parents.insert(child, Some(parent));
@@ -541,6 +704,9 @@ impl Context {
         self.selected_rects.clear();
         self.dwrite_layouts.borrow_mut().clear();
         self.scrollbar_styles.clear();
+        self.providers.clear();
+        self.effect_to_element.clear();
+        self.pending_element_effects.clear();
         // 溜まっている未処理タスクをすべて排出してクリーンアップ
         while self.task_receiver.try_recv().is_ok() {}
     }
@@ -585,9 +751,12 @@ impl Context {
             }
 
             // 要素に紐づいていた全エフェクトを自動クリーンアップ
+            // エフェクトのクリーンアップ時に逆引きマップからも削除
             if let Some(effects) = self.element_effects.remove(id) {
                 for (_, effect_id) in effects {
                     self.effects.remove(effect_id);
+                    self.effect_to_element.remove(effect_id);
+                    self.pending_element_effects.retain(|&x| x != effect_id);
                 }
             }
 
@@ -621,6 +790,7 @@ impl Context {
             self.selected_rects.remove(id);
             self.dwrite_layouts.borrow_mut().remove(id);
             self.scrollbar_styles.remove(id);
+            self.providers.remove(id);
 
             self.is_structure_dirty = true;
         }
@@ -713,6 +883,8 @@ impl Context {
     pub fn sync_layout_and_render_list(&mut self, root: EntityId, window_size: LayoutSize) {
         // 同期処理の開始時に自身をバインドする
         let _context_guard = bind_context(self);
+        // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
+        self.evaluate_pending_element_effects();
         // ウィンドウサイズの変更検知
         let window_resized = if self.last_window_size != Some(window_size) {
             self.last_window_size = Some(window_size);
@@ -2242,32 +2414,39 @@ impl Context {
                         _ => 0.0,
                     };
 
-                    let dwrite_line_height = font_size * 1.3;
-                    let current_row_f = contents.current_line_index as f32;
+                    let scale = self.scale_factor;
 
-                    // キャレットの底辺位置を決定
-                    let caret_bottom_y = rect.y
+                    // 1. [太さ変化の解消] X座標をDPIスケーリング後の物理ピクセルグリッドに完全にスナップ
+                    let logical_x = rect.x + border_left + padding_left + contents.measured_caret_x;
+                    let aligned_x = (logical_x * scale).round() / scale;
+
+                    let line_height = contents.caret_line_height;
+                    let caret_width = contents.caret_width.unwrap_or(1.5);
+
+                    // キャレット高さを、明示指定された縮小サイズにするか、
+                    // デフォルトでは「行高全体の85%（文字のインク境界に完璧に一致する高さ）」に設定
+                    let caret_height = contents.caret_height.unwrap_or(line_height * 0.85);
+
+                    // 2. キャレットサイズ縮小時も、行に対して「垂直中央配置」されるよう動的オフセットを算出
+                    let vertical_center_offset = (line_height - caret_height) * 0.5;
+
+                    let logical_y = rect.y
                         + border_top
                         + padding_top
-                        + (current_row_f * dwrite_line_height)
-                        + dwrite_line_height;
+                        + contents.measured_caret_y
+                        + contents.caret_offset;
 
-                    let caret_width = contents.caret_size.map(|s| s.width).unwrap_or(1.5);
-                    let caret_height = contents
-                        .caret_size
-                        .map(|s| s.height)
-                        .unwrap_or(dwrite_line_height * 0.85); // 高さを行の 85% に
+                    let aligned_y = ((logical_y + vertical_center_offset) * scale).round() / scale;
+                    let aligned_width = (caret_width * scale).round().max(1.0) / scale;
+                    let aligned_height = (caret_height * scale).round().max(1.0) / scale;
 
-                    let caret_top = caret_bottom_y - caret_height;
+                    let caret_rect =
+                        LayoutRect::new(aligned_x, aligned_y, aligned_width, aligned_height);
 
-                    let caret_rect = LayoutRect::new(
-                        rect.x + border_left + padding_left + contents.caret_offset_x,
-                        caret_top,
-                        caret_width,
-                        caret_height,
-                    );
-
-                    let c_color = contents.caret_color.unwrap_or(Color::WHITE);
+                    let c_color = contents
+                        .caret_color
+                        .or(visual.text_color)
+                        .unwrap_or(Color::WHITE);
                     let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
 
                     // 通常の Solid 矩形 (mode == 0.0) としてキャレット Quad を最前面に配置
@@ -3572,6 +3751,7 @@ impl Context {
                                 .get_mut(id)
                                 .and_then(|l| l.on_disable.take());
                             if let Some(mut handler) = on_dis {
+                                let _guard = crate::ActiveElementGuard::new(id);
                                 handler(self);
                                 if let Some(l) = self.event_listeners.get_mut(id) {
                                     l.on_disable = Some(handler);
@@ -3585,6 +3765,7 @@ impl Context {
                                 .get_mut(id)
                                 .and_then(|l| l.on_active.take());
                             if let Some(mut handler) = on_act {
+                                let _guard = crate::ActiveElementGuard::new(id);
                                 handler(self);
                                 if let Some(l) = self.event_listeners.get_mut(id) {
                                     l.on_active = Some(handler);
@@ -3598,6 +3779,7 @@ impl Context {
                                 .get_mut(id)
                                 .and_then(|l| l.on_select.take());
                             if let Some(mut handler) = on_sel {
+                                let _guard = crate::ActiveElementGuard::new(id);
                                 handler(self);
                                 if let Some(l) = self.event_listeners.get_mut(id) {
                                     l.on_select = Some(handler);
@@ -3940,6 +4122,7 @@ impl Context {
                     .get_mut(old_id)
                     .and_then(|l| l.on_mouse_leave.take());
                 if let Some(mut handler) = on_leave {
+                    let _guard = crate::ActiveElementGuard::new(old_id);
                     handler(self);
                     if let Some(l) = self.event_listeners.get_mut(old_id) {
                         l.on_mouse_leave = Some(handler);
@@ -3957,6 +4140,7 @@ impl Context {
                     .get_mut(new_id)
                     .and_then(|l| l.on_mouse_enter.take());
                 if let Some(mut handler) = on_enter {
+                    let _guard = crate::ActiveElementGuard::new(new_id);
                     handler(self);
                     if let Some(l) = self.event_listeners.get_mut(new_id) {
                         l.on_mouse_enter = Some(handler);
@@ -3969,6 +4153,7 @@ impl Context {
                     .get_mut(new_id)
                     .and_then(|l| l.on_hover.take());
                 if let Some(mut handler) = on_hover {
+                    let _guard = crate::ActiveElementGuard::new(new_id);
                     handler(self);
                     if let Some(l) = self.event_listeners.get_mut(new_id) {
                         l.on_hover = Some(handler);
@@ -3989,6 +4174,7 @@ impl Context {
             if let Some(mut handler) = on_move {
                 let rect = self.rects[target_id];
                 let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
+                let _guard = crate::ActiveElementGuard::new(target_id);
                 handler(self, relative_pos);
                 if let Some(l) = self.event_listeners.get_mut(target_id) {
                     l.on_cursor_moved = Some(handler);
@@ -4011,6 +4197,7 @@ impl Context {
                     .get_mut(pressed_id)
                     .and_then(|l| l.on_drag.take());
                 if let Some(mut handler) = on_drag {
+                    let _guard = crate::ActiveElementGuard::new(pressed_id);
                     handler(self, delta);
                     if let Some(l) = self.event_listeners.get_mut(pressed_id) {
                         l.on_drag = Some(handler);
@@ -4274,6 +4461,7 @@ impl Context {
                                     .get_mut(old_focus_id)
                                     .and_then(|l| l.on_blur.take());
                                 if let Some(mut handler) = on_blur {
+                                    let _guard = crate::ActiveElementGuard::new(old_focus_id);
                                     handler(self);
                                     if let Some(l) = self.event_listeners.get_mut(old_focus_id) {
                                         l.on_blur = Some(handler);
@@ -4290,6 +4478,7 @@ impl Context {
                                 .get_mut(target_id)
                                 .and_then(|l| l.on_focus.take());
                             if let Some(mut handler) = on_focus {
+                                let _guard = crate::ActiveElementGuard::new(target_id);
                                 handler(self);
                                 if let Some(l) = self.event_listeners.get_mut(target_id) {
                                     l.on_focus = Some(handler);
@@ -4308,6 +4497,7 @@ impl Context {
                                 .get_mut(old_focus_id)
                                 .and_then(|l| l.on_blur.take());
                             if let Some(mut handler) = on_blur {
+                                let _guard = crate::ActiveElementGuard::new(old_focus_id);
                                 handler(self);
                                 if let Some(l) = self.event_listeners.get_mut(old_focus_id) {
                                     l.on_blur = Some(handler);
@@ -4323,6 +4513,7 @@ impl Context {
                         .get_mut(target_id)
                         .and_then(|l| l.on_mouse_input.take());
                     if let Some(mut handler) = on_input {
+                        let _guard = crate::ActiveElementGuard::new(target_id);
                         handler(self, button, modifiers, state);
                         if let Some(l) = self.event_listeners.get_mut(target_id) {
                             l.on_mouse_input = Some(handler);
@@ -4359,6 +4550,7 @@ impl Context {
                         .get_mut(pressed_id)
                         .and_then(|l| l.on_mouse_input.take());
                     if let Some(mut handler) = on_input {
+                        let _guard = crate::ActiveElementGuard::new(pressed_id);
                         handler(self, button, modifiers, state);
                         if let Some(l) = self.event_listeners.get_mut(pressed_id) {
                             l.on_mouse_input = Some(handler);
@@ -4375,6 +4567,7 @@ impl Context {
                                     .get_mut(pressed_id)
                                     .and_then(|l| l.on_click.take());
                                 if let Some(mut handler) = on_click {
+                                    let _guard = crate::ActiveElementGuard::new(pressed_id);
                                     handler(self);
                                     if let Some(l) = self.event_listeners.get_mut(pressed_id) {
                                         l.on_click = Some(handler);
@@ -4388,6 +4581,7 @@ impl Context {
                                     .get_mut(pressed_id)
                                     .and_then(|l| l.on_right_click.take());
                                 if let Some(mut handler) = on_right {
+                                    let _guard = crate::ActiveElementGuard::new(pressed_id);
                                     handler(self);
                                     if let Some(l) = self.event_listeners.get_mut(pressed_id) {
                                         l.on_right_click = Some(handler);
@@ -4505,6 +4699,7 @@ impl Context {
                 .and_then(|l| l.on_mouse_wheel.take());
 
             if let Some(mut handler) = on_wheel {
+                let _guard = crate::ActiveElementGuard::new(curr_id);
                 handler(self, scroll_x, scroll_y);
                 if let Some(l) = self.event_listeners.get_mut(curr_id) {
                     l.on_mouse_wheel = Some(handler);
@@ -4592,6 +4787,7 @@ impl Context {
                 .get_mut(focused_id)
                 .and_then(|l| l.on_keyboard_input.take());
             if let Some(mut handler) = on_key {
+                let _guard = crate::ActiveElementGuard::new(focused_id);
                 handler(self, key, modifiers, state);
                 if let Some(l) = self.event_listeners.get_mut(focused_id) {
                     l.on_keyboard_input = Some(handler);
@@ -4608,6 +4804,7 @@ impl Context {
                 .get_mut(focused_id)
                 .and_then(|l| l.on_char_input.take());
             if let Some(mut handler) = on_char {
+                let _guard = crate::ActiveElementGuard::new(focused_id);
                 handler(self, c);
                 if let Some(l) = self.event_listeners.get_mut(focused_id) {
                     l.on_char_input = Some(handler);
@@ -4624,6 +4821,7 @@ impl Context {
                 .get_mut(focused_id)
                 .and_then(|l| l.on_ime.take());
             if let Some(mut handler) = on_ime {
+                let _guard = crate::ActiveElementGuard::new(focused_id);
                 handler(self, ime_state);
                 if let Some(l) = self.event_listeners.get_mut(focused_id) {
                     l.on_ime = Some(handler);
@@ -4640,6 +4838,7 @@ impl Context {
                 .get_mut(target_id)
                 .and_then(|l| l.on_file_dropped.take());
             if let Some(mut handler) = on_drop {
+                let _guard = crate::ActiveElementGuard::new(target_id);
                 handler(self, paths);
                 if let Some(l) = self.event_listeners.get_mut(target_id) {
                     l.on_file_dropped = Some(handler);
@@ -5069,114 +5268,119 @@ impl Context {
         }
 
         let mut state = self.scrollbar_styles.get(id).cloned().unwrap();
+        state.style = sb.clone();
         let mut changed = false;
 
         if sb.display != ScrollbarDisplay::None {
             // A. 縦スクロールバー (V-Track)
-            if state.v_track_id.is_none() {
+            let v_track = if let Some(v_track) = state.v_track_id {
+                v_track
+            } else {
                 let v_track = self.spawn(Some(id));
                 self.add_child(id, v_track);
-
-                // トラックは常に絶対配置（コンテナの右端に固定）
-                let track_style = sb
-                    .track
-                    .clone()
-                    .unwrap_or_default()
-                    .absolute()
-                    .z_index(9999)
-                    .width(sb.width)
-                    .inset((0.0, 0.0, 0.0, crate::auto()))
-                    .pointer_events_auto(); // イベントを透過させない
-
-                let el = Element::from_id(v_track);
-                el.style_internal(self, track_style);
-
                 state.v_track_id = Some(v_track);
                 changed = true;
-            }
+                v_track
+            };
+
+            // トラックは常に絶対配置（コンテナの右端に固定）
+            let track_style = sb
+                .track
+                .clone()
+                .unwrap_or_default()
+                .absolute()
+                .z_index(9999)
+                .width(sb.width)
+                .inset((0.0, 0.0, 0.0, crate::auto()))
+                .pointer_events_auto(); // イベントを透過させない
+
+            let el = Element::from_id(v_track);
+            el.style_internal(self, track_style);
 
             // A-1. 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
-            if let Some(v_track) = state.v_track_id
-                && state.v_thumb_id.is_none()
-            {
+            let v_thumb = if let Some(v_thumb) = state.v_thumb_id {
+                v_thumb
+            } else {
                 let v_thumb = self.spawn(Some(v_track));
                 self.add_child(v_track, v_thumb);
-
-                let mut thumb_width = sb.width;
-                if let Some(ref thumb_style) = sb.thumb
-                    && let Val::Px(w) = thumb_style.inner.basic_layout.size.width
-                {
-                    thumb_width = w.min(sb.width);
-                }
-
-                // サムは V-Track の絶対座標を原点とし、Y方向のみ absolute スライド
-                let thumb_style = sb
-                    .thumb
-                    .clone()
-                    .unwrap_or_default()
-                    .absolute()
-                    .width(thumb_width)
-                    .inset((0.0, crate::auto(), crate::auto(), crate::auto()))
-                    .pointer_events_auto();
-
-                let el = Element::from_id(v_thumb);
-                el.style_internal(self, thumb_style);
-
                 state.v_thumb_id = Some(v_thumb);
                 changed = true;
+                v_thumb
+            };
+
+            let mut thumb_width = sb.width;
+            if let Some(ref thumb_style) = sb.thumb
+                && let Val::Px(w) = thumb_style.inner.basic_layout.size.width
+            {
+                thumb_width = w.min(sb.width);
             }
+
+            // サムは V-Track の絶対座標を原点とし、Y方向のみ absolute スライド
+            let thumb_style = sb
+                .thumb
+                .clone()
+                .unwrap_or_default()
+                .absolute()
+                .width(thumb_width)
+                .inset((0.0, crate::auto(), crate::auto(), crate::auto()))
+                .pointer_events_auto();
+
+            let el = Element::from_id(v_thumb);
+            el.style_internal(self, thumb_style);
 
             // B. 横スクロールバー (H-Track)
-            if state.h_track_id.is_none() {
+            let h_track = if let Some(h_track) = state.h_track_id {
+                h_track
+            } else {
                 let h_track = self.spawn(Some(id));
                 self.add_child(id, h_track);
-
-                let track_style = sb
-                    .track
-                    .clone()
-                    .unwrap_or_default()
-                    .absolute()
-                    .z_index(9999)
-                    .height(sb.width)
-                    .inset((crate::auto(), 0.0, 0.0, 0.0))
-                    .pointer_events_auto();
-
-                let el = Element::from_id(h_track);
-                el.style_internal(self, track_style);
-
                 state.h_track_id = Some(h_track);
                 changed = true;
-            }
+                h_track
+            };
+
+            let track_style = sb
+                .track
+                .clone()
+                .unwrap_or_default()
+                .absolute()
+                .z_index(9999)
+                .height(sb.width)
+                .inset((crate::auto(), 0.0, 0.0, 0.0))
+                .pointer_events_auto();
+
+            let el = Element::from_id(h_track);
+            el.style_internal(self, track_style);
 
             // B-1. 横つまみ (H-Thumb、H-Track の子要素としてアタッチ)
-            if let Some(h_track) = state.h_track_id
-                && state.h_thumb_id.is_none()
-            {
+            let h_thumb = if let Some(h_thumb) = state.h_thumb_id {
+                h_thumb
+            } else {
                 let h_thumb = self.spawn(Some(h_track));
                 self.add_child(h_track, h_thumb);
-
-                let mut thumb_height = sb.width;
-                if let Some(ref thumb_style) = sb.thumb
-                    && let Val::Px(h) = thumb_style.inner.basic_layout.size.height
-                {
-                    thumb_height = h.min(sb.width);
-                }
-
-                let thumb_style = sb
-                    .thumb
-                    .clone()
-                    .unwrap_or_default()
-                    .absolute()
-                    .height(thumb_height)
-                    .inset((crate::auto(), crate::auto(), crate::auto(), 0.0))
-                    .pointer_events_auto();
-
-                let el = Element::from_id(h_thumb);
-                el.style_internal(self, thumb_style);
-
                 state.h_thumb_id = Some(h_thumb);
                 changed = true;
+                h_thumb
+            };
+
+            let mut thumb_height = sb.width;
+            if let Some(ref thumb_style) = sb.thumb
+                && let Val::Px(h) = thumb_style.inner.basic_layout.size.height
+            {
+                thumb_height = h.min(sb.width);
             }
+
+            let thumb_style = sb
+                .thumb
+                .clone()
+                .unwrap_or_default()
+                .absolute()
+                .height(thumb_height)
+                .inset((crate::auto(), crate::auto(), crate::auto(), 0.0))
+                .pointer_events_auto();
+
+            let el = Element::from_id(h_thumb);
+            el.style_internal(self, thumb_style);
         }
 
         if changed {

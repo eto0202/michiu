@@ -15,6 +15,32 @@ thread_local! {
     // 現在メインスレッド上で評価中のエフェクトIDを記録するスレッドローカル領域。
     // これによりシグナル読み出し時の依存関係を自動で構築します。
     pub(crate) static ACTIVE_EFFECT: Cell<Option<EffectId>> = const { Cell::new(None) };
+    // 現在メインスレッド上で処理中の UI要素ID (EntityId)
+    pub(crate) static ACTIVE_ELEMENT: Cell<Option<crate::EntityId>> = const { Cell::new(None) };
+}
+
+/// スコープを抜けた際に自動的に ACTIVE_ELEMENT を復元するRAIIガード
+pub struct ActiveElementGuard {
+    prev: Option<crate::EntityId>,
+}
+
+impl ActiveElementGuard {
+    #[inline]
+    pub fn new(id: crate::EntityId) -> Self {
+        let prev = ACTIVE_ELEMENT.with(|cell| {
+            let prev = cell.get();
+            cell.set(Some(id));
+            prev
+        });
+        Self { prev }
+    }
+}
+
+impl Drop for ActiveElementGuard {
+    #[inline]
+    fn drop(&mut self) {
+        ACTIVE_ELEMENT.with(|cell| cell.set(self.prev));
+    }
 }
 
 /// シグナルの読取端。軽量で Copy 可能。
@@ -32,6 +58,17 @@ impl<T> Clone for ReadSignal<T> {
 impl<T> Copy for ReadSignal<T> {}
 
 impl<T: Clone + 'static> ReadSignal<T> {
+    #[inline]
+    pub fn new(id: SignalId) -> Self {
+        Self {
+            id,
+            _marker: PhantomData,
+        }
+    }
+    #[inline]
+    pub fn id(&self) -> SignalId {
+        self.id
+    }
     /// シグナルの現在の値を取得（複製）します。
     /// もし現在エフェクトの評価中であれば、そのエフェクトをこのシグナルの依存先（Subscriber）として自動登録します。
     pub fn get(&self) -> T {
@@ -159,6 +196,17 @@ impl<T> Clone for WriteSignal<T> {
 impl<T> Copy for WriteSignal<T> {}
 
 impl<T: Send + 'static> WriteSignal<T> {
+    #[inline]
+    pub fn new(id: SignalId) -> Self {
+        Self {
+            id,
+            _marker: PhantomData,
+        }
+    }
+    #[inline]
+    pub fn id(&self) -> SignalId {
+        self.id
+    }
     /// メインスレッド上からシグナルの値を同期的に書き換えます。
     /// 値が書き換わった場合、このシグナルに依存しているすべての子エフェクトを自動的に再評価（実行）します。
     pub fn set(&self, new_value: T) {
@@ -185,12 +233,24 @@ impl<T: Send + 'static> WriteSignal<T> {
     }
 
     /// スレッドセーフな送信端（`SignalSender`）を取得します。
+    #[inline]
     pub fn sender(&self) -> SignalSender<T> {
         // スレッドローカルのメインコンテキストから送信端を一時的に解決
         let sender = with_context(|cx| cx.task_sender());
         SignalSender {
             id: self.id,
             task_sender: sender,
+            _marker: PhantomData,
+        }
+    }
+
+    /// 明示的なコンテキスト指定により、スレッドセーフな送信端を取得します。
+    /// UI構築スコープ外（ACTIVE_CONTEXT が設定されていないタイミング）からでも安全に呼び出せます。
+    #[inline]
+    pub fn sender_with_cx(&self, cx: &Context) -> SignalSender<T> {
+        SignalSender {
+            id: self.id,
+            task_sender: cx.task_sender(),
             _marker: PhantomData,
         }
     }
@@ -282,6 +342,18 @@ where
     // 初回評価を実行し、同時にシグナルとの依存関係マップを自動構築する
     execute_effect(id);
     id
+}
+
+/// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
+/// 親ツリー（トポロジー）を遡って自動解決された型 T の Context（ReadSignal）を取得します。
+pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
+    with_context(|cx| cx.use_provided::<T>())
+}
+
+/// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
+/// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
+    with_context(|cx| cx.use_provided_setter::<T>())
 }
 
 #[cfg(test)]

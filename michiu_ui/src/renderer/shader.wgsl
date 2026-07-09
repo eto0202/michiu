@@ -174,7 +174,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 本体および丸角の描画計算
     let dist_to_box = sd_rounded_box(local_center, b, clamped_radius);
     // 1ピクセル幅のアンチエイリアシング
-    let box_alpha = 1.0 - smoothstep(-0.5, 0.5, dist_to_box);
+    var box_alpha = 1.0 - smoothstep(-0.5, 0.5, dist_to_box);
+
+    if (mode < -0.5) {
+        // 装飾・キャレットモード：SDF の 1px 減衰ボケをバイパスし、
+        // 描画矩形内にピクセルがある場合はクッキリとした不透明（1.0）にする。
+        box_alpha = 1.0;
+    }
 
     // ソフトシャドウ（BoxShadow）の描画計算
     var shadow_out = vec4<f32>(0.0);

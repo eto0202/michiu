@@ -1,8 +1,7 @@
+use crate::theme::Theme;
 pub use michiu_ui::prelude::*;
 
-use crate::theme::Theme;
-
-pub fn scrollbar_y() -> ThisStyle {
+pub fn scrollbar_y(t: &Theme) -> ThisStyle {
     ts().scrollbar_always()
         .scrollbar_mode(ScrollbarMode::Overlay)
         .scrollbar_thumb(
@@ -10,7 +9,7 @@ pub fn scrollbar_y() -> ThisStyle {
                 .p_r(5.0)
                 .width(7.0)
                 .rounded_full()
-                .bg_color(Theme::DARK_BORDER)
-                .hovered(ts().bg_color(hsl(220.0, 0.12, 0.30))),
+                .bg_color(t.border)
+                .hovered(ts().bg_color(t.border_hover)),
         )
 }

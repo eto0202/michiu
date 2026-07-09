@@ -467,7 +467,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .placeholder_color(Color::GRAY)
                 .placeholder_select(false)
                 .caret_color(rgba(30, 144, 255, 0.5))
-                .caret_size(LayoutSize::new(2.0, 19.5))
                 .max_length(20)
                 .password(false)
                 .is_ime(true)

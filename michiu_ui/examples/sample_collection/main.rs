@@ -38,7 +38,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hwnd = create_window(h_instance, class_name)?;
 
     let mut context = Context::new();
-    let root = create_root(&mut context);
+
+    let (theme, set_theme) = context.create_signal(theme::Theme::dark());
+    let _theme_sender = set_theme.sender_with_cx(&context);
+
+    let root = build_ui(&mut context, || create_root(theme));
 
     let dpi = unsafe { GetDpiForWindow(hwnd) };
     let scale_factor = dpi as f32 / 96.0;

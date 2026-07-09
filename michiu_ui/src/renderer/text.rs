@@ -94,11 +94,11 @@ impl TextEngine {
                 layout.SetFontSize(font_size, range).unwrap();
             }
 
-            let line_spacing = font_size * 1.5;
+            let line_spacing = font_size * 1.2;
             let baseline = font_size * 0.95;
 
             let _ =
-                layout.SetLineSpacing(DWRITE_LINE_SPACING_METHOD_DEFAULT, line_spacing, baseline);
+                layout.SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, line_spacing, baseline);
 
             // 2. フォントファミリーの上書き (指定があれば)
             if let Some(family) = font_family {
@@ -226,7 +226,7 @@ impl TextEngine {
             );
 
             // 実際の文字の上端位置を、metrics.top から算出して補正
-            let caret_y = point_y + metrics.top;
+            let caret_y = point_y;
 
             // ローカルX, ローカルY, 文字ブロックの高さ
             (point_x, caret_y, metrics.height)

@@ -1,7 +1,7 @@
 use std::ops::Range;
 use std::{borrow::Cow, time::Duration};
 
-use crate::{Color, ImeState, LayoutRect, LayoutSize, ReadSignal, WriteSignal};
+use crate::{Color, ImeState, IntoSize, LayoutRect, ReadSignal, WriteSignal};
 
 /// リッチテキスト用の下線の描画スタイル
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,7 +174,9 @@ pub struct InputContents {
 
     // キャレットデザイン
     pub has_caret: bool,
-    pub caret_size: Option<LayoutSize>,
+    pub caret_width: Option<f32>,
+    pub caret_height: Option<f32>,
+    pub caret_offset: f32,
     pub caret_color: Option<Color>,
     pub is_blink: bool,
     pub blink_frequency: Option<Duration>,
@@ -192,9 +194,9 @@ pub struct InputContents {
     pub(crate) is_selecting: bool,
     pub(crate) last_layout: Option<LayoutRect>,
     pub(crate) last_bounds: Option<LayoutRect>,
-    pub caret_offset_x: f32,
-    pub caret_offset_y: f32,
-    pub caret_line_height: f32,
+    pub(crate) measured_caret_x: f32,
+    pub(crate) measured_caret_y: f32,
+    pub(crate) caret_line_height: f32,
     /// キャレットの移動・タイピングなどの最終操作時刻
     pub(crate) last_interacted_time: Option<std::time::Instant>,
     /// 現在のキャレットが位置する行番号 (0始まり)
@@ -225,7 +227,9 @@ impl InputContents {
             is_multiline: false,
             placeholder_select: false,
             has_caret: true,
-            caret_size: None,
+            caret_width: None,
+            caret_height: None,
+            caret_offset: 0.0,
             caret_color: None,
             is_blink: true,
             blink_frequency: None,
@@ -238,8 +242,8 @@ impl InputContents {
             is_selecting: false,
             last_layout: None,
             last_bounds: None,
-            caret_offset_x: 0.0,
-            caret_offset_y: 0.0,
+            measured_caret_x: 0.0,
+            measured_caret_y: 0.0,
             caret_line_height: 0.0,
             last_interacted_time: None,
             current_line_index: 0,
@@ -309,25 +313,33 @@ impl InputContents {
         self.has_caret = enabled;
         self
     }
+    /// キャレットの太さと高さを一括設定します。単一値(f32)またはタプル(f32, f32)を受け入れます。
     #[inline]
-    pub fn caret_size(mut self, size: LayoutSize) -> Self {
-        self.caret_size = Some(size);
+    pub fn caret_size(mut self, size: impl IntoSize<f32>) -> Self {
+        let s = size.into_size();
+        self.caret_width = Some(s.width);
+        self.caret_height = Some(s.height);
         self
     }
-    #[inline]
-    pub fn caret_offset_x(mut self, x: f32) -> Self {
-        self.caret_offset_x = x;
 
+    /// キャレットの太さ（幅）のみを個別設定します。
+    #[inline]
+    pub fn caret_width(mut self, width: f32) -> Self {
+        self.caret_width = Some(width);
         self
     }
+
+    /// キャレットの高さのみを個別設定します。
     #[inline]
-    pub fn caret_offset_y(mut self, y: f32) -> Self {
-        self.caret_offset_y = y;
+    pub fn caret_height(mut self, height: f32) -> Self {
+        self.caret_height = Some(height);
         self
     }
+
+    /// キャレットの表示位置を垂直方向に微調整します。プラスは下、マイナスは上にスライドします。
     #[inline]
-    pub fn caret_line_height(mut self, height: f32) -> Self {
-        self.caret_line_height = height;
+    pub fn caret_offset(mut self, offset: f32) -> Self {
+        self.caret_offset = offset;
         self
     }
     #[inline]

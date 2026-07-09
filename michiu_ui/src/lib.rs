@@ -31,9 +31,11 @@ pub mod prelude {
     pub use crate::{
         bitmap::PropertyList,
         context::Context,
-        element::build_ui,
+        element::{Element, build_ui},
         input::InputContents,
-        signal::create_signal,
+        signal::{
+            ReadSignal, SignalId, WriteSignal, create_signal, use_provided, use_provided_setter,
+        },
         style::{AnimationCurve, KeyframeAnimation, PlaybackCount, ThisStyle},
         types::{
             Backdrop, BorderAlignment, BorderStyle, Color, CursorIcon, Display, ElementState,
@@ -42,9 +44,10 @@ pub mod prelude {
             rgb, rgba,
         },
         utils::{
-            auto, block_box, blur, div, div_n, get_win32_clipboard, grid_box, h_flex, hidden_box,
-            img, input, input_area, offset, pct, px, set_win32_clipboard, shadow, spread, text, ts,
-            v_flex, video, webview2,
+            auto, block_box, blur, consume, div, div_c, div_n, get_win32_clipboard, grid_box,
+            h_flex, h_flex_c, hidden_box, img, input, input_area, input_area_c, input_c, offset,
+            pct, px, set_win32_clipboard, shadow, spread, text, text_c, ts, v_flex, v_flex_c,
+            video, webview2,
         },
         webview2::WebView2Contents,
     };

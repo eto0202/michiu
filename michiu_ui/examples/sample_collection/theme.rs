@@ -1,202 +1,152 @@
-#![allow(dead_code)]
-use michiu_ui::{BoxShadow, prelude::*};
-use std::time::Duration;
+use michiu_ui::prelude::*;
+use std::borrow::Cow;
 
-pub struct Theme {}
+#[derive(Debug, Clone, PartialEq)]
+pub struct Theme {
+    pub is_dark: bool,
+
+    // 生成基準となったHSL情報
+    pub primary_hsl: (f32, f32, f32),
+    pub background_hsl: (f32, f32, f32),
+
+    // 動的算出されるカラーパレット
+    pub primary: Color,
+    pub primary_hover: Color,
+    pub secondary: Color,
+    pub secondary_hover: Color,
+    pub background: Color,
+    pub background_hover: Color,
+    pub surface: Color,
+    pub border: Color,
+    pub border_hover: Color,
+    pub text: Color,
+    pub text_muted: Color,
+
+    // フォント
+    pub font_family: Cow<'static, str>,
+    pub font_size_sm: f32,
+    pub font_size_base: f32,
+    pub font_size_lg: f32,
+}
 
 impl Theme {
-    /// プライマリ基準色 (HSL: 318, 56%, 59%)
-    pub const PRIMARY: Color = Color::rgb_f32(0.8196, 0.3604, 0.6818);
-    /// プライマリ・ホバー (HSL: 318, 56%, 52%)
-    pub const PRIMARY_HOVER: Color = Color::rgb_f32(0.7944, 0.2456, 0.6297);
-    /// プライマリ・アクティブ / プレス (HSL: 318, 56%, 45%)
-    pub const PRIMARY_ACTIVE: Color = Color::rgb_f32(0.7020, 0.1700, 0.5444);
-    /// プライマリ・ライトコンテナ / 選択背景 (HSL: 318, 56%, 95%)
-    pub const PRIMARY_CONTAINER: Color = Color::rgb_f32(0.9780, 0.8800, 0.9472);
+    /// HSL の基本パラメータを元に、モダンなトーン調和アルゴリズムに沿ってパレットを一括算出します。
+    pub fn from_hsl(
+        is_dark: bool,
+        primary_hsl: (f32, f32, f32),
+        background_hsl: (f32, f32, f32),
+    ) -> Self {
+        let (hp, sp, lp) = primary_hsl;
+        let (hb, sb, lb) = background_hsl;
 
-    /// セカンダリ基準色 - バイオレットブルー (HSL: 255, 40%, 58%)
-    pub const SECONDARY: Color = Color::rgb_f32(0.4960, 0.4120, 0.7480);
-    /// セカンダリ・ホバー (HSL: 255, 40%, 51%)
-    pub const SECONDARY_HOVER: Color = Color::rgb_f32(0.4020, 0.3100, 0.6900);
-    /// セカンダリ・アクティブ / プレス (HSL: 255, 40%, 44%)
-    pub const SECONDARY_ACTIVE: Color = Color::rgb_f32(0.3200, 0.2200, 0.5800);
-    /// セカンダリ・ライトコンテナ (HSL: 255, 40%, 95%)
-    pub const SECONDARY_CONTAINER: Color = Color::rgb_f32(0.9350, 0.9200, 0.9700);
+        // 1. Primary & Primary Hover
+        let primary = hsl(hp, sp, lp);
+        let primary_hover = if is_dark {
+            hsl(hp, sp, (lp + 0.08).min(1.0))
+        } else {
+            hsl(hp, sp, (lp - 0.08).max(0.0))
+        };
 
-    /// アプリ全体の背景色 (ライト) (HSL: 218, 20%, 98%)
-    pub const LIGHT_BG: Color = Color::rgb_f32(0.9760, 0.9790, 0.9840);
-    /// カード、ポップアップなどの表面色 (ライト) (HSL: 0, 0%, 100%)
-    pub const LIGHT_SURFACE: Color = Color::WHITE;
-    /// コンポーネント枠線色 (ライト) (HSL: 225, 10%, 88%)
-    pub const LIGHT_BORDER: Color = Color::rgb_f32(0.8680, 0.8740, 0.8920);
-    /// メインテキスト (ライト) (HSL: 224, 15%, 15%)
-    pub const LIGHT_TEXT: Color = Color::rgb_f32(0.1280, 0.1400, 0.1720);
-    /// サブテキスト / プレースホルダー (ライト) (HSL: 228, 10%, 50%)
-    pub const LIGHT_TEXT_MUTED: Color = Color::rgb_f32(0.4500, 0.4700, 0.5500);
+        // 2. Secondary (プライマリの色相を30度シフト、彩度を落として補助トーンを構成)
+        let hs = (hp + 30.0) % 360.0;
+        let ss = (sp * 0.65).clamp(0.0, 1.0);
+        let ls = if is_dark {
+            (lp * 0.9).clamp(0.4, 0.7)
+        } else {
+            (lp * 1.1).clamp(0.3, 0.6)
+        };
+        let secondary = hsl(hs, ss, ls);
+        let secondary_hover = if is_dark {
+            hsl(hs, ss, (ls + 0.08).min(1.0))
+        } else {
+            hsl(hs, ss, (ls - 0.08).max(0.0))
+        };
 
-    /// アプリ全体の背景色 (ダーク) (HSL: 224, 15%, 10%)
-    pub const DARK_BG: Color = Color::rgb_f32(0.0850, 0.0930, 0.1150);
-    /// カード、ポップアップなどの表面色 (ダーク) (HSL: 220, 12%, 15%)
-    pub const DARK_SURFACE: Color = Color::rgb_f32(0.1320, 0.1440, 0.1680);
-    /// コンポーネント枠線色 (ダーク) (HSL: 220, 12%, 25%)
-    pub const DARK_BORDER: Color = Color::rgb_f32(0.2200, 0.2400, 0.2800);
-    /// メインテキスト (ダーク) (HSL: 225, 20%, 95%)
-    pub const DARK_TEXT: Color = Color::rgb_f32(0.9400, 0.9450, 0.9600);
-    /// サブテキスト / プレースホルダー (ダーク) (HSL: 225, 9%, 65%)
-    pub const DARK_TEXT_MUTED: Color = Color::rgb_f32(0.6200, 0.6350, 0.6800);
+        // 3. Background & Background Hover
+        let background = hsl(hb, sb, lb);
+        let background_hover = if is_dark {
+            hsl(hb, sb, (lb + 0.04).min(1.0)) // ダークの背景ホバーはわずかに明るく
+        } else {
+            hsl(hb, sb, (lb - 0.03).max(0.0)) // ライトの背景ホバーはわずかに暗く
+        };
 
-    /// 危険 / エラー（プライマリのピンクに調和するクリムゾンレッド） (HSL: 351, 70%, 54%)
-    pub const DANGER: Color = Color::rgb_f32(0.8620, 0.2180, 0.3100);
-    /// 成功（彩度を抑えたエメラルドグリーン） (HSL: 144, 50%, 45%)
-    pub const SUCCESS: Color = Color::rgb_f32(0.2250, 0.6750, 0.4050);
-    /// 警告（温かみのあるアンバーオレンジ） (HSL: 35, 75%, 50%)
-    pub const WARNING: Color = Color::rgb_f32(0.8750, 0.5625, 0.1250);
+        // 4. Surface (背景よりも手前に浮かび上がって見えるように明度を制御)
+        let surface = if is_dark {
+            hsl(hb, sb * 0.9, (lb + 0.05).min(1.0))
+        } else {
+            hsl(hb, sb * 0.5, (lb + 0.02).min(1.0)) // 通常の純白（1.0）付近に近づける
+        };
 
-    // タイポグラフィ
-    pub const FONT_MAIN: &str = "Segoe UI";
-    pub const FONT_SIZE_SM: f32 = 12.0;
-    pub const FONT_SIZE_MD: f32 = 14.0;
-    pub const FONT_SIZE_LG: f32 = 18.0;
+        // 5. Border & Border Hover
+        let border = if is_dark {
+            hsl(hb, sb * 0.8, (lb + 0.15).min(1.0))
+        } else {
+            hsl(hb, sb * 0.8, (lb - 0.12).max(0.0))
+        };
+        let border_hover = if is_dark {
+            hsl(hb, sb * 0.8, (lb + 0.25).min(1.0))
+        } else {
+            hsl(hb, sb * 0.8, (lb - 0.22).max(0.0))
+        };
 
-    // 共通スタイル
-    /// 基本的なボタンのインタラクション・サイズ・フォントの土台
-    pub fn button_base() -> ThisStyle {
-        ts().p((8.0, 16.0))
-            .r(4.0)
-            .font_family(Theme::FONT_MAIN)
-            .font_size(Theme::FONT_SIZE_MD)
-            .pressed(ts().transform_scale(0.97, 0.97))
-            .trans_transform(Duration::from_millis(80), AnimationCurve::EaseInOutQuad)
-            .trans_bg_color(Duration::from_millis(150), AnimationCurve::EaseOutQuad)
+        // 6. Text (背景の環境色をわずかに帯びた快適な明暗コントラスト)
+        let text = if is_dark {
+            hsl(hb, sb * 0.2, 0.95) // 輝度95%のソフトな白
+        } else {
+            hsl(hb, sb * 0.3, 0.12) // 輝度12%の引き締まったダーク炭色
+        };
+        let text_muted = if is_dark {
+            hsl(hb, sb * 0.25, 0.65)
+        } else {
+            hsl(hb, sb * 0.25, 0.45)
+        };
+
+        let font_family = "Segoe UI".into();
+        let font_size_sm = 12.0;
+        let font_size_base = 14.0;
+        let font_size_lg = 18.0;
+
+        Self {
+            is_dark,
+            primary_hsl,
+            background_hsl,
+            primary,
+            primary_hover,
+            secondary,
+            secondary_hover,
+            background,
+            background_hover,
+            surface,
+            border,
+            border_hover,
+            text,
+            text_muted,
+            font_family,
+            font_size_sm,
+            font_size_base,
+            font_size_lg,
+        }
     }
 
-    /// プライマリボタン (Pink)
-    pub fn primary_button() -> ThisStyle {
-        Theme::button_base()
-            .bg_color(Theme::PRIMARY)
-            .text_color(Color::WHITE)
-            .hovered(ts().bg_color(Theme::PRIMARY_HOVER))
-            .pressed(
-                ts().bg_color(Theme::PRIMARY_ACTIVE)
-                    .transform_scale(0.97, 0.97),
-            )
+    /// デフォルトのダークテーマ
+    pub fn dark() -> Self {
+        Self::from_hsl(true, (318.0, 0.56, 0.59), (224.0, 0.15, 0.10))
     }
 
-    /// セカンダリボタン (Violet)
-    pub fn secondary_button() -> ThisStyle {
-        Theme::button_base()
-            .bg_color(Theme::SECONDARY)
-            .text_color(Color::WHITE)
-            .hovered(ts().bg_color(Theme::SECONDARY_HOVER))
-            .pressed(
-                ts().bg_color(Theme::SECONDARY_ACTIVE)
-                    .transform_scale(0.97, 0.97),
-            )
+    /// デフォルトのライトテーマ
+    pub fn light() -> Self {
+        Self::from_hsl(false, (318.0, 0.56, 0.59), (220.0, 0.15, 0.98))
     }
 
-    /// アウトラインボタン (透明背景 + 枠線)
-    pub fn outline_button() -> ThisStyle {
-        Theme::button_base()
-            .bg_color(Color::TRANSPARENT)
-            .border_solid(1.0)
-            .border_color(Theme::LIGHT_BORDER)
-            .text_color(Theme::LIGHT_TEXT)
-            .hovered(
-                ts().bg_color(Theme::PRIMARY_CONTAINER)
-                    .border_color(Theme::PRIMARY),
-            )
-            .pressed(
-                ts().bg_color(Theme::SECONDARY_CONTAINER)
-                    .transform_scale(0.97, 0.97),
-            )
-            .trans_border_color(Duration::from_millis(150), AnimationCurve::EaseOutQuad)
+    /// プライマリの HSL 値を変更し、依存するカラーパレット全体を再算出します。
+    #[allow(unused)]
+    pub fn with_primary_hsl(self, h: f32, s: f32, l: f32) -> Self {
+        Self::from_hsl(self.is_dark, (h, s, l), self.background_hsl)
     }
 
-    /// ゴーストボタン (背景なし・枠線なし、ホバー時のみ強調)
-    pub fn ghost_button() -> ThisStyle {
-        Theme::button_base()
-            .bg_color(Color::TRANSPARENT)
-            .text_color(Theme::LIGHT_TEXT_MUTED)
-            .hovered(
-                ts().bg_color(Theme::PRIMARY_CONTAINER)
-                    .text_color(Theme::PRIMARY),
-            )
-            .pressed(ts().transform_scale(0.97, 0.97))
-    }
-
-    /// テキスト入力フィールド（Input）の基本スタイル土台
-    pub fn input_base() -> ThisStyle {
-        ts().p((8.0, 12.0))
-            .r(4.0)
-            .border_solid(1.0)
-            .border_color(Theme::LIGHT_BORDER)
-            .bg_color(Theme::LIGHT_SURFACE)
-            .text_color(Theme::LIGHT_TEXT)
-            .font_family(Theme::FONT_MAIN)
-            .font_size(Theme::FONT_SIZE_MD)
-            .select_text()
-            .select_bg_color(Color::rgba_f32(0.8196, 0.3604, 0.6818, 0.35)) // プライマリの35%不透明度を選択背景に
-            // フォーカスされた際の枠線色アニメーション
-            .focused(
-                ts().border_color(Theme::PRIMARY)
-                    .bg_color(Theme::LIGHT_SURFACE),
-            )
-            .trans_border_color(Duration::from_millis(150), AnimationCurve::EaseOutQuad)
-            .trans_bg_color(Duration::from_millis(150), AnimationCurve::EaseOutQuad)
-    }
-
-    /// ダークテーマ用入力フィールド
-    pub fn input_dark() -> ThisStyle {
-        Theme::input_base()
-            .bg_color(Theme::DARK_SURFACE)
-            .border_color(Theme::DARK_BORDER)
-            .text_color(Theme::DARK_TEXT)
-            .focused(
-                ts().border_color(Theme::PRIMARY)
-                    .bg_color(Theme::DARK_SURFACE),
-            )
-    }
-
-    /// コンポーネント格納用カードコンテナ (Light)
-    pub fn card_light() -> ThisStyle {
-        ts().p(16.0)
-            .r(8.0)
-            .bg_color(Theme::LIGHT_SURFACE)
-            .border_solid(1.0)
-            .border_color(Theme::LIGHT_BORDER)
-            .box_shadow(BoxShadow::md()) // types.rs にて定義済みの標準中程度ソフトシャドウ
-    }
-
-    /// コンポーネント格納用カードコンテナ (Dark)
-    pub fn card_dark() -> ThisStyle {
-        ts().p(16.0)
-            .r(8.0)
-            .bg_color(Theme::DARK_SURFACE)
-            .border_solid(1.0)
-            .border_color(Theme::DARK_BORDER)
-            .box_shadow(BoxShadow::lg().color(Color::rgba_f32(0.0, 0.0, 0.0, 0.3))) // より深い黒陰影
-    }
-
-    /// ステータス表示や通知カウント用の軽量バッジスタイル
-    pub fn badge_base() -> ThisStyle {
-        ts().p((2.0, 8.0))
-            .rounded_full()
-            .font_family(Theme::FONT_MAIN)
-            .font_size(Theme::FONT_SIZE_SM)
-            .font_weight(600) // セミボールド
-    }
-
-    /// プライマリバッジ
-    pub fn primary_badge() -> ThisStyle {
-        Theme::badge_base()
-            .bg_color(Theme::PRIMARY_CONTAINER)
-            .text_color(Theme::PRIMARY)
-    }
-
-    /// セカンダリバッジ
-    pub fn secondary_badge() -> ThisStyle {
-        Theme::badge_base()
-            .bg_color(Theme::SECONDARY_CONTAINER)
-            .text_color(Theme::SECONDARY)
+    /// バックグラウンドの HSL 値を変更し、依存するカラーパレット全体を再算出します。
+    #[allow(unused)]
+    pub fn with_background_hsl(self, h: f32, s: f32, l: f32) -> Self {
+        Self::from_hsl(self.is_dark, self.primary_hsl, (h, s, l))
     }
 }

@@ -1,12 +1,28 @@
 use crate::{
     BoxShadow, CornerRadius, Element, FlexDirection, ImageSource, InputContents, LayoutPoint,
-    Length, MovieProperty, Point, Prop, Rect, Size, ThisStyle, Val, WebView2Contents,
+    Length, MovieProperty, Point, Prop, Rect, Size, StyleValue, ThisStyle, Val, WebView2Contents,
 };
 use std::borrow::Cow;
 
 #[inline]
 pub fn ts() -> ThisStyle {
     ThisStyle::new()
+}
+
+/// プロバイダーの型 `P` から、クロージャ `F` を通して値 `V` を解決する動的なスタイル値を生成
+pub fn consume<P, V, F>(selector: F) -> StyleValue<V>
+where
+    P: Clone + 'static,
+    V: 'static,
+    F: Fn(&P) -> V + Send + Sync + 'static,
+{
+    StyleValue::Dynamic(Box::new(move || {
+        // ここでプロバイダーの ReadSignal に対する `.get()` を実行することで、
+        // 呼び出し元のスタイルエフェクトに自動的に依存関係が購読（Subscribe）されます
+        let signal = crate::use_provided::<P>();
+        let val = signal.get();
+        selector(&val)
+    }))
 }
 
 /// スタイルを適用して生成するコンテナ。
@@ -89,6 +105,103 @@ pub fn video(property: impl Into<Prop<MovieProperty>>) -> Element {
 #[inline]
 pub fn webview2(contents: impl Into<Prop<WebView2Contents>>) -> Element {
     div_n().webview2(contents)
+}
+
+/// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用する汎用コンテナ
+#[inline]
+pub fn div_c<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+{
+    Element::new().style_c(f)
+}
+
+/// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用する横フレックスコンテナ
+#[inline]
+pub fn h_flex_c<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+{
+    // レイアウトの基本形式（フレックス）は静的に適用し、
+    // プロバイダー依存の残りのスタイルは style_c で一括解決します
+    Element::new()
+        .style(ts().flex().flex_direction(FlexDirection::Row))
+        .style_c(f)
+}
+
+/// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用する縦フレックスコンテナ
+#[inline]
+pub fn v_flex_c<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+{
+    Element::new()
+        .style(ts().flex().flex_direction(FlexDirection::Column))
+        .style_c(f)
+}
+
+/// プロバイダー `P` から動的にテキストを解決してテキスト要素を生成します。
+#[inline]
+pub fn text_c<P, F, S>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> S + Send + Sync + 'static,
+    S: Into<Cow<'static, str>>,
+{
+    div_n().text_c(f)
+}
+
+/// プロバイダー `P` から動的に設定を解決して入力フィールド要素を生成します。
+#[inline]
+pub fn input_c<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> InputContents + Send + Sync + 'static,
+{
+    div_n().input_c(f)
+}
+
+/// プロバイダー `P` から動的に設定を解決して複数行入力フィールド（テキストエリア）要素を生成します。
+#[inline]
+pub fn input_area_c<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> InputContents + Send + Sync + 'static,
+{
+    div_n().input_area_c(f)
+}
+
+/// プロバイダー `P` から動的に解決された画像要素を生成します。
+#[inline]
+pub fn img_c<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> ImageSource + Send + Sync + 'static,
+{
+    div_n().image_c(f)
+}
+
+/// プロバイダー `P` から動的に解決されたビデオ再生要素を生成します。
+#[inline]
+pub fn video_c<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> MovieProperty + Send + Sync + 'static,
+{
+    div_n().movie_c(f)
+}
+
+/// プロバイダー `P` から動的に解決されたWebView2要素を生成します。
+#[inline]
+pub fn webview2_c<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
+{
+    div_n().webview2_c(f)
 }
 
 #[inline]

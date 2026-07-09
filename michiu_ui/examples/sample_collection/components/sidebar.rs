@@ -1,32 +1,39 @@
-use michiu_ui::Element;
+use crate::{components::scrollbar, theme::Theme};
 pub use michiu_ui::prelude::*;
 
-use crate::{components, theme::Theme};
-
 pub fn sidebar() -> Element {
-    let item_style = ts()
-        .justify_center()
-        .items_center()
-        .hovered(ts().bg_color(hsl(220.0, 0.12, 0.15)));
-
-    v_flex(
-        components::scrollbar_y()
+    v_flex_c(|t: &Theme| {
+        scrollbar::scrollbar_y(t)
             .h_full()
             .width(150.0)
             .shrink_0()
             .overflow_y_scroll()
             .border_right(BorderStyle::Solid, 1.0)
-            .border_color(Theme::DARK_BORDER),
-    )
+            .border_color(t.border)
+    })
     .children([
-        sidebar_item(item_style.clone()),
-        sidebar_item(item_style.clone()),
-        sidebar_item(item_style.clone()),
-        sidebar_item(item_style.clone()),
-        sidebar_item(item_style.clone()),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
+        sidebar_item(),
     ])
 }
 
-fn sidebar_item(style: ThisStyle) -> Element {
-    h_flex(style).label("Item", ts().p(10.0).text_color(Theme::DARK_TEXT))
+fn sidebar_item() -> Element {
+    h_flex_c(|t: &Theme| {
+        ts().justify_center()
+            .items_center()
+            .hovered(ts().bg_color(t.background_hover))
+    })
+    .label("Item", move || {
+        ts().p(10.0).text_color(consume(|t: &Theme| t.text))
+    })
 }

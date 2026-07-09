@@ -1,11 +1,11 @@
 use crate::{
-    AlignContent, AlignItems, AlignSelf, Backdrop, BasicLayout, BorderAlignment, BorderStyle,
-    BoxShadow, BoxSizing, Color, Convert, CornerRadius, CursorIcon, Direction, Display, EdgeInsets,
-    FlexDirection, FlexLayout, FlexWrap, GridAutoFlow, GridLayout, GridLine, GridPlacement,
-    InteractionName, InteractionStyles, IntoCornerRadius, IntoRect, IntoSize, JustifyContent,
-    LayoutOverflow, Length, LinearGradient, Overflow, Point, PointerEvents, Position,
-    ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TextAlign, Transform, Transition, UserSelect,
-    Val, VisualProperty, auto, bitmap::*, pct,
+    AlignContent, AlignItems, AlignSelf, Auto, Backdrop, BasicLayout, BorderAlignment, BorderStyle,
+    BoxShadow, BoxSizing, Color, Context, Convert, CornerRadius, CursorIcon, Direction, Display,
+    EdgeInsets, EntityId, FlexDirection, FlexLayout, FlexWrap, GridAutoFlow, GridLayout, GridLine,
+    GridPlacement, InteractionName, InteractionStyles, IntoCornerRadius, IntoRect, IntoSize,
+    JustifyContent, LayoutOverflow, Length, LinearGradient, Overflow, Percent, Pixel, Point,
+    PointerEvents, Position, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Size,
+    TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, bitmap::*, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -26,7 +26,11 @@ pub(crate) struct StyleInner {
     pub(crate) visual_property: VisualProperty,
     pub(crate) interaction_styles: InteractionStyles,
     pub(crate) scrollbar_style: Option<ScrollbarStyle>,
+    // 動的にスタイルプロパティを更新するためのクローン可能なセッターリスト
+    pub(crate) dynamic_setters: DynamicSettersType,
 }
+
+type DynamicSettersType = Vec<Arc<dyn Fn(&mut Context, EntityId) + Send + Sync>>;
 
 // Debug トレイトの手動実装 (クロージャを含むため)
 impl std::fmt::Debug for StyleInner {
@@ -55,10 +59,25 @@ impl ThisStyle {
 
     /// 要素の表示形態（Display）を設定します。
     #[inline]
-    pub fn display(mut self, value: Display) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.display = value;
-        inner.mask.set(STYLE_DISPLAY);
+    pub fn display(mut self, value: impl IntoStyleValue<Display>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.display = v;
+                inner.mask.set(STYLE_DISPLAY);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_DISPLAY);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.display = val;
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -84,28 +103,73 @@ impl ThisStyle {
 
     /// 要素がテーブルアイテムとして振る舞うかどうかを設定します。
     #[inline]
-    pub fn item_is_table(mut self, value: bool) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.item_is_table = value;
-        inner.mask.set(STYLE_ITEM_IS_TABLE);
+    pub fn item_is_table(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.item_is_table = v;
+                inner.mask.set(STYLE_ITEM_IS_TABLE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_ITEM_IS_TABLE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.item_is_table = val;
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素が置換要素（画像やビデオなど）かどうかを設定します。
     #[inline]
-    pub fn item_is_replaced(mut self, value: bool) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.item_is_replaced = value;
-        inner.mask.set(STYLE_ITEM_IS_REPLACED);
+    pub fn item_is_replaced(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.item_is_replaced = v;
+                inner.mask.set(STYLE_ITEM_IS_REPLACED);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_ITEM_IS_REPLACED);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.item_is_replaced = val;
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// ボックスモデルの算出基準（BoxSizing）を設定します。
     #[inline]
-    pub fn box_sizing(mut self, value: BoxSizing) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.box_sizing = value;
-        inner.mask.set(STYLE_BOX_SIZING);
+    pub fn box_sizing(mut self, value: impl IntoStyleValue<BoxSizing>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.box_sizing = v;
+                inner.mask.set(STYLE_BOX_SIZING);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BOX_SIZING);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.box_sizing = val;
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -121,43 +185,103 @@ impl ThisStyle {
 
     /// テキストや要素のインライン方向（Direction）を設定します。
     #[inline]
-    pub fn direction(mut self, value: Direction) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.direction = value;
-        inner.mask.set(STYLE_DIRECTION);
+    pub fn direction(mut self, value: impl IntoStyleValue<Direction>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.direction = v;
+                inner.mask.set(STYLE_DIRECTION);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_DIRECTION);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.direction = val;
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// スクロールバーのスタイル（太さ、トラック、サム、および疑似クラス）を登録します。
     #[inline]
-    pub fn scrollbar(mut self, style: ScrollbarStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.scrollbar_style = Some(style);
-        inner.mask.set(STYLE_SCROLLBAR);
+    pub fn scrollbar(mut self, style: impl IntoStyleValue<ScrollbarStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.scrollbar_style = Some(v);
+                inner.mask.set(STYLE_SCROLLBAR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_SCROLLBAR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                        v.style = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// スクロールバーの太さ（物理幅/高さ）を直接指定します。
     #[inline]
-    pub fn scrollbar_width(mut self, width: f32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let sb = inner
-            .scrollbar_style
-            .get_or_insert_with(ScrollbarStyle::default);
-        sb.width = width;
-        inner.mask.set(STYLE_SCROLLBAR);
+    pub fn scrollbar_width(mut self, width: impl IntoStyleValue<f32>) -> Self {
+        match width.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let sb = inner
+                    .scrollbar_style
+                    .get_or_insert_with(ScrollbarStyle::default);
+                sb.width = v;
+                inner.mask.set(STYLE_SCROLLBAR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_SCROLLBAR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                        v.style.width = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// スクロールバーの表示条件（None / Always / Auto）を直接指定します。
     #[inline]
-    pub fn scrollbar_display(mut self, display: ScrollbarDisplay) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let sb = inner
-            .scrollbar_style
-            .get_or_insert_with(ScrollbarStyle::default);
-        sb.display = display;
-        inner.mask.set(STYLE_SCROLLBAR);
+    pub fn scrollbar_display(mut self, display: impl IntoStyleValue<ScrollbarDisplay>) -> Self {
+        match display.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let sb = inner
+                    .scrollbar_style
+                    .get_or_insert_with(ScrollbarStyle::default);
+                sb.display = v;
+                inner.mask.set(STYLE_SCROLLBAR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_SCROLLBAR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                        v.style.display = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -180,48 +304,108 @@ impl ThisStyle {
         self.scrollbar_display(ScrollbarDisplay::Transient)
     }
 
-    /// スクロールバーの配置モード（Layout: コンテンツ縮小 / Overlay: 前面重ね）を直接指定します。
+    /// スクロールバーの配置モード（Layout / Overlay）を直接指定します。
     #[inline]
-    pub fn scrollbar_mode(mut self, mode: ScrollbarMode) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let sb = inner
-            .scrollbar_style
-            .get_or_insert_with(ScrollbarStyle::default);
-        sb.mode = mode;
-        inner.mask.set(STYLE_SCROLLBAR);
+    pub fn scrollbar_mode(mut self, mode: impl IntoStyleValue<ScrollbarMode>) -> Self {
+        match mode.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let sb = inner
+                    .scrollbar_style
+                    .get_or_insert_with(ScrollbarStyle::default);
+                sb.mode = v;
+                inner.mask.set(STYLE_SCROLLBAR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_SCROLLBAR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                        v.style.mode = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// スクロールバーのレール（トラック背景）部分の装飾スタイルを直接指定します。
     #[inline]
-    pub fn scrollbar_track(mut self, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let sb = inner
-            .scrollbar_style
-            .get_or_insert_with(ScrollbarStyle::default);
-        sb.track = Some(style);
-        inner.mask.set(STYLE_SCROLLBAR);
+    pub fn scrollbar_track(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let sb = inner
+                    .scrollbar_style
+                    .get_or_insert_with(ScrollbarStyle::default);
+                sb.track = Some(v);
+                inner.mask.set(STYLE_SCROLLBAR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_SCROLLBAR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                        v.style.track = Some(val);
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// スクロールバーのつまみ（サム）部分の装飾スタイルを直接指定します。
     #[inline]
-    pub fn scrollbar_thumb(mut self, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let sb = inner
-            .scrollbar_style
-            .get_or_insert_with(ScrollbarStyle::default);
-        sb.thumb = Some(style);
-        inner.mask.set(STYLE_SCROLLBAR);
+    pub fn scrollbar_thumb(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let sb = inner
+                    .scrollbar_style
+                    .get_or_insert_with(ScrollbarStyle::default);
+                sb.thumb = Some(v);
+                inner.mask.set(STYLE_SCROLLBAR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_SCROLLBAR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                        v.style.thumb = Some(val);
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// コンテンツのはみ出し処理（Overflow）を設定します。
     #[inline]
-    pub fn overflow(mut self, value: LayoutOverflow) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.overflow = value;
-        inner.mask.set(STYLE_OVERFLOW);
+    pub fn overflow(mut self, value: impl IntoStyleValue<LayoutOverflow>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.overflow = v;
+                inner.mask.set(STYLE_OVERFLOW);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OVERFLOW);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.overflow = val;
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -323,10 +507,25 @@ impl ThisStyle {
 
     /// 要素の配置基準（Position）を設定します。
     #[inline]
-    pub fn position(mut self, value: Position) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.position = value;
-        inner.mask.set(STYLE_POSITION);
+    pub fn position(mut self, value: impl IntoStyleValue<Position>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.position = v;
+                inner.mask.set(STYLE_POSITION);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_POSITION);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.position = val;
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -342,67 +541,193 @@ impl ThisStyle {
 
     /// 要素の配置インセット（inset：top, right, bottom, left）を設定します。
     #[inline]
-    pub fn inset(mut self, value: impl IntoRect<Val>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.inset = value.into_rect();
-        inner.mask.set(STYLE_INSET);
+    pub fn inset(mut self, value: impl IntoStyleRect<Val>) -> Self {
+        match value.into_style_rect() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.inset = v;
+                inner.mask.set(STYLE_INSET);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_INSET);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.inset = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素を絶対配置 (Position::Absolute) に設定し、同時に配置インセットを設定します。
     #[inline]
-    pub fn absolute_inset(self, value: impl IntoRect<Val>) -> Self {
+    pub fn absolute_inset(self, value: impl IntoStyleRect<Val>) -> Self {
         self.position(Position::Absolute).inset(value)
     }
 
     /// 左右の配置インセット（left, right）を一括設定します。
     #[inline]
-    pub fn inset_x(self, value: impl IntoSize<Val>) -> Self {
-        let size = value.into_size();
-        let current_top = self.inner.basic_layout.inset.top;
-        let current_bottom = self.inner.basic_layout.inset.bottom;
-        self.inset((current_top, size.width, current_bottom, size.height))
+    pub fn inset_x(mut self, value: impl IntoStyleSize<Val>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let current_top = self.inner.basic_layout.inset.top;
+                let current_bottom = self.inner.basic_layout.inset.bottom;
+                self.inset((current_top, v.width, current_bottom, v.height))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_INSET);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let size = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.inset.right = size.width;
+                        v.inset.left = size.height;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     /// 上下の配置インセット（top, bottom）を一括設定します。
     #[inline]
-    pub fn inset_y(self, value: impl IntoSize<Val>) -> Self {
-        let size = value.into_size();
-        let current_left = self.inner.basic_layout.inset.left;
-        let current_right = self.inner.basic_layout.inset.right;
-        self.inset((size.width, current_right, size.height, current_left))
+    pub fn inset_y(mut self, value: impl IntoStyleSize<Val>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let current_left = self.inner.basic_layout.inset.left;
+                let current_right = self.inner.basic_layout.inset.right;
+                self.inset((v.width, current_right, v.height, current_left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_INSET);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let size = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.inset.top = size.width;
+                        v.inset.bottom = size.height;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn top(self, value: impl Convert<Val>) -> Self {
-        let current = self.inner.basic_layout.inset;
-        self.inset((value.convert(), current.right, current.bottom, current.left))
+    pub fn top(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.inset;
+                self.inset((v, current.right, current.bottom, current.left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_INSET);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.inset.top = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn right(self, value: impl Convert<Val>) -> Self {
-        let current = self.inner.basic_layout.inset;
-        self.inset((current.top, value.convert(), current.bottom, current.left))
+    pub fn right(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.inset;
+                self.inset((current.top, v, current.bottom, current.left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_INSET);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.inset.right = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn bottom(self, value: impl Convert<Val>) -> Self {
-        let current = self.inner.basic_layout.inset;
-        self.inset((current.top, current.right, value.convert(), current.left))
+    pub fn bottom(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.inset;
+                self.inset((current.top, current.right, v, current.left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_INSET);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.inset.bottom = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn left(self, value: impl Convert<Val>) -> Self {
-        let current = self.inner.basic_layout.inset;
-        self.inset((current.top, current.right, current.bottom, value.convert()))
+    pub fn left(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.inset;
+                self.inset((current.top, current.right, current.bottom, v))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_INSET);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.inset.left = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     /// 要素の基本サイズ（width, height）を設定します。
     #[inline]
-    pub fn size(mut self, value: impl IntoSize<Val>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.size = value.into_size();
-        inner.mask.set(STYLE_SIZE);
+    pub fn size(mut self, value: impl IntoStyleSize<Val>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.size = v;
+                inner.mask.set(STYLE_SIZE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.size = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -418,9 +743,25 @@ impl ThisStyle {
 
     /// 要素の幅（width）のみを設定します（高さは既存の値を維持）。
     #[inline]
-    pub fn width(self, value: impl Convert<Val>) -> Self {
-        let current_h = self.inner.basic_layout.size.height;
-        self.size((value.convert(), current_h))
+    pub fn width(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current_h = self.inner.basic_layout.size.height;
+                self.size((v, current_h))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.size.width = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
@@ -435,9 +776,25 @@ impl ThisStyle {
 
     /// 要素の高さ（height）のみを設定します（幅は既存の値を維持）。
     #[inline]
-    pub fn height(self, value: impl Convert<Val>) -> Self {
-        let current_w = self.inner.basic_layout.size.width;
-        self.size((current_w, value.convert()))
+    pub fn height(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current_w = self.inner.basic_layout.size.width;
+                self.size((current_w, v))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.size.height = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
@@ -452,32 +809,103 @@ impl ThisStyle {
 
     /// 要素の最小サイズを設定します。
     #[inline]
-    pub fn min_size(mut self, value: impl IntoSize<Val>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.min_size = value.into_size();
-        inner.mask.set(STYLE_MIN_SIZE);
+    pub fn min_size(mut self, value: impl IntoStyleSize<Val>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.min_size = v;
+                inner.mask.set(STYLE_MIN_SIZE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MIN_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.min_size = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素の最大サイズを設定します。
     #[inline]
-    pub fn max_size(mut self, value: impl IntoSize<Val>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.max_size = value.into_size();
-        inner.mask.set(STYLE_MAX_SIZE);
+    pub fn max_size(mut self, value: impl IntoStyleSize<Val>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.max_size = v;
+                inner.mask.set(STYLE_MAX_SIZE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MAX_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.max_size = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 任意の比率（幅 / 高さ）でアスペクト比を設定します。
     #[inline]
-    pub fn aspect_ratio(mut self, width: f32, height: f32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        if height <= 0.0 {
-            inner.basic_layout.aspect_ratio = None;
-        } else {
-            inner.basic_layout.aspect_ratio = Some(width / height);
+    pub fn aspect_ratio(
+        mut self,
+        width: impl IntoStyleValue<f32>,
+        height: impl IntoStyleValue<f32>,
+    ) -> Self {
+        let w_val = width.into_style_value();
+        let h_val = height.into_style_value();
+
+        match (w_val, h_val) {
+            (StyleValue::Static(w), StyleValue::Static(h)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                if h <= 0.0 {
+                    inner.basic_layout.aspect_ratio = None;
+                } else {
+                    inner.basic_layout.aspect_ratio = Some(w / h);
+                }
+                inner.mask.set(STYLE_ASPECT_RATIO);
+            }
+            (w_getter, h_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_ASPECT_RATIO);
+
+                let get_w = match w_getter {
+                    StyleValue::Static(w) => {
+                        Box::new(move || w) as Box<dyn Fn() -> f32 + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_h = match h_getter {
+                    StyleValue::Static(h) => {
+                        Box::new(move || h) as Box<dyn Fn() -> f32 + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let w = get_w();
+                    let h = get_h();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        if h <= 0.0 {
+                            v.aspect_ratio = None;
+                        } else {
+                            v.aspect_ratio = Some(w / h);
+                        }
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
         }
-        inner.mask.set(STYLE_ASPECT_RATIO);
         self
     }
 
@@ -523,15 +951,30 @@ impl ThisStyle {
 
     /// 外側余白（margin）を設定します。
     #[inline]
-    pub fn margin(mut self, value: impl IntoRect<Val>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.margin = value.into_rect();
-        inner.mask.set(STYLE_MARGIN);
+    pub fn margin(mut self, value: impl IntoStyleRect<Val>) -> Self {
+        match value.into_style_rect() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.margin = v;
+                inner.mask.set(STYLE_MARGIN);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MARGIN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.margin = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn m(self, value: impl IntoRect<Val>) -> Self {
+    pub fn m(self, value: impl IntoStyleRect<Val>) -> Self {
         self.margin(value)
     }
 
@@ -547,57 +990,167 @@ impl ThisStyle {
 
     /// 左右の外側余白（margin-left, margin-right）を一括設定します。
     #[inline]
-    pub fn m_x(self, value: impl IntoSize<Val>) -> Self {
-        let size = value.into_size();
-        let current_top = self.inner.basic_layout.margin.top;
-        let current_bottom = self.inner.basic_layout.margin.bottom;
-        self.margin((current_top, size.width, current_bottom, size.height))
+    pub fn m_x(mut self, value: impl IntoStyleSize<Val>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let current_top = self.inner.basic_layout.margin.top;
+                let current_bottom = self.inner.basic_layout.margin.bottom;
+                self.margin((current_top, v.width, current_bottom, v.height))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MARGIN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let size = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.margin.right = size.width;
+                        v.margin.left = size.height;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     /// 上下の外側余白（margin-top, margin-bottom）を一括設定します。
     #[inline]
-    pub fn m_y(self, value: impl IntoSize<Val>) -> Self {
-        let size = value.into_size();
-        let current_left = self.inner.basic_layout.margin.left;
-        let current_right = self.inner.basic_layout.margin.right;
-        self.margin((size.width, current_right, size.height, current_left))
+    pub fn m_y(mut self, value: impl IntoStyleSize<Val>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let current_left = self.inner.basic_layout.margin.left;
+                let current_right = self.inner.basic_layout.margin.right;
+                self.margin((v.width, current_right, v.height, current_left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MARGIN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let size = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.margin.top = size.width;
+                        v.margin.bottom = size.height;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
+    }
+
+    pub fn m_t(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.margin;
+                self.margin((v, current.right, current.bottom, current.left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MARGIN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.margin.top = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn m_t(self, value: impl Convert<Val>) -> Self {
-        let current = self.inner.basic_layout.margin;
-        self.margin((value.convert(), current.right, current.bottom, current.left))
+    pub fn m_r(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.margin;
+                self.margin((current.top, v, current.bottom, current.left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MARGIN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.margin.right = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn m_r(self, value: impl Convert<Val>) -> Self {
-        let current = self.inner.basic_layout.margin;
-        self.margin((current.top, value.convert(), current.bottom, current.left))
+    pub fn m_b(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.margin;
+                self.margin((current.top, current.right, v, current.left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MARGIN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.margin.bottom = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn m_b(self, value: impl Convert<Val>) -> Self {
-        let current = self.inner.basic_layout.margin;
-        self.margin((current.top, current.right, value.convert(), current.left))
-    }
-
-    #[inline]
-    pub fn m_l(self, value: impl Convert<Val>) -> Self {
-        let current = self.inner.basic_layout.margin;
-        self.margin((current.top, current.right, current.bottom, value.convert()))
+    pub fn m_l(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.margin;
+                self.margin((current.top, current.right, current.bottom, v))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MARGIN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.margin.left = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     /// 内側余白（padding）を設定します。
     #[inline]
-    pub fn padding(mut self, value: impl IntoRect<Length>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.padding = value.into_rect();
-        inner.mask.set(STYLE_PADDING);
+    pub fn padding(mut self, value: impl IntoStyleRect<Length>) -> Self {
+        match value.into_style_rect() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.padding = v;
+                inner.mask.set(STYLE_PADDING);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_PADDING);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.padding = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn p(self, value: impl IntoRect<Length>) -> Self {
+    pub fn p(self, value: impl IntoStyleRect<Length>) -> Self {
         self.padding(value)
     }
 
@@ -608,265 +1161,719 @@ impl ThisStyle {
 
     /// 左右の内側余白（padding-left, padding-right）を一括設定します。
     #[inline]
-    pub fn p_x(self, value: impl IntoSize<Length>) -> Self {
-        let size = value.into_size();
-        let current_top = self.inner.basic_layout.padding.top;
-        let current_bottom = self.inner.basic_layout.padding.bottom;
-        self.padding((current_top, size.width, current_bottom, size.height))
+    pub fn p_x(mut self, value: impl IntoStyleSize<Length>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let current_top = self.inner.basic_layout.padding.top;
+                let current_bottom = self.inner.basic_layout.padding.bottom;
+                self.padding((current_top, v.width, current_bottom, v.height))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_PADDING);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let size = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.padding.right = size.width;
+                        v.padding.left = size.height;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     /// 上下の内側余白（padding-top, padding-bottom）を一括設定します。
     #[inline]
-    pub fn p_y(self, value: impl IntoSize<Length>) -> Self {
-        let size = value.into_size();
-        let current_left = self.inner.basic_layout.padding.left;
-        let current_right = self.inner.basic_layout.padding.right;
-        self.padding((size.width, current_right, size.height, current_left))
+    pub fn p_y(mut self, value: impl IntoStyleSize<Length>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let current_left = self.inner.basic_layout.padding.left;
+                let current_right = self.inner.basic_layout.padding.right;
+                self.padding((v.height, current_left, v.height, current_right))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_PADDING);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let size = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.padding.top = size.width;
+                        v.padding.bottom = size.height;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn p_t(self, value: impl Convert<Length>) -> Self {
-        let current = self.inner.basic_layout.padding;
-        self.padding((value.convert(), current.right, current.bottom, current.left))
+    pub fn p_t(mut self, value: impl IntoStyleConvert<Length>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.padding;
+                self.padding((v, current.right, current.bottom, current.left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_PADDING);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.padding.top = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn p_r(self, value: impl Convert<Length>) -> Self {
-        let current = self.inner.basic_layout.padding;
-        self.padding((current.top, value.convert(), current.bottom, current.left))
+    pub fn p_r(mut self, value: impl IntoStyleConvert<Length>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.padding;
+                self.padding((current.top, v, current.bottom, current.left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_PADDING);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.padding.right = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn p_b(self, value: impl Convert<Length>) -> Self {
-        let current = self.inner.basic_layout.padding;
-        self.padding((current.top, current.right, value.convert(), current.left))
+    pub fn p_b(mut self, value: impl IntoStyleConvert<Length>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.padding;
+                self.padding((current.top, current.right, v, current.left))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_PADDING);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.padding.bottom = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     #[inline]
-    pub fn p_l(self, value: impl Convert<Length>) -> Self {
-        let current = self.inner.basic_layout.padding;
-        self.padding((current.top, current.right, current.bottom, value.convert()))
+    pub fn p_l(mut self, value: impl IntoStyleConvert<Length>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current = self.inner.basic_layout.padding;
+                self.padding((current.top, current.right, current.bottom, v))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_PADDING);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.padding.left = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     /// 境界線の太さ（border）を設定します。
     #[inline]
-    pub fn border(mut self, style: BorderStyle, width: impl IntoRect<Length>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.border = width.into_rect();
-        inner.visual_property.border_styles = Some([style; 4]);
-        inner.mask.set(STYLE_BORDER);
+    pub fn border(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        width: impl IntoStyleRect<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let w_val = width.into_style_rect();
+
+        match (s_val, w_val) {
+            (StyleValue::Static(s), StyleValue::Static(w)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.border = w;
+                inner.visual_property.border_styles = Some([s; 4]);
+                inner.mask.set(STYLE_BORDER);
+            }
+            (s_getter, w_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_w = match w_getter {
+                    StyleValue::Static(w) => {
+                        Box::new(move || w) as Box<dyn Fn() -> Rect<Length> + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let s = get_s();
+                    let w = get_w();
+                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                        v.border = w;
+                    }
+                    if let Some(v) = cx.visual_properties.get_mut(id) {
+                        v.border_styles = Some([s; 4]);
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 実線（Solid）の枠線と太さを一括設定します。
     #[inline]
-    pub fn border_solid(self, width: impl IntoRect<Length>) -> Self {
+    pub fn border_solid(self, width: impl IntoStyleRect<Length>) -> Self {
         self.border(BorderStyle::Solid, width)
     }
 
     /// 丸点線（Dotted）の枠線と太さを一括設定します。
     #[inline]
-    pub fn border_dotted(self, width: impl IntoRect<Length>) -> Self {
+    pub fn border_dotted(self, width: impl IntoStyleRect<Length>) -> Self {
         self.border(BorderStyle::Dotted, width)
     }
 
     /// 破線（Dashed）の枠線と太さを一括設定します。
     #[inline]
-    pub fn border_dashed(self, width: impl IntoRect<Length>) -> Self {
+    pub fn border_dashed(self, width: impl IntoStyleRect<Length>) -> Self {
         self.border(BorderStyle::Dashed, width)
     }
 
     /// 二重線（Double）の枠線と太さを一括設定します。
     #[inline]
-    pub fn border_double(self, width: impl IntoRect<Length>) -> Self {
+    pub fn border_double(self, width: impl IntoStyleRect<Length>) -> Self {
         self.border(BorderStyle::Double, width)
     }
 
     /// 上枠線（Border Top）の種類と太さを個別に設定します。
     #[inline]
-    pub fn border_top(mut self, style: BorderStyle, value: impl Convert<Length>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.border.top = value.convert();
+    pub fn border_top(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        value: impl IntoStyleConvert<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let v_val = value.into_style_convert();
 
-        let mut styles = inner
-            .visual_property
-            .border_styles
-            .unwrap_or([BorderStyle::Solid; 4]);
-        styles[0] = style;
-        inner.visual_property.border_styles = Some(styles);
-        inner.mask.set(STYLE_BORDER);
+        match (s_val, v_val) {
+            (StyleValue::Static(s), StyleValue::Static(v)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.border.top = v;
+                let mut styles = inner
+                    .visual_property
+                    .border_styles
+                    .unwrap_or([BorderStyle::Solid; 4]);
+                styles[0] = s;
+                inner.visual_property.border_styles = Some(styles);
+                inner.mask.set(STYLE_BORDER);
+            }
+            (s_getter, v_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_v = match v_getter {
+                    StyleValue::Static(v) => {
+                        Box::new(move || v) as Box<dyn Fn() -> Length + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let s = get_s();
+                    let v = get_v();
+                    if let Some(layout) = cx.basic_layouts.get_mut(id) {
+                        layout.border.top = v;
+                    }
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+                        styles[0] = s;
+                        vis.border_styles = Some(styles);
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 右枠線（Border Right）の種類と太さを個別に設定します。
     #[inline]
-    pub fn border_right(mut self, style: BorderStyle, value: impl Convert<Length>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.border.right = value.convert();
+    pub fn border_right(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        value: impl IntoStyleConvert<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let v_val = value.into_style_convert();
 
-        let mut styles = inner
-            .visual_property
-            .border_styles
-            .unwrap_or([BorderStyle::Solid; 4]);
-        styles[1] = style;
-        inner.visual_property.border_styles = Some(styles);
-        inner.mask.set(STYLE_BORDER);
+        match (s_val, v_val) {
+            (StyleValue::Static(s), StyleValue::Static(v)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.border.right = v;
+                let mut styles = inner
+                    .visual_property
+                    .border_styles
+                    .unwrap_or([BorderStyle::Solid; 4]);
+                styles[1] = s;
+                inner.visual_property.border_styles = Some(styles);
+                inner.mask.set(STYLE_BORDER);
+            }
+            (s_getter, v_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_v = match v_getter {
+                    StyleValue::Static(v) => {
+                        Box::new(move || v) as Box<dyn Fn() -> Length + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let s = get_s();
+                    let v = get_v();
+                    if let Some(layout) = cx.basic_layouts.get_mut(id) {
+                        layout.border.right = v;
+                    }
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+                        styles[1] = s;
+                        vis.border_styles = Some(styles);
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 下枠線（Border Bottom）の種類と太さを個別に設定します。
     #[inline]
-    pub fn border_bottom(mut self, style: BorderStyle, value: impl Convert<Length>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.border.bottom = value.convert();
+    pub fn border_bottom(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        value: impl IntoStyleConvert<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let v_val = value.into_style_convert();
 
-        let mut styles = inner
-            .visual_property
-            .border_styles
-            .unwrap_or([BorderStyle::Solid; 4]);
-        styles[2] = style;
-        inner.visual_property.border_styles = Some(styles);
-        inner.mask.set(STYLE_BORDER);
+        match (s_val, v_val) {
+            (StyleValue::Static(s), StyleValue::Static(v)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.border.bottom = v;
+                let mut styles = inner
+                    .visual_property
+                    .border_styles
+                    .unwrap_or([BorderStyle::Solid; 4]);
+                styles[2] = s;
+                inner.visual_property.border_styles = Some(styles);
+                inner.mask.set(STYLE_BORDER);
+            }
+            (s_getter, v_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_v = match v_getter {
+                    StyleValue::Static(v) => {
+                        Box::new(move || v) as Box<dyn Fn() -> Length + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let s = get_s();
+                    let v = get_v();
+                    if let Some(layout) = cx.basic_layouts.get_mut(id) {
+                        layout.border.bottom = v;
+                    }
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+                        styles[2] = s;
+                        vis.border_styles = Some(styles);
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 左枠線（Border Left）の種類と太さを個別に設定します。
     #[inline]
-    pub fn border_left(mut self, style: BorderStyle, value: impl Convert<Length>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.border.left = value.convert();
+    pub fn border_left(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        value: impl IntoStyleConvert<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let v_val = value.into_style_convert();
 
-        let mut styles = inner
-            .visual_property
-            .border_styles
-            .unwrap_or([BorderStyle::Solid; 4]);
-        styles[3] = style;
-        inner.visual_property.border_styles = Some(styles);
-        inner.mask.set(STYLE_BORDER);
+        match (s_val, v_val) {
+            (StyleValue::Static(s), StyleValue::Static(v)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.border.left = v;
+                let mut styles = inner
+                    .visual_property
+                    .border_styles
+                    .unwrap_or([BorderStyle::Solid; 4]);
+                styles[3] = s;
+                inner.visual_property.border_styles = Some(styles);
+                inner.mask.set(STYLE_BORDER);
+            }
+            (s_getter, v_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_v = match v_getter {
+                    StyleValue::Static(v) => {
+                        Box::new(move || v) as Box<dyn Fn() -> Length + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let s = get_s();
+                    let v = get_v();
+                    if let Some(layout) = cx.basic_layouts.get_mut(id) {
+                        layout.border.left = v;
+                    }
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+                        styles[3] = s;
+                        vis.border_styles = Some(styles);
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 四辺個別の枠線の長さ比率（0.0 ~ 1.0）を設定します。
     /// 単一値、2連タプル (縦, 横)、4連タプル (上, 右, 下, 左) を受け入れます。
     #[inline]
-    pub fn border_lengths(mut self, value: impl IntoRect<f32>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let rect = value.into_rect();
-        inner.visual_property.border_lengths = Some(EdgeInsets {
-            top: rect.top,
-            right: rect.right,
-            bottom: rect.bottom,
-            left: rect.left,
-        });
-        inner.mask.set(STYLE_BORDER);
+    pub fn border_lengths(mut self, value: impl IntoStyleRect<f32>) -> Self {
+        match value.into_style_rect() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.border_lengths = Some(EdgeInsets {
+                    top: v.top,
+                    right: v.right,
+                    bottom: v.bottom,
+                    left: v.left,
+                });
+                inner.mask.set(STYLE_BORDER);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let v = getter();
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        vis.border_lengths = Some(EdgeInsets {
+                            top: v.top,
+                            right: v.right,
+                            bottom: v.bottom,
+                            left: v.left,
+                        });
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn border_top_length(mut self, value: f32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let mut lengths = inner
-            .visual_property
-            .border_lengths
-            .unwrap_or(EdgeInsets::px_all(1.0));
-        lengths.top = value;
-        inner.visual_property.border_lengths = Some(lengths);
-        inner.mask.set(STYLE_BORDER);
+    pub fn border_top_length(mut self, value: impl IntoStyleValue<f32>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let mut lengths = inner
+                    .visual_property
+                    .border_lengths
+                    .unwrap_or(EdgeInsets::px_all(1.0));
+                lengths.top = v;
+                inner.visual_property.border_lengths = Some(lengths);
+                inner.mask.set(STYLE_BORDER);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+                        lengths.top = val;
+                        vis.border_lengths = Some(lengths);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn border_right_length(mut self, value: f32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let mut lengths = inner
-            .visual_property
-            .border_lengths
-            .unwrap_or(EdgeInsets::px_all(1.0));
-        lengths.right = value;
-        inner.visual_property.border_lengths = Some(lengths);
-        inner.mask.set(STYLE_BORDER);
+    pub fn border_right_length(mut self, value: impl IntoStyleValue<f32>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let mut lengths = inner
+                    .visual_property
+                    .border_lengths
+                    .unwrap_or(EdgeInsets::px_all(1.0));
+                lengths.right = v;
+                inner.visual_property.border_lengths = Some(lengths);
+                inner.mask.set(STYLE_BORDER);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+                        lengths.right = val;
+                        vis.border_lengths = Some(lengths);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn border_bottom_length(mut self, value: f32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let mut lengths = inner
-            .visual_property
-            .border_lengths
-            .unwrap_or(EdgeInsets::px_all(1.0));
-        lengths.bottom = value;
-        inner.visual_property.border_lengths = Some(lengths);
-        inner.mask.set(STYLE_BORDER);
+    pub fn border_bottom_length(mut self, value: impl IntoStyleValue<f32>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let mut lengths = inner
+                    .visual_property
+                    .border_lengths
+                    .unwrap_or(EdgeInsets::px_all(1.0));
+                lengths.bottom = v;
+                inner.visual_property.border_lengths = Some(lengths);
+                inner.mask.set(STYLE_BORDER);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+                        lengths.bottom = val;
+                        vis.border_lengths = Some(lengths);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn border_left_length(mut self, value: f32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let mut lengths = inner
-            .visual_property
-            .border_lengths
-            .unwrap_or(EdgeInsets::px_all(1.0));
-        lengths.left = value;
-        inner.visual_property.border_lengths = Some(lengths);
-        inner.mask.set(STYLE_BORDER);
+    pub fn border_left_length(mut self, value: impl IntoStyleValue<f32>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let mut lengths = inner
+                    .visual_property
+                    .border_lengths
+                    .unwrap_or(EdgeInsets::px_all(1.0));
+                lengths.left = v;
+                inner.visual_property.border_lengths = Some(lengths);
+                inner.mask.set(STYLE_BORDER);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+                        lengths.left = val;
+                        vis.border_lengths = Some(lengths);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// すべての辺の枠線基準点（伸縮方向）を一括設定します。
     #[inline]
-    pub fn border_align(mut self, value: BorderAlignment) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.border_alignments = Some([value; 4]);
-        inner.mask.set(STYLE_BORDER);
+    pub fn border_align(mut self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.border_alignments = Some([v; 4]);
+                inner.mask.set(STYLE_BORDER);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        vis.border_alignments = Some([val; 4]);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 四辺個別の枠線基準点を設定します。[Top, Right, Bottom, Left]
     #[inline]
-    pub fn border_aligns(mut self, values: [BorderAlignment; 4]) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.border_alignments = Some(values);
-        inner.mask.set(STYLE_BORDER);
+    pub fn border_aligns(mut self, values: impl IntoStyleValue<[BorderAlignment; 4]>) -> Self {
+        match values.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.border_alignments = Some(v);
+                inner.mask.set(STYLE_BORDER);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        vis.border_alignments = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
-    fn set_border_align_idx(mut self, idx: usize, value: BorderAlignment) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let mut aligns = inner
-            .visual_property
-            .border_alignments
-            .unwrap_or([BorderAlignment::Start; 4]);
-        aligns[idx] = value;
-        inner.visual_property.border_alignments = Some(aligns);
-        inner.mask.set(STYLE_BORDER);
+    fn set_border_align_idx(
+        mut self,
+        idx: usize,
+        value: impl IntoStyleValue<BorderAlignment>,
+    ) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let mut aligns = inner
+                    .visual_property
+                    .border_alignments
+                    .unwrap_or([BorderAlignment::Start; 4]);
+                aligns[idx] = v;
+                inner.visual_property.border_alignments = Some(aligns);
+                inner.mask.set(STYLE_BORDER);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                        let mut aligns =
+                            vis.border_alignments.unwrap_or([BorderAlignment::Start; 4]);
+                        aligns[idx] = val;
+                        vis.border_alignments = Some(aligns);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn border_top_align(self, value: BorderAlignment) -> Self {
+    pub fn border_top_align(self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         self.set_border_align_idx(0, value)
     }
     #[inline]
-    pub fn border_right_align(self, value: BorderAlignment) -> Self {
+    pub fn border_right_align(self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         self.set_border_align_idx(1, value)
     }
     #[inline]
-    pub fn border_bottom_align(self, value: BorderAlignment) -> Self {
+    pub fn border_bottom_align(self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         self.set_border_align_idx(2, value)
     }
     #[inline]
-    pub fn border_left_align(self, value: BorderAlignment) -> Self {
+    pub fn border_left_align(self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         self.set_border_align_idx(3, value)
     }
 
     /// コンテナ内の一括交差軸配置を設定します。
     #[inline]
-    pub fn align_items(mut self, value: impl Into<Option<AlignItems>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.align_items = value.into();
-        inner.mask.set(STYLE_ALIGN_ITEMS);
+    pub fn align_items(mut self, value: impl IntoStyleValue<Option<AlignItems>>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.align_items = v;
+                inner.mask.set(STYLE_ALIGN_ITEMS);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_ALIGN_ITEMS);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.align_items = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -932,10 +1939,25 @@ impl ThisStyle {
 
     /// 個別要素の交差軸配置を設定します。
     #[inline]
-    pub fn align_self(mut self, value: impl Into<Option<AlignSelf>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.align_self = value.into();
-        inner.mask.set(STYLE_ALIGN_SELF);
+    pub fn align_self(mut self, value: impl IntoStyleValue<Option<AlignSelf>>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.align_self = v;
+                inner.mask.set(STYLE_ALIGN_SELF);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_ALIGN_SELF);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.align_self = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1006,10 +2028,25 @@ impl ThisStyle {
 
     /// コンテナ内の一括主軸配置を設定します。
     #[inline]
-    pub fn justify_items(mut self, value: impl Into<Option<AlignItems>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.justify_items = value.into();
-        inner.mask.set(STYLE_JUSTIFY_ITEMS);
+    pub fn justify_items(mut self, value: impl IntoStyleValue<Option<AlignItems>>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.justify_items = v;
+                inner.mask.set(STYLE_JUSTIFY_ITEMS);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_JUSTIFY_ITEMS);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.justify_items = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1075,10 +2112,25 @@ impl ThisStyle {
 
     /// 個別要素の主軸配置を設定します。
     #[inline]
-    pub fn justify_self(mut self, value: impl Into<Option<AlignSelf>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.justify_self = value.into();
-        inner.mask.set(STYLE_JUSTIFY_SELF);
+    pub fn justify_self(mut self, value: impl IntoStyleValue<Option<AlignSelf>>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.justify_self = v;
+                inner.mask.set(STYLE_JUSTIFY_SELF);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_JUSTIFY_SELF);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.justify_self = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1149,10 +2201,25 @@ impl ThisStyle {
 
     /// 複数行にまたがる場合のコンテンツ一括配置を設定します。
     #[inline]
-    pub fn align_content(mut self, value: impl Into<Option<AlignContent>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.align_content = value.into();
-        inner.mask.set(STYLE_ALIGN_CONTENT);
+    pub fn align_content(mut self, value: impl IntoStyleValue<Option<AlignContent>>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.align_content = v;
+                inner.mask.set(STYLE_ALIGN_CONTENT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_ALIGN_CONTENT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.align_content = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1228,10 +2295,25 @@ impl ThisStyle {
 
     /// 主軸方向のコンテンツ配置を設定します。
     #[inline]
-    pub fn justify_content(mut self, value: impl Into<Option<JustifyContent>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.justify_content = value.into();
-        inner.mask.set(STYLE_JUSTIFY_CONTENT);
+    pub fn justify_content(mut self, value: impl IntoStyleValue<Option<JustifyContent>>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.justify_content = v;
+                inner.mask.set(STYLE_JUSTIFY_CONTENT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_JUSTIFY_CONTENT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.justify_content = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1307,10 +2389,25 @@ impl ThisStyle {
 
     /// 要素間の行・列方向の隙間（gap）を設定します。
     #[inline]
-    pub fn gap(mut self, value: impl IntoSize<Val>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.gap = value.into_size();
-        inner.mask.set(STYLE_GAP);
+    pub fn gap(mut self, value: impl IntoStyleSize<Val>) -> Self {
+        match value.into_style_size() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.gap = v;
+                inner.mask.set(STYLE_GAP);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GAP);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.gap = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1326,36 +2423,83 @@ impl ThisStyle {
 
     /// 子要素同士の行方向（縦方向、row-gap）の隙間を設定します。
     #[inline]
-    pub fn gap_row(self, value: impl Convert<Val>) -> Self {
-        let current_column_gap = self.inner.flex_layout.gap.width;
-        self.gap((current_column_gap, value.convert()))
+    pub fn gap_row(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current_column_gap = self.inner.flex_layout.gap.width;
+                self.gap((current_column_gap, v))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GAP);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.gap.height = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     /// 子要素同士の列方向（横方向、column-gap）の隙間を設定します。
     #[inline]
-    pub fn gap_col(self, value: impl Convert<Val>) -> Self {
-        let current_row_gap = self.inner.flex_layout.gap.height;
-        self.gap((value.convert(), current_row_gap))
+    pub fn gap_col(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current_row_gap = self.inner.flex_layout.gap.height;
+                self.gap((v, current_row_gap))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GAP);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.gap.width = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     /// エイリアス：子要素同士の縦方向の隙間を設定します。
     #[inline]
-    pub fn gap_y(self, value: impl Convert<Val>) -> Self {
+    pub fn gap_y(self, value: impl IntoStyleConvert<Val>) -> Self {
         self.gap_row(value)
     }
 
     /// エイリアス：子要素同士の横方向の隙間を設定します。
     #[inline]
-    pub fn gap_x(self, value: impl Convert<Val>) -> Self {
+    pub fn gap_x(self, value: impl IntoStyleConvert<Val>) -> Self {
         self.gap_col(value)
     }
 
     /// テキストの配置揃え方向を設定します。
     #[inline]
-    pub fn text_align(mut self, value: TextAlign) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.text_align = value;
-        inner.mask.set(STYLE_TEXT_ALIGN);
+    pub fn text_align(mut self, value: impl IntoStyleValue<TextAlign>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.text_align = v;
+                inner.mask.set(STYLE_TEXT_ALIGN);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_TEXT_ALIGN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.text_align = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1381,10 +2525,25 @@ impl ThisStyle {
 
     /// Flexコンテナ内での主軸の方向を設定します。
     #[inline]
-    pub fn flex_direction(mut self, value: FlexDirection) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.flex_direction = value;
-        inner.mask.set(STYLE_FLEX_DIRECTION);
+    pub fn flex_direction(mut self, value: impl IntoStyleValue<FlexDirection>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.flex_direction = v;
+                inner.mask.set(STYLE_FLEX_DIRECTION);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_FLEX_DIRECTION);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.flex_direction = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1410,10 +2569,25 @@ impl ThisStyle {
 
     /// 子要素を複数行に折り返すかどうかを設定します。
     #[inline]
-    pub fn flex_wrap_internal(mut self, value: FlexWrap) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.flex_wrap = value;
-        inner.mask.set(STYLE_FLEX_WRAP);
+    pub fn flex_wrap_internal(mut self, value: impl IntoStyleValue<FlexWrap>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.flex_wrap = v;
+                inner.mask.set(STYLE_FLEX_WRAP);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_FLEX_WRAP);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.flex_wrap = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1434,10 +2608,25 @@ impl ThisStyle {
 
     /// 子要素の基準となる基本寸法を設定します。
     #[inline]
-    pub fn basis(mut self, value: impl Convert<Val>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.flex_basis = value.convert();
-        inner.mask.set(STYLE_FLEX_BASIS);
+    pub fn basis(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.flex_basis = v;
+                inner.mask.set(STYLE_FLEX_BASIS);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_FLEX_BASIS);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.flex_basis = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1459,10 +2648,25 @@ impl ThisStyle {
     /// 要素の伸長比率（flex-grow）を直接設定します。
     /// bool（true/false）または数値（f32/i32）を受け入れます。
     #[inline]
-    pub fn flex_grow(mut self, value: impl Convert<f32>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.flex_grow = value.convert();
-        inner.mask.set(STYLE_FLEX_GROW);
+    pub fn flex_grow(mut self, value: impl IntoStyleConvert<f32>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.flex_grow = v;
+                inner.mask.set(STYLE_FLEX_GROW);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_FLEX_GROW);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.flex_grow = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1481,10 +2685,25 @@ impl ThisStyle {
     /// 要素の縮小比率（flex-shrink）を直接設定します。
     /// bool（true/false）または数値（f32/i32）を受け入れます。
     #[inline]
-    pub fn flex_shrink(mut self, value: impl Convert<f32>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.flex_layout.flex_shrink = value.convert();
-        inner.mask.set(STYLE_FLEX_SHRINK);
+    pub fn flex_shrink(mut self, value: impl IntoStyleConvert<f32>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.flex_layout.flex_shrink = v;
+                inner.mask.set(STYLE_FLEX_SHRINK);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_FLEX_SHRINK);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                        v.flex_shrink = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1502,41 +2721,86 @@ impl ThisStyle {
 
     /// 要素の背景色（Background Color）を設定します。
     #[inline]
-    pub fn bg_color(mut self, value: Color) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.bg_color = Some(value);
-        inner.mask.set(STYLE_BG_COLOR);
+    pub fn bg_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.bg_color = Some(v);
+                inner.mask.set(STYLE_BG_COLOR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BG_COLOR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.bg_color = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素の境界線の色を設定します。
     #[inline]
-    pub fn border_color(mut self, value: Color) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.border_color = Some(value);
-        inner.mask.set(STYLE_BORDER_COLOR);
+    pub fn border_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.border_color = Some(v);
+                inner.mask.set(STYLE_BORDER_COLOR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BORDER_COLOR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.border_color = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素の角丸の半径を設定します。
     #[inline]
-    pub fn corner_radius(mut self, value: impl IntoCornerRadius) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.corner_radius = Some(value.into_corner_radius());
-        inner.mask.set(STYLE_CORNER_RADIUS);
+    pub fn corner_radius(mut self, value: impl IntoStyleCornerRadius) -> Self {
+        match value.into_style_corner_radius() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.corner_radius = Some(v);
+                inner.mask.set(STYLE_CORNER_RADIUS);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_CORNER_RADIUS);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.corner_radius = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// `corner_radius` の短縮エイリアス。要素の角丸を設定します。
     /// 単一値、2連タプル、4連タプルを受け入れます。
     #[inline]
-    pub fn rounded(self, value: impl IntoCornerRadius) -> Self {
+    pub fn rounded(self, value: impl IntoStyleCornerRadius) -> Self {
         self.corner_radius(value)
     }
 
     /// `corner_radius` の超短縮エイリアス。要素の角丸を設定します。
     #[inline]
-    pub fn r(self, value: impl IntoCornerRadius) -> Self {
+    pub fn r(self, value: impl IntoStyleCornerRadius) -> Self {
         self.corner_radius(value)
     }
 
@@ -1596,10 +2860,25 @@ impl ThisStyle {
 
     /// 要素全体の不透明度を設定します。
     #[inline]
-    pub fn opacity(mut self, value: f32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.opacity = Some(value);
-        inner.mask.set(STYLE_OPACITY);
+    pub fn opacity(mut self, value: impl IntoStyleValue<f32>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.opacity = Some(v);
+                inner.mask.set(STYLE_OPACITY);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OPACITY);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.opacity = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1620,34 +2899,80 @@ impl ThisStyle {
 
     /// 要素の外側に配置する影を設定します。
     #[inline]
-    pub fn box_shadow(mut self, value: BoxShadow) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.shadow_params = Some(value);
-        inner.visual_property.shadow_color = Some(value.color);
-        inner.mask.set(STYLE_BOX_SHADOW);
+    pub fn box_shadow(mut self, value: impl IntoStyleValue<BoxShadow>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.shadow_params = Some(v);
+                inner.visual_property.shadow_color = Some(v.color);
+                inner.mask.set(STYLE_BOX_SHADOW);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BOX_SHADOW);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.shadow_params = Some(val);
+                        v.shadow_color = Some(val.color);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 影の色（shadow_color）のみを設定・上書きします。
     #[inline]
-    pub fn shadow_color(mut self, value: Color) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.shadow_color = Some(value);
-        inner.mask.set(STYLE_BOX_SHADOW);
+    pub fn shadow_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.shadow_color = Some(v);
+                inner.mask.set(STYLE_BOX_SHADOW);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BOX_SHADOW);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.shadow_color = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 重なり順（Z-Index）を整数で設定します。
     #[inline]
-    pub fn z_index(mut self, value: i32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.z_index = Some(value);
-        inner.mask.set(STYLE_Z_INDEX);
+    pub fn z_index(mut self, value: impl IntoStyleValue<i32>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.z_index = Some(v);
+                inner.mask.set(STYLE_Z_INDEX);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_Z_INDEX);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.z_index = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn z(self, value: i32) -> Self {
+    pub fn z(self, value: impl IntoStyleValue<i32>) -> Self {
         self.z_index(value)
     }
 
@@ -1668,10 +2993,25 @@ impl ThisStyle {
 
     /// この要素の上にマウスが乗った際のマウスクラスアイコンを設定します。
     #[inline]
-    pub fn cursor(mut self, value: CursorIcon) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.cursor = Some(value);
-        inner.mask.set(STYLE_CURSOR);
+    pub fn cursor(mut self, value: impl IntoStyleValue<CursorIcon>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.cursor = Some(v);
+                inner.mask.set(STYLE_CURSOR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_CURSOR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.cursor = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1706,10 +3046,25 @@ impl ThisStyle {
     }
 
     #[inline]
-    pub fn backdrop(mut self, backdrop: Backdrop) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.backdrop = backdrop;
-        inner.mask.set(STYLE_BACKDROP);
+    pub fn backdrop(mut self, backdrop: impl IntoStyleValue<Backdrop>) -> Self {
+        match backdrop.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.backdrop = v;
+                inner.mask.set(STYLE_BACKDROP);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BACKDROP);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.backdrop = val;
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1735,241 +3090,656 @@ impl ThisStyle {
 
     /// 要素内でレンダリングされるテキストの基本色を設定します。
     #[inline]
-    pub fn text_color(mut self, value: Color) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.text_color = Some(value);
-        inner.mask.set(STYLE_TEXT_COLOR);
+    pub fn text_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.text_color = Some(v);
+                inner.mask.set(STYLE_TEXT_COLOR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_TEXT_COLOR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.text_color = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// グリッドの行方向の明示的なトラックサイズ定義を設定します。
     #[inline]
-    pub fn grid_template_rows(mut self, value: Vec<GridTemplateComponent<String>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_template_rows = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_template_rows(
+        mut self,
+        value: impl IntoStyleValue<Vec<GridTemplateComponent<String>>>,
+    ) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_template_rows = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_template_rows = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// グリッドの列方向の明示的なトラックサイズ定義を設定します。
     #[inline]
-    pub fn grid_template_columns(mut self, value: Vec<GridTemplateComponent<String>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_template_columns = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_template_columns(
+        mut self,
+        value: impl IntoStyleValue<Vec<GridTemplateComponent<String>>>,
+    ) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_template_columns = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_template_columns = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 暗黙的に生成されるグリッド行のデフォルトサイズを設定します。
     #[inline]
-    pub fn grid_auto_rows(mut self, value: Vec<TrackSizingFunction>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_auto_rows = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_auto_rows(mut self, value: impl IntoStyleValue<Vec<TrackSizingFunction>>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_auto_rows = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_auto_rows = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 暗黙的に生成されるグリッド列のデフォルトサイズを設定します。
     #[inline]
-    pub fn grid_auto_columns(mut self, value: Vec<TrackSizingFunction>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_auto_columns = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_auto_columns(
+        mut self,
+        value: impl IntoStyleValue<Vec<TrackSizingFunction>>,
+    ) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_auto_columns = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_auto_columns = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 自動配置アルゴリズムの制御方法を設定します。
     #[inline]
-    pub fn grid_auto_flow(mut self, value: GridAutoFlow) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_auto_flow = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_auto_flow(mut self, value: impl IntoStyleValue<GridAutoFlow>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_auto_flow = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_auto_flow = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 名前付きグリッドエリアを定義して配置を決定します。
     #[inline]
-    pub fn grid_template_areas(mut self, value: Vec<GridTemplateArea<String>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_template_areas = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_template_areas(
+        mut self,
+        value: impl IntoStyleValue<Vec<GridTemplateArea<String>>>,
+    ) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_template_areas = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_template_areas = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 明示的に定義された各グリッド列線に対する名前のリストを設定します。
     #[inline]
-    pub fn grid_template_column_names(mut self, value: Vec<Vec<String>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_template_column_names = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_template_column_names(
+        mut self,
+        value: impl IntoStyleValue<Vec<Vec<String>>>,
+    ) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_template_column_names = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_template_column_names = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 明示的に定義された各グリッド行線に対する名前のリストを設定します。
     #[inline]
-    pub fn grid_template_row_names(mut self, value: Vec<Vec<String>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_template_row_names = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_template_row_names(mut self, value: impl IntoStyleValue<Vec<Vec<String>>>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_template_row_names = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_template_row_names = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// グリッドアイテムが配置される行の開始位置と終了位置を指定します。
     #[inline]
-    pub fn grid_row(mut self, value: GridLine<GridPlacement<String>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_row = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_row(mut self, value: impl IntoStyleValue<GridLine<GridPlacement<String>>>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_row = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_row = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// グリッドアイテムが配置される列の開始位置と終了位置を指定します。
     #[inline]
-    pub fn grid_column(mut self, value: GridLine<GridPlacement<String>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-        grid.grid_column = value;
-        inner.mask.set(STYLE_GRID_LAYOUT);
+    pub fn grid_column(
+        mut self,
+        value: impl IntoStyleValue<GridLine<GridPlacement<String>>>,
+    ) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
+                grid.grid_column = v;
+                inner.mask.set(STYLE_GRID_LAYOUT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if !cx.grid_layouts.contains_key(id) {
+                        cx.grid_layouts.insert(id, GridLayout::default());
+                    }
+                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                        grid.grid_column = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// マウスが要素の上に乗った（Hover）際に適用するオーバーライドスタイルを設定します。
     #[inline]
-    pub fn hovered(mut self, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.interaction_styles.hovered = Some(style);
-        inner.mask.set(STATE_HOVERED);
+    pub fn hovered(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.interaction_styles.hovered = Some(v);
+                inner.mask.set(STATE_HOVERED);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STATE_HOVERED);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.interaction_properties.get_mut(id) {
+                        v.hovered = Some(val);
+                    } else {
+                        let interaction = InteractionStyles {
+                            hovered: Some(val),
+                            ..Default::default()
+                        };
+                        cx.interaction_properties.insert(id, interaction);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// キーボードタブ移動などで要素にフォーカスが当たった際に適用するスタイルを設定します。
     #[inline]
-    pub fn focused(mut self, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.interaction_styles.focused = Some(style);
-        inner.mask.set(STATE_FOCUSED);
+    pub fn focused(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.interaction_styles.focused = Some(v);
+                inner.mask.set(STATE_FOCUSED);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STATE_FOCUSED);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.interaction_properties.get_mut(id) {
+                        v.focused = Some(val);
+                    } else {
+                        let interaction = InteractionStyles {
+                            focused: Some(val),
+                            ..Default::default()
+                        };
+                        cx.interaction_properties.insert(id, interaction);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// マウスの左ボタンが要素の上で押し下げられた際、またはタップ中に適用するスタイルを設定します。
     #[inline]
-    pub fn pressed(mut self, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.interaction_styles.pressed = Some(style);
-        inner.mask.set(STATE_PRESSED);
+    pub fn pressed(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.interaction_styles.pressed = Some(v);
+                inner.mask.set(STATE_PRESSED);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STATE_PRESSED);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.interaction_properties.get_mut(id) {
+                        v.pressed = Some(val);
+                    } else {
+                        let interaction = InteractionStyles {
+                            pressed: Some(val),
+                            ..Default::default()
+                        };
+                        cx.interaction_properties.insert(id, interaction);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素が無効化された際に適用するスタイルを設定します。
     #[inline]
-    pub fn disabled(mut self, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.interaction_styles.disabled = Some(style);
-        inner.mask.set(STATE_DISABLED);
+    pub fn disabled(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.interaction_styles.disabled = Some(v);
+                inner.mask.set(STATE_DISABLED);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STATE_DISABLED);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.interaction_properties.get_mut(id) {
+                        v.disabled = Some(val);
+                    } else {
+                        let interaction = InteractionStyles {
+                            disabled: Some(val),
+                            ..Default::default()
+                        };
+                        cx.interaction_properties.insert(id, interaction);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素がアクティブ状態の時に適用するスタイルを設定します。
     #[inline]
-    pub fn actived(mut self, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.interaction_styles.actived = Some(style);
-        inner.mask.set(STATE_ACTIVED);
+    pub fn actived(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.interaction_styles.actived = Some(v);
+                inner.mask.set(STATE_ACTIVED);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STATE_ACTIVED);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.interaction_properties.get_mut(id) {
+                        v.actived = Some(val);
+                    } else {
+                        let interaction = InteractionStyles {
+                            actived: Some(val),
+                            ..Default::default()
+                        };
+                        cx.interaction_properties.insert(id, interaction);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素がトグル選択された際に適用するスタイルを設定します。
     #[inline]
-    pub fn selected(mut self, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.interaction_styles.selected = Some(style);
-        inner.mask.set(STATE_SELECTED);
+    pub fn selected(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.interaction_styles.selected = Some(v);
+                inner.mask.set(STATE_SELECTED);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STATE_SELECTED);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.interaction_properties.get_mut(id) {
+                        v.selected = Some(val);
+                    } else {
+                        let interaction = InteractionStyles {
+                            selected: Some(val),
+                            ..Default::default()
+                        };
+                        cx.interaction_properties.insert(id, interaction);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素が現在ドラッグ操作中にある際に適用するスタイルを設定します。
     #[inline]
-    pub fn dragged(mut self, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.interaction_styles.dragged = Some(style);
-        inner.mask.set(STATE_DRAGGED);
+    pub fn dragged(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.interaction_styles.dragged = Some(v);
+                inner.mask.set(STATE_DRAGGED);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STATE_DRAGGED);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.interaction_properties.get_mut(id) {
+                        v.dragged = Some(val);
+                    } else {
+                        let interaction = InteractionStyles {
+                            dragged: Some(val),
+                            ..Default::default()
+                        };
+                        cx.interaction_properties.insert(id, interaction);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 子孫要素のインタラクション状態に連動して親のスタイルを変化させる伝播設定
     #[inline]
-    pub fn interaction_within(mut self, name: InteractionName, style: ThisStyle) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        match name {
-            InteractionName::Hover => inner.interaction_styles.hovered_within = Some(style),
-            InteractionName::Focus => inner.interaction_styles.focused_within = Some(style),
-            InteractionName::Press => inner.interaction_styles.pressed_within = Some(style),
-            InteractionName::Disable => inner.interaction_styles.disabled_within = Some(style),
-            InteractionName::Active => inner.interaction_styles.actived_within = Some(style),
-            InteractionName::Select => inner.interaction_styles.selected_within = Some(style),
-            InteractionName::Drag => inner.interaction_styles.dragged_within = Some(style),
-            InteractionName::All => inner.interaction_styles.any_within = Some(style),
+    pub fn interaction_within(
+        mut self,
+        name: InteractionName,
+        style: impl IntoStyleValue<ThisStyle>,
+    ) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                match name {
+                    InteractionName::Hover => inner.interaction_styles.hovered_within = Some(v),
+                    InteractionName::Focus => inner.interaction_styles.focused_within = Some(v),
+                    InteractionName::Press => inner.interaction_styles.pressed_within = Some(v),
+                    InteractionName::Disable => inner.interaction_styles.disabled_within = Some(v),
+                    InteractionName::Active => inner.interaction_styles.actived_within = Some(v),
+                    InteractionName::Select => inner.interaction_styles.selected_within = Some(v),
+                    InteractionName::Drag => inner.interaction_styles.dragged_within = Some(v),
+                    InteractionName::All => inner.interaction_styles.any_within = Some(v),
+                }
+                inner.mask.set(STYLE_INTERACTION_WITHIN);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_INTERACTION_WITHIN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.interaction_properties.get_mut(id) {
+                        match name {
+                            InteractionName::Hover => v.hovered_within = Some(val),
+                            InteractionName::Focus => v.focused_within = Some(val),
+                            InteractionName::Press => v.pressed_within = Some(val),
+                            InteractionName::Disable => v.disabled_within = Some(val),
+                            InteractionName::Active => v.actived_within = Some(val),
+                            InteractionName::Select => v.selected_within = Some(val),
+                            InteractionName::Drag => v.dragged_within = Some(val),
+                            InteractionName::All => v.any_within = Some(val),
+                        }
+                    } else {
+                        let mut interaction = InteractionStyles::default();
+                        match name {
+                            InteractionName::Hover => interaction.hovered_within = Some(val),
+                            InteractionName::Focus => interaction.focused_within = Some(val),
+                            InteractionName::Press => interaction.pressed_within = Some(val),
+                            InteractionName::Disable => interaction.disabled_within = Some(val),
+                            InteractionName::Active => interaction.actived_within = Some(val),
+                            InteractionName::Select => interaction.selected_within = Some(val),
+                            InteractionName::Drag => interaction.dragged_within = Some(val),
+                            InteractionName::All => interaction.any_within = Some(val),
+                        }
+                        cx.interaction_properties.insert(id, interaction);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
         }
-        // 動的withinプロパティがこのスタイルに格納されていることをビットマーク
-        inner.mask.set(STYLE_INTERACTION_WITHIN);
         self
     }
 
     #[inline]
-    pub fn hover_within(self, style: ThisStyle) -> Self {
+    pub fn hover_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Hover, style)
     }
 
     #[inline]
-    pub fn focus_within(self, style: ThisStyle) -> Self {
+    pub fn focus_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Focus, style)
     }
 
     #[inline]
-    pub fn press_within(self, style: ThisStyle) -> Self {
+    pub fn press_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Press, style)
     }
 
     #[inline]
-    pub fn disable_within(self, style: ThisStyle) -> Self {
+    pub fn disable_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Disable, style)
     }
 
     #[inline]
-    pub fn active_within(self, style: ThisStyle) -> Self {
+    pub fn active_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Active, style)
     }
 
     #[inline]
-    pub fn select_within(self, style: ThisStyle) -> Self {
+    pub fn select_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Select, style)
     }
 
     #[inline]
-    pub fn drag_within(self, style: ThisStyle) -> Self {
+    pub fn drag_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Drag, style)
     }
 
     #[inline]
-    pub fn all_within(self, style: ThisStyle) -> Self {
+    pub fn all_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::All, style)
     }
 
     /// ポインターメッセージ（マウスインタラクションなど）の透過を制御します。
     #[inline]
-    pub fn pointer_events(mut self, value: PointerEvents) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.pointer_events = Some(value);
-        inner.mask.set(STYLE_POINTER_EVENTS);
+    pub fn pointer_events(mut self, value: impl IntoStyleValue<PointerEvents>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.pointer_events = Some(v);
+                inner.mask.set(STYLE_POINTER_EVENTS);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_POINTER_EVENTS);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.pointer_events = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -1987,10 +3757,48 @@ impl ThisStyle {
 
     /// 要素にアフィン変換（平行移動・拡大・回転）を適用します。
     #[inline]
-    pub fn transform(mut self, value: Transform) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.transform = Some(value.matrix);
-        inner.mask.set(STYLE_TRANSFORM);
+    pub fn transform(mut self, value: impl IntoStyleValue<Transform>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.transform = Some(v.matrix);
+                inner.mask.set(STYLE_TRANSFORM);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_TRANSFORM);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.transform = Some(val.matrix);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    #[inline]
+    pub fn transform_origin(mut self, point: impl IntoStyleValue<Point<f32>>) -> Self {
+        match point.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.transform_origin = Some(v);
+                inner.mask.set(STYLE_TRANSFORM);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_TRANSFORM);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.transform_origin = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -2027,20 +3835,27 @@ impl ThisStyle {
         self.transform(current.rotate(radians))
     }
 
-    #[inline]
-    pub fn transform_origin(mut self, point: Point<f32>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.transform_origin = Some(point);
-        inner.mask.set(STYLE_TRANSFORM);
-        self
-    }
-
     /// 状態遷移時のトランジション（CSS transition）を設定します。
     #[inline]
-    pub fn transition(mut self, transition: Transition) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.transitions.push(transition);
-        inner.mask.set(STYLE_TRANSITIONS);
+    pub fn transition(mut self, transition: impl IntoStyleValue<Transition>) -> Self {
+        match transition.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.transitions.push(v);
+                inner.mask.set(STYLE_TRANSITIONS);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_TRANSITIONS);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.transitions.push(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -2095,64 +3910,169 @@ impl ThisStyle {
 
     /// キーフレームアニメーション（CSS animation）を設定します。
     #[inline]
-    pub fn animation(mut self, animation: KeyframeAnimation) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.keyframe_animations.push(animation);
-        inner.mask.set(STYLE_ANIMATIONS);
+    pub fn animation(mut self, animation: impl IntoStyleValue<KeyframeAnimation>) -> Self {
+        match animation.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.keyframe_animations.push(v);
+                inner.mask.set(STYLE_ANIMATIONS);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_ANIMATIONS);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.keyframe_animations.push(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 背景に 2色線形グラデーションを適用します。
     #[inline]
-    pub fn bg_gradient(mut self, gradient: LinearGradient) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.bg_gradient = Some(gradient);
-        inner.mask.set(STYLE_BG_COLOR); // 背景描画トリガーとしてマーク
+    pub fn bg_gradient(mut self, gradient: impl IntoStyleValue<LinearGradient>) -> Self {
+        match gradient.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.bg_gradient = Some(v);
+                inner.mask.set(STYLE_BG_COLOR);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_BG_COLOR);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.bg_gradient = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// テキストのフォントファミリーを設定します。（例: font_family("Arial")）
     #[inline]
-    pub fn font_family(mut self, family: impl Into<Cow<'static, str>>) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.font_family = Some(family.into());
-        inner.mask.set(STYLE_EXT_PROPERTIES);
+    pub fn font_family(mut self, family: impl IntoStyleValue<Cow<'static, str>>) -> Self {
+        match family.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.font_family = Some(v);
+                inner.mask.set(STYLE_EXT_PROPERTIES);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.font_family = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
-    /// テキストの太さを設定します（100 〜 900。標準は 400、ボールドは 700）。
+    /// テキストの太さを設定します。
     #[inline]
-    pub fn font_weight(mut self, weight: u32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.font_weight = Some(weight);
-        inner.mask.set(STYLE_EXT_PROPERTIES);
+    pub fn font_weight(mut self, weight: impl IntoStyleValue<u32>) -> Self {
+        match weight.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.font_weight = Some(v);
+                inner.mask.set(STYLE_EXT_PROPERTIES);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.font_weight = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// 要素内でレンダリングされるテキストの基本フォントサイズを設定します。
     #[inline]
-    pub fn font_size(mut self, size: f32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.font_size = Some(size);
-        inner.mask.set(STYLE_EXT_PROPERTIES);
+    pub fn font_size(mut self, size: impl IntoStyleValue<f32>) -> Self {
+        match size.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.font_size = Some(v);
+                inner.mask.set(STYLE_EXT_PROPERTIES);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.font_size = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// フォントスタイルを設定します
     #[inline]
-    pub fn font_style(mut self, style: u32) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.font_style = Some(style);
-        inner.mask.set(STYLE_EXT_PROPERTIES);
+    pub fn font_style(mut self, style: impl IntoStyleValue<u32>) -> Self {
+        match style.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.font_style = Some(v);
+                inner.mask.set(STYLE_EXT_PROPERTIES);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.font_style = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     /// ユーザーによるテキスト選択・コピーの挙動を設定します
     #[inline]
-    pub fn user_select(mut self, value: UserSelect) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.user_select = Some(value);
-        inner.mask.set(STYLE_USER_SELECT);
+    pub fn user_select(mut self, value: impl IntoStyleValue<UserSelect>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.user_select = Some(v);
+                inner.mask.set(STYLE_USER_SELECT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_USER_SELECT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.user_select = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
@@ -2175,18 +4095,48 @@ impl ThisStyle {
     }
 
     #[inline]
-    pub fn select_bg_color(mut self, color: Color) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.select_bg_color = Some(color);
-        inner.mask.set(STYLE_USER_SELECT);
+    pub fn select_bg_color(mut self, color: impl IntoStyleValue<Color>) -> Self {
+        match color.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.select_bg_color = Some(v);
+                inner.mask.set(STYLE_USER_SELECT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_USER_SELECT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.select_bg_color = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn select_text_color(mut self, color: Color) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.visual_property.select_text_color = Some(color);
-        inner.mask.set(STYLE_USER_SELECT);
+    pub fn select_text_color(mut self, color: impl IntoStyleValue<Color>) -> Self {
+        match color.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.select_text_color = Some(v);
+                inner.mask.set(STYLE_USER_SELECT);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_USER_SELECT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                    let val = getter();
+                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                        v.select_text_color = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
         self
     }
 }
@@ -2273,6 +4223,356 @@ impl KeyframeAnimation {
             iteration_count,
             curve,
         }
+    }
+}
+
+/// スレッド安全な動的クロージャをサポートする StyleValue の定義
+pub enum StyleValue<T> {
+    Static(T),
+    Dynamic(Box<dyn Fn() -> T + Send + Sync + 'static>),
+}
+
+pub trait IntoStyleValue<T> {
+    fn into_style_value(self) -> StyleValue<T>;
+}
+
+impl<T: Send + Sync + 'static> IntoStyleValue<T> for T {
+    fn into_style_value(self) -> StyleValue<T> {
+        StyleValue::Static(self)
+    }
+}
+
+impl<T: Send + Sync + 'static> IntoStyleValue<T> for StyleValue<T> {
+    fn into_style_value(self) -> StyleValue<T> {
+        self
+    }
+}
+
+pub trait IntoStyleRect<T> {
+    fn into_style_rect(self) -> StyleValue<Rect<T>>;
+}
+
+impl<T: Send + Sync + 'static> IntoStyleRect<T> for StyleValue<Rect<T>> {
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        self
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Rect<T> {
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Static(self)
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for f32
+where
+    f32: IntoRect<T>,
+{
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Static(self.into_rect())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for i32
+where
+    i32: IntoRect<T>,
+{
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Static(self.into_rect())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Pixel
+where
+    Pixel: IntoRect<T>,
+{
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Static(self.into_rect())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Percent
+where
+    Percent: IntoRect<T>,
+{
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Static(self.into_rect())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Auto
+where
+    Auto: IntoRect<T>,
+{
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Static(self.into_rect())
+    }
+}
+
+impl<V, H, T> IntoStyleRect<T> for (V, H)
+where
+    (V, H): IntoRect<T> + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+{
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Static(self.into_rect())
+    }
+}
+
+impl<Top, Right, Bottom, Left, T> IntoStyleRect<T> for (Top, Right, Bottom, Left)
+where
+    (Top, Right, Bottom, Left): IntoRect<T> + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+{
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Static(self.into_rect())
+    }
+}
+
+pub trait IntoStyleSize<T> {
+    fn into_style_size(self) -> StyleValue<Size<T>>;
+}
+
+impl<T: Send + Sync + 'static> IntoStyleSize<T> for StyleValue<Size<T>> {
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        self
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Size<T> {
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Static(self)
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for f32
+where
+    f32: IntoSize<T>,
+{
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Static(self.into_size())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for i32
+where
+    i32: IntoSize<T>,
+{
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Static(self.into_size())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Pixel
+where
+    Pixel: IntoSize<T>,
+{
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Static(self.into_size())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Percent
+where
+    Percent: IntoSize<T>,
+{
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Static(self.into_size())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Auto
+where
+    Auto: IntoSize<T>,
+{
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Static(self.into_size())
+    }
+}
+
+impl<W, H, T> IntoStyleSize<T> for (W, H)
+where
+    (W, H): IntoSize<T> + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+{
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Static(self.into_size())
+    }
+}
+
+pub trait IntoStyleCornerRadius {
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius>;
+}
+
+impl IntoStyleCornerRadius for StyleValue<CornerRadius> {
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        self
+    }
+}
+
+impl IntoStyleCornerRadius for CornerRadius {
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Static(self)
+    }
+}
+
+impl IntoStyleCornerRadius for f32 {
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Static(self.into_corner_radius())
+    }
+}
+
+impl IntoStyleCornerRadius for i32 {
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Static(self.into_corner_radius())
+    }
+}
+
+impl<V, H> IntoStyleCornerRadius for (V, H)
+where
+    (V, H): IntoCornerRadius + Send + Sync + 'static,
+{
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Static(self.into_corner_radius())
+    }
+}
+
+impl<TL, TR, BR, BL> IntoStyleCornerRadius for (TL, TR, BR, BL)
+where
+    (TL, TR, BR, BL): IntoCornerRadius + Send + Sync + 'static,
+{
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Static(self.into_corner_radius())
+    }
+}
+
+pub trait IntoStyleConvert<T> {
+    fn into_style_convert(self) -> StyleValue<T>;
+}
+
+impl IntoStyleConvert<Val> for StyleValue<Val> {
+    fn into_style_convert(self) -> StyleValue<Val> {
+        self
+    }
+}
+impl IntoStyleConvert<Val> for Val {
+    fn into_style_convert(self) -> StyleValue<Val> {
+        StyleValue::Static(self)
+    }
+}
+impl IntoStyleConvert<Val> for f32 {
+    fn into_style_convert(self) -> StyleValue<Val> {
+        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+impl IntoStyleConvert<Val> for i32 {
+    fn into_style_convert(self) -> StyleValue<Val> {
+        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+impl IntoStyleConvert<Val> for Pixel {
+    fn into_style_convert(self) -> StyleValue<Val> {
+        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+impl IntoStyleConvert<Val> for Percent {
+    fn into_style_convert(self) -> StyleValue<Val> {
+        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+impl IntoStyleConvert<Val> for Auto {
+    fn into_style_convert(self) -> StyleValue<Val> {
+        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+
+impl IntoStyleConvert<Length> for StyleValue<Length> {
+    fn into_style_convert(self) -> StyleValue<Length> {
+        self
+    }
+}
+impl IntoStyleConvert<Length> for Length {
+    fn into_style_convert(self) -> StyleValue<Length> {
+        StyleValue::Static(self)
+    }
+}
+impl IntoStyleConvert<Length> for f32 {
+    fn into_style_convert(self) -> StyleValue<Length> {
+        StyleValue::Static(<Self as Convert<Length>>::convert(self))
+    }
+}
+impl IntoStyleConvert<Length> for i32 {
+    fn into_style_convert(self) -> StyleValue<Length> {
+        StyleValue::Static(<Self as Convert<Length>>::convert(self))
+    }
+}
+impl IntoStyleConvert<Length> for Pixel {
+    fn into_style_convert(self) -> StyleValue<Length> {
+        StyleValue::Static(<Self as Convert<Length>>::convert(self))
+    }
+}
+impl IntoStyleConvert<Length> for Percent {
+    fn into_style_convert(self) -> StyleValue<Length> {
+        StyleValue::Static(<Self as Convert<Length>>::convert(self))
+    }
+}
+
+impl IntoStyleConvert<f32> for StyleValue<f32> {
+    fn into_style_convert(self) -> StyleValue<f32> {
+        self
+    }
+}
+impl IntoStyleConvert<f32> for f32 {
+    fn into_style_convert(self) -> StyleValue<f32> {
+        StyleValue::Static(self)
+    }
+}
+impl IntoStyleConvert<f32> for i32 {
+    fn into_style_convert(self) -> StyleValue<f32> {
+        StyleValue::Static(<Self as Convert<f32>>::convert(self))
+    }
+}
+impl IntoStyleConvert<f32> for bool {
+    fn into_style_convert(self) -> StyleValue<f32> {
+        StyleValue::Static(<Self as Convert<f32>>::convert(self))
+    }
+}
+
+impl IntoStyleValue<Option<AlignItems>> for AlignItems {
+    fn into_style_value(self) -> StyleValue<Option<AlignItems>> {
+        StyleValue::Static(Some(self))
+    }
+}
+
+impl IntoStyleValue<Option<AlignSelf>> for AlignSelf {
+    fn into_style_value(self) -> StyleValue<Option<AlignSelf>> {
+        StyleValue::Static(Some(self))
+    }
+}
+
+impl IntoStyleValue<Option<AlignContent>> for AlignContent {
+    fn into_style_value(self) -> StyleValue<Option<AlignContent>> {
+        StyleValue::Static(Some(self))
+    }
+}
+
+impl IntoStyleValue<Option<JustifyContent>> for JustifyContent {
+    fn into_style_value(self) -> StyleValue<Option<JustifyContent>> {
+        StyleValue::Static(Some(self))
+    }
+}
+
+impl IntoStyleValue<Cow<'static, str>> for &'static str {
+    #[inline]
+    fn into_style_value(self) -> StyleValue<Cow<'static, str>> {
+        StyleValue::Static(Cow::Borrowed(self))
+    }
+}
+
+impl IntoStyleValue<Cow<'static, str>> for String {
+    #[inline]
+    fn into_style_value(self) -> StyleValue<Cow<'static, str>> {
+        StyleValue::Static(Cow::Owned(self))
     }
 }
 

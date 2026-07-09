@@ -9,8 +9,8 @@ use windows::Win32::UI::Input::{
 use crate::{
     Color, Context, EffectCategory, ElementState, EntityId, EventListeners, ImageMetadata,
     ImageSource, ImeState, InputContents, LayoutPoint, LayoutRect, Length, LinearGradient,
-    Modifiers, MouseButton, MovieMetadata, MovieProperty, ReadSignal, TextSpan, Transform,
-    UiaValue, UnderlineStyle, VirtualKey, VisualProperty, WebView2Contents, bitmap::*,
+    Modifiers, MouseButton, MovieMetadata, MovieProperty, ReadSignal, StyleValue, TextSpan,
+    Transform, UiaValue, UnderlineStyle, VirtualKey, VisualProperty, WebView2Contents, bitmap::*,
     create_effect, div_n, style::ThisStyle,
 };
 use std::{borrow::Cow, cell::Cell, path::PathBuf};
@@ -33,6 +33,11 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     cx.register_root(result.id);
     // 親子関係に組み込まれなかった無駄な孤児を自動一掃
     cx.end_session(marker);
+
+    // ツリーのすべてのトポロジーおよび provide 関係が組み上がったこの瞬間に、
+    // キューされて保留されていた全子孫要素のエフェクトを一括して初回評価
+    cx.evaluate_pending_element_effects();
+
     result
 }
 
@@ -77,22 +82,75 @@ impl Element {
         Element { id }
     }
 
+    /// この要素に対して、型 T のコンテキスト（シグナル）を提供（Provide）します。
+    /// この要素、およびそのすべての子孫要素のエフェクトから `use_provided::<T>()` で取得可能になります。
+    pub fn provide<T: Send + 'static>(self, read_signal: ReadSignal<T>) -> Self {
+        with_context(|cx| {
+            cx.provide_context::<T>(self.id, read_signal.id);
+        });
+        self
+    }
+
     /// スタイルを適用します（静的な値、Signal、またはクロージャ）。
     pub fn style(self, style: impl Into<Prop<ThisStyle>>) -> Self {
         match style.into() {
             Prop::None => {}
-            Prop::Static(s) => with_context(|cx| self.style_internal(cx, s)),
+            Prop::Static(s) => {
+                let id = self.id;
+                with_context(|cx| {
+                    // 静的なスタイルプロパティを通常通りインラインマウント
+                    self.style_internal(cx, s.clone());
+
+                    // 動的なセッターが存在する場合、それらを単一のエフェクトとして登録
+                    if !s.inner.dynamic_setters.is_empty() {
+                        let setters = s.inner.dynamic_setters.clone();
+                        cx.create_element_effect(id, EffectCategory::Style, move |cx| {
+                            // すべての動的セッターを実行
+                            for setter in &setters {
+                                setter(cx, id);
+                            }
+                            // 状態が変化したため、最後に必ずスタイル解決を走り込ませる
+                            cx.resolve_element_style_state(id);
+                        });
+                    }
+                });
+            }
             Prop::Dynamic(f) => {
                 let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let s = f();
-                    let element = Element { id };
-                    element.style_internal(cx, s);
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::Style, move |cx| {
+                        let s = f();
+                        let element = Element { id };
+                        element.style_internal(cx, s.clone());
+
+                        // 動的スタイルが自身の中で動的なプロバイダーを含む場合も評価
+                        for setter in &s.inner.dynamic_setters {
+                            setter(cx, id);
+                        }
+                        cx.resolve_element_style_state(id);
+                    });
                 });
-                with_context(|cx| cx.register_element_effect(id, EffectCategory::Style, effect_id));
             }
         }
         self
+    }
+
+    /// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用します。
+    #[inline]
+    pub fn style_c<P, F>(self, f: F) -> Self
+    where
+        P: Clone + 'static,
+        F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+    {
+        // 1引数のクロージャを、プロバイダー探索とシグナル購読（.get()）を内包した
+        // 引数なしの Prop::Dynamic クロージャへラップして既存の style メソッドへ委譲します。
+        let dynamic_prop = Prop::Dynamic(Box::new(move || {
+            let signal = crate::use_provided::<P>();
+            let val = signal.get();
+            f(&val)
+        }));
+
+        self.style(dynamic_prop)
     }
 
     /// スタイルの適用（一括インライン展開）
@@ -174,6 +232,21 @@ impl Element {
         self
     }
 
+    /// プロバイダー `P` から動的に単一の子要素（Element）を解決して追加します。
+    #[inline]
+    pub fn child_c<P, F>(self, f: F) -> Self
+    where
+        P: Clone + 'static,
+        F: Fn(&P) -> Element + Send + Sync + 'static,
+    {
+        let dynamic_prop = Prop::Dynamic(Box::new(move || {
+            let signal = crate::use_provided::<P>();
+            let val = signal.get();
+            f(&val)
+        }));
+        self.child(dynamic_prop)
+    }
+
     /// 複数の子要素を一括して追加します。
     /// 静的な要素、シグナル、またはクロージャ（Prop<Element> に変換可能なオブジェクト）のコレクションを受け入れます。
     #[inline]
@@ -186,6 +259,20 @@ impl Element {
             self = self.child(el);
         }
         self
+    }
+
+    /// プロバイダー `P` から動的に複数の子要素（コレクション）を解決して一括追加します。
+    /// （※動的なスロット制約に対応するため、内部で1つのコンテナにまとめてアタッチされます）
+    #[inline]
+    pub fn children_c<P, F, I, E>(self, f: F) -> Self
+    where
+        P: Clone + 'static,
+        F: Fn(&P) -> I + Send + Sync + 'static,
+        I: IntoIterator<Item = E> + 'static,
+        E: Into<Prop<Element>>,
+    {
+        // 既存の child_c に処理を委譲し、解決されたリストを div_n() で包みます
+        self.child_c(move |p| div_n().children(f(p)))
     }
 
     /// 子要素として、インタラクション（クリック等）を自動的に透過するテキストラベルを挿入します。
@@ -204,6 +291,24 @@ impl Element {
         self.child(label_el)
     }
 
+    /// プロバイダー `P` から動的にスタイルを解決しつつ、ラベルテキストを設定して追加します。
+    /// 第1引数のテキストには、静的な文字列や動的なプロパティ、シグナルを柔軟に渡すことができます。
+    #[inline]
+    pub fn label_c<P, FS>(self, content: impl Into<Prop<Cow<'static, str>>>, style: FS) -> Self
+    where
+        P: Clone + 'static,
+        FS: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+    {
+        // スタイル側のみ、1引数のクロージャをプロバイダー解決を伴う Prop::Dynamic へラップ
+        let style_prop = Prop::Dynamic(Box::new(move || {
+            let signal = crate::use_provided::<P>();
+            let val = signal.get();
+            style(&val)
+        }));
+
+        self.label(content, style_prop)
+    }
+
     /// このコンテナの内容を差し替えます。以前の内容はすべて破棄されます。
     pub fn set_contents(self, contents: impl Into<Prop<Element>>) -> Self {
         match contents.into() {
@@ -213,13 +318,12 @@ impl Element {
             }
             Prop::Dynamic(f) => {
                 let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let new_child = f();
-                    let container = Element { id };
-                    container.set_contents_internal(cx, new_child);
-                });
                 with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::Contents, effect_id)
+                    cx.create_element_effect(id, EffectCategory::Contents, move |cx| {
+                        let new_child = f();
+                        let container = Element { id };
+                        container.set_contents_internal(cx, new_child);
+                    });
                 });
             }
         }
@@ -263,18 +367,35 @@ impl Element {
             }
             Prop::Dynamic(f) => {
                 let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let new_text = f();
-                    cx.text_contents.insert(id, new_text);
-                    cx.active_masks[id].set(COMP_TEXT_CONTENT);
-                    cx.clear_layout_cache(self.id);
-                    cx.mark_layout_dirty(id);
-                    cx.mark_render_dirty(id);
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::Text, move |cx| {
+                        let new_text = f();
+                        cx.text_contents.insert(id, new_text);
+                        cx.active_masks[id].set(COMP_TEXT_CONTENT);
+                        cx.clear_layout_cache(id);
+                        cx.mark_layout_dirty(id);
+                        cx.mark_render_dirty(id);
+                    });
                 });
-                with_context(|cx| cx.register_element_effect(id, EffectCategory::Text, effect_id));
             }
         }
         self
+    }
+
+    /// プロバイダー `P` から動的にテキストを設定します。
+    #[inline]
+    pub fn text_c<P, F, S>(self, f: F) -> Self
+    where
+        P: Clone + 'static,
+        F: Fn(&P) -> S + Send + Sync + 'static,
+        S: Into<Cow<'static, str>>,
+    {
+        let dynamic_prop = Prop::Dynamic(Box::new(move || {
+            let signal = crate::use_provided::<P>();
+            let val = signal.get();
+            f(&val).into()
+        }));
+        self.text(dynamic_prop)
     }
 
     /// 画像を設定します。
@@ -291,17 +412,33 @@ impl Element {
             }
             Prop::Dynamic(f) => {
                 let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let src = f();
-                    cx.image_sources.insert(id, src);
-                    cx.active_masks[id].set(COMP_IMAGE_CONTENT);
-                    cx.mark_layout_dirty(id);
-                    cx.mark_render_dirty(id);
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::Image, move |cx| {
+                        let src = f();
+                        cx.image_sources.insert(id, src);
+                        cx.active_masks[id].set(COMP_IMAGE_CONTENT);
+                        cx.mark_layout_dirty(id);
+                        cx.mark_render_dirty(id);
+                    });
                 });
-                with_context(|cx| cx.register_element_effect(id, EffectCategory::Image, effect_id));
             }
         }
         self
+    }
+
+    /// プロバイダー `P` から動的に画像ソースを解決して設定します。
+    #[inline]
+    pub fn image_c<P, F>(self, f: F) -> Self
+    where
+        P: Clone + 'static,
+        F: Fn(&P) -> ImageSource + Send + Sync + 'static,
+    {
+        let dynamic_prop = Prop::Dynamic(Box::new(move || {
+            let signal = crate::use_provided::<P>();
+            let val = signal.get();
+            f(&val)
+        }));
+        self.image(dynamic_prop)
     }
 
     /// 動画を設定します。
@@ -318,17 +455,33 @@ impl Element {
             }
             Prop::Dynamic(f) => {
                 let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let p = f();
-                    cx.movie_properties.insert(id, p);
-                    cx.active_masks[id].set(COMP_MOVIE_CONTENT);
-                    cx.mark_layout_dirty(id);
-                    cx.mark_render_dirty(id);
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::Movie, move |cx| {
+                        let p = f();
+                        cx.movie_properties.insert(id, p);
+                        cx.active_masks[id].set(COMP_MOVIE_CONTENT);
+                        cx.mark_layout_dirty(id);
+                        cx.mark_render_dirty(id);
+                    });
                 });
-                with_context(|cx| cx.register_element_effect(id, EffectCategory::Movie, effect_id));
             }
         }
         self
+    }
+
+    /// プロバイダー `P` から動的に動画ソースを解決して設定します。
+    #[inline]
+    pub fn movie_c<P, F>(self, f: F) -> Self
+    where
+        P: Clone + 'static,
+        F: Fn(&P) -> MovieProperty + Send + Sync + 'static,
+    {
+        let dynamic_prop = Prop::Dynamic(Box::new(move || {
+            let signal = crate::use_provided::<P>();
+            let val = signal.get();
+            f(&val)
+        }));
+        self.movie(dynamic_prop)
     }
 
     /// WebView2 コンポーネントを配置します（静的設定、またはSignal / クロージャに対応）。
@@ -345,19 +498,33 @@ impl Element {
             }
             Prop::Dynamic(f) => {
                 let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let contents = f();
-                    cx.webview_contents.insert(id, contents);
-                    cx.active_masks[id].set(COMP_WEBVIEW_CONTENT);
-                    cx.mark_layout_dirty(id);
-                    cx.mark_render_dirty(id);
-                });
                 with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::WebView2, effect_id)
+                    cx.create_element_effect(id, EffectCategory::WebView2, move |cx| {
+                        let contents = f();
+                        cx.webview_contents.insert(id, contents);
+                        cx.active_masks[id].set(COMP_WEBVIEW_CONTENT);
+                        cx.mark_layout_dirty(id);
+                        cx.mark_render_dirty(id);
+                    });
                 });
             }
         }
         self
+    }
+
+    /// プロバイダー `P` から動的にWebView2設定を解決してアタッチします。
+    #[inline]
+    pub fn webview2_c<P, F>(self, f: F) -> Self
+    where
+        P: Clone + 'static,
+        F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
+    {
+        let dynamic_prop = Prop::Dynamic(Box::new(move || {
+            let signal = crate::use_provided::<P>();
+            let val = signal.get();
+            f(&val)
+        }));
+        self.webview2(dynamic_prop)
     }
 
     /// このコンテナを入力フィールド（テキストボックス）化し、IME制御や入力ロジックをバインドします。
@@ -369,15 +536,31 @@ impl Element {
             }
             Prop::Dynamic(f) => {
                 let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let c = f();
-                    let el = Element { id };
-                    el.input_internal(cx, c);
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::Input, move |cx| {
+                        let c = f();
+                        let el = Element { id };
+                        el.input_internal(cx, c);
+                    });
                 });
-                with_context(|cx| cx.register_element_effect(id, EffectCategory::Text, effect_id));
             }
         }
         self
+    }
+
+    /// プロバイダー `P` から動的に設定を読み込んで入力フィールド化します。
+    #[inline]
+    pub fn input_c<P, F>(self, f: F) -> Self
+    where
+        P: Clone + 'static,
+        F: Fn(&P) -> InputContents + Send + Sync + 'static,
+    {
+        let dynamic_prop = Prop::Dynamic(Box::new(move || {
+            let signal = crate::use_provided::<P>();
+            let val = signal.get();
+            f(&val)
+        }));
+        self.input(dynamic_prop)
     }
 
     /// 複数行入力（テキストエリア）をバインドします。
@@ -390,21 +573,63 @@ impl Element {
             }
             Prop::Dynamic(f) => {
                 let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let mut c = f();
-                    c.is_multiline = true;
-                    let el = Element { id };
-                    el.input_internal(cx, c);
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::Input, move |cx| {
+                        let mut c = f();
+                        c.is_multiline = true;
+                        let el = Element { id };
+                        el.input_internal(cx, c);
+                    });
                 });
-                with_context(|cx| cx.register_element_effect(id, EffectCategory::Text, effect_id));
             }
         }
         self
     }
 
+    /// プロバイダー `P` から動的に設定を読み込んで複数行入力フィールド化します。
+    #[inline]
+    pub fn input_area_c<P, F>(self, f: F) -> Self
+    where
+        P: Clone + 'static,
+        F: Fn(&P) -> InputContents + Send + Sync + 'static,
+    {
+        let dynamic_prop = Prop::Dynamic(Box::new(move || {
+            let signal = crate::use_provided::<P>();
+            let val = signal.get();
+            f(&val)
+        }));
+        self.input_area(dynamic_prop)
+    }
+
     /// 入力イベント（キー、IME、文字入力、フォーカス）を自動的にマッピングして代行するロジック
     fn input_internal(self, cx: &mut Context, mut c: InputContents) {
         let id = self.id;
+
+        // シグナル更新やテーマ変更、親コンポーネントの再レンダリングによる
+        // キャレット位置（selected_range）や Undo/Redo 履歴の「末尾への強制初期化」を防止。
+        // 既存の状態を検知した場合は、デザイン設定のみを上書き
+        if let Some(existing) = cx.input_contents.get_mut(id) {
+            existing.placeholder = c.placeholder;
+            existing.placeholder_color = c.placeholder_color;
+            existing.caret_color = c.caret_color;
+            existing.caret_width = c.caret_width;
+            existing.caret_height = c.caret_height;
+            existing.caret_offset = c.caret_offset;
+            existing.is_blink = c.is_blink;
+            existing.blink_frequency = c.blink_frequency;
+            existing.has_caret = c.has_caret;
+            existing.placeholder_select = c.placeholder_select;
+            existing.is_multiline = c.is_multiline;
+
+            // 動的なテキスト長の変更に伴い、既存の選択範囲が枠外へ飛び出さないようクランプ
+            let current_text = existing.text.0.get();
+            let u16_len = current_text.encode_utf16().count();
+            existing.selected_range.start = existing.selected_range.start.min(u16_len);
+            existing.selected_range.end = existing.selected_range.end.min(u16_len);
+
+            // 既存の状態が死守されたため、これ以降の初期化を完全にスキップして早期リターン
+            return;
+        }
 
         // 最初のロード時、シグナルから現在値を取得して内部カーソルを末尾に合わせる
         let current_text = c.text.0.get();
@@ -689,6 +914,8 @@ impl Element {
                                 // 通常の1文字バックスペース
                                 let new_text = crate::input_backspace(&text_val, &mut caret);
                                 contents.selected_range = caret..caret;
+                                // Context側の描画SoAにも最新のキャレット位置を強制同期
+                                cx.text_selections.insert(id, caret..caret);
                                 contents.text.1.set(new_text);
                             }
                             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -710,6 +937,8 @@ impl Element {
                             } else {
                                 // 通常の1文字デリート
                                 let new_text = crate::input_delete(&text_val, caret);
+                                contents.selected_range = caret..caret;
+                                cx.text_selections.insert(id, caret..caret);
                                 contents.text.1.set(new_text);
                             }
                             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1032,23 +1261,14 @@ impl Element {
             }));
         });
 
-        // テキスト表示内容をシグナルやIME状態と完全同期させるエフェクト
-        let text_sync_effect = create_effect(move |cx| {
-            // シグナルを get() して依存関係を構築
+        cx.create_element_effect(id, EffectCategory::Text, move |cx| {
             if let Some(contents) = cx.input_contents.get(id) {
                 let _base_text_val = contents.text.0.get();
             }
-
-            // 表示テキストとキャレット位置を完全同期
             update_input_caret_position(cx, id);
-
-            // 物理サイズ変更や再描画を確実に要求
             cx.mark_layout_dirty(id);
             cx.mark_render_dirty(id);
         });
-
-        // エフェクトを要素に紐付け登録
-        cx.register_element_effect(id, EffectCategory::Text, text_sync_effect);
     }
 
     /// 内部ヘルパー：この要素に対応する `EventListeners` が SoA 上に存在しない場合は新規に作成し、
@@ -1790,6 +2010,10 @@ impl Element {
 pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
     cx.clear_layout_cache(id); // IMEやタイピング中の古いキャッシュを破棄
     if let Some(contents) = cx.input_contents.get_mut(id) {
+        // 入力エンジン側の最新カーソル位置を、描画SoA側（text_selections）に同期
+        cx.text_selections
+            .insert(id, contents.selected_range.clone());
+
         let text_val = contents.text.0.get();
         contents.total_len = text_val.chars().count();
 
@@ -1894,8 +2118,8 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
             cx.text_engine
                 .get_caret_position(&caret_layout, caret_index, u16_len_caret);
 
-        contents.caret_offset_x = cx_offset;
-        contents.caret_offset_y = cy_offset;
+        contents.measured_caret_x = cx_offset;
+        contents.measured_caret_y = cy_offset;
         contents.caret_line_height = ch_height;
 
         let (curr_line, tot_lines) = crate::calculate_line_indices(&display_text, caret_index);
@@ -1931,6 +2155,7 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
             let himc = ImmGetContext(hwnd);
             if !himc.is_invalid() {
                 let rect = cx.rects[id];
+                let user_offset_y = contents.caret_offset;
                 let (basic, _, _) = cx.resolve_active_layouts(id);
                 let border_top = match basic.border.top {
                     Length::Px(v) => v,
@@ -1952,8 +2177,9 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
                 let scale = cx.scale_factor;
                 let caret_phys_x =
                     ((rect.x + border_left + padding_left + cx_offset) * scale).round() as i32;
-                let caret_phys_y =
-                    ((rect.y + border_top + padding_top + cy_offset) * scale).round() as i32;
+                let caret_phys_y = ((rect.y + border_top + padding_top + cy_offset + user_offset_y)
+                    * scale)
+                    .round() as i32;
                 let caret_phys_h = (ch_height * scale).round() as i32;
 
                 // コンポジションウィンドウ位置の指定 (CFS_POINT)
@@ -2249,6 +2475,20 @@ impl From<&ThisStyle> for Prop<ThisStyle> {
     #[inline]
     fn from(s: &ThisStyle) -> Self {
         Self::Static(s.clone())
+    }
+}
+
+/// StyleValue（スレッド安全なクロージャ付き）から Prop への透過変換をサポート
+impl<T: 'static> From<StyleValue<T>> for Prop<T> {
+    #[inline]
+    fn from(val: StyleValue<T>) -> Self {
+        match val {
+            StyleValue::Static(v) => Prop::Static(v),
+            StyleValue::Dynamic(getter) => {
+                // スレッド安全な動的ゲッターを実行時に評価する Prop::Dynamic に変換
+                Prop::Dynamic(Box::new(getter))
+            }
+        }
     }
 }
 

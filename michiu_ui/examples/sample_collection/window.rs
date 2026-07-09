@@ -99,6 +99,8 @@ unsafe extern "system" fn wnd_proc(
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
+                app.context.process_main_thread_tasks();
+
                 // トランジション（アニメーション）を1フレーム進める
                 app.context.tick_transitions();
                 app.context.tick_animations();
