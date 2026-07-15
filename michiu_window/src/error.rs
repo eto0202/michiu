@@ -148,6 +148,8 @@ pub enum MichiuError {
     UnexpectedOsError(#[from] windows::core::Error),
 }
 
+// windows::core::Error internally owns immutable HRESULT/message data.
+// It is safe to transfer across threads.
 unsafe impl Send for MichiuError {}
 unsafe impl Sync for MichiuError {}
 

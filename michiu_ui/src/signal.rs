@@ -346,12 +346,14 @@ where
 
 /// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
 /// 親ツリー（トポロジー）を遡って自動解決された型 T の Context（ReadSignal）を取得します。
+#[inline]
 pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
     with_context(|cx| cx.use_provided::<T>())
 }
 
 /// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
 /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+#[inline]
 pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
     with_context(|cx| cx.use_provided_setter::<T>())
 }

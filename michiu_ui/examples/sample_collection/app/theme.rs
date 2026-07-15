@@ -67,26 +67,26 @@ impl Theme {
         let background_hover = if is_dark {
             hsl(hb, sb, (lb + 0.04).min(1.0)) // ダークの背景ホバーはわずかに明るく
         } else {
-            hsl(hb, sb, (lb - 0.03).max(0.0)) // ライトの背景ホバーはわずかに暗く
+            hsl(hb, sb, (lb - 0.05).max(0.0)) // ライトの背景ホバーはわずかに暗く
         };
 
         // 4. Surface (背景よりも手前に浮かび上がって見えるように明度を制御)
         let surface = if is_dark {
             hsl(hb, sb * 0.9, (lb + 0.05).min(1.0))
         } else {
-            hsl(hb, sb * 0.5, (lb + 0.02).min(1.0)) // 通常の純白（1.0）付近に近づける
+            hsl(hb, sb * 0.5, (lb + 0.01).min(0.98))
         };
 
         // 5. Border & Border Hover
         let border = if is_dark {
             hsl(hb, sb * 0.8, (lb + 0.15).min(1.0))
         } else {
-            hsl(hb, sb * 0.8, (lb - 0.12).max(0.0))
+            hsl(hb, sb * 0.8, (lb - 0.16).max(0.0))
         };
         let border_hover = if is_dark {
             hsl(hb, sb * 0.8, (lb + 0.25).min(1.0))
         } else {
-            hsl(hb, sb * 0.8, (lb - 0.22).max(0.0))
+            hsl(hb, sb * 0.8, (lb - 0.26).max(0.0))
         };
 
         // 6. Text (背景の環境色をわずかに帯びた快適な明暗コントラスト)
@@ -98,7 +98,7 @@ impl Theme {
         let text_muted = if is_dark {
             hsl(hb, sb * 0.25, 0.65)
         } else {
-            hsl(hb, sb * 0.25, 0.45)
+            hsl(hb, sb * 0.25, 0.5)
         };
 
         let font_family = "Segoe UI".into();
@@ -135,7 +135,7 @@ impl Theme {
 
     /// デフォルトのライトテーマ
     pub fn light() -> Self {
-        Self::from_hsl(false, (318.0, 0.56, 0.59), (220.0, 0.15, 0.98))
+        Self::from_hsl(false, (318.0, 0.56, 0.59), (220.0, 0.10, 0.92))
     }
 
     /// プライマリの HSL 値を変更し、依存するカラーパレット全体を再算出します。

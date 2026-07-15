@@ -7,13 +7,13 @@ use windows::Win32::UI::Input::{
 };
 
 use crate::{
-    Color, Context, EffectCategory, ElementState, EntityId, EventListeners, ImageMetadata,
-    ImageSource, ImeState, InputContents, LayoutPoint, LayoutRect, Length, LinearGradient,
-    Modifiers, MouseButton, MovieMetadata, MovieProperty, ReadSignal, StyleValue, TextSpan,
-    Transform, UiaValue, UnderlineStyle, VirtualKey, VisualProperty, WebView2Contents, bitmap::*,
-    create_effect, div_n, style::ThisStyle,
+    BasicLayout, Color, Context, EffectCategory, ElementState, EntityId, EventListeners,
+    ImageMetadata, ImageSource, ImeState, InputContents, LayoutPoint, LayoutRect, Length,
+    LinearGradient, Modifiers, MouseButton, MovieMetadata, MovieProperty, ReadSignal, Rect, Size,
+    StyleTarget, StyleValue, TextSpan, Transform, UiaValue, UnderlineStyle, Val, VirtualKey,
+    VisualProperty, WebView2Contents, bitmap::*, create_effect, div_n, style::ThisStyle,
 };
-use std::{borrow::Cow, cell::Cell, path::PathBuf};
+use std::{borrow::Cow, cell::Cell, path::PathBuf, rc::Rc};
 
 thread_local! {
     // 現在構築中のUIコンテキストへの生ポインタを一時的にバインドするグローバルスレッド領域。
@@ -82,6 +82,45 @@ impl Element {
         Element { id }
     }
 
+    /// 要素が現在保持している子要素のハンドルリストを安全に取得します。
+    #[inline]
+    pub fn get_children(self) -> Vec<Element> {
+        with_context(|cx| cx.children_list(self).unwrap_or_default())
+    }
+
+    /// 要素に現在設定されている最新の Inset（位置・オフセット）を安全に読み取ります。
+    #[inline]
+    pub fn get_inset(self) -> Rect<Val> {
+        with_context(|cx| {
+            cx.basic_layouts
+                .get(self.id)
+                .map(|l| l.inset)
+                .unwrap_or_else(|| BasicLayout::default().inset)
+        })
+    }
+
+    /// 要素に現在設定されている最新の Size（幅・高さ）を安全に読み取ります。
+    #[inline]
+    pub fn get_size(self) -> Size<Val> {
+        with_context(|cx| {
+            cx.basic_layouts
+                .get(self.id)
+                .map(|l| l.size)
+                .unwrap_or_else(|| BasicLayout::default().size)
+        })
+    }
+
+    /// 要素がドラッグ可能なスタイル設定（draggable_root / draggable_parent）を持っているか判定します。
+    #[inline]
+    pub fn is_draggable(self) -> bool {
+        with_context(|cx| {
+            cx.active_masks
+                .get(self.id)
+                .map(|m| m.has(STYLE_DRAGGABLE))
+                .unwrap_or(false)
+        })
+    }
+
     /// この要素に対して、型 T のコンテキスト（シグナル）を提供（Provide）します。
     /// この要素、およびそのすべての子孫要素のエフェクトから `use_provided::<T>()` で取得可能になります。
     pub fn provide<T: Send + 'static>(self, read_signal: ReadSignal<T>) -> Self {
@@ -99,7 +138,8 @@ impl Element {
                 let id = self.id;
                 with_context(|cx| {
                     // 静的なスタイルプロパティを通常通りインラインマウント
-                    self.style_internal(cx, s.clone());
+                    // 静的チェーンはマージ（merge = true）
+                    with_context(|cx| self.style_internal(cx, s.clone(), true));
 
                     // 動的なセッターが存在する場合、それらを単一のエフェクトとして登録
                     if !s.inner.dynamic_setters.is_empty() {
@@ -107,10 +147,10 @@ impl Element {
                         cx.create_element_effect(id, EffectCategory::Style, move |cx| {
                             // すべての動的セッターを実行
                             for setter in &setters {
-                                setter(cx, id);
+                                setter(cx, id, StyleTarget::Base);
                             }
                             // 状態が変化したため、最後に必ずスタイル解決を走り込ませる
-                            cx.resolve_element_style_state(id);
+                            cx.resolve_element_style_state(id, false);
                         });
                     }
                 });
@@ -121,13 +161,16 @@ impl Element {
                     cx.create_element_effect(id, EffectCategory::Style, move |cx| {
                         let s = f();
                         let element = Element { id };
-                        element.style_internal(cx, s.clone());
+                        // 動的評価された最新スタイルは、蓄積を避けるため置換（merge = false）
+                        // 修正: 動的評価されたスタイルもマージ（true）としてマウントします。
+                        // これにより、v_flex_c 等のColumn構造が破壊されるのを完全に防ぎます。
+                        element.style_internal(cx, s.clone(), true);
 
                         // 動的スタイルが自身の中で動的なプロバイダーを含む場合も評価
                         for setter in &s.inner.dynamic_setters {
-                            setter(cx, id);
+                            setter(cx, id, StyleTarget::Base);
                         }
-                        cx.resolve_element_style_state(id);
+                        cx.resolve_element_style_state(id, false);
                     });
                 });
             }
@@ -137,7 +180,7 @@ impl Element {
 
     /// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用します。
     #[inline]
-    pub fn style_c<P, F>(self, f: F) -> Self
+    pub fn style_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
@@ -154,7 +197,7 @@ impl Element {
     }
 
     /// スタイルの適用（一括インライン展開）
-    pub(crate) fn style_internal(self, cx: &mut Context, style: ThisStyle) {
+    pub(crate) fn style_internal(self, cx: &mut Context, style: ThisStyle, merge: bool) {
         let inner = &style.inner;
         let mask = inner.mask;
 
@@ -164,29 +207,42 @@ impl Element {
         let property_only_mask = mask.0 & !STYLE_INTERACTION_PROPERTY;
         cx.active_masks[self.id].0 |= property_only_mask;
 
-        // 1. ベーススタイル（不変の基準値）として登録
+        // ベースの基本レイアウトをマージ
         if mask.has_basic_layout() {
-            cx.base_basic_layouts.insert(self.id, inner.basic_layout);
-            // サイズ等の基本レイアウトが静的に指定されたことをマーク
+            if merge && let Some(base) = cx.base_basic_layouts.get_mut(self.id) {
+                base.override_with(&inner.basic_layout, mask);
+            } else {
+                // 置換モード：前回の設定蓄積をクリアして完全置換
+                cx.base_basic_layouts.insert(self.id, inner.basic_layout);
+            }
             cx.mark_layout_dirty(self.id);
         }
 
+        // ベースのビジュアルプロパティをマージ
         let has_visual =
             mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
         if has_visual {
-            cx.base_visual_properties
-                .insert(self.id, inner.visual_property.clone());
+            if merge && let Some(vis) = cx.base_visual_properties.get_mut(self.id) {
+                vis.override_with(&inner.visual_property, mask);
+            } else {
+                cx.base_visual_properties
+                    .insert(self.id, inner.visual_property.clone());
+            }
         }
 
-        // within 系スタイルが指定されている場合もSoAへ差し込む
+        // 疑似クラス（インタラクションスタイル）をマージ
         if mask.has_interaction_property() || mask.has(STYLE_INTERACTION_WITHIN) {
-            cx.interaction_properties
-                .insert(self.id, inner.interaction_styles.clone());
+            if merge && let Some(interaction) = cx.interaction_properties.get_mut(self.id) {
+                interaction.override_with(&inner.interaction_styles, mask);
+            } else {
+                cx.interaction_properties
+                    .insert(self.id, inner.interaction_styles.clone());
+            }
         }
 
-        // 2. トランジションが関与しないプロパティは即時にマウント
+        // 4. Flexレイアウト
         if mask.has_flex_layout() {
-            if let Some(flex) = cx.flex_layouts.get_mut(self.id) {
+            if merge && let Some(flex) = cx.flex_layouts.get_mut(self.id) {
                 flex.override_with(&inner.flex_layout, mask);
             } else {
                 cx.flex_layouts.insert(self.id, inner.flex_layout);
@@ -194,6 +250,7 @@ impl Element {
             cx.mark_layout_dirty(self.id);
         }
 
+        // 5. Gridレイアウト
         if mask.has_grid_layout()
             && let Some(ref grid) = inner.grid_layout
         {
@@ -201,16 +258,27 @@ impl Element {
             cx.mark_layout_dirty(self.id);
         }
 
+        // 6. スクロールバー
         if mask.has(STYLE_SCROLLBAR)
             && let Some(ref sb) = inner.scrollbar_style
         {
-            // 動的 Element のマウントと生成を Context 側に委譲
-            cx.ensure_scrollbar_elements(self.id, sb);
+            cx.ensure_scrollbar_elements(self.id, sb, merge);
             cx.mark_layout_dirty(self.id);
         }
 
-        // 3. 即座に「スタイル解決」を走り込ませ、トランジションやレイアウトマウントを自動処理！
-        cx.resolve_element_style_state(self.id);
+        // D&D のコールド SoA スロットへのマウント同期
+        if mask.has(STYLE_DRAGGABLE)
+            && let Some(dp) = inner.drag_property
+        {
+            cx.drag_properties.insert(self.id, dp);
+        }
+        if mask.has(STYLE_DROPPABLE)
+            && let Some(dp) = inner.drop_property
+        {
+            cx.drop_properties.insert(self.id, dp);
+        }
+
+        cx.resolve_element_style_state(self.id, false);
     }
 
     /// 子要素を追加します（Element単体、Signal、またはクロージャ）。
@@ -223,10 +291,30 @@ impl Element {
                 with_context(|cx| cx.add_child(self.id, child.id));
             }
             Prop::Dynamic(f) => {
-                // 動的な子の場合はスロット(div)を作成して追加し、その中身を set_content で管理する
-                let slot = div_n();
-                with_context(|cx| cx.add_child(self.id, slot.id));
-                slot.set_contents(Prop::Dynamic(f));
+                let parent_id = self.id;
+
+                with_context(|cx| {
+                    // 前回配置された子要素の ID を安全に記録・保持するセル
+                    // エフェクトのクロージャ内に所有権を持たせて生存期間を保証
+                    let current_child: Rc<Cell<Option<EntityId>>> = Rc::new(Cell::new(None));
+                    let current_child_clone = current_child.clone();
+
+                    cx.create_element_effect(parent_id, EffectCategory::Contents, move |cx| {
+                        // 新しい子要素をクロージャから生成
+                        let new_child = f();
+
+                        if let Some(old_child) = current_child_clone.get() {
+                            // 2回目以降の評価: 旧要素を直接新しい要素へ置換
+                            cx.replace_child(parent_id, old_child, new_child.id);
+                        } else {
+                            // 初回の評価: ダイレクトに親の子要素リストへ追加
+                            cx.add_child(parent_id, new_child.id);
+                        }
+
+                        // 最新の生成要素 ID を退避・更新
+                        current_child_clone.set(Some(new_child.id));
+                    });
+                });
             }
         }
         self
@@ -234,7 +322,7 @@ impl Element {
 
     /// プロバイダー `P` から動的に単一の子要素（Element）を解決して追加します。
     #[inline]
-    pub fn child_c<P, F>(self, f: F) -> Self
+    pub fn child_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> Element + Send + Sync + 'static,
@@ -261,21 +349,62 @@ impl Element {
         self
     }
 
-    /// プロバイダー `P` から動的に複数の子要素（コレクション）を解決して一括追加します。
-    /// （※動的なスロット制約に対応するため、内部で1つのコンテナにまとめてアタッチされます）
+    /// プロバイダー `P` から動的に複数の子要素（コレクション）を解決して、
+    /// 中間コンテナ（div_n）を挟むことなく、親要素の直下へフラットに一括追加・置換します。
+    // children_c を持つコンテナには他の静的子要素を混在させない
     #[inline]
-    pub fn children_c<P, F, I, E>(self, f: F) -> Self
+    pub fn children_d<P, F, I, E>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> I + Send + Sync + 'static,
         I: IntoIterator<Item = E> + 'static,
         E: Into<Prop<Element>>,
     {
-        // 既存の child_c に処理を委譲し、解決されたリストを div_n() で包みます
-        self.child_c(move |p| div_n().children(f(p)))
+        let parent_id = self.id;
+
+        with_context(|cx| {
+            // 前回の評価でこのスロットによって生成・追加された子要素群のIDを保持するセル
+            let current_children: Rc<std::cell::RefCell<Vec<EntityId>>> =
+                Rc::new(std::cell::RefCell::new(Vec::new()));
+            let current_children_clone = current_children.clone();
+
+            cx.create_element_effect(parent_id, EffectCategory::Contents, move |cx| {
+                // プロバイダーの値を動的解決
+                let signal = crate::use_provided::<P>();
+                let val = signal.get();
+
+                // 新しい子要素群の生成
+                let new_elements: Vec<Element> = f(&val)
+                    .into_iter()
+                    .map(|e| match e.into() {
+                        Prop::Static(el) => el,
+                        _ => panic!("Dynamic nested elements inside children_c are not supported"),
+                    })
+                    .collect();
+
+                // 前回マウントした古い子要素群を安全に一括破棄（Taffyツリーからのデタッチ含む）
+                let mut old_children = current_children_clone.borrow_mut();
+                for old_id in old_children.drain(..) {
+                    cx.despawn_internal(old_id);
+                }
+
+                // 生成された新しい子要素群を親コンテナの直下にマウント
+                for new_el in &new_elements {
+                    cx.add_child(parent_id, new_el.id);
+                    old_children.push(new_el.id);
+                }
+
+                // 親コンテナのレイアウト再計算と描画をダーティマーク
+                cx.mark_layout_dirty(parent_id);
+                cx.mark_render_dirty(parent_id);
+            });
+        });
+
+        self
     }
 
     /// 子要素として、インタラクション（クリック等）を自動的に透過するテキストラベルを挿入します。
+    /// 親子分離
     #[inline]
     pub fn label(
         self,
@@ -294,7 +423,7 @@ impl Element {
     /// プロバイダー `P` から動的にスタイルを解決しつつ、ラベルテキストを設定して追加します。
     /// 第1引数のテキストには、静的な文字列や動的なプロパティ、シグナルを柔軟に渡すことができます。
     #[inline]
-    pub fn label_c<P, FS>(self, content: impl Into<Prop<Cow<'static, str>>>, style: FS) -> Self
+    pub fn label_d<P, FS>(self, content: impl Into<Prop<Cow<'static, str>>>, style: FS) -> Self
     where
         P: Clone + 'static,
         FS: Fn(&P) -> ThisStyle + Send + Sync + 'static,
@@ -334,11 +463,30 @@ impl Element {
     fn set_contents_internal(self, cx: &mut Context, new_child: Element) {
         let id = self.id;
 
-        // 現在の子要素をすべて再帰的に despawn
+        // 1. 親コンテナに紐づくスクロールバー専用要素のIDを安全に抽出
+        let mut scrollbar_ids = std::collections::HashSet::new();
+        if let Some(sb) = cx.scrollbar_styles.get(id) {
+            if let Some(tid) = sb.v_track_id {
+                scrollbar_ids.insert(tid);
+            }
+            if let Some(tid) = sb.v_thumb_id {
+                scrollbar_ids.insert(tid);
+            }
+            if let Some(tid) = sb.h_track_id {
+                scrollbar_ids.insert(tid);
+            }
+            if let Some(tid) = sb.h_thumb_id {
+                scrollbar_ids.insert(tid);
+            }
+        }
+
+        // 2. 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
         if let Some(children_list) = cx.children.get(id) {
             let old_children: Vec<EntityId> = children_list.iter().copied().collect();
             for child_id in old_children {
-                cx.despawn_internal(child_id);
+                if !scrollbar_ids.contains(&child_id) {
+                    cx.despawn_internal(child_id);
+                }
             }
         }
 
@@ -352,6 +500,7 @@ impl Element {
 
     /// テキストを設定します。
     /// 引数には &str, String, ReadSignal<T>, またはクロージャを渡せます。
+    /// 1ノードパターン
     #[inline]
     pub fn text(self, content: impl Into<Prop<Cow<'static, str>>>) -> Self {
         match content.into() {
@@ -384,7 +533,7 @@ impl Element {
 
     /// プロバイダー `P` から動的にテキストを設定します。
     #[inline]
-    pub fn text_c<P, F, S>(self, f: F) -> Self
+    pub fn text_d<P, F, S>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> S + Send + Sync + 'static,
@@ -428,7 +577,7 @@ impl Element {
 
     /// プロバイダー `P` から動的に画像ソースを解決して設定します。
     #[inline]
-    pub fn image_c<P, F>(self, f: F) -> Self
+    pub fn image_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> ImageSource + Send + Sync + 'static,
@@ -471,7 +620,7 @@ impl Element {
 
     /// プロバイダー `P` から動的に動画ソースを解決して設定します。
     #[inline]
-    pub fn movie_c<P, F>(self, f: F) -> Self
+    pub fn movie_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> MovieProperty + Send + Sync + 'static,
@@ -514,7 +663,7 @@ impl Element {
 
     /// プロバイダー `P` から動的にWebView2設定を解決してアタッチします。
     #[inline]
-    pub fn webview2_c<P, F>(self, f: F) -> Self
+    pub fn webview2_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
@@ -550,7 +699,7 @@ impl Element {
 
     /// プロバイダー `P` から動的に設定を読み込んで入力フィールド化します。
     #[inline]
-    pub fn input_c<P, F>(self, f: F) -> Self
+    pub fn input_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> InputContents + Send + Sync + 'static,
@@ -588,7 +737,7 @@ impl Element {
 
     /// プロバイダー `P` から動的に設定を読み込んで複数行入力フィールド化します。
     #[inline]
-    pub fn input_area_c<P, F>(self, f: F) -> Self
+    pub fn input_area_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> InputContents + Send + Sync + 'static,
@@ -606,8 +755,8 @@ impl Element {
         let id = self.id;
 
         // シグナル更新やテーマ変更、親コンポーネントの再レンダリングによる
-        // キャレット位置（selected_range）や Undo/Redo 履歴の「末尾への強制初期化」を防止。
-        // 既存の状態を検知した場合は、デザイン設定のみを上書き
+        // キャレット位置（selected_range）や Undo/Redo 履歴の末尾への強制初期化を防止
+        // 既存の状態を検知した場合はデザイン設定のみを上書き
         if let Some(existing) = cx.input_contents.get_mut(id) {
             existing.placeholder = c.placeholder;
             existing.placeholder_color = c.placeholder_color;
@@ -627,7 +776,12 @@ impl Element {
             existing.selected_range.start = existing.selected_range.start.min(u16_len);
             existing.selected_range.end = existing.selected_range.end.min(u16_len);
 
-            // 既存の状態が死守されたため、これ以降の初期化を完全にスキップして早期リターン
+            // 早期リターンを抜ける前に、最新の文字列状態を SoA / DWrite 側へ即座に同期・反映
+            update_input_caret_position(cx, id);
+            cx.mark_layout_dirty(id);
+            cx.mark_render_dirty(id);
+
+            // これ以降の初期化を完全にスキップして早期リターン
             return;
         }
 
@@ -868,6 +1022,8 @@ impl Element {
                         contents.selected_range = new_caret..new_caret;
                         cx.text_selections.insert(id, new_caret..new_caret); // 選択表示をリセット
                         cx.selected_rects.remove(id);
+                        // タイピング編集が発生したため古い開始選択アンカーを消去
+                        cx.selection_start_index.remove(id);
                         contents.text.1.set(new_text);
                         cx.mark_render_dirty(id);
                     }
@@ -909,6 +1065,7 @@ impl Element {
                                 let new_text = String::from_utf16_lossy(&left);
                                 contents.selected_range = range.start..range.start;
                                 cx.text_selections.insert(id, range.start..range.start);
+                                cx.selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             } else {
                                 // 通常の1文字バックスペース
@@ -916,6 +1073,7 @@ impl Element {
                                 contents.selected_range = caret..caret;
                                 // Context側の描画SoAにも最新のキャレット位置を強制同期
                                 cx.text_selections.insert(id, caret..caret);
+                                cx.selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             }
                             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -933,12 +1091,14 @@ impl Element {
                                 let new_text = String::from_utf16_lossy(&left);
                                 contents.selected_range = range.start..range.start;
                                 cx.text_selections.insert(id, range.start..range.start);
+                                cx.selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             } else {
                                 // 通常の1文字デリート
                                 let new_text = crate::input_delete(&text_val, caret);
                                 contents.selected_range = caret..caret;
                                 cx.text_selections.insert(id, caret..caret);
+                                cx.selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             }
                             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1287,6 +1447,7 @@ impl Element {
     }
 
     /// 左クリックのリリース（押し下げ ➔ 同一要素上での離し）が成立した際に発火するイベントを登録します。
+    /// 複数回呼ぶとイベントは追加され登録順に実行されます。
     #[inline]
     pub fn on_click<F>(self, mut f: F) -> Self
     where
@@ -1933,6 +2094,109 @@ impl Element {
             } else {
                 l.on_select = Some(Box::new(f));
             }
+        });
+        self
+    }
+
+    /// 実体（Entity）ドラッグ中に毎フレーム呼び出されるイベントを登録します。
+    /// 引数: (ドラッグ元ID, 現在重なっているドロップ先ID)
+    #[inline]
+    pub fn on_element_drag<F>(self, mut f: F) -> Self
+    where
+        F: FnMut(Element, Option<Element>) + 'static,
+    {
+        self.on_element_drag_with(move |_cx, src, dst| f(src, dst))
+    }
+
+    #[inline]
+    pub fn on_element_drag_with<F>(self, f: F) -> Self
+    where
+        F: FnMut(&mut Context, Element, Option<Element>) + 'static,
+    {
+        self.get_or_create_listeners(|l| {
+            l.on_entity_drag = Some(Box::new(f));
+        });
+        self
+    }
+
+    /// IDドラッグ中に毎フレーム呼び出されるイベントを登録します。
+    #[inline]
+    pub fn on_id_drag<F>(self, mut f: F) -> Self
+    where
+        F: FnMut(EntityId, Option<EntityId>) + 'static,
+    {
+        self.on_id_drag_with(move |_cx, src, dst| f(src, dst))
+    }
+
+    #[inline]
+    pub fn on_id_drag_with<F>(self, f: F) -> Self
+    where
+        F: FnMut(&mut Context, EntityId, Option<EntityId>) + 'static,
+    {
+        self.get_or_create_listeners(|l| {
+            l.on_id_drag = Some(Box::new(f));
+        });
+        self
+    }
+
+    /// ドロップ完了時（成功またはエリア外での失敗時）に呼び出されるイベントを登録します。
+    /// 引数: (ドラッグ元ID, ドロップされた先のID（失敗時はNone）)
+    #[inline]
+    pub fn on_element_drop<F>(self, mut f: F) -> Self
+    where
+        F: FnMut(Element, Option<Element>) + 'static,
+    {
+        self.on_element_drop_with(move |_cx, src, dst| f(src, dst))
+    }
+
+    #[inline]
+    pub fn on_element_drop_with<F>(self, f: F) -> Self
+    where
+        F: FnMut(&mut Context, Element, Option<Element>) + 'static,
+    {
+        self.get_or_create_listeners(|l| {
+            l.on_entity_drop = Some(Box::new(f));
+        });
+        self
+    }
+
+    /// IDドロップ完了時（成功またはエリア外での失敗時）に呼び出されるイベントを登録します。
+    #[inline]
+    pub fn on_id_drop<F>(self, mut f: F) -> Self
+    where
+        F: FnMut(EntityId, Option<EntityId>) + 'static,
+    {
+        self.on_id_drop_with(move |_cx, src, dst| f(src, dst))
+    }
+
+    #[inline]
+    pub fn on_id_drop_with<F>(self, f: F) -> Self
+    where
+        F: FnMut(&mut Context, EntityId, Option<EntityId>) + 'static,
+    {
+        self.get_or_create_listeners(|l| {
+            l.on_id_drop = Some(Box::new(f));
+        });
+        self
+    }
+
+    /// ドラッグ開始時（プレースホルダー生成の瞬間）に呼び出されるイベントを登録します。
+    /// 引数: (元のオリジナル要素, 生成されたプレースホルダー要素)
+    #[inline]
+    pub fn on_drag_start<F>(self, mut f: F) -> Self
+    where
+        F: FnMut(Element, Element) + 'static,
+    {
+        self.on_drag_start_with(move |_cx, src, placeholder| f(src, placeholder))
+    }
+
+    #[inline]
+    pub fn on_drag_start_with<F>(self, f: F) -> Self
+    where
+        F: FnMut(&mut Context, Element, Element) + 'static,
+    {
+        self.get_or_create_listeners(|l| {
+            l.on_drag_start = Some(Box::new(f));
         });
         self
     }

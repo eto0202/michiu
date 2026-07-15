@@ -1,9 +1,10 @@
 use bytemuck::{Pod, Zeroable};
 use std::{borrow::Cow, path::PathBuf, sync::Arc, time::Duration};
+use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
 
 use crate::{
-    AnimationCurve, Context, Convert, EntityId, IntoLayoutPoint, KeyframeAnimation, VirtualKey,
-    bitmap::*, style::ThisStyle,
+    AnimationCurve, Context, Convert, Element, EntityId, IntoLayoutPoint, KeyframeAnimation,
+    VirtualKey, bitmap::*, style::ThisStyle,
 };
 
 #[repr(C)]
@@ -1643,6 +1644,7 @@ pub struct BasicLayout {
     pub margin: Rect<Val>,
     pub padding: Rect<Length>,
     pub border: Rect<Length>,
+    pub resizable: [bool; 4],
 }
 
 impl Default for BasicLayout {
@@ -1665,6 +1667,7 @@ impl Default for BasicLayout {
             margin: default_style.margin.into(),
             padding: default_style.padding.into(),
             border: default_style.border.into(),
+            resizable: [false; 4],
         }
     }
 }
@@ -1716,6 +1719,9 @@ impl BasicLayout {
         }
         if mask.has(STYLE_BORDER) {
             self.border = other.border;
+        }
+        if mask.has(STYLE_RESIZABLE) {
+            self.resizable = other.resizable;
         }
     }
 }
@@ -1864,6 +1870,8 @@ pub struct VisualProperty {
     pub transform_origin: Option<Point<f32>>,
     pub z_index: Option<i32>,
     pub cursor: Option<CursorIcon>,
+    /// 各方向 [Ns, Ew, Nesw, Nwse] のカスタムカーソル指定
+    pub resizable_cursor: Option<[Option<CursorIcon>; 4]>,
     pub backdrop: Backdrop,
     pub text_color: Option<Color>,
     pub font_size: Option<f32>,
@@ -1877,6 +1885,82 @@ pub struct VisualProperty {
     pub user_select: Option<UserSelect>,
     pub select_bg_color: Option<Color>,
     pub select_text_color: Option<Color>,
+}
+
+impl VisualProperty {
+    pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
+        if mask.has(STYLE_BG_COLOR) {
+            self.bg_color = other.bg_color;
+            self.bg_gradient = other.bg_gradient;
+        }
+        if mask.has(STYLE_BORDER_COLOR) {
+            self.border_color = other.border_color;
+        }
+        if mask.has(STYLE_BORDER) {
+            self.border_lengths = other.border_lengths;
+            self.border_styles = other.border_styles;
+            self.border_alignments = other.border_alignments;
+        }
+        if mask.has(STYLE_CORNER_RADIUS) {
+            self.corner_radius = other.corner_radius;
+        }
+        if mask.has(STYLE_OPACITY) {
+            self.opacity = other.opacity;
+        }
+        if mask.has(STYLE_BOX_SHADOW) {
+            self.shadow_params = other.shadow_params;
+            self.shadow_color = other.shadow_color;
+        }
+        if mask.has(STYLE_TRANSFORM) {
+            self.transform = other.transform;
+            self.transform_origin = other.transform_origin;
+        }
+        if mask.has(STYLE_Z_INDEX) {
+            self.z_index = other.z_index;
+        }
+        if mask.has(STYLE_CURSOR) {
+            self.cursor = other.cursor;
+        }
+        if mask.has(STYLE_RESIZABLE) {
+            self.resizable_cursor = other.resizable_cursor;
+        }
+        if mask.has(STYLE_BACKDROP) {
+            self.backdrop = other.backdrop;
+        }
+        if mask.has(STYLE_TEXT_COLOR) {
+            self.text_color = other.text_color;
+        }
+        if mask.has(STYLE_FONT_SIZE) {
+            self.font_size = other.font_size;
+        }
+        if mask.has(STYLE_EXT_PROPERTIES) {
+            if other.font_family.is_some() {
+                self.font_family = other.font_family.clone();
+            }
+            if other.font_weight.is_some() {
+                self.font_weight = other.font_weight;
+            }
+            if other.font_style.is_some() {
+                self.font_style = other.font_style;
+            }
+        }
+        if mask.has(STYLE_POINTER_EVENTS) {
+            self.pointer_events = other.pointer_events;
+        }
+        if mask.has(STYLE_USER_SELECT) {
+            self.user_select = other.user_select;
+            self.select_bg_color = other.select_bg_color;
+            self.select_text_color = other.select_text_color;
+        }
+        // 複数追加できるものは破棄せず結合
+        if mask.has(STYLE_TRANSITIONS) {
+            self.transitions.extend(other.transitions.clone());
+        }
+        if mask.has(STYLE_ANIMATIONS) {
+            self.keyframe_animations
+                .extend(other.keyframe_animations.clone());
+        }
+    }
 }
 
 /// 子要素から伝播して解決可能なインタラクション定義
@@ -1904,6 +1988,10 @@ pub(crate) struct InteractionStyles {
     pub(crate) selected: Option<ThisStyle>,
     pub(crate) dragged: Option<ThisStyle>,
 
+    pub(crate) dragging: Option<ThisStyle>,
+    pub(crate) drag_in: Option<ThisStyle>,
+    pub(crate) drag_over: Option<ThisStyle>,
+
     pub(crate) hovered_within: Option<ThisStyle>,
     pub(crate) focused_within: Option<ThisStyle>,
     pub(crate) pressed_within: Option<ThisStyle>,
@@ -1912,6 +2000,61 @@ pub(crate) struct InteractionStyles {
     pub(crate) selected_within: Option<ThisStyle>,
     pub(crate) dragged_within: Option<ThisStyle>,
     pub(crate) any_within: Option<ThisStyle>, // All（いずれかのインタラクションがあればON）
+}
+
+impl InteractionStyles {
+    pub(crate) fn override_with(&mut self, other: &Self, _mask: ComponentMask) {
+        let merge = |target: &mut Option<ThisStyle>, source: &Option<ThisStyle>| {
+            if let Some(src) = source {
+                if let Some(dst) = target {
+                    let dst_inner = Arc::make_mut(&mut dst.inner);
+                    let src_inner = &src.inner;
+
+                    dst_inner.mask.0 |= src_inner.mask.0;
+                    dst_inner
+                        .basic_layout
+                        .override_with(&src_inner.basic_layout, src_inner.mask);
+                    dst_inner
+                        .flex_layout
+                        .override_with(&src_inner.flex_layout, src_inner.mask);
+                    dst_inner
+                        .visual_property
+                        .override_with(&src_inner.visual_property, src_inner.mask);
+
+                    if src_inner.mask.has_grid_layout()
+                        && let Some(ref g) = src_inner.grid_layout
+                    {
+                        dst_inner.grid_layout = Some(g.clone());
+                    }
+                    dst_inner
+                        .dynamic_setters
+                        .extend(src_inner.dynamic_setters.clone());
+                } else {
+                    *target = Some(src.clone());
+                }
+            }
+        };
+
+        merge(&mut self.hovered, &other.hovered);
+        merge(&mut self.focused, &other.focused);
+        merge(&mut self.pressed, &other.pressed);
+        merge(&mut self.disabled, &other.disabled);
+        merge(&mut self.actived, &other.actived);
+        merge(&mut self.selected, &other.selected);
+        merge(&mut self.dragged, &other.dragged);
+        merge(&mut self.dragging, &other.dragging);
+        merge(&mut self.drag_in, &other.drag_in);
+        merge(&mut self.drag_over, &other.drag_over);
+
+        merge(&mut self.hovered_within, &other.hovered_within);
+        merge(&mut self.focused_within, &other.focused_within);
+        merge(&mut self.pressed_within, &other.pressed_within);
+        merge(&mut self.disabled_within, &other.disabled_within);
+        merge(&mut self.actived_within, &other.actived_within);
+        merge(&mut self.selected_within, &other.selected_within);
+        merge(&mut self.dragged_within, &other.dragged_within);
+        merge(&mut self.any_within, &other.any_within);
+    }
 }
 
 /// 実行時にウィンドウ内で現在アクティブ（排他的）になっている、各状態の対象要素（EntityId）を管理します。
@@ -1943,6 +2086,16 @@ pub type FileDragCallback = Box<dyn FnMut(&mut Context) + 'static>;
 pub type ImageLoadedCallback = Box<dyn FnMut(&mut Context, ImageMetadata) + 'static>;
 pub type MediaOpenedCallback = Box<dyn FnMut(&mut Context, MovieMetadata) + 'static>;
 pub type SimpleCallback = Box<dyn FnMut(&mut Context) + 'static>;
+
+// 各コールバックの引数: (context, ドラッグ元のElement, 現在ホバーまたはドロップされた対象のElement)
+// 失敗時は対象が None
+pub type EntityDragCallback = Box<dyn FnMut(&mut Context, Element, Option<Element>) + 'static>;
+pub type IdDragCallback = Box<dyn FnMut(&mut Context, EntityId, Option<EntityId>) + 'static>;
+pub type EntityDropCallback = Box<dyn FnMut(&mut Context, Element, Option<Element>) + 'static>;
+pub type IdDropCallback = Box<dyn FnMut(&mut Context, EntityId, Option<EntityId>) + 'static>;
+// ドラッグ開始時のコールバック型。生成されたプレースホルダーの Element を受け取れます。
+// 引数: (context, ドラッグ元のオリジナル要素, 生成されたプレースホルダー要素)
+pub type DragStartCallback = Box<dyn FnMut(&mut Context, Element, Element) + 'static>;
 
 /// 要素ごとにバインドされる、検証済みイベントのハンドラ群。
 #[derive(Default)]
@@ -2004,6 +2157,13 @@ pub(crate) struct EventListeners {
     pub(crate) on_disable: Option<SimpleCallback>,
     pub(crate) on_active: Option<SimpleCallback>,
     pub(crate) on_select: Option<SimpleCallback>,
+
+    // D&D 専用イベント
+    pub(crate) on_entity_drag: Option<EntityDragCallback>,
+    pub(crate) on_id_drag: Option<IdDragCallback>,
+    pub(crate) on_entity_drop: Option<EntityDropCallback>,
+    pub(crate) on_id_drop: Option<IdDropCallback>,
+    pub(crate) on_drag_start: Option<DragStartCallback>,
 }
 
 impl std::fmt::Debug for EventListeners {
@@ -2061,20 +2221,148 @@ impl std::fmt::Debug for EventListeners {
             .field("on_disable", &self.on_disable.as_ref().map(|_| "FnMut"))
             .field("on_active", &self.on_active.as_ref().map(|_| "FnMut"))
             .field("on_select", &self.on_select.as_ref().map(|_| "FnMut"))
+            .field(
+                "on_entity_drag",
+                &self
+                    .on_entity_drag
+                    .as_ref()
+                    .map(|_| "FnMut(EntityId, Option<EntityId>)"),
+            )
+            .field(
+                "on_id_drag",
+                &self
+                    .on_id_drag
+                    .as_ref()
+                    .map(|_| "FnMut(EntityId, Option<EntityId>)"),
+            )
+            .field(
+                "on_entity_drop",
+                &self
+                    .on_entity_drop
+                    .as_ref()
+                    .map(|_| "FnMut(EntityId, Option<EntityId>)"),
+            )
+            .field(
+                "on_id_drop",
+                &self
+                    .on_id_drop
+                    .as_ref()
+                    .map(|_| "FnMut(EntityId, Option<EntityId>)"),
+            )
+            .field(
+                "on_drag_start",
+                &self
+                    .on_drag_start
+                    .as_ref()
+                    .map(|_| "FnMut(EntityId, Element)"),
+            )
             .finish()
     }
 }
 
-/// マウスクラスのアイコン指定
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// 伝播用のグローバルカーソル種別
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GlobalCursorIcon {
+    Default(Option<HCURSOR>),
+    Pointer(Option<HCURSOR>),
+    Text(Option<HCURSOR>),
+    Grab(Option<HCURSOR>),
+    Grabbing(Option<HCURSOR>),
+    NotAllowed(Option<HCURSOR>),
+    ResizeNs(Option<HCURSOR>),
+    ResizeEw(Option<HCURSOR>),
+    ResizeNesw(Option<HCURSOR>),
+    ResizeNwse(Option<HCURSOR>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorIcon {
-    #[default]
-    Default,
-    Pointer,
-    Text,
-    Grab,
-    Grabbing,
-    NotAllowed,
+    Default(Option<HCURSOR>),
+    Pointer(Option<HCURSOR>),
+    Text(Option<HCURSOR>),
+    Grab(Option<HCURSOR>),
+    Grabbing(Option<HCURSOR>),
+    NotAllowed(Option<HCURSOR>),
+    ResizeNs(Option<HCURSOR>),
+    ResizeEw(Option<HCURSOR>),
+    ResizeNesw(Option<HCURSOR>),
+    ResizeNwse(Option<HCURSOR>),
+    Global(GlobalCursorIcon),
+}
+
+unsafe impl Send for CursorIcon {}
+unsafe impl Sync for CursorIcon {}
+
+unsafe impl Send for GlobalCursorIcon {}
+unsafe impl Sync for GlobalCursorIcon {}
+
+impl Default for CursorIcon {
+    fn default() -> Self {
+        CursorIcon::Default(None)
+    }
+}
+
+impl CursorIcon {
+    /// Windows API の HCURSOR 物理ハンドルを安全にロードして返却します。
+    /// 独自の HCURSOR が指定されている場合はそれを最優先し、None の場合はOSのシステム標準をロードします。
+    pub fn to_hcursor(self) -> HCURSOR {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        unsafe {
+            let idc = match self {
+                // 独自カーソル指定時は即座にそのハンドルを返却
+                CursorIcon::Default(Some(h)) => return h,
+                CursorIcon::Pointer(Some(h)) => return h,
+                CursorIcon::Text(Some(h)) => return h,
+                CursorIcon::Grab(Some(h)) => return h,
+                CursorIcon::Grabbing(Some(h)) => return h,
+                CursorIcon::NotAllowed(Some(h)) => return h,
+                CursorIcon::ResizeNs(Some(h)) => return h,
+                CursorIcon::ResizeEw(Some(h)) => return h,
+                CursorIcon::ResizeNesw(Some(h)) => return h,
+                CursorIcon::ResizeNwse(Some(h)) => return h,
+                CursorIcon::Global(global_icon) => {
+                    match global_icon {
+                        GlobalCursorIcon::Default(Some(h)) => return h,
+                        GlobalCursorIcon::Pointer(Some(h)) => return h,
+                        GlobalCursorIcon::Text(Some(h)) => return h,
+                        GlobalCursorIcon::Grab(Some(h)) => return h,
+                        GlobalCursorIcon::Grabbing(Some(h)) => return h,
+                        GlobalCursorIcon::NotAllowed(Some(h)) => return h,
+                        GlobalCursorIcon::ResizeNs(Some(h)) => return h,
+                        GlobalCursorIcon::ResizeEw(Some(h)) => return h,
+                        GlobalCursorIcon::ResizeNesw(Some(h)) => return h,
+                        GlobalCursorIcon::ResizeNwse(Some(h)) => return h,
+                        _ => {}
+                    }
+                    // None 時は標準システムカーソルにフォールバック
+                    match global_icon {
+                        GlobalCursorIcon::Default(_) => IDC_ARROW,
+                        GlobalCursorIcon::Pointer(_) => IDC_HAND,
+                        GlobalCursorIcon::Text(_) => IDC_IBEAM,
+                        GlobalCursorIcon::Grab(_) | GlobalCursorIcon::Grabbing(_) => IDC_SIZEALL,
+                        GlobalCursorIcon::NotAllowed(_) => IDC_NO,
+                        GlobalCursorIcon::ResizeNs(_) => IDC_SIZENS,
+                        GlobalCursorIcon::ResizeEw(_) => IDC_SIZEWE,
+                        GlobalCursorIcon::ResizeNesw(_) => IDC_SIZENESW,
+                        GlobalCursorIcon::ResizeNwse(_) => IDC_SIZENWSE,
+                    }
+                }
+
+                // 独自カーソル未指定(None)時は、Windows 標準カーソルからロード
+                CursorIcon::Default(None) => IDC_ARROW,
+                CursorIcon::Pointer(None) => IDC_HAND,
+                CursorIcon::Text(None) => IDC_IBEAM,
+                CursorIcon::Grab(None) | CursorIcon::Grabbing(None) => IDC_SIZEALL,
+                CursorIcon::NotAllowed(None) => IDC_NO,
+                CursorIcon::ResizeNs(None) => IDC_SIZENS,
+                CursorIcon::ResizeEw(None) => IDC_SIZEWE,
+                CursorIcon::ResizeNesw(None) => IDC_SIZENESW,
+                CursorIcon::ResizeNwse(None) => IDC_SIZENWSE,
+            };
+
+            LoadCursorW(None, idc).unwrap()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -2325,10 +2613,14 @@ pub struct ScrollbarStyle {
     pub display: ScrollbarDisplay,
     /// スクロールバーの表示モード
     pub mode: ScrollbarMode,
-    /// スクロールバーのレール（トラック背景）部分のスタイル
-    pub track: Option<ThisStyle>,
-    /// つまみ（サム）部分のスタイル
-    pub thumb: Option<ThisStyle>,
+    /// 縦スクロールバー（Y軸）のトラック（レール）部分のスタイル
+    pub v_track: Option<ThisStyle>,
+    /// 縦スクロールバー（Y軸）のサム（つまみ）部分のスタイル
+    pub v_thumb: Option<ThisStyle>,
+    /// 横スクロールバー（X軸）のトラック（レール）部分のスタイル
+    pub h_track: Option<ThisStyle>,
+    /// 横スクロールバー（X軸）のサム（つまみ）部分のスタイル
+    pub h_thumb: Option<ThisStyle>,
 }
 
 impl Default for ScrollbarStyle {
@@ -2337,8 +2629,10 @@ impl Default for ScrollbarStyle {
             width: 10.0,
             display: ScrollbarDisplay::Auto,
             mode: ScrollbarMode::Overlay,
-            track: None,
-            thumb: None,
+            v_track: None,
+            v_thumb: None,
+            h_track: None,
+            h_thumb: None,
         }
     }
 }
@@ -2349,8 +2643,10 @@ impl ScrollbarStyle {
             width,
             display: ScrollbarDisplay::Auto,
             mode: ScrollbarMode::Overlay,
-            track: None,
-            thumb: None,
+            v_track: None,
+            v_thumb: None,
+            h_track: None,
+            h_thumb: None,
         }
     }
 
@@ -2364,15 +2660,69 @@ impl ScrollbarStyle {
         self
     }
 
-    pub fn track(mut self, style: ThisStyle) -> Self {
-        self.track = Some(style);
+    pub fn v_track(mut self, style: ThisStyle) -> Self {
+        self.v_track = Some(style);
         self
     }
 
-    pub fn thumb(mut self, style: ThisStyle) -> Self {
-        self.thumb = Some(style);
+    pub fn v_thumb(mut self, style: ThisStyle) -> Self {
+        self.v_thumb = Some(style);
         self
     }
+
+    pub fn h_track(mut self, style: ThisStyle) -> Self {
+        self.h_track = Some(style);
+        self
+    }
+
+    pub fn h_thumb(mut self, style: ThisStyle) -> Self {
+        self.h_thumb = Some(style);
+        self
+    }
+}
+
+// types.rs に追加
+
+/// プレースホルダーを挿入してマウントする親先祖の制御方法
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DragPlaceholderParent {
+    Root,             // 自動的に最上位ルート要素の子としてアタッチ
+    Custom(EntityId), // ユーザーが指定した特定の親コンテナの子としてアタッチ（範囲制限）
+}
+
+/// ドラッグ＆ドロップ動作の論理形式
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DragPayload {
+    /// Element 自体を移動する。
+    /// ドロップ時に UI ツリーが自動的に更新される。
+    Element,
+
+    /// Element が持つ EntityId のみをドラッグデータとして転送する。
+    /// UI ツリーは変更されず、アプリケーション側で並び替え等を行う。
+    EntityId,
+}
+
+/// ドラッグ可能な要素が保持するスタイリング・動作設定
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DragProperty {
+    pub placeholder_parent: DragPlaceholderParent,
+    pub drag_mode: DragPayload,
+    // ドラッグ終了時に自動的に配置（相対並び替え／絶対座標）を更新するか
+    pub update_position: bool,
+}
+
+/// ドロップ受け入れ先での取り込み形式
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DropTarget {
+    Child,   // ドロップ先の子要素として取り込む
+    Sibling, // ドロップ先の兄弟要素（隣接位置）として取り込む
+}
+
+/// ドロップ受け入れ先（ドロップゾーン）が保持するスタイリング・動作設定
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DropProperty {
+    pub target: DropTarget,
+    pub drag_mode: DragPayload,
 }
 
 #[cfg(test)]

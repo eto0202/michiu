@@ -46,7 +46,7 @@ pub struct ComposedRenderer {
     pub dcomp_device: IDCompositionDesktopDevice,
     pub dcomp_target: IDCompositionTarget,
     pub root_visual: IDCompositionVisual2,
-    /// wgpu 用のビジュアルを前面・背面に分割
+    /// wgpu 用のビジュアル
     pub wgpu_visual: IDCompositionVisual2,
 
     /// wgpu レンダラー

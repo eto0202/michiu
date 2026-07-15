@@ -230,8 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .transform(Transform::new().scale(1.05, 1.05))
                 .box_shadow(blur(12.0).color(Color::BLACK).offset(0.0).spread(2.0)),
         )
-        .pressed(ts().transform(Transform::new().scale(1.02, 1.02)))
-        .cursor(CursorIcon::Pointer);
+        .pressed(ts().transform(Transform::new().scale(1.02, 1.02)));
 
     // build_ui を使って要素ツリーを宣言的に組み立て
     let root = build_ui(&mut context, || {

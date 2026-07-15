@@ -1,11 +1,12 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, Backdrop, BasicLayout, BorderAlignment, BorderStyle,
     BoxShadow, BoxSizing, Color, Context, Convert, CornerRadius, CursorIcon, Direction, Display,
-    EdgeInsets, EntityId, FlexDirection, FlexLayout, FlexWrap, GridAutoFlow, GridLayout, GridLine,
-    GridPlacement, InteractionName, InteractionStyles, IntoCornerRadius, IntoRect, IntoSize,
-    JustifyContent, LayoutOverflow, Length, LinearGradient, Overflow, Percent, Pixel, Point,
-    PointerEvents, Position, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Size,
-    TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, bitmap::*, pct,
+    DragPayload, DragPlaceholderParent, DragProperty, DropProperty, DropTarget, EdgeInsets, EntityId,
+    FlexDirection, FlexLayout, FlexWrap, GridAutoFlow, GridLayout, GridLine, GridPlacement,
+    InteractionName, InteractionStyles, IntoCornerRadius, IntoRect, IntoSize, JustifyContent,
+    LayoutOverflow, Length, LinearGradient, Overflow, Percent, Pixel, Point, PointerEvents,
+    Position, ReadSignal, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Size, TextAlign,
+    Transform, Transition, UserSelect, Val, VisualProperty, auto, bitmap::*, pct, ts,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -28,9 +29,36 @@ pub(crate) struct StyleInner {
     pub(crate) scrollbar_style: Option<ScrollbarStyle>,
     // 動的にスタイルプロパティを更新するためのクローン可能なセッターリスト
     pub(crate) dynamic_setters: DynamicSettersType,
+
+    pub(crate) drag_property: Option<DragProperty>,
+    pub(crate) drop_property: Option<DropProperty>,
 }
 
-type DynamicSettersType = Vec<Arc<dyn Fn(&mut Context, EntityId) + Send + Sync>>;
+type DynamicSettersType = Vec<Arc<dyn Fn(&mut Context, EntityId, StyleTarget) + Send + Sync>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StyleTarget {
+    Base,
+    Hovered,
+    Focused,
+    Pressed,
+    Disabled,
+    Actived,
+    Selected,
+    Dragged,
+    Dragging, // ドラッグ中の元の要素
+    DragIn,   // ドロップゾーン侵入時
+    DragOver, // プレースホルダー（ドラッグイメージ）
+
+    HoveredWithin,
+    FocusedWithin,
+    PressedWithin,
+    DisabledWithin,
+    ActivedWithin,
+    SelectedWithin,
+    DraggedWithin,
+    AnyWithin,
+}
 
 // Debug トレイトの手動実装 (クロージャを含むため)
 impl std::fmt::Debug for StyleInner {
@@ -57,6 +85,14 @@ impl ThisStyle {
         Self::default()
     }
 
+    #[inline]
+    pub fn debug_red(self) -> Self {
+        self.border_solid(1.0)
+            .border_color(Color::RED)
+            .bg_color(Color::WHITE)
+            .hovered(ts().opacity_50())
+    }
+
     /// 要素の表示形態（Display）を設定します。
     #[inline]
     pub fn display(mut self, value: impl IntoStyleValue<Display>) -> Self {
@@ -69,12 +105,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_DISPLAY);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
-                        v.display = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            v.display = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -113,12 +151,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_ITEM_IS_TABLE);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
-                        v.item_is_table = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            v.item_is_table = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -137,12 +177,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_ITEM_IS_REPLACED);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
-                        v.item_is_replaced = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            v.item_is_replaced = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -161,12 +203,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BOX_SIZING);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
-                        v.box_sizing = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            v.box_sizing = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -195,12 +239,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_DIRECTION);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
-                        v.direction = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            v.direction = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -219,12 +265,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_SCROLLBAR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
-                        v.style = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                            v.style = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -246,12 +294,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_SCROLLBAR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
-                        v.style.width = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                            v.style.width = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -273,12 +323,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_SCROLLBAR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
-                        v.style.display = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                            v.style.display = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -319,66 +371,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_SCROLLBAR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
-                        v.style.mode = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.scrollbar_styles.get_mut(id) {
+                            v.style.mode = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_layout_dirty(id);
-                }));
-            }
-        }
-        self
-    }
-
-    /// スクロールバーのレール（トラック背景）部分の装飾スタイルを直接指定します。
-    #[inline]
-    pub fn scrollbar_track(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let sb = inner
-                    .scrollbar_style
-                    .get_or_insert_with(ScrollbarStyle::default);
-                sb.track = Some(v);
-                inner.mask.set(STYLE_SCROLLBAR);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_SCROLLBAR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
-                        v.style.track = Some(val);
-                    }
-                    cx.mark_layout_dirty(id);
-                }));
-            }
-        }
-        self
-    }
-
-    /// スクロールバーのつまみ（サム）部分の装飾スタイルを直接指定します。
-    #[inline]
-    pub fn scrollbar_thumb(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let sb = inner
-                    .scrollbar_style
-                    .get_or_insert_with(ScrollbarStyle::default);
-                sb.thumb = Some(v);
-                inner.mask.set(STYLE_SCROLLBAR);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_SCROLLBAR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.scrollbar_styles.get_mut(id) {
-                        v.style.thumb = Some(val);
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -397,12 +397,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_OVERFLOW);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
-                        v.overflow = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            v.overflow = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -441,68 +443,96 @@ impl ThisStyle {
         })
     }
 
+    /// x軸方向のはみ出し処理を個別に設定します（動的セッター対応）
     #[inline]
-    pub fn overflow_x_auto(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.overflow.x = Overflow::Visible;
-        inner.mask.set(STYLE_OVERFLOW);
+    pub fn overflow_x(mut self, value: impl IntoStyleValue<Overflow>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.overflow.x = v;
+                inner.mask.set(STYLE_OVERFLOW);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OVERFLOW);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            v.overflow.x = val; // x軸のみを安全に更新（y軸の動的設定を破壊しない）
+                        }
+                        cx.mark_layout_dirty(id); // クリック境界が動くため必須
+                    }
+                }));
+            }
+        }
+        self
+    }
+
+    /// y軸方向のはみ出し処理を個別に設定します（動的セッター対応）
+    #[inline]
+    pub fn overflow_y(mut self, value: impl IntoStyleValue<Overflow>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.overflow.y = v;
+                inner.mask.set(STYLE_OVERFLOW);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OVERFLOW);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            v.overflow.y = val;
+                        }
+                        cx.mark_layout_dirty(id);
+                    }
+                }));
+            }
+        }
         self
     }
 
     #[inline]
-    pub fn overflow_x_hidden(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.overflow.x = Overflow::Hidden;
-        inner.mask.set(STYLE_OVERFLOW);
-        self
+    pub fn overflow_x_auto(self) -> Self {
+        self.overflow_x(Overflow::Visible)
     }
 
     #[inline]
-    pub fn overflow_x_scroll(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.overflow.x = Overflow::Scroll;
-        inner.mask.set(STYLE_OVERFLOW);
-        self
+    pub fn overflow_x_hidden(self) -> Self {
+        self.overflow_x(Overflow::Hidden)
     }
 
     #[inline]
-    pub fn overflow_x_clip(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.overflow.x = Overflow::Clip;
-        inner.mask.set(STYLE_OVERFLOW);
-        self
+    pub fn overflow_x_scroll(self) -> Self {
+        self.overflow_x(Overflow::Scroll)
     }
 
     #[inline]
-    pub fn overflow_y_auto(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.overflow.y = Overflow::Visible;
-        inner.mask.set(STYLE_OVERFLOW);
-        self
+    pub fn overflow_x_clip(self) -> Self {
+        self.overflow_x(Overflow::Clip)
     }
 
     #[inline]
-    pub fn overflow_y_hidden(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.overflow.y = Overflow::Hidden;
-        inner.mask.set(STYLE_OVERFLOW);
-        self
+    pub fn overflow_y_auto(self) -> Self {
+        self.overflow_y(Overflow::Visible)
     }
 
     #[inline]
-    pub fn overflow_y_scroll(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.overflow.y = Overflow::Scroll;
-        inner.mask.set(STYLE_OVERFLOW);
-        self
+    pub fn overflow_y_hidden(self) -> Self {
+        self.overflow_y(Overflow::Hidden)
     }
 
     #[inline]
-    pub fn overflow_y_clip(mut self) -> Self {
-        let inner = Arc::make_mut(&mut self.inner);
-        inner.basic_layout.overflow.y = Overflow::Clip;
-        inner.mask.set(STYLE_OVERFLOW);
-        self
+    pub fn overflow_y_scroll(self) -> Self {
+        self.overflow_y(Overflow::Scroll)
+    }
+
+    #[inline]
+    pub fn overflow_y_clip(self) -> Self {
+        self.overflow_y(Overflow::Clip)
     }
 
     /// 要素の配置基準（Position）を設定します。
@@ -517,12 +547,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_POSITION);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
-                        v.position = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            v.position = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -551,9 +583,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_INSET);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.inset = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -581,9 +613,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_INSET);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.inset.right = size.width;
                         v.inset.left = size.height;
                     }
@@ -606,9 +638,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_INSET);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.inset.top = size.width;
                         v.inset.bottom = size.height;
                     }
@@ -629,9 +661,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_INSET);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.inset.top = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -651,9 +683,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_INSET);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.inset.right = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -673,9 +705,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_INSET);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.inset.bottom = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -695,9 +727,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_INSET);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.inset.left = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -719,9 +751,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_SIZE);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.size = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -734,6 +766,11 @@ impl ThisStyle {
     #[inline]
     pub fn size_full(self) -> Self {
         self.size(pct(100.0))
+    }
+
+    #[inline]
+    pub fn size_half(self) -> Self {
+        self.size(pct(50.0))
     }
 
     #[inline]
@@ -752,9 +789,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_SIZE);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.size.width = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -767,6 +804,11 @@ impl ThisStyle {
     #[inline]
     pub fn w_full(self) -> Self {
         self.width(pct(100.0))
+    }
+
+    #[inline]
+    pub fn w_half(self) -> Self {
+        self.width(pct(50.0))
     }
 
     #[inline]
@@ -785,9 +827,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_SIZE);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.size.height = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -800,6 +842,11 @@ impl ThisStyle {
     #[inline]
     pub fn h_full(self) -> Self {
         self.height(pct(100.0))
+    }
+
+    #[inline]
+    pub fn h_half(self) -> Self {
+        self.height(pct(50.0))
     }
 
     #[inline]
@@ -819,9 +866,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_MIN_SIZE);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.min_size = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -843,9 +890,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_MAX_SIZE);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.max_size = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -853,6 +900,98 @@ impl ThisStyle {
             }
         }
         self
+    }
+
+    /// 要素の最小幅（min_width）のみを設定します。
+    #[inline]
+    pub fn min_width(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current_h = self.inner.basic_layout.min_size.height;
+                self.min_size((v, current_h))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MIN_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                        v.min_size.width = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
+    }
+
+    /// 要素の最小高さ（min_height）のみを設定します。
+    #[inline]
+    pub fn min_height(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current_w = self.inner.basic_layout.min_size.width;
+                self.min_size((current_w, v))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MIN_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                        v.min_size.height = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
+    }
+
+    /// 要素の最大幅（max_width）のみを設定します。
+    #[inline]
+    pub fn max_width(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current_h = self.inner.basic_layout.max_size.height;
+                self.max_size((v, current_h))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MAX_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                        v.max_size.width = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
+    }
+
+    /// 要素の最大高さ（max_height）のみを設定します。
+    #[inline]
+    pub fn max_height(mut self, value: impl IntoStyleConvert<Val>) -> Self {
+        match value.into_style_convert() {
+            StyleValue::Static(v) => {
+                let current_w = self.inner.basic_layout.max_size.width;
+                self.max_size((current_w, v))
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_MAX_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                        v.max_size.height = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+                self
+            }
+        }
     }
 
     /// 任意の比率（幅 / 高さ）でアスペクト比を設定します。
@@ -892,17 +1031,19 @@ impl ThisStyle {
                     StyleValue::Dynamic(g) => g,
                 };
 
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let w = get_w();
-                    let h = get_h();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
-                        if h <= 0.0 {
-                            v.aspect_ratio = None;
-                        } else {
-                            v.aspect_ratio = Some(w / h);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let w = get_w();
+                        let h = get_h();
+                        if let Some(v) = cx.basic_layouts.get_mut(id) {
+                            if h <= 0.0 {
+                                v.aspect_ratio = None;
+                            } else {
+                                v.aspect_ratio = Some(w / h);
+                            }
                         }
+                        cx.mark_layout_dirty(id); // レイアウト Dirty マーク
                     }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -961,9 +1102,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_MARGIN);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.margin = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1000,9 +1141,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_MARGIN);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.margin.right = size.width;
                         v.margin.left = size.height;
                     }
@@ -1025,9 +1166,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_MARGIN);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.margin.top = size.width;
                         v.margin.bottom = size.height;
                     }
@@ -1047,9 +1188,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_MARGIN);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.margin.top = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1069,9 +1210,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_MARGIN);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.margin.right = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1091,9 +1232,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_MARGIN);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.margin.bottom = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1113,9 +1254,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_MARGIN);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.margin.left = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1137,9 +1278,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_PADDING);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.padding = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1171,9 +1312,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_PADDING);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.padding.right = size.width;
                         v.padding.left = size.height;
                     }
@@ -1196,9 +1337,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_PADDING);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.padding.top = size.width;
                         v.padding.bottom = size.height;
                     }
@@ -1219,9 +1360,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_PADDING);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.padding.top = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1241,9 +1382,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_PADDING);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.padding.right = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1263,9 +1404,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_PADDING);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.padding.bottom = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1285,9 +1426,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_PADDING);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
                         v.padding.left = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1331,14 +1472,14 @@ impl ThisStyle {
                     StyleValue::Dynamic(g) => g,
                 };
 
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let w = get_w();
-                    if let Some(v) = cx.basic_layouts.get_mut(id) {
-                        v.border = w;
+                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
+                        layout.border = w;
                     }
-                    if let Some(v) = cx.visual_properties.get_mut(id) {
-                        v.border_styles = Some([s; 4]);
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.border_styles = Some([s; 4]);
                     }
                     cx.mark_layout_dirty(id);
                 }));
@@ -1410,13 +1551,13 @@ impl ThisStyle {
                     StyleValue::Dynamic(g) => g,
                 };
 
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.basic_layouts.get_mut(id) {
+                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
                         layout.border.top = v;
                     }
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[0] = s;
                         vis.border_styles = Some(styles);
@@ -1467,13 +1608,13 @@ impl ThisStyle {
                     StyleValue::Dynamic(g) => g,
                 };
 
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.basic_layouts.get_mut(id) {
+                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
                         layout.border.right = v;
                     }
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[1] = s;
                         vis.border_styles = Some(styles);
@@ -1524,13 +1665,13 @@ impl ThisStyle {
                     StyleValue::Dynamic(g) => g,
                 };
 
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.basic_layouts.get_mut(id) {
+                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
                         layout.border.bottom = v;
                     }
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[2] = s;
                         vis.border_styles = Some(styles);
@@ -1581,13 +1722,13 @@ impl ThisStyle {
                     StyleValue::Dynamic(g) => g,
                 };
 
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.basic_layouts.get_mut(id) {
+                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
                         layout.border.left = v;
                     }
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[3] = s;
                         vis.border_styles = Some(styles);
@@ -1617,9 +1758,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BORDER);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let v = getter();
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         vis.border_lengths = Some(EdgeInsets {
                             top: v.top,
                             right: v.right,
@@ -1650,9 +1791,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BORDER);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
                         lengths.top = val;
                         vis.border_lengths = Some(lengths);
@@ -1680,9 +1821,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BORDER);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
                         lengths.right = val;
                         vis.border_lengths = Some(lengths);
@@ -1710,9 +1851,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BORDER);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
                         lengths.bottom = val;
                         vis.border_lengths = Some(lengths);
@@ -1740,9 +1881,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BORDER);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
                         lengths.left = val;
                         vis.border_lengths = Some(lengths);
@@ -1766,9 +1907,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BORDER);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         vis.border_alignments = Some([val; 4]);
                     }
                     cx.mark_render_dirty(id);
@@ -1790,9 +1931,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BORDER);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         vis.border_alignments = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -1821,9 +1962,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BORDER);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.visual_properties.get_mut(id) {
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut aligns =
                             vis.border_alignments.unwrap_or([BorderAlignment::Start; 4]);
                         aligns[idx] = val;
@@ -1865,9 +2006,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_ALIGN_ITEMS);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.align_items = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1949,9 +2090,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_ALIGN_SELF);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.align_self = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2038,9 +2179,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_JUSTIFY_ITEMS);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.justify_items = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2122,9 +2263,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_JUSTIFY_SELF);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.justify_self = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2211,9 +2352,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_ALIGN_CONTENT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.align_content = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2305,9 +2446,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_JUSTIFY_CONTENT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.justify_content = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2399,9 +2540,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GAP);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.gap = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2432,9 +2573,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GAP);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.gap.height = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2455,9 +2596,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GAP);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.gap.width = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2491,9 +2632,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_TEXT_ALIGN);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.text_align = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2535,12 +2676,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_FLEX_DIRECTION);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
-                        v.flex_direction = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.flex_layouts.get_mut(id) {
+                            v.flex_direction = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -2579,12 +2722,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_FLEX_WRAP);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
-                        v.flex_wrap = val;
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.flex_layouts.get_mut(id) {
+                            v.flex_wrap = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -2618,9 +2763,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_FLEX_BASIS);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.flex_basis = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2658,9 +2803,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_FLEX_GROW);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.flex_grow = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2695,9 +2840,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_FLEX_SHRINK);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.flex_layouts.get_mut(id) {
+                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
                         v.flex_shrink = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2731,9 +2876,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BG_COLOR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.bg_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -2755,9 +2900,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BORDER_COLOR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.border_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -2779,9 +2924,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_CORNER_RADIUS);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.corner_radius = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -2870,9 +3015,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_OPACITY);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.opacity = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -2910,9 +3055,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BOX_SHADOW);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.shadow_params = Some(val);
                         v.shadow_color = Some(val.color);
                     }
@@ -2935,9 +3080,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BOX_SHADOW);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.shadow_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -2959,9 +3104,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_Z_INDEX);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.z_index = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3003,9 +3148,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_CURSOR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.cursor = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3017,32 +3162,32 @@ impl ThisStyle {
 
     #[inline]
     pub fn cursor_default(self) -> Self {
-        self.cursor(CursorIcon::Default)
+        self.cursor(CursorIcon::Default(None))
     }
 
     #[inline]
     pub fn cursor_grab(self) -> Self {
-        self.cursor(CursorIcon::Grab)
+        self.cursor(CursorIcon::Grab(None))
     }
 
     #[inline]
     pub fn cursor_grabbing(self) -> Self {
-        self.cursor(CursorIcon::Grabbing)
+        self.cursor(CursorIcon::Grabbing(None))
     }
 
     #[inline]
     pub fn cursor_not_allowed(self) -> Self {
-        self.cursor(CursorIcon::NotAllowed)
+        self.cursor(CursorIcon::NotAllowed(None))
     }
 
     #[inline]
     pub fn cursor_pointer(self) -> Self {
-        self.cursor(CursorIcon::Pointer)
+        self.cursor(CursorIcon::Pointer(None))
     }
 
     #[inline]
     pub fn cursor_text(self) -> Self {
-        self.cursor(CursorIcon::Text)
+        self.cursor(CursorIcon::Text(None))
     }
 
     #[inline]
@@ -3056,9 +3201,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BACKDROP);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.backdrop = val;
                     }
                     cx.mark_render_dirty(id);
@@ -3100,9 +3245,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_TEXT_COLOR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.text_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3128,15 +3273,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_template_rows = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_template_rows = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3159,15 +3306,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_template_columns = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_template_columns = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3187,15 +3336,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_auto_rows = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_auto_rows = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3218,15 +3369,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_auto_columns = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_auto_columns = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3246,15 +3399,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_auto_flow = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_auto_flow = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3277,15 +3432,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_template_areas = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_template_areas = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3308,15 +3465,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_template_column_names = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_template_column_names = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3336,15 +3495,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_template_row_names = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_template_row_names = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3364,15 +3525,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_row = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_row = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3395,15 +3558,17 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if !cx.grid_layouts.contains_key(id) {
-                        cx.grid_layouts.insert(id, GridLayout::default());
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if !cx.grid_layouts.contains_key(id) {
+                            cx.grid_layouts.insert(id, GridLayout::default());
+                        }
+                        if let Some(grid) = cx.grid_layouts.get_mut(id) {
+                            grid.grid_column = val;
+                        }
+                        cx.mark_layout_dirty(id);
                     }
-                    if let Some(grid) = cx.grid_layouts.get_mut(id) {
-                        grid.grid_column = val;
-                    }
-                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -3412,271 +3577,64 @@ impl ThisStyle {
 
     /// マウスが要素の上に乗った（Hover）際に適用するオーバーライドスタイルを設定します。
     #[inline]
-    pub fn hovered(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.interaction_styles.hovered = Some(v);
-                inner.mask.set(STATE_HOVERED);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STATE_HOVERED);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.interaction_properties.get_mut(id) {
-                        v.hovered = Some(val);
-                    } else {
-                        let interaction = InteractionStyles {
-                            hovered: Some(val),
-                            ..Default::default()
-                        };
-                        cx.interaction_properties.insert(id, interaction);
-                    }
-                    cx.mark_render_dirty(id);
-                }));
-            }
-        }
-        self
+    pub fn hovered(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_HOVERED, StyleTarget::Hovered)
     }
 
     /// キーボードタブ移動などで要素にフォーカスが当たった際に適用するスタイルを設定します。
     #[inline]
-    pub fn focused(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.interaction_styles.focused = Some(v);
-                inner.mask.set(STATE_FOCUSED);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STATE_FOCUSED);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.interaction_properties.get_mut(id) {
-                        v.focused = Some(val);
-                    } else {
-                        let interaction = InteractionStyles {
-                            focused: Some(val),
-                            ..Default::default()
-                        };
-                        cx.interaction_properties.insert(id, interaction);
-                    }
-                    cx.mark_render_dirty(id);
-                }));
-            }
-        }
-        self
+    pub fn focused(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_FOCUSED, StyleTarget::Focused)
     }
 
     /// マウスの左ボタンが要素の上で押し下げられた際、またはタップ中に適用するスタイルを設定します。
     #[inline]
-    pub fn pressed(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.interaction_styles.pressed = Some(v);
-                inner.mask.set(STATE_PRESSED);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STATE_PRESSED);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.interaction_properties.get_mut(id) {
-                        v.pressed = Some(val);
-                    } else {
-                        let interaction = InteractionStyles {
-                            pressed: Some(val),
-                            ..Default::default()
-                        };
-                        cx.interaction_properties.insert(id, interaction);
-                    }
-                    cx.mark_render_dirty(id);
-                }));
-            }
-        }
-        self
+    pub fn pressed(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_PRESSED, StyleTarget::Pressed)
     }
 
     /// 要素が無効化された際に適用するスタイルを設定します。
     #[inline]
-    pub fn disabled(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.interaction_styles.disabled = Some(v);
-                inner.mask.set(STATE_DISABLED);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STATE_DISABLED);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.interaction_properties.get_mut(id) {
-                        v.disabled = Some(val);
-                    } else {
-                        let interaction = InteractionStyles {
-                            disabled: Some(val),
-                            ..Default::default()
-                        };
-                        cx.interaction_properties.insert(id, interaction);
-                    }
-                    cx.mark_render_dirty(id);
-                }));
-            }
-        }
-        self
+    pub fn disabled(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_DISABLED, StyleTarget::Disabled)
     }
 
     /// 要素がアクティブ状態の時に適用するスタイルを設定します。
     #[inline]
-    pub fn actived(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.interaction_styles.actived = Some(v);
-                inner.mask.set(STATE_ACTIVED);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STATE_ACTIVED);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.interaction_properties.get_mut(id) {
-                        v.actived = Some(val);
-                    } else {
-                        let interaction = InteractionStyles {
-                            actived: Some(val),
-                            ..Default::default()
-                        };
-                        cx.interaction_properties.insert(id, interaction);
-                    }
-                    cx.mark_render_dirty(id);
-                }));
-            }
-        }
-        self
+    pub fn actived(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_ACTIVED, StyleTarget::Actived)
     }
 
     /// 要素がトグル選択された際に適用するスタイルを設定します。
     #[inline]
-    pub fn selected(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.interaction_styles.selected = Some(v);
-                inner.mask.set(STATE_SELECTED);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STATE_SELECTED);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.interaction_properties.get_mut(id) {
-                        v.selected = Some(val);
-                    } else {
-                        let interaction = InteractionStyles {
-                            selected: Some(val),
-                            ..Default::default()
-                        };
-                        cx.interaction_properties.insert(id, interaction);
-                    }
-                    cx.mark_render_dirty(id);
-                }));
-            }
-        }
-        self
+    pub fn selected(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_SELECTED, StyleTarget::Selected)
     }
 
     /// 要素が現在ドラッグ操作中にある際に適用するスタイルを設定します。
     #[inline]
-    pub fn dragged(mut self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.interaction_styles.dragged = Some(v);
-                inner.mask.set(STATE_DRAGGED);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STATE_DRAGGED);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.interaction_properties.get_mut(id) {
-                        v.dragged = Some(val);
-                    } else {
-                        let interaction = InteractionStyles {
-                            dragged: Some(val),
-                            ..Default::default()
-                        };
-                        cx.interaction_properties.insert(id, interaction);
-                    }
-                    cx.mark_render_dirty(id);
-                }));
-            }
-        }
-        self
+    pub fn dragged(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_DRAGGED, StyleTarget::Dragged)
     }
 
     /// 子孫要素のインタラクション状態に連動して親のスタイルを変化させる伝播設定
     #[inline]
     pub fn interaction_within(
-        mut self,
+        self,
         name: InteractionName,
         style: impl IntoStyleValue<ThisStyle>,
     ) -> Self {
-        match style.into_style_value() {
-            StyleValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                match name {
-                    InteractionName::Hover => inner.interaction_styles.hovered_within = Some(v),
-                    InteractionName::Focus => inner.interaction_styles.focused_within = Some(v),
-                    InteractionName::Press => inner.interaction_styles.pressed_within = Some(v),
-                    InteractionName::Disable => inner.interaction_styles.disabled_within = Some(v),
-                    InteractionName::Active => inner.interaction_styles.actived_within = Some(v),
-                    InteractionName::Select => inner.interaction_styles.selected_within = Some(v),
-                    InteractionName::Drag => inner.interaction_styles.dragged_within = Some(v),
-                    InteractionName::All => inner.interaction_styles.any_within = Some(v),
-                }
-                inner.mask.set(STYLE_INTERACTION_WITHIN);
-            }
-            StyleValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_INTERACTION_WITHIN);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.interaction_properties.get_mut(id) {
-                        match name {
-                            InteractionName::Hover => v.hovered_within = Some(val),
-                            InteractionName::Focus => v.focused_within = Some(val),
-                            InteractionName::Press => v.pressed_within = Some(val),
-                            InteractionName::Disable => v.disabled_within = Some(val),
-                            InteractionName::Active => v.actived_within = Some(val),
-                            InteractionName::Select => v.selected_within = Some(val),
-                            InteractionName::Drag => v.dragged_within = Some(val),
-                            InteractionName::All => v.any_within = Some(val),
-                        }
-                    } else {
-                        let mut interaction = InteractionStyles::default();
-                        match name {
-                            InteractionName::Hover => interaction.hovered_within = Some(val),
-                            InteractionName::Focus => interaction.focused_within = Some(val),
-                            InteractionName::Press => interaction.pressed_within = Some(val),
-                            InteractionName::Disable => interaction.disabled_within = Some(val),
-                            InteractionName::Active => interaction.actived_within = Some(val),
-                            InteractionName::Select => interaction.selected_within = Some(val),
-                            InteractionName::Drag => interaction.dragged_within = Some(val),
-                            InteractionName::All => interaction.any_within = Some(val),
-                        }
-                        cx.interaction_properties.insert(id, interaction);
-                    }
-                    cx.mark_render_dirty(id);
-                }));
-            }
-        }
-        self
+        let (state_flag, target) = match name {
+            InteractionName::Hover => (STYLE_INTERACTION_WITHIN, StyleTarget::HoveredWithin),
+            InteractionName::Focus => (STYLE_INTERACTION_WITHIN, StyleTarget::FocusedWithin),
+            InteractionName::Press => (STYLE_INTERACTION_WITHIN, StyleTarget::PressedWithin),
+            InteractionName::Disable => (STYLE_INTERACTION_WITHIN, StyleTarget::DisabledWithin),
+            InteractionName::Active => (STYLE_INTERACTION_WITHIN, StyleTarget::ActivedWithin),
+            InteractionName::Select => (STYLE_INTERACTION_WITHIN, StyleTarget::SelectedWithin),
+            InteractionName::Drag => (STYLE_INTERACTION_WITHIN, StyleTarget::DraggedWithin),
+            InteractionName::All => (STYLE_INTERACTION_WITHIN, StyleTarget::AnyWithin),
+        };
+        self.apply_interaction_style(style, state_flag, target)
     }
 
     #[inline]
@@ -3719,6 +3677,372 @@ impl ThisStyle {
         self.interaction_within(InteractionName::All, style)
     }
 
+    /// 要素の上下左右のリサイズ許可を設定します。
+    /// 引数にはタプル `(top, right, bottom, left)`、配列 `[top, right, bottom, left]`、
+    /// またはそれらを解決するシグナル、動的クロージャを指定できます。
+    #[inline]
+    pub fn resizable(mut self, value: impl IntoStyleResizable) -> Self {
+        match value.into_style_resizable() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.resizable = v;
+                inner.mask.set(STYLE_RESIZABLE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_RESIZABLE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                        v.resizable = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 四方向（上下左右）すべてのリサイズ可否を一括設定します。
+    #[inline]
+    pub fn resizable_all(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.resizable = [v; 4];
+                inner.mask.set(STYLE_RESIZABLE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_RESIZABLE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                        v.resizable = [val; 4];
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 左右（X軸方向）のリサイズ可否を一括設定します。
+    #[inline]
+    pub fn resizable_x(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.resizable[1] = v; // right
+                inner.basic_layout.resizable[3] = v; // left
+                inner.mask.set(STYLE_RESIZABLE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_RESIZABLE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                        v.resizable[1] = val;
+                        v.resizable[3] = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 上下（Y軸方向）のリサイズ可否を一括設定します。
+    #[inline]
+    pub fn resizable_y(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.resizable[0] = v; // top
+                inner.basic_layout.resizable[2] = v; // bottom
+                inner.mask.set(STYLE_RESIZABLE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_RESIZABLE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                        v.resizable[0] = val;
+                        v.resizable[2] = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 上側のリサイズ可否を個別に設定します。
+    #[inline]
+    pub fn resizable_top(self, value: impl IntoStyleValue<bool>) -> Self {
+        self.set_resizable_edge_idx(0, value)
+    }
+
+    /// 右側のリサイズ可否を個別に設定します。
+    #[inline]
+    pub fn resizable_right(self, value: impl IntoStyleValue<bool>) -> Self {
+        self.set_resizable_edge_idx(1, value)
+    }
+
+    /// 下側のリサイズ可否を個別に設定します。
+    #[inline]
+    pub fn resizable_bottom(self, value: impl IntoStyleValue<bool>) -> Self {
+        self.set_resizable_edge_idx(2, value)
+    }
+
+    /// 左側のリサイズ可否を個別に設定します。
+    #[inline]
+    pub fn resizable_left(self, value: impl IntoStyleValue<bool>) -> Self {
+        self.set_resizable_edge_idx(3, value)
+    }
+
+    /// 辺インデックス (0:top, 1:right, 2:bottom, 3:left) を指定した更新処理
+    fn set_resizable_edge_idx(mut self, idx: usize, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.resizable[idx] = v;
+                inner.mask.set(STYLE_RESIZABLE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_RESIZABLE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                        v.resizable[idx] = val;
+                    }
+                    cx.mark_layout_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// リサイズ方向ごとのカスタムカーソルを一括設定します。[Ns, Ew, Nesw, Nwse]
+    /// 各方向に対して None を指定した場合は、ライブラリの自動カーソルマッピングが適用されます。
+    #[inline]
+    pub fn resizable_cursor(
+        mut self,
+        ns: Option<CursorIcon>,
+        ew: Option<CursorIcon>,
+        nesw: Option<CursorIcon>,
+        nwse: Option<CursorIcon>,
+    ) -> Self {
+        let inner = Arc::make_mut(&mut self.inner);
+        inner.visual_property.resizable_cursor = Some([ns, ew, nesw, nwse]);
+        inner.mask.set(STYLE_RESIZABLE);
+        self
+    }
+
+    #[inline]
+    pub fn resizable_cursor_default(self) -> Self {
+        self.resizable_cursor(None, None, None, None)
+    }
+
+    /// ドラッグ時にプレースホルダーを最上位ルート要素の子としてアタッチし、絶対配置追従させます。
+    #[inline]
+    pub fn draggable_root(
+        mut self,
+        mode: impl IntoStyleValue<DragPayload>,
+        update_position: impl IntoStyleValue<bool>,
+    ) -> Self {
+        let m_val = mode.into_style_value();
+        let u_val = update_position.into_style_value();
+
+        match (m_val, u_val) {
+            (StyleValue::Static(m), StyleValue::Static(u)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.drag_property = Some(DragProperty {
+                    placeholder_parent: DragPlaceholderParent::Root,
+                    drag_mode: m,
+                    update_position: u,
+                });
+                inner.mask.set(STYLE_DRAGGABLE);
+            }
+            (m_getter, u_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_DRAGGABLE);
+
+                let get_m = match m_getter {
+                    StyleValue::Static(m) => {
+                        Box::new(move || m) as Box<dyn Fn() -> DragPayload + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_u = match u_getter {
+                    StyleValue::Static(u) => {
+                        Box::new(move || u) as Box<dyn Fn() -> bool + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let m = get_m();
+                        let u = get_u();
+                        cx.drag_properties.insert(
+                            id,
+                            DragProperty {
+                                placeholder_parent: DragPlaceholderParent::Root,
+                                drag_mode: m,
+                                update_position: u,
+                            },
+                        );
+                        cx.mark_render_dirty(id);
+                    }
+                }));
+            }
+        }
+        self
+    }
+
+    /// ドラッグ時にプレースホルダーを特定の親要素の子としてアタッチし（範囲制限）、絶対配置追従させます。
+    #[inline]
+    pub fn draggable_parent(
+        mut self,
+        parent_id: impl IntoStyleValue<EntityId>,
+        mode: impl IntoStyleValue<DragPayload>,
+        update_position: impl IntoStyleValue<bool>,
+    ) -> Self {
+        let p_val = parent_id.into_style_value();
+        let m_val = mode.into_style_value();
+        let u_val = update_position.into_style_value();
+
+        match (p_val, m_val, u_val) {
+            (StyleValue::Static(p), StyleValue::Static(m), StyleValue::Static(u)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.drag_property = Some(DragProperty {
+                    placeholder_parent: DragPlaceholderParent::Custom(p),
+                    drag_mode: m,
+                    update_position: u,
+                });
+                inner.mask.set(STYLE_DRAGGABLE);
+            }
+            (p_getter, m_getter, u_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_DRAGGABLE);
+
+                let get_p = match p_getter {
+                    StyleValue::Static(p) => {
+                        Box::new(move || p) as Box<dyn Fn() -> EntityId + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_m = match m_getter {
+                    StyleValue::Static(m) => {
+                        Box::new(move || m) as Box<dyn Fn() -> DragPayload + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_u = match u_getter {
+                    StyleValue::Static(u) => {
+                        Box::new(move || u) as Box<dyn Fn() -> bool + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let p = get_p();
+                        let m = get_m();
+                        let u = get_u();
+                        cx.drag_properties.insert(
+                            id,
+                            DragProperty {
+                                placeholder_parent: DragPlaceholderParent::Custom(p),
+                                drag_mode: m,
+                                update_position: u,
+                            },
+                        );
+                        cx.mark_render_dirty(id);
+                    }
+                }));
+            }
+        }
+        self
+    }
+
+    /// 要素がドロップの受け入れ可能であることを示し、取り込み方式と動作を指定します。
+    #[inline]
+    pub fn droppable(
+        mut self,
+        target: impl IntoStyleValue<DropTarget>,
+        mode: impl IntoStyleValue<DragPayload>,
+    ) -> Self {
+        let t_val = target.into_style_value();
+        let m_val = mode.into_style_value();
+
+        match (t_val, m_val) {
+            (StyleValue::Static(t), StyleValue::Static(m)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.drop_property = Some(DropProperty {
+                    target: t,
+                    drag_mode: m,
+                });
+                inner.mask.set(STYLE_DROPPABLE);
+            }
+            (t_getter, m_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_DROPPABLE);
+
+                let get_t = match t_getter {
+                    StyleValue::Static(t) => {
+                        Box::new(move || t) as Box<dyn Fn() -> DropTarget + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_m = match m_getter {
+                    StyleValue::Static(m) => {
+                        Box::new(move || m) as Box<dyn Fn() -> DragPayload + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let t = get_t();
+                        let m = get_m();
+                        cx.drop_properties.insert(
+                            id,
+                            DropProperty {
+                                target: t,
+                                drag_mode: m,
+                            },
+                        );
+                        cx.mark_render_dirty(id);
+                    }
+                }));
+            }
+        }
+        self
+    }
+
+    /// ドラッグ中の元の要素に適用する疑似クラススタイルを指定します。
+    #[inline]
+    pub fn draggable_original(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_DRAGGING, StyleTarget::Dragging)
+    }
+
+    /// ドラッグ中のプレースホルダー（ドラッグイメージ）に適用する疑似クラススタイルを指定します。
+    #[inline]
+    pub fn draggable_placeholder(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_DRAG_OVER, StyleTarget::DragOver)
+    }
+
+    /// ドロップゾーンにドラッグ要素がホバー侵入している際に、ドロップゾーン側に適用するスタイルを指定します。
+    #[inline]
+    pub fn drag_in(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_DRAG_IN, StyleTarget::DragIn)
+    }
+
     /// ポインターメッセージ（マウスインタラクションなど）の透過を制御します。
     #[inline]
     pub fn pointer_events(mut self, value: impl IntoStyleValue<PointerEvents>) -> Self {
@@ -3731,12 +4055,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_POINTER_EVENTS);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
-                        v.pointer_events = Some(val);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                            v.pointer_events = Some(val);
+                        }
+                        cx.mark_render_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -3767,9 +4093,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_TRANSFORM);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.transform = Some(val.matrix);
                     }
                     cx.mark_render_dirty(id);
@@ -3790,9 +4116,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_TRANSFORM);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.transform_origin = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3847,12 +4173,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_TRANSITIONS);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
-                        v.transitions.push(val);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                            v.transitions.push(val);
+                        }
+                        cx.mark_render_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -3920,12 +4248,14 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_ANIMATIONS);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
-                    let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
-                        v.keyframe_animations.push(val);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == StyleTarget::Base {
+                        let val = getter();
+                        if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                            v.keyframe_animations.push(val);
+                        }
+                        cx.mark_render_dirty(id);
                     }
-                    cx.mark_render_dirty(id);
                 }));
             }
         }
@@ -3944,9 +4274,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_BG_COLOR);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.bg_gradient = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3968,9 +4298,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_EXT_PROPERTIES);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.font_family = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3992,9 +4322,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_EXT_PROPERTIES);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.font_weight = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4016,9 +4346,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_EXT_PROPERTIES);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.font_size = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4040,9 +4370,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_EXT_PROPERTIES);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.font_style = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4064,9 +4394,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_USER_SELECT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.user_select = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4105,9 +4435,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_USER_SELECT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.select_bg_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4128,9 +4458,9 @@ impl ThisStyle {
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(STYLE_USER_SELECT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id| {
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.base_visual_properties.get_mut(id) {
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.select_text_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4139,10 +4469,184 @@ impl ThisStyle {
         }
         self
     }
+
+    /// すべての疑似クラスおよび within 伝播系のスタイルと動的セッターを統合する共通コアヘルパー
+    fn apply_interaction_style(
+        mut self,
+        style: impl IntoStyleValue<ThisStyle>,
+        state_flag: u128,
+        target: StyleTarget,
+    ) -> Self {
+        match style.into_style_value() {
+            // パターン A: 静的に構築されたスタイルが渡された場合
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+
+                // ネストされた子スタイルが持つ動的セッター群を引き上げ、
+                // 実行時に親ターゲット（例: Hovered）に補正して転送するセッターを登録します。
+                if !v.inner.dynamic_setters.is_empty() {
+                    let v_setters = v.inner.dynamic_setters.clone();
+                    inner
+                        .dynamic_setters
+                        .push(Arc::new(move |cx, id, _parent_target| {
+                            for setter in &v_setters {
+                                setter(cx, id, target);
+                            }
+                        }));
+                }
+
+                // interaction_styles の該当疑似クラススロットへアタッチ
+                let interaction = &mut inner.interaction_styles;
+                match target {
+                    StyleTarget::Hovered => interaction.hovered = Some(v),
+                    StyleTarget::Focused => interaction.focused = Some(v),
+                    StyleTarget::Pressed => interaction.pressed = Some(v),
+                    StyleTarget::Disabled => interaction.disabled = Some(v),
+                    StyleTarget::Actived => interaction.actived = Some(v),
+                    StyleTarget::Selected => interaction.selected = Some(v),
+                    StyleTarget::Dragged => interaction.dragged = Some(v),
+                    StyleTarget::Dragging => interaction.dragging = Some(v),
+                    StyleTarget::DragIn => interaction.drag_in = Some(v),
+                    StyleTarget::DragOver => interaction.drag_over = Some(v),
+
+                    StyleTarget::HoveredWithin => interaction.hovered_within = Some(v),
+                    StyleTarget::FocusedWithin => interaction.focused_within = Some(v),
+                    StyleTarget::PressedWithin => interaction.pressed_within = Some(v),
+                    StyleTarget::DisabledWithin => interaction.disabled_within = Some(v),
+                    StyleTarget::ActivedWithin => interaction.actived_within = Some(v),
+                    StyleTarget::SelectedWithin => interaction.selected_within = Some(v),
+                    StyleTarget::DraggedWithin => interaction.dragged_within = Some(v),
+                    StyleTarget::AnyWithin => interaction.any_within = Some(v),
+                    StyleTarget::Base => unreachable!(),
+                }
+                inner.mask.set(state_flag);
+            }
+
+            // パターン B: 疑似クラス自体が consume 等の遅延ゲッターで上書きされた場合
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(state_flag);
+                inner
+                    .dynamic_setters
+                    .push(Arc::new(move |cx, id, _parent_target| {
+                        let val = getter(); // ThisStyle の動的評価結果
+
+                        if !cx.interaction_properties.contains_key(id) {
+                            cx.interaction_properties
+                                .insert(id, InteractionStyles::default());
+                        }
+                        let styles = cx.interaction_properties.get_mut(id).unwrap();
+
+                        // 動的に解決されたスタイルを対応する疑似フィールドへ上書きマウント
+                        match target {
+                            StyleTarget::Hovered => styles.hovered = Some(val.clone()),
+                            StyleTarget::Focused => styles.focused = Some(val.clone()),
+                            StyleTarget::Pressed => styles.pressed = Some(val.clone()),
+                            StyleTarget::Disabled => styles.disabled = Some(val.clone()),
+                            StyleTarget::Actived => styles.actived = Some(val.clone()),
+                            StyleTarget::Selected => styles.selected = Some(val.clone()),
+                            StyleTarget::Dragged => styles.dragged = Some(val.clone()),
+                            StyleTarget::Dragging => styles.dragging = Some(val.clone()),
+                            StyleTarget::DragIn => styles.drag_in = Some(val.clone()),
+                            StyleTarget::DragOver => styles.drag_over = Some(val.clone()),
+
+                            StyleTarget::HoveredWithin => styles.hovered_within = Some(val.clone()),
+                            StyleTarget::FocusedWithin => styles.focused_within = Some(val.clone()),
+                            StyleTarget::PressedWithin => styles.pressed_within = Some(val.clone()),
+                            StyleTarget::DisabledWithin => {
+                                styles.disabled_within = Some(val.clone())
+                            }
+                            StyleTarget::ActivedWithin => styles.actived_within = Some(val.clone()),
+                            StyleTarget::SelectedWithin => {
+                                styles.selected_within = Some(val.clone())
+                            }
+                            StyleTarget::DraggedWithin => styles.dragged_within = Some(val.clone()),
+                            StyleTarget::AnyWithin => styles.any_within = Some(val.clone()),
+                            StyleTarget::Base => unreachable!(),
+                        }
+
+                        // 動的スタイルの内部に存在するセッターも、その場で即時にターゲット解決を実行
+                        for setter in &val.inner.dynamic_setters {
+                            setter(cx, id, target);
+                        }
+
+                        cx.mark_render_dirty(id);
+                    }));
+            }
+        }
+        self
+    }
+
+    /// 別のスタイルを上に重ねてマージした新しい ThisStyle を生成して返します。
+    pub fn merge_with(&self, other: &Self) -> Self {
+        let mut merged = self.clone();
+        let inner_mut = Arc::make_mut(&mut merged.inner);
+        let other_inner = &other.inner;
+
+        // 1. ビットマスクのマージ
+        inner_mut.mask.merge(other_inner.mask);
+
+        // 2. 基本レイアウトプロパティのオーバーライド
+        if other_inner.mask.has_basic_layout() {
+            inner_mut
+                .basic_layout
+                .override_with(&other_inner.basic_layout, other_inner.mask);
+        }
+
+        // 3. Flexレイアウトプロパティのオーバーライド
+        if other_inner.mask.has_flex_layout() {
+            inner_mut
+                .flex_layout
+                .override_with(&other_inner.flex_layout, other_inner.mask);
+        }
+
+        // 4. ビジュアルプロパティのオーバーライド
+        if other_inner.mask.has_visual_property() {
+            inner_mut
+                .visual_property
+                .override_with(&other_inner.visual_property, other_inner.mask);
+        }
+
+        // 5. 疑似クラス（インタラクションプロパティ）のオーバーライド
+        if other_inner.mask.has_interaction_property()
+            || other_inner.mask.has(STYLE_INTERACTION_WITHIN)
+        {
+            inner_mut
+                .interaction_styles
+                .override_with(&other_inner.interaction_styles, other_inner.mask);
+        }
+
+        // 6. コールドデータのコピー
+        if other_inner.mask.has_grid_layout()
+            && let Some(ref g) = other_inner.grid_layout
+        {
+            inner_mut.grid_layout = Some(g.clone());
+        }
+        if let Some(ref sb) = other_inner.scrollbar_style {
+            inner_mut.scrollbar_style = Some(sb.clone());
+        }
+
+        // 7. 動的セッターの結合
+        inner_mut
+            .dynamic_setters
+            .extend(other_inner.dynamic_setters.clone());
+
+        // 8. D&D設定
+        if other_inner.drag_property.is_some() {
+            inner_mut.drag_property = other_inner.drag_property;
+        }
+        if other_inner.drop_property.is_some() {
+            inner_mut.drop_property = other_inner.drop_property;
+        }
+
+        merged
+    }
 }
 
 /// アニメーションのイージングカーブを定義する列挙型。
 /// 軽量なため Clone と Copy が可能です。
+// TODO: バネ物理シミュレーション Spring Physics
+// 摩擦（Damping）とバネの強さ（Stiffness）のパラメータから毎フレーム物理演算
 #[derive(Debug, Clone, Copy)]
 pub enum AnimationCurve {
     /// イージングなし（線形 / リニア）
@@ -4573,6 +5077,214 @@ impl IntoStyleValue<Cow<'static, str>> for String {
     #[inline]
     fn into_style_value(self) -> StyleValue<Cow<'static, str>> {
         StyleValue::Static(Cow::Owned(self))
+    }
+}
+
+pub trait IntoStyleResizable {
+    fn into_style_resizable(self) -> StyleValue<[bool; 4]>;
+}
+
+impl IntoStyleResizable for StyleValue<[bool; 4]> {
+    #[inline]
+    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
+        self
+    }
+}
+
+impl IntoStyleResizable for [bool; 4] {
+    #[inline]
+    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
+        StyleValue::Static(self)
+    }
+}
+
+impl IntoStyleResizable for (bool, bool, bool, bool) {
+    #[inline]
+    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
+        StyleValue::Static([self.0, self.1, self.2, self.3])
+    }
+}
+
+impl IntoStyleResizable for ReadSignal<[bool; 4]> {
+    #[inline]
+    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
+        StyleValue::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+impl IntoStyleResizable for ReadSignal<(bool, bool, bool, bool)> {
+    #[inline]
+    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
+        StyleValue::Dynamic(Box::new(move || {
+            let t = self.get();
+            [t.0, t.1, t.2, t.3]
+        }))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleValue<T> for ReadSignal<T> {
+    #[inline]
+    fn into_style_value(self) -> StyleValue<T> {
+        StyleValue::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for ReadSignal<Rect<T>> {
+    #[inline]
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for ReadSignal<Val>
+where
+    Val: IntoRect<T>,
+{
+    #[inline]
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for ReadSignal<Length>
+where
+    Length: IntoRect<T>,
+{
+    #[inline]
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for ReadSignal<f32>
+where
+    f32: IntoRect<T>,
+{
+    #[inline]
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    }
+}
+
+impl<V, H, T> IntoStyleRect<T> for ReadSignal<(V, H)>
+where
+    (V, H): IntoRect<T> + Clone + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+{
+    #[inline]
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    }
+}
+
+impl<Top, Right, Bottom, Left, T> IntoStyleRect<T> for ReadSignal<(Top, Right, Bottom, Left)>
+where
+    (Top, Right, Bottom, Left): IntoRect<T> + Clone + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+{
+    #[inline]
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for ReadSignal<Size<T>> {
+    #[inline]
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for ReadSignal<Val>
+where
+    Val: IntoSize<T>,
+{
+    #[inline]
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_size()))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for ReadSignal<Length>
+where
+    Length: IntoSize<T>,
+{
+    #[inline]
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_size()))
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for ReadSignal<f32>
+where
+    f32: IntoSize<T>,
+{
+    #[inline]
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_size()))
+    }
+}
+
+impl<W, H, T> IntoStyleSize<T> for ReadSignal<(W, H)>
+where
+    (W, H): IntoSize<T> + Clone + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+{
+    #[inline]
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_size()))
+    }
+}
+
+impl IntoStyleCornerRadius for ReadSignal<CornerRadius> {
+    #[inline]
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+impl IntoStyleCornerRadius for ReadSignal<f32> {
+    #[inline]
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
+    }
+}
+
+impl IntoStyleCornerRadius for ReadSignal<i32> {
+    #[inline]
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
+    }
+}
+
+impl<V, H> IntoStyleCornerRadius for ReadSignal<(V, H)>
+where
+    (V, H): IntoCornerRadius + Clone + Send + Sync + 'static,
+{
+    #[inline]
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
+    }
+}
+
+impl<TL, TR, BR, BL> IntoStyleCornerRadius for ReadSignal<(TL, TR, BR, BL)>
+where
+    (TL, TR, BR, BL): IntoCornerRadius + Clone + Send + Sync + 'static,
+{
+    #[inline]
+    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+        StyleValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
+    }
+}
+
+impl<S, T> IntoStyleConvert<T> for ReadSignal<S>
+where
+    S: Convert<T> + Clone + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+{
+    #[inline]
+    fn into_style_convert(self) -> StyleValue<T> {
+        StyleValue::Dynamic(Box::new(move || self.get().convert()))
     }
 }
 

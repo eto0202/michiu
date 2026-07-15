@@ -233,10 +233,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .r(3.0)
                 .transform_origin(Point::new(0.5, 0.0))
                 .trans_transform(Duration::from_millis(100), AnimationCurve::EaseInOutQuad)
-                .trans_opacity(Duration::from_millis(150), AnimationCurve::EaseOutQuad);
+                .trans_opacity(Duration::from_millis(200), AnimationCurve::EaseOutQuad);
 
             if menu_open.get() {
-                base_style.transform(Transform::new())
+                base_style
+                    .transform(Transform::new())
+                    .flex()
+                    .opacity_100()
+                    .pointer_events_auto()
             } else {
                 base_style
                     .hidden()

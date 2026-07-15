@@ -1,24 +1,23 @@
-use crate::{
-    root::create_root,
-    window::{
-        client_rect, create_renderer, create_window, message_loop, register_class, show_window,
-    },
+use crate::window::{
+    client_rect, create_renderer, create_window, message_loop, register_class, show_window,
 };
-use michiu_ui::{ComposedRenderer, EntityId, prelude::*};
+use michiu_ui::{ComposedRenderer, Dss, DssSet, EntityId, prelude::*};
 use windows::Win32::{
+    Foundation::{HWND, LPARAM, WPARAM},
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
     UI::{
         HiDpi::{
             DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow,
             SetProcessDpiAwarenessContext,
         },
-        WindowsAndMessaging::{GWLP_USERDATA, GetWindowLongPtrW, SetWindowLongPtrW},
+        WindowsAndMessaging::{
+            GWLP_USERDATA, GetWindowLongPtrW, PostMessageW, SetWindowLongPtrW, WM_NULL,
+        },
     },
 };
 
+mod app;
 mod components;
-mod root;
-mod theme;
 mod window;
 
 /// ウィンドウメッセージ処理時に Context と Renderer を一元管理するためのアプリケーション状態
@@ -39,10 +38,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut context = Context::new();
 
-    let (theme, set_theme) = context.create_signal(theme::Theme::dark());
-    let _theme_sender = set_theme.sender_with_cx(&context);
+    // HWND を Send/Sync 化するラッパー
+    struct SendHwnd(HWND);
+    unsafe impl Send for SendHwnd {}
+    unsafe impl Sync for SendHwnd {}
 
-    let root = build_ui(&mut context, || create_root(theme));
+    impl SendHwnd {
+        fn wake(&self) {
+            let _ = unsafe { PostMessageW(Some(self.0), WM_NULL, WPARAM(0), LPARAM(0)) };
+        }
+    }
+
+    let send_hwnd = SendHwnd(hwnd);
+
+    context.set_waker(move || send_hwnd.wake());
+
+    let css_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("examples/sample_collection/global.css");
+
+    let (styles_sig, _guard) = DssSet::builder()
+        .add_sheet(Dss::new("global").from_file(css_path).hot_reload(true))
+        .build_and_watch(&mut context);
+
+    let root = build_ui(&mut context, move || app::create_root(styles_sig));
 
     let dpi = unsafe { GetDpiForWindow(hwnd) };
     let scale_factor = dpi as f32 / 96.0;

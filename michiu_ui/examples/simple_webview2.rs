@@ -16,7 +16,9 @@ use windows::{
                 DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForWindow,
                 SetProcessDpiAwarenessContext,
             },
-            Input::KeyboardAndMouse::{TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent},
+            Input::KeyboardAndMouse::{
+                ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
+            },
             WindowsAndMessaging::*,
         },
     },
@@ -161,8 +163,10 @@ unsafe extern "system" fn wnd_proc(
 
                 // マウス移動メッセージを WebView2 コントローラーへ透過的にフォワード
                 // 最前面にヒットした要素が WebView2 自身である場合のみ、イベントをフォワードする
+                // 修正: ドラッグ（プレス）中であれば pressed 要素を優先ロック、なければヒット要素を取得
                 let hit_element = app.context.hit_test(logical_pos);
-                if hit_element == Some(app.webview_id) {
+                let target_element = app.context.interaction_states.pressed.or(hit_element);
+                if target_element == Some(app.webview_id) {
                     app.renderer.forward_mouse_input(
                         &app.context,
                         app.webview_id,
@@ -194,6 +198,13 @@ unsafe extern "system" fn wnd_proc(
                     ElementState::Released
                 };
 
+                // マウスキャプチャの Win32 制御
+                if state == ElementState::Pressed {
+                    unsafe { SetCapture(hwnd) };
+                } else {
+                    let _ = unsafe { ReleaseCapture() };
+                }
+
                 // 修飾キーの状態をビットマスクから解決
                 let modifiers = Modifiers {
                     shift: (wparam.0 & 0x0004) != 0, // MK_SHIFT
@@ -201,9 +212,6 @@ unsafe extern "system" fn wnd_proc(
                     alt: false,
                     logo: false,
                 };
-
-                app.context
-                    .inject_pointer_button(MouseButton::Left, state, modifiers);
 
                 let x = (lparam.0 & 0xffff) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
@@ -213,9 +221,21 @@ unsafe extern "system" fn wnd_proc(
                 // クリック座標の最前面が WebView2 自身である場合のみフォワード
                 let logical_pos =
                     LayoutPoint::new(x / app.renderer.scale_factor, y / app.renderer.scale_factor);
+
+                // プレス状態が context.inject_pointer_button 内でクリアされる前にターゲットを特定
                 let hit_element = app.context.hit_test(logical_pos);
 
-                if hit_element == Some(app.webview_id) {
+                // ボタンを離した際は、ドラッグを開始した要素（Pressed）へメッセージを流す
+                let target_element = if state == ElementState::Pressed {
+                    hit_element
+                } else {
+                    app.context.interaction_states.pressed.or(hit_element)
+                };
+
+                app.context
+                    .inject_pointer_button(MouseButton::Left, state, modifiers);
+
+                if target_element == Some(app.webview_id) {
                     app.renderer.forward_mouse_input(
                         &app.context,
                         app.webview_id,
@@ -339,7 +359,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .m_l(20.0)
         .size(50.0)
         .bg_color(rgb(100, 100, 100))
-        .rounded(5.0)
+        .r(5.0)
         .box_shadow(blur(5.0).spread(1.0).color(Color::BLACK))
         .transform(Transform::new().scale(1.0, 1.0))
         .trans_bg_color(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
@@ -352,39 +372,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .size(150.0)
                 .box_shadow(blur(10.0).spread(2.0).color(Color::BLACK)),
         )
-        .pressed(ts().transform(Transform::new().scale(0.95, 0.95)))
-        .cursor(CursorIcon::Pointer);
+        .pressed(ts().transform(Transform::new().scale(0.95, 0.95)));
 
     // build_ui を使って要素ツリーを宣言的に組み立て
     let root = build_ui(&mut context, || {
-        // 親コンテナ（100%全画面）
         let root_node = v_flex(
             ts().size_full()
                 .bg_color(rgba(34, 36, 42, 0.3))
                 .items_center()
                 .justify_center()
-                .flex_col()
                 .gap_col(15.0)
                 .backdrop_acrylic(),
         );
 
-        let main = div(ts()
-            .flex()
-            .items_center()
-            .justify_center()
-            .flex_col()
-            .size_full()
-            .m(20.0)
-            .bg_color(rgba(34, 36, 42, 0.6)));
+        let main = v_flex(
+            ts().items_center()
+                .justify_center()
+                .size_full()
+                .m(20.0)
+                .bg_color(rgba(34, 36, 42, 0.6)),
+        );
 
-        // タイトルテキスト
-        let title = text("Michiu WebView2 Composition Demo").style(
+        let title = text("WebView2 Composition Demo").style(
             ts().font_size(24.0)
                 .text_color(Color::WHITE)
                 .font_family("Segoe UI"),
         );
 
-        // 波括弧 `{}` による即時実行ブロックを使い、Element として作成します
         let webview_element = {
             let wv = webview2(
                 WebView2Contents::new("https://www.google.com/maps")
@@ -394,7 +408,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .style(
                 ts().size((pct(80.0), pct(70.0)))
-                    .rounded(12.0)
+                    .r(12.0)
+                    .resizable_all(true)
                     .transform(Transform::new().scale(1.0, 1.0))
                     .trans_border_color(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
                     .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
@@ -407,7 +422,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             wv
         };
 
-        // 親子関係の構築
         root_node.child(
             main.child(title)
                 .child(webview_element.child(div(btn_style.bg_color(Color::WHITE)))),
@@ -471,6 +485,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.renderer.resize((width, height), scale_factor);
     app.context
         .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
+    app.renderer.prewarm_webview2();
 
     // 5. ウィンドウを表示して描画
     unsafe {

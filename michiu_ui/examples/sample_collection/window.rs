@@ -59,6 +59,24 @@ unsafe extern "system" fn wnd_proc(
                 unsafe { PostQuitMessage(0) };
                 return LRESULT(0);
             }
+            WM_NULL => {
+                let app_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut AppState;
+                if !app_ptr.is_null() {
+                    let app = unsafe { &mut *app_ptr };
+
+                    // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
+                    app.context.process_main_thread_tasks();
+
+                    // 消化によってレイアウトや描画に変更があった場合のみ、同期および再描画を実行
+                    if app.context.is_render_dirty() {
+                        app.context
+                            .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
+                        app.renderer.update_composition_tree(&mut app.context);
+                        app.renderer.draw(&app.context); // これが内部で InvalidateRect 等を適切に走らせます
+                    }
+                }
+                return LRESULT(0);
+            }
             WM_DPICHANGED => {
                 // wparam から新しい DPI の値を取得 (96 DPI = 1.0倍)
                 let dpi = (wparam.0 & 0xffff) as u32;
@@ -98,8 +116,6 @@ unsafe extern "system" fn wnd_proc(
             WM_PAINT => {
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
-
-                app.context.process_main_thread_tasks();
 
                 // トランジション（アニメーション）を1フレーム進める
                 app.context.tick_transitions();
@@ -434,6 +450,36 @@ unsafe extern "system" fn wnd_proc(
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(1); // OS標準の描画処理を完全に抑制
             }
+            WM_SETCURSOR => {
+                // lparam の下位16ビットが HTCLIENT の時のみ適用
+                let hit_test = (lparam.0 & 0xffff) as u32;
+
+                if hit_test == HTCLIENT {
+                    let app_ptr =
+                        unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut AppState;
+                    if !app_ptr.is_null() {
+                        let app = unsafe { &mut *app_ptr };
+
+                        // 現在ホバーされている要素があるかチェック
+                        // なければプレス中ID等の解決は内部の resolve_cursor に
+                        if let Some(hovered_id) = app.context.entity_id_hovered() {
+                            // プレスロック状態、通常ホバー状態、親の Global 指定、リサイズ個別設定から最適な CursorIcon を解決
+                            let cursor_icon = app.context.resolve_cursor(hovered_id);
+
+                            // 物理 HCURSOR ハンドルを取得（独自カーソルがあればそれ、なければ IDC_ARROW 等を標準ロード）
+                            let hcursor = cursor_icon.to_hcursor();
+
+                            // OS の物理カーソルとしてセット
+                            unsafe { SetCursor(Some(hcursor)) };
+
+                            // OSによる矢印への自動復元を防止
+                            return LRESULT(1);
+                        }
+                    }
+                }
+                // ホバー要素がない場合は、システム標準の処理にフォールバック
+                return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
+            }
             _ => {}
         }
     }
@@ -452,7 +498,7 @@ pub fn register_class() -> windows_result::Result<(HMODULE, PCWSTR, WNDCLASSW)> 
             hInstance: h_instance.into(),
             lpszClassName: class_name,
             hbrBackground: HBRUSH::default(), // 背景ブラシを完全にクリア（GDIによる描画競合を防止）
-            hCursor: LoadCursorW(None, IDC_ARROW)?,
+            hCursor: HCURSOR::default(),
             ..Default::default()
         };
         RegisterClassW(&wnd_class);
@@ -470,8 +516,8 @@ pub fn create_window(h_instance: HMODULE, class_name: PCWSTR) -> windows_result:
             WS_OVERLAPPEDWINDOW,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
+            1000,
             800,
-            600,
             None,
             None,
             Some(HINSTANCE(h_instance.0)),
@@ -486,7 +532,7 @@ pub fn create_renderer(
     hwnd: HWND,
     scale_factor: f32,
 ) -> Result<ComposedRenderer, Box<dyn std::error::Error>> {
-    let initial_layout_size = LayoutSize::new(800.0, 600.0);
+    let initial_layout_size = LayoutSize::new(900.0, 700.0);
     // レンダラーを作成
     let renderer = pollster::block_on(ComposedRenderer::new(
         hwnd,

@@ -842,7 +842,7 @@ fn test_single_and_global_mutation_performance() {
             [10.0, 20.0, 0.0, 1.0],
         ]);
         visual.z_index = Some(99);
-        visual.cursor = Some(CursorIcon::Pointer);
+        visual.cursor = Some(CursorIcon::Pointer(None));
         visual.text_color = Some(Color::rgb_f32(1.0, 0.0, 0.0));
         visual.font_size = Some(18.0);
         cx.visual_properties.insert(id, visual);

@@ -295,7 +295,7 @@ impl WgpuRenderer {
                         color: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::Zero,
                             // アルファが 0.0 に消去される場所ではカラーも同時に 0.0 になるように
-                            // OneMinusSrcAlpha で元の背景色を減算（消去）します。
+                            // OneMinusSrcAlpha で元の背景色を減算します。
                             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                             operation: wgpu::BlendOperation::Add,
                         },
@@ -480,12 +480,37 @@ impl WgpuRenderer {
                 self.bind_texture_for_batch(&mut rpass, batch);
 
                 let clip = batch.scissor_rect;
-                rpass.set_scissor_rect(
-                    (clip.x * scale_factor).round().max(0.0) as u32,
-                    (clip.y * scale_factor).round().max(0.0) as u32,
-                    (clip.width * scale_factor).round().max(0.0) as u32,
-                    (clip.height * scale_factor).round().max(0.0) as u32,
-                );
+
+                // スケールを乗じて物理ピクセル座標を算出
+                let phys_x = (clip.x * scale_factor).round().max(0.0) as u32;
+                let phys_y = (clip.y * scale_factor).round().max(0.0) as u32;
+                let phys_w = (clip.width * scale_factor).round().max(0.0) as u32;
+                let phys_h = (clip.height * scale_factor).round().max(0.0) as u32;
+
+                // 現在のスワップチェーンテクスチャの境界サイズを取得
+                let target_w = self.config.width;
+                let target_h = self.config.height;
+
+                //  物理開始位置がすでに縮小後のバックバッファ外に押し出されている場合、
+                // 描画が不可能であるため、検証エラーを避けるためにこのバッチの描画を安全にスキップ（バイパス）します。
+                if phys_x >= target_w || phys_y >= target_h {
+                    // オフセットだけはスキップされた数分確実に進めます。
+                    instance_offset += count;
+                    continue;
+                }
+
+                // 開始位置 + 幅/高さがレンダーターゲットをはみ出さないように厳密にクランプ
+                let clamped_w = phys_w.min(target_w - phys_x);
+                let clamped_h = phys_h.min(target_h - phys_y);
+
+                // wgpu の制約回避のため、クランプ後の幅・高さが 0 の場合も描画をスキップ
+                if clamped_w == 0 || clamped_h == 0 {
+                    instance_offset += count;
+                    continue;
+                }
+
+                // 完全に境界内に収まるように安全化された Scissor Rect を適用
+                rpass.set_scissor_rect(phys_x, phys_y, clamped_w, clamped_h);
 
                 rpass.draw_indexed(0..6, 0, instance_offset..(instance_offset + count));
                 instance_offset += count;

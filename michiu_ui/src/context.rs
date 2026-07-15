@@ -1,15 +1,17 @@
 #![allow(unused)]
 use crate::{
     ActiveAnimation, ActiveTransition, AlignContent, AlignItems, AlignSelf, BasicLayout, BatchType,
-    BoxShadow, BoxSizing, Color, CornerRadius, CursorIcon, Direction, Display, DrawBatch,
-    EdgeInsets, EffectId, Element, ElementState, EventListeners, FlexDirection, FlexLayout,
-    FlexWrap, GridAutoFlow, GridLayout, GridLine, GridPlacement, IDENTITY_MATRIX, ImageSource,
-    ImeState, InputContents, InteractionStates, InteractionStyles, JustifyContent, LayoutOverflow,
+    BoxShadow, BoxSizing, Color, CornerRadius, CursorIcon, Direction, Display, DragPayload,
+    DragPlaceholderParent, DragProperty, DrawBatch, DropProperty, DropTarget, EdgeInsets, EffectId,
+    Element, ElementState, EventListeners, FlexDirection, FlexLayout, FlexWrap, GlobalCursorIcon,
+    GridAutoFlow, GridLayout, GridLine, GridPlacement, IDENTITY_MATRIX, ImageSource, ImeState,
+    InputContents, InteractionStates, InteractionStyles, JustifyContent, LayoutOverflow,
     LayoutPoint, LayoutRect, LayoutSize, Length, Modifiers, MouseButton, MovieProperty,
     MovieSource, Overflow, PlaybackCount, PointerEvents, Position, QuadInstance, ReadSignal, Rect,
-    RenderData, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, SignalId, Size, TextAlign,
-    TextEngine, TextSpan, ThisStyle, TransitionValue, UiaValue, UserSelect, Val, VirtualKey,
-    VisualProperty, WebView2Contents, WriteSignal, bind_context, bitmap::*, with_context,
+    RenderData, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, SignalId, Size, StyleTarget,
+    TextAlign, TextEngine, TextSpan, ThisStyle, TransitionValue, UiaValue, UserSelect, Val,
+    VirtualKey, VisualProperty, WebView2Contents, WriteSignal, bind_context, bitmap::*,
+    with_context,
 };
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
@@ -20,7 +22,10 @@ use std::{
     collections::{HashMap, HashSet},
     marker::PhantomData,
     path::PathBuf,
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        Arc,
+        mpsc::{Receiver, Sender},
+    },
     time::{Duration, Instant},
 };
 use taffy::TaffyTree;
@@ -104,6 +109,8 @@ pub(crate) type TaskSenderType = Sender<Box<dyn FnOnce(&mut Context) + Send + 's
 #[derive(Clone)]
 pub struct TaskSender {
     pub(crate) inner: TaskSenderType,
+    // コアから Win32 を隠蔽するためのウェイクアップコールバック
+    pub(crate) waker: Option<Arc<dyn Fn() + Send + Sync + 'static>>,
 }
 
 impl TaskSender {
@@ -115,7 +122,13 @@ impl TaskSender {
         F: FnOnce(&mut Context) + Send + 'static,
     {
         // 内部で Box::new に包んで送信し、複雑なエラー型はシンプルな Result<(), ()> に変換して隠蔽する
-        self.inner.send(Box::new(f)).map_err(|_| ())
+        self.inner.send(Box::new(f)).map_err(|_| ())?;
+
+        // タスク送信に成功したら即座にメインスレッドをウェイクアップさせる
+        if let Some(ref waker) = self.waker {
+            waker();
+        }
+        Ok(())
     }
 }
 
@@ -156,7 +169,23 @@ pub(crate) struct ScrollBarState {
     pub(crate) last_scroll_time: Option<Instant>,
 }
 
-// TODO: Drop トレイト実装
+#[derive(Debug, Clone)]
+pub(crate) struct ActiveDragState {
+    pub(crate) source_entity: EntityId,      // ドラッグ元の要素
+    pub(crate) placeholder_entity: EntityId, // ルートまたは親に浮かせているプレースホルダー
+    pub(crate) current_drop_target: Option<EntityId>, // 現在ホバー侵入中のドロップターゲット要素
+    pub(crate) start_mouse_pos: LayoutPoint, // ドラッグ開始時のマウス座標
+    pub(crate) start_rect: LayoutRect,       // ドラッグ元の初期サイズ・座標
+    pub(crate) click_offset: LayoutPoint,    // ドラッグ開始時のマウスと要素左上端の相対的なズレ
+    pub(crate) original_parent: Option<EntityId>,
+}
+
+// 利用者用 Context を用意して安定APIはそちらで公開
+// pub struct EventContext<'a> {
+//    cx: &'a mut Context,
+// }
+// RawContext 側で全てのAPIを公開
+// Facade化するのもあり
 pub struct Context {
     // 1. 存在 ＆ トポロジー（階層・親子）管理
     /// 全要素の生存期間を管理するプライマリマップ
@@ -298,6 +327,18 @@ pub struct Context {
     pub(crate) effect_to_element: SecondaryMap<EffectId, EntityId>,
     /// 構築中に登録され、トポロジー完成まで初回評価が保留されている要素エフェクトのキュー
     pub(crate) pending_element_effects: Vec<EffectId>,
+
+    /// 現在リサイズドラッグ中の要素の情報
+    pub(crate) resizing_state: Option<ResizingState>,
+    // ドラッグ開始直前のホバー中に算出されたリサイズ方向
+    pub(crate) active_resize_hover: Option<(EntityId, ResizeDirection)>,
+
+    /// ドラッグ可能な要素の設定
+    pub(crate) drag_properties: SparseSecondaryMap<EntityId, DragProperty>,
+    /// ドロップ受け入れ先要素の設定
+    pub(crate) drop_properties: SparseSecondaryMap<EntityId, DropProperty>,
+    /// 現在進行中の D&D セッション状態
+    pub(crate) active_drag_state: Option<ActiveDragState>,
 }
 
 pub(crate) type Effects = Box<dyn FnMut(&mut Context)>;
@@ -355,7 +396,10 @@ impl Context {
             effects: SlotMap::with_key(),
             element_effects: SecondaryMap::new(),
             task_receiver: rx,
-            task_sender: TaskSender { inner: tx },
+            task_sender: TaskSender {
+                inner: tx,
+                waker: None,
+            },
             text_engine: TextEngine::new(),
             active_transitions: SparseSecondaryMap::new(),
             active_animations: SparseSecondaryMap::new(),
@@ -372,6 +416,11 @@ impl Context {
             providers: SparseSecondaryMap::new(),
             effect_to_element: SecondaryMap::new(),
             pending_element_effects: Vec::new(),
+            resizing_state: None,
+            active_resize_hover: None,
+            drag_properties: SparseSecondaryMap::new(),
+            drop_properties: SparseSecondaryMap::new(),
+            active_drag_state: None,
         }
     }
 
@@ -438,6 +487,14 @@ impl Context {
     /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
     pub fn task_sender(&self) -> TaskSender {
         self.task_sender.clone()
+    }
+
+    /// ウィンドウ生成後に起床用コールバックを登録します。
+    pub fn set_waker<F>(&mut self, f: F)
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.task_sender.waker = Some(Arc::new(f));
     }
 
     /// Context インスタンスから直接シグナルを生成します。
@@ -642,14 +699,41 @@ impl Context {
         )
     }
 
-    /// 親子関係の追加と、永続Taffy構造のリアルタイム同期
+    /// 親子関係の追加と、永続Taffy構造のリアルタイム同期。
+    /// 子がすでに別の親に属している場合は古い親からデタッチします。
     pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
+        // 子がすでに別の親に属しているか検証
+        if let Some(Some(old_parent)) = self.parents.get(child).copied()
+            && old_parent != parent
+        {
+            // 1. 古い親の children SoA リストから自分自身を安全に削除
+            if let Some(old_children) = self.children.get_mut(old_parent) {
+                old_children.retain(|x| *x != child);
+            }
+
+            // 2. 古い親の Taffy ノードから安全にデタッチ
+            if let Some(&old_parent_node) = self.taffy_nodes.get(old_parent)
+                && let Some(&child_node) = self.taffy_nodes.get(child)
+                && let Ok(taffy_children) = self.taffy.children(old_parent_node)
+                && taffy_children.contains(&child_node)
+            {
+                let _ = self.taffy.remove_child(old_parent_node, child_node);
+            }
+
+            // 3. 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
+            self.resync_taffy_children_order(old_parent);
+            self.mark_layout_dirty(old_parent);
+        }
+
+        // 新しい親の親子関係を更新
         self.parents.insert(child, Some(parent));
-        if let Some(children_list) = self.children.get_mut(parent) {
+        if let Some(children_list) = self.children.get_mut(parent)
+            && !children_list.contains(&child)
+        {
             children_list.push(child);
         }
 
-        // Taffyツリーの親子関係を永続的に更新
+        // 新しい親の Taffy ツリーの親子関係を永続的に更新
         if let Some(&parent_node) = self.taffy_nodes.get(parent)
             && let Some(&child_node) = self.taffy_nodes.get(child)
         {
@@ -707,6 +791,11 @@ impl Context {
         self.providers.clear();
         self.effect_to_element.clear();
         self.pending_element_effects.clear();
+        self.resizing_state = None;
+        self.active_resize_hover = None;
+        self.drag_properties.clear();
+        self.drop_properties.clear();
+        self.active_drag_state = None;
         // 溜まっている未処理タスクをすべて排出してクリーンアップ
         while self.task_receiver.try_recv().is_ok() {}
     }
@@ -727,6 +816,8 @@ impl Context {
             if let Some(Some(parent_id)) = self.parents.get(id)
                 && let Some(&parent_node) = self.taffy_nodes.get(*parent_id)
                 && let Some(&child_node) = self.taffy_nodes.get(id)
+                && let Ok(taffy_children) = self.taffy.children(parent_node)
+                && taffy_children.contains(&child_node)
             {
                 let _ = self.taffy.remove_child(parent_node, child_node);
             }
@@ -792,7 +883,81 @@ impl Context {
             self.scrollbar_styles.remove(id);
             self.providers.remove(id);
 
+            self.drag_properties.remove(id);
+            self.drop_properties.remove(id);
+
+            // 現在の D&D セッションに含まれる要素が破棄された場合はセッションを安全にリセット
+            if let Some(ref state) = self.active_drag_state
+                && (state.source_entity == id || state.placeholder_entity == id)
+            {
+                self.active_drag_state = None;
+            }
+
+            // ダーティキュー、DFSシーケンス、アクティブ走査用の一時配列から
+            // デスポーンされた無効な ID をその場で即時に抹消クリーンアップします。
+            self.dirty_layout_entities.retain(|&x| x != id);
+            self.dirty_render_entities.retain(|&x| x != id);
+            self.active_entities.retain(|&x| x != id);
+            self.flat_dfs_sequence.retain(|&x| x != id);
+            self.session_spawned.retain(|&x| x != id);
+            self.session_roots.retain(|&x| x != id);
+
             self.is_structure_dirty = true;
+        }
+    }
+
+    /// 親要素の特定の古い子要素を、順序（インデックス）を維持したまま新しい子要素へ直接差し替えます。
+    pub(crate) fn replace_child(
+        &mut self,
+        parent: EntityId,
+        old_child: EntityId,
+        new_child: EntityId,
+    ) {
+        // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
+        // 修正: 古いノードの削除は、直後の despawn_internal が一貫して安全に行うため、
+        // ここでの手動 remove_child を撤廃し、Taffy 側への新規アタッチ（add_child）のみを行います。
+        if let Some(&parent_node) = self.taffy_nodes.get(parent)
+            && let Some(&new_node) = self.taffy_nodes.get(new_child)
+        {
+            let _ = self.taffy.add_child(parent_node, new_node);
+        }
+
+        // children リスト内のインデックス位置を特定して直接置換
+        if let Some(children_list) = self.children.get_mut(parent)
+            && let Some(pos) = children_list.iter().position(|&x| x == old_child)
+        {
+            children_list[pos] = new_child;
+        }
+
+        // 親子参照の更新
+        self.parents.insert(new_child, Some(parent));
+
+        // 古い子要素（およびその子孫）を完全に安全デスポーン
+        // この中で Taffy からの remove_child も安全に実行されます
+        self.despawn_internal(old_child);
+
+        self.mark_layout_dirty(parent);
+        self.is_structure_dirty = true;
+    }
+
+    /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
+    /// 内部 SoA リスト（self.children）の順序に沿って一括して再同期）します。
+    pub(crate) fn resync_taffy_children_order(&mut self, parent_id: EntityId) {
+        if let Some(&parent_node) = self.taffy_nodes.get(parent_id) {
+            // 一旦現在登録されているすべての子ノードを Taffy 側から安全にデタッチ
+            if let Ok(taffy_children) = self.taffy.children(parent_node) {
+                for child_node in taffy_children {
+                    let _ = self.taffy.remove_child(parent_node, child_node);
+                }
+            }
+            // 最新の並び替え順序リストの順に従って、Taffy 側に再アタッチ
+            if let Some(children_list) = self.children.get(parent_id).cloned() {
+                for child_id in children_list {
+                    if let Some(&child_node) = self.taffy_nodes.get(child_id) {
+                        let _ = self.taffy.add_child(parent_node, child_node);
+                    }
+                }
+            }
         }
     }
 
@@ -970,6 +1135,14 @@ impl Context {
                                 context: Option<&mut EntityId>,
                                 _style: &taffy::Style|
              -> taffy::Size<f32> {
+                // 幅と高さの両方がすでにスタイル（known_dims）として解決されている場合はそれを最優先する
+                if let (Some(w), Some(h)) = (known_dims.width, known_dims.height) {
+                    return taffy::Size {
+                        width: w,
+                        height: h,
+                    };
+                }
+
                 if let Some(&id) = context.as_deref() {
                     // テキスト内容を持っているかチェック
                     // (クロージャの外側の self (= Context) は直接キャプチャできないため、
@@ -1024,12 +1197,18 @@ impl Context {
                                     Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
                             }
 
-                            taffy::Size {
+                            // 文字のみのサイズ
+                            return taffy::Size {
                                 width: known_dims.width.unwrap_or(size.width),
                                 height: known_dims.height.unwrap_or(size.height),
-                            }
-                        } else {
-                            taffy::Size::ZERO
+                            };
+                        }
+
+                        // テキストも入力も持たない空の div 等の場合、
+                        // スタイルに割り当てられたサイズがあればそれを優先して返し、無ければ ZERO とする
+                        taffy::Size {
+                            width: known_dims.width.unwrap_or(0.0),
+                            height: known_dims.height.unwrap_or(0.0),
                         }
                     });
                 }
@@ -1212,6 +1391,23 @@ impl Context {
                 _ => 0.0,
             };
 
+            let padding_bottom = match basic.padding.bottom {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_right = match basic.padding.right {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_left = match basic.padding.left {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_top = match basic.padding.top {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+
             // ウィンドウ内の有効表示サイズを算出
             let visible_w = if window_size.width > 0.0 {
                 let left = container_rect.x.max(0.0);
@@ -1229,11 +1425,17 @@ impl Context {
                 container_rect.height
             };
 
-            // 有効表示サイズに基づいてスクロールバーの必要性を判断
-            let show_v_bar = scroll_size.height > visible_h;
-            let show_h_bar = scroll_size.width > visible_w;
+            // 全体表示サイズから、ボーダーとパディングを差し引いた内枠の有効表示領域サイズを算出
+            let content_w =
+                (visible_w - border_left - border_right - padding_left - padding_right).max(0.0);
+            let content_h =
+                (visible_h - border_top - border_bottom - padding_top - padding_bottom).max(0.0);
 
-            // 1. 縦スクロールバーの同期
+            // 内枠の有効表示領域と、同じく内枠基準の scroll_size を精密に比較する
+            let show_v_bar = scroll_size.height > content_h;
+            let show_h_bar = scroll_size.width > content_w;
+
+            // 縦スクロールバーの同期
             if let Some(v_track) = sb_state.v_track_id {
                 let show = show_v_bar && sb_state.style.display != ScrollbarDisplay::None;
 
@@ -1261,7 +1463,7 @@ impl Context {
                 let track_node = self.taffy_nodes[v_track];
                 if v_track_visible {
                     let mut user_track_h = None;
-                    if let Some(ref track_style) = sb_state.style.track
+                    if let Some(ref track_style) = sb_state.style.v_track
                         && let Val::Px(val) = track_style.inner.basic_layout.size.height
                     {
                         user_track_h = Some(val);
@@ -1370,7 +1572,7 @@ impl Context {
                     .max(0.0);
 
                     let mut initial_thumb_h = track_h;
-                    if let Some(ref thumb_style) = sb_state.style.thumb
+                    if let Some(ref thumb_style) = sb_state.style.v_thumb
                         && let Val::Px(val) = thumb_style.inner.basic_layout.size.height
                     {
                         initial_thumb_h = val;
@@ -1387,13 +1589,13 @@ impl Context {
 
                     // ユーザー指定の min_size と max_size で正確にクランプ
                     let mut min_h = 24.0;
-                    if let Some(ref thumb_style) = sb_state.style.thumb
+                    if let Some(ref thumb_style) = sb_state.style.v_thumb
                         && let Val::Px(val) = thumb_style.inner.basic_layout.min_size.height
                     {
                         min_h = val;
                     }
                     let mut max_h = track_h;
-                    if let Some(ref thumb_style) = sb_state.style.thumb
+                    if let Some(ref thumb_style) = sb_state.style.v_thumb
                         && let Val::Px(val) = thumb_style.inner.basic_layout.max_size.height
                     {
                         max_h = val;
@@ -1403,7 +1605,7 @@ impl Context {
 
                     let mut margin_top = 0.0;
                     let mut margin_bottom = 0.0;
-                    if let Some(ref thumb_style) = sb_state.style.thumb {
+                    if let Some(ref thumb_style) = sb_state.style.v_thumb {
                         if let Val::Px(val) = thumb_style.inner.basic_layout.margin.top {
                             margin_top = val;
                         }
@@ -1426,7 +1628,7 @@ impl Context {
 
                     let mut pad_right = 0.0;
                     let mut pad_left = 0.0;
-                    if let Some(ref thumb_style) = sb_state.style.thumb {
+                    if let Some(ref thumb_style) = sb_state.style.v_thumb {
                         if let Val::Px(w) = thumb_style.inner.basic_layout.size.width {
                             thumb_width = w.min(sb_state.style.width);
                         }
@@ -1617,7 +1819,7 @@ impl Context {
                     .max(0.0);
 
                     let mut initial_thumb_w = track_w;
-                    if let Some(ref thumb_style) = sb_state.style.thumb
+                    if let Some(ref thumb_style) = sb_state.style.h_thumb
                         && let Val::Px(w) = thumb_style.inner.basic_layout.size.width
                     {
                         initial_thumb_w = w;
@@ -1632,13 +1834,13 @@ impl Context {
                     let calculated_w = initial_thumb_w * view_ratio;
 
                     let mut min_w = 24.0;
-                    if let Some(ref thumb_style) = sb_state.style.thumb
+                    if let Some(ref thumb_style) = sb_state.style.h_thumb
                         && let Val::Px(val) = thumb_style.inner.basic_layout.min_size.width
                     {
                         min_w = val;
                     }
                     let mut max_w = track_w;
-                    if let Some(ref thumb_style) = sb_state.style.thumb
+                    if let Some(ref thumb_style) = sb_state.style.h_thumb
                         && let Val::Px(val) = thumb_style.inner.basic_layout.max_size.width
                     {
                         max_w = val;
@@ -1648,7 +1850,7 @@ impl Context {
 
                     let mut margin_left = 0.0;
                     let mut margin_right = 0.0;
-                    if let Some(ref thumb_style) = sb_state.style.thumb {
+                    if let Some(ref thumb_style) = sb_state.style.h_thumb {
                         if let Val::Px(val) = thumb_style.inner.basic_layout.margin.left {
                             margin_left = val;
                         }
@@ -1669,7 +1871,7 @@ impl Context {
                     let mut thumb_height = sb_state.style.width;
                     let mut pad_top = 0.0;
                     let mut pad_bottom = 0.0;
-                    if let Some(ref thumb_style) = sb_state.style.thumb {
+                    if let Some(ref thumb_style) = sb_state.style.h_thumb {
                         if let Val::Px(val) = thumb_style.inner.basic_layout.size.height {
                             thumb_height = val.min(sb_state.style.width);
                         }
@@ -1969,11 +2171,11 @@ impl Context {
 
                 // 不透明度を 1.0 固定にせず、要素自身の opacity 値を引き渡す。
                 // これにより、くり抜く強度がブレンドステート OneMinusSrcAlpha に正しく乗り、
-                // wgpu側の親の背景色が適度に残ることでグループ合成を模倣し、デスクトップ透過を完全に防ぎます。
+                // wgpu側の親の背景色が適度に残ることでグループ合成を模倣しデスクトップ透過を防ぐ
                 let punchout_opacity = visual.opacity.unwrap_or(1.0);
 
-                // 2. 「くり抜き（Punchout）」用のインスタンスを作成して登録
-                // (wgpu のバッファの背景を、角丸を維持したまま完全に透明に上書き消去するためのインスタンス)
+                // くり抜き（Punchout）用のインスタンスを作成して登録
+                // wgpu のバッファの背景を、角丸を維持したまま完全に透明に上書き消去するためのインスタンス
                 let punchout_instance = QuadInstance {
                     rect,
                     transform: packed_transform,
@@ -1981,7 +2183,7 @@ impl Context {
                     // アルファを 1.0 で出力させることで、Destination Out ブレンドが
                     // 反応して背景アルファを完全に 0.0 にくり抜くようになります。
                     color: Color::WHITE, // 白（アルファ減算用）
-                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO), // 完璧な角丸に沿ってくり抜く
+                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO), // 角丸に沿ってくり抜く
                     border_width: EdgeInsets::ZERO, // くり抜き時は枠線は不要
                     border_color: Color::TRANSPARENT,
                     border_lengths: EdgeInsets::ZERO,
@@ -2241,7 +2443,7 @@ impl Context {
                 let bg_color = visual.bg_color.unwrap_or(Color::TRANSPARENT);
                 let (gradient_end_color, gradient_angle, bg_mode) = match visual.bg_gradient {
                     Some(g) => (g.end_color, g.angle, 1.0f32),
-                    None => (bg_color, 0.0, -1.0f32), // mode = -1.0 (装飾モードとしてテキストをバイパス)
+                    None => (bg_color, 0.0, 0.0f32), // mode = -1.0 (装飾モードとしてテキストをバイパス)
                 };
 
                 let full_transform = visual.transform.unwrap_or(IDENTITY_MATRIX);
@@ -2720,7 +2922,7 @@ impl Context {
     }
 
     /// 状態の変更を検知し、アニメーション（トランジション）が必要な箇所を自動的に開始・制御します。
-    pub(crate) fn resolve_element_style_state(&mut self, id: EntityId) {
+    pub(crate) fn resolve_element_style_state(&mut self, id: EntityId, allow_transition: bool) {
         let active_mask = self.active_masks[id];
 
         // ビジュアルプロパティ (bg_color, opacity等) の解決
@@ -2769,6 +2971,12 @@ impl Context {
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.pointer_events);
+
+            let mut target_cursor = self.base_visual_properties.get(id).and_then(|v| v.cursor);
+            let mut target_resizable_cursor = self
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.resizable_cursor);
 
             // 目標値（Target）をクローンせずに参照経由で構築
             let mut target_bg = self.base_visual_properties.get(id).and_then(|v| v.bg_color);
@@ -2828,6 +3036,9 @@ impl Context {
                     (STATE_HOVERED, &interaction.hovered),
                     (STATE_PRESSED, &interaction.pressed),
                     (STATE_DISABLED, &interaction.disabled),
+                    (STATE_DRAGGING, &interaction.dragging),
+                    (STATE_DRAG_IN, &interaction.drag_in),
+                    (STATE_DRAG_OVER, &interaction.drag_over),
                 ];
 
                 for (state, style_opt) in cascade {
@@ -2885,6 +3096,12 @@ impl Context {
                                 target_border_alignments = inner_vis.border_alignments;
                             }
                         }
+                        if inner_mask.has(STYLE_CURSOR) {
+                            target_cursor = inner_vis.cursor;
+                        }
+                        if inner_mask.has(STYLE_RESIZABLE) {
+                            target_resizable_cursor = inner_vis.resizable_cursor;
+                        }
                     }
                 }
             }
@@ -2900,6 +3117,8 @@ impl Context {
                     (STATE_HOVERED, &interaction.hovered_within),
                     (STATE_PRESSED, &interaction.pressed_within),
                     (STATE_DISABLED, &interaction.disabled_within),
+                    (STATE_DRAGGING, &interaction.dragged_within),
+                    (STATE_DRAG_IN, &interaction.hovered_within),
                 ];
 
                 for (state, style_opt) in cascade_within {
@@ -3038,7 +3257,7 @@ impl Context {
 
             // トランジション判定 (変更がある場合のみトリガー)
             let mut bg_triggered = false;
-            if bg_changed {
+            if allow_transition && bg_changed && has_active_visual {
                 bg_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::BackgroundColor,
@@ -3048,7 +3267,7 @@ impl Context {
             }
 
             let mut border_triggered = false;
-            if border_changed {
+            if border_changed && has_active_visual {
                 border_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::BorderColor,
@@ -3058,7 +3277,7 @@ impl Context {
             }
 
             let mut opacity_triggered = false;
-            if opacity_changed {
+            if opacity_changed && has_active_visual {
                 opacity_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::Opacity,
@@ -3078,7 +3297,7 @@ impl Context {
             }
 
             let mut radius_triggered = false;
-            if radius_changed {
+            if radius_changed && has_active_visual {
                 radius_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::CornerRadius,
@@ -3088,7 +3307,7 @@ impl Context {
             }
 
             let mut shadow_triggered = false;
-            if shadow_changed {
+            if shadow_changed && has_active_visual {
                 shadow_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::BoxShadow,
@@ -3160,10 +3379,12 @@ impl Context {
                     .get(id)
                     .and_then(|v| v.user_select);
 
+                active_vis.cursor = target_cursor;
+                active_vis.resizable_cursor = target_resizable_cursor;
+
                 // コールドプロパティの即時代入
                 if let Some(target_vis) = self.base_visual_properties.get(id) {
                     active_vis.z_index = target_vis.z_index;
-                    active_vis.cursor = target_vis.cursor;
                     active_vis.backdrop = target_vis.backdrop;
                     active_vis.font_size = target_vis.font_size;
                     active_vis.font_family = target_vis.font_family.clone();
@@ -3201,6 +3422,9 @@ impl Context {
                     (STATE_HOVERED, &interaction.hovered),
                     (STATE_PRESSED, &interaction.pressed),
                     (STATE_DISABLED, &interaction.disabled),
+                    (STATE_DRAGGING, &interaction.dragging),
+                    (STATE_DRAG_IN, &interaction.drag_in),
+                    (STATE_DRAG_OVER, &interaction.drag_over),
                 ];
 
                 for (state, style_opt) in cascade {
@@ -3233,7 +3457,9 @@ impl Context {
                 })
                 .unwrap_or(false);
 
-            if can_trigger_width
+            if allow_transition
+                && can_trigger_width
+                && has_active_layout
                 && let (Some(cw), Some(tw)) = (current_w_px, target_w_px)
                 && (cw - tw).abs() > 0.01
             // 浮動小数点誤差を無視
@@ -3258,7 +3484,9 @@ impl Context {
                 })
                 .unwrap_or(false);
 
-            if can_trigger_height
+            if allow_transition
+                && can_trigger_height
+                && has_active_layout
                 && let (Some(ch), Some(th)) = (current_h_px, target_h_px)
                 && (ch - th).abs() > 0.01
             {
@@ -3529,6 +3757,13 @@ impl Context {
         sorted_entities.sort_by_key(|&id| effective_z_indices.get(id).copied().unwrap_or(0));
 
         for &id in sorted_entities.iter().rev() {
+            // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
+            if Some(id) == self.interaction_states.dragged
+                || self.active_masks[id].has(STATE_DRAG_OVER)
+            {
+                continue;
+            }
+
             // 親などの overflow 等でクリップされている表示範囲外ならスキップ
             if let Some(clip) = self.clip_rects.get(id)
                 && !clip.contains(point)
@@ -3623,7 +3858,7 @@ impl Context {
 
     /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
     /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
-    pub(crate) fn does_state_require_layout(&self, id: EntityId, state_flag: u64) -> bool {
+    pub(crate) fn does_state_require_layout(&self, id: EntityId, state_flag: u128) -> bool {
         if let Some(interaction) = self.interaction_properties.get(id) {
             // 対象となる状態スタイルを取得
             let target_style = match state_flag {
@@ -3634,6 +3869,9 @@ impl Context {
                 STATE_ACTIVED => &interaction.actived,
                 STATE_SELECTED => &interaction.selected,
                 STATE_DRAGGED => &interaction.dragged,
+                STATE_DRAGGING => &interaction.dragging,
+                STATE_DRAG_IN => &interaction.drag_in,
+                STATE_DRAG_OVER => &interaction.drag_over,
                 _ => &None,
             };
 
@@ -3648,7 +3886,7 @@ impl Context {
     }
 
     /// 子孫要素のインタラクション状態（state_flag）を走査します
-    pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u64) -> bool {
+    pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u128) -> bool {
         // ヒープアロケーションを防ぐため、スタック領域に16要素まで確保可能な SmallVec を用意
         let mut stack = SmallVec::<[EntityId; 16]>::new();
 
@@ -3707,7 +3945,7 @@ impl Context {
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
     #[inline(always)]
-    fn update_state(&mut self, id: EntityId, state_flag: u64, active: bool) {
+    fn update_state(&mut self, id: EntityId, state_flag: u128, active: bool) {
         if let Some(mask) = self.active_masks.get_mut(id) {
             let was_active = mask.has(state_flag);
             if was_active != active {
@@ -3719,7 +3957,7 @@ impl Context {
                 }
 
                 // 状態変化の発生時に、即座に動的なスタイルを解決する
-                self.resolve_element_style_state(id);
+                self.resolve_element_style_state(id, true);
 
                 // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
                 let mut curr = id;
@@ -3729,7 +3967,7 @@ impl Context {
 
                         // 先祖要素が one of the within スタイルを1つでも持っている場合のみ深く入る
                         if parent_mask.has(STYLE_INTERACTION_WITHIN) {
-                            self.resolve_element_style_state(parent_id);
+                            self.resolve_element_style_state(parent_id, true);
 
                             if self.does_state_require_layout(parent_id, state_flag) {
                                 self.mark_layout_dirty(parent_id);
@@ -3804,38 +4042,51 @@ impl Context {
     ///
     /// ホバースタイル内にレイアウト変更プロパティ（幅やマージン等）が含まれていれば自動的にレイアウト再計算が要求され、
     /// 色や不透明度の変化だけであれば最速の描画更新（ファストパス）として処理されます。
-    pub(crate) fn set_hovered(&mut self, id: EntityId, hovered: bool) {
+    #[inline]
+    pub fn set_hovered(&mut self, id: EntityId, hovered: bool) {
         self.update_state(id, STATE_HOVERED, hovered);
     }
 
     /// フォーカス（Focused：キーボードタブフォーカス等）状態を更新します。
+    #[inline]
     pub fn set_focused(&mut self, id: EntityId, focused: bool) {
         self.update_state(id, STATE_FOCUSED, focused);
     }
 
     /// プレス（Pressed：クリック押し下げ、タップ中）状態を更新します。
-    pub(crate) fn set_pressed(&mut self, id: EntityId, pressed: bool) {
+    #[inline]
+    pub fn set_pressed(&mut self, id: EntityId, pressed: bool) {
         self.update_state(id, STATE_PRESSED, pressed);
     }
 
     /// 無効化（Disabled：ボタンの操作不可など）状態を更新します。
-    pub(crate) fn set_disabled(&mut self, id: EntityId, disabled: bool) {
+    #[inline]
+    pub fn set_disabled(&mut self, id: EntityId, disabled: bool) {
         self.update_state(id, STATE_DISABLED, disabled);
     }
 
     /// アクティブ（Actived：タブのトグル選択中など）状態を更新します。
-    pub(crate) fn set_actived(&mut self, id: EntityId, actived: bool) {
+    #[inline]
+    pub fn set_actived(&mut self, id: EntityId, actived: bool) {
         self.update_state(id, STATE_ACTIVED, actived);
     }
 
     /// セレクト（Selected：チェックボックス、リストなどの選択）状態を更新します。
-    pub(crate) fn set_selected(&mut self, id: EntityId, selected: bool) {
+    #[inline]
+    pub fn set_selected(&mut self, id: EntityId, selected: bool) {
         self.update_state(id, STATE_SELECTED, selected);
     }
 
     /// ドラッグ（Dragged：スライダーノブやスプリッターのドラッグ中）状態を更新します。
-    pub(crate) fn set_dragged(&mut self, id: EntityId, dragged: bool) {
+    #[inline]
+    pub fn set_dragged(&mut self, id: EntityId, dragged: bool) {
         self.update_state(id, STATE_DRAGGED, dragged);
+    }
+
+    /// 要素のドラッグ・ドロップ擬似状態（STATE_DRAGGING, STATE_DRAG_IN, STATE_DRAG_OVER）を制御します。
+    #[inline]
+    pub(crate) fn set_drag_state(&mut self, id: EntityId, flag: u128, active: bool) {
+        self.update_state(id, flag, active);
     }
 
     /// 各スタイルの解決を1回のルックアップと1回のカスケード解決ループに統合
@@ -3878,6 +4129,9 @@ impl Context {
                 (STATE_HOVERED, &interaction.hovered),
                 (STATE_PRESSED, &interaction.pressed),
                 (STATE_DISABLED, &interaction.disabled),
+                (STATE_DRAGGING, &interaction.dragging),
+                (STATE_DRAG_IN, &interaction.drag_in),
+                (STATE_DRAG_OVER, &interaction.drag_over),
             ];
 
             for (state, style_opt) in cascade {
@@ -3909,6 +4163,240 @@ impl Context {
 
         let prev_pos = self.current_pointer_position;
         self.current_pointer_position = Some(logical_pos);
+
+        // リサイズ中のドラッグ同期処理
+        if let Some(state) = self.resizing_state.clone() {
+            let id = state.entity_id;
+            let delta_x = logical_pos.x - state.start_mouse_pos.x;
+            let delta_y = logical_pos.y - state.start_mouse_pos.y;
+
+            let start_rect = state.start_rect;
+            let position = self
+                .basic_layouts
+                .get(id)
+                .map(|l| l.position)
+                .unwrap_or(Position::Relative);
+
+            // 1-1. 最小サイズ・最大クランプ値の解決
+            let (min_w, max_w, min_h, max_h) = {
+                let basic = self.basic_layouts.get(id).copied().unwrap_or_default();
+
+                let ref_w = start_rect.width;
+                let ref_h = start_rect.height;
+
+                // ボーダー厚みの計算
+                let b_l = match basic.border.left {
+                    Length::Px(v) => v,
+                    Length::Percent(p) => ref_w * (p / 100.0),
+                };
+                let b_r = match basic.border.right {
+                    Length::Px(v) => v,
+                    Length::Percent(p) => ref_w * (p / 100.0),
+                };
+                let b_t = match basic.border.top {
+                    Length::Px(v) => v,
+                    Length::Percent(p) => ref_h * (p / 100.0),
+                };
+                let b_b = match basic.border.bottom {
+                    Length::Px(v) => v,
+                    Length::Percent(p) => ref_h * (p / 100.0),
+                };
+
+                // パディング厚みの計算
+                let p_l = match basic.padding.left {
+                    Length::Px(v) => v,
+                    Length::Percent(p) => ref_w * (p / 100.0),
+                };
+                let p_r = match basic.padding.right {
+                    Length::Px(v) => v,
+                    Length::Percent(p) => ref_w * (p / 100.0),
+                };
+                let p_t = match basic.padding.top {
+                    Length::Px(v) => v,
+                    Length::Percent(p) => ref_h * (p / 100.0),
+                };
+                let p_b = match basic.padding.bottom {
+                    Length::Px(v) => v,
+                    Length::Percent(p) => ref_h * (p / 100.0),
+                };
+
+                // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
+                let abs_min_w = b_l + b_r + p_l + p_r;
+                let abs_min_h = b_t + b_b + p_t + p_b;
+
+                // ユーザー指定の min_size / max_size を物理ピクセルに解決
+                let user_min_w = match basic.min_size.width {
+                    Val::Px(v) => v,
+                    Val::Percent(_) => self
+                        .resolve_val_to_px(id, basic.min_size.width, true)
+                        .unwrap_or(0.0),
+                    Val::Auto => 0.0, // Autoのときは最小値制約なし
+                };
+                let user_min_h = match basic.min_size.height {
+                    Val::Px(v) => v,
+                    Val::Percent(_) => self
+                        .resolve_val_to_px(id, basic.min_size.height, false)
+                        .unwrap_or(0.0),
+                    Val::Auto => 0.0,
+                };
+                let user_max_w = match basic.max_size.width {
+                    Val::Px(v) => v,
+                    Val::Percent(_) => self
+                        .resolve_val_to_px(id, basic.max_size.width, true)
+                        .unwrap_or(f32::MAX),
+                    Val::Auto => f32::MAX, // Autoのときは最大値制限なし
+                };
+                let user_max_h = match basic.max_size.height {
+                    Val::Px(v) => v,
+                    Val::Percent(_) => self
+                        .resolve_val_to_px(id, basic.max_size.height, false)
+                        .unwrap_or(f32::MAX),
+                    Val::Auto => f32::MAX,
+                };
+
+                (
+                    abs_min_w.max(user_min_w).max(10.0), // 最低限 10px は維持
+                    user_max_w,
+                    abs_min_h.max(user_min_h).max(10.0),
+                    user_max_h,
+                )
+            };
+
+            let mut new_w = start_rect.width;
+            let mut new_h = start_rect.height;
+
+            let mut delta_inset_top = 0.0;
+            let mut delta_inset_left = 0.0;
+
+            // 配置モードによるサイズ変更と位置補正の切り分け
+            if position == Position::Absolute {
+                // 絶対配置（Absolute）物理サイズ変更と、Top / Left 引っ張り時の Inset 同期移動補正を行う
+                match state.direction {
+                    ResizeDirection::Right => {
+                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
+                    }
+                    ResizeDirection::Bottom => {
+                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
+                    }
+                    ResizeDirection::BottomRight => {
+                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
+                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
+                    }
+                    ResizeDirection::Left => {
+                        let potential_w = start_rect.width - delta_x;
+                        new_w = potential_w.clamp(min_w, max_w);
+                        // サイズが大きくなった分（start - new_w）だけ、正確に左端（left）を左（マイナス）へ補正
+                        delta_inset_left = start_rect.width - new_w;
+                    }
+                    ResizeDirection::Top => {
+                        let potential_h = start_rect.height - delta_y;
+                        new_h = potential_h.clamp(min_h, max_h);
+                        // サイズが大きくなった分だけ、正確に上端（top）を上（マイナス）へ補正
+                        delta_inset_top = start_rect.height - new_h;
+                    }
+                    ResizeDirection::TopLeft => {
+                        let potential_w = start_rect.width - delta_x;
+                        new_w = potential_w.clamp(min_w, max_w);
+                        delta_inset_left = start_rect.width - new_w;
+
+                        let potential_h = start_rect.height - delta_y;
+                        new_h = potential_h.clamp(min_h, max_h);
+                        delta_inset_top = start_rect.height - new_h;
+                    }
+                    ResizeDirection::TopRight => {
+                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
+
+                        let potential_h = start_rect.height - delta_y;
+                        new_h = potential_h.clamp(min_h, max_h);
+                        delta_inset_top = start_rect.height - new_h;
+                    }
+                    ResizeDirection::BottomLeft => {
+                        let potential_w = start_rect.width - delta_x;
+                        new_w = potential_w.clamp(min_w, max_w);
+                        delta_inset_left = start_rect.width - new_w;
+
+                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
+                    }
+                }
+            } else {
+                // 相対配置（Relative）フローを崩さないため inset は変更せず、
+                // 引っ張る方向（Top/Left時はマイナス乗算）に合わせてサイズ（幅・高さ）のみを増減させる
+                match state.direction {
+                    ResizeDirection::Right | ResizeDirection::Left => {
+                        let factor = if state.direction == ResizeDirection::Left {
+                            -1.0
+                        } else {
+                            1.0
+                        };
+                        new_w = (start_rect.width + delta_x * factor).clamp(min_w, max_w);
+                    }
+                    ResizeDirection::Bottom | ResizeDirection::Top => {
+                        let factor = if state.direction == ResizeDirection::Top {
+                            -1.0
+                        } else {
+                            1.0
+                        };
+                        new_h = (start_rect.height + delta_y * factor).clamp(min_h, max_h);
+                    }
+                    ResizeDirection::TopLeft => {
+                        new_w = (start_rect.width - delta_x).clamp(min_w, max_w);
+                        new_h = (start_rect.height - delta_y).clamp(min_h, max_h);
+                    }
+                    ResizeDirection::TopRight => {
+                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
+                        new_h = (start_rect.height - delta_y).clamp(min_h, max_h);
+                    }
+                    ResizeDirection::BottomLeft => {
+                        new_w = (start_rect.width - delta_x).clamp(min_w, max_w);
+                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
+                    }
+                    ResizeDirection::BottomRight => {
+                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
+                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
+                    }
+                }
+            }
+
+            // 基本サイズ情報を SoA のアクティブレイアウトへ書き込み
+            if let Some(layout) = self.basic_layouts.get_mut(id) {
+                layout.size.width = Val::Px(new_w);
+                layout.size.height = Val::Px(new_h);
+
+                // 絶対配置時のみ位置を動的に補正し、制約衝突を回避するため right / bottom を Auto 化
+                if position == Position::Absolute {
+                    if let Val::Px(start_top) = state.start_inset.top {
+                        layout.inset.top = Val::Px(start_top + delta_inset_top);
+                    }
+                    if let Val::Px(start_left) = state.start_inset.left {
+                        layout.inset.left = Val::Px(start_left + delta_inset_left);
+                    }
+                    layout.inset.right = Val::Auto;
+                    layout.inset.bottom = Val::Auto;
+                }
+            }
+
+            // base_basic_layouts にも同時に書き込み、解決処理（resolve）によるリセットを完全に防ぐ
+            if let Some(layout) = self.base_basic_layouts.get_mut(id) {
+                layout.size.width = Val::Px(new_w);
+                layout.size.height = Val::Px(new_h);
+
+                if position == Position::Absolute {
+                    if let Val::Px(start_top) = state.start_inset.top {
+                        layout.inset.top = Val::Px(start_top + delta_inset_top);
+                    }
+                    if let Val::Px(start_left) = state.start_inset.left {
+                        layout.inset.left = Val::Px(start_left + delta_inset_left);
+                    }
+                    layout.inset.right = Val::Auto;
+                    layout.inset.bottom = Val::Auto;
+                }
+            }
+
+            // Taffy 測定キャッシュをバイパスし再計算をマーク
+            self.mark_layout_dirty(id);
+            self.mark_render_dirty(id);
+            return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
+        }
 
         let mut scrollbar_dragged = false;
         let mut active_drag_target: Option<(EntityId, bool, bool)> = None;
@@ -3958,7 +4446,7 @@ impl Context {
                 // サムのマージンを差し引く
                 let mut margin_top = 0.0;
                 let mut margin_bottom = 0.0;
-                if let Some(ref thumb_style) = sb_state.style.thumb {
+                if let Some(ref thumb_style) = sb_state.style.v_thumb {
                     if let Val::Px(val) = thumb_style.inner.basic_layout.margin.top {
                         margin_top = val;
                     }
@@ -3990,7 +4478,7 @@ impl Context {
 
                 let mut margin_left = 0.0;
                 let mut margin_right = 0.0;
-                if let Some(ref thumb_style) = sb_state.style.thumb {
+                if let Some(ref thumb_style) = sb_state.style.h_thumb {
                     if let Val::Px(val) = thumb_style.inner.basic_layout.margin.left {
                         margin_left = val;
                     }
@@ -4024,6 +4512,71 @@ impl Context {
         } else {
             self.hit_test(logical_pos)
         };
+
+        // 直前のリサイズホバー対象を退避
+        let prev_resize_hover = self.active_resize_hover;
+        // リサイズホバー情報を一旦リセット
+        self.active_resize_hover = None;
+
+        // ヒットした要素、およびその親先祖に向かってツリーを遡上
+        let mut current_id = target_id;
+        let mut found_resize_hover = None;
+
+        while let Some(id) = current_id {
+            if self.active_masks[id].has(STYLE_RESIZABLE) {
+                let rect = self.rects[id];
+                let resizable_flags = self
+                    .basic_layouts
+                    .get(id)
+                    .map(|l| l.resizable)
+                    .unwrap_or([false; 4]);
+
+                // 境界外周に 6.0px のあそびを持たせてヒット判定
+                let detect_border = 6.0f32;
+                if let Some(dir) =
+                    detect_resize_direction(rect, resizable_flags, logical_pos, detect_border)
+                {
+                    found_resize_hover = Some((id, dir));
+                    break; // 最も前面寄りのリサイズ親要素を優先採用
+                }
+            }
+            current_id = self.parents.get(id).copied().flatten();
+        }
+
+        if let Some((id, dir)) = found_resize_hover {
+            self.active_resize_hover = Some((id, dir));
+
+            if let Some(vis) = self.visual_properties.get_mut(id) {
+                // 要素に resizable_cursor の個別指定があれば、方向に応じて該当カーソルを抽出
+                let custom_cursor = if let Some(arr) = vis.resizable_cursor {
+                    let idx = match dir {
+                        ResizeDirection::Top | ResizeDirection::Bottom => 0, // Ns
+                        ResizeDirection::Left | ResizeDirection::Right => 1, // Ew
+                        ResizeDirection::TopRight | ResizeDirection::BottomLeft => 2, // Nesw
+                        ResizeDirection::TopLeft | ResizeDirection::BottomRight => 3, // Nwse
+                    };
+                    arr[idx]
+                } else {
+                    None
+                };
+
+                // 独自指定があればそれを使い、無ければライブラリの自動マッピングを使用
+                vis.cursor = Some(custom_cursor.unwrap_or_else(|| resize_direction_to_cursor(dir)));
+            }
+            self.mark_render_dirty(id);
+        }
+
+        // 枠線から外れた、または異なる要素に変わった場合
+        if let Some((prev_id, _)) = prev_resize_hover {
+            let now_id = self.active_resize_hover.map(|(id, _)| id);
+
+            // 異なるホバー状態になった場合、旧要素のカーソル上書きを破棄し本来のスタイルに即時強制リセット
+            if Some(prev_id) != now_id {
+                // スタイルの再解決を叩き、上書きされていた vis.cursor を本来のカーソル（通常ホバー/ベース等）へ復旧
+                self.resolve_element_style_state(prev_id, false);
+                self.mark_render_dirty(prev_id);
+            }
+        }
 
         if let Some(pressed_id) = self.interaction_states.pressed {
             let user_select = self
@@ -4191,6 +4744,171 @@ impl Context {
                 self.set_dragged(pressed_id, true);
                 self.interaction_states.dragged = Some(pressed_id);
 
+                // D&D 設定（STYLE_DRAGGABLE）を持っている場合のセッションのキック
+                if self.active_masks[pressed_id].has(STYLE_DRAGGABLE)
+                    && self.active_drag_state.is_none()
+                {
+                    let drag_prop = self.drag_properties.get(pressed_id).copied().unwrap();
+                    let start_rect = self.rects[pressed_id];
+
+                    // 開始時のクリック位置と要素左上の相対的なズレを計算
+                    let click_offset = LayoutPoint::new(
+                        logical_pos.x - start_rect.x,
+                        logical_pos.y - start_rect.y,
+                    );
+
+                    // ウィンドウの真のルート要素をライブラリ側で自己解決
+                    let root_entity = self
+                        .find_root_entity()
+                        .expect("Root EntityId not found in Context");
+
+                    // プレースホルダーアタッチ先親要素の決定
+                    let (parent_id_opt, parent_rect, parent_border_left, parent_border_top) =
+                        match drag_prop.placeholder_parent {
+                            DragPlaceholderParent::Root => (
+                                Some(root_entity),
+                                self.rects
+                                    .get(root_entity)
+                                    .copied()
+                                    .unwrap_or(LayoutRect::ZERO),
+                                0.0,
+                                0.0,
+                            ),
+                            DragPlaceholderParent::Custom(p_id) => {
+                                let p_rect =
+                                    self.rects.get(p_id).copied().unwrap_or(LayoutRect::ZERO);
+                                let b_l = if let Some(l) = self.basic_layouts.get(p_id) {
+                                    match l.border.left {
+                                        Length::Px(v) => v,
+                                        _ => 0.0,
+                                    }
+                                } else {
+                                    0.0
+                                };
+                                let b_t = if let Some(l) = self.basic_layouts.get(p_id) {
+                                    match l.border.top {
+                                        Length::Px(v) => v,
+                                        _ => 0.0,
+                                    }
+                                } else {
+                                    0.0
+                                };
+                                (Some(p_id), p_rect, b_l, b_t)
+                            }
+                        };
+
+                    // プレースホルダー（クローン）をアタッチ先親の直下へ spawn して生成
+                    let placeholder_id = self.spawn(parent_id_opt);
+                    if let Some(p_id) = parent_id_opt {
+                        self.add_child(p_id, placeholder_id);
+                    }
+
+                    // 元要素のレイアウトおよびビジュアル情報をコピーして初期マウント
+                    if let Some(basic) = self.base_basic_layouts.get(pressed_id).copied() {
+                        self.base_basic_layouts.insert(placeholder_id, basic);
+                        self.basic_layouts.insert(placeholder_id, basic);
+                    }
+                    if let Some(visual) = self.base_visual_properties.get(pressed_id).cloned() {
+                        self.base_visual_properties
+                            .insert(placeholder_id, visual.clone());
+                        self.visual_properties.insert(placeholder_id, visual);
+                    }
+                    if let Some(interaction) = self.interaction_properties.get(pressed_id).cloned()
+                    {
+                        self.interaction_properties
+                            .insert(placeholder_id, interaction);
+                    }
+
+                    // ドラッグ元の元の要素は非可視（または半透明）にするため STATE_DRAGGING 状態をセット
+                    self.set_drag_state(pressed_id, STATE_DRAGGING, true);
+
+                    // プレースホルダー側は absolute 配置化し、STATE_DRAG_OVER 状態をセット
+                    self.set_drag_state(placeholder_id, STATE_DRAG_OVER, true);
+                    if let Some(layout) = self.basic_layouts.get_mut(placeholder_id) {
+                        layout.position = Position::Absolute;
+                        layout.size.width = Val::Px(start_rect.width);
+                        layout.size.height = Val::Px(start_rect.height);
+                    }
+                    if let Some(layout) = self.base_basic_layouts.get_mut(placeholder_id) {
+                        layout.position = Position::Absolute;
+                        layout.size.width = Val::Px(start_rect.width);
+                        layout.size.height = Val::Px(start_rect.height);
+                    }
+
+                    // 元の要素が持つ本物の子要素トポロジーを、一時的にプレースホルダー配下へ自動アタッチ
+                    if let Some(src_children) = self.children.get(pressed_id).cloned() {
+                        for child_id in src_children {
+                            // 子要素の親ポインタをプレースホルダーに付け替え
+                            self.parents.insert(child_id, Some(placeholder_id));
+
+                            // プレースホルダー側の子要素リストへ追加
+                            if let Some(ph_children) = self.children.get_mut(placeholder_id) {
+                                ph_children.push(child_id);
+                            }
+
+                            // Taffy 側の親子構造も、一時的にプレースホルダーに繋ぎ替え
+                            if let Some(&src_node) = self.taffy_nodes.get(pressed_id)
+                                && let Some(&ph_node) = self.taffy_nodes.get(placeholder_id)
+                                && let Some(&child_node) = self.taffy_nodes.get(child_id)
+                            {
+                                let _ = self.taffy.remove_child(src_node, child_node);
+                                let _ = self.taffy.add_child(ph_node, child_node);
+                            }
+                        }
+
+                        // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
+                        if let Some(src_children_mut) = self.children.get_mut(pressed_id) {
+                            src_children_mut.clear();
+                        }
+                        self.mark_layout_dirty(pressed_id);
+                        self.mark_layout_dirty(placeholder_id);
+                    }
+
+                    // プレースホルダー自体はヒットテストを完全に透過させる
+                    if let Some(vis) = self.visual_properties.get_mut(placeholder_id) {
+                        vis.pointer_events = Some(PointerEvents::None);
+                    }
+                    if let Some(vis) = self.base_visual_properties.get_mut(placeholder_id) {
+                        vis.pointer_events = Some(PointerEvents::None);
+                    }
+                    if let Some(mask) = self.active_masks.get_mut(placeholder_id) {
+                        mask.set(STYLE_POINTER_EVENTS);
+                    }
+
+                    // プレースホルダーアタッチ前の、本当の元の親要素のIDを安全に記録
+                    let original_parent = self.parents.get(pressed_id).copied().flatten();
+
+                    // セッション開始
+                    self.active_drag_state = Some(ActiveDragState {
+                        source_entity: pressed_id,
+                        placeholder_entity: placeholder_id,
+                        current_drop_target: None,
+                        start_mouse_pos: logical_pos,
+                        start_rect,
+                        click_offset,
+                        original_parent,
+                    });
+
+                    // ドラッグ開始コールバックに、Original(pressed_id) と Placeholder(placeholder_id) の両ハンドルを渡して実行
+                    let mut start_listener_opt = self
+                        .event_listeners
+                        .get_mut(pressed_id)
+                        .and_then(|l| l.on_drag_start.take());
+                    if let Some(mut listener) = start_listener_opt {
+                        {
+                            let _guard = crate::ActiveElementGuard::new(pressed_id);
+                            listener(
+                                self,
+                                Element::from_id(pressed_id),
+                                Element::from_id(placeholder_id),
+                            );
+                        }
+                        if let Some(l) = self.event_listeners.get_mut(pressed_id) {
+                            l.on_drag_start = Some(listener);
+                        }
+                    }
+                }
+
                 // on_drag
                 let mut on_drag = self
                     .event_listeners
@@ -4201,6 +4919,147 @@ impl Context {
                     handler(self, delta);
                     if let Some(l) = self.event_listeners.get_mut(pressed_id) {
                         l.on_drag = Some(handler);
+                    }
+                }
+            }
+        }
+
+        // D&D プレースホルダーの移動とドロップ先ホバー検知
+        if let Some(mut drag_state) = self.active_drag_state.clone() {
+            let src_id = drag_state.source_entity;
+            let placeholder_id = drag_state.placeholder_entity;
+            let drag_prop = self.drag_properties.get(src_id).copied().unwrap();
+
+            // ウィンドウの真のルート要素をライブラリ側で自己解決
+            let root_entity = self
+                .find_root_entity()
+                .expect("Root EntityId not found in Context");
+
+            // 5-1. アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
+            let (parent_rect, b_l, b_t) = match drag_prop.placeholder_parent {
+                DragPlaceholderParent::Root => (
+                    self.rects
+                        .get(root_entity)
+                        .copied()
+                        .unwrap_or(LayoutRect::ZERO),
+                    0.0,
+                    0.0,
+                ),
+                DragPlaceholderParent::Custom(p_id) => {
+                    let p_rect = self.rects.get(p_id).copied().unwrap_or(LayoutRect::ZERO);
+                    let b_l = if let Some(l) = self.basic_layouts.get(p_id) {
+                        match l.border.left {
+                            Length::Px(v) => v,
+                            _ => 0.0,
+                        }
+                    } else {
+                        0.0
+                    };
+                    let b_t = if let Some(l) = self.basic_layouts.get(p_id) {
+                        match l.border.top {
+                            Length::Px(v) => v,
+                            _ => 0.0,
+                        }
+                    } else {
+                        0.0
+                    };
+                    (p_rect, b_l, b_t)
+                }
+            };
+
+            // マウスのドラッグ開始時クリックオフセットを用いて、ローカル Top-Left 座標を算出
+            let local_x = logical_pos.x - (parent_rect.x + b_l) - drag_state.click_offset.x;
+            let local_y = logical_pos.y - (parent_rect.y + b_t) - drag_state.click_offset.y;
+
+            if let Some(layout) = self.basic_layouts.get_mut(placeholder_id) {
+                layout.inset.left = Val::Px(local_x);
+                layout.inset.top = Val::Px(local_y);
+                layout.inset.right = Val::Auto;
+                layout.inset.bottom = Val::Auto;
+            }
+            if let Some(layout) = self.base_basic_layouts.get_mut(placeholder_id) {
+                layout.inset.left = Val::Px(local_x);
+                layout.inset.top = Val::Px(local_y);
+                layout.inset.right = Val::Auto;
+                layout.inset.bottom = Val::Auto;
+            }
+
+            self.mark_layout_dirty(placeholder_id);
+            self.mark_render_dirty(placeholder_id);
+
+            // 5-2. 現在ホバー侵入中のドロップターゲット要素を検知
+            let hit_id_opt = self.hit_test(logical_pos);
+            let mut found_drop_target = None;
+
+            if let Some(hit_id) = hit_id_opt {
+                let mut current_id = Some(hit_id);
+                while let Some(id) = current_id {
+                    // ヒットした要素がドラッグ元（src_id）自身、またはその子孫である場合は
+                    // ドロップ先として誤認されるのを完全に防ぐため、スルーしてさらに上の親を辿る
+                    if id == src_id || self.is_descendant_of(id, src_id) {
+                        current_id = self.parents.get(id).copied().flatten();
+                        continue;
+                    }
+
+                    if id != placeholder_id && self.active_masks[id].has(STYLE_DROPPABLE) {
+                        found_drop_target = Some(id);
+                        break;
+                    }
+                    current_id = self.parents.get(id).copied().flatten();
+                }
+            }
+
+            // ドロップ先のホバー切り替えイベントを解決（STATE_DRAG_IN の同期）
+            if found_drop_target != drag_state.current_drop_target {
+                if let Some(old_target) = drag_state.current_drop_target {
+                    self.set_drag_state(old_target, STATE_DRAG_IN, false);
+                }
+                if let Some(new_target) = found_drop_target {
+                    self.set_drag_state(new_target, STATE_DRAG_IN, true);
+                }
+                drag_state.current_drop_target = found_drop_target;
+                self.active_drag_state = Some(drag_state.clone());
+            }
+
+            // コールバックを一時的に take して借用を分離した後に実行
+            match drag_prop.drag_mode {
+                DragPayload::Element => {
+                    let mut listener_opt = self
+                        .event_listeners
+                        .get_mut(src_id)
+                        .and_then(|l| l.on_entity_drag.take());
+                    if let Some(mut listener) = listener_opt {
+                        {
+                            let _guard = crate::ActiveElementGuard::new(src_id);
+                            listener(
+                                self,
+                                Element::from_id(src_id),
+                                found_drop_target.map(Element::from_id),
+                            );
+                        }
+                        // 再度元の場所へ戻す
+                        if let Some(l) = self.event_listeners.get_mut(src_id) {
+                            l.on_entity_drag = Some(listener);
+                        }
+                    }
+                }
+                DragPayload::EntityId => {
+                    let mut listener_opt = self
+                        .event_listeners
+                        .get_mut(src_id)
+                        .and_then(|l| l.on_id_drag.take());
+                    if let Some(mut listener) = listener_opt {
+                        {
+                            let _guard = crate::ActiveElementGuard::new(src_id);
+                            listener(
+                                self,
+                                src_id,
+                                found_drop_target,
+                            );
+                        }
+                        if let Some(l) = self.event_listeners.get_mut(src_id) {
+                            l.on_id_drag = Some(listener);
+                        }
                     }
                 }
             }
@@ -4218,6 +5077,102 @@ impl Context {
 
         match state {
             ElementState::Pressed => {
+                if button == MouseButton::Left {
+                    // リサイズドラッグの開始判定
+                    if let Some((id, dir)) = self.active_resize_hover {
+                        let rect = self.rects[id];
+                        let position = self
+                            .basic_layouts
+                            .get(id)
+                            .map(|l| l.position)
+                            .unwrap_or(Position::Relative);
+
+                        // 親要素の矩形を取得
+                        // 親要素の矩形と、その「左・上ボーダーの厚み」を正確に取得する
+                        let (parent_rect, parent_border_left, parent_border_top) =
+                            if let Some(Some(parent_id)) = self.parents.get(id) {
+                                let p_rect = self
+                                    .rects
+                                    .get(*parent_id)
+                                    .copied()
+                                    .unwrap_or(LayoutRect::ZERO);
+
+                                let border_l =
+                                    if let Some(layout) = self.basic_layouts.get(*parent_id) {
+                                        match layout.border.left {
+                                            Length::Px(v) => v,
+                                            Length::Percent(p) => p_rect.width * (p / 100.0),
+                                        }
+                                    } else {
+                                        0.0
+                                    };
+                                let border_t =
+                                    if let Some(layout) = self.basic_layouts.get(*parent_id) {
+                                        match layout.border.top {
+                                            Length::Px(v) => v,
+                                            Length::Percent(p) => p_rect.height * (p / 100.0),
+                                        }
+                                    } else {
+                                        0.0
+                                    };
+
+                                (p_rect, border_l, border_t)
+                            } else {
+                                (LayoutRect::ZERO, 0.0, 0.0)
+                            };
+
+                        // 親コンテナのボーダー内側を基準点として物理相対位置を逆算
+                        let local_x = rect.x - (parent_rect.x + parent_border_left);
+                        let local_y = rect.y - (parent_rect.y + parent_border_top);
+
+                        // 【解決】絶対配置の場合、開始時に Top-Left 基準に完全に正規化（コンバート）する
+                        // これにより、もともと right / bottom 基準で配置されていた要素であっても、
+                        // ドラッグ開始の瞬間に左上へ吹っ飛ぶ現象を完全に阻止します。
+                        let mut start_inset = Rect {
+                            top: Val::Px(0.0),
+                            right: Val::Px(0.0),
+                            bottom: Val::Px(0.0),
+                            left: Val::Px(0.0),
+                        };
+                        if position == Position::Absolute {
+                            start_inset.top = Val::Px(local_y);
+                            start_inset.left = Val::Px(local_x);
+                            start_inset.right = Val::Auto;
+                            start_inset.bottom = Val::Auto;
+
+                            // SoA 側も、この Top-Left 座標で即時上書きアップデート
+                            if let Some(layout) = self.basic_layouts.get_mut(id) {
+                                layout.inset = start_inset;
+                            }
+                            if let Some(layout) = self.base_basic_layouts.get_mut(id) {
+                                layout.inset = start_inset;
+                            }
+                        } else {
+                            // 相対配置時は、通常通りそのままのインセットを使用
+                            start_inset = self
+                                .basic_layouts
+                                .get(id)
+                                .map(|l| l.inset)
+                                .unwrap_or(BasicLayout::default().inset);
+                        }
+
+                        let start_pos = self.current_pointer_position.unwrap_or(LayoutPoint::ZERO);
+
+                        self.resizing_state = Some(ResizingState {
+                            entity_id: id,
+                            direction: dir,
+                            start_mouse_pos: start_pos,
+                            start_rect: rect,
+                            start_inset,
+                        });
+
+                        // リサイズ中の要素は pressed とマーク（多重干渉防止）
+                        self.interaction_states.pressed = Some(id);
+                        self.mark_render_dirty(id);
+                        return; // リサイズドラッグが開始されたため、通常のクリック・フォーカス処理を完全にバイパス
+                    }
+                }
+
                 let mut clicked_scrollbar = false;
 
                 if let Some(pointer_pos) = self.current_pointer_position
@@ -4522,6 +5477,222 @@ impl Context {
                 }
             }
             ElementState::Released => {
+                // リサイズドラッグの終了処理
+                if let Some(state) = self.resizing_state.take() {
+                    let id = state.entity_id;
+                    self.interaction_states.pressed = None;
+
+                    // 元のリサイズホバーカーソル表示を維持するために再検出をマーク
+                    // リサイズ状態が解除された「この瞬間」に現在の座標で move を再キックし、
+                    // すり抜けていた通常のホバー・離脱判定（Leave）を正確に評価させる
+                    if let Some(pos) = self.current_pointer_position {
+                        self.inject_pointer_move(pos);
+                    }
+                    self.mark_render_dirty(id);
+                    return;
+                }
+
+                // D&D ドラッグ終了・ドロップ確定処理
+                if let Some(drag_state) = self.active_drag_state.take() {
+                    let src_id = drag_state.source_entity;
+                    let placeholder_id = drag_state.placeholder_entity;
+                    let drag_prop = self.drag_properties.get(src_id).copied().unwrap();
+
+                    // 疑似クラス（STATE_DRAGGING, STATE_DRAG_IN）を解除
+                    self.set_drag_state(src_id, STATE_DRAGGING, false);
+                    if let Some(target_id) = drag_state.current_drop_target {
+                        self.set_drag_state(target_id, STATE_DRAG_IN, false);
+                    }
+
+                    // プレースホルダー要素を親および Taffy から安全にデスポーン
+                    // このタイミングではまだ despawn_internal せず最後に移動させます。
+                    self.interaction_states.pressed = None;
+                    self.interaction_states.dragged = None;
+
+                    let drop_success = drag_state.current_drop_target;
+
+                    // A. 実体移動（DragMode::Entity）の場合のツリートポロジー書き換え
+                    if let Some(target_id) = drop_success
+                        && drag_prop.drag_mode == DragPayload::Element
+                        && let Some(drop_prop) = self.drop_properties.get(target_id).copied()
+                    {
+                        // 1. まずドラッグ元要素を現在の親の children リストから安全に引き抜いて削除
+                        if let Some(src_parent_id) = drag_state.original_parent {
+                            if let Some(src_children) = self.children.get_mut(src_parent_id) {
+                                src_children.retain(|x| *x != src_id);
+                            }
+                            // 旧親側の Taffy 順序も再同期
+                            self.resync_taffy_children_order(src_parent_id);
+                            self.mark_layout_dirty(src_parent_id);
+                        }
+
+                        // ドラッグ元要素の配置（Position）の取得
+                        let position = self
+                            .basic_layouts
+                            .get(src_id)
+                            .map(|l| l.position)
+                            .unwrap_or(Position::Relative);
+
+                        if position == Position::Absolute {
+                            // 【絶対配置（Absolute）】: 位置移動（補正）を伴うアタッチ
+                            if drag_prop.update_position {
+                                // 1. プレースホルダーの最終的な絶対画面座標を取得
+                                let ph_abs_rect = self
+                                    .rects
+                                    .get(placeholder_id)
+                                    .copied()
+                                    .unwrap_or(LayoutRect::ZERO);
+
+                                // 2. 新しい親（target_id）の絶対画面座標とボーダー厚みを取得
+                                let target_rect = self
+                                    .rects
+                                    .get(target_id)
+                                    .copied()
+                                    .unwrap_or(LayoutRect::ZERO);
+                                let (border_l, border_t) =
+                                    if let Some(layout) = self.basic_layouts.get(target_id) {
+                                        let b_l = match layout.border.left {
+                                            Length::Px(v) => v,
+                                            _ => 0.0,
+                                        };
+                                        let b_t = match layout.border.top {
+                                            Length::Px(v) => v,
+                                            _ => 0.0,
+                                        };
+                                        (b_l, b_t)
+                                    } else {
+                                        (0.0, 0.0)
+                                    };
+
+                                // 3. 新しい親を基準にした新しいローカル相対位置を逆算して割り出す
+                                let new_inset_left = ph_abs_rect.x - (target_rect.x + border_l);
+                                let new_inset_top = ph_abs_rect.y - (target_rect.y + border_t);
+
+                                let new_inset = Rect {
+                                    top: Val::Px(new_inset_top),
+                                    right: Val::Auto,
+                                    bottom: Val::Auto,
+                                    left: Val::Px(new_inset_left),
+                                };
+
+                                if let Some(layout) = self.basic_layouts.get_mut(src_id) {
+                                    layout.inset = new_inset;
+                                }
+                                if let Some(layout) = self.base_basic_layouts.get_mut(src_id) {
+                                    layout.inset = new_inset;
+                                }
+                            }
+
+                            // ドロップ先コンテナ（target_id）の末尾の子要素としてマウント
+                            self.add_child(target_id, src_id);
+                        } else {
+                            // 【相対配置（Relative）】: マウス座標に基づいた子要素の動的並び替えアタッチ
+                            if drag_prop.update_position {
+                                let mouse_pos =
+                                    self.current_pointer_position.unwrap_or(LayoutPoint::ZERO);
+                                let insert_idx = calculate_insert_index(self, target_id, mouse_pos);
+
+                                if let Some(parent_children) = self.children.get_mut(target_id) {
+                                    // 算出されたインデックス位置へ挿入
+                                    parent_children.insert(insert_idx, src_id);
+                                }
+                                self.parents.insert(src_id, Some(target_id));
+
+                                // Taffy 側のノード順序を物理並び替え結果に沿って一括して再同期
+                                self.resync_taffy_children_order(target_id);
+                            } else {
+                                // 自動更新オフの場合は末尾に通常アタッチ
+                                self.add_child(target_id, src_id);
+                            }
+                            self.mark_layout_dirty(target_id);
+                        }
+
+                        self.is_structure_dirty = true;
+                    }
+
+                    // 避難していた本物の子要素トポロジーを、元の要素（src_id）の配下へ自動復元
+                    if let Some(ph_children) = self.children.get(placeholder_id).cloned() {
+                        for child_id in ph_children {
+                            // 子要素の親ポインタを元の要素に書き戻し
+                            self.parents.insert(child_id, Some(src_id));
+
+                            // 元の要素の子要素リストへ復旧
+                            if let Some(src_children) = self.children.get_mut(src_id) {
+                                src_children.push(child_id);
+                            }
+
+                            // Taffy 側の親子構造も、元の要素に繋ぎ戻し
+                            if let Some(&src_node) = self.taffy_nodes.get(src_id)
+                                && let Some(&ph_node) = self.taffy_nodes.get(placeholder_id)
+                                && let Some(&child_node) = self.taffy_nodes.get(child_id)
+                            {
+                                let _ = self.taffy.remove_child(ph_node, child_node);
+                                let _ = self.taffy.add_child(src_node, child_node);
+                            }
+                        }
+
+                        // プレースホルダー側は空にして破棄に備える
+                        if let Some(ph_children_mut) = self.children.get_mut(placeholder_id) {
+                            ph_children_mut.clear();
+                        }
+                        self.mark_layout_dirty(src_id);
+                        self.mark_layout_dirty(placeholder_id);
+                    }
+
+                    // コールバックを一時的に take して借用を完全に切り離して実行する
+                    match drag_prop.drag_mode {
+                        DragPayload::Element => {
+                            let mut listener_opt = self
+                                .event_listeners
+                                .get_mut(src_id)
+                                .and_then(|l| l.on_entity_drop.take());
+                            if let Some(mut listener) = listener_opt {
+                                {
+                                    let _guard = crate::ActiveElementGuard::new(src_id);
+                                    listener(
+                                        self,
+                                        Element::from_id(src_id),
+                                        drop_success.map(Element::from_id),
+                                    );
+                                }
+                                if let Some(l) = self.event_listeners.get_mut(src_id) {
+                                    l.on_entity_drop = Some(listener);
+                                }
+                            }
+                        }
+                        DragPayload::EntityId => {
+                            let mut listener_opt = self
+                                .event_listeners
+                                .get_mut(src_id)
+                                .and_then(|l| l.on_id_drop.take());
+                            if let Some(mut listener) = listener_opt {
+                                {
+                                    let _guard = crate::ActiveElementGuard::new(src_id);
+                                    listener(
+                                        self,
+                                        src_id,
+                                        drop_success,
+                                    );
+                                }
+                                if let Some(l) = self.event_listeners.get_mut(src_id) {
+                                    l.on_id_drop = Some(listener);
+                                }
+                            }
+                        }
+                    }
+
+                    // 位置情報の安全な回収がすべて完了した、この最末尾で初めてプレースホルダーを破棄
+                    self.despawn_internal(placeholder_id);
+
+                    // 離脱直後に位置を再移動評価して、通常のホバーを正しく復元
+                    if let Some(pos) = self.current_pointer_position {
+                        self.inject_pointer_move(pos);
+                    }
+
+                    self.mark_render_dirty(src_id);
+                    return; // 早期リターン
+                }
+
                 let mut dirty_ids = smallvec::SmallVec::<[EntityId; 4]>::new();
                 for (id, state) in self.scrollbar_styles.iter_mut() {
                     if state.v_thumb_dragged || state.h_thumb_dragged {
@@ -4596,6 +5767,21 @@ impl Context {
                 }
             }
         }
+    }
+
+    /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。
+    pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
+        // すでにフラットシーケンスが構築されていればその先頭、
+        // 無ければ parents マップをスキャンして親が None の生存要素をフォールバック解決します
+        self.flat_dfs_sequence.first().copied().or_else(|| {
+            self.parents
+                .iter()
+                .find(|&(id, &parent_id_opt)| {
+                    // 親が None かつ、要素 id 自体が slotmap (entities) に生存しているか
+                    parent_id_opt.is_none() && self.entities.contains_key(id)
+                })
+                .map(|(id, _)| id)
+        })
     }
 
     // ダブルクリック
@@ -5196,6 +6382,41 @@ impl Context {
         let scroll_size = self.get_scroll_size(id);
         let window_size = self.last_window_size.unwrap_or(LayoutSize::ZERO);
 
+        // 親コンテナのボーダーおよびパディング厚を取得
+        let (basic, _, _) = self.resolve_active_layouts(id);
+        let border_right = match basic.border.right {
+            Length::Px(v) => v,
+            _ => 0.0,
+        };
+        let border_bottom = match basic.border.bottom {
+            Length::Px(v) => v,
+            _ => 0.0,
+        };
+        let border_left = match basic.border.left {
+            Length::Px(v) => v,
+            _ => 0.0,
+        };
+        let border_top = match basic.border.top {
+            Length::Px(v) => v,
+            _ => 0.0,
+        };
+        let padding_bottom = match basic.padding.bottom {
+            Length::Px(v) => v,
+            _ => 0.0,
+        };
+        let padding_right = match basic.padding.right {
+            Length::Px(v) => v,
+            _ => 0.0,
+        };
+        let padding_left = match basic.padding.left {
+            Length::Px(v) => v,
+            _ => 0.0,
+        };
+        let padding_top = match basic.padding.top {
+            Length::Px(v) => v,
+            _ => 0.0,
+        };
+
         // ウィンドウ内に実際に収まっている有効なコンテナ表示サイズを算出
         let visible_width = if window_size.width > 0.0 {
             let left = rect.x.max(0.0);
@@ -5213,10 +6434,15 @@ impl Context {
             rect.height
         };
 
-        // 最大スクロール量 = コンテンツサイズ - コンテナの表示領域
-        // コンテナの物理高さではなく、クランプされた有効表示サイズを差し引くことで末尾要素までスクロール
-        let max_scroll_x = (scroll_size.width - visible_width).max(0.0);
-        let max_scroll_y = (scroll_size.height - visible_height).max(0.0);
+        // 全体サイズから境界（ボーダーとパディング）を差し引き内枠の有効表示可能サイズを正確に算出
+        let content_w =
+            (visible_width - border_left - border_right - padding_left - padding_right).max(0.0);
+        let content_h =
+            (visible_height - border_top - border_bottom - padding_top - padding_bottom).max(0.0);
+
+        // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
+        let max_scroll_x = (scroll_size.width - content_w).max(0.0);
+        let max_scroll_y = (scroll_size.height - content_h).max(0.0);
 
         x = x.clamp(0.0, max_scroll_x);
         y = y.clamp(0.0, max_scroll_y);
@@ -5246,7 +6472,12 @@ impl Context {
 
     /// スクロールコンテナのスタイル設定に連動し、
     /// トラック・サムに相当する要素（Element）を遅延生成して親子関係にアタッチします。
-    pub(crate) fn ensure_scrollbar_elements(&mut self, id: EntityId, sb: &ScrollbarStyle) {
+    pub(crate) fn ensure_scrollbar_elements(
+        &mut self,
+        id: EntityId,
+        sb: &ScrollbarStyle,
+        merge: bool,
+    ) {
         if !self.scrollbar_styles.contains_key(id) {
             self.scrollbar_styles.insert(
                 id,
@@ -5285,7 +6516,7 @@ impl Context {
 
             // トラックは常に絶対配置（コンテナの右端に固定）
             let track_style = sb
-                .track
+                .v_track
                 .clone()
                 .unwrap_or_default()
                 .absolute()
@@ -5295,7 +6526,7 @@ impl Context {
                 .pointer_events_auto(); // イベントを透過させない
 
             let el = Element::from_id(v_track);
-            el.style_internal(self, track_style);
+            el.style_internal(self, track_style, merge);
 
             // A-1. 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
             let v_thumb = if let Some(v_thumb) = state.v_thumb_id {
@@ -5309,7 +6540,7 @@ impl Context {
             };
 
             let mut thumb_width = sb.width;
-            if let Some(ref thumb_style) = sb.thumb
+            if let Some(ref thumb_style) = sb.v_thumb
                 && let Val::Px(w) = thumb_style.inner.basic_layout.size.width
             {
                 thumb_width = w.min(sb.width);
@@ -5317,7 +6548,7 @@ impl Context {
 
             // サムは V-Track の絶対座標を原点とし、Y方向のみ absolute スライド
             let thumb_style = sb
-                .thumb
+                .v_thumb
                 .clone()
                 .unwrap_or_default()
                 .absolute()
@@ -5326,7 +6557,7 @@ impl Context {
                 .pointer_events_auto();
 
             let el = Element::from_id(v_thumb);
-            el.style_internal(self, thumb_style);
+            el.style_internal(self, thumb_style, merge);
 
             // B. 横スクロールバー (H-Track)
             let h_track = if let Some(h_track) = state.h_track_id {
@@ -5340,7 +6571,7 @@ impl Context {
             };
 
             let track_style = sb
-                .track
+                .h_track
                 .clone()
                 .unwrap_or_default()
                 .absolute()
@@ -5350,7 +6581,7 @@ impl Context {
                 .pointer_events_auto();
 
             let el = Element::from_id(h_track);
-            el.style_internal(self, track_style);
+            el.style_internal(self, track_style, merge);
 
             // B-1. 横つまみ (H-Thumb、H-Track の子要素としてアタッチ)
             let h_thumb = if let Some(h_thumb) = state.h_thumb_id {
@@ -5364,14 +6595,14 @@ impl Context {
             };
 
             let mut thumb_height = sb.width;
-            if let Some(ref thumb_style) = sb.thumb
+            if let Some(ref thumb_style) = sb.h_thumb
                 && let Val::Px(h) = thumb_style.inner.basic_layout.size.height
             {
                 thumb_height = h.min(sb.width);
             }
 
             let thumb_style = sb
-                .thumb
+                .h_thumb
                 .clone()
                 .unwrap_or_default()
                 .absolute()
@@ -5380,7 +6611,7 @@ impl Context {
                 .pointer_events_auto();
 
             let el = Element::from_id(h_thumb);
-            el.style_internal(self, thumb_style);
+            el.style_internal(self, thumb_style, merge);
         }
 
         if changed {
@@ -5397,6 +6628,243 @@ impl Context {
             .copied()
             .unwrap_or(LayoutPoint::ZERO);
         self.scroll_to(id, current.x + dx, current.y + dy)
+    }
+
+    /// StyleTarget に応じた可変 BasicLayout を自動生成（Ensure）を解決した上で取得します
+    pub(crate) fn get_basic_layout_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut BasicLayout> {
+        match target {
+            StyleTarget::Base => self.base_basic_layouts.get_mut(id),
+            _ => {
+                // interaction_properties SoA スロットの存在を保証
+                if !self.interaction_properties.contains_key(id) {
+                    self.interaction_properties
+                        .insert(id, InteractionStyles::default());
+                }
+                let styles = self.interaction_properties.get_mut(id).unwrap();
+
+                // すべての StyleTarget に対応する Option<ThisStyle> フィールドを完全に解決
+                let style_ref = match target {
+                    StyleTarget::Hovered => styles.hovered.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Focused => styles.focused.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Pressed => styles.pressed.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Disabled => styles.disabled.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Actived => styles.actived.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Selected => styles.selected.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Dragged => styles.dragged.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Dragging => styles.dragging.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::DragIn => styles.drag_in.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::DragOver => styles.drag_over.get_or_insert_with(ThisStyle::new),
+
+                    StyleTarget::HoveredWithin => {
+                        styles.hovered_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::FocusedWithin => {
+                        styles.focused_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::PressedWithin => {
+                        styles.pressed_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::DisabledWithin => {
+                        styles.disabled_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::ActivedWithin => {
+                        styles.actived_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::SelectedWithin => {
+                        styles.selected_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::DraggedWithin => {
+                        styles.dragged_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::AnyWithin => styles.any_within.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Base => unreachable!(),
+                };
+
+                // CoW (Arc::make_mut) 解決を安全に施した inner の可変参照を引き出す
+                Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
+            }
+        }
+    }
+
+    /// StyleTarget に応じた可変 VisualProperty を自動生成（Ensure）を解決した上で取得します
+    pub(crate) fn get_visual_property_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut VisualProperty> {
+        match target {
+            StyleTarget::Base => self.base_visual_properties.get_mut(id),
+            _ => {
+                if !self.interaction_properties.contains_key(id) {
+                    self.interaction_properties
+                        .insert(id, InteractionStyles::default());
+                }
+                let styles = self.interaction_properties.get_mut(id).unwrap();
+
+                let style_ref = match target {
+                    StyleTarget::Hovered => styles.hovered.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Focused => styles.focused.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Pressed => styles.pressed.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Disabled => styles.disabled.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Actived => styles.actived.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Selected => styles.selected.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Dragged => styles.dragged.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Dragging => styles.dragging.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::DragIn => styles.drag_in.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::DragOver => styles.drag_over.get_or_insert_with(ThisStyle::new),
+
+                    StyleTarget::HoveredWithin => {
+                        styles.hovered_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::FocusedWithin => {
+                        styles.focused_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::PressedWithin => {
+                        styles.pressed_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::DisabledWithin => {
+                        styles.disabled_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::ActivedWithin => {
+                        styles.actived_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::SelectedWithin => {
+                        styles.selected_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::DraggedWithin => {
+                        styles.dragged_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::AnyWithin => styles.any_within.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Base => unreachable!(),
+                };
+
+                Some(&mut Arc::make_mut(&mut style_ref.inner).visual_property)
+            }
+        }
+    }
+
+    /// StyleTarget に応じた可変 FlexLayout を自動生成（Ensure）を解決した上で取得します
+    pub(crate) fn get_flex_layout_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut FlexLayout> {
+        match target {
+            StyleTarget::Base => self.flex_layouts.get_mut(id),
+            _ => {
+                if !self.interaction_properties.contains_key(id) {
+                    self.interaction_properties
+                        .insert(id, InteractionStyles::default());
+                }
+                let styles = self.interaction_properties.get_mut(id).unwrap();
+
+                let style_ref = match target {
+                    StyleTarget::Hovered => styles.hovered.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Focused => styles.focused.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Pressed => styles.pressed.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Disabled => styles.disabled.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Actived => styles.actived.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Selected => styles.selected.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Dragged => styles.dragged.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Dragging => styles.dragging.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::DragIn => styles.drag_in.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::DragOver => styles.drag_over.get_or_insert_with(ThisStyle::new),
+
+                    StyleTarget::HoveredWithin => {
+                        styles.hovered_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::FocusedWithin => {
+                        styles.focused_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::PressedWithin => {
+                        styles.pressed_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::DisabledWithin => {
+                        styles.disabled_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::ActivedWithin => {
+                        styles.actived_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::SelectedWithin => {
+                        styles.selected_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::DraggedWithin => {
+                        styles.dragged_within.get_or_insert_with(ThisStyle::new)
+                    }
+                    StyleTarget::AnyWithin => styles.any_within.get_or_insert_with(ThisStyle::new),
+                    StyleTarget::Base => unreachable!(),
+                };
+
+                Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
+            }
+        }
+    }
+
+    /// 指定された要素が現在マウスホバーされているか判定します
+    #[inline]
+    pub fn is_hovered(&self, id: EntityId) -> bool {
+        self.active_masks
+            .get(id)
+            .map(|m| m.has(STATE_HOVERED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在キーボードフォーカスを得ているか判定します
+    #[inline]
+    pub fn is_focused(&self, id: EntityId) -> bool {
+        self.active_masks
+            .get(id)
+            .map(|m| m.has(STATE_FOCUSED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在マウスやタップで押し下げられているか判定します
+    #[inline]
+    pub fn is_pressed(&self, id: EntityId) -> bool {
+        self.active_masks
+            .get(id)
+            .map(|m| m.has(STATE_PRESSED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が無効化（操作不可）状態にあるか判定します
+    #[inline]
+    pub fn is_disabled(&self, id: EntityId) -> bool {
+        self.active_masks
+            .get(id)
+            .map(|m| m.has(STATE_DISABLED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在アクティブ（有効選択など）状態にあるか判定します
+    #[inline]
+    pub fn is_actived(&self, id: EntityId) -> bool {
+        self.active_masks
+            .get(id)
+            .map(|m| m.has(STATE_ACTIVED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在テキストまたはトグル選択されているか判定します
+    #[inline]
+    pub fn is_selected(&self, id: EntityId) -> bool {
+        self.active_masks
+            .get(id)
+            .map(|m| m.has(STATE_SELECTED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在ドラッグ操作中にあるか判定します
+    #[inline]
+    pub fn is_dragged(&self, id: EntityId) -> bool {
+        self.active_masks
+            .get(id)
+            .map(|m| m.has(STATE_DRAGGED))
+            .unwrap_or(false)
     }
 
     pub fn entity_id_focused(&self) -> Option<EntityId> {
@@ -5436,6 +6904,162 @@ impl Context {
     pub fn active_entities_count(&self) -> usize {
         self.active_entities.len()
     }
+
+    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
+    pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
+        // 現在プレス中の要素（pressed）があればそれを最優先で探索の基点にする
+        let start_id = self.interaction_states.pressed.unwrap_or(hovered_id);
+
+        let mut curr = Some(start_id);
+        let mut global_cursor = None;
+
+        while let Some(id) = curr {
+            let cursor_opt = self
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.cursor)
+                .or_else(|| self.base_visual_properties.get(id).and_then(|v| v.cursor));
+
+            if let Some(cursor) = cursor_opt {
+                match cursor {
+                    // Global バリアントを見つけた場合、より具体的な個別カーソルが見つかっていない場合のみ記録
+                    CursorIcon::Global(global_icon) => {
+                        if global_cursor.is_none() {
+                            global_cursor = Some(global_icon);
+                        }
+                    }
+                    // 通常の個別カーソルが見つかった場合はこれが最優先なので即時採用
+                    // 親の Global の影響を遮断してDefault()に戻したい場合は、子要素側で Default() がヒットするため即時解決
+                    normal_cursor => {
+                        return normal_cursor;
+                    }
+                }
+            }
+            curr = self.parents.get(id).copied().flatten();
+        }
+
+        // 個別指定がなく、親のいずれかに Global カーソルが定義されていた場合はそれを採用
+        if let Some(global) = global_cursor {
+            match global {
+                GlobalCursorIcon::Default(opt) => CursorIcon::Default(opt),
+                GlobalCursorIcon::Pointer(opt) => CursorIcon::Pointer(opt),
+                GlobalCursorIcon::Text(opt) => CursorIcon::Text(opt),
+                GlobalCursorIcon::Grab(opt) => CursorIcon::Grab(opt),
+                GlobalCursorIcon::Grabbing(opt) => CursorIcon::Grabbing(opt),
+                GlobalCursorIcon::NotAllowed(opt) => CursorIcon::NotAllowed(opt),
+                GlobalCursorIcon::ResizeNs(opt) => CursorIcon::ResizeNs(opt),
+                GlobalCursorIcon::ResizeEw(opt) => CursorIcon::ResizeEw(opt),
+                GlobalCursorIcon::ResizeNesw(opt) => CursorIcon::ResizeNesw(opt),
+                GlobalCursorIcon::ResizeNwse(opt) => CursorIcon::ResizeNwse(opt),
+            }
+        } else {
+            // 先祖に何の設定もない場合はデフォルトの矢印
+            CursorIcon::Default(None)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResizeDirection {
+    Top,
+    Right,
+    Bottom,
+    Left,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ResizingState {
+    pub(crate) entity_id: EntityId,
+    pub(crate) direction: ResizeDirection,
+    pub(crate) start_mouse_pos: LayoutPoint,
+    pub(crate) start_rect: LayoutRect,
+    pub(crate) start_inset: Rect<Val>,
+}
+
+/// リサイズ方向から対応するカーソル種別へ変換するヘルパー
+fn resize_direction_to_cursor(dir: ResizeDirection) -> CursorIcon {
+    match dir {
+        ResizeDirection::Top | ResizeDirection::Bottom => CursorIcon::ResizeNs(None),
+        ResizeDirection::Left | ResizeDirection::Right => CursorIcon::ResizeEw(None),
+        ResizeDirection::TopRight | ResizeDirection::BottomLeft => CursorIcon::ResizeNesw(None),
+        ResizeDirection::TopLeft | ResizeDirection::BottomRight => CursorIcon::ResizeNwse(None),
+    }
+}
+
+/// マウス位置と要素の境界・リサイズ許可フラグから、該当するリサイズ方向を算出するヘルパー
+fn detect_resize_direction(
+    rect: LayoutRect,
+    resizable: [bool; 4], // [top, right, bottom, left]
+    pos: LayoutPoint,
+    border: f32,
+) -> Option<ResizeDirection> {
+    let [t, r, b, l] = resizable;
+    if !t && !r && !b && !l {
+        return None;
+    }
+
+    // 境界線の外側（-border）から内側（+border）までのあそびの範囲を厳密に判定
+    let on_t = t
+        && (pos.y >= rect.y - border && pos.y <= rect.y + border)
+        && (pos.x >= rect.x - border && pos.x <= rect.x + rect.width + border);
+
+    let on_b = b
+        && (pos.y >= rect.y + rect.height - border && pos.y <= rect.y + rect.height + border)
+        && (pos.x >= rect.x - border && pos.x <= rect.x + rect.width + border);
+
+    let on_l = l
+        && (pos.x >= rect.x - border && pos.x <= rect.x + border)
+        && (pos.y >= rect.y - border && pos.y <= rect.y + rect.height + border);
+
+    let on_r = r
+        && (pos.x >= rect.x + rect.width - border && pos.x <= rect.x + rect.width + border)
+        && (pos.y >= rect.y - border && pos.y <= rect.y + rect.height + border);
+
+    match (on_t, on_r, on_b, on_l) {
+        (true, true, _, _) => Some(ResizeDirection::TopRight),
+        (true, _, _, true) => Some(ResizeDirection::TopLeft),
+        (_, true, true, _) => Some(ResizeDirection::BottomRight),
+        (_, _, true, true) => Some(ResizeDirection::BottomLeft),
+        (true, _, _, _) => Some(ResizeDirection::Top),
+        (_, true, _, _) => Some(ResizeDirection::Right),
+        (_, _, true, _) => Some(ResizeDirection::Bottom),
+        (_, _, _, true) => Some(ResizeDirection::Left),
+        _ => None,
+    }
+}
+
+/// ドロップ先コンテナのフレックス方向（Row / Column）に基づいて、
+/// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出します。
+fn calculate_insert_index(cx: &Context, parent_id: EntityId, logical_pos: LayoutPoint) -> usize {
+    let mut insert_idx = 0;
+
+    if let Some(children) = cx.children.get(parent_id) {
+        let parent_flex = cx.flex_layouts.get(parent_id).copied().unwrap_or_default();
+        let is_row = parent_flex.flex_direction == FlexDirection::Row
+            || parent_flex.flex_direction == FlexDirection::RowReverse;
+
+        for (idx, &child_id) in children.iter().enumerate() {
+            if let Some(rect) = cx.rects.get(child_id) {
+                if is_row {
+                    let center_x = rect.x + rect.width * 0.5;
+                    if logical_pos.x > center_x {
+                        insert_idx = idx + 1;
+                    }
+                } else {
+                    let center_y = rect.y + rect.height * 0.5;
+                    if logical_pos.y > center_y {
+                        insert_idx = idx + 1;
+                    }
+                }
+            }
+        }
+    }
+
+    insert_idx
 }
 
 // クリップボード API による UTF-16 読み書きヘルパー
