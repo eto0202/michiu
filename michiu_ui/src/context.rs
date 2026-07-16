@@ -2857,6 +2857,24 @@ impl Context {
         start_value: TransitionValue,
         end_value: TransitionValue,
     ) -> bool {
+        // スタイルの再評価エフェクトの実行中であるか
+        let is_style_evaluating = crate::signal::ACTIVE_EFFECT.with(|cell| {
+            if let Some(effect_id) = cell.get() {
+                // 現在走っているエフェクトがいずれかの要素の StyleCategory::Style のものであるか走査
+                self.element_effects.values().any(|list| {
+                    list.iter()
+                        .any(|(cat, eff_id)| *eff_id == effect_id && *cat == EffectCategory::Style)
+                })
+            } else {
+                false
+            }
+        });
+
+        // スタイルエフェクト評価中であればトランジションの開始を完全拒否して値の即時書き換え
+        if is_style_evaluating {
+            return false;
+        }
+
         // 1. その要素に、このプロパティに対するトランジション設定が定義されているか検証
         if let Some(visual) = self.base_visual_properties.get(id) {
             // transitions ベクタの中から、一致する PropertyList を探す
