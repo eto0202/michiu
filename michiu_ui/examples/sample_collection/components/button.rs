@@ -112,7 +112,7 @@ fn hovered_btn() -> Element {
             .box_shadow(
                 shadow()
                     .color(Color::BLACK)
-                    .blur(6.0)
+                    .blur(4.0)
                     .offset(0.0)
                     .spread(1.0),
             )
@@ -120,9 +120,9 @@ fn hovered_btn() -> Element {
                 ts().box_shadow(
                     shadow()
                         .color(Color::BLACK)
-                        .blur(10.0)
+                        .blur(8.0)
                         .offset(0.0)
-                        .spread(2.0),
+                        .spread(1.0),
                 ),
             ),
     )
@@ -205,7 +205,7 @@ pub fn selected_btn() -> Element {
 }
 
 fn transition_btn(ms: u64, label_text: &'static str) -> Element {
-    h_flex(item_style().box_shadow(shadow().blur(6.0).color(Color::BLACK).spread(1.0))).child(
+    h_flex(item_style().box_shadow(shadow().blur(4.0).color(Color::BLACK).spread(1.0))).child(
         h_flex(
             ts().w_full()
                 .p_y(4.0)

@@ -35,7 +35,7 @@ pub fn merge_border() -> Element {
                 .border_color(Color::BLACK) // マージ
                 .bg_color(dynamic(|t: &Theme| t.background)) // 追加
                 .cursor_text() // マージ
-                .merge_with(&cursor)
+                .merge(&cursor)
                 .border_bottom(BorderStyle::Dashed, 2.0))) // 再マージ
     })
 }

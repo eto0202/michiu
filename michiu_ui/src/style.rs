@@ -4578,7 +4578,7 @@ impl ThisStyle {
     }
 
     /// 別のスタイルを上に重ねてマージした新しい ThisStyle を生成して返します。
-    pub fn merge_with(&self, other: &Self) -> Self {
+    pub fn merge(&self, other: &Self) -> Self {
         let mut merged = self.clone();
         let inner_mut = Arc::make_mut(&mut merged.inner);
         let other_inner = &other.inner;
