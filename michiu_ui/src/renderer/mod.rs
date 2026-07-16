@@ -41,93 +41,11 @@ pub struct QuadInstance {
     pub(crate) shadow_params: [f32; 4], // 16B. offset: 208
 
     pub(crate) border_lengths: EdgeInsets, // 16B. offset: 224
-}
 
-impl QuadInstance {
-    pub(crate) fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<QuadInstance>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 16,
-                    shader_location: 2,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 32,
-                    shader_location: 3,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 48,
-                    shader_location: 4,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 64,
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 80,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 96,
-                    shader_location: 7,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 112,
-                    shader_location: 8,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 128,
-                    shader_location: 9,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 144,
-                    shader_location: 10,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 160,
-                    shader_location: 11,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 176,
-                    shader_location: 12,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 192,
-                    shader_location: 13,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 208,
-                    shader_location: 14,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-                wgpu::VertexAttribute {
-                    offset: 224,
-                    shader_location: 15,
-                    format: wgpu::VertexFormat::Float32x4,
-                },
-            ],
-        }
-    }
+    pub(crate) outline_width: EdgeInsets,   // 16B. offset: 240
+    pub(crate) outline_color: Color,        // 16B. offset: 256
+    pub(crate) outline_lengths: EdgeInsets, // 16B. offset: 272
+    pub(crate) outline_offset_and_flags: [f32; 4], // 16B. offset: 288 (flags: [offset, flags, 0.0, 0.0])
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

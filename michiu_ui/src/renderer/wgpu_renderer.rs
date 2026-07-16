@@ -110,8 +110,8 @@ impl WgpuRenderer {
         // 4. デバイスとキューの取得
         let mut custom_limits = wgpu::Limits::downlevel_defaults();
         custom_limits.max_non_sampler_bindings = 2048;
-        custom_limits.max_bind_groups = 2;
-        custom_limits.max_vertex_buffers = 2;
+        custom_limits.max_bind_groups = 3;
+        custom_limits.max_vertex_buffers = 3;
         custom_limits.max_texture_dimension_2d = 8192;
 
         let (device, queue) = adapter
@@ -195,28 +195,20 @@ impl WgpuRenderer {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    // Storage (読み取り専用)
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
                 label: None,
             });
-
-        let config_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &config_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: config_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&atlas.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&atlas.sampler),
-                },
-            ],
-            label: None,
-        });
 
         // 8. パイプライン
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -242,8 +234,6 @@ impl WgpuRenderer {
                             shader_location: 0,
                         }],
                     },
-                    // Instance Buffer (QuadInstance のレイアウト)
-                    QuadInstance::desc(), // 以前定義した属性レイアウト
                 ],
                 compilation_options: Default::default(),
             },
@@ -271,18 +261,15 @@ impl WgpuRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[
-                    wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &[wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x2,
-                            offset: 0,
-                            shader_location: 0,
-                        }],
-                    },
-                    QuadInstance::desc(),
-                ],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x2,
+                        offset: 0,
+                        shader_location: 0,
+                    }],
+                }],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -347,11 +334,34 @@ impl WgpuRenderer {
         // 10. 初期インスタンスバッファ
         let instance_buffer_capacity = 64;
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Instance Buffer"),
+            label: Some("Instance Storage Buffer"),
             size: (instance_buffer_capacity * std::mem::size_of::<QuadInstance>())
                 as wgpu::BufferAddress,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
+        });
+
+        let config_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &config_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: config_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&atlas.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&atlas.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: instance_buffer.as_entire_binding(),
+                },
+            ],
+            label: None,
         });
 
         Ok(Self {
@@ -456,9 +466,7 @@ impl WgpuRenderer {
             });
 
             rpass.set_pipeline(&self.pipeline);
-            rpass.set_bind_group(0, &self.config_bind_group, &[]);
             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            rpass.set_vertex_buffer(1, self.instance_buffer.slice(..));
             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
             // 背面用バッチの描画 (instance_offset は 0 から開始)
@@ -547,6 +555,10 @@ impl WgpuRenderer {
                         binding: 2,
                         resource: wgpu::BindingResource::Sampler(&self.atlas.sampler),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: self.instance_buffer.as_entire_binding(),
+                    },
                 ],
                 label: Some("Dynamic WebView2 Bind Group"),
             });
@@ -597,6 +609,23 @@ impl WgpuRenderer {
 
             border_flags |= s_val << (i * 4); // スタイル用： bit 0, 4, 8, 12 起点
             border_flags |= a_val << (i * 4 + 2); // アライメント用： bit 2, 6, 10, 14 起点
+        }
+
+        let o_width = visual.outline_width.unwrap_or(EdgeInsets::ZERO);
+        let o_color = visual.outline_color.unwrap_or(Color::TRANSPARENT);
+        let o_lengths = visual.outline_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+        let o_offset = visual.outline_offset.unwrap_or(0.0);
+        let o_styles = visual.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+        let o_aligns = visual
+            .outline_alignments
+            .unwrap_or([BorderAlignment::Start; 4]);
+
+        let mut outline_flags = 0u32;
+        for i in 0..4 {
+            let s_val = o_styles[i] as u32;
+            let a_val = o_aligns[i] as u32;
+            outline_flags |= s_val << (i * 4);
+            outline_flags |= a_val << (i * 4 + 2);
         }
 
         // 影 (BoxShadow) のデータを選別して適用
@@ -907,6 +936,10 @@ impl WgpuRenderer {
             _padding: 0.0,
             shadow_color,
             shadow_params,
+            outline_width: o_width,
+            outline_color: o_color,
+            outline_lengths: o_lengths,
+            outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
         }
     }
 
@@ -919,13 +952,37 @@ impl WgpuRenderer {
             let size = (new_capacity * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress;
 
             self.instance_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Instance Buffer"),
+                label: Some("Instance Storage Buffer"),
                 size,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
 
             self.instance_buffer_capacity = new_capacity;
+
+            // バッファのアドレスが変わったため、標準の config_bind_group も再構築してキャッシュを同期
+            self.config_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.config_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.config_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&self.atlas.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.atlas.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: self.instance_buffer.as_entire_binding(),
+                    },
+                ],
+                label: None,
+            });
         }
     }
 }

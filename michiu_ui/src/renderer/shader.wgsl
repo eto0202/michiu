@@ -12,53 +12,49 @@ struct GlobalConfig {
 // Rust 側の binding: 2 (atlas.sampler) と同期
 @group(0) @binding(2) var s_sampler: sampler;
 
-struct VertexInput {
-    @location(0) position: vec2<f32>,
+struct InstanceData {
+    rect: vec4<f32>,
+    transform_0: vec4<f32>,
+    transform_1: vec4<f32>,
+    transform_2: vec4<f32>,
+    color: vec4<f32>,
+    corner_radius: vec4<f32>,
+    border_width: vec4<f32>,
+    border_color: vec4<f32>,
+    opacity_mode_sizing: vec4<f32>,
+    uv_range: vec4<f32>,
+    gradient_end_color: vec4<f32>,
+    gradient_angle_and_origin: vec4<f32>,
+    shadow_color: vec4<f32>,
+    shadow_params: vec4<f32>,
+    border_lengths: vec4<f32>,
+    outline_width: vec4<f32>,
+    outline_color: vec4<f32>,
+    outline_lengths: vec4<f32>,
+    outline_offset_and_flags: vec4<f32>,
 };
 
-struct InstanceInput {
-    @location(1) rect: vec4<f32>,
-    @location(2) transform_0: vec4<f32>,
-    @location(3) transform_1: vec4<f32>,
-    @location(4) transform_2: vec4<f32>,
-    @location(5) color: vec4<f32>,
-    @location(6) corner_radius: vec4<f32>,
-    @location(7) border_width: vec4<f32>,
-    @location(8) border_color: vec4<f32>,
-    @location(9) opacity_mode_sizing: vec4<f32>,
-    @location(10) uv_range: vec4<f32>,
-    @location(11) gradient_end_color: vec4<f32>,
-    @location(12) gradient_angle_and_origin: vec4<f32>,
-    @location(13) shadow_color: vec4<f32>,
-    @location(14) shadow_params: vec4<f32>,
-    @location(15) border_lengths: vec4<f32>,
+@group(0) @binding(3) var<storage, read> instances: array<InstanceData>;
+
+struct VertexInput {
+    @location(0) position: vec2<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) local_pos: vec2<f32>,
-    @location(1) size: vec2<f32>,
-    @location(2) uv: vec2<f32>,
-    @location(3) color: vec4<f32>,
-    @location(4) corner_radius: vec4<f32>,
-    @location(5) border_width: vec4<f32>,
-    @location(6) border_color: vec4<f32>,
-    @location(7) opacity_mode_sizing: vec4<f32>,
-    @location(8) uv_range: vec4<f32>,
-    @location(9) gradient_end_color: vec4<f32>,
-    @location(10) gradient_angle_and_origin: vec4<f32>,
-    @location(11) shadow_color: vec4<f32>,
-    @location(12) shadow_params: vec4<f32>,
-    @location(13) border_lengths: vec4<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) @interpolate(flat) instance_idx: u32,
 };
 
 @vertex
-fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
+fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> VertexOutput {
     var out: VertexOutput;
+
+    let instance = instances[instance_idx];
 
     let width = instance.rect.z;
     let height = instance.rect.w;
-    out.size = vec2<f32>(width, height);
 
     // 影（BoxShadow）による頂点描画境界の自動拡張
     var margin = 0.0;
@@ -69,6 +65,15 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
 
         // 影が完全に消え去るのに必要なマージンを物理ピクセル単位で算出
         margin = max(0.0, shadow_spread) + shadow_blur * 3.0 + max(abs(shadow_offset.x), abs(shadow_offset.y));
+    }
+
+    let o_width = instance.outline_width;
+    let o_offset = instance.outline_offset_and_flags.x;
+    if (instance.outline_color.a > 0.0 && (o_width.x + o_width.y + o_width.z + o_width.w) > 0.0) {
+        // オフセット + 最大アウトライン太さを物理ピクセルでクランプ
+        let max_o_width = max(max(o_width.x, o_width.y), max(o_width.z, o_width.w));
+        let outline_margin = max_o_width + max(0.0, o_offset);
+        margin = max(margin, outline_margin + 1.5); // 1.5pxはアンチエイリアスの余白
     }
 
     // 1x1 の頂点（0.0 ～ 1.0）を、[-margin, size + margin] の物理ピクセル座標へ引き伸ばす
@@ -85,7 +90,7 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     );
 
     // トランスフォーム中心 (Transform Origin) の考慮
-    let origin_pixel = instance.gradient_angle_and_origin.yz * out.size;
+    let origin_pixel = instance.gradient_angle_and_origin.yz * size_vec;
     // 拡張されたピクセル座標にトランスフォームを適用
     let pos_centered = local_pixel - origin_pixel;
     let pos_transformed = (transform * vec4<f32>(pos_centered, 0.0, 1.0)).xy + origin_pixel;
@@ -106,18 +111,7 @@ fn vs_main(vertex: VertexInput, instance: InstanceInput) -> VertexOutput {
     // UV の補間 (通常の画像 / テキスト兼用)
     out.uv = mix(instance.uv_range.xy, instance.uv_range.zw, local_ratio);
 
-    // インスタンス変数のフォワード
-    out.color = instance.color;
-    out.corner_radius = instance.corner_radius;
-    out.border_width = instance.border_width;
-    out.border_color = instance.border_color;
-    out.opacity_mode_sizing = instance.opacity_mode_sizing;
-    out.uv_range = instance.uv_range;
-    out.gradient_end_color = instance.gradient_end_color;
-    out.gradient_angle_and_origin = instance.gradient_angle_and_origin;
-    out.shadow_color = instance.shadow_color;
-    out.shadow_params = instance.shadow_params;
-    out.border_lengths = instance.border_lengths;
+    out.instance_idx = instance_idx; // インデックスのみをフラグメントに退避
     return out;
 }
 
@@ -154,22 +148,26 @@ fn srgb_to_linear(srgb: vec4<f32>) -> vec4<f32> {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let opacity = in.opacity_mode_sizing.x;
-    let mode = in.opacity_mode_sizing.y;
-    let box_sizing = in.opacity_mode_sizing.z;
+    // フラグメント側でインデックスを用いて直接ストレージからインスタンスデータをルックアップ
+    let instance = instances[in.instance_idx];
 
-    let b = in.size * 0.5; // ハーフサイズ
+    let opacity = instance.opacity_mode_sizing.x;
+    let mode = instance.opacity_mode_sizing.y;
+    let box_sizing = instance.opacity_mode_sizing.z;
+
+    let size_vec = instance.rect.zw;
+    let b = size_vec * 0.5; // ハーフサイズ
     let local_center = in.local_pos - b; // 中心原点の座標
 
     // 入力されるすべての sRGB カラーを Linear 空間へ一斉デガンマ
-    let color_linear = srgb_to_linear(in.color);
-    let border_color_linear = srgb_to_linear(in.border_color);
-    let gradient_end_linear = srgb_to_linear(in.gradient_end_color);
-    let shadow_color_linear = srgb_to_linear(in.shadow_color);
+    let color_linear = srgb_to_linear(instance.color);
+    let border_color_linear = srgb_to_linear(instance.border_color);
+    let gradient_end_linear = srgb_to_linear(instance.gradient_end_color);
+    let shadow_color_linear = srgb_to_linear(instance.shadow_color);
 
-    let min_edge = min(in.size.x, in.size.y);
+    let min_edge = min(size_vec.x, size_vec.y);
     let max_radius = min_edge * 0.5;
-    let clamped_radius = min(in.corner_radius, vec4<f32>(max_radius));
+    let clamped_radius = min(instance.corner_radius, vec4<f32>(max_radius));
 
     // 本体および丸角の描画計算
     let dist_to_box = sd_rounded_box(local_center, b, clamped_radius);
@@ -185,14 +183,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // ソフトシャドウ（BoxShadow）の描画計算
     var shadow_out = vec4<f32>(0.0);
     if (shadow_color_linear.a > 0.0) {
-        let shadow_offset = in.shadow_params.xy;
-        let shadow_blur = in.shadow_params.z;
-        let shadow_spread = in.shadow_params.w;
+        let shadow_offset = instance.shadow_params.xy;
+        let shadow_blur = instance.shadow_params.z;
+        let shadow_spread = instance.shadow_params.w;
 
         // 影の位置をずらし、spread 分だけ大きさを拡張
         let shadow_pos = local_center - shadow_offset;
         let shadow_b = b + vec2<f32>(shadow_spread);
-        let shadow_radius = in.corner_radius + vec4<f32>(shadow_spread);
+        let shadow_radius = instance.corner_radius + vec4<f32>(shadow_spread);
 
         let dist_to_shadow = sd_rounded_box(shadow_pos, shadow_b, shadow_radius);
 
@@ -216,10 +214,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 枠線（Border）の正確な内側描画計算
     // Taffy のレイアウトに100%適合させるため、枠線は常に外枠（b）の内側に
     var border_alpha = 0.0;
-    let has_border = border_color_linear.a > 0.0 && (in.border_width.x + in.border_width.y + in.border_width.z + in.border_width.w) > 0.0;
+    let has_border = border_color_linear.a > 0.0 && (instance.border_width.x + instance.border_width.y + instance.border_width.z + instance.border_width.w) > 0.0;
 
     if (has_border) {
-        let b_width = in.border_width;
+    let b_width = instance.border_width;
 
         let border_center_shift = vec2<f32>(
             (b_width.w - b_width.y) * 0.5,
@@ -231,9 +229,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         );
         let inner_pos = local_center - border_center_shift;
 
-        let inner_radius = max(in.corner_radius - vec4<f32>(
-            b_width.x, b_width.y, b_width.z, b_width.w
-        ), vec4<f32>(0.0));
+        let inner_radius = max(instance.corner_radius - vec4<f32>(b_width.x, b_width.y, b_width.z, b_width.w), vec4<f32>(0.0));
 
         let dist_to_inner = sd_rounded_box(inner_pos, inner_b, inner_radius);
 
@@ -251,12 +247,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         else if (min_dist == dist_to_left) { edge_idx = 3u; }
 
         // 2. ビットフラグの解凍 (デコード)
-        let flags = u32(in.opacity_mode_sizing.w);
+        let flags = u32(instance.opacity_mode_sizing.w);
         let style = (flags >> (edge_idx * 4u)) & 3u;      // 0: Solid, 1: Dotted, 2: Dashed, 3: Double
         let alignment = (flags >> (edge_idx * 4u + 2u)) & 3u; // 0: Start, 1: End, 2: Center
 
         // 3. アライメント基準点に基づく「長さトリミング」の計算
-        let lengths = in.border_lengths;
+        let lengths = instance.border_lengths;
         var len_limit = 1.0;
         if (edge_idx == 0u) { len_limit = lengths.x; }
         else if (edge_idx == 1u) { len_limit = lengths.y; }
@@ -274,7 +270,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             pos_edge = local_center.y + b.y;
         }
 
-        let edge_fade = 0.5 / max(in.size.x, in.size.y);
+        let edge_fade = 0.5 / max(size_vec.x, size_vec.y);
         var length_alpha = 1.0;
 
         if (alignment == 0u) {
@@ -327,6 +323,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         border_alpha = border_alpha * clamp(w, 0.0, 1.0);
     }
 
+    var outline_alpha = 0.0;
+    let outline_color_linear = srgb_to_linear(instance.outline_color);
+    let o_offset = instance.outline_offset_and_flags.x;
+    let o_width = instance.outline_width;
+    let has_outline = outline_color_linear.a > 0.0 && (o_width.x + o_width.y + o_width.z + o_width.w) > 0.0;
+
+    if (has_outline) {
+        // 四辺一括での基本的なアウトライン境界 SDF 処理 (個別スタイル処理は Border と同様にデコード可能)
+        let o_w = o_width.x; // 代表値として上の太さを利用 (一括設定時)
+
+        // アウトラインの内側半径と外側半径
+        let r_inner = clamped_radius + vec4<f32>(o_offset);
+        let r_outer = clamped_radius + vec4<f32>(o_offset + o_w);
+
+        let dist_to_inner_o = sd_rounded_box(local_center, b + vec4<f32>(o_offset).xy, r_inner);
+        let dist_to_outer_o = sd_rounded_box(local_center, b + vec4<f32>(o_offset + o_w).xy, r_outer);
+
+        // 境界内のマスク抽出
+        let out_alpha = smoothstep(-0.5, 0.5, dist_to_inner_o) * (1.0 - smoothstep(-0.5, 0.5, dist_to_outer_o));
+        outline_alpha = out_alpha;
+    }
+
     // 背景色・グラデーション・サンプリングの取得
     var element_color = vec4<f32>(0.0);
 
@@ -347,9 +365,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         var base_color = color_linear;
         if (mode == 1.0) {
             // 2色グラデーション
-            let angle = in.gradient_angle_and_origin.x;
+            let angle = instance.gradient_angle_and_origin.x;
             let dir = vec2<f32>(cos(angle), sin(angle));
-            let proj = dot(local_center, dir) / (length(in.size) * 0.5);
+            let proj = dot(local_center, dir) / (length(size_vec) * 0.5);
             let t = clamp(proj * 0.5 + 0.5, 0.0, 1.0);
             base_color = mix(color_linear, gradient_end_linear, t);
         }
@@ -365,8 +383,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         element_color = mix(element_color, b_pma, border_alpha);
     }
 
-    // 影の上に要素本体を Premultiplied Alpha で合成
-    final_color = element_color * box_alpha + shadow_out * (1.0 - element_color.a * box_alpha);
+    // 本体（背景 + 枠線）の物理アルファ付きカラーを算出
+    var base_with_outline = element_color * box_alpha;
+
+    // 本体の外枠領域（1.0 - base_with_outline.a）に対して、アウトラインを重ねて合成
+    if (has_outline) {
+        let o_pma = vec4<f32>(outline_color_linear.rgb * outline_color_linear.a * opacity, outline_color_linear.a * opacity);
+        base_with_outline = base_with_outline + o_pma * outline_alpha * (1.0 - base_with_outline.a);
+    }
+
+    // 最下層に位置する影（shadow_out）の上に重ねて Premultiplied Alpha 合成を完成
+    final_color = base_with_outline + shadow_out * (1.0 - base_with_outline.a);
 
     return final_color;
 }

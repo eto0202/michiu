@@ -1,16 +1,16 @@
 #![allow(unused)]
 use crate::{
     ActiveAnimation, ActiveTransition, AlignContent, AlignItems, AlignSelf, BasicLayout, BatchType,
-    BoxShadow, BoxSizing, Color, CornerRadius, CursorIcon, Direction, Display, DragPayload,
-    DragPlaceholderParent, DragProperty, DrawBatch, DropProperty, DropTarget, EdgeInsets, EffectId,
-    Element, ElementState, EventListeners, FlexDirection, FlexLayout, FlexWrap, GlobalCursorIcon,
-    GridAutoFlow, GridLayout, GridLine, GridPlacement, IDENTITY_MATRIX, ImageSource, ImeState,
-    InputContents, InteractionStates, InteractionStyles, JustifyContent, LayoutOverflow,
-    LayoutPoint, LayoutRect, LayoutSize, Length, Modifiers, MouseButton, MovieProperty,
-    MovieSource, Overflow, PlaybackCount, PointerEvents, Position, QuadInstance, ReadSignal, Rect,
-    RenderData, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, SignalId, Size, StyleTarget,
-    TextAlign, TextEngine, TextSpan, ThisStyle, TransitionValue, UiaValue, UserSelect, Val,
-    VirtualKey, VisualProperty, WebView2Contents, WriteSignal, bind_context, bitmap::*,
+    BorderAlignment, BorderStyle, BoxShadow, BoxSizing, Color, CornerRadius, CursorIcon, Direction,
+    Display, DragPayload, DragPlaceholderParent, DragProperty, DrawBatch, DropProperty, DropTarget,
+    EdgeInsets, EffectId, Element, ElementState, EventListeners, FlexDirection, FlexLayout,
+    FlexWrap, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement, IDENTITY_MATRIX,
+    ImageSource, ImeState, InputContents, InteractionStates, InteractionStyles, JustifyContent,
+    LayoutOverflow, LayoutPoint, LayoutRect, LayoutSize, Length, Modifiers, MouseButton,
+    MovieProperty, MovieSource, Overflow, PlaybackCount, PointerEvents, Position, QuadInstance,
+    ReadSignal, Rect, RenderData, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, SignalId, Size,
+    StyleTarget, TextAlign, TextEngine, TextSpan, ThisStyle, TransitionValue, UiaValue, UserSelect,
+    Val, VirtualKey, VisualProperty, WebView2Contents, WriteSignal, bind_context, bitmap::*,
     with_context,
 };
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
@@ -2149,6 +2149,25 @@ impl Context {
             // 紺色の背景を通常通り描き込み、デスクトップが透けるのを完全に防止します。
             let is_webview_ready = is_webview && self.active_webviews.contains(&id);
 
+            let (basic, _, _) = self.resolve_active_layouts(id);
+            let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
+
+            let o_width = visual.outline_width.unwrap_or(EdgeInsets::ZERO);
+            let o_color = visual.outline_color.unwrap_or(Color::TRANSPARENT);
+            let o_lengths = visual.outline_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+            let o_offset = visual.outline_offset.unwrap_or(0.0);
+            let o_styles = visual.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+            let o_aligns = visual
+                .outline_alignments
+                .unwrap_or([BorderAlignment::Start; 4]);
+
+            let mut o_flags = 0u32;
+            for idx in 0..4 {
+                o_flags |= (o_styles[idx] as u32) << (idx * 4);
+                o_flags |= (o_aligns[idx] as u32) << (idx * 4 + 2);
+            }
+            let outline_offset_and_flags = [o_offset, o_flags as f32, 0.0, 0.0];
+
             if is_webview_ready {
                 // 1. 今まで溜まっている「通常（Normal）」のバッチがあれば一旦フラッシュ
                 if !current_instances.is_empty() {
@@ -2160,8 +2179,6 @@ impl Context {
                     });
                 }
 
-                let (basic, _, _) = self.resolve_active_layouts(id);
-                let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
                 let origin = visual
                     .transform_origin
                     .map(|p| [p.x, p.y])
@@ -2200,6 +2217,10 @@ impl Context {
                     _padding: 0.0,
                     shadow_color: Color::TRANSPARENT,
                     shadow_params: [0.0; 4],
+                    outline_color: Color::TRANSPARENT,
+                    outline_lengths: EdgeInsets::ZERO,
+                    outline_width: EdgeInsets::ZERO,
+                    outline_offset_and_flags: [0.0; 4],
                 };
                 current_instances.push(punchout_instance);
                 current_ids.push(id);
@@ -2236,6 +2257,10 @@ impl Context {
                     _padding: 0.0,
                     shadow_color: Color::WHITE,
                     shadow_params: [0.0; 4],
+                    outline_width: o_width,
+                    outline_color: o_color,
+                    outline_lengths: o_lengths,
+                    outline_offset_and_flags,
                 };
                 current_instances.push(border_instance);
                 current_ids.push(id);
@@ -2260,9 +2285,6 @@ impl Context {
                     });
                 }
 
-                // 2. この静止 WebView2 専用のバッチを直ちに単独構築
-                let (basic, _, _) = self.resolve_active_layouts(id);
-                let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
                 let origin = visual
                     .transform_origin
                     .map(|p| [p.x, p.y])
@@ -2297,6 +2319,10 @@ impl Context {
                     _padding: 0.0,
                     shadow_color: Color::TRANSPARENT,
                     shadow_params: [0.0; 4],
+                    outline_color: Color::TRANSPARENT,
+                    outline_lengths: EdgeInsets::ZERO,
+                    outline_width: EdgeInsets::ZERO,
+                    outline_offset_and_flags: [0.0; 4],
                 };
                 current_instances.push(static_instance);
                 current_ids.push(id);
@@ -2330,6 +2356,10 @@ impl Context {
                     _padding: 0.0,
                     shadow_color: Color::WHITE,
                     shadow_params: [0.0; 4],
+                    outline_width: o_width,
+                    outline_color: o_color,
+                    outline_lengths: o_lengths,
+                    outline_offset_and_flags,
                 };
                 current_instances.push(border_instance);
                 current_ids.push(id);
@@ -2364,9 +2394,6 @@ impl Context {
                 // 最初の要素（root）の時点で、確実にその要素のクリップ矩形で初期化します
                 last_clip = Some(clip);
             }
-
-            let (basic, _, _) = self.resolve_active_layouts(id);
-            let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
 
             // 選択ハイライト背景のwgpu側への差し込み
             // キャッシュされた選択背景矩形群を描画
@@ -2425,6 +2452,10 @@ impl Context {
                         _padding: 0.0,
                         shadow_color: Color::TRANSPARENT,
                         shadow_params: [0.0; 4],
+                        outline_color: Color::TRANSPARENT,
+                        outline_lengths: EdgeInsets::ZERO,
+                        outline_width: EdgeInsets::ZERO,
+                        outline_offset_and_flags: [0.0; 4],
                     };
                     current_instances.push(sel_instance);
                     current_ids.push(id);
@@ -2488,6 +2519,10 @@ impl Context {
                     _padding: 0.0,
                     shadow_color: Color::WHITE,
                     shadow_params: [0.0; 4],
+                    outline_width: o_width,
+                    outline_color: o_color,
+                    outline_lengths: o_lengths,
+                    outline_offset_and_flags,
                 };
                 current_instances.push(bg_instance);
                 current_ids.push(id);
@@ -2568,6 +2603,26 @@ impl Context {
                 _padding: 0.0,
                 shadow_color,
                 shadow_params: [0.0; 4],
+                outline_width: if is_text && has_bg {
+                    EdgeInsets::ZERO
+                } else {
+                    o_width
+                },
+                outline_color: if is_text && has_bg {
+                    Color::TRANSPARENT
+                } else {
+                    o_color
+                },
+                outline_lengths: if is_text && has_bg {
+                    EdgeInsets::ZERO
+                } else {
+                    o_lengths
+                },
+                outline_offset_and_flags: if is_text && has_bg {
+                    [0.0; 4]
+                } else {
+                    outline_offset_and_flags
+                },
             };
 
             current_instances.push(instance);
@@ -2623,7 +2678,7 @@ impl Context {
 
                     let scale = self.scale_factor;
 
-                    // 1. [太さ変化の解消] X座標をDPIスケーリング後の物理ピクセルグリッドに完全にスナップ
+                    // 1. X座標をDPIスケーリング後の物理ピクセルグリッドに完全にスナップ
                     let logical_x = rect.x + border_left + padding_left + contents.measured_caret_x;
                     let aligned_x = (logical_x * scale).round() / scale;
 
@@ -2675,6 +2730,10 @@ impl Context {
                         _padding: 0.0,
                         shadow_color: Color::TRANSPARENT,
                         shadow_params: [0.0; 4],
+                        outline_width: EdgeInsets::ZERO,
+                        outline_color: Color::TRANSPARENT,
+                        outline_lengths: EdgeInsets::ZERO,
+                        outline_offset_and_flags: [0.0; 4],
                     };
 
                     current_instances.push(caret_instance);
