@@ -100,6 +100,7 @@ fn section_pseudo() -> Element {
         pressed_btn(),
         dragged_btn(),
         actived_btn(),
+        selected_btn(),
     ]);
 
     v_flex(section_style()).children([section_title("Button Pseudo Class"), wrapper])
@@ -121,7 +122,7 @@ fn hovered_btn() -> Element {
                         .color(Color::BLACK)
                         .blur(10.0)
                         .offset(0.0)
-                        .spread(1.0),
+                        .spread(2.0),
                 ),
             ),
     )
@@ -133,7 +134,7 @@ fn pressed_btn() -> Element {
         item_style()
             .border_dashed(2.0)
             .border_color(dynamic(|t: &Theme| t.primary))
-            .pressed(ts().transform_scale(0.98, 0.98)),
+            .pressed(ts().transform_scale(0.96, 0.96)),
     )
     .label("Pressed", label_style())
 }
@@ -168,6 +169,42 @@ fn actived_btn() -> Element {
     .on_click(move || {
         set_is_active.set(!is_active.get());
     })
+    .on_active(|| {
+        println!("Actived");
+    })
+}
+
+pub fn selected_btn() -> Element {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Option {
+        A,
+        B,
+        C,
+    }
+
+    let (selected, set_selected) = create_signal(Option::A);
+
+    let item = move |opt_type: Option, label_text: &'static str| {
+        h_flex(item_style().border_dashed(2.0).w_full().justify_center())
+            .style_d(|t: &Theme| {
+                ts().border_color(t.border_hover)
+                    .selected(ts().border_color(t.primary).border_solid(2.0))
+            })
+            .label(label_text, label_style())
+            .select(move || selected.get() == opt_type)
+            .on_click(move || {
+                set_selected.set(opt_type);
+            })
+            .on_select(move || {
+                println!("{:?} is now selected!", opt_type);
+            })
+    };
+
+    h_flex(ts().gap(2.0)).children([
+        item(Option::A, "Sel"),
+        item(Option::B, "ec"),
+        item(Option::C, "ted"),
+    ])
 }
 
 fn section_transition() -> Element {
