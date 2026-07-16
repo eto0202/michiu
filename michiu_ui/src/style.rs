@@ -1,12 +1,13 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, Backdrop, BasicLayout, BorderAlignment, BorderStyle,
     BoxShadow, BoxSizing, Color, Context, Convert, CornerRadius, CursorIcon, Direction, Display,
-    DragPayload, DragPlaceholderParent, DragProperty, DropProperty, DropTarget, EdgeInsets, EntityId,
-    FlexDirection, FlexLayout, FlexWrap, GridAutoFlow, GridLayout, GridLine, GridPlacement,
-    InteractionName, InteractionStyles, IntoCornerRadius, IntoRect, IntoSize, JustifyContent,
-    LayoutOverflow, Length, LinearGradient, Overflow, Percent, Pixel, Point, PointerEvents,
-    Position, ReadSignal, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Size, TextAlign,
-    Transform, Transition, UserSelect, Val, VisualProperty, auto, bitmap::*, pct, ts,
+    DragPayload, DragPlaceholderParent, DragProperty, DropProperty, DropTarget, EdgeInsets,
+    EntityId, FlexDirection, FlexLayout, FlexWrap, GridAutoFlow, GridLayout, GridLine,
+    GridPlacement, InteractionName, InteractionStyles, IntoCornerRadius, IntoRect, IntoSize,
+    JustifyContent, LayoutOverflow, Length, LinearGradient, Overflow, Percent, Pixel, Point,
+    PointerEvents, Position, ReadSignal, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
+    Size, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, bitmap::*, pct,
+    ts,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -1992,6 +1993,169 @@ impl ThisStyle {
     #[inline]
     pub fn border_left_align(self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         self.set_border_align_idx(3, value)
+    }
+
+    /// アウトラインの太さとスタイルを一括指定します。
+    #[inline]
+    pub fn outline(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        width: impl IntoStyleRect<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let w_val = width.into_style_rect();
+
+        match (s_val, w_val) {
+            (StyleValue::Static(s), StyleValue::Static(w)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                // 基本レイアウトには影響しないため、basic_layout にはマウントせず visual_property にのみ設定
+                inner.visual_property.outline_width = Some(EdgeInsets {
+                    top: w.top.into(),
+                    right: w.right.into(),
+                    bottom: w.bottom.into(),
+                    left: w.left.into(),
+                });
+                inner.visual_property.outline_styles = Some([s; 4]);
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            (s_getter, w_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_w = match w_getter {
+                    StyleValue::Static(w) => {
+                        Box::new(move || w) as Box<dyn Fn() -> Rect<Length> + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let s = get_s();
+                    let w = get_w();
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.outline_width = Some(EdgeInsets {
+                            top: w.top.into(),
+                            right: w.right.into(),
+                            bottom: w.bottom.into(),
+                            left: w.left.into(),
+                        });
+                        vis.outline_styles = Some([s; 4]);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// アウトラインの色を設定します。
+    #[inline]
+    pub fn outline_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.outline_color = Some(v);
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                        v.outline_color = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 要素とアウトラインとの「隙間（Offset）」を物理ピクセルで設定します。
+    #[inline]
+    pub fn outline_offset(mut self, value: impl IntoStyleValue<f32>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.outline_offset = Some(v);
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                        v.outline_offset = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 四辺のアウトライン個別長さを設定します。
+    #[inline]
+    pub fn outline_lengths(mut self, value: impl IntoStyleRect<f32>) -> Self {
+        match value.into_style_rect() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.outline_lengths = Some(EdgeInsets {
+                    top: v.top,
+                    right: v.right,
+                    bottom: v.bottom,
+                    left: v.left,
+                });
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let v = getter();
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.outline_lengths = Some(EdgeInsets {
+                            top: v.top,
+                            right: v.right,
+                            bottom: v.bottom,
+                            left: v.left,
+                        });
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// アウトラインの基準（配置伸縮の方向）を一括設定します。
+    #[inline]
+    pub fn outline_align(mut self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.outline_alignments = Some([v; 4]);
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.outline_alignments = Some([val; 4]);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
     }
 
     /// コンテナ内の一括交差軸配置を設定します。
@@ -4462,6 +4626,30 @@ impl ThisStyle {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.select_text_color = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 要素にキーボードタブやマウスクリックによるフォーカスを許可するかどうかを設定します。
+    #[inline]
+    pub fn focusable(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.focusable = Some(v);
+                inner.mask.set(STYLE_FOCUSABLE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_FOCUSABLE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                        v.focusable = Some(val);
                     }
                     cx.mark_render_dirty(id);
                 }));

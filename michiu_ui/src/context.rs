@@ -148,6 +148,7 @@ pub(crate) enum EffectCategory {
     SelectState,
     DisableState,
     FocusState,
+    FocusableState,
 }
 
 #[derive(Debug, Clone)]
@@ -5422,7 +5423,13 @@ impl Context {
 
                     // フォーカス可能要素のみにフォーカスを制限
                     let is_focusable = self.active_masks[target_id].has(COMP_INPUT_CONTENT)
-                        || self.active_masks[target_id].has(COMP_WEBVIEW_CONTENT);
+                        || self.active_masks[target_id].has(COMP_WEBVIEW_CONTENT)
+                        || (self.active_masks[target_id].has(STYLE_FOCUSABLE)
+                            && self
+                                .visual_properties
+                                .get(target_id)
+                                .and_then(|v| v.focusable)
+                                .unwrap_or(false));
 
                     if is_focusable {
                         // フォーカスの自動切り替え

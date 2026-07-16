@@ -1885,6 +1885,13 @@ pub struct VisualProperty {
     pub user_select: Option<UserSelect>,
     pub select_bg_color: Option<Color>,
     pub select_text_color: Option<Color>,
+    pub focusable: Option<bool>,
+    pub outline_width: Option<EdgeInsets>, // アウトラインはレイアウトに影響を与えないため
+    pub outline_color: Option<Color>,
+    pub outline_lengths: Option<EdgeInsets>,
+    pub outline_styles: Option<[BorderStyle; 4]>,
+    pub outline_alignments: Option<[BorderAlignment; 4]>,
+    pub outline_offset: Option<f32>,
 }
 
 impl VisualProperty {
@@ -1952,6 +1959,18 @@ impl VisualProperty {
             self.select_bg_color = other.select_bg_color;
             self.select_text_color = other.select_text_color;
         }
+        if mask.has(STYLE_FOCUSABLE) {
+            self.focusable = other.focusable;
+        }
+        if mask.has(STYLE_OUTLINE) {
+            self.outline_width = other.outline_width;
+            self.outline_color = other.outline_color;
+            self.outline_lengths = other.outline_lengths;
+            self.outline_styles = other.outline_styles;
+            self.outline_alignments = other.outline_alignments;
+            self.outline_offset = other.outline_offset;
+        }
+
         // 複数追加できるものは破棄せず結合
         if mask.has(STYLE_TRANSITIONS) {
             self.transitions.extend(other.transitions.clone());

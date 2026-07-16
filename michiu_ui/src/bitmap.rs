@@ -204,6 +204,9 @@ pub(crate) const STATE_DRAGGING: u128 = 1 << 67; // ドラッグ元の実体に�
 pub(crate) const STATE_DRAG_IN: u128 = 1 << 68; // ドロップ受け入れ先に当てる（DragIn）
 pub(crate) const STATE_DRAG_OVER: u128 = 1 << 69; // プレースホルダー自体に当てる（DragOver）
 
+pub(crate) const STYLE_FOCUSABLE: u128 = 1 << 70;
+pub(crate) const STYLE_OUTLINE: u128 = 1 << 71;
+
 // 基本レイアウト一括判定マスク (STYLE_DISPLAY から STYLE_BORDER まで：ビット0..17)
 /// 基本レイアウトの個別プロパティの「どれか1つでも有効化されているか」を判定するマスク。
 /// (16進数表現：0x3FFFF)
@@ -258,7 +261,9 @@ pub(crate) const STYLE_VISUAL_PROPERTY: u128 = STYLE_BG_COLOR
     | STYLE_POINTER_EVENTS
     | STYLE_USER_SELECT
     | STYLE_DRAGGABLE
-    | STYLE_DROPPABLE;
+    | STYLE_DROPPABLE
+    | STYLE_FOCUSABLE
+    | STYLE_OUTLINE;
 
 // インタラクションプロパティの一括判定用マスク（ビット43..49の論理和：16進数表現 0x3F80000000000）
 pub(crate) const STYLE_INTERACTION_PROPERTY: u128 = STATE_HOVERED
