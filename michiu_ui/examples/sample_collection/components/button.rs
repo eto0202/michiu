@@ -154,24 +154,21 @@ fn dragged_btn() -> Element {
 fn actived_btn() -> Element {
     let (is_active, set_is_active) = create_signal(false);
 
-    h_flex(
-        item_style()
-            .border_bottom_align(BorderAlignment::Center)
-            .border_bottom_length(0.8)
-            .border_bottom(BorderStyle::Solid, 2.0),
-    )
-    .style_d(|t: &Theme| {
-        ts().border_color(t.border)
-            .actived(ts().border_color(t.primary))
-    })
-    .label("Actived", label_style())
-    .active(is_active)
-    .on_click(move || {
-        set_is_active.set(!is_active.get());
-    })
-    .on_active(|| {
-        println!("Actived");
-    })
+    h_flex(item_style())
+        .style_d(|t: &Theme| {
+            ts().border_color(t.border)
+                .border_solid(2.0)
+                .bg_color(t.surface)
+                .actived(ts().bg_color(t.primary))
+        })
+        .label("Actived", label_style())
+        .active(is_active)
+        .on_click(move || {
+            set_is_active.set(!is_active.get());
+        })
+        .on_active(|| {
+            println!("Actived");
+        })
 }
 
 pub fn selected_btn() -> Element {
@@ -184,19 +181,19 @@ pub fn selected_btn() -> Element {
 
     let (selected, set_selected) = create_signal(Option::A);
 
-    let item = move |opt_type: Option, label_text: &'static str| {
+    let item = move |opt: Option, label_text: &'static str| {
         h_flex(item_style().border_dashed(2.0).w_full().justify_center())
             .style_d(|t: &Theme| {
                 ts().border_color(t.border_hover)
                     .selected(ts().border_color(t.primary).border_solid(2.0))
             })
             .label(label_text, label_style())
-            .select(move || selected.get() == opt_type)
+            .select(move || selected.get() == opt)
             .on_click(move || {
-                set_selected.set(opt_type);
+                set_selected.set(opt);
             })
             .on_select(move || {
-                println!("{:?} is now selected!", opt_type);
+                println!("{:?} is now selected!", opt);
             })
     };
 
@@ -207,8 +204,31 @@ pub fn selected_btn() -> Element {
     ])
 }
 
+fn transition_btn(ms: u64, label_text: &'static str) -> Element {
+    h_flex(item_style().box_shadow(shadow().blur(6.0).color(Color::BLACK).spread(1.0))).child(
+        h_flex(
+            ts().w_full()
+                .p_y(4.0)
+                .items_center()
+                .justify_center()
+                .border_bottom(BorderStyle::Solid, 2.0)
+                .border_align(BorderAlignment::Center)
+                .border_bottom_length(0.6)
+                .border_color(dynamic(|t: &Theme| t.border))
+                .pressed(ts().border_color(dynamic(|t: &Theme| t.primary)))
+                .trans_border_color(Duration::from_millis(ms), AnimationCurve::EaseInOutQuad),
+        )
+        .label(label_text, label_style()),
+    )
+}
+
 fn section_transition() -> Element {
-    let wrapper = h_flex(wrapper_style());
+    let wrapper = h_flex(wrapper_style()).children([
+        transition_btn(150, "150 ms"),
+        transition_btn(300, "300 ms"),
+        transition_btn(450, "450 ms"),
+        transition_btn(600, "600 ms"),
+    ]);
 
     v_flex(section_style()).children([section_title("Button Transition"), wrapper])
 }
