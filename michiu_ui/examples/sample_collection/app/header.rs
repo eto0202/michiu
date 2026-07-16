@@ -3,15 +3,15 @@ pub use michiu_ui::prelude::*;
 use std::time::Duration;
 
 pub fn header() -> Element {
-    h_flex_d(|t: &Theme| {
+    h_flex(
         ts().w_full()
             .height(40.0)
             .shrink_0()
             .justify_center()
             .items_center()
             .border_bottom(BorderStyle::Solid, 1.0)
-            .border_color(t.border)
-    })
+            .border_color(dynamic(|t: &Theme| t.border)),
+    )
     .children([search_box(), toggle_btn()])
 }
 

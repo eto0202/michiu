@@ -1,6 +1,6 @@
 use crate::{
     app::{ComponentType, sidebar, theme::Theme},
-    components::{background, border, css, div, draggable, hover, resizable},
+    components::{background, border, button, css, div, draggable, hover, resizable},
 };
 pub use michiu_ui::prelude::*;
 use strum::IntoEnumIterator;
@@ -41,7 +41,7 @@ pub fn main_area() -> Element {
 
 fn create_component_element(comp_type: ComponentType) -> Element {
     match comp_type {
-        ComponentType::Button => text("Button"),
+        ComponentType::Button => wrapper(button::container()),
         ComponentType::Input => text("Input"),
         ComponentType::InputArea => text("InputArea"),
         ComponentType::Background => wrapper(background::container()),

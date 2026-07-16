@@ -144,6 +144,10 @@ pub(crate) enum EffectCategory {
     Contents,
     UiaName,
     UiaAutomationId,
+    ActiveState,
+    SelectState,
+    DisableState,
+    FocusState,
 }
 
 #[derive(Debug, Clone)]
@@ -3036,6 +3040,7 @@ impl Context {
                     (STATE_HOVERED, &interaction.hovered),
                     (STATE_PRESSED, &interaction.pressed),
                     (STATE_DISABLED, &interaction.disabled),
+                    (STATE_DRAGGED, &interaction.dragged),
                     (STATE_DRAGGING, &interaction.dragging),
                     (STATE_DRAG_IN, &interaction.drag_in),
                     (STATE_DRAG_OVER, &interaction.drag_over),
@@ -3422,6 +3427,7 @@ impl Context {
                     (STATE_HOVERED, &interaction.hovered),
                     (STATE_PRESSED, &interaction.pressed),
                     (STATE_DISABLED, &interaction.disabled),
+                    (STATE_DRAGGED, &interaction.dragged),
                     (STATE_DRAGGING, &interaction.dragging),
                     (STATE_DRAG_IN, &interaction.drag_in),
                     (STATE_DRAG_OVER, &interaction.drag_over),
@@ -4899,8 +4905,8 @@ impl Context {
                             let _guard = crate::ActiveElementGuard::new(pressed_id);
                             listener(
                                 self,
-                                Element::from_id(pressed_id),
-                                Element::from_id(placeholder_id),
+                                Element::from(pressed_id),
+                                Element::from(placeholder_id),
                             );
                         }
                         if let Some(l) = self.event_listeners.get_mut(pressed_id) {
@@ -5033,8 +5039,8 @@ impl Context {
                             let _guard = crate::ActiveElementGuard::new(src_id);
                             listener(
                                 self,
-                                Element::from_id(src_id),
-                                found_drop_target.map(Element::from_id),
+                                Element::from(src_id),
+                                found_drop_target.map(Element::from),
                             );
                         }
                         // 再度元の場所へ戻す
@@ -5051,11 +5057,7 @@ impl Context {
                     if let Some(mut listener) = listener_opt {
                         {
                             let _guard = crate::ActiveElementGuard::new(src_id);
-                            listener(
-                                self,
-                                src_id,
-                                found_drop_target,
-                            );
+                            listener(self, src_id, found_drop_target);
                         }
                         if let Some(l) = self.event_listeners.get_mut(src_id) {
                             l.on_id_drag = Some(listener);
@@ -5651,8 +5653,8 @@ impl Context {
                                     let _guard = crate::ActiveElementGuard::new(src_id);
                                     listener(
                                         self,
-                                        Element::from_id(src_id),
-                                        drop_success.map(Element::from_id),
+                                        Element::from(src_id),
+                                        drop_success.map(Element::from),
                                     );
                                 }
                                 if let Some(l) = self.event_listeners.get_mut(src_id) {
@@ -5668,11 +5670,7 @@ impl Context {
                             if let Some(mut listener) = listener_opt {
                                 {
                                     let _guard = crate::ActiveElementGuard::new(src_id);
-                                    listener(
-                                        self,
-                                        src_id,
-                                        drop_success,
-                                    );
+                                    listener(self, src_id, drop_success);
                                 }
                                 if let Some(l) = self.event_listeners.get_mut(src_id) {
                                     l.on_id_drop = Some(listener);
@@ -6525,7 +6523,7 @@ impl Context {
                 .inset((0.0, 0.0, 0.0, crate::auto()))
                 .pointer_events_auto(); // イベントを透過させない
 
-            let el = Element::from_id(v_track);
+            let el = Element::from(v_track);
             el.style_internal(self, track_style, merge);
 
             // A-1. 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
@@ -6556,7 +6554,7 @@ impl Context {
                 .inset((0.0, crate::auto(), crate::auto(), crate::auto()))
                 .pointer_events_auto();
 
-            let el = Element::from_id(v_thumb);
+            let el = Element::from(v_thumb);
             el.style_internal(self, thumb_style, merge);
 
             // B. 横スクロールバー (H-Track)
@@ -6580,7 +6578,7 @@ impl Context {
                 .inset((crate::auto(), 0.0, 0.0, 0.0))
                 .pointer_events_auto();
 
-            let el = Element::from_id(h_track);
+            let el = Element::from(h_track);
             el.style_internal(self, track_style, merge);
 
             // B-1. 横つまみ (H-Thumb、H-Track の子要素としてアタッチ)
@@ -6610,7 +6608,7 @@ impl Context {
                 .inset((crate::auto(), crate::auto(), crate::auto(), 0.0))
                 .pointer_events_auto();
 
-            let el = Element::from_id(h_thumb);
+            let el = Element::from(h_thumb);
             el.style_internal(self, thumb_style, merge);
         }
 

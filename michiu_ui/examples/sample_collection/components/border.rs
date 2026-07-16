@@ -5,7 +5,7 @@ use crate::app::{
 pub use michiu_ui::prelude::*;
 
 pub fn container() -> Element {
-    v_flex(ts().gap(16.0).p(16.0).grow()).children_d(|t: &Theme| {
+    v_flex(ts().gap(24.0).p(16.0)).children_d(|t: &Theme| {
         [
             style_container(t),
             weight_container(t),
@@ -16,9 +16,18 @@ pub fn container() -> Element {
     })
 }
 
+fn section_style() -> ThisStyle {
+    ts().grow().gap(14.0)
+}
+
+fn wrapper_style() -> ThisStyle {
+    ts().w_full().gap(14.0)
+}
+
 fn base(t: &Theme) -> ThisStyle {
-    ts().grow()
-        .basis_0()
+    ts().p(12.0)
+        .r(4.0)
+        .size((170.0, 75.0))
         .justify_center()
         .items_center()
         .p(10.0)
@@ -33,9 +42,9 @@ fn style_container(t: &Theme) -> Element {
     let dotted = div(base(t).border_dotted(2.0)).label("dotted", label_style());
     let double = div(base(t).border_double(4.0)).label("double", label_style());
 
-    v_flex(ts().gap(12.0).grow()).children([
+    v_flex(section_style()).children([
         section_title("Border Style"),
-        h_flex(ts().gap(12.0).grow()).children([solid, dashed, dotted, double]),
+        h_flex(wrapper_style()).children([solid, dashed, dotted, double]),
     ])
 }
 
@@ -45,9 +54,9 @@ fn weight_container(t: &Theme) -> Element {
     let four = div(base(t).border_solid(4.0)).label("4.0 px", label_style());
     let eight = div(base(t).border_solid(8.0)).label("8.0 px", label_style());
 
-    v_flex(ts().gap(12.0).grow()).children([
+    v_flex(section_style()).children([
         section_title("Border Weight"),
-        h_flex(ts().gap(12.0).grow()).children([one, two, four, eight]),
+        h_flex(wrapper_style()).children([one, two, four, eight]),
     ])
 }
 
@@ -66,14 +75,9 @@ fn length_container(t: &Theme) -> Element {
     let horizontal_only = div(base(t).border_solid(2.0).border_lengths((0.0, 1.0)))
         .label("horizontal", label_style());
 
-    v_flex(ts().gap(12.0).grow()).children([
+    v_flex(section_style()).children([
         section_title("Border Lengths"),
-        h_flex(ts().gap(12.0).grow()).children([
-            top_only,
-            half_all,
-            vertical_only,
-            horizontal_only,
-        ]),
+        h_flex(wrapper_style()).children([top_only, half_all, vertical_only, horizontal_only]),
     ])
 }
 
@@ -96,9 +100,9 @@ fn align_container(t: &Theme) -> Element {
         .border_align(BorderAlignment::End))
     .label("End", label_style());
 
-    v_flex(ts().gap(12.0).grow()).children([
+    v_flex(section_style()).children([
         section_title("Border Alignment (50% Length)"),
-        h_flex(ts().gap(12.0).grow()).children([start, center, end]),
+        h_flex(wrapper_style()).children([start, center, end]),
     ])
 }
 
@@ -111,8 +115,8 @@ fn color_container(t: &Theme) -> Element {
     let blue =
         div(base(t).border_solid(2.0).border_color(Color::BLUE)).label("Blue", label_style());
 
-    v_flex(ts().gap(12.0).grow()).children([
+    v_flex(section_style()).children([
         section_title("Border Color"),
-        h_flex(ts().gap(12.0).grow()).children([red, yellow, green, blue]),
+        h_flex(wrapper_style()).children([red, yellow, green, blue]),
     ])
 }

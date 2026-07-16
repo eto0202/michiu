@@ -54,12 +54,18 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
 /// 構築が完了したUI要素を表す軽量なハンドル
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Element {
-    pub id: EntityId,
+    pub(crate) id: EntityId,
 }
 
 impl Default for Element {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<EntityId> for Element {
+    fn from(id: EntityId) -> Self {
+        Self { id }
     }
 }
 
@@ -75,11 +81,6 @@ impl Element {
     #[inline]
     pub fn id(&self) -> EntityId {
         self.id
-    }
-
-    #[inline]
-    pub fn from_id(id: EntityId) -> Element {
-        Element { id }
     }
 
     /// 要素が現在保持している子要素のハンドルリストを安全に取得します。
@@ -2201,6 +2202,94 @@ impl Element {
         self
     }
 
+    /// シグナルやクロージャに基づいて要素の `STATE_ACTIVED`（アクティブ疑似スタイル）を自動的にマッピングします。
+    pub fn active(self, active: impl Into<Prop<bool>>) -> Self {
+        match active.into() {
+            Prop::None => {}
+            Prop::Static(val) => {
+                with_context(|cx| {
+                    cx.set_actived(self.id, val);
+                });
+            }
+            Prop::Dynamic(f) => {
+                let id = self.id;
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::ActiveState, move |cx| {
+                        let active_val = f();
+                        cx.set_actived(id, active_val);
+                    });
+                });
+            }
+        }
+        self
+    }
+
+    /// シグナルやクロージャに基づいて要素の `STATE_SELECTED`（選択疑似スタイル）を自動的にマッピングします。
+    pub fn select(self, selected: impl Into<Prop<bool>>) -> Self {
+        match selected.into() {
+            Prop::None => {}
+            Prop::Static(val) => {
+                with_context(|cx| {
+                    cx.set_selected(self.id, val);
+                });
+            }
+            Prop::Dynamic(f) => {
+                let id = self.id;
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::SelectState, move |cx| {
+                        let selected_val = f();
+                        cx.set_selected(id, selected_val);
+                    });
+                });
+            }
+        }
+        self
+    }
+
+    /// シグナルやクロージャに基づいて要素の `STATE_DISABLED`（無効疑似スタイル）を自動的にマッピングします。
+    pub fn disable(self, disabled: impl Into<Prop<bool>>) -> Self {
+        match disabled.into() {
+            Prop::None => {}
+            Prop::Static(val) => {
+                with_context(|cx| {
+                    cx.set_disabled(self.id, val);
+                });
+            }
+            Prop::Dynamic(f) => {
+                let id = self.id;
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::DisableState, move |cx| {
+                        let disabled_val = f();
+                        cx.set_disabled(id, disabled_val);
+                    });
+                });
+            }
+        }
+        self
+    }
+
+    /// シグナルやクロージャに基づいて要素の `STATE_FOCUSED`（フォーカス疑似スタイル）を自動的にマッピングします。
+    pub fn focus(self, focused: impl Into<Prop<bool>>) -> Self {
+        match focused.into() {
+            Prop::None => {}
+            Prop::Static(val) => {
+                with_context(|cx| {
+                    cx.set_focused(self.id, val);
+                });
+            }
+            Prop::Dynamic(f) => {
+                let id = self.id;
+                with_context(|cx| {
+                    cx.create_element_effect(id, EffectCategory::FocusState, move |cx| {
+                        let focused_val = f();
+                        cx.set_focused(id, focused_val);
+                    });
+                });
+            }
+        }
+        self
+    }
+
     /// UI Automation のプロパティを生の ID (i32) を指定して直接登録します
     #[inline]
     pub fn uia_property(self, property_id: i32, value: impl Into<UiaValue>) -> Self {
@@ -2753,6 +2842,30 @@ impl<T: 'static> From<StyleValue<T>> for Prop<T> {
                 Prop::Dynamic(Box::new(getter))
             }
         }
+    }
+}
+
+impl From<bool> for Prop<bool> {
+    #[inline]
+    fn from(b: bool) -> Self {
+        Self::Static(b)
+    }
+}
+
+impl From<ReadSignal<bool>> for Prop<bool> {
+    #[inline]
+    fn from(sig: ReadSignal<bool>) -> Self {
+        Self::Dynamic(Box::new(move || sig.get()))
+    }
+}
+
+impl<F> From<F> for Prop<bool>
+where
+    F: Fn() -> bool + 'static,
+{
+    #[inline]
+    fn from(f: F) -> Self {
+        Self::Dynamic(Box::new(f))
     }
 }
 

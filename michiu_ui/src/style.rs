@@ -4039,7 +4039,7 @@ impl ThisStyle {
 
     /// ドロップゾーンにドラッグ要素がホバー侵入している際に、ドロップゾーン側に適用するスタイルを指定します。
     #[inline]
-    pub fn drag_in(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn drag_over(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_DRAG_IN, StyleTarget::DragIn)
     }
 

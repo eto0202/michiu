@@ -263,7 +263,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 // イベント発生時に、コンテキストから現在クリックされた自分自身の Element を特定
                 let self_id = cx.entity_id_pressed().unwrap();
-                let self_element = Element::from_id(self_id);
+                let self_element = Element::from(self_id);
 
                 // 特定した自分自身に対して子要素を差し替え
                 self_element

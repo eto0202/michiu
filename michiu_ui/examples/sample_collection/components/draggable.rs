@@ -9,7 +9,7 @@ pub fn container() -> Element {
             .p(16.0)
             .r(4.0)
             .droppable(DropTarget::Child, DragPayload::Element)
-            .drag_in(ts().bg_color(dynamic(|t: &Theme| t.background_hover))),
+            .drag_over(ts().bg_color(dynamic(|t: &Theme| t.background_hover))),
     )
     .label("Droppable", label_style());
     let parent_id = container.id();
@@ -42,7 +42,7 @@ fn section_draggable(parent_id: EntityId) -> Element {
             ts().bg_color(t.background)
                 .border_color(t.border)
                 .hovered(ts().bg_color(t.background_hover))
-                .drag_in(ts().border_color(t.border_hover))
+                .drag_over(ts().border_color(t.border_hover))
                 .draggable_placeholder(ts().bg_color(t.border).border_color(t.border))
         })
         .label("Draggable & Droppable", label_style())

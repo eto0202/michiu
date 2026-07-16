@@ -7,7 +7,7 @@ use crate::app::{
 use michiu_ui::prelude::*;
 
 pub fn container() -> Element {
-    v_flex(ts().gap(16.0).p(16.0)).children([section_hover(), section_hover_transition()])
+    v_flex(ts().gap(28.0).p(16.0)).children([section_hover(), section_hover_transition()])
 }
 
 fn section_style() -> ThisStyle {
@@ -15,7 +15,7 @@ fn section_style() -> ThisStyle {
 }
 
 fn wrapper_style() -> ThisStyle {
-    ts().justify_between().w_full().gap(16.0)
+    ts().w_full().gap(16.0)
 }
 
 fn item_style() -> ThisStyle {

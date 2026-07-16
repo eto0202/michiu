@@ -316,8 +316,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             style_alpha = 1.0 - is_double_void;
         }
 
+        // 属する辺のローカルな太さ w に基づいて内側への距離を制限。
+        // w が 0.0 の辺では dist_to_inner_clamped が dist_to_box と一致し、smoothstep は 0.0 を出力。
+        let dist_to_inner_clamped = min(dist_to_inner, dist_to_box + w);
+
         // すべてのアンチエイリアスマスクを合成
-        border_alpha = box_alpha * smoothstep(-0.5, 0.5, dist_to_inner) * length_alpha * style_alpha;
+        border_alpha = box_alpha * smoothstep(-0.5, 0.5, dist_to_inner_clamped) * length_alpha * style_alpha;
+
+        // 辺の太さ w が 0.0 のとき、枠線アルファを完全に 0.0 に潰し、極小の残留ノイズを一掃
+        border_alpha = border_alpha * clamp(w, 0.0, 1.0);
     }
 
     // 背景色・グラデーション・サンプリングの取得
