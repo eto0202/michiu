@@ -2290,44 +2290,6 @@ impl Element {
         self
     }
 
-    /// シグナルやクロージャに基づいて要素がフォーカスを受け入れ可能かどうかを自動的にマッピングします。
-    /// 他のスタイル記述とは独立して、インラインで素早く状態をバインドさせたい場合に適しています
-    pub fn focusable(self, value: impl Into<Prop<bool>>) -> Self {
-        match value.into() {
-            Prop::None => {}
-            Prop::Static(val) => {
-                with_context(|cx| {
-                    if !cx.base_visual_properties.contains_key(self.id) {
-                        cx.base_visual_properties
-                            .insert(self.id, Default::default());
-                    }
-                    if let Some(v) = cx.base_visual_properties.get_mut(self.id) {
-                        v.focusable = Some(val);
-                    }
-                    cx.active_masks[self.id].set(STYLE_FOCUSABLE);
-                    cx.resolve_element_style_state(self.id, false);
-                });
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::FocusableState, move |cx| {
-                        let val = f();
-                        if !cx.visual_properties.contains_key(id) {
-                            cx.visual_properties.insert(id, Default::default());
-                        }
-                        if let Some(v) = cx.visual_properties.get_mut(id) {
-                            v.focusable = Some(val);
-                        }
-                        cx.active_masks[id].set(STYLE_FOCUSABLE);
-                        cx.resolve_element_style_state(id, false);
-                    });
-                });
-            }
-        }
-        self
-    }
-
     /// UI Automation のプロパティを生の ID (i32) を指定して直接登録します
     #[inline]
     pub fn uia_property(self, property_id: i32, value: impl Into<UiaValue>) -> Self {
