@@ -233,18 +233,23 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         let dist_to_inner = sd_rounded_box(inner_pos, inner_b, inner_radius);
 
-        // 各ピクセルの属する辺の判定
-        let dist_to_top = local_center.y - (-b.y);
-        let dist_to_bottom = b.y - local_center.y;
-        let dist_to_left = local_center.x - (-b.x);
-        let dist_to_right = b.x - local_center.x;
-
-        let min_dist = min(min(dist_to_top, dist_to_bottom), min(dist_to_left, dist_to_right));
-
+        // 対角線による正確な領域（辺）判定
+        let slope = b.y / b.x;
         var edge_idx = 0u; // 0: top, 1: right, 2: bottom, 3: left
-        if (min_dist == dist_to_right) { edge_idx = 1u; }
-        else if (min_dist == dist_to_bottom) { edge_idx = 2u; }
-        else if (min_dist == dist_to_left) { edge_idx = 3u; }
+
+        if (local_center.y < slope * local_center.x) {
+            if (local_center.y < -slope * local_center.x) {
+                edge_idx = 0u; // top
+            } else {
+                edge_idx = 1u; // right
+            }
+        } else {
+            if (local_center.y < -slope * local_center.x) {
+                edge_idx = 3u; // left
+            } else {
+                edge_idx = 2u; // bottom
+            }
+        }
 
         // ビットフラグの解凍 (デコード)
         let flags = u32(instance.opacity_mode_sizing.w);
@@ -324,6 +329,90 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // 辺の太さ w が 0.0 のとき、枠線アルファを完全に 0.0 に潰し残留ノイズを一掃
         border_alpha = border_alpha * clamp(w, 0.0, 1.0);
+
+        // 各辺の角への到達状況をデコード
+        let align_top    = (flags >> (0u * 4u + 2u)) & 3u;
+        let align_right  = (flags >> (1u * 4u + 2u)) & 3u;
+        let align_bottom = (flags >> (2u * 4u + 2u)) & 3u;
+        let align_left   = (flags >> (3u * 4u + 2u)) & 3u;
+
+        let has_top    = b_width.x >= 0.01;
+        let has_right  = b_width.y >= 0.01;
+        let has_bottom = b_width.z >= 0.01;
+        let has_left   = b_width.w >= 0.01;
+
+        // 各辺がそれぞれの角に到達しているか
+        let top_reached_left  = has_top && select(lengths.x >= 0.999, lengths.x > 0.001, align_top == 0u);
+        let top_reached_right = has_top && select(lengths.x >= 0.999, lengths.x > 0.001, align_top == 1u);
+
+        let right_reached_top    = has_right && select(lengths.y >= 0.999, lengths.y > 0.001, align_right == 0u);
+        let right_reached_bottom = has_right && select(lengths.y >= 0.999, lengths.y > 0.001, align_right == 1u);
+
+        let bottom_reached_left  = has_bottom && select(lengths.z >= 0.999, lengths.z > 0.001, align_bottom == 0u);
+        let bottom_reached_right = has_bottom && select(lengths.z >= 0.999, lengths.z > 0.001, align_bottom == 1u);
+
+        let left_reached_top    = has_left && select(lengths.w >= 0.999, lengths.w > 0.001, align_left == 0u);
+        let left_reached_bottom = has_left && select(lengths.w >= 0.999, lengths.w > 0.001, align_left == 1u);
+
+        // 隣接する辺がない場合の角丸手前での自動カット処理
+        var edge_cut_alpha = 1.0;
+
+        if (edge_idx == 0u) { // top (上辺)
+            let r_left = clamped_radius.x;
+            let r_right = clamped_radius.y;
+            // 左隣(left)が上端に到達していないなら、上辺の左端をカット
+            if (!left_reached_top) {
+                let dist = local_center.x - (-b.x + r_left);
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+            // 右隣(right)が上端に到達していないなら、上辺の右端をカット
+            if (!right_reached_top) {
+                let dist = (b.x - r_right) - local_center.x;
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+        } else if (edge_idx == 1u) { // right (右辺)
+            let r_top = clamped_radius.y;
+            let r_bottom = clamped_radius.z;
+            // 上隣(top)が右端に到達していないなら、右辺の上端をカット
+            if (!top_reached_right) {
+                let dist = local_center.y - (-b.y + r_top);
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+            // 下隣(bottom)が右端に到達していないなら、右辺の下端をカット
+            if (!bottom_reached_right) {
+                let dist = (b.y - r_bottom) - local_center.y;
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+        } else if (edge_idx == 2u) { // bottom (下辺)
+            let r_left = clamped_radius.w;
+            let r_right = clamped_radius.z;
+            // 左隣(left)が下端に到達していないなら、下辺の左端をカット
+            if (!left_reached_bottom) {
+                let dist = local_center.x - (-b.x + r_left);
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+            // 右隣(right)が下端に到達していないなら、下辺の右端をカット
+            if (!right_reached_bottom) {
+                let dist = (b.x - r_right) - local_center.x;
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+        } else if (edge_idx == 3u) { // left (左辺)
+            let r_top = clamped_radius.x;
+            let r_bottom = clamped_radius.w;
+            // 上隣(top)が左端に到達していないなら、左辺の上端をカット
+            if (!top_reached_left) {
+                let dist = local_center.y - (-b.y + r_top);
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+            // 下隣(bottom)が左端に到達していないなら、左辺の下端をカット
+            if (!bottom_reached_left) {
+                let dist = (b.y - r_bottom) - local_center.y;
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+        }
+
+        // カットアルファを適用
+        border_alpha = border_alpha * edge_cut_alpha;
     }
 
     var outline_alpha = 0.0;
@@ -333,17 +422,30 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let has_outline = outline_color_linear.a > 0.0 && (o_width.x + o_width.y + o_width.z + o_width.w) > 0.0;
 
     if (has_outline) {
-        // ピクセルが属している辺を判定 (o_edge_idx)
         let dist_to_top = local_center.y - (-b.y);
         let dist_to_bottom = b.y - local_center.y;
         let dist_to_left = local_center.x - (-b.x);
         let dist_to_right = b.x - local_center.x;
         let min_dist = min(min(dist_to_top, dist_to_bottom), min(dist_to_left, dist_to_right));
 
+        // 矩形の比率（アスペクト比）から対角線の傾きを算出
+        let slope = b.y / b.x;
         var o_edge_idx = 0u; // 0: top, 1: right, 2: bottom, 3: left
-        if (min_dist == dist_to_right) { o_edge_idx = 1u; }
-        else if (min_dist == dist_to_bottom) { o_edge_idx = 2u; }
-        else if (min_dist == dist_to_left) { o_edge_idx = 3u; }
+
+        // 対角線を用いて local_center が上下左右のどの領域に属するかを判定
+        if (local_center.y < slope * local_center.x) {
+            if (local_center.y < -slope * local_center.x) {
+                o_edge_idx = 0u; // top (上)
+            } else {
+                o_edge_idx = 1u; // right (右)
+            }
+        } else {
+            if (local_center.y < -slope * local_center.x) {
+                o_edge_idx = 3u; // left (左)
+            } else {
+                o_edge_idx = 2u; // bottom (下)
+            }
+        }
 
         let o_w = o_width[o_edge_idx]; // この辺の個別のアウトライン太さ
 
@@ -423,6 +525,96 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // すべてのアンチエイリアスマスクを結合
         outline_alpha = base_o_alpha * o_length_alpha * o_style_alpha;
+
+        // 太さが 0.0 の辺における残留ノイズを完全に消去する
+        outline_alpha = outline_alpha * clamp(o_w, 0.0, 1.0);
+
+        // 各辺の角への到達状況をデコード
+        let o_align_top    = (o_flags >> (0u * 4u + 2u)) & 3u;
+        let o_align_right  = (o_flags >> (1u * 4u + 2u)) & 3u;
+        let o_align_bottom = (o_flags >> (2u * 4u + 2u)) & 3u;
+        let o_align_left   = (o_flags >> (3u * 4u + 2u)) & 3u;
+
+        let has_o_top    = o_width.x >= 0.01;
+        let has_o_right  = o_width.y >= 0.01;
+        let has_o_bottom = o_width.z >= 0.01;
+        let has_o_left   = o_width.w >= 0.01;
+
+        // 各辺がそれぞれの角に到達しているか
+        let o_top_reached_left  = has_o_top && select(o_lengths.x >= 0.999, o_lengths.x > 0.001, o_align_top == 0u);
+        let o_top_reached_right = has_o_top && select(o_lengths.x >= 0.999, o_lengths.x > 0.001, o_align_top == 1u);
+
+        let o_right_reached_top    = has_o_right && select(o_lengths.y >= 0.999, o_lengths.y > 0.001, o_align_right == 0u);
+        let o_right_reached_bottom = has_o_right && select(o_lengths.y >= 0.999, o_lengths.y > 0.001, o_align_right == 1u);
+
+        let o_bottom_reached_left  = has_o_bottom && select(o_lengths.z >= 0.999, o_lengths.z > 0.001, o_align_bottom == 0u);
+        let o_bottom_reached_right = has_o_bottom && select(o_lengths.z >= 0.999, o_lengths.z > 0.001, o_align_bottom == 1u);
+
+        let o_left_reached_top    = has_o_left && select(o_lengths.w >= 0.999, o_lengths.w > 0.001, o_align_left == 0u);
+        let o_left_reached_bottom = has_o_left && select(o_lengths.w >= 0.999, o_lengths.w > 0.001, o_align_left == 1u);
+
+        // 隣接する辺がない場合の角丸手前での自動カット処理
+        var edge_cut_alpha = 1.0;
+
+        // アウトラインのオフセット値を考慮
+        // let safe_o_offset = max(0.0, o_offset);
+
+        if (o_edge_idx == 0u) { // top (上辺)
+            let r_left = clamped_radius.x;
+            let r_right = clamped_radius.y;
+            // 左隣(left)が上端に到達していないなら、上辺の左端をカット
+            if (!o_left_reached_top) {
+                let dist = local_center.x - (-b.x + r_left);
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+            // 右隣(right)が上端に到達していないなら、上辺の右端をカット
+            if (!o_right_reached_top) {
+                let dist = (b.x - r_right) - local_center.x;
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+        } else if (o_edge_idx == 1u) { // right (右辺)
+            let r_top = clamped_radius.y;
+            let r_bottom = clamped_radius.z;
+            // 上隣(top)が右端に到達していないなら、右辺の上端をカット
+            if (!o_top_reached_right) {
+                let dist = local_center.y - (-b.y + r_top);
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+            // 下隣(bottom)が右端に到達していないなら、右辺の下端をカット
+            if (!o_bottom_reached_right) {
+                let dist = (b.y - r_bottom) - local_center.y;
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+        } else if (o_edge_idx == 2u) { // bottom (下辺)
+            let r_left = clamped_radius.w;
+            let r_right = clamped_radius.z;
+            // 左隣(left)が下端に到達していないなら、下辺の左端をカット
+            if (!o_left_reached_bottom) {
+                let dist = local_center.x - (-b.x + r_left);
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+            // 右隣(right)が下端に到達していないなら、下辺の右端をカット
+            if (!o_right_reached_bottom) {
+                let dist = (b.x - r_right) - local_center.x;
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+        } else if (o_edge_idx == 3u) { // left (左辺)
+            let r_top = clamped_radius.x;
+            let r_bottom = clamped_radius.w;
+            // 上隣(top)が左端に到達していないなら、左辺の上端をカット
+            if (!o_top_reached_left) {
+                let dist = local_center.y - (-b.y + r_top);
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+            // 下隣(bottom)が左端に到達していないなら、左辺の下端をカット
+            if (!o_bottom_reached_left) {
+                let dist = (b.y - r_bottom) - local_center.y;
+                edge_cut_alpha = min(edge_cut_alpha, smoothstep(-0.5, 0.5, dist));
+            }
+        }
+
+        // カットアルファを適用
+        outline_alpha = outline_alpha * edge_cut_alpha;
     }
 
     // 背景色・グラデーション・サンプリングの取得
