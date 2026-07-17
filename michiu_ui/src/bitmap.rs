@@ -103,7 +103,6 @@ impl ComponentMask {
     }
 }
 
-// セグメント 1: Taffy 基本レイアウトプロパティ (0..17ビット) - 計18個
 pub(crate) const STYLE_DISPLAY: u128 = 1 << 0;
 pub(crate) const STYLE_ITEM_IS_TABLE: u128 = 1 << 1;
 pub(crate) const STYLE_ITEM_IS_REPLACED: u128 = 1 << 2;
@@ -122,7 +121,6 @@ pub(crate) const STYLE_MARGIN: u128 = 1 << 15; // margin 4方向
 pub(crate) const STYLE_PADDING: u128 = 1 << 16; // padding 4方向
 pub(crate) const STYLE_BORDER: u128 = 1 << 17; // border 4方向 (太さのみ)
 
-// セグメント 2: Taffy Flexboxレイアウトプロパティ (18..30ビット) - 計13個
 pub(crate) const STYLE_ALIGN_ITEMS: u128 = 1 << 18;
 pub(crate) const STYLE_ALIGN_SELF: u128 = 1 << 19;
 pub(crate) const STYLE_JUSTIFY_ITEMS: u128 = 1 << 20;
@@ -137,13 +135,11 @@ pub(crate) const STYLE_FLEX_BASIS: u128 = 1 << 28;
 pub(crate) const STYLE_FLEX_GROW: u128 = 1 << 29;
 pub(crate) const STYLE_FLEX_SHRINK: u128 = 1 << 30;
 
-// セグメント 3: 描画（ペイント）・ビジュアルプロパティ (31..42ビット) - 計12個
 pub(crate) const STYLE_BG_COLOR: u128 = 1 << 31;
 pub(crate) const STYLE_BORDER_COLOR: u128 = 1 << 32;
 pub(crate) const STYLE_CORNER_RADIUS: u128 = 1 << 33; // top_left, top_right...
 pub(crate) const STYLE_OPACITY: u128 = 1 << 34;
 pub(crate) const STYLE_BOX_SHADOW: u128 = 1 << 35;
-// pub(crate) const RESERVED_36: u128 = 1 << 36;
 pub(crate) const STYLE_TRANSFORM: u128 = 1 << 37; // 2D/3D 座標変換行列
 pub(crate) const STYLE_Z_INDEX: u128 = 1 << 38;
 pub(crate) const STYLE_CURSOR: u128 = 1 << 39;
@@ -151,7 +147,6 @@ pub(crate) const STYLE_BACKDROP: u128 = 1 << 40;
 pub(crate) const STYLE_TEXT_COLOR: u128 = 1 << 41;
 pub(crate) const STYLE_FONT_SIZE: u128 = 1 << 42;
 
-// セグメント 4: インタラクション・動的状態フラグ (43..47ビット) - 計5個
 pub(crate) const STATE_HOVERED: u128 = 1 << 43;
 pub(crate) const STATE_FOCUSED: u128 = 1 << 44;
 pub(crate) const STATE_PRESSED: u128 = 1 << 45;
@@ -161,8 +156,7 @@ pub(crate) const STATE_SELECTED: u128 = 1 << 48;
 pub(crate) const STATE_DRAGGED: u128 = 1 << 49;
 pub(crate) const STYLE_INTERACTION_WITHIN: u128 = 1 << 7; // 親に focus_within 等のスタイル定義が存在することを示す
 
-// セグメント 5: 可変長・コールドデータ拡張領域 (48..55ビット) - 計8個
-// ※ Vec等を含む重い構造体。SparseSecondaryMap に実体を逃がす。
+// Vec等を含む重い構造体。SparseSecondaryMap に実体を逃がす。
 /// TaffyのGridレイアウト用の全プロパティ（grid_template_rows等：Vecを多数含む）
 pub(crate) const STYLE_GRID_LAYOUT: u128 = 1 << 50;
 /// 動的キーフレームアニメーションの定義シーケンス（Vec含む）

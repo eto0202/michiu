@@ -217,7 +217,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let has_border = border_color_linear.a > 0.0 && (instance.border_width.x + instance.border_width.y + instance.border_width.z + instance.border_width.w) > 0.0;
 
     if (has_border) {
-    let b_width = instance.border_width;
+        let b_width = instance.border_width;
 
         let border_center_shift = vec2<f32>(
             (b_width.w - b_width.y) * 0.5,
@@ -233,7 +233,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         let dist_to_inner = sd_rounded_box(inner_pos, inner_b, inner_radius);
 
-        // 1. 各ピクセルの属する辺（境界）の判定
+        // 各ピクセルの属する辺の判定
         let dist_to_top = local_center.y - (-b.y);
         let dist_to_bottom = b.y - local_center.y;
         let dist_to_left = local_center.x - (-b.x);
@@ -246,12 +246,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         else if (min_dist == dist_to_bottom) { edge_idx = 2u; }
         else if (min_dist == dist_to_left) { edge_idx = 3u; }
 
-        // 2. ビットフラグの解凍 (デコード)
+        // ビットフラグの解凍 (デコード)
         let flags = u32(instance.opacity_mode_sizing.w);
         let style = (flags >> (edge_idx * 4u)) & 3u;      // 0: Solid, 1: Dotted, 2: Dashed, 3: Double
         let alignment = (flags >> (edge_idx * 4u + 2u)) & 3u; // 0: Start, 1: End, 2: Center
 
-        // 3. アライメント基準点に基づく「長さトリミング」の計算
+        // アライメント基準点に基づく長さトリミングの計算
         let lengths = instance.border_lengths;
         var len_limit = 1.0;
         if (edge_idx == 0u) { len_limit = lengths.x; }
@@ -273,21 +273,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let edge_fade = 0.5 / max(size_vec.x, size_vec.y);
         var length_alpha = 1.0;
 
-        if (alignment == 0u) {
-            // Start: 基準点が左端/上端 (tが上限長さを超えたらカット)
-            length_alpha = 1.0 - smoothstep(len_limit - edge_fade, len_limit + edge_fade, t);
-        } else if (alignment == 1u) {
-            // End: 基準点が右端/下端 (tが下限に満たなければカット)
-            let lower_bound = 1.0 - len_limit;
-            length_alpha = smoothstep(lower_bound - edge_fade, lower_bound + edge_fade, t);
-        } else {
-            // Center: 基準点が中央 (中心 0.5 から対称に広げる)
-            let half_len = len_limit * 0.5;
-            let dist_from_center = abs(t - 0.5);
-            length_alpha = 1.0 - smoothstep(half_len - edge_fade, half_len + edge_fade, dist_from_center);
+        // 長さ制限が 1.0 (ほぼ100%) の場合はバイパス
+        if (len_limit < 0.999) {
+            if (alignment == 0u) {
+                // Start: 基準点が左端/上端 (tが上限長さを超えたらカット)
+                length_alpha = 1.0 - smoothstep(len_limit - edge_fade, len_limit + edge_fade, t);
+            } else if (alignment == 1u) {
+                // End: 基準点が右端/下端 (tが下限に満たなければカット)
+                let lower_bound = 1.0 - len_limit;
+                length_alpha = smoothstep(lower_bound - edge_fade, lower_bound + edge_fade, t);
+            } else {
+                // Center: 基準点が中央 (中心 0.5 から対称に広げる)
+                let half_len = len_limit * 0.5;
+                let dist_from_center = abs(t - 0.5);
+                length_alpha = 1.0 - smoothstep(half_len - edge_fade, half_len + edge_fade, dist_from_center);
+            }
         }
 
-        // 4. スタイル別の模様パターン（点線、破線、二重線）の生成
+        // スタイル別の模様パターン（点線、破線、二重線）の生成
         let w = b_width[edge_idx]; // この辺の太さ
         var style_alpha = 1.0;
 
@@ -319,7 +322,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // すべてのアンチエイリアスマスクを合成
         border_alpha = box_alpha * smoothstep(-0.5, 0.5, dist_to_inner_clamped) * length_alpha * style_alpha;
 
-        // 辺の太さ w が 0.0 のとき、枠線アルファを完全に 0.0 に潰し、極小の残留ノイズを一掃
+        // 辺の太さ w が 0.0 のとき、枠線アルファを完全に 0.0 に潰し残留ノイズを一掃
         border_alpha = border_alpha * clamp(w, 0.0, 1.0);
     }
 
@@ -330,19 +333,96 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let has_outline = outline_color_linear.a > 0.0 && (o_width.x + o_width.y + o_width.z + o_width.w) > 0.0;
 
     if (has_outline) {
-        // 四辺一括での基本的なアウトライン境界 SDF 処理 (個別スタイル処理は Border と同様にデコード可能)
-        let o_w = o_width.x; // 代表値として上の太さを利用 (一括設定時)
+        // ピクセルが属している辺を判定 (o_edge_idx)
+        let dist_to_top = local_center.y - (-b.y);
+        let dist_to_bottom = b.y - local_center.y;
+        let dist_to_left = local_center.x - (-b.x);
+        let dist_to_right = b.x - local_center.x;
+        let min_dist = min(min(dist_to_top, dist_to_bottom), min(dist_to_left, dist_to_right));
+
+        var o_edge_idx = 0u; // 0: top, 1: right, 2: bottom, 3: left
+        if (min_dist == dist_to_right) { o_edge_idx = 1u; }
+        else if (min_dist == dist_to_bottom) { o_edge_idx = 2u; }
+        else if (min_dist == dist_to_left) { o_edge_idx = 3u; }
+
+        let o_w = o_width[o_edge_idx]; // この辺の個別のアウトライン太さ
 
         // アウトラインの内側半径と外側半径
         let r_inner = clamped_radius + vec4<f32>(o_offset);
         let r_outer = clamped_radius + vec4<f32>(o_offset + o_w);
 
-        let dist_to_inner_o = sd_rounded_box(local_center, b + vec4<f32>(o_offset).xy, r_inner);
-        let dist_to_outer_o = sd_rounded_box(local_center, b + vec4<f32>(o_offset + o_w).xy, r_outer);
+        let dist_to_inner_o = sd_rounded_box(local_center, b + vec2<f32>(o_offset), r_inner);
+        let dist_to_outer_o = sd_rounded_box(local_center, b + vec2<f32>(o_offset + o_w), r_outer);
 
-        // 境界内のマスク抽出
-        let out_alpha = smoothstep(-0.5, 0.5, dist_to_inner_o) * (1.0 - smoothstep(-0.5, 0.5, dist_to_outer_o));
-        outline_alpha = out_alpha;
+        // ベースのアウトライン太さマスク
+        var base_o_alpha = smoothstep(-0.5, 0.5, dist_to_inner_o) * (1.0 - smoothstep(-0.5, 0.5, dist_to_outer_o));
+
+        // ビットフラグ（outline_flags）をデコード
+        let o_flags = u32(instance.outline_offset_and_flags.y);
+        let style_o = (o_flags >> (o_edge_idx * 4u)) & 3u;      // 0: Solid, 1: Dotted, 2: Dashed, 3: Double
+        let o_alignment = (o_flags >> (o_edge_idx * 4u + 2u)) & 3u; // 0: Start, 1: End, 2: Center
+
+        // アライメント基準点に基づく長さトリミング（o_lengths）の計算
+        let o_lengths = instance.outline_lengths;
+        var o_len_limit = 1.0;
+        if (o_edge_idx == 0u) { o_len_limit = o_lengths.x; }
+        else if (o_edge_idx == 1u) { o_len_limit = o_lengths.y; }
+        else if (o_edge_idx == 2u) { o_len_limit = o_lengths.z; }
+        else { o_len_limit = o_lengths.w; }
+
+        // 辺沿いの進捗比率 t
+        var t = 0.0;
+        var o_pos_edge = 0.0;
+        if (o_edge_idx == 0u || o_edge_idx == 2u) {
+            t = (local_center.x + b.x) / (b.x * 2.0);
+            o_pos_edge = local_center.x + b.x;
+        } else {
+            t = (local_center.y + b.y) / (b.y * 2.0);
+            o_pos_edge = local_center.y + b.y;
+        }
+
+        let o_edge_fade = 0.5 / max(size_vec.x, size_vec.y);
+        var o_length_alpha = 1.0;
+
+        // 長さ制限が 1.0 (ほぼ100%) の場合は、外側への飛び出しによるカットをバイパスする
+        if (o_len_limit < 0.999) {
+            if (o_alignment == 0u) {
+                o_length_alpha = 1.0 - smoothstep(o_len_limit - o_edge_fade, o_len_limit + o_edge_fade, t);
+            } else if (o_alignment == 1u) {
+                let lower_bound = 1.0 - o_len_limit;
+                o_length_alpha = smoothstep(lower_bound - o_edge_fade, lower_bound + o_edge_fade, t);
+            } else {
+                let half_len = o_len_limit * 0.5;
+                let dist_from_center = abs(t - 0.5);
+                o_length_alpha = 1.0 - smoothstep(half_len - o_edge_fade, half_len + o_edge_fade, dist_from_center);
+            }
+        }
+
+        // スタイル別の模様パターン（点線、破線、二重線）の適用
+        var o_style_alpha = 1.0;
+        
+        // アウトラインの中心からの相対的な厚み方向の進捗割合 (0.0 -> 1.0)
+        let o_thick_t = clamp(dist_to_inner_o / (dist_to_inner_o - dist_to_outer_o), 0.0, 1.0);
+
+        if (style_o == 1u) {
+            // Dotted (丸点)
+            let period = o_w * 2.2;
+            let cycle_t = fract(o_pos_edge / period) * period - (period * 0.5);
+            let radial_dist = length(vec2<f32>(cycle_t, (o_thick_t - 0.5) * o_w));
+            o_style_alpha = 1.0 - smoothstep(o_w * 0.4 - 0.5, o_w * 0.4 + 0.5, radial_dist);
+        } else if (style_o == 2u) {
+            // Dashed (破線)
+            let period = o_w * 5.0;
+            let cycle_t = fract(o_pos_edge / period) * period;
+            o_style_alpha = 1.0 - smoothstep(o_w * 3.0 - 0.5, o_w * 3.0 + 0.5, cycle_t);
+        } else if (style_o == 3u) {
+            // Double (二重アウトライン)
+            let is_double_void = smoothstep(0.30, 0.33, o_thick_t) * (1.0 - smoothstep(0.67, 0.70, o_thick_t));
+            o_style_alpha = 1.0 - is_double_void;
+        }
+
+        // すべてのアンチエイリアスマスクを結合
+        outline_alpha = base_o_alpha * o_length_alpha * o_style_alpha;
     }
 
     // 背景色・グラデーション・サンプリングの取得

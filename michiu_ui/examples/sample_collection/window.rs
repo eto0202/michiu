@@ -122,7 +122,6 @@ unsafe extern "system" fn wnd_proc(
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
-                // トランジション（アニメーション）を1フレーム進める
                 app.context.tick_transitions();
                 app.context.tick_animations();
 
@@ -133,7 +132,6 @@ unsafe extern "system" fn wnd_proc(
 
                 app.renderer.update_composition_tree(&mut app.context);
 
-                // 描画実行
                 app.renderer.draw(&app.context);
                 app.context.clear_render_dirty();
 
@@ -151,7 +149,6 @@ unsafe extern "system" fn wnd_proc(
                 let layout_ms = layout_elapsed.as_secs_f64() * 1000.0;
                 let total_ms = total_elapsed.as_secs_f64() * 1000.0;
 
-                // 値を更新
                 FRAME_COUNT.with(|c| c.set(c.get() + 1));
                 MAX_LAYOUT.with(|c| c.set(c.get().max(layout_ms)));
                 MAX_TOTAL.with(|c| c.set(c.get().max(total_ms)));
