@@ -2052,6 +2052,30 @@ impl ThisStyle {
         self
     }
 
+    /// 実線（Solid）の枠線と太さを一括設定します。
+    #[inline]
+    pub fn outline_solid(self, width: impl IntoStyleRect<Length>) -> Self {
+        self.outline(BorderStyle::Solid, width)
+    }
+
+    /// 丸点線（Dotted）の枠線と太さを一括設定します。
+    #[inline]
+    pub fn outline_dotted(self, width: impl IntoStyleRect<Length>) -> Self {
+        self.outline(BorderStyle::Dotted, width)
+    }
+
+    /// 破線（Dashed）の枠線と太さを一括設定します。
+    #[inline]
+    pub fn outline_dashed(self, width: impl IntoStyleRect<Length>) -> Self {
+        self.outline(BorderStyle::Dashed, width)
+    }
+
+    /// 二重線（Double）の枠線と太さを一括設定します。
+    #[inline]
+    pub fn outline_double(self, width: impl IntoStyleRect<Length>) -> Self {
+        self.outline(BorderStyle::Double, width)
+    }
+
     /// アウトラインの色を設定します。
     #[inline]
     pub fn outline_color(mut self, value: impl IntoStyleValue<Color>) -> Self {

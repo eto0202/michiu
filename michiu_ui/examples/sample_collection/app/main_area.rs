@@ -1,6 +1,6 @@
 use crate::{
     app::{ComponentType, sidebar, theme::Theme},
-    components::{background, border, button, css, div, draggable, hover, resizable},
+    components::{background, border, button, css, div, draggable, hover, outline, resizable},
 };
 pub use michiu_ui::prelude::*;
 use strum::IntoEnumIterator;
@@ -59,6 +59,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Css => wrapper(css::container()),
         ComponentType::Gradient => text("Gradient"),
         ComponentType::Cursor => text("Cursor"),
+        ComponentType::Outline => wrapper(outline::container()),
     }
 }
 

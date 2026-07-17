@@ -13,5 +13,6 @@ pub mod hover;
 pub mod input;
 pub mod input_area;
 pub mod list;
+pub mod outline;
 pub mod resizable;
 pub mod scrollbar;

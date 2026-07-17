@@ -52,4 +52,5 @@ pub enum ComponentType {
     Css,
     Gradient,
     Cursor,
+    Outline,
 }

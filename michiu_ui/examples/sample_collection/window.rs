@@ -1,3 +1,5 @@
+use std::{cell::Cell, io::Write};
+
 use michiu_ui::{
     ComposedRenderer, ElementState, ImeState, Modifiers, MouseButton, VirtualKey, prelude::*,
     raw_wheel_delta_to_logical_pixels,
@@ -114,6 +116,9 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_PAINT => {
+                let total_start = std::time::Instant::now();
+                let layout_start = std::time::Instant::now();
+
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
@@ -123,6 +128,9 @@ unsafe extern "system" fn wnd_proc(
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
+
+                let layout_elapsed = layout_start.elapsed();
+
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 描画実行
@@ -130,6 +138,48 @@ unsafe extern "system" fn wnd_proc(
                 app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
+
+                let total_elapsed = total_start.elapsed();
+
+                thread_local! {
+                    static LAST_PRINT: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
+                    static MAX_LAYOUT: Cell<f64> = const { Cell::new(0.0) };
+                    static MAX_TOTAL: Cell<f64> = const { Cell::new(0.0) };
+                    static FRAME_COUNT: Cell<u32> = const { Cell::new(0) };
+                }
+
+                let layout_ms = layout_elapsed.as_secs_f64() * 1000.0;
+                let total_ms = total_elapsed.as_secs_f64() * 1000.0;
+
+                // 値を更新
+                FRAME_COUNT.with(|c| c.set(c.get() + 1));
+                MAX_LAYOUT.with(|c| c.set(c.get().max(layout_ms)));
+                MAX_TOTAL.with(|c| c.set(c.get().max(total_ms)));
+
+                let now = std::time::Instant::now();
+                let should_print = LAST_PRINT.with(|c| match c.get() {
+                    None => {
+                        c.set(Some(now));
+                        true
+                    }
+                    Some(last) => {
+                        if now.duration_since(last).as_secs_f32() >= 1.0 {
+                            c.set(Some(now));
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                });
+
+                if should_print {
+                    println!(
+                        "[FPS: {:>3}]  Max Layout: {:6.2}ms  |  Max Total CPU: {:6.2}ms",
+                        FRAME_COUNT.with(|c| c.replace(0)),
+                        MAX_LAYOUT.with(|c| c.replace(0.0)),
+                        MAX_TOTAL.with(|c| c.replace(0.0))
+                    );
+                }
 
                 // アニメーションがまだ継続中の場合、次のフレームの再描画要求を自給自足してループさせます
                 if app.context.has_active_animations() {

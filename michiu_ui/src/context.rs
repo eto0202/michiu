@@ -3028,6 +3028,21 @@ impl Context {
                 .get(id)
                 .and_then(|v| v.border_color)
                 .unwrap_or(Color::TRANSPARENT);
+            let current_outline_width = self
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.outline_width)
+                .unwrap_or(EdgeInsets::ZERO);
+            let current_outline_color = self
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.outline_color)
+                .unwrap_or(Color::TRANSPARENT);
+            let current_outline_offset = self
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.outline_offset)
+                .unwrap_or(0.0);
             let current_opacity = self
                 .visual_properties
                 .get(id)
@@ -3108,6 +3123,30 @@ impl Context {
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.border_alignments);
+            let mut target_outline_width = self
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.outline_width);
+            let mut target_outline_color = self
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.outline_color);
+            let mut target_outline_lengths = self
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.outline_lengths);
+            let mut target_outline_styles = self
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.outline_styles);
+            let mut target_outline_alignments = self
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.outline_alignments);
+            let mut target_outline_offset = self
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.outline_offset);
 
             // 疑似クラス（Hovered等）のマージをクローンなしで解決
             if let Some(interaction) = self.interaction_properties.get(id) {
@@ -3177,6 +3216,26 @@ impl Context {
                             }
                             if inner_vis.border_alignments.is_some() {
                                 target_border_alignments = inner_vis.border_alignments;
+                            }
+                        }
+                        if inner_mask.has(STYLE_OUTLINE) {
+                            if inner_vis.outline_width.is_some() {
+                                target_outline_width = inner_vis.outline_width;
+                            }
+                            if inner_vis.outline_color.is_some() {
+                                target_outline_color = inner_vis.outline_color;
+                            }
+                            if inner_vis.outline_lengths.is_some() {
+                                target_outline_lengths = inner_vis.outline_lengths;
+                            }
+                            if inner_vis.outline_styles.is_some() {
+                                target_outline_styles = inner_vis.outline_styles;
+                            }
+                            if inner_vis.outline_alignments.is_some() {
+                                target_outline_alignments = inner_vis.outline_alignments;
+                            }
+                            if inner_vis.outline_offset.is_some() {
+                                target_outline_offset = inner_vis.outline_offset;
                             }
                         }
                         if inner_mask.has(STYLE_CURSOR) {
@@ -3252,6 +3311,26 @@ impl Context {
                                 target_border_alignments = inner_vis.border_alignments;
                             }
                         }
+                        if inner_mask.has(STYLE_OUTLINE) {
+                            if inner_vis.outline_width.is_some() {
+                                target_outline_width = inner_vis.outline_width;
+                            }
+                            if inner_vis.outline_color.is_some() {
+                                target_outline_color = inner_vis.outline_color;
+                            }
+                            if inner_vis.outline_lengths.is_some() {
+                                target_outline_lengths = inner_vis.outline_lengths;
+                            }
+                            if inner_vis.outline_styles.is_some() {
+                                target_outline_styles = inner_vis.outline_styles;
+                            }
+                            if inner_vis.outline_alignments.is_some() {
+                                target_outline_alignments = inner_vis.outline_alignments;
+                            }
+                            if inner_vis.outline_offset.is_some() {
+                                target_outline_offset = inner_vis.outline_offset;
+                            }
+                        }
                     }
                 }
 
@@ -3302,6 +3381,26 @@ impl Context {
                             target_border_alignments = inner_vis.border_alignments;
                         }
                     }
+                    if inner_mask.has(STYLE_OUTLINE) {
+                        if inner_vis.outline_width.is_some() {
+                            target_outline_width = inner_vis.outline_width;
+                        }
+                        if inner_vis.outline_color.is_some() {
+                            target_outline_color = inner_vis.outline_color;
+                        }
+                        if inner_vis.outline_lengths.is_some() {
+                            target_outline_lengths = inner_vis.outline_lengths;
+                        }
+                        if inner_vis.outline_styles.is_some() {
+                            target_outline_styles = inner_vis.outline_styles;
+                        }
+                        if inner_vis.outline_alignments.is_some() {
+                            target_outline_alignments = inner_vis.outline_alignments;
+                        }
+                        if inner_vis.outline_offset.is_some() {
+                            target_outline_offset = inner_vis.outline_offset;
+                        }
+                    }
                 }
             }
 
@@ -3325,6 +3424,16 @@ impl Context {
 
             let target_border_val = target_border.unwrap_or(Color::TRANSPARENT);
             let border_changed = current_border != target_border_val;
+
+            let target_outline_width_val = target_outline_width.unwrap_or(EdgeInsets::ZERO);
+            let outline_width_changed = current_outline_width != target_outline_width_val;
+
+            let target_outline_color_val = target_outline_color.unwrap_or(Color::TRANSPARENT);
+            let outline_color_changed = current_outline_color != target_outline_color_val;
+
+            let target_outline_offset_val = target_outline_offset.unwrap_or(0.0);
+            let outline_offset_changed =
+                (current_outline_offset - target_outline_offset_val).abs() > 0.001;
 
             let target_opacity_val = target_opacity.unwrap_or(1.0);
             let opacity_changed = (current_opacity - target_opacity_val).abs() > 0.001;
@@ -3413,6 +3522,9 @@ impl Context {
                 || transform_changed
                 || radius_changed
                 || shadow_changed
+                || outline_width_changed
+                || outline_color_changed
+                || outline_offset_changed
                 || self.base_visual_properties.contains_key(id)
             {
                 if !self.visual_properties.contains_key(id) {
@@ -3452,6 +3564,13 @@ impl Context {
                 active_vis.border_lengths = target_border_lengths;
                 active_vis.border_styles = target_border_styles;
                 active_vis.border_alignments = target_border_alignments;
+
+                active_vis.outline_width = target_outline_width;
+                active_vis.outline_color = target_outline_color;
+                active_vis.outline_lengths = target_outline_lengths;
+                active_vis.outline_styles = target_outline_styles;
+                active_vis.outline_alignments = target_outline_alignments;
+                active_vis.outline_offset = target_outline_offset;
 
                 // 解決された選択色をアクティブビジュアルに代入
                 active_vis.select_bg_color = target_select_bg;
