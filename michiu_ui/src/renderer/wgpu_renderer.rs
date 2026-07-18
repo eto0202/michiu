@@ -136,7 +136,7 @@ impl WgpuRenderer {
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format, // 通常は Rgba8UnormSrgb か Bgra8UnormSrgb
+            format: surface_format,
             width: size.width.max(1.0) as u32,
             height: size.height.max(1.0) as u32,
             present_mode: wgpu::PresentMode::Fifo, // VSync 有効
@@ -419,6 +419,7 @@ impl WgpuRenderer {
         }
 
         // スワップチェーンから描画先フレームを獲得
+        // TODO: エラーハンドリング
         let surface_texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) => t,
             _ => return,

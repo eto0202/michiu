@@ -377,11 +377,12 @@ unsafe extern "system" fn wnd_proc(
                     0x28 => VirtualKey::DOWN,
                     0x41 => VirtualKey::A,
                     0x43 => VirtualKey::C,
+                    0x09 => VirtualKey::TAB,
                     _ => VirtualKey::UNKNOWN,
                 };
 
                 app.context
-                    .inject_keyboard_key(key, ElementState::Pressed, modifiers); // ★ modifiers を引き渡す
+                    .inject_keyboard_key(key, ElementState::Pressed, modifiers);
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);

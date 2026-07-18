@@ -4,14 +4,14 @@ use crate::{
     BorderAlignment, BorderStyle, BoxShadow, BoxSizing, Color, CornerRadius, CursorIcon, Direction,
     Display, DragPayload, DragPlaceholderParent, DragProperty, DrawBatch, DropProperty, DropTarget,
     EdgeInsets, EffectId, Element, ElementState, EventListeners, FlexDirection, FlexLayout,
-    FlexWrap, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement,
-    IDENTITY_MATRIX, ImageSource, ImeState, InputContents, InteractionStates, InteractionStyles,
-    JustifyContent, LayoutOverflow, LayoutPoint, LayoutRect, LayoutSize, Length, Modifiers,
-    MouseButton, MovieProperty, MovieSource, Overflow, PlaybackCount, PointerEvents, Position,
-    QuadInstance, ReadSignal, Rect, RenderData, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
-    SignalId, Size, StyleTarget, TextAlign, TextEngine, TextSpan, ThisStyle, TransitionValue,
-    UiaValue, UserSelect, Val, VirtualKey, VisualProperty, WebView2Contents, WriteSignal,
-    bind_context, bitmap::*, with_context,
+    FlexWrap, FocusTrigger, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine,
+    GridPlacement, IDENTITY_MATRIX, ImageSource, ImeState, InputContents, InteractionStates,
+    InteractionStyles, JustifyContent, LayoutOverflow, LayoutPoint, LayoutRect, LayoutSize, Length,
+    Modifiers, MouseButton, MovieProperty, MovieSource, Overflow, PlaybackCount, PointerEvents,
+    Position, QuadInstance, ReadSignal, Rect, RenderData, ScrollbarDisplay, ScrollbarMode,
+    ScrollbarStyle, SignalId, Size, StyleTarget, TextAlign, TextEngine, TextSpan, ThisStyle,
+    TransitionValue, UiaValue, UserSelect, Val, VirtualKey, VisualProperty, WebView2Contents,
+    WriteSignal, bind_context, bitmap::*, with_context,
 };
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
@@ -3161,7 +3161,7 @@ impl Context {
                         .and_then(|v| v.focusable)
                         .unwrap_or(Focusable::None);
 
-                    if focus_mode == Focusable::Inherit {
+                    if matches!(focus_mode, Focusable::Inherit(_)) {
                         // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
                         let mut curr = self.parents.get(id).copied().flatten();
                         let mut found_parent_focused_style = None;
@@ -3184,14 +3184,10 @@ impl Context {
                 None
             };
 
-            // 解決済みフォーカススタイルをカスケード評価の先頭に配置
-            let mut resolved_cascade = SmallVec::<[(bool, Option<ThisStyle>); 10]>::new();
-            resolved_cascade.push((active_mask.has(STATE_FOCUSED), focus_style_resolved));
-
             // 疑似クラス（Hovered等）のマージをクローンなしで解決
             if let Some(interaction) = self.interaction_properties.get(id) {
                 let cascade = [
-                    (STATE_FOCUSED, &interaction.focused),
+                    (STATE_FOCUSED, &focus_style_resolved),
                     (STATE_SELECTED, &interaction.selected),
                     (STATE_ACTIVED, &interaction.actived),
                     (STATE_HOVERED, &interaction.hovered),
@@ -3636,6 +3632,7 @@ impl Context {
                     active_vis.pointer_events = target_vis.pointer_events;
                     active_vis.transitions = target_vis.transitions.clone();
                     active_vis.keyframe_animations = target_vis.keyframe_animations.clone();
+                    active_vis.focusable = target_vis.focusable;
                 }
 
                 // 即時変更があったため、レンダラーへの転送 Dirty をマーク
@@ -4376,7 +4373,7 @@ impl Context {
                     .and_then(|v| v.focusable)
                     .unwrap_or(Focusable::None);
 
-                if focus_mode == Focusable::Inherit {
+                if matches!(focus_mode, Focusable::Inherit(_)) {
                     // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
                     let mut curr = self.parents.get(id).copied().flatten();
                     let mut found_parent_focused_style = None;
@@ -4398,14 +4395,10 @@ impl Context {
             None
         };
 
-        // 解決済みフォーカススタイルをカスケード評価の先頭に配置
-        let mut resolved_cascade = SmallVec::<[(bool, Option<ThisStyle>); 10]>::new();
-        resolved_cascade.push((active_mask.has(STATE_FOCUSED), focus_style_resolved));
-
         // 状態マッピング解決のルックアップとループを1回に集約
         if let Some(interaction) = self.interaction_properties.get(id) {
             let cascade = [
-                (STATE_FOCUSED, &interaction.focused),
+                (STATE_FOCUSED, &focus_style_resolved),
                 (STATE_SELECTED, &interaction.selected),
                 (STATE_ACTIVED, &interaction.actived),
                 (STATE_HOVERED, &interaction.hovered),
@@ -5686,7 +5679,13 @@ impl Context {
                                 .visual_properties
                                 .get(target_id)
                                 .and_then(|v| v.focusable)
-                                .map(|f| f != Focusable::None)
+                                .map(|f| match f {
+                                    Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
+                                        trigger == FocusTrigger::Mouse
+                                            || trigger == FocusTrigger::Both
+                                    }
+                                    Focusable::None => false,
+                                })
                                 .unwrap_or(false));
 
                     if is_focusable {
@@ -6218,6 +6217,13 @@ impl Context {
         modifiers: Modifiers,
     ) {
         let _context_guard = bind_context(self);
+
+        // Tabキー押下時は個別のフォーカス対象へのイベント配信前に巡回処理を実行
+        if state == ElementState::Pressed && key == VirtualKey::TAB {
+            self.cycle_keyboard_focus(modifiers.shift);
+            return;
+        }
+
         if let Some(focused_id) = self.interaction_states.focused {
             // 内部で完結する全選択（Ctrl+A）のみを自動処理
             if state == ElementState::Pressed && modifiers.ctrl {
@@ -6261,6 +6267,96 @@ impl Context {
                 }
             }
         }
+    }
+
+    /// キーボードフォーカスを次の適格な要素へ巡回させます
+    pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
+        if self.flat_dfs_sequence.is_empty() {
+            return;
+        }
+
+        let len = self.flat_dfs_sequence.len();
+
+        // 現在フォーカスされている要素のインデックスを特定（無ければ探索方向の末端から開始）
+        let current_focused = self.interaction_states.focused;
+        let start_idx = current_focused
+            .and_then(|id| self.flat_dfs_sequence.iter().position(|&x| x == id))
+            .unwrap_or(if reverse { len - 1 } else { 0 });
+
+        let mut idx = start_idx;
+        loop {
+            // インデックスの増減と循環
+            if reverse {
+                idx = if idx == 0 { len - 1 } else { idx - 1 };
+            } else {
+                idx = if idx == len - 1 { 0 } else { idx + 1 };
+            }
+
+            // 1周して元の位置に戻ってきた場合は、他にフォーカス可能な要素がないため終了
+            if idx == start_idx {
+                break;
+            }
+
+            let candidate_id = self.flat_dfs_sequence[idx];
+
+            if self.is_keyboard_focusable(candidate_id) {
+                // 古い要素のフォーカスを外し、新しい要素へフォーカスを設定
+                if let Some(old_id) = self.interaction_states.focused {
+                    self.set_focused(old_id, false);
+                }
+                self.set_focused(candidate_id, true);
+                self.interaction_states.focused = Some(candidate_id);
+
+                // WebView2 要素だった場合はシステム側にフォーカスをプログラム駆動で移譲
+                if self.active_masks[candidate_id].has(COMP_WEBVIEW_CONTENT) {
+                    // 通常のレンダラーから focus_webview を呼び出すため
+                }
+
+                self.mark_render_dirty(candidate_id);
+                break;
+            }
+        }
+    }
+
+    /// 対象の要素がキーボードフォーカス可能であるかを総合検証します
+    fn is_keyboard_focusable(&self, id: EntityId) -> bool {
+        // 生存確認、および無効化（Disabled）状態でないか検証
+        if !self.entities.contains_key(id) || self.is_disabled(id) {
+            return false;
+        }
+
+        // 暗黙的または明示的にキーボードフォーカスを要求しているか
+        let is_target = self.active_masks[id].has(COMP_INPUT_CONTENT)
+            || self.active_masks[id].has(COMP_WEBVIEW_CONTENT)
+            || (self.active_masks[id].has(STYLE_FOCUSABLE)
+                && self
+                    .visual_properties
+                    .get(id)
+                    .and_then(|v| v.focusable)
+                    .map(|f| match f {
+                        Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
+                            trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
+                        }
+                        Focusable::None => false,
+                    })
+                    .unwrap_or(false));
+
+        if !is_target {
+            return false;
+        }
+
+        // 自分自身、および親先祖ツリーに非表示（Display::None）が1つも含まれていないか検証
+        let mut curr = Some(id);
+        while let Some(curr_id) = curr {
+            if let Some(layout) = self.basic_layouts.get(curr_id)
+                && layout.display == Display::None
+            {
+                return false;
+            }
+            curr = self.parents.get(curr_id).copied().flatten();
+        }
+
+        true
     }
 
     pub fn inject_character(&mut self, c: char) {

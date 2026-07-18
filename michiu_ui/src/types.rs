@@ -1885,7 +1885,7 @@ pub struct VisualProperty {
     pub user_select: Option<UserSelect>,
     pub select_bg_color: Option<Color>,
     pub select_text_color: Option<Color>,
-    pub focusable: Option<Focusable>, 
+    pub focusable: Option<Focusable>,
     pub outline_width: Option<EdgeInsets>, // アウトラインはレイアウトに影響を与えないため
     pub outline_color: Option<Color>,
     pub outline_lengths: Option<EdgeInsets>,
@@ -2744,13 +2744,21 @@ pub struct DropProperty {
     pub drag_mode: DragPayload,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+pub enum FocusTrigger {
+    Mouse,
+    Keyboard,
+    #[default]
+    Both,
+}
+
 /// フォーカスを受け入れる際の挙動およびスタイルの継承ポリシー
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum Focusable {
     #[default]
     None, // フォーカス不可能
-    SelfStyle, // フォーカス可能。ただし自身の focused スタイルのみを適用
-    Inherit, // フォーカス可能。自身に focused スタイルが無い場合、親先祖の focused スタイルを自動継承
+    SelfStyle(FocusTrigger), // フォーカス可能。ただし自身の focused スタイルのみを適用
+    Inherit(FocusTrigger), // フォーカス可能。自身に focused スタイルが無い場合、親先祖の focused スタイルを自動継承
 }
 
 #[cfg(test)]

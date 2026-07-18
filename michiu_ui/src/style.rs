@@ -2,12 +2,12 @@ use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, Backdrop, BasicLayout, BorderAlignment, BorderStyle,
     BoxShadow, BoxSizing, Color, Context, Convert, CornerRadius, CursorIcon, Direction, Display,
     DragPayload, DragPlaceholderParent, DragProperty, DropProperty, DropTarget, EdgeInsets,
-    EntityId, FlexDirection, FlexLayout, FlexWrap, Focusable, GridAutoFlow, GridLayout, GridLine,
-    GridPlacement, InteractionName, InteractionStyles, IntoCornerRadius, IntoRect, IntoSize,
-    JustifyContent, LayoutOverflow, Length, LinearGradient, Overflow, Percent, Pixel, Point,
-    PointerEvents, Position, ReadSignal, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
-    Size, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, bitmap::*, pct,
-    ts,
+    EntityId, FlexDirection, FlexLayout, FlexWrap, FocusTrigger, Focusable, GridAutoFlow,
+    GridLayout, GridLine, GridPlacement, InteractionName, InteractionStyles, IntoCornerRadius,
+    IntoRect, IntoSize, JustifyContent, LayoutOverflow, Length, LinearGradient, Overflow, Percent,
+    Pixel, Point, PointerEvents, Position, ReadSignal, Rect, ScrollbarDisplay, ScrollbarMode,
+    ScrollbarStyle, Size, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto,
+    bitmap::*, pct, ts,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -803,6 +803,11 @@ impl ThisStyle {
     }
 
     #[inline]
+    pub fn w(self, value: impl IntoStyleConvert<Val>) -> Self {
+        self.width(value)
+    }
+
+    #[inline]
     pub fn w_full(self) -> Self {
         self.width(pct(100.0))
     }
@@ -838,6 +843,11 @@ impl ThisStyle {
                 self
             }
         }
+    }
+
+    #[inline]
+    pub fn h(self, value: impl IntoStyleConvert<Val>) -> Self {
+        self.height(value)
     }
 
     #[inline]
@@ -4706,6 +4716,51 @@ impl ThisStyle {
         self
     }
 
+    #[inline]
+    pub fn focusable_inherit(self, trigger: FocusTrigger) -> Self {
+        self.focusable(Focusable::Inherit(trigger))
+    }
+
+    #[inline]
+    pub fn focusable_inherit_both(self) -> Self {
+        self.focusable(Focusable::Inherit(FocusTrigger::Both))
+    }
+
+    #[inline]
+    pub fn focusable_inherit_mouse(self) -> Self {
+        self.focusable(Focusable::Inherit(FocusTrigger::Mouse))
+    }
+
+    #[inline]
+    pub fn focusable_inherit_keyboard(self) -> Self {
+        self.focusable(Focusable::Inherit(FocusTrigger::Keyboard))
+    }
+
+    #[inline]
+    pub fn focusable_self(self, trigger: FocusTrigger) -> Self {
+        self.focusable(Focusable::SelfStyle(trigger))
+    }
+
+    #[inline]
+    pub fn focusable_self_both(self) -> Self {
+        self.focusable(Focusable::SelfStyle(FocusTrigger::Both))
+    }
+
+    #[inline]
+    pub fn focusable_self_mouse(self) -> Self {
+        self.focusable(Focusable::SelfStyle(FocusTrigger::Mouse))
+    }
+
+    #[inline]
+    pub fn focusable_self_keyboard(self) -> Self {
+        self.focusable(Focusable::SelfStyle(FocusTrigger::Keyboard))
+    }
+
+    #[inline]
+    pub fn focusable_none(self) -> Self {
+        self.focusable(Focusable::None)
+    }
+
     /// すべての疑似クラスおよび within 伝播系のスタイルと動的セッターを統合する共通コアヘルパー
     fn apply_interaction_style(
         mut self,
@@ -5535,12 +5590,11 @@ impl IntoFocusable for Focusable {
     }
 }
 
-// 従来の focusable(true) はデフォルトで親からのスタイル継承（Inherit）として扱う
 impl IntoFocusable for bool {
     #[inline]
     fn into_focusable(self) -> Focusable {
         if self {
-            Focusable::Inherit
+            Focusable::Inherit(FocusTrigger::Both)
         } else {
             Focusable::None
         }

@@ -6,6 +6,7 @@ use webview2_com::{
     CreateCoreWebView2EnvironmentCompletedHandler,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_COLOR, COREWEBVIEW2_MOUSE_EVENT_KIND, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS,
+        COREWEBVIEW2_MOVE_FOCUS_REASON, COREWEBVIEW2_MOVE_FOCUS_REASON_PREVIOUS,
         COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC, CreateCoreWebView2EnvironmentWithOptions,
         ICoreWebView2CompositionController, ICoreWebView2Controller, ICoreWebView2Controller2,
         ICoreWebView2Environment, ICoreWebView2Environment3,
@@ -26,8 +27,9 @@ use windows::{
     core::{Interface, PCWSTR, PWSTR, w},
 };
 
-use crate::{LayoutRect, WebView2Contents};
+use crate::{LayoutRect, TaskSender, WebView2Contents};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn init_webview2_composition(
     hwnd: HWND,
     webview_visual: IDCompositionVisual2,
@@ -36,10 +38,12 @@ pub(crate) unsafe fn init_webview2_composition(
     rect: LayoutRect,
     scale_factor: f32,
     env_slot: Rc<RefCell<Option<ICoreWebView2Environment3>>>,
+    task_sender: TaskSender,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let webview_visual_clone = webview_visual.clone();
     let controller_slot_clone = controller_slot.clone();
     let settings_clone = settings.clone();
+    let task_sender_clone = task_sender.clone();
 
     // プリウォーム済み環境（Environment）の利用
     if let Some(ref env3) = *env_slot.borrow() {
@@ -69,6 +73,32 @@ pub(crate) unsafe fn init_webview2_composition(
                     unsafe {
                         base_controller.SetBounds(bounds)?;
                         base_controller.SetIsVisible(true)?;
+                    }
+
+                    // キーボードフォーカス奪還ハンドラをバインド
+                    let task_sender_inner = task_sender_clone.clone();
+                    let focus_handler = webview2_com::MoveFocusRequestedEventHandler::create(
+                        Box::new(move |_sender, args| {
+                            if let Some(args) = args {
+                                let mut reason = COREWEBVIEW2_MOVE_FOCUS_REASON(0);
+                                let _ = unsafe { args.Reason(&mut reason) };
+
+                                // Tab なら 順順移動(false), Shift+Tab なら 逆順移動(true)
+                                let is_reverse = reason == COREWEBVIEW2_MOVE_FOCUS_REASON_PREVIOUS;
+
+                                // メインスレッドの Context にフォーカス循環要求をディスパッチ
+                                let _ = task_sender_inner.send(move |cx| {
+                                    cx.cycle_keyboard_focus(is_reverse);
+                                });
+
+                                // WebView2側に「ホストアプリがフォーカスを奪還した」ことを通知
+                                let _ = unsafe { args.SetHandled(true) };
+                            }
+                            Ok(())
+                        }),
+                    );
+                    unsafe {
+                        base_controller.add_MoveFocusRequested(&focus_handler, &mut 0)?;
                     }
 
                     let webview = unsafe { base_controller.CoreWebView2()? };
@@ -176,6 +206,34 @@ pub(crate) unsafe fn init_webview2_composition(
                             unsafe {
                                 base_controller.SetBounds(bounds)?;
                                 base_controller.SetIsVisible(true)?;
+                            }
+
+                            // キーボードフォーカス奪還ハンドラをバインド
+                            let task_sender_inner = task_sender_clone.clone();
+                            let focus_handler =
+                                webview2_com::MoveFocusRequestedEventHandler::create(Box::new(
+                                    move |_sender, args| {
+                                        if let Some(args) = args {
+                                            let mut reason = COREWEBVIEW2_MOVE_FOCUS_REASON(0);
+                                            let _ = unsafe { args.Reason(&mut reason) };
+
+                                            // Tab なら 順順移動(false), Shift+Tab なら 逆順移動(true)
+                                            let is_reverse =
+                                                reason == COREWEBVIEW2_MOVE_FOCUS_REASON_PREVIOUS;
+
+                                            // メインスレッドの Context にフォーカス循環要求をディスパッチ
+                                            let _ = task_sender_inner.send(move |cx| {
+                                                cx.cycle_keyboard_focus(is_reverse);
+                                            });
+
+                                            // WebView2側に「ホストアプリがフォーカスを奪還した」ことを通知
+                                            let _ = unsafe { args.SetHandled(true) };
+                                        }
+                                        Ok(())
+                                    },
+                                ));
+                            unsafe {
+                                base_controller.add_MoveFocusRequested(&focus_handler, &mut 0)?;
                             }
 
                             let webview = unsafe { base_controller.CoreWebView2()? };

@@ -1,6 +1,8 @@
 use crate::{
     app::{ComponentType, theme::Theme},
-    components::{background, border, button, css, div, draggable, hover, outline, resizable},
+    components::{
+        background, border, button, css, div, draggable, focusable, hover, outline, resizable,
+    },
 };
 pub use michiu_ui::prelude::*;
 use strum::IntoEnumIterator;
@@ -9,6 +11,7 @@ pub fn main_area() -> Element {
     let main_contents = v_flex(ts().size_full().overflow_hidden().p(20.0));
 
     // 全ての ComponentType の要素を起動時に一度だけ spawn してマウント
+    // TODO: 遅延生成用のインターフェース
     let mut children = Vec::new();
     for comp_type in ComponentType::iter() {
         let child_el = create_component_element(comp_type);
@@ -52,7 +55,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Gradient => text("Gradient"),
         ComponentType::Cursor => text("Cursor"),
         ComponentType::Outline => wrapper(outline::container()),
-        ComponentType::Focusable => text("Focusable"),
+        ComponentType::Focusable => wrapper(focusable::container()),
     }
 }
 
