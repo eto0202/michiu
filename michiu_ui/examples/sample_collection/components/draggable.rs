@@ -5,7 +5,7 @@ pub fn container() -> Element {
     // 親コンテナを先に生成して ID を確定
     let container = v_flex(
         ts().gap(16.0)
-            .grow()
+            .size_full()
             .p(16.0)
             .r(4.0)
             .droppable(DropTarget::Child, DragPayload::Element)

@@ -22,7 +22,8 @@ pub fn create_root(s: ReadSignal<DssSet>) -> Element {
         .provide(sort_order)
         .children([
             header::header(),
-            h_flex(ts().grow()).children([sidebar::sidebar(), main_area::main_area()]),
+            h_flex(ts().grow().size_full().overflow_hidden())
+                .children([sidebar::sidebar(), main_area::main_area()]),
         ])
 }
 
@@ -53,4 +54,5 @@ pub enum ComponentType {
     Gradient,
     Cursor,
     Outline,
+    Focusable,
 }

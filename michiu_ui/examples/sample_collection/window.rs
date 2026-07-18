@@ -1,4 +1,4 @@
-use std::{cell::Cell, io::Write};
+use std::cell::Cell;
 
 use michiu_ui::{
     ComposedRenderer, ElementState, ImeState, Modifiers, MouseButton, VirtualKey, prelude::*,

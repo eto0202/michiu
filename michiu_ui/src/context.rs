@@ -4,14 +4,14 @@ use crate::{
     BorderAlignment, BorderStyle, BoxShadow, BoxSizing, Color, CornerRadius, CursorIcon, Direction,
     Display, DragPayload, DragPlaceholderParent, DragProperty, DrawBatch, DropProperty, DropTarget,
     EdgeInsets, EffectId, Element, ElementState, EventListeners, FlexDirection, FlexLayout,
-    FlexWrap, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement, IDENTITY_MATRIX,
-    ImageSource, ImeState, InputContents, InteractionStates, InteractionStyles, JustifyContent,
-    LayoutOverflow, LayoutPoint, LayoutRect, LayoutSize, Length, Modifiers, MouseButton,
-    MovieProperty, MovieSource, Overflow, PlaybackCount, PointerEvents, Position, QuadInstance,
-    ReadSignal, Rect, RenderData, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, SignalId, Size,
-    StyleTarget, TextAlign, TextEngine, TextSpan, ThisStyle, TransitionValue, UiaValue, UserSelect,
-    Val, VirtualKey, VisualProperty, WebView2Contents, WriteSignal, bind_context, bitmap::*,
-    with_context,
+    FlexWrap, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement,
+    IDENTITY_MATRIX, ImageSource, ImeState, InputContents, InteractionStates, InteractionStyles,
+    JustifyContent, LayoutOverflow, LayoutPoint, LayoutRect, LayoutSize, Length, Modifiers,
+    MouseButton, MovieProperty, MovieSource, Overflow, PlaybackCount, PointerEvents, Position,
+    QuadInstance, ReadSignal, Rect, RenderData, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
+    SignalId, Size, StyleTarget, TextAlign, TextEngine, TextSpan, ThisStyle, TransitionValue,
+    UiaValue, UserSelect, Val, VirtualKey, VisualProperty, WebView2Contents, WriteSignal,
+    bind_context, bitmap::*, with_context,
 };
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
@@ -3148,6 +3148,46 @@ impl Context {
                 .get(id)
                 .and_then(|v| v.outline_offset);
 
+            // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
+            let focus_style_resolved = if active_mask.has(STATE_FOCUSED) {
+                if let Some(interaction) = self.interaction_properties.get(id)
+                    && let Some(ref self_f_style) = interaction.focused
+                {
+                    Some(self_f_style.clone()) // 自身に明確な focused 指定があれば最優先
+                } else {
+                    let focus_mode = self
+                        .visual_properties
+                        .get(id)
+                        .and_then(|v| v.focusable)
+                        .unwrap_or(Focusable::None);
+
+                    if focus_mode == Focusable::Inherit {
+                        // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
+                        let mut curr = self.parents.get(id).copied().flatten();
+                        let mut found_parent_focused_style = None;
+                        while let Some(curr_id) = curr {
+                            if let Some(parent_interaction) =
+                                self.interaction_properties.get(curr_id)
+                                && let Some(ref parent_f_style) = parent_interaction.focused
+                            {
+                                found_parent_focused_style = Some(parent_f_style.clone());
+                                break;
+                            }
+                            curr = self.parents.get(curr_id).copied().flatten();
+                        }
+                        found_parent_focused_style
+                    } else {
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // 解決済みフォーカススタイルをカスケード評価の先頭に配置
+            let mut resolved_cascade = SmallVec::<[(bool, Option<ThisStyle>); 10]>::new();
+            resolved_cascade.push((active_mask.has(STATE_FOCUSED), focus_style_resolved));
+
             // 疑似クラス（Hovered等）のマージをクローンなしで解決
             if let Some(interaction) = self.interaction_properties.get(id) {
                 let cascade = [
@@ -4322,6 +4362,45 @@ impl Context {
                 })
             })
             .unwrap_or(false);
+
+        // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
+        let focus_style_resolved = if active_mask.has(STATE_FOCUSED) {
+            if let Some(interaction) = self.interaction_properties.get(id)
+                && let Some(ref self_f_style) = interaction.focused
+            {
+                Some(self_f_style.clone()) // 自身に明確な focused 指定があれば最優先
+            } else {
+                let focus_mode = self
+                    .visual_properties
+                    .get(id)
+                    .and_then(|v| v.focusable)
+                    .unwrap_or(Focusable::None);
+
+                if focus_mode == Focusable::Inherit {
+                    // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
+                    let mut curr = self.parents.get(id).copied().flatten();
+                    let mut found_parent_focused_style = None;
+                    while let Some(curr_id) = curr {
+                        if let Some(parent_interaction) = self.interaction_properties.get(curr_id)
+                            && let Some(ref parent_f_style) = parent_interaction.focused
+                        {
+                            found_parent_focused_style = Some(parent_f_style.clone());
+                            break;
+                        }
+                        curr = self.parents.get(curr_id).copied().flatten();
+                    }
+                    found_parent_focused_style
+                } else {
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // 解決済みフォーカススタイルをカスケード評価の先頭に配置
+        let mut resolved_cascade = SmallVec::<[(bool, Option<ThisStyle>); 10]>::new();
+        resolved_cascade.push((active_mask.has(STATE_FOCUSED), focus_style_resolved));
 
         // 状態マッピング解決のルックアップとループを1回に集約
         if let Some(interaction) = self.interaction_properties.get(id) {
@@ -5607,6 +5686,7 @@ impl Context {
                                 .visual_properties
                                 .get(target_id)
                                 .and_then(|v| v.focusable)
+                                .map(|f| f != Focusable::None)
                                 .unwrap_or(false));
 
                     if is_focusable {

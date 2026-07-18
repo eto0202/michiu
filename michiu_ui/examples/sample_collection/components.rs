@@ -9,6 +9,7 @@ pub mod div;
 pub mod draggable;
 pub mod dropdown;
 pub mod flexbox;
+pub mod focusable;
 pub mod hover;
 pub mod input;
 pub mod input_area;

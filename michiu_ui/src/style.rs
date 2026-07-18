@@ -2,7 +2,7 @@ use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, Backdrop, BasicLayout, BorderAlignment, BorderStyle,
     BoxShadow, BoxSizing, Color, Context, Convert, CornerRadius, CursorIcon, Direction, Display,
     DragPayload, DragPlaceholderParent, DragProperty, DropProperty, DropTarget, EdgeInsets,
-    EntityId, FlexDirection, FlexLayout, FlexWrap, GridAutoFlow, GridLayout, GridLine,
+    EntityId, FlexDirection, FlexLayout, FlexWrap, Focusable, GridAutoFlow, GridLayout, GridLine,
     GridPlacement, InteractionName, InteractionStyles, IntoCornerRadius, IntoRect, IntoSize,
     JustifyContent, LayoutOverflow, Length, LinearGradient, Overflow, Percent, Pixel, Point,
     PointerEvents, Position, ReadSignal, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
@@ -2161,6 +2161,29 @@ impl ThisStyle {
     /// アウトラインの基準（配置伸縮の方向）を一括設定します。
     #[inline]
     pub fn outline_align(mut self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.outline_alignments = Some([v; 4]);
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.outline_alignments = Some([val; 4]);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    #[inline]
+    pub fn outline_weight(mut self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -4658,9 +4681,10 @@ impl ThisStyle {
         self
     }
 
-    /// 要素にキーボードタブやマウスクリックによるフォーカスを許可するかどうかを設定します。
+    /// 要素にフォーカスを許可し、スタイル継承ポリシーを指定します。
+    /// 引数には `bool`（true の場合は自動的に親スタイル継承を有効化）または `Focusable` を指定できます。
     #[inline]
-    pub fn focusable(mut self, value: impl IntoStyleValue<bool>) -> Self {
+    pub fn focusable(mut self, value: impl IntoStyleValue<Focusable>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -5497,6 +5521,29 @@ where
     #[inline]
     fn into_style_convert(self) -> StyleValue<T> {
         StyleValue::Dynamic(Box::new(move || self.get().convert()))
+    }
+}
+
+pub trait IntoFocusable {
+    fn into_focusable(self) -> Focusable;
+}
+
+impl IntoFocusable for Focusable {
+    #[inline]
+    fn into_focusable(self) -> Focusable {
+        self
+    }
+}
+
+// 従来の focusable(true) はデフォルトで親からのスタイル継承（Inherit）として扱う
+impl IntoFocusable for bool {
+    #[inline]
+    fn into_focusable(self) -> Focusable {
+        if self {
+            Focusable::Inherit
+        } else {
+            Focusable::None
+        }
     }
 }
 
