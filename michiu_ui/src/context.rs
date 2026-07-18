@@ -6225,6 +6225,24 @@ impl Context {
         }
 
         if let Some(focused_id) = self.interaction_states.focused {
+            // フォーカス中に Enter または Space が押されたら自動的にクリックをエミュレートする
+            if state == ElementState::Pressed
+                && (key == VirtualKey::RETURN || key == VirtualKey::SPACE)
+            {
+                let mut on_click = self
+                    .event_listeners
+                    .get_mut(focused_id)
+                    .and_then(|l| l.on_click.take());
+
+                if let Some(mut handler) = on_click {
+                    let _guard = crate::ActiveElementGuard::new(focused_id);
+                    handler(self);
+                    if let Some(l) = self.event_listeners.get_mut(focused_id) {
+                        l.on_click = Some(handler);
+                    }
+                }
+                return;
+            }
             // 内部で完結する全選択（Ctrl+A）のみを自動処理
             if state == ElementState::Pressed && modifiers.ctrl {
                 let user_select = self
@@ -7258,6 +7276,25 @@ impl Context {
 
     pub fn entity_id_pressed(&self) -> Option<EntityId> {
         self.interaction_states.pressed
+    }
+
+    /// 指定された要素をプログラム駆動でクリックさせます
+    pub fn trigger_element_click(&mut self, id: EntityId) {
+        if !self.entities.contains_key(id) || self.is_disabled(id) {
+            return;
+        }
+        let mut on_click = self
+            .event_listeners
+            .get_mut(id)
+            .and_then(|l| l.on_click.take());
+
+        if let Some(mut handler) = on_click {
+            let _guard = crate::ActiveElementGuard::new(id);
+            handler(self);
+            if let Some(l) = self.event_listeners.get_mut(id) {
+                l.on_click = Some(handler);
+            }
+        }
     }
 
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。

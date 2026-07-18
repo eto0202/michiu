@@ -378,6 +378,8 @@ unsafe extern "system" fn wnd_proc(
                     0x41 => VirtualKey::A,
                     0x43 => VirtualKey::C,
                     0x09 => VirtualKey::TAB,
+                    0x0D => VirtualKey::RETURN,
+                    0x20 => VirtualKey::SPACE,
                     _ => VirtualKey::UNKNOWN,
                 };
 
