@@ -144,6 +144,89 @@ impl<T: Clone + 'static> ReadSignal<T> {
             if cond_fn(&val) { true_fn() } else { false_fn() }
         }
     }
+
+    /// 依存関係を追跡せずに現在のシグナルの値を即時取得します。
+    #[inline]
+    pub fn get_untracked(&self) -> T {
+        with_context(|cx| {
+            let any_val = &cx.signals[self.id];
+            any_val
+                .downcast_ref::<T>()
+                .cloned()
+                .expect("Signal type mismatch")
+        })
+    }
+
+    /// 読み取り専用の一方向マッピングシグナルを生成します。
+    pub fn map<U, F>(&self, map_fn: F) -> ReadSignal<U>
+    where
+        T: Send + Clone + 'static,
+        U: Send + Clone + PartialEq + 'static,
+        F: Fn(&T) -> U + Send + Sync + 'static,
+    {
+        let source_read = *self;
+
+        with_context(|cx| {
+            // S (元の現在値) から U の初期値を安全に解決
+            let initial_val = map_fn(&source_read.get());
+            let (read_u, write_u) = cx.create_signal(initial_val);
+
+            // 順方向同期：S が更新されたら U も更新するエフェクト
+            let write_u_clone = write_u;
+            create_effect(move |_| {
+                let s_val = source_read.get();
+                let u_val = map_fn(&s_val);
+                if read_u.get_untracked() != u_val {
+                    write_u_clone.set(u_val);
+                }
+            });
+
+            read_u
+        })
+    }
+
+    /// 双方向バインディング用のアダプタペアを生成します。
+    pub fn bi_map<U, F, G>(
+        &self,
+        writer: WriteSignal<T>,
+        map_read: F,  // S -> T の順変換
+        map_write: G, // T -> S の逆変換
+    ) -> (ReadSignal<U>, WriteSignal<U>)
+    where
+        T: Send + Clone + PartialEq + 'static,
+        U: Send + Clone + PartialEq + 'static,
+        F: Fn(&T) -> U + Send + Sync + 'static,
+        G: Fn(U) -> T + Send + Sync + 'static,
+    {
+        let source_read = *self;
+
+        with_context(|cx| {
+            let initial_val = map_read(&source_read.get());
+            let (read_u, write_u) = cx.create_signal(initial_val);
+
+            // 順方向同期：S が更新されたら U も更新するエフェクト
+            let write_u_clone = write_u;
+            create_effect(move |_| {
+                let s_val = source_read.get();
+                let u_val = map_read(&s_val);
+                if read_u.get_untracked() != u_val {
+                    write_u_clone.set(u_val);
+                }
+            });
+
+            // 逆方向同期：U が更新されたら S も更新するエフェクト
+            let read_u_clone = read_u;
+            create_effect(move |_| {
+                let u_val = read_u_clone.get();
+                let s_val = map_write(u_val);
+                if source_read.get_untracked() != s_val {
+                    writer.set(s_val);
+                }
+            });
+
+            (read_u, write_u)
+        })
+    }
 }
 
 impl ReadSignal<bool> {

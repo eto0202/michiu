@@ -1,4 +1,4 @@
-use crate::app::theme::Theme;
+use crate::app::{SearchText, theme::Theme};
 pub use michiu_ui::prelude::*;
 use std::time::Duration;
 
@@ -28,9 +28,10 @@ fn search_box() -> Element {
 
     let text_input = div_n()
         .input_d(|t: &Theme| {
-            // create_root で provide された共有シグナルを use_provided で読み込む
-            let input_text = use_provided::<String>();
-            let set_input_text = use_provided_setter::<String>();
+            // create_root で provide された共有シグナルを use_provided で読み込み双方向マッピング
+            let writer = use_provided_setter::<SearchText>();
+            let (input_text, set_input_text) =
+                use_provided::<SearchText>().bi_map(writer, |t| t.0.clone(), SearchText);
 
             InputContents::new((input_text, set_input_text))
                 .placeholder("Search for components...")
@@ -52,9 +53,9 @@ fn search_box() -> Element {
 
     let suffix_element = text("✕")
         .style_d(move |t: &Theme| {
-            let input_text = use_provided::<String>().get();
+            let input_text = use_provided::<SearchText>().get();
 
-            let has_text = !input_text.is_empty();
+            let has_text = !input_text.0.is_empty();
             let base_style = ts()
                 .text_color(t.text_muted)
                 .font_size(t.font_size_base)
@@ -68,8 +69,8 @@ fn search_box() -> Element {
             }
         })
         .on_click(move || {
-            let set_input_text = use_provided_setter::<String>();
-            set_input_text.set(String::new());
+            let set_input_text = use_provided_setter::<SearchText>();
+            set_input_text.set(SearchText(String::new()));
         });
 
     input_wrapper.child(text_input).child(suffix_element)
@@ -97,23 +98,25 @@ fn toggle_btn() -> Element {
             .bg_color(track_color)
             .absolute()
             .right(10.0)
+            .focusable_self_keyboard()
+            .focused(
+                ts().outline_solid(1.0)
+                    .outline_offset(2.0)
+                    .outline_color(dynamic(|t: &Theme| t.text)),
+            )
     })
     .on_click(mode_change);
 
     let btn_inner = h_flex_d(|t: &Theme| {
-        // ダーク（Active）時は右端（22.0pxシフト）、ライト時は左端（0.0px）
-        let tx = if t.is_dark { 22.0 } else { 0.0 };
-
         ts().r(4.0)
-            .m_l(4.0) // 左端に 4.0px の余白を設けてスタート
+            .m_l(4.0)
             .height(20.0)
             .width(20.0)
             .bg_color(t.primary)
-            // Transform を使って X 軸方向に平行移動
-            .transform_translate(tx, 0.0)
-            // つまみの移動に滑らかなイージングを適用
+            .actived(ts().transform_translate(22.0, 0.0))
             .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
     })
+    .active(dynamic(|t: &Theme| t.is_dark))
     .on_click(mode_change);
 
     btn_wrapper.child(btn_inner)

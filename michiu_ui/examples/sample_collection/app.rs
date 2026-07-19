@@ -11,7 +11,7 @@ pub fn create_root(s: ReadSignal<DssSet>) -> Element {
     let (t, _) = create_signal(Theme::dark());
     let (c, _) = create_signal(ComponentType::Div);
 
-    let (search_text, _) = create_signal(String::new());
+    let (search_text, _) = create_signal(SearchText(String::new()));
     let (sort_order, _) = create_signal(SidebarSortOrder::Ascending);
 
     v_flex(move || ts().size_full().bg_color(t.get().background))
@@ -26,6 +26,9 @@ pub fn create_root(s: ReadSignal<DssSet>) -> Element {
                 .children([sidebar::sidebar(), main_area::main_area()]),
         ])
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchText(String);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarSortOrder {

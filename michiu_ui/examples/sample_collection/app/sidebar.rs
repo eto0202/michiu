@@ -1,4 +1,4 @@
-use crate::app::{ComponentType, SidebarSortOrder, theme::Theme};
+use crate::app::{ComponentType, SearchText, SidebarSortOrder, theme::Theme};
 pub use michiu_ui::prelude::*;
 use strum::IntoEnumIterator;
 
@@ -77,7 +77,7 @@ fn toggle_label() -> Element {
 fn list_container() -> Element {
     v_flex_d(|t: &Theme| scrollbar(t).grow().overflow_y_scroll()).child(move || {
         let order = use_provided::<SidebarSortOrder>().get();
-        let query = use_provided::<String>().get().to_lowercase();
+        let query = use_provided::<SearchText>().get().0.to_lowercase();
 
         let mut comp_types: Vec<ComponentType> = ComponentType::iter().collect();
 
