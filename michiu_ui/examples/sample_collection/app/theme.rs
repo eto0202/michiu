@@ -29,8 +29,11 @@ pub struct Theme {
     pub font_size_lg: f32,
 }
 
+// Theme 実装箇所の修正
+
 impl Theme {
-    /// HSL の基本パラメータを元に、モダンなトーン調和アルゴリズムに沿ってパレットを一括算出します。
+    /// HSL の基本パラメータ（Hue: 0..360, Saturation: 0..100%, Lightness: 0..100%）を元に、
+    /// モダンなトーン調和アルゴリズムに沿ってパレットを一括算出します。
     pub fn from_hsl(
         is_dark: bool,
         primary_hsl: (f32, f32, f32),
@@ -42,63 +45,63 @@ impl Theme {
         // 1. Primary & Primary Hover
         let primary = hsl(hp, sp, lp);
         let primary_hover = if is_dark {
-            hsl(hp, sp, (lp + 0.08).min(1.0))
+            hsl(hp, sp, (lp + 8.0).min(100.0)) // +0.08 ➔ +8.0%
         } else {
-            hsl(hp, sp, (lp - 0.08).max(0.0))
+            hsl(hp, sp, (lp - 8.0).max(0.0)) // -0.08 ➔ -8.0%
         };
 
         // 2. Secondary (プライマリの色相を30度シフト、彩度を落として補助トーンを構成)
         let hs = (hp + 30.0) % 360.0;
-        let ss = (sp * 0.65).clamp(0.0, 1.0);
+        let ss = (sp * 0.65).clamp(0.0, 100.0);
         let ls = if is_dark {
-            (lp * 0.9).clamp(0.4, 0.7)
+            (lp * 0.9).clamp(40.0, 70.0) // 0.4..0.7 ➔ 40.0..70.0%
         } else {
-            (lp * 1.1).clamp(0.3, 0.6)
+            (lp * 1.1).clamp(30.0, 60.0) // 0.3..0.6 ➔ 30.0..60.0%
         };
         let secondary = hsl(hs, ss, ls);
         let secondary_hover = if is_dark {
-            hsl(hs, ss, (ls + 0.08).min(1.0))
+            hsl(hs, ss, (ls + 8.0).min(100.0))
         } else {
-            hsl(hs, ss, (ls - 0.08).max(0.0))
+            hsl(hs, ss, (ls - 8.0).max(0.0))
         };
 
         // 3. Background & Background Hover
         let background = hsl(hb, sb, lb);
         let background_hover = if is_dark {
-            hsl(hb, sb, (lb + 0.04).min(1.0)) // ダークの背景ホバーはわずかに明るく
+            hsl(hb, sb, (lb + 4.0).min(100.0)) // +0.04 ➔ +4.0%
         } else {
-            hsl(hb, sb, (lb - 0.05).max(0.0)) // ライトの背景ホバーはわずかに暗く
+            hsl(hb, sb, (lb - 5.0).max(0.0)) // -0.05 ➔ -5.0%
         };
 
         // 4. Surface (背景よりも手前に浮かび上がって見えるように明度を制御)
         let surface = if is_dark {
-            hsl(hb, sb * 0.9, (lb + 0.05).min(1.0))
+            hsl(hb, sb * 0.9, (lb + 5.0).min(100.0))
         } else {
-            hsl(hb, sb * 0.5, (lb + 0.01).min(0.98))
+            hsl(hb, sb * 0.5, (lb + 1.0).min(98.0)) // +0.01 ➔ +1.0%, 0.98 ➔ 98.0%
         };
 
         // 5. Border & Border Hover
         let border = if is_dark {
-            hsl(hb, sb * 0.8, (lb + 0.15).min(1.0))
+            hsl(hb, sb * 0.8, (lb + 15.0).min(100.0)) // 0.15 ➔ 15.0%
         } else {
-            hsl(hb, sb * 0.8, (lb - 0.16).max(0.0))
+            hsl(hb, sb * 0.8, (lb - 16.0).max(0.0)) // 0.16 ➔ 16.0%
         };
         let border_hover = if is_dark {
-            hsl(hb, sb * 0.8, (lb + 0.25).min(1.0))
+            hsl(hb, sb * 0.8, (lb + 25.0).min(100.0)) // 0.25 ➔ 25.0%
         } else {
-            hsl(hb, sb * 0.8, (lb - 0.26).max(0.0))
+            hsl(hb, sb * 0.8, (lb - 26.0).max(0.0)) // 0.26 ➔ 26.0%
         };
 
         // 6. Text (背景の環境色をわずかに帯びた快適な明暗コントラスト)
         let text = if is_dark {
-            hsl(hb, sb * 0.2, 0.95) // 輝度95%のソフトな白
+            hsl(hb, sb * 0.2, 95.0) // 0.95 ➔ 95.0% (輝度95%のソフトな白)
         } else {
-            hsl(hb, sb * 0.3, 0.12) // 輝度12%の引き締まったダーク炭色
+            hsl(hb, sb * 0.3, 12.0) // 0.12 ➔ 12.0% (輝度12%の引き締まったダーク炭色)
         };
         let text_muted = if is_dark {
-            hsl(hb, sb * 0.25, 0.65)
+            hsl(hb, sb * 0.25, 65.0) // 0.65 ➔ 65.0%
         } else {
-            hsl(hb, sb * 0.25, 0.5)
+            hsl(hb, sb * 0.25, 50.0) // 0.50 ➔ 50.0%
         };
 
         let font_family = "Segoe UI".into();
@@ -128,14 +131,14 @@ impl Theme {
         }
     }
 
-    /// デフォルトのダークテーマ
+    /// デフォルトのダークテーマ（S, L を % 単位で直接定義）
     pub fn dark() -> Self {
-        Self::from_hsl(true, (318.0, 0.56, 0.59), (224.0, 0.15, 0.10))
+        Self::from_hsl(true, (318.0, 56.0, 59.0), (224.0, 15.0, 10.0))
     }
 
-    /// デフォルトのライトテーマ
+    /// デフォルトのライトテーマ（S, L を % 単位で直接定義）
     pub fn light() -> Self {
-        Self::from_hsl(false, (318.0, 0.56, 0.59), (220.0, 0.10, 0.92))
+        Self::from_hsl(false, (318.0, 56.0, 59.0), (220.0, 10.0, 92.0))
     }
 
     /// プライマリの HSL 値を変更し、依存するカラーパレット全体を再算出します。

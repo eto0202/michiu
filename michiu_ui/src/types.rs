@@ -121,7 +121,7 @@ impl Color {
         Self { a, ..self }
     }
 
-    /// HSL モデル（Hue: 0..360, Saturation: 0..1, Lightness: 0..1）から Color を生成します
+    /// HSL モデル（Hue: 0..360, Saturation: 0..100%, Lightness: 0..100%）から Color を生成します
     #[inline]
     pub fn hsl(h: f32, s: f32, l: f32) -> Self {
         Self::hsla(h, s, l, 1.0)
@@ -131,8 +131,10 @@ impl Color {
     pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Self {
         // 色相（h）を 0..360 の範囲に正規化
         let h_mod = (h % 360.0 + 360.0) % 360.0;
-        let s = s.clamp(0.0, 1.0);
-        let l = l.clamp(0.0, 1.0);
+
+        // s, l を 0.0..100.0 (%) から 0.0..1.0 の比率へ安全変換
+        let s = (s / 100.0).clamp(0.0, 1.0);
+        let l = (l / 100.0).clamp(0.0, 1.0);
 
         let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
         let x = c * (1.0 - ((h_mod / 60.0) % 2.0 - 1.0).abs());
@@ -183,27 +185,58 @@ pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
     }
 }
 
-/// 6桁（RRGGBB、例：0x191919）または8桁（RRGGBBAA、例：0x19191980）のHEX値からカラーを自動解析して生成します
+pub trait IntoHexColor {
+    fn into_hex_color(self) -> Color;
+}
+
+impl IntoHexColor for &str {
+    #[inline]
+    fn into_hex_color(self) -> Color {
+        let s = self.trim_start_matches('#').trim_start_matches("0x");
+        if let Ok(num) = u32::from_str_radix(s, 16) {
+            parse_u32_to_color(num, s.len() > 6)
+        } else {
+            Color::TRANSPARENT
+        }
+    }
+}
+
+impl IntoHexColor for String {
+    #[inline]
+    fn into_hex_color(self) -> Color {
+        self.as_str().into_hex_color()
+    }
+}
+
+impl IntoHexColor for u32 {
+    #[inline]
+    fn into_hex_color(self) -> Color {
+        parse_u32_to_color(self, self > 0xFFFFFF)
+    }
+}
+
 #[inline]
-pub fn hex(value: u32) -> Color {
-    // 0xFFFFFF (最大白の6桁) 以下であるかどうかで、6桁か8桁かを自動判定
-    if value <= 0xFFFFFF {
-        // 6桁カラー (RRGGBB): アルファ 1.0 固定
-        let r = ((value >> 16) & 0xFF) as f32 / 255.0;
-        let g = ((value >> 8) & 0xFF) as f32 / 255.0;
-        let b = (value & 0xFF) as f32 / 255.0;
+fn parse_u32_to_color(num: u32, is_8digit: bool) -> Color {
+    if !is_8digit {
+        let r = ((num >> 16) & 0xFF) as f32 / 255.0;
+        let g = ((num >> 8) & 0xFF) as f32 / 255.0;
+        let b = (num & 0xFF) as f32 / 255.0;
         Color { r, g, b, a: 1.0 }
     } else {
-        // 8桁カラー (RRGGBBAA): 末尾のAAをアルファにマッピング
-        let r = ((value >> 24) & 0xFF) as f32 / 255.0;
-        let g = ((value >> 16) & 0xFF) as f32 / 255.0;
-        let b = ((value >> 8) & 0xFF) as f32 / 255.0;
-        let a = (value & 0xFF) as f32 / 255.0;
+        let r = ((num >> 24) & 0xFF) as f32 / 255.0;
+        let g = ((num >> 16) & 0xFF) as f32 / 255.0;
+        let b = ((num >> 8) & 0xFF) as f32 / 255.0;
+        let a = (num & 0xFF) as f32 / 255.0;
         Color { r, g, b, a }
     }
 }
 
-/// HSL（Hue: 0..360, Saturation: 0.0..1.0, Lightness: 0.0..1.0）カラーを生成するショートハンド
+#[inline]
+pub fn hex(value: impl IntoHexColor) -> Color {
+    value.into_hex_color()
+}
+
+/// HSL（Hue: 0..360, Saturation: 0.0..100.0%, Lightness: 0.0..100.0%）カラーを生成するショートハンド
 #[inline]
 pub fn hsl(h: f32, s: f32, l: f32) -> Color {
     Color::hsl(h, s, l)

@@ -752,10 +752,10 @@ fn apply_declarations_to_style(
                 use lightningcss::properties::align::AlignItems;
                 use lightningcss::properties::align::BaselinePosition;
                 let align = match a {
-                    AlignItems::BaselinePosition(base) => {},
-                    AlignItems::SelfPosition { overflow, value } => {},
-                    AlignItems::Normal => {},
-                    AlignItems::Stretch => {},
+                    AlignItems::BaselinePosition(base) => {}
+                    AlignItems::SelfPosition { overflow, value } => {}
+                    AlignItems::Normal => {}
+                    AlignItems::Stretch => {}
                 };
             }
 
@@ -916,7 +916,7 @@ fn parse_css_color(color: &lightningcss::values::color::CssColor) -> Option<crat
     match color {
         CssColor::CurrentColor => Some(crate::Color::WHITE),
         CssColor::Float(f) => match &**f {
-            FloatColor::HSL(h) => Some(crate::Color::hsla(h.h, h.s, h.l, h.alpha)),
+            FloatColor::HSL(h) => Some(crate::Color::hsla(h.h, h.s * 100.0, h.l * 100.0, h.alpha)),
             _ => None,
         },
         CssColor::RGBA(rgba) => Some(crate::Color::rgba_f32(

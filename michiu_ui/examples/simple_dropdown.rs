@@ -207,7 +207,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let menu_trigger = div(ts()
             .p(10.0)
             .r(3.0)
-            .bg_color(hsl(0.0, 0.0, 0.2))
+            .bg_color(hsl(0.0, 0.0, 20.0))
             .pressed(ts().transform_scale(1.05, 1.05))
             .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad))
         .label(
@@ -221,7 +221,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let menu_item = ts()
             .text_color(Color::WHITE)
             .p((10.0, 30.0))
-            .hovered(ts().bg_color(hsl(0.0, 0.0, 0.27)));
+            .hovered(ts().bg_color(hsl(0.0, 0.0, 27.0)));
 
         let menu_dropdown = v_flex(move || {
             let base_style = ts()
@@ -229,7 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .top(45.0)
                 .left(0.0)
                 .z_1()
-                .bg_color(hsl(0.0, 0.0, 0.2))
+                .bg_color(hsl(0.0, 0.0, 20.0))
                 .r(3.0)
                 .transform_origin(Point::new(0.5, 0.0))
                 .trans_transform(Duration::from_millis(100), AnimationCurve::EaseInOutQuad)
@@ -261,16 +261,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         v_flex(
             ts().size_full()
                 .gap(10.0)
-                .bg_color(hsl(0.0, 0.0, 0.1))
+                .bg_color(hsl(0.0, 0.0, 10.0))
                 .items_center()
                 .justify_center(),
         )
         .child(menu_trigger.child(menu_dropdown))
         .child(div(ts()
             .size((200.0, 100.0))
-            .bg_color(hsl(0.0, 0.0, 0.4))
+            .bg_color(hsl(0.0, 0.0, 40.0))
             .r(3.0)
-            .pressed(ts().bg_color(hsl(0.0, 0.0, 0.5)))))
+            .pressed(ts().bg_color(hsl(0.0, 0.0, 50.0)))))
     });
 
     // 4. アプリケーション状態をヒープ上に準備

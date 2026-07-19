@@ -2,7 +2,13 @@ use crate::app::utils::section_title;
 pub use michiu_ui::prelude::*;
 
 pub fn container() -> Element {
-    v_flex(ts().gap(24.0).p(16.0)).children([rgb_container(), rgba_container()])
+    v_flex(ts().gap(24.0).p(16.0)).children([
+        rgb_container(),
+        rgba_container(),
+        hex_container(),
+        hsl_container(),
+        hsla_container(),
+    ])
 }
 
 fn section_style() -> ThisStyle {
@@ -20,7 +26,7 @@ fn item(label: &'static str, style: ThisStyle) -> Element {
     div(style
         .p(10.0)
         .r(4.0)
-        .size((70.0, 70.0))
+        .size((64.0, 64.0))
         .justify_center()
         .items_center())
     .on_mouse_enter(move || set_show_popup.set(true))
@@ -77,6 +83,73 @@ fn rgba_container() -> Element {
     v_flex(section_style()).children([
         section_title("RGBA"),
         h_flex(wrapper_style()).children([black1, black2, black3, black4, black5]),
+    ])
+}
+
+fn hex_container() -> Element {
+    let red = item("hex(\"#ff0000\")", ts().bg_color(hex("#ff0000")));
+    let green = item("hex(0x00FF00)", ts().bg_color(hex(0x00FF00)));
+    let blue = item("hex(0x0000ff)", ts().bg_color(hex(0x0000ff)));
+    let white = item("hex(\"00000080\")", ts().bg_color(hex("00000080")));
+    let black = item("hex(\"0xFFFFFF80\")", ts().bg_color(hex("0xFFFFFF80")));
+
+    v_flex(section_style()).children([
+        section_title("HEX"),
+        h_flex(wrapper_style()).children([red, green, blue, white, black]),
+    ])
+}
+
+fn hsl_container() -> Element {
+    let primary = item(
+        "hsl(318.0, 56.0, 59.0)",
+        ts().bg_color(hsl(318.0, 56.0, 59.0)),
+    );
+    let hsl_1 = item(
+        "hsl(318.0, 0.0, 59.0)",
+        ts().bg_color(hsl(318.0, 0.0, 59.0)),
+    );
+    let hsl_2 = item(
+        "hsl(318.0, 56.0, 0.0)",
+        ts().bg_color(hsl(318.0, 56.0, 0.0)),
+    );
+    let hsl_3 = item("hsl(0.0, 56.0, 59.0)", ts().bg_color(hsl(0.0, 56.0, 59.0)));
+    let hsl_4 = item("hsl(318.0, 0.0, 0.0)", ts().bg_color(hsl(318.0, 0.0, 0.0)));
+    let hsl_5 = item(
+        "hsl(318.0, 100.0, 100.0)",
+        ts().bg_color(hsl(318.0, 100.0, 100.0)),
+    );
+
+    v_flex(section_style()).children([
+        section_title("HSL"),
+        h_flex(wrapper_style()).children([primary, hsl_1, hsl_2, hsl_3, hsl_4, hsl_5]),
+    ])
+}
+
+fn hsla_container() -> Element {
+    let primary = item(
+        "hsla(318.0, 56.0, 59.0, 1.0)",
+        ts().bg_color(hsla(318.0, 56.0, 59.0, 1.0)),
+    );
+    let hsla_1 = item(
+        "hsla(318.0, 56.0, 59.0, 0.8)",
+        ts().bg_color(hsla(318.0, 56.0, 59.0, 0.8)),
+    );
+    let hsla_2 = item(
+        "hsla(318.0, 56.0, 59.0, 0.6)",
+        ts().bg_color(hsla(318.0, 56.0, 59.0, 0.6)),
+    );
+    let hsla_3 = item(
+        "hsla(318.0, 56.0, 59.0, 0.4)",
+        ts().bg_color(hsla(318.0, 56.0, 59.0, 0.4)),
+    );
+    let hsla_4 = item(
+        "hsla(318.0, 56.0, 59.0, 0.2)",
+        ts().bg_color(hsla(318.0, 56.0, 59.0, 0.2)),
+    );
+
+    v_flex(section_style()).children([
+        section_title("HSLA"),
+        h_flex(wrapper_style()).children([primary, hsla_1, hsla_2, hsla_3, hsla_4]),
     ])
 }
 
