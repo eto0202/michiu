@@ -17,6 +17,8 @@ use notify::Watcher;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+// TODO: outline のパース
+
 /// 単一のCSSファイルからパースされたスタイルクラスの集合。
 #[derive(Clone, Default, Debug)]
 pub struct Dss {
@@ -292,7 +294,6 @@ fn apply_declarations_to_style(
 ) -> ThisStyle {
     for decl in declarations {
         match decl {
-            // 1. カラー・装飾
             Property::BackgroundColor(color) => {
                 if let Some(c) = parse_css_color(color) {
                     style = map_style_prop(style, target, |s| s.bg_color(c));
@@ -322,7 +323,6 @@ fn apply_declarations_to_style(
                 }
             }
 
-            // 2. 基本寸法（Width / Height / Min / Max）
             Property::Width(size) => {
                 if let Some(v) = parse_css_size(size) {
                     style = map_style_prop(style, target, |s| s.width(v));
@@ -343,7 +343,6 @@ fn apply_declarations_to_style(
                     style = map_style_prop(style, target, |s| s.min_height(v));
                 }
             }
-            // MaxWidth / MaxHeight 用に MaxSize パースをアタッチ
             Property::MaxWidth(max_size) => {
                 if let Some(v) = parse_css_max_size(max_size) {
                     style = map_style_prop(style, target, |s| s.max_width(v));
@@ -355,7 +354,6 @@ fn apply_declarations_to_style(
                 }
             }
 
-            // 3. 配置・インセット
             Property::Top(val) => {
                 if let Some(v) = parse_length_percentage_or_auto(val) {
                     style = map_style_prop(style, target, |s| s.top(v));
@@ -377,7 +375,6 @@ fn apply_declarations_to_style(
                 }
             }
 
-            // 4. マージン・パディング・隙間
             Property::Margin(margin) => {
                 if let Some(t) = parse_length_percentage_or_auto(&margin.top)
                     && let Some(r) = parse_length_percentage_or_auto(&margin.right)
@@ -447,7 +444,6 @@ fn apply_declarations_to_style(
                 }
             }
 
-            // 5. Flexbox 制御（FlexBasis は DimensionPercentage 走査へ修正）
             Property::FlexGrow(grow, _) => {
                 style = map_style_prop(style, target, |s| s.flex_grow(*grow));
             }
@@ -480,7 +476,6 @@ fn apply_declarations_to_style(
                 };
             }
 
-            // 6. 枠線厚み（BorderWidth）
             Property::BorderWidth(width) => {
                 if let Some(t) = parse_border_side_width(&width.top)
                     && let Some(r) = parse_border_side_width(&width.right)
@@ -562,11 +557,8 @@ fn apply_declarations_to_style(
                 }
             }
 
-            // 7. Z-Index
-            Property::ZIndex(zi) => {
-                if let ZIndex::Integer(val) = zi {
-                    style = map_style_prop(style, target, |s| s.z_index(*val));
-                }
+            Property::ZIndex(ZIndex::Integer(val)) => {
+                style = map_style_prop(style, target, |s| s.z_index(*val));
             }
 
             Property::FontSize(fs) => {
@@ -580,19 +572,15 @@ fn apply_declarations_to_style(
                 }
             }
             Property::FontFamily(ff_list) => {
-                if let Some(first_family) = ff_list.first() {
-                    // lightningcss の ToCss 経由でファミリー名文字列へ変換
-                    if let Ok(family_str) = first_family.to_css_string(PrinterOptions::default()) {
-                        // ダブルクォーテーションやシングルクォーテーションを安全にトリム
-                        let family_str =
-                            family_str.trim_matches('"').trim_matches('\'').to_string();
-                        style = map_style_prop(style, target, |s| s.font_family(family_str));
-                    }
+                if let Some(first_family) = ff_list.first()
+                    && let Ok(family_str) = first_family.to_css_string(PrinterOptions::default())
+                {
+                    let family_str = family_str.trim_matches('"').trim_matches('\'').to_string();
+                    style = map_style_prop(style, target, |s| s.font_family(family_str));
                 }
             }
             Property::FontWeight(fw) => {
-                use lightningcss::properties::font::AbsoluteFontWeight;
-                use lightningcss::properties::font::FontWeight;
+                use lightningcss::properties::font::{AbsoluteFontWeight, FontWeight};
                 let weight_val = match fw {
                     FontWeight::Absolute(val) => match val {
                         AbsoluteFontWeight::Weight(w) => Some(*w as u32),
@@ -674,8 +662,7 @@ fn apply_declarations_to_style(
                 }
             }
             Property::Filter(filters, _) => {
-                use lightningcss::properties::effects::Filter;
-                use lightningcss::properties::effects::FilterList;
+                use lightningcss::properties::effects::{Filter, FilterList};
                 if let FilterList::Filters(list) = filters {
                     for f in list {
                         match f {
@@ -697,9 +684,7 @@ fn apply_declarations_to_style(
             }
 
             Property::Display(display_value) => {
-                use lightningcss::properties::display::Display;
-                use lightningcss::properties::display::DisplayInside;
-                use lightningcss::properties::display::DisplayKeyword;
+                use lightningcss::properties::display::{Display, DisplayInside, DisplayKeyword};
                 let val = match display_value {
                     Display::Pair(pair) => match pair.inside {
                         DisplayInside::Flex(_) => crate::Display::Flex,
@@ -749,69 +734,158 @@ fn apply_declarations_to_style(
             }
 
             Property::AlignItems(a, _) => {
-                use lightningcss::properties::align::AlignItems;
-                use lightningcss::properties::align::BaselinePosition;
-                let align = match a {
-                    AlignItems::BaselinePosition(base) => {}
-                    AlignItems::SelfPosition { overflow, value } => {}
-                    AlignItems::Normal => {}
-                    AlignItems::Stretch => {}
+                use lightningcss::properties::align::{
+                    AlignItems, BaselinePosition, OverflowPosition, SelfPosition,
                 };
+                let align = match a {
+                    AlignItems::BaselinePosition(base) => Some(crate::AlignItems::Baseline),
+                    AlignItems::SelfPosition { overflow, value } => match overflow {
+                        Some(OverflowPosition::Safe) => match value {
+                            SelfPosition::Center => Some(crate::AlignItems::SafeCenter),
+                            SelfPosition::Start | SelfPosition::SelfStart => {
+                                Some(crate::AlignItems::SafeStart)
+                            }
+                            SelfPosition::End | SelfPosition::SelfEnd => {
+                                Some(crate::AlignItems::SafeEnd)
+                            }
+                            SelfPosition::FlexStart => Some(crate::AlignItems::SafeFlexStart),
+                            SelfPosition::FlexEnd => Some(crate::AlignItems::SafeFlexEnd),
+                        },
+                        _ => match value {
+                            SelfPosition::Center => Some(crate::AlignItems::Center),
+                            SelfPosition::Start | SelfPosition::SelfStart => {
+                                Some(crate::AlignItems::Start)
+                            }
+                            SelfPosition::End | SelfPosition::SelfEnd => {
+                                Some(crate::AlignItems::End)
+                            }
+                            SelfPosition::FlexStart => Some(crate::AlignItems::FlexStart),
+                            SelfPosition::FlexEnd => Some(crate::AlignItems::FlexEnd),
+                        },
+                    },
+                    _ => Some(crate::AlignItems::Stretch),
+                };
+                style = map_style_prop(style, target, |s| s.align_items(align));
             }
 
-            _ => {
-                if let Ok(css_str) = decl.to_css_string(false, PrinterOptions::default()) {
-                    let css_str = css_str.trim().to_lowercase();
-                    match decl.property_id() {
-                        PropertyId::AlignItems(_) => {
-                            let val = match css_str.as_str() {
-                                "center" => Some(crate::AlignItems::Center),
-                                "flex-start" | "start" => Some(crate::AlignItems::FlexStart),
-                                "flex-end" | "end" => Some(crate::AlignItems::FlexEnd),
-                                "baseline" => Some(crate::AlignItems::Baseline),
-                                _ => Some(crate::AlignItems::Stretch),
-                            };
-                            style = map_style_prop(style, target, |s| s.align_items(val));
-                        }
-                        PropertyId::AlignSelf(_) => {
-                            let val = match css_str.as_str() {
-                                "center" => Some(crate::AlignSelf::Center),
-                                "flex-start" | "start" => Some(crate::AlignSelf::FlexStart),
-                                "flex-end" | "end" => Some(crate::AlignSelf::FlexEnd),
-                                "baseline" => Some(crate::AlignSelf::Baseline),
-                                _ => Some(crate::AlignSelf::Stretch),
-                            };
-                            style = map_style_prop(style, target, |s| s.align_self(val));
-                        }
-                        PropertyId::JustifyContent(_) => {
-                            let val = match css_str.as_str() {
-                                "center" => Some(crate::JustifyContent::Center),
-                                "space-between" => Some(crate::JustifyContent::SpaceBetween),
-                                "space-around" => Some(crate::JustifyContent::SpaceAround),
-                                "space-evenly" => Some(crate::JustifyContent::SpaceEvenly),
-                                "flex-start" | "start" => Some(crate::JustifyContent::FlexStart),
-                                "flex-end" | "end" => Some(crate::JustifyContent::FlexEnd),
-                                _ => Some(crate::JustifyContent::Stretch),
-                            };
-                            style = map_style_prop(style, target, |s| s.justify_content(val));
-                        }
-                        PropertyId::AlignContent(_) => {
-                            let val = match css_str.as_str() {
-                                "center" => Some(crate::AlignContent::Center),
-                                "space-between" => Some(crate::AlignContent::SpaceBetween),
-                                "space-around" => Some(crate::AlignContent::SpaceAround),
-                                "space-evenly" => Some(crate::AlignContent::SpaceEvenly),
-                                "flex-start" | "start" => Some(crate::AlignContent::FlexStart),
-                                "flex-end" | "end" => Some(crate::AlignContent::FlexEnd),
-                                _ => Some(crate::AlignContent::Stretch),
-                            };
-                            style = map_style_prop(style, target, |s| s.align_content(val));
-                        }
-
-                        _ => {}
-                    }
-                }
+            Property::AlignSelf(a, _) => {
+                use lightningcss::properties::align::{
+                    AlignSelf, BaselinePosition, OverflowPosition, SelfPosition,
+                };
+                let align = match a {
+                    AlignSelf::BaselinePosition(base) => Some(crate::AlignSelf::Baseline),
+                    AlignSelf::SelfPosition { overflow, value } => match overflow {
+                        Some(OverflowPosition::Safe) => match value {
+                            SelfPosition::Center => Some(crate::AlignSelf::SafeCenter),
+                            SelfPosition::Start | SelfPosition::SelfStart => {
+                                Some(crate::AlignSelf::SafeStart)
+                            }
+                            SelfPosition::End | SelfPosition::SelfEnd => {
+                                Some(crate::AlignSelf::SafeEnd)
+                            }
+                            SelfPosition::FlexStart => Some(crate::AlignSelf::SafeFlexStart),
+                            SelfPosition::FlexEnd => Some(crate::AlignSelf::SafeFlexEnd),
+                        },
+                        _ => match value {
+                            SelfPosition::Center => Some(crate::AlignSelf::Center),
+                            SelfPosition::Start | SelfPosition::SelfStart => {
+                                Some(crate::AlignSelf::Start)
+                            }
+                            SelfPosition::End | SelfPosition::SelfEnd => {
+                                Some(crate::AlignSelf::End)
+                            }
+                            SelfPosition::FlexStart => Some(crate::AlignSelf::FlexStart),
+                            SelfPosition::FlexEnd => Some(crate::AlignSelf::FlexEnd),
+                        },
+                    },
+                    _ => Some(crate::AlignSelf::Stretch),
+                };
+                style = map_style_prop(style, target, |s| s.align_self(align));
             }
+
+            Property::JustifyContent(j, _) => {
+                use lightningcss::properties::align::{
+                    ContentDistribution, ContentPosition, JustifyContent, OverflowPosition,
+                };
+                let jus = match j {
+                    JustifyContent::ContentDistribution(c) => match c {
+                        ContentDistribution::SpaceBetween => {
+                            Some(crate::JustifyContent::SpaceBetween)
+                        }
+                        ContentDistribution::SpaceAround => {
+                            Some(crate::JustifyContent::SpaceAround)
+                        }
+                        ContentDistribution::SpaceEvenly => {
+                            Some(crate::JustifyContent::SpaceEvenly)
+                        }
+                        ContentDistribution::Stretch => Some(crate::JustifyContent::Stretch),
+                    },
+                    JustifyContent::ContentPosition { value, overflow } => match overflow {
+                        Some(OverflowPosition::Safe) => match value {
+                            ContentPosition::Center => Some(crate::JustifyContent::SafeCenter),
+                            ContentPosition::Start => Some(crate::JustifyContent::SafeStart),
+                            ContentPosition::End => Some(crate::JustifyContent::SafeEnd),
+                            ContentPosition::FlexStart => {
+                                Some(crate::JustifyContent::SafeFlexStart)
+                            }
+                            ContentPosition::FlexEnd => Some(crate::JustifyContent::SafeFlexEnd),
+                        },
+                        _ => match value {
+                            ContentPosition::Center => Some(crate::JustifyContent::Center),
+                            ContentPosition::Start => Some(crate::JustifyContent::Start),
+                            ContentPosition::End => Some(crate::JustifyContent::End),
+                            ContentPosition::FlexStart => Some(crate::JustifyContent::FlexStart),
+                            ContentPosition::FlexEnd => Some(crate::JustifyContent::FlexEnd),
+                        },
+                    },
+                    JustifyContent::Left { overflow } => match overflow {
+                        Some(OverflowPosition::Safe) => Some(crate::JustifyContent::SafeStart),
+                        _ => Some(crate::JustifyContent::Start),
+                    },
+                    JustifyContent::Right { overflow } => match overflow {
+                        Some(OverflowPosition::Safe) => Some(crate::JustifyContent::SafeEnd),
+                        _ => Some(crate::JustifyContent::End),
+                    },
+                    JustifyContent::Normal => Some(crate::JustifyContent::Stretch),
+                };
+                style = map_style_prop(style, target, |s| s.justify_content(jus));
+            }
+            Property::AlignContent(a, _) => {
+                use lightningcss::properties::align::{
+                    AlignContent, ContentDistribution, ContentPosition, OverflowPosition,
+                };
+                let align = match a {
+                    AlignContent::Normal => Some(crate::AlignContent::Stretch),
+                    AlignContent::BaselinePosition(base) => Some(crate::AlignContent::Stretch),
+                    AlignContent::ContentDistribution(c) => match c {
+                        ContentDistribution::SpaceBetween => {
+                            Some(crate::AlignContent::SpaceBetween)
+                        }
+                        ContentDistribution::SpaceAround => Some(crate::AlignContent::SpaceAround),
+                        ContentDistribution::SpaceEvenly => Some(crate::AlignContent::SpaceEvenly),
+                        ContentDistribution::Stretch => Some(crate::AlignContent::Stretch),
+                    },
+                    AlignContent::ContentPosition { overflow, value } => match overflow {
+                        Some(OverflowPosition::Safe) => match value {
+                            ContentPosition::Center => Some(crate::AlignContent::SafeCenter),
+                            ContentPosition::Start => Some(crate::AlignContent::SafeStart),
+                            ContentPosition::End => Some(crate::AlignContent::SafeEnd),
+                            ContentPosition::FlexStart => Some(crate::AlignContent::SafeFlexStart),
+                            ContentPosition::FlexEnd => Some(crate::AlignContent::SafeFlexEnd),
+                        },
+                        _ => match value {
+                            ContentPosition::Center => Some(crate::AlignContent::Center),
+                            ContentPosition::Start => Some(crate::AlignContent::Start),
+                            ContentPosition::End => Some(crate::AlignContent::End),
+                            ContentPosition::FlexStart => Some(crate::AlignContent::FlexStart),
+                            ContentPosition::FlexEnd => Some(crate::AlignContent::FlexEnd),
+                        },
+                    },
+                };
+                style = map_style_prop(style, target, |s| s.align_content(align));
+            }
+
+            _ => {}
         }
     }
     style
