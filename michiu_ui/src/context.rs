@@ -7268,6 +7268,22 @@ impl Context {
         crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
     }
 
+    /// 現在イベントハンドラを実行している要素（自分自身） を取得します
+    #[inline]
+    pub fn try_current(&self) -> Option<Element> {
+        self.current_element_id().map(|id| Element { id })
+    }
+
+    /// 現在イベントハンドラを実行している要素（自分自身） を取得します
+    #[inline]
+    pub fn current(&self) -> Element {
+        Element {
+            id: self
+                .current_element_id()
+                .expect("Context::current() called outside event dispatch"),
+        }
+    }
+
     #[inline]
     pub fn entity_id_focused(&self) -> Option<EntityId> {
         self.interaction_states.focused

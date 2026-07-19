@@ -2,12 +2,12 @@ use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, Backdrop, BasicLayout, BorderAlignment, BorderStyle,
     BoxShadow, BoxSizing, Color, Context, Convert, CornerRadius, CursorIcon, Direction, Display,
     DragPayload, DragPlaceholderParent, DragProperty, DropProperty, DropTarget, EdgeInsets,
-    EntityId, FlexDirection, FlexLayout, FlexWrap, FocusTrigger, Focusable, GridAutoFlow,
-    GridLayout, GridLine, GridPlacement, InteractionName, InteractionStyles, IntoCornerRadius,
-    IntoRect, IntoSize, JustifyContent, LayoutOverflow, Length, LinearGradient, Overflow, Percent,
-    Pixel, Point, PointerEvents, Position, ReadSignal, Rect, ScrollbarDisplay, ScrollbarMode,
-    ScrollbarStyle, Size, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto,
-    bitmap::*, pct, ts,
+    EntityId, FlexDirection, FlexLayout, FlexWrap, FocusTrigger, Focusable, GlobalCursorIcon,
+    GridAutoFlow, GridLayout, GridLine, GridPlacement, InteractionName, InteractionStyles,
+    IntoCornerRadius, IntoRect, IntoSize, JustifyContent, LayoutOverflow, Length, LinearGradient,
+    Overflow, Percent, Pixel, Point, PointerEvents, Position, ReadSignal, Rect, ScrollbarDisplay,
+    ScrollbarMode, ScrollbarStyle, Size, TextAlign, Transform, Transition, UserSelect, Val,
+    VisualProperty, auto, bitmap::*, pct, ts,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -3409,6 +3409,43 @@ impl ThisStyle {
     #[inline]
     pub fn cursor_text(self) -> Self {
         self.cursor(CursorIcon::Text(None))
+    }
+
+    /// 親先祖へ伝播するグローバルカーソルアイコンを設定します。
+    #[inline]
+    pub fn cursor_global(self, value: impl IntoStyleValue<GlobalCursorIcon>) -> Self {
+        let cursor_val = match value.into_style_value() {
+            StyleValue::Static(v) => StyleValue::Static(CursorIcon::Global(v)),
+            StyleValue::Dynamic(getter) => {
+                StyleValue::Dynamic(Box::new(move || CursorIcon::Global(getter())))
+            }
+        };
+        self.cursor(cursor_val)
+    }
+
+    #[inline]
+    pub fn cursor_global_default(self) -> Self {
+        self.cursor_global(GlobalCursorIcon::Default(None))
+    }
+
+    #[inline]
+    pub fn cursor_global_pointer(self) -> Self {
+        self.cursor_global(GlobalCursorIcon::Pointer(None))
+    }
+
+    #[inline]
+    pub fn cursor_global_text(self) -> Self {
+        self.cursor_global(GlobalCursorIcon::Text(None))
+    }
+
+    #[inline]
+    pub fn cursor_global_grab(self) -> Self {
+        self.cursor_global(GlobalCursorIcon::Grab(None))
+    }
+
+    #[inline]
+    pub fn cursor_global_grabbing(self) -> Self {
+        self.cursor_global(GlobalCursorIcon::Grabbing(None))
     }
 
     #[inline]

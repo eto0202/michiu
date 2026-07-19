@@ -187,23 +187,14 @@ fn item_event(label: &'static str, style: ThisStyle) -> Element {
         .items_center()
         .relative())
     .on_mouse_enter_with(move |cx| {
-        // cx.current_element_id() から自分自身のIDを取得
-        if let Some(id) = cx.current_element_id() {
-            let el = Element::from(id);
-            el.set_contents(create_tooltip(label, LayoutPoint::ZERO));
-        }
+        cx.current()
+            .set_contents(create_tooltip(label, LayoutPoint::ZERO));
     })
     .on_cursor_moved_with(move |cx, pos| {
-        if let Some(id) = cx.current_element_id() {
-            let el = Element::from(id);
-            el.set_contents(create_tooltip(label, pos));
-        }
+        cx.current().set_contents(create_tooltip(label, pos));
     })
     .on_mouse_leave_with(move |cx| {
-        if let Some(id) = cx.current_element_id() {
-            let el = Element::from(id);
-            el.set_contents(div_n());
-        }
+        cx.current().set_contents(div_n());
     })
 }
 

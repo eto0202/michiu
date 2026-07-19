@@ -1,7 +1,7 @@
 use crate::{
     app::{ComponentType, theme::Theme},
     components::{
-        background, border, button, color, css, div, draggable, focusable, hover, outline,
+        background, border, button, color, css, cursor, div, draggable, focusable, hover, outline,
         resizable,
     },
 };
@@ -13,6 +13,7 @@ pub fn main_area() -> Element {
 
     // 全ての ComponentType の要素を起動時に一度だけ spawn してマウント
     // TODO: 遅延生成用のインターフェース
+    // TODO: 専用の keep-alive インターフェースを実装するかも
     let mut children = Vec::new();
     for comp_type in ComponentType::iter() {
         let child_el = create_component_element(comp_type);
@@ -54,7 +55,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Draggable => wrapper(draggable::container()),
         ComponentType::Css => wrapper(css::container()),
         ComponentType::Gradient => text("Gradient"),
-        ComponentType::Cursor => text("Cursor"),
+        ComponentType::Cursor => wrapper(cursor::container()),
         ComponentType::Outline => wrapper(outline::container()),
         ComponentType::Focusable => wrapper(focusable::container()),
     }

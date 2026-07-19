@@ -1,6 +1,12 @@
 use bytemuck::{Pod, Zeroable};
 use std::{borrow::Cow, path::PathBuf, sync::Arc, time::Duration};
-use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
+use windows::Win32::{
+    Graphics::Gdi::{
+        BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
+        GetDC, HGDIOBJ, ReleaseDC,
+    },
+    UI::WindowsAndMessaging::{CreateIconIndirect, HCURSOR, ICONINFO},
+};
 
 use crate::{
     AnimationCurve, Context, Convert, Element, EntityId, IntoLayoutPoint, KeyframeAnimation,
@@ -2414,6 +2420,90 @@ impl CursorIcon {
 
             LoadCursorW(None, idc).unwrap()
         }
+    }
+
+    /// メモリ上の RGBA8 ピクセルデータから指定したホットスポット座標を持つカスタム HCURSOR を生成します（アルファ透過対応）。
+    pub fn create_from_rgba(
+        rgba_pixels: &[u8],
+        width: u32,
+        height: u32,
+        hotspot_x: u32,
+        hotspot_y: u32,
+    ) -> Result<HCURSOR, Box<dyn std::error::Error>> {
+        if rgba_pixels.len() != (width * height * 4) as usize {
+            return Err("Pixel buffer size mismatch for the given width and height".into());
+        }
+
+        unsafe {
+            let h_dc = GetDC(None);
+            if h_dc.is_invalid() {
+                return Err("Failed to get DC".into());
+            }
+
+            let bmi = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: width as i32,
+                    biHeight: -(height as i32),
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: 0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+
+            let mut pv_bits = std::ptr::null_mut();
+            let hbm_color =
+                CreateDIBSection(Some(h_dc), &bmi, DIB_RGB_COLORS, &mut pv_bits, None, 0)?;
+
+            if pv_bits.is_null() {
+                let _ = ReleaseDC(None, h_dc);
+                let _ = DeleteObject(HGDIOBJ(hbm_color.0));
+                return Err("Failed to allocate DIB Section memory".into());
+            }
+
+            let dest_slice =
+                std::slice::from_raw_parts_mut(pv_bits as *mut u8, (width * height * 4) as usize);
+            for i in (0..(width * height * 4) as usize).step_by(4) {
+                dest_slice[i] = rgba_pixels[i + 2]; // B
+                dest_slice[i + 1] = rgba_pixels[i + 1]; // G
+                dest_slice[i + 2] = rgba_pixels[i]; // R
+                dest_slice[i + 3] = rgba_pixels[i + 3]; // A
+            }
+
+            let hbm_mask = CreateBitmap(width as i32, height as i32, 1, 1, None);
+
+            let icon_info = ICONINFO {
+                fIcon: false.into(),
+                xHotspot: hotspot_x,
+                yHotspot: hotspot_y,
+                hbmMask: hbm_mask,
+                hbmColor: hbm_color,
+            };
+
+            let h_icon = CreateIconIndirect(&icon_info)?;
+            let h_cursor = windows::Win32::UI::WindowsAndMessaging::HCURSOR(h_icon.0);
+
+            let _ = DeleteObject(HGDIOBJ(hbm_color.0));
+            let _ = DeleteObject(HGDIOBJ(hbm_mask.0));
+            let _ = ReleaseDC(None, h_dc);
+
+            Ok(h_cursor)
+        }
+    }
+
+    /// 画像ファイルのパスから指定したホットスポット座標を持つカスタム HCURSOR を生成します。
+    pub fn create_from_path(
+        path: impl AsRef<std::path::Path>,
+        hotspot_x: u32,
+        hotspot_y: u32,
+    ) -> Result<HCURSOR, Box<dyn std::error::Error>> {
+        let img = image::open(path)?;
+        let rgba_img = img.to_rgba8();
+        let (width, height) = rgba_img.dimensions();
+
+        Self::create_from_rgba(rgba_img.as_raw(), width, height, hotspot_x, hotspot_y)
     }
 }
 
