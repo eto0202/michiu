@@ -1,7 +1,8 @@
 use crate::{
     app::{ComponentType, theme::Theme},
     components::{
-        background, border, button, css, div, draggable, focusable, hover, outline, resizable,
+        background, border, button, color, css, div, draggable, focusable, hover, outline,
+        resizable,
     },
 };
 pub use michiu_ui::prelude::*;
@@ -48,7 +49,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::List => text("List"),
         ComponentType::Scrollbar => text("Scrollbar"),
         ComponentType::Hover => wrapper(hover::container()),
-        ComponentType::Color => text("Color"),
+        ComponentType::Color => wrapper(color::container()),
         ComponentType::Resizable => wrapper(resizable::container()),
         ComponentType::Draggable => wrapper(draggable::container()),
         ComponentType::Css => wrapper(css::container()),

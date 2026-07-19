@@ -7262,18 +7262,28 @@ impl Context {
             .unwrap_or(false)
     }
 
+    /// 現在イベントハンドラを実行している要素（自分自身）の EntityId を取得します
+    #[inline]
+    pub fn current_element_id(&self) -> Option<EntityId> {
+        crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
+    }
+
+    #[inline]
     pub fn entity_id_focused(&self) -> Option<EntityId> {
         self.interaction_states.focused
     }
 
+    #[inline]
     pub fn entity_id_dragged(&self) -> Option<EntityId> {
         self.interaction_states.dragged
     }
 
+    #[inline]
     pub fn entity_id_hovered(&self) -> Option<EntityId> {
         self.interaction_states.hovered
     }
 
+    #[inline]
     pub fn entity_id_pressed(&self) -> Option<EntityId> {
         self.interaction_states.pressed
     }

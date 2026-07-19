@@ -444,7 +444,21 @@ impl Element {
         match contents.into() {
             Prop::None => {}
             Prop::Static(new_child) => {
-                with_context(|cx| self.set_contents_internal(cx, new_child));
+                let id = self.id;
+                with_context(|cx| {
+                    // 静的なコンテンツ上書き時のみ古い動的評価エフェクト（Contentsカテゴリ）を一括破棄
+                    if let Some(effects) = cx.element_effects.get_mut(id)
+                        && let Some(pos) = effects
+                            .iter()
+                            .position(|(cat, _)| *cat == EffectCategory::Contents)
+                    {
+                        let (_, old_effect_id) = effects.remove(pos);
+                        cx.effects.remove(old_effect_id);
+                        cx.effect_to_element.remove(old_effect_id);
+                        cx.pending_element_effects.retain(|&x| x != old_effect_id);
+                    }
+                    self.set_contents_internal(cx, new_child);
+                });
             }
             Prop::Dynamic(f) => {
                 let id = self.id;
@@ -452,6 +466,7 @@ impl Element {
                     cx.create_element_effect(id, EffectCategory::Contents, move |cx| {
                         let new_child = f();
                         let container = Element { id };
+                        // Dynamic 実行時は自身を自殺させないためそのままマウントを実行
                         container.set_contents_internal(cx, new_child);
                     });
                 });

@@ -1,7 +1,6 @@
 pub mod background;
 pub mod border;
 pub mod button;
-pub mod card;
 pub mod color;
 pub mod css;
 pub mod cursor;
