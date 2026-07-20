@@ -2861,7 +2861,7 @@ impl Context {
                 let mut dx = 0.0f32;
                 let mut dy = 0.0f32;
 
-                // はみ出し距離（Offset）の算出
+                // はみ出し距離
                 if pointer_pos.x < clip.x {
                     dx = pointer_pos.x - clip.x; // 左はみ出し：負値
                 } else if pointer_pos.x > clip.x + clip.width {
@@ -2876,7 +2876,8 @@ impl Context {
 
                 // はみ出しがある場合、距離に比例したオートスクロールを実行
                 if dx.abs() > 1.0 || dy.abs() > 1.0 {
-                    let speed_factor = 0.15f32; // スクロール感度の調整用
+                    // TODO: スクロール感度調整用メソッドを実装。
+                    let speed_factor = 0.15f32;
                     let scroll_dx = dx * speed_factor;
                     let scroll_dy = dy * speed_factor;
 

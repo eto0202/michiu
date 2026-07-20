@@ -1,9 +1,11 @@
 use std::borrow::Cow;
 
+use crate::LayoutRect;
 use crate::types::LayoutSize;
-use crate::{LayoutRect, TextSpan, UnderlineStyle};
 use smallvec::SmallVec;
-use windows::Win32::Graphics::Direct2D::{D2D1_RENDER_TARGET_TYPE_SOFTWARE, ID2D1RenderTarget};
+use windows::Win32::Graphics::Direct2D::{
+    D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, ID2D1RenderTarget,
+};
 use windows::core::PCWSTR;
 use windows::{
     Win32::{
@@ -29,6 +31,7 @@ use windows_result::BOOL;
 pub(crate) struct TextEngine {
     pub(crate) dwrite_factory: IDWriteFactory,
     pub(crate) default_format: IDWriteTextFormat,
+    pub(crate) rendering_params: IDWriteRenderingParams,
 }
 
 impl TextEngine {
@@ -36,7 +39,7 @@ impl TextEngine {
         let dwrite_factory: IDWriteFactory =
             unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED).unwrap() };
 
-        // デフォルトのフォント設定（ユーザーが後で変更できるように拡張可能）
+        // デフォルトのフォント設定（ユーザーが後で変更できるように修正）
         let default_format = unsafe {
             dwrite_factory
                 .CreateTextFormat(
@@ -51,9 +54,27 @@ impl TextEngine {
                 .unwrap()
         };
 
+        let rendering_params = unsafe {
+            let default_params = dwrite_factory.CreateRenderingParams().unwrap();
+            let system_gamma = default_params.GetGamma();
+            // TODO: ユーザー設定可能に
+            let enhanced_contrast = 0.0;
+
+            dwrite_factory
+                .CreateCustomRenderingParams(
+                    system_gamma,
+                    enhanced_contrast,
+                    0.0, // グレースケールなので不要
+                    windows::Win32::Graphics::DirectWrite::DWRITE_PIXEL_GEOMETRY_FLAT,
+                    windows::Win32::Graphics::DirectWrite::DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
+                )
+                .unwrap()
+        };
+
         Self {
             dwrite_factory,
             default_format,
+            rendering_params,
         }
     }
 
@@ -67,7 +88,7 @@ impl TextEngine {
         font_weight: Option<u32>, // DWRITE_FONT_WEIGHT (100..900)
         font_style: Option<u32>,  // DWRITE_FONT_STYLE (Normal=0, Italic=2)
         max_width: Option<f32>,
-        spans: &[TextSpan],
+        spans: &[crate::TextSpan],
     ) -> IDWriteTextLayout {
         unsafe {
             let text_u16: SmallVec<[u16; 64]> = text.encode_utf16().collect();
@@ -164,7 +185,7 @@ impl TextEngine {
         font_weight: Option<u32>,
         font_style: Option<u32>,
         max_width: Option<f32>,
-        spans: &[TextSpan],
+        spans: &[crate::TextSpan],
     ) -> LayoutSize {
         if text.is_empty() {
             return LayoutSize::ZERO;
@@ -287,7 +308,8 @@ impl TextRasterizer {
         &self,
         layout: &IDWriteTextLayout,
         size: LayoutSize,
-        spans: &[TextSpan],
+        spans: &[crate::TextSpan],
+        rendering_params: &IDWriteRenderingParams,
     ) -> Vec<u8> {
         unsafe {
             let width = (size.width.ceil() as u32).max(1);
@@ -315,6 +337,9 @@ impl TextRasterizer {
                 .d2d_factory
                 .CreateWicBitmapRenderTarget(&wic_bitmap, &props)
                 .unwrap();
+
+            target.SetTextRenderingParams(rendering_params);
+            target.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
 
             target.BeginDraw();
             target.Clear(None);
@@ -518,7 +543,7 @@ impl TextRasterizer {
                         let underline_y = metric.top + metric.height - 1.0;
 
                         match style {
-                            UnderlineStyle::Solid => {
+                            crate::UnderlineStyle::Solid => {
                                 target.DrawLine(
                                     Vector2 {
                                         X: left,
@@ -533,7 +558,7 @@ impl TextRasterizer {
                                     None,
                                 );
                             }
-                            UnderlineStyle::Thick => {
+                            crate::UnderlineStyle::Thick => {
                                 target.DrawLine(
                                     Vector2 {
                                         X: left,
@@ -548,7 +573,7 @@ impl TextRasterizer {
                                     None,
                                 );
                             }
-                            UnderlineStyle::Wave => {
+                            crate::UnderlineStyle::Wave => {
                                 let mut x = left;
                                 let mut y_up = false;
                                 let mut prev_x = x;
@@ -592,18 +617,21 @@ impl TextRasterizer {
             target.EndDraw(None, None).unwrap();
 
             // 5. ピクセルデータの抽出
-            let mut pixels = vec![0u8; (width * height * 4) as usize];
+            let mut bgra_pixels = vec![0u8; (width * height * 4) as usize];
             wic_bitmap
-                .CopyPixels(std::ptr::null(), width * 4, &mut pixels)
+                .CopyPixels(std::ptr::null(), width * 4, &mut bgra_pixels)
                 .unwrap();
 
-            pixels
+            //  Alphaだけを集めて、wgpuに書き込む用の1チャネルバッファを作成
+            let r8_pixels: Vec<u8> = bgra_pixels.chunks_exact(4).map(|p| p[3]).collect();
+
+            r8_pixels
         }
     }
 }
 
 /// 安全に TextSpan 配列全体の等価ハッシュを計算するヘルパー
-pub(crate) fn hash_text_spans(spans: &[TextSpan]) -> u64 {
+pub(crate) fn hash_text_spans(spans: &[crate::TextSpan]) -> u64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
 
@@ -697,7 +725,8 @@ impl TextureAtlas {
             dimension: wgpu::TextureDimension::D2,
             // WIC（32bppPBGRA）からの転送データと完全に一致させるため Bgra8Unorm へ変更
             // 色空間を sRGB フォーマットに明示変更
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            // 再度 R8Unorm に修正
+            format: wgpu::TextureFormat::R8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -858,7 +887,7 @@ mod tests {
         let layout = engine.create_layout(sample_text, font_size, None, None, None, None, &[]);
 
         let size = engine.get_layout_size(&layout);
-        let pixels = rasterizer.rasterize(&layout, size, &[]);
+        let pixels = rasterizer.rasterize(&layout, size, &[], &engine.rendering_params);
 
         let w = (size.width.ceil() as u32).max(1);
         let h = (size.height.ceil() as u32).max(1);

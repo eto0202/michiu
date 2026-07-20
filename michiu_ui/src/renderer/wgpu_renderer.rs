@@ -827,7 +827,7 @@ impl WgpuRenderer {
             let text_clone = text.clone();
             let key = TextCacheKey {
                 text,
-                font_size_bits: font_size.to_bits(),
+                font_size_bits: (font_size * cx.scale_factor).to_bits(),
                 font_style: cx
                     .visual_properties
                     .get(entity_id)
@@ -846,9 +846,7 @@ impl WgpuRenderer {
             let uv = if let Some(cached) = self.text_cache.get(&key) {
                 (cached.uv_min, cached.uv_max)
             } else {
-                let layout = cx
-                    .get_or_create_layout(entity_id)
-                    .expect("Layout cache must be populated at render time");
+                let physical_font_size = font_size * cx.scale_factor;
 
                 let mut spans = cx
                     .text_spans
@@ -870,8 +868,29 @@ impl WgpuRenderer {
                     });
                 }
 
-                let size = cx.text_engine.get_layout_size(&layout);
-                let pixels = self.text_rasterizer.rasterize(&layout, size, &spans);
+                let physical_layout = cx.text_engine.create_layout(
+                    &text_clone,
+                    physical_font_size,
+                    cx.visual_properties
+                        .get(entity_id)
+                        .and_then(|v| v.font_family.as_deref()),
+                    cx.visual_properties
+                        .get(entity_id)
+                        .and_then(|v| v.font_weight),
+                    cx.visual_properties
+                        .get(entity_id)
+                        .and_then(|v| v.font_style),
+                    None,
+                    &spans,
+                );
+
+                let size = cx.text_engine.get_layout_size(&physical_layout);
+                let r8_pixels = self.text_rasterizer.rasterize(
+                    &physical_layout,
+                    size,
+                    &spans,
+                    &cx.text_engine.rendering_params,
+                );
 
                 let width = size.width.ceil() as u32;
                 let height = size.height.ceil() as u32;
@@ -893,10 +912,10 @@ impl WgpuRenderer {
                         origin: wgpu::Origin3d { x, y, z: 0 },
                         aspect: wgpu::TextureAspect::All,
                     },
-                    &pixels,
+                    &r8_pixels,
                     wgpu::TexelCopyBufferLayout {
                         offset: 0,
-                        bytes_per_row: Some(width * 4),
+                        bytes_per_row: Some(width), // 1ピクセルあたり1バイト
                         rows_per_image: Some(height),
                     },
                     wgpu::Extent3d {
@@ -1002,6 +1021,7 @@ mod tests {
     use crate::{Color, Context, CornerRadius, Size, build_ui, div, setup_direct_composition, ts};
     use std::borrow::Cow;
     use windows::Win32::Foundation::*;
+    use windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams;
     use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::Win32::UI::WindowsAndMessaging::*;
@@ -1051,7 +1071,7 @@ mod tests {
         // 2. ラスタライズの実行を検証
         let layout = engine.create_layout(sample_text, font_size, None, None, None, None, &[]);
         let size = engine.get_layout_size(&layout);
-        let pixels = rasterizer.rasterize(&layout, size, &[]);
+        let pixels = rasterizer.rasterize(&layout, size, &[], &engine.rendering_params);
 
         // ピクセルバッファのサイズが正しく RGBA8 (width * height * 4) になっているか検証
         let expected_width = (size.width.ceil() as u32).max(1);

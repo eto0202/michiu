@@ -2,7 +2,7 @@ use crate::{app::theme::Theme, components::section_title};
 pub use michiu_ui::prelude::*;
 
 pub fn container() -> Element {
-    v_flex(ts().gap(20.0).p(16.0)).children([input_container()])
+    v_flex(ts().gap(20.0).p(16.0)).children([basic_container()])
 }
 
 fn section_style() -> ThisStyle {
@@ -25,37 +25,33 @@ fn input_basic(d: &'static str, el: Element) -> Element {
         .flex()
         .items_center()
         .p(4.0)
-        .m_r(1.0)
+        .r(4.0)
         .size((160.0, 40.0))
         .bg_color(dynamic(|t: &Theme| t.surface))
         .border_solid(1.0)
         .border_color(dynamic(|t: &Theme| t.border)));
 
-    let content = el.style_d(|t: &Theme| {
-        ts().h_auto()
-            .w_full()
-            .font_size(t.font_size_lg)
-            .font_family(t.font_family.clone())
-            .text_color(t.text)
-            .select_text()
-            .cursor_text()
-            .overflow_hidden()
-            .border_solid(1.0)
-            .border_color(Color::RED)
-    });
-
-    v_flex(ts().gap(6.0).justify_center().items_center()).children([desc, wrapper.child(content)])
+    v_flex(ts().gap(6.0).justify_center().items_center()).children([desc, wrapper.child(el)])
 }
 
-fn input_container() -> Element {
-    let (read, write) = create_signal(String::new());
-    let input = input_basic(
+fn basic_container() -> Element {
+    let (read_1, write_1) = create_signal(String::new());
+    let basic_1 = input_basic(
         "Description",
-        input(InputContents::new((read, write)).multiline(true)),
+        input(InputContents::new((read_1, write_1)).multiline(true)).style(
+            ts().h_auto()
+                .w_full()
+                .font_size(18.0)
+                .font_family("Segoe UI")
+                .text_color(dynamic(|t: &Theme| t.text))
+                .select_text()
+                .cursor_text()
+                .overflow_hidden(),
+        ),
     );
 
     v_flex(section_style()).children([
-        section_title("Input"),
-        h_flex(wrapper_style()).children([input]),
+        section_title("Input Basic"),
+        h_flex(wrapper_style()).children([basic_1]),
     ])
 }

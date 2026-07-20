@@ -96,7 +96,17 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
     let pos_transformed = (transform * vec4<f32>(pos_centered, 0.0, 1.0)).xy + origin_pixel;
 
     // 親ウィンドウ上の絶対物理座標
-    let abs_phys_pos = instance.rect.xy * config.scale + pos_transformed * config.scale;
+    var abs_phys_pos = instance.rect.xy * config.scale + pos_transformed * config.scale;
+
+    // テキスト描画やキャレット等に対して物理ピクセル単位のスナップを適用
+    // サブピクセル配置による意図しないバイリニア補間を防止
+    // シャープ過ぎる気がするので無し
+    // やっぱあり
+    let mode = instance.opacity_mode_sizing.y;
+    if (mode == 2.0 || mode < -0.5) {
+        abs_phys_pos = round(abs_phys_pos);
+    }
+
 
     // ウィンドウ空間の NDC（-1.0 ～ 1.0）への投影変換 (DComp は Y軸下向き正)
     let ndc_x = (abs_phys_pos.x / config.screen_size.x) * 2.0 - 1.0;
@@ -432,9 +442,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var element_color = vec4<f32>(0.0);
 
     if (mode == 2.0) {
-        // テキスト描画（Bgra8アトラスフォントの Alpha サンプリング、PMA着色）
+        // テキスト描画（R8Unormアトラスフォントの Alpha サンプリング、PMA着色）
         let tex_color = textureSample(t_texture, s_sampler, in.uv);
-        let alpha = tex_color.a * opacity;
+        let alpha = tex_color.r * opacity;
+        // let raw_alpha = pow(tex_color.r, 0.75); 
+        // let alpha = raw_alpha * opacity;
         element_color = vec4<f32>(color_linear.rgb * alpha, alpha);
 
     } else if (mode == 3.0) {
