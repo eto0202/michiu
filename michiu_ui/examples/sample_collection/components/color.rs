@@ -1,4 +1,4 @@
-use crate::app::utils::section_title;
+use crate::components::section_title;
 pub use michiu_ui::prelude::*;
 
 pub fn container() -> Element {

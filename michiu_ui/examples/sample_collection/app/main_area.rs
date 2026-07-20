@@ -1,8 +1,8 @@
 use crate::{
     app::{ComponentType, theme::Theme},
     components::{
-        background, border, button, color, css, cursor, div, draggable, focusable, hover, outline,
-        resizable,
+        background, border, button, color, css, cursor, div, draggable, focusable, hover, input,
+        outline, resizable,
     },
 };
 pub use michiu_ui::prelude::*;
@@ -39,7 +39,7 @@ pub fn main_area() -> Element {
 fn create_component_element(comp_type: ComponentType) -> Element {
     match comp_type {
         ComponentType::Button => wrapper(button::container()),
-        ComponentType::Input => text("Input"),
+        ComponentType::Input => wrapper(input::container()),
         ComponentType::InputArea => text("InputArea"),
         ComponentType::Background => wrapper(background::container()),
         ComponentType::Div => wrapper(div::container()),

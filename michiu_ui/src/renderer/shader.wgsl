@@ -234,10 +234,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dist_to_inner = sd_rounded_box(inner_pos, inner_b, inner_radius);
 
         // 各ピクセルの属する辺の判定
-        let dist_to_top = local_center.y - (-b.y);
-        let dist_to_bottom = b.y - local_center.y;
-        let dist_to_left = local_center.x - (-b.x);
-        let dist_to_right = b.x - local_center.x;
+        // 太さが0.0の辺を距離判定から除外
+        let dist_to_top = select(10000.0, local_center.y - (-b.y), b_width.x > 0.0);
+        let dist_to_right = select(10000.0, b.x - local_center.x, b_width.y > 0.0);
+        let dist_to_bottom = select(10000.0, b.y - local_center.y, b_width.z > 0.0);
+        let dist_to_left = select(10000.0, local_center.x - (-b.x), b_width.w > 0.0);
 
         let min_dist = min(min(dist_to_top, dist_to_bottom), min(dist_to_left, dist_to_right));
 
@@ -334,10 +335,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     if (has_outline) {
         // ピクセルが属している辺を判定 (o_edge_idx)
-        let dist_to_top = local_center.y - (-b.y);
-        let dist_to_bottom = b.y - local_center.y;
-        let dist_to_left = local_center.x - (-b.x);
-        let dist_to_right = b.x - local_center.x;
+        // 太さが0.0の辺を距離判定から除外
+        let dist_to_top = select(10000.0, local_center.y - (-b.y), o_width.x > 0.0);
+        let dist_to_right = select(10000.0, b.x - local_center.x, o_width.y > 0.0);
+        let dist_to_bottom = select(10000.0, b.y - local_center.y, o_width.z > 0.0);
+        let dist_to_left = select(10000.0, local_center.x - (-b.x), o_width.w > 0.0);
+
         let min_dist = min(min(dist_to_top, dist_to_bottom), min(dist_to_left, dist_to_right));
 
         var o_edge_idx = 0u; // 0: top, 1: right, 2: bottom, 3: left
@@ -400,7 +403,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // スタイル別の模様パターン（点線、破線、二重線）の適用
         var o_style_alpha = 1.0;
-        
+
         // アウトラインの中心からの相対的な厚み方向の進捗割合 (0.0 -> 1.0)
         let o_thick_t = clamp(dist_to_inner_o / (dist_to_inner_o - dist_to_outer_o), 0.0, 1.0);
 

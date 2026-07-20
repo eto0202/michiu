@@ -1,6 +1,6 @@
-use crate::app::{
-    theme::Theme,
-    utils::{label_style, section_title},
+use crate::{
+    app::theme::Theme,
+    components::{label_style, section_title},
 };
 use michiu_ui::GlobalCursorIcon;
 pub use michiu_ui::prelude::*;

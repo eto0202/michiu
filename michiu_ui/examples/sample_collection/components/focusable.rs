@@ -1,8 +1,7 @@
 use std::time::Duration;
-
-use crate::app::{
-    theme::Theme,
-    utils::{label_style, section_title},
+use crate::{
+    app::theme::Theme,
+    components::{label_style, section_title},
 };
 use michiu_ui::prelude::*;
 

@@ -1,10 +1,9 @@
-use std::time::Duration;
-
-use crate::app::{
-    theme::Theme,
-    utils::{label_style, section_title},
+use crate::{
+    app::theme::Theme,
+    components::{label_style, section_title},
 };
 use michiu_ui::prelude::*;
+use std::time::Duration;
 
 pub fn container() -> Element {
     v_flex(ts().gap(28.0).p(16.0)).children([section_hover(), section_hover_transition()])

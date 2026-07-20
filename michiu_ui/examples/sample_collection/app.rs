@@ -2,7 +2,6 @@ pub mod header;
 pub mod main_area;
 pub mod sidebar;
 pub mod theme;
-pub mod utils;
 
 use crate::app::theme::Theme;
 use michiu_ui::{DssSet, prelude::*};
