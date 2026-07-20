@@ -25,14 +25,17 @@ fn item(d: &'static str, el: Element) -> Element {
     );
 
     let wrapper = div(ts()
+        .flex()
+        .items_center()
         .p(4.0)
-        .w(240.0)
+        .size((240.0, 50.0))
         .bg_color(dynamic(|t: &Theme| t.surface))
         .border_solid(1.0)
         .border_color(dynamic(|t: &Theme| t.border)));
 
     let content = el.style_d(|t: &Theme| {
-        ts().size_full()
+        ts().h_auto()
+            .w_full()
             .font_size(t.font_size_lg)
             .font_family(t.font_family.clone())
             .text_color(t.text)

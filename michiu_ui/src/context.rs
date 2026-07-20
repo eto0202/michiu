@@ -2686,11 +2686,19 @@ impl Context {
                     let caret_width = contents.caret_width.unwrap_or(1.5);
 
                     // キャレット高さを、明示指定された縮小サイズにするか、
-                    // デフォルトでは「行高全体の85%（文字のインク境界に完璧に一致する高さ）」に設定
-                    let caret_height = contents.caret_height.unwrap_or(line_height * 0.85);
+                    // デフォルトでは行高全体の85%（文字のインク境界に完璧に一致する高さ）に設定
+                    // let caret_height = contents.caret_height.unwrap_or(line_height * 0.85);
+                    // 修正: デフォルトでは行高全体の100%（枠線にぴったり接する高さ）に設定
+                    let caret_height = contents.caret_height.unwrap_or(line_height);
 
                     // 2. キャレットサイズ縮小時も、行に対して「垂直中央配置」されるよう動的オフセットを算出
-                    let vertical_center_offset = (line_height - caret_height) * 0.5;
+                    // let vertical_center_offset = (line_height - caret_height) * 0.5;
+                    // 修正: キャレットサイズをユーザーが個別縮小指定した時のみ、垂直中央配置用のオフセットを適用
+                    let vertical_center_offset = if contents.caret_height.is_some() {
+                        (line_height - caret_height) * 0.5
+                    } else {
+                        0.0
+                    };
 
                     let logical_y = rect.y
                         + border_top
