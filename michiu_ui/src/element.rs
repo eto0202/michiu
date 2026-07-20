@@ -837,9 +837,15 @@ impl Element {
                         _ => 0.0,
                     };
 
+                    let scroll = cx
+                        .scroll_offsets
+                        .get(id)
+                        .copied()
+                        .unwrap_or(LayoutPoint::ZERO);
+
                     // テキスト本来の描画領域に対する相対マウス座標
-                    let local_x = pointer_pos.x - (rect.x + border_left + padding_left);
-                    let local_y = pointer_pos.y - (rect.y + border_top + padding_top);
+                    let local_x = pointer_pos.x - (rect.x + border_left + padding_left) + scroll.x;
+                    let local_y = pointer_pos.y - (rect.y + border_top + padding_top) + scroll.y;
 
                     let mut update_rects_needed = false;
 
@@ -2373,12 +2379,16 @@ impl Element {
     }
 }
 
-/// 内部ヘルパー: 現在のテキスト・IME状態・フォントサイズから、
-/// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して SoA を更新します。
+/// 現在のテキスト・IME状態・フォントサイズから、
+/// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して SoA を更新。
 pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
     cx.clear_layout_cache(id); // IMEやタイピング中の古いキャッシュを破棄
+
+    // (caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)
+    let mut scroll_ime_info: Option<(f32, f32, f32, f32, f32, bool)> = None;
+
     if let Some(contents) = cx.input_contents.get_mut(id) {
-        // 入力エンジン側の最新カーソル位置を、描画SoA側（text_selections）に同期
+        // 入力エンジン側の最新カーソル位置を描画SoA側に同期
         cx.text_selections
             .insert(id, contents.selected_range.clone());
 
@@ -2517,13 +2527,96 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
             }
         }
 
+        scroll_ime_info = Some((
+            cx_offset,
+            cy_offset,
+            ch_height,
+            contents.caret_width.unwrap_or(1.5),
+            contents.caret_offset,
+            contents.is_multiline,
+        ));
+    }
+
+    if let Some((caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)) = scroll_ime_info
+    {
+        let rect = cx.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+        let mut scroll = cx
+            .scroll_offsets
+            .get(id)
+            .copied()
+            .unwrap_or(LayoutPoint::ZERO);
+
+        if rect.width > 0.0 && rect.height > 0.0 {
+            let (basic, _, _) = cx.resolve_active_layouts(id);
+            let border_left = match basic.border.left {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let border_right = match basic.border.right {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_left = match basic.padding.left {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_right = match basic.padding.right {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let border_top = match basic.border.top {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let border_bottom = match basic.border.bottom {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_top = match basic.padding.top {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_bottom = match basic.padding.bottom {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+
+            let viewport_w =
+                (rect.width - border_left - border_right - padding_left - padding_right).max(0.0);
+            let viewport_h =
+                (rect.height - border_top - border_bottom - padding_top - padding_bottom).max(0.0);
+
+            // マージンを設定するとキー移動時にキャレット位置がずれるため削除
+            // let margin_x = 0.0; // 左右端のあそび（マージン）
+
+            // 1. 横方向スクロール (X軸)
+            if caret_x < scroll.x {
+                scroll.x = caret_x.max(0.0);
+            } else if caret_x + caret_w > scroll.x + viewport_w {
+                scroll.x = (caret_x + caret_w - viewport_w).max(0.0);
+            }
+
+            // 2. 縦方向スクロール (Y軸 - マルチラインのみ)
+            if is_multiline {
+                // let margin_y = 4.0; // 上下端のあそび
+                if caret_y < scroll.y {
+                    scroll.y = caret_y.max(0.0);
+                } else if caret_y + caret_h > scroll.y + viewport_h {
+                    scroll.y = (caret_y + caret_h - viewport_h).max(0.0);
+                }
+            } else {
+                scroll.y = 0.0;
+            }
+
+            cx.scroll_to(id, scroll.x, scroll.y);
+        }
+
         // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
         unsafe {
             let hwnd = GetFocus();
             let himc = ImmGetContext(hwnd);
             if !himc.is_invalid() {
                 let rect = cx.rects[id];
-                let user_offset_y = contents.caret_offset;
                 let (basic, _, _) = cx.resolve_active_layouts(id);
                 let border_top = match basic.border.top {
                     Length::Px(v) => v,
@@ -2543,12 +2636,15 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
                 };
 
                 let scale = cx.scale_factor;
-                let caret_phys_x =
-                    ((rect.x + border_left + padding_left + cx_offset) * scale).round() as i32;
-                let caret_phys_y = ((rect.y + border_top + padding_top + cy_offset + user_offset_y)
+                // スクロールオフセット（scroll.x / scroll.y）を正確に引いた実座標で同期
+                let caret_phys_x = (((rect.x + border_left + padding_left + caret_x) - scroll.x)
                     * scale)
                     .round() as i32;
-                let caret_phys_h = (ch_height * scale).round() as i32;
+                let caret_phys_y = (((rect.y + border_top + padding_top + caret_y + caret_offset)
+                    - scroll.y)
+                    * scale)
+                    .round() as i32;
+                let caret_phys_h = (caret_h * scale).round() as i32;
 
                 // コンポジションウィンドウ位置の指定 (CFS_POINT)
                 let comp_form = COMPOSITIONFORM {

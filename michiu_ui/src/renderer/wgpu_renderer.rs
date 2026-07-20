@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, COMP_INPUT_CONTENT, COMP_WEBVIEW_CONTENT,
-    DrawBatch, Length, TextSpan,
+    DrawBatch, LayoutPoint, Length, TextSpan,
 };
 use crate::{
     COMP_TEXT_CONTENT, Color, Context, CornerRadius, EdgeInsets, EntityId, IDENTITY_MATRIX,
@@ -733,10 +733,17 @@ impl WgpuRenderer {
                 _ => 0.0,
             };
 
+            // スクロールオフセット
+            let scroll = cx
+                .scroll_offsets
+                .get(entity_id)
+                .copied()
+                .unwrap_or(LayoutPoint::ZERO);
+
             // 完全に整数ピクセルサイズにスナップし、にじみとピクピク揺れを完全に阻止
             final_rect = LayoutRect::new(
-                instance.rect.x + border_left + padding_left,
-                instance.rect.y + border_top + padding_top,
+                instance.rect.x + border_left + padding_left - scroll.x,
+                instance.rect.y + border_top + padding_top - scroll.y,
                 text_size.width.ceil(),
                 text_size.height.ceil(),
             );

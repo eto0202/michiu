@@ -2419,10 +2419,17 @@ impl Context {
                     .select_bg_color
                     .unwrap_or(Color::rgba_f32(0.0, 0.47, 0.84, 0.35));
 
+                // スクロールオフセット
+                let scroll = self
+                    .scroll_offsets
+                    .get(id)
+                    .copied()
+                    .unwrap_or(LayoutPoint::ZERO);
+
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
-                        rect.x + border_left + padding_left + metric_rect.x,
-                        rect.y + border_top + padding_top + metric_rect.y,
+                        rect.x + border_left + padding_left + metric_rect.x - scroll.x,
+                        rect.y + border_top + padding_top + metric_rect.y - scroll.y,
                         metric_rect.width,
                         metric_rect.height,
                     );
@@ -2678,8 +2685,16 @@ impl Context {
 
                     let scale = self.scale_factor;
 
+                    // スクロールオフセットを取得
+                    let scroll = self
+                        .scroll_offsets
+                        .get(id)
+                        .copied()
+                        .unwrap_or(LayoutPoint::ZERO);
+
                     // 1. X座標をDPIスケーリング後の物理ピクセルグリッドに完全にスナップ
-                    let logical_x = rect.x + border_left + padding_left + contents.measured_caret_x;
+                    let logical_x =
+                        rect.x + border_left + padding_left + contents.measured_caret_x - scroll.x;
                     let aligned_x = (logical_x * scale).round() / scale;
 
                     let line_height = contents.caret_line_height;
@@ -2688,7 +2703,7 @@ impl Context {
                     // キャレット高さを、明示指定された縮小サイズにするか、
                     // デフォルトでは行高全体の85%（文字のインク境界に完璧に一致する高さ）に設定
                     // let caret_height = contents.caret_height.unwrap_or(line_height * 0.85);
-                    // 修正: デフォルトでは行高全体の100%（枠線にぴったり接する高さ）に設定
+                    // 修正: デフォルトでは行高全体の100%に設定
                     let caret_height = contents.caret_height.unwrap_or(line_height);
 
                     // 2. キャレットサイズ縮小時も、行に対して「垂直中央配置」されるよう動的オフセットを算出
@@ -2704,7 +2719,8 @@ impl Context {
                         + border_top
                         + padding_top
                         + contents.measured_caret_y
-                        + contents.caret_offset;
+                        + contents.caret_offset
+                        - scroll.y;
 
                     let aligned_y = ((logical_y + vertical_center_offset) * scale).round() / scale;
                     let aligned_width = (caret_width * scale).round().max(1.0) / scale;
@@ -2793,7 +2809,95 @@ impl Context {
                     .unwrap_or(false)
         });
 
-        has_transitions || has_keyframes || has_blinking_input || has_active_transient_scrollbar
+        // ドラッグ選択中でポインタが可視境界外にある場合も継続
+        let has_drag_autoscroll = self.is_drag_autoscroll_active();
+
+        has_transitions
+            || has_keyframes
+            || has_blinking_input
+            || has_active_transient_scrollbar
+            || has_drag_autoscroll
+    }
+
+    /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
+    fn is_drag_autoscroll_active(&self) -> bool {
+        if let Some(pressed_id) = self.interaction_states.pressed
+            && let Some(pointer_pos) = self.current_pointer_position
+            && let Some(clip) = self.clip_rects.get(pressed_id)
+        {
+            let user_select = self
+                .visual_properties
+                .get(pressed_id)
+                .and_then(|v| v.user_select)
+                .unwrap_or(UserSelect::None);
+
+            if user_select == UserSelect::Text {
+                // ポインタが可視クリップ範囲の上下左右からはみ出しているか検証
+                let is_out_x = pointer_pos.x < clip.x || pointer_pos.x > clip.x + clip.width;
+                let is_out_y = pointer_pos.y < clip.y || pointer_pos.y > clip.y + clip.height;
+                return is_out_x || is_out_y;
+            }
+        }
+        false
+    }
+
+    /// 毎フレーム呼び出され、ドラッグ選択中の要素に対するオートスクロールを自律駆動します。
+    /// ウィンドウメッセージループ等、 tick_transitions() を呼び出している箇所と同じ周期で実行する。
+    pub fn tick_drag_autoscroll(&mut self) {
+        let mut autoscroll_occurred = false;
+        let mut active_pos = None;
+
+        if let Some(pressed_id) = self.interaction_states.pressed
+            && let Some(pointer_pos) = self.current_pointer_position
+            && let Some(clip) = self.clip_rects.get(pressed_id).copied()
+        {
+            let user_select = self
+                .visual_properties
+                .get(pressed_id)
+                .and_then(|v| v.user_select)
+                .unwrap_or(UserSelect::None);
+
+            if user_select == UserSelect::Text {
+                let mut dx = 0.0f32;
+                let mut dy = 0.0f32;
+
+                // はみ出し距離（Offset）の算出
+                if pointer_pos.x < clip.x {
+                    dx = pointer_pos.x - clip.x; // 左はみ出し：負値
+                } else if pointer_pos.x > clip.x + clip.width {
+                    dx = pointer_pos.x - (clip.x + clip.width); // 右はみ出し：正値
+                }
+
+                if pointer_pos.y < clip.y {
+                    dy = pointer_pos.y - clip.y;
+                } else if pointer_pos.y > clip.y + clip.height {
+                    dy = pointer_pos.y - (clip.y + clip.height);
+                }
+
+                // はみ出しがある場合、距離に比例したオートスクロールを実行
+                if dx.abs() > 1.0 || dy.abs() > 1.0 {
+                    let speed_factor = 0.15f32; // スクロール感度の調整用
+                    let scroll_dx = dx * speed_factor;
+                    let scroll_dy = dy * speed_factor;
+
+                    if self.scroll_by(pressed_id, scroll_dx, scroll_dy) {
+                        autoscroll_occurred = true;
+                        active_pos = Some(pointer_pos);
+                    }
+                }
+            }
+        }
+
+        if autoscroll_occurred && let Some(pos) = active_pos {
+            // スクロールによりテキストが流れたため、
+            // 現在のポインタ座標で仮想的にポインタ移動を再トリガーし、
+            // 選択文字インデックスおよびキャレット位置を同期
+            self.inject_pointer_move(pos);
+
+            if let Some(pressed_id) = self.interaction_states.pressed {
+                self.mark_render_dirty(pressed_id);
+            }
+        }
     }
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
@@ -4905,8 +5009,14 @@ impl Context {
                     _ => 0.0,
                 };
 
-                let local_x = logical_pos.x - (rect.x + border_left + padding_left);
-                let local_y = logical_pos.y - (rect.y + border_top + padding_top);
+                let scroll = self
+                    .scroll_offsets
+                    .get(pressed_id)
+                    .copied()
+                    .unwrap_or(LayoutPoint::ZERO);
+
+                let local_x = logical_pos.x - (rect.x + border_left + padding_left) + scroll.x;
+                let local_y = logical_pos.y - (rect.y + border_top + padding_top) + scroll.y;
 
                 if let Some(layout) = self.get_or_create_layout(pressed_id) {
                     let (current_index, is_trailing) =
@@ -5638,8 +5748,16 @@ impl Context {
                             _ => 0.0,
                         };
 
-                        let local_x = pointer_pos.x - (rect.x + border_left + padding_left);
-                        let local_y = pointer_pos.y - (rect.y + border_top + padding_top);
+                        let scroll = self
+                            .scroll_offsets
+                            .get(target_id)
+                            .copied()
+                            .unwrap_or(LayoutPoint::ZERO);
+
+                        let local_x =
+                            pointer_pos.x - (rect.x + border_left + padding_left) + scroll.x;
+                        let local_y =
+                            pointer_pos.y - (rect.y + border_top + padding_top) + scroll.y;
 
                         if let Some(layout) = self.get_or_create_layout(target_id) {
                             let (clicked_index, is_trailing) =
@@ -6704,6 +6822,21 @@ impl Context {
     pub fn get_scroll_size(&self, id: EntityId) -> LayoutSize {
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;
+
+        // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
+        if self.active_masks[id].has(COMP_INPUT_CONTENT)
+            && let Some(contents) = self.input_contents.get(id)
+            && let Some(layout_rect) = contents.last_layout
+        {
+            max_x = layout_rect.width + contents.caret_width.unwrap_or(1.5);
+            max_y = layout_rect.height;
+        } else if self.active_masks[id].has(COMP_TEXT_CONTENT)
+            && let Some(layout) = self.get_or_create_layout(id)
+        {
+            let size = self.text_engine.get_layout_size(&layout);
+            max_x = size.width;
+            max_y = size.height;
+        }
 
         // 親要素自体のボーダー・パディング厚を取得
         let (basic, _, _) = self.resolve_active_layouts(id);

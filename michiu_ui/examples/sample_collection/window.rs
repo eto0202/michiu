@@ -124,6 +124,7 @@ unsafe extern "system" fn wnd_proc(
 
                 app.context.tick_transitions();
                 app.context.tick_animations();
+                app.context.tick_drag_autoscroll();
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);

@@ -1,7 +1,4 @@
-use crate::{
-    app::theme::Theme,
-    components::{label_style, section_title},
-};
+use crate::{app::theme::Theme, components::section_title};
 pub use michiu_ui::prelude::*;
 
 pub fn container() -> Element {
@@ -16,7 +13,7 @@ fn wrapper_style() -> ThisStyle {
     ts().w_full().gap((20.0, 10.0)).p(6.0)
 }
 
-fn item(d: &'static str, el: Element) -> Element {
+fn input_basic(d: &'static str, el: Element) -> Element {
     let desc = div_n().label(
         d,
         ts().text_color(dynamic(|t: &Theme| t.text_muted))
@@ -28,7 +25,8 @@ fn item(d: &'static str, el: Element) -> Element {
         .flex()
         .items_center()
         .p(4.0)
-        .size((240.0, 50.0))
+        .m_r(1.0)
+        .size((160.0, 40.0))
         .bg_color(dynamic(|t: &Theme| t.surface))
         .border_solid(1.0)
         .border_color(dynamic(|t: &Theme| t.border)));
@@ -51,7 +49,10 @@ fn item(d: &'static str, el: Element) -> Element {
 
 fn input_container() -> Element {
     let (read, write) = create_signal(String::new());
-    let input = item("Description", input(InputContents::new((read, write))));
+    let input = input_basic(
+        "Description",
+        input(InputContents::new((read, write)).multiline(true)),
+    );
 
     v_flex(section_style()).children([
         section_title("Input"),
