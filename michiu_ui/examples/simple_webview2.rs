@@ -165,7 +165,7 @@ unsafe extern "system" fn wnd_proc(
                 // 最前面にヒットした要素が WebView2 自身である場合のみ、イベントをフォワードする
                 // 修正: ドラッグ（プレス）中であれば pressed 要素を優先ロック、なければヒット要素を取得
                 let hit_element = app.context.hit_test(logical_pos);
-                let target_element = app.context.interaction_states.pressed.or(hit_element);
+                let target_element = app.context.entity_id_pressed().or(hit_element);
                 if target_element == Some(app.webview_id) {
                     app.renderer.forward_mouse_input(
                         &app.context,
@@ -229,7 +229,7 @@ unsafe extern "system" fn wnd_proc(
                 let target_element = if state == ElementState::Pressed {
                     hit_element
                 } else {
-                    app.context.interaction_states.pressed.or(hit_element)
+                    app.context.entity_id_pressed().or(hit_element)
                 };
 
                 app.context
@@ -248,7 +248,7 @@ unsafe extern "system" fn wnd_proc(
 
                 // クリックした要素が実際に WebView2 である場合のみ、キーボードフォーカスをブラウザにアタッチ
                 if msg == WM_LBUTTONDOWN
-                    && app.context.interaction_states.focused == Some(app.webview_id)
+                    && app.context.entity_id_focused() == Some(app.webview_id)
                 {
                     app.renderer.focus_webview(app.webview_id);
                 }
@@ -295,9 +295,9 @@ unsafe extern "system" fn wnd_proc(
                 let activate_state = (wparam.0 & 0xffff) as u32;
                 if activate_state == WA_INACTIVE {
                     // 他ウィンドウにフォーカスが移った瞬間、アプリ内部のフォーカスを強制的に解除
-                    if let Some(focused_id) = app.context.interaction_states.focused {
+                    if let Some(focused_id) = app.context.entity_id_focused() {
                         app.context.set_focused(focused_id, false);
-                        app.context.interaction_states.focused = None;
+                        app.context.events.interaction_states.focused = None;
                     }
 
                     // 非アクティブ移行時のキャプチャプロセスを即時トリガー
@@ -306,13 +306,13 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_ENTERSIZEMOVE => {
-                app.context.is_window_resizing = true;
+                app.context.window.is_window_resizing = true;
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             // ウィンドウドラッグリサイズの完了をキャッチ
             WM_EXITSIZEMOVE => {
-                app.context.is_window_resizing = false;
+                app.context.window.is_window_resizing = false;
                 // リサイズ完了後の再描画を即座にキックして、新サイズでの静止画キャプチャを誘発
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);

@@ -33,11 +33,18 @@ fn test_spawn_and_recursive_despawn() {
     cx.add_child(child, grandchild);
 
     // 各SoAデータにテスト用の実体をセット
-    cx.basic_layouts.insert(root, BasicLayout::default());
-    cx.basic_layouts.insert(child, BasicLayout::default());
-    cx.basic_layouts.insert(grandchild, BasicLayout::default());
+    cx.layouts
+        .basic_layouts
+        .insert(root, BasicLayout::default());
+    cx.layouts
+        .basic_layouts
+        .insert(child, BasicLayout::default());
+    cx.layouts
+        .basic_layouts
+        .insert(grandchild, BasicLayout::default());
 
-    cx.text_contents
+    cx.contents
+        .text_contents
         .insert(grandchild, Cow::Borrowed("grandchild text"));
 
     // 存在を確認
@@ -54,10 +61,10 @@ fn test_spawn_and_recursive_despawn() {
     assert!(!cx.entities.contains_key(grandchild));
 
     // SoA側も連動してメモリが完全に解放されているかを検証
-    assert!(cx.basic_layouts.get(root).is_none());
-    assert!(cx.basic_layouts.get(child).is_none());
-    assert!(cx.basic_layouts.get(grandchild).is_none());
-    assert!(cx.text_contents.get(grandchild).is_none());
+    assert!(cx.layouts.basic_layouts.get(root).is_none());
+    assert!(cx.layouts.basic_layouts.get(child).is_none());
+    assert!(cx.layouts.basic_layouts.get(grandchild).is_none());
+    assert!(cx.contents.text_contents.get(grandchild).is_none());
 }
 
 // 2. ガベージコレクションと重複登録のないDirtyキュー制御
@@ -73,13 +80,13 @@ fn test_garbage_collection_and_dirty_queues() {
     cx.mark_layout_dirty(id);
 
     // 重複排除フラグ（STATE_QUEUED_LAYOUT）が有効なため、キュー内の要素は1つだけであるべき
-    assert_eq!(cx.dirty_layout_entities.len(), 1);
-    assert_eq!(cx.dirty_layout_entities[0], id);
+    assert_eq!(cx.layouts.dirty_layout_entities.len(), 1);
+    assert_eq!(cx.layouts.dirty_layout_entities[0], id);
 
     // レンダーDirtyについても同様の重複排除を検証
     cx.mark_render_dirty(id);
     cx.mark_render_dirty(id);
-    assert_eq!(cx.dirty_render_entities.len(), 1);
+    assert_eq!(cx.renders.dirty_render_entities.len(), 1);
 
     // 要素を破棄し、GCを実行
     cx.despawn_internal(id);
@@ -87,8 +94,8 @@ fn test_garbage_collection_and_dirty_queues() {
 
     // 破棄された要素が各走査リストから瞬時に、かつ確実に排除されているかを検証
     assert!(cx.active_entities.is_empty());
-    assert!(cx.dirty_layout_entities.is_empty());
-    assert!(cx.dirty_render_entities.is_empty());
+    assert!(cx.layouts.dirty_layout_entities.is_empty());
+    assert!(cx.renders.dirty_render_entities.is_empty());
 }
 
 // 3. DFSレイアウト解決、クリップ領域交差、スクロールオフセット減算の検証
@@ -102,7 +109,7 @@ fn test_dfs_layout_resolution_clip_and_scroll() {
     cx.add_child(root, child);
 
     // Container: size(200x200) を SoA へ挿入
-    cx.basic_layouts.insert(
+    cx.layouts.basic_layouts.insert(
         root,
         BasicLayout {
             size: Size::new(Val::Px(200.0), Val::Px(200.0)),
@@ -112,7 +119,7 @@ fn test_dfs_layout_resolution_clip_and_scroll() {
     cx.mark_layout_dirty(root);
 
     // Child: size(100x100), location(50, 50) を SoA へ挿入
-    cx.basic_layouts.insert(
+    cx.layouts.basic_layouts.insert(
         child,
         BasicLayout {
             position: Position::Absolute,
@@ -128,11 +135,11 @@ fn test_dfs_layout_resolution_clip_and_scroll() {
     cx.sync_layout_and_render_list(root, window_size);
 
     // Containerの絶対座標は (0.0, 0.0)
-    let root_rect = cx.rects[root];
+    let root_rect = cx.outputs.rects[root];
     assert_eq!(root_rect, LayoutRect::new(0.0, 0.0, 200.0, 200.0));
 
     // Childの絶対座標は Container の絶対座標から相対座標を加算した値になる
-    let child_rect = cx.rects[child];
+    let child_rect = cx.outputs.rects[child];
     assert_eq!(child_rect, LayoutRect::new(50.0, 50.0, 100.0, 100.0));
 
     // 3.2 境界クリップ (STYLE_OVERFLOWオン) の検証
@@ -141,16 +148,24 @@ fn test_dfs_layout_resolution_clip_and_scroll() {
 
     // 再同期
     cx.sync_layout_and_render_list(root, window_size);
-    let child_clip = cx.clip_rects[child];
+    let child_clip = cx.outputs.clip_rects[child];
     assert_eq!(child_clip, LayoutRect::new(0.0, 0.0, 200.0, 200.0));
 
     // 3.3 スクロールオフセットの減算が子にのみ作用するか検証
-    cx.scroll_offsets.insert(root, LayoutPoint::new(10.0, 20.0));
+    cx.outputs
+        .scroll_offsets
+        .insert(root, LayoutPoint::new(10.0, 20.0));
     cx.mark_layout_dirty(root);
     cx.sync_layout_and_render_list(root, window_size);
 
-    assert_eq!(cx.rects[root], LayoutRect::new(0.0, 0.0, 200.0, 200.0));
-    assert_eq!(cx.rects[child], LayoutRect::new(40.0, 30.0, 100.0, 100.0));
+    assert_eq!(
+        cx.outputs.rects[root],
+        LayoutRect::new(0.0, 0.0, 200.0, 200.0)
+    );
+    assert_eq!(
+        cx.outputs.rects[child],
+        LayoutRect::new(40.0, 30.0, 100.0, 100.0)
+    );
 }
 
 // 4. クリップ枠を考慮した前面優先ヒットテスト (Painter's Algorithm)
@@ -164,7 +179,7 @@ fn test_hit_testing_with_clipping() {
     cx.add_child(root, child);
 
     // Taffyレイアウトを設定
-    cx.basic_layouts.insert(
+    cx.layouts.basic_layouts.insert(
         root,
         BasicLayout {
             size: Size::new(Val::Px(200.0), Val::Px(200.0)),
@@ -173,7 +188,7 @@ fn test_hit_testing_with_clipping() {
     );
     cx.mark_layout_dirty(root);
 
-    cx.basic_layouts.insert(
+    cx.layouts.basic_layouts.insert(
         child,
         BasicLayout {
             position: Position::Absolute,
@@ -196,9 +211,11 @@ fn test_hit_testing_with_clipping() {
     assert_eq!(hit2, Some(root));
 
     // 4.3 クリップ枠の外に子がはみ出している場合
-    cx.rects
+    cx.outputs
+        .rects
         .insert(child, LayoutRect::new(250.0, 250.0, 50.0, 50.0));
-    cx.clip_rects
+    cx.outputs
+        .clip_rects
         .insert(child, LayoutRect::new(0.0, 0.0, 200.0, 200.0));
 
     let hit3 = cx.hit_test(LayoutPoint::new(275.0, 275.0));
@@ -215,7 +232,7 @@ fn test_style_cascade_overrides() {
         size: Size::new(Val::Px(10.0), Val::Px(10.0)),
         ..Default::default()
     };
-    cx.basic_layouts.insert(id, base_layout);
+    cx.layouts.basic_layouts.insert(id, base_layout);
 
     // 2つの干渉スタイル（Hovered と Disabled）を用意
     let mut hovered_style = ThisStyle::new();
@@ -238,7 +255,7 @@ fn test_style_cascade_overrides() {
         ..Default::default()
     });
 
-    cx.interaction_properties.insert(
+    cx.renders.interaction_properties.insert(
         id,
         InteractionStyles {
             hovered: Some(hovered_style),
@@ -249,12 +266,16 @@ fn test_style_cascade_overrides() {
 
     // 5.1 ホバーのみが有効な場合
     cx.active_masks.get_mut(id).unwrap().set(STATE_HOVERED);
-    let (resolved_hover, _, _) = cx.resolve_active_layouts(id);
+    let (resolved_hover, _, _) =
+        cx.layouts
+            .resolve_active_layouts(id, &cx.active_masks, &cx.parents, &cx.renders);
     assert_eq!(resolved_hover.size.width, Val::Px(50.0));
 
     // 5.2 ホバーと無効化（Disabled）が同時に有効な場合
     cx.active_masks.get_mut(id).unwrap().set(STATE_DISABLED);
-    let (resolved_both, _, _) = cx.resolve_active_layouts(id);
+    let (resolved_both, _, _) =
+        cx.layouts
+            .resolve_active_layouts(id, &cx.active_masks, &cx.parents, &cx.renders);
     assert_eq!(resolved_both.size.width, Val::Px(100.0));
 }
 
@@ -267,7 +288,7 @@ fn test_pointer_and_focus_event_injection() {
     let id = cx.spawn(Some(super_root));
     cx.add_child(super_root, id);
 
-    cx.basic_layouts.insert(
+    cx.layouts.basic_layouts.insert(
         super_root,
         BasicLayout {
             size: Size::new(Val::Px(800.0), Val::Px(600.0)),
@@ -277,7 +298,7 @@ fn test_pointer_and_focus_event_injection() {
     cx.mark_layout_dirty(super_root);
 
     // Taffyレイアウトシステムとして座標を (50.0, 50.0, 100.0, 100.0) に配置
-    cx.basic_layouts.insert(
+    cx.layouts.basic_layouts.insert(
         id,
         BasicLayout {
             position: Position::Absolute,
@@ -327,7 +348,7 @@ fn test_pointer_and_focus_event_injection() {
         assert_eq!(delta, LayoutPoint::new(10.0, 5.0));
     }));
 
-    cx.event_listeners.insert(id, listeners);
+    cx.events.event_listeners.insert(id, listeners);
 
     // 6.1 要素外への移動（何も起こらない）
     cx.inject_pointer_move(LayoutPoint::new(10.0, 10.0));
@@ -340,14 +361,14 @@ fn test_pointer_and_focus_event_injection() {
     assert!(cx.active_masks[id].has(STATE_HOVERED));
 
     // 6.3 プレス状態でドラッグ移動 (Move & Drag 発火)
-    cx.interaction_states.pressed = Some(id);
+    cx.events.interaction_states.pressed = Some(id);
     cx.inject_pointer_move(LayoutPoint::new(90.0, 95.0)); // delta: (10, 5)
     assert_eq!(drag_count.load(Ordering::SeqCst), 1);
     assert_eq!(move_count.load(Ordering::SeqCst), 2); // 2回目のカーソル移動が安全に実行される
     assert!(cx.active_masks[id].has(STATE_DRAGGED));
 
     // 6.4 要素外への離脱 (Leave 発火)
-    cx.interaction_states.pressed = None;
+    cx.events.interaction_states.pressed = None;
     cx.inject_pointer_move(LayoutPoint::new(200.0, 200.0));
     assert_eq!(leave_count.load(Ordering::SeqCst), 1);
     assert!(!cx.active_masks[id].has(STATE_HOVERED));
@@ -365,7 +386,7 @@ fn test_pointer_button_click_and_right_click() {
     cx.add_child(super_root, sibling);
 
     // Taffyレイアウト上で兄弟要素を配置
-    cx.basic_layouts.insert(
+    cx.layouts.basic_layouts.insert(
         super_root,
         BasicLayout {
             size: Size::new(Val::Px(800.0), Val::Px(600.0)),
@@ -374,7 +395,7 @@ fn test_pointer_button_click_and_right_click() {
     );
     cx.mark_layout_dirty(super_root);
 
-    cx.basic_layouts.insert(
+    cx.layouts.basic_layouts.insert(
         root,
         BasicLayout {
             position: Position::Absolute,
@@ -385,7 +406,7 @@ fn test_pointer_button_click_and_right_click() {
     );
     cx.mark_layout_dirty(root);
 
-    cx.basic_layouts.insert(
+    cx.layouts.basic_layouts.insert(
         sibling,
         BasicLayout {
             position: Position::Absolute,
@@ -422,7 +443,7 @@ fn test_pointer_button_click_and_right_click() {
     root_listeners.on_right_click = Some(Box::new(move |_| {
         r_click_clone.fetch_add(1, Ordering::SeqCst);
     }));
-    cx.event_listeners.insert(root, root_listeners);
+    cx.events.event_listeners.insert(root, root_listeners);
 
     // sibling にフォーカスイベントを紐づける
     let mut sibling_listeners = EventListeners {
@@ -431,14 +452,14 @@ fn test_pointer_button_click_and_right_click() {
         })),
         ..Default::default()
     };
-    cx.event_listeners.insert(sibling, sibling_listeners);
+    cx.events.event_listeners.insert(sibling, sibling_listeners);
 
     // 7.1 初期フォーカスを root にセット
-    cx.interaction_states.focused = Some(root);
+    cx.events.interaction_states.focused = Some(root);
     cx.active_masks.get_mut(root).unwrap().set(STATE_FOCUSED);
 
     // 7.2 sibling上でのマウスプレス -> フォーカスの切り替え
-    cx.interaction_states.hovered = Some(sibling);
+    cx.events.interaction_states.hovered = Some(sibling);
     cx.inject_pointer_button(
         MouseButton::Left,
         ElementState::Pressed,
@@ -452,7 +473,7 @@ fn test_pointer_button_click_and_right_click() {
     assert!(cx.active_masks[sibling].has(STATE_FOCUSED));
 
     // 7.3 root上で左クリックダウン -> アップによるクリック解決の検証
-    cx.interaction_states.hovered = Some(root);
+    cx.events.interaction_states.hovered = Some(root);
     // ダウン
     cx.inject_pointer_button(
         MouseButton::Left,
@@ -460,7 +481,7 @@ fn test_pointer_button_click_and_right_click() {
         Modifiers::default(),
     );
     assert!(cx.active_masks[root].has(STATE_PRESSED));
-    assert_eq!(cx.interaction_states.pressed, Some(root));
+    assert_eq!(cx.events.interaction_states.pressed, Some(root));
 
     // アップ
     cx.inject_pointer_button(
@@ -472,7 +493,7 @@ fn test_pointer_button_click_and_right_click() {
     assert_eq!(click_fired.load(Ordering::SeqCst), 1); // 同一要素上でのリリースのため、クリック成立
 
     // 7.4 右クリックによる解決の検証
-    cx.interaction_states.hovered = Some(root);
+    cx.events.interaction_states.hovered = Some(root);
     cx.inject_pointer_button(
         MouseButton::Right,
         ElementState::Pressed,
@@ -506,7 +527,7 @@ fn test_reactive_signal_updates() {
     cx.sync_layout_and_render_list(root.id, LayoutSize::new(800.0, 600.0));
 
     let active_id = cx.active_entities[0];
-    assert_eq!(cx.text_contents[active_id], "Count: 0");
+    assert_eq!(cx.contents.text_contents[active_id], "Count: 0");
 
     // 3. 更新フェーズ（コンテキストをバインド）
     {
@@ -515,7 +536,7 @@ fn test_reactive_signal_updates() {
     }
 
     // 依存エフェクトが即座に SoA を更新しているか検証
-    assert_eq!(cx.text_contents[active_id], "Count: 1");
+    assert_eq!(cx.contents.text_contents[active_id], "Count: 1");
     assert!(cx.active_masks[active_id].has(STATE_QUEUED_LAYOUT));
     assert!(cx.active_masks[active_id].has(STATE_QUEUED_RENDER));
 }
@@ -719,8 +740,8 @@ fn test_single_and_global_mutation_performance() {
     assert_eq!(cx.active_entities.len(), 10001);
 
     // テスト前にDirtyキューを完全にクリアしておく
-    cx.dirty_layout_entities.clear();
-    cx.dirty_render_entities.clear();
+    cx.layouts.dirty_layout_entities.clear();
+    cx.renders.dirty_render_entities.clear();
 
     // 将来的にレンダラー（wgpu）の描画転送フェーズで行われる
     // `STATE_QUEUED_RENDER` フラグの一括アンセット（解除）をシミュレート
@@ -729,7 +750,7 @@ fn test_single_and_global_mutation_performance() {
             mask.unset(STATE_QUEUED_RENDER);
         }
     }
-    cx.dirty_render_entities.clear();
+    cx.renders.dirty_render_entities.clear();
 
     println!("\n=== C. 部分変更・全体変更の性能比較（基盤ツリー: 10,001要素） ===");
 
@@ -747,8 +768,8 @@ fn test_single_and_global_mutation_performance() {
     );
 
     // 単一プロパティ変更時、Dirtyキューには確実にその1要素だけが記録されているかを検証
-    assert_eq!(cx.dirty_render_entities.len(), 1);
-    assert_eq!(cx.dirty_render_entities[0], target_id);
+    assert_eq!(cx.renders.dirty_render_entities.len(), 1);
+    assert_eq!(cx.renders.dirty_render_entities[0], target_id);
 
     // 状態を一旦リセット
     cx.set_hovered(target_id, false);
@@ -757,7 +778,7 @@ fn test_single_and_global_mutation_performance() {
     if let Some(mask) = cx.active_masks.get_mut(target_id) {
         mask.unset(STATE_QUEUED_RENDER);
     }
-    cx.dirty_render_entities.clear();
+    cx.renders.dirty_render_entities.clear();
 
     // パターン B: 全要素の全ステート・全プロパティの同時変更（Global Mutation）
     let all_elements = cx.active_entities.clone();
@@ -775,7 +796,7 @@ fn test_single_and_global_mutation_performance() {
         cx.set_dragged(id, true);
 
         // --- 2. 基本レイアウトプロパティ (BasicLayout 全18プロパティ) の同時更新 ---
-        if let Some(layout) = cx.basic_layouts.get_mut(id) {
+        if let Some(layout) = cx.layouts.basic_layouts.get_mut(id) {
             layout.display = Display::None;
             layout.item_is_table = true;
             layout.item_is_replaced = true;
@@ -807,7 +828,7 @@ fn test_single_and_global_mutation_performance() {
         }
 
         // --- 3. Flexレイアウトプロパティ (FlexLayout 全13プロパティ) の同時更新・確保 ---
-        let mut flex = cx.flex_layouts.get(id).copied().unwrap_or_default();
+        let mut flex = cx.layouts.flex_layouts.get(id).copied().unwrap_or_default();
         flex.align_items = Some(AlignItems::Center);
         flex.align_self = Some(AlignSelf::Stretch);
         flex.justify_items = Some(AlignItems::End);
@@ -821,10 +842,15 @@ fn test_single_and_global_mutation_performance() {
         flex.flex_basis = Val::Px(0.5);
         flex.flex_grow = 4.0;
         flex.flex_shrink = 2.0;
-        cx.flex_layouts.insert(id, flex);
+        cx.layouts.flex_layouts.insert(id, flex);
 
         // --- 4. ビジュアルプロパティ (VisualProperty 全12プロパティ) の同時更新・確保 ---
-        let mut visual = cx.visual_properties.get(id).cloned().unwrap_or_default();
+        let mut visual = cx
+            .renders
+            .visual_properties
+            .get(id)
+            .cloned()
+            .unwrap_or_default();
         visual.bg_color = Some(Color::rgb_f32(0.5, 0.5, 0.5));
         visual.border_color = Some(Color::rgb_f32(1.0, 1.0, 1.0));
         visual.corner_radius = Some(CornerRadius::all(15.0));
@@ -845,7 +871,7 @@ fn test_single_and_global_mutation_performance() {
         visual.cursor = Some(CursorIcon::Pointer(None));
         visual.text_color = Some(Color::rgb_f32(1.0, 0.0, 0.0));
         visual.font_size = Some(18.0);
-        cx.visual_properties.insert(id, visual);
+        cx.renders.visual_properties.insert(id, visual);
 
         // --- 5. すべてのコンポーネントマスクを強制的にセットする ---
         if let Some(mask) = cx.active_masks.get_mut(id) {
@@ -869,7 +895,7 @@ fn test_single_and_global_mutation_performance() {
     );
 
     // すべての要素（10,001個）が漏れなくレンダラー側の更新Dirtyキューに入ったかを検証
-    assert_eq!(cx.dirty_render_entities.len(), 10001);
+    assert_eq!(cx.renders.dirty_render_entities.len(), 10001);
 
     // 後片付け
     cx.despawn(super_root_handle);
@@ -964,7 +990,7 @@ fn test_realistic_app_lifecycle_performance() {
     let start_sync_4 = Instant::now();
     {
         let _guard = bind_context(&cx);
-        if let Some(layout) = cx.basic_layouts.get_mut(sidebar_id) {
+        if let Some(layout) = cx.layouts.basic_layouts.get_mut(sidebar_id) {
             layout.display = Display::None;
         }
         cx.mark_layout_dirty(sidebar_id);
@@ -992,7 +1018,8 @@ fn test_realistic_app_lifecycle_performance() {
     {
         let _guard = bind_context(&cx);
         let main_id = cx.active_entities[21];
-        cx.scroll_offsets
+        cx.outputs
+            .scroll_offsets
             .insert(main_id, LayoutPoint::new(0.0, 10.0));
         cx.mark_layout_dirty(main_id);
     }

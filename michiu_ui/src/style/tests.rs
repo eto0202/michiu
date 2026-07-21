@@ -139,8 +139,8 @@ fn test_cpu_animation_tick() {
     });
 
     // 検証 A: スタイル適用の解決に伴い、CPU駆動アニメーションが自動起動（エンロール）されているか
-    assert!(cx.active_animations.contains_key(root.id));
-    let anim_list = &cx.active_animations[root.id];
+    assert!(cx.renders.active_animations.contains_key(root.id));
+    let anim_list = &cx.renders.active_animations[root.id];
     assert_eq!(anim_list.len(), 1);
     assert_eq!(anim_list[0].property, PropertyList::Transform);
 
@@ -148,7 +148,7 @@ fn test_cpu_animation_tick() {
     cx.sync_layout_and_render_list(root.id, LayoutSize::new(800.0, 600.0));
 
     // 初期状態では、トランスフォーム行列は None（または IDENTITY）
-    let _initial_transform = cx.visual_properties.get(root.id).and_then(|v| v.transform);
+    let _initial_transform = cx.renders.visual_properties.get(root.id).and_then(|v| v.transform);
 
     // 検証のためにスレッドを少し待機させ、tick_animations を呼び出す
     std::thread::sleep(Duration::from_millis(100));
@@ -157,7 +157,7 @@ fn test_cpu_animation_tick() {
     // 検証 B: tick_animations() を通して、回転トランスフォーム行列が
     // ベース状態（IDENTITY_MATRIX）から時間経過に伴って滑らかに補間・変化しているか
     let ticked_transform = cx
-        .visual_properties
+        .renders.visual_properties
         .get(root.id)
         .and_then(|v| v.transform)
         .unwrap();
@@ -169,5 +169,5 @@ fn test_cpu_animation_tick() {
 
     // 検証 C: 要素の破棄に伴い、動的に再生されていたアクティブアニメーションテーブルも
     // 安全にメモリリークなく一掃されているか
-    assert!(!cx.active_animations.contains_key(root.id));
+    assert!(!cx.renders.active_animations.contains_key(root.id));
 }

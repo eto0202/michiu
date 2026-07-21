@@ -116,7 +116,8 @@ impl Element {
     #[inline]
     pub fn get_inset(self) -> Rect<Val> {
         with_context(|cx| {
-            cx.basic_layouts
+            cx.layouts
+                .basic_layouts
                 .get(self.id)
                 .map(|l| l.inset)
                 .unwrap_or_else(|| BasicLayout::default().inset)
@@ -127,7 +128,8 @@ impl Element {
     #[inline]
     pub fn get_size(self) -> Size<Val> {
         with_context(|cx| {
-            cx.basic_layouts
+            cx.layouts
+                .basic_layouts
                 .get(self.id)
                 .map(|l| l.size)
                 .unwrap_or_else(|| BasicLayout::default().size)
@@ -233,11 +235,13 @@ impl Element {
 
         // ベースの基本レイアウトをマージ
         if mask.has_basic_layout() {
-            if merge && let Some(base) = cx.base_basic_layouts.get_mut(self.id) {
+            if merge && let Some(base) = cx.renders.base_basic_layouts.get_mut(self.id) {
                 base.override_with(&inner.basic_layout, mask);
             } else {
                 // 置換モード：前回の設定蓄積をクリアして完全置換
-                cx.base_basic_layouts.insert(self.id, inner.basic_layout);
+                cx.renders
+                    .base_basic_layouts
+                    .insert(self.id, inner.basic_layout);
             }
             cx.mark_layout_dirty(self.id);
         }
@@ -246,30 +250,32 @@ impl Element {
         let has_visual =
             mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
         if has_visual {
-            if merge && let Some(vis) = cx.base_visual_properties.get_mut(self.id) {
+            if merge && let Some(vis) = cx.renders.base_visual_properties.get_mut(self.id) {
                 vis.override_with(&inner.visual_property, mask);
             } else {
-                cx.base_visual_properties
+                cx.renders
+                    .base_visual_properties
                     .insert(self.id, inner.visual_property.clone());
             }
         }
 
         // 疑似クラス（インタラクションスタイル）をマージ
         if mask.has_interaction_property() || mask.has(STYLE_INTERACTION_WITHIN) {
-            if merge && let Some(interaction) = cx.interaction_properties.get_mut(self.id) {
+            if merge && let Some(interaction) = cx.renders.interaction_properties.get_mut(self.id) {
                 interaction.override_with(&inner.interaction_styles, mask);
             } else {
-                cx.interaction_properties
+                cx.renders
+                    .interaction_properties
                     .insert(self.id, inner.interaction_styles.clone());
             }
         }
 
         // 4. Flexレイアウト
         if mask.has_flex_layout() {
-            if merge && let Some(flex) = cx.flex_layouts.get_mut(self.id) {
+            if merge && let Some(flex) = cx.layouts.flex_layouts.get_mut(self.id) {
                 flex.override_with(&inner.flex_layout, mask);
             } else {
-                cx.flex_layouts.insert(self.id, inner.flex_layout);
+                cx.layouts.flex_layouts.insert(self.id, inner.flex_layout);
             }
             cx.mark_layout_dirty(self.id);
         }
@@ -278,7 +284,7 @@ impl Element {
         if mask.has_grid_layout()
             && let Some(ref grid) = inner.grid_layout
         {
-            cx.grid_layouts.insert(self.id, grid.clone());
+            cx.layouts.grid_layouts.insert(self.id, grid.clone());
             cx.mark_layout_dirty(self.id);
         }
 
@@ -294,12 +300,12 @@ impl Element {
         if mask.has(STYLE_DRAGGABLE)
             && let Some(dp) = inner.drag_property
         {
-            cx.drag_properties.insert(self.id, dp);
+            cx.events.drag_properties.insert(self.id, dp);
         }
         if mask.has(STYLE_DROPPABLE)
             && let Some(dp) = inner.drop_property
         {
-            cx.drop_properties.insert(self.id, dp);
+            cx.events.drop_properties.insert(self.id, dp);
         }
 
         cx.resolve_element_style_state(self.id, false);
@@ -470,15 +476,17 @@ impl Element {
                 let id = self.id;
                 with_context(|cx| {
                     // 静的なコンテンツ上書き時のみ古い動的評価エフェクト（Contentsカテゴリ）を一括破棄
-                    if let Some(effects) = cx.element_effects.get_mut(id)
+                    if let Some(effects) = cx.reactive.element_effects.get_mut(id)
                         && let Some(pos) = effects
                             .iter()
                             .position(|(cat, _)| *cat == EffectCategory::Contents)
                     {
                         let (_, old_effect_id) = effects.remove(pos);
-                        cx.effects.remove(old_effect_id);
-                        cx.effect_to_element.remove(old_effect_id);
-                        cx.pending_element_effects.retain(|&x| x != old_effect_id);
+                        cx.reactive.effects.remove(old_effect_id);
+                        cx.reactive.effect_to_element.remove(old_effect_id);
+                        cx.reactive
+                            .pending_element_effects
+                            .retain(|&x| x != old_effect_id);
                     }
                     self.set_contents_internal(cx, new_child);
                 });
@@ -504,7 +512,7 @@ impl Element {
 
         // 1. 親コンテナに紐づくスクロールバー専用要素のIDを安全に抽出
         let mut scrollbar_ids = std::collections::HashSet::new();
-        if let Some(sb) = cx.scrollbar_styles.get(id) {
+        if let Some(sb) = cx.layouts.scrollbar_styles.get(id) {
             if let Some(tid) = sb.v_track_id {
                 scrollbar_ids.insert(tid);
             }
@@ -546,7 +554,7 @@ impl Element {
             Prop::None => {}
             Prop::Static(val) => {
                 with_context(|cx| {
-                    cx.text_contents.insert(self.id, val);
+                    cx.contents.text_contents.insert(self.id, val);
                     cx.active_masks[self.id].set(COMP_TEXT_CONTENT);
                     cx.clear_layout_cache(self.id);
                     cx.mark_layout_dirty(self.id);
@@ -558,7 +566,7 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Text, move |cx| {
                         let new_text = f();
-                        cx.text_contents.insert(id, new_text);
+                        cx.contents.text_contents.insert(id, new_text);
                         cx.active_masks[id].set(COMP_TEXT_CONTENT);
                         cx.clear_layout_cache(id);
                         cx.mark_layout_dirty(id);
@@ -592,7 +600,7 @@ impl Element {
             Prop::None => {}
             Prop::Static(src) => {
                 with_context(|cx| {
-                    cx.image_sources.insert(self.id, src);
+                    cx.contents.image_sources.insert(self.id, src);
                     cx.active_masks[self.id].set(COMP_IMAGE_CONTENT);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
@@ -603,7 +611,7 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Image, move |cx| {
                         let src = f();
-                        cx.image_sources.insert(id, src);
+                        cx.contents.image_sources.insert(id, src);
                         cx.active_masks[id].set(COMP_IMAGE_CONTENT);
                         cx.mark_layout_dirty(id);
                         cx.mark_render_dirty(id);
@@ -635,7 +643,7 @@ impl Element {
             Prop::None => {}
             Prop::Static(p) => {
                 with_context(|cx| {
-                    cx.movie_properties.insert(self.id, p);
+                    cx.contents.movie_properties.insert(self.id, p);
                     cx.active_masks[self.id].set(COMP_MOVIE_CONTENT);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
@@ -646,7 +654,7 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Movie, move |cx| {
                         let p = f();
-                        cx.movie_properties.insert(id, p);
+                        cx.contents.movie_properties.insert(id, p);
                         cx.active_masks[id].set(COMP_MOVIE_CONTENT);
                         cx.mark_layout_dirty(id);
                         cx.mark_render_dirty(id);
@@ -678,7 +686,7 @@ impl Element {
             Prop::None => {}
             Prop::Static(contents) => {
                 with_context(|cx| {
-                    cx.webview_contents.insert(self.id, contents);
+                    cx.contents.webview_contents.insert(self.id, contents);
                     cx.active_masks[self.id].set(COMP_WEBVIEW_CONTENT);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
@@ -689,7 +697,7 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::WebView2, move |cx| {
                         let contents = f();
-                        cx.webview_contents.insert(id, contents);
+                        cx.contents.webview_contents.insert(id, contents);
                         cx.active_masks[id].set(COMP_WEBVIEW_CONTENT);
                         cx.mark_layout_dirty(id);
                         cx.mark_render_dirty(id);
@@ -796,7 +804,7 @@ impl Element {
         // シグナル更新やテーマ変更、親コンポーネントの再レンダリングによる
         // キャレット位置（selected_range）や Undo/Redo 履歴の末尾への強制初期化を防止
         // 既存の状態を検知した場合はデザイン設定のみを上書き
-        if let Some(existing) = cx.input_contents.get_mut(id) {
+        if let Some(existing) = cx.contents.input_contents.get_mut(id) {
             existing.placeholder = c.placeholder;
             existing.placeholder_color = c.placeholder_color;
             existing.caret_color = c.caret_color;
@@ -829,7 +837,7 @@ impl Element {
         let current_len = current_text.encode_utf16().count();
         c.selected_range = current_len..current_len;
 
-        cx.input_contents.insert(id, c);
+        cx.contents.input_contents.insert(id, c);
         cx.active_masks[id].set(COMP_INPUT_CONTENT);
         cx.active_masks[id].set(COMP_TEXT_CONTENT);
 
@@ -837,12 +845,17 @@ impl Element {
             l.on_mouse_input = Some(Box::new(move |cx, button, modifiers, state| {
                 if button == MouseButton::Left
                     && state == ElementState::Pressed
-                    && let Some(pointer_pos) = cx.current_pointer_position
+                    && let Some(pointer_pos) = cx.events.current_pointer_position
                 {
-                    let rect = cx.rects[id];
+                    let rect = cx.outputs.rects[id];
 
                     // 要素の境界枠（border + padding）を取得してローカル座標を算出
-                    let (basic, _, _) = cx.resolve_active_layouts(id);
+                    let (basic, _, _) = cx.layouts.resolve_active_layouts(
+                        id,
+                        &cx.active_masks,
+                        &cx.parents,
+                        &cx.renders,
+                    );
                     let border_top = match basic.border.top {
                         Length::Px(v) => v,
                         _ => 0.0,
@@ -861,6 +874,7 @@ impl Element {
                     };
 
                     let scroll = cx
+                        .outputs
                         .scroll_offsets
                         .get(id)
                         .copied()
@@ -872,7 +886,7 @@ impl Element {
 
                     let mut update_rects_needed = false;
 
-                    if let Some(contents) = cx.input_contents.get_mut(id) {
+                    if let Some(contents) = cx.contents.input_contents.get_mut(id) {
                         let text_val = contents.text.0.get();
 
                         // 逆引きレイアウト時もプレースホルダーは含まない
@@ -900,15 +914,24 @@ impl Element {
                         };
 
                         let default_visual = VisualProperty::default();
-                        let visual = cx.visual_properties.get(id).unwrap_or(&default_visual);
+                        let visual = cx
+                            .renders
+                            .visual_properties
+                            .get(id)
+                            .unwrap_or(&default_visual);
                         let font_size = visual.font_size.unwrap_or(16.0);
                         let font_family = visual.font_family.as_deref();
                         let font_weight = visual.font_weight;
                         let font_style = visual.font_style;
 
-                        let spans = cx.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+                        let spans = cx
+                            .contents
+                            .text_spans
+                            .get(id)
+                            .map(|s| s.as_slice())
+                            .unwrap_or(&[]);
 
-                        let layout = cx.text_engine.create_layout(
+                        let layout = cx.system.text_engine.create_layout(
                             &editable_text_for_caret,
                             font_size,
                             font_family,
@@ -919,8 +942,10 @@ impl Element {
                         );
 
                         // 物理クリック座標から文字インデックスを逆引き
-                        let (new_caret, is_trailing) =
-                            cx.text_engine.hit_test_point(&layout, local_x, local_y);
+                        let (new_caret, is_trailing) = cx
+                            .system
+                            .text_engine
+                            .hit_test_point(&layout, local_x, local_y);
 
                         let final_caret = if is_trailing {
                             new_caret + 1
@@ -970,7 +995,7 @@ impl Element {
                             cx.text_selections
                                 .insert(id, final_caret_clamped..final_caret_clamped);
                             cx.selection_start_index.insert(id, final_caret_clamped);
-                            cx.selected_rects.remove(id);
+                            cx.outputs.selected_rects.remove(id);
                             contents.selection_reversed = false;
                         }
 
@@ -990,7 +1015,7 @@ impl Element {
 
             // フォーカス取得（点滅カーソルの有効化等）
             l.on_focus = Some(Box::new(move |cx| {
-                if let Some(contents) = cx.input_contents.get_mut(id) {
+                if let Some(contents) = cx.contents.input_contents.get_mut(id) {
                     contents.is_selecting = false;
                     // フォーカス獲得時も操作時刻を記録して即座にキャレットを表示
                     contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1002,6 +1027,7 @@ impl Element {
             l.on_char_input = Some(Box::new(move |cx, mut ch| {
                 // IME未変換の入力中 (composition_textがある間) は文字入力を無視
                 let is_ime_active = cx
+                    .contents
                     .input_contents
                     .get(id)
                     .and_then(|c| c.ime_state.as_ref())
@@ -1011,6 +1037,7 @@ impl Element {
                 if !is_ime_active {
                     let mut is_allowed = !ch.is_control();
                     let is_multiline = cx
+                        .contents
                         .input_contents
                         .get(id)
                         .map(|c| c.is_multiline)
@@ -1022,7 +1049,7 @@ impl Element {
                         is_allowed = true;
                     }
 
-                    if is_allowed && let Some(contents) = cx.input_contents.get_mut(id) {
+                    if is_allowed && let Some(contents) = cx.contents.input_contents.get_mut(id) {
                         contents.last_interacted_time = Some(std::time::Instant::now());
 
                         let text_val = contents.text.0.get();
@@ -1066,7 +1093,7 @@ impl Element {
 
                         contents.selected_range = new_caret..new_caret;
                         cx.text_selections.insert(id, new_caret..new_caret); // 選択表示をリセット
-                        cx.selected_rects.remove(id);
+                        cx.outputs.selected_rects.remove(id);
                         // タイピング編集が発生したため古い開始選択アンカーを消去
                         cx.selection_start_index.remove(id);
                         contents.text.1.set(new_text);
@@ -1078,7 +1105,7 @@ impl Element {
             // 物理キーボード操作 (Backspace, Delete, 矢印キー)
             l.on_keyboard_input = Some(Box::new(move |cx, key, modifiers, state| {
                 if state == ElementState::Pressed
-                    && let Some(contents) = cx.input_contents.get_mut(id)
+                    && let Some(contents) = cx.contents.input_contents.get_mut(id)
                 {
                     let default_visual = VisualProperty::default();
                     let text_val = contents.text.0.get();
@@ -1157,7 +1184,7 @@ impl Element {
                                 let new_caret = range.start;
                                 contents.selected_range = new_caret..new_caret;
                                 cx.text_selections.insert(id, new_caret..new_caret);
-                                cx.selected_rects.remove(id);
+                                cx.outputs.selected_rects.remove(id);
                                 cx.selection_start_index.remove(id);
                                 contents.selection_reversed = false;
                                 contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1185,7 +1212,7 @@ impl Element {
                                     // Shiftキー非押下：選択解除して単なる移動
                                     contents.selected_range = new_caret..new_caret;
                                     cx.text_selections.insert(id, new_caret..new_caret);
-                                    cx.selected_rects.remove(id);
+                                    cx.outputs.selected_rects.remove(id);
                                     cx.selection_start_index.remove(id);
                                 }
                                 contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1199,7 +1226,7 @@ impl Element {
                                 let new_caret = range.end;
                                 contents.selected_range = new_caret..new_caret;
                                 cx.text_selections.insert(id, new_caret..new_caret);
-                                cx.selected_rects.remove(id);
+                                cx.outputs.selected_rects.remove(id);
                                 cx.selection_start_index.remove(id);
                                 contents.selection_reversed = false;
                                 contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1225,7 +1252,7 @@ impl Element {
                                 } else {
                                     contents.selected_range = new_caret..new_caret;
                                     cx.text_selections.insert(id, new_caret..new_caret);
-                                    cx.selected_rects.remove(id);
+                                    cx.outputs.selected_rects.remove(id);
                                     cx.selection_start_index.remove(id);
                                 }
                                 contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1234,17 +1261,24 @@ impl Element {
                         }
                         VirtualKey::UP => {
                             if contents.is_multiline {
-                                let visual =
-                                    cx.visual_properties.get(id).unwrap_or(&default_visual);
+                                let visual = cx
+                                    .renders
+                                    .visual_properties
+                                    .get(id)
+                                    .unwrap_or(&default_visual);
                                 let font_size = visual.font_size.unwrap_or(16.0);
                                 let font_family = visual.font_family.as_deref();
                                 let font_weight = visual.font_weight;
                                 let font_style = visual.font_style;
 
-                                let spans =
-                                    cx.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+                                let spans = cx
+                                    .contents
+                                    .text_spans
+                                    .get(id)
+                                    .map(|s| s.as_slice())
+                                    .unwrap_or(&[]);
 
-                                let layout = cx.text_engine.create_layout(
+                                let layout = cx.system.text_engine.create_layout(
                                     &text_val,
                                     font_size,
                                     font_family,
@@ -1254,14 +1288,18 @@ impl Element {
                                     spans,
                                 );
 
-                                let (cx_offset, cy_offset, _) =
-                                    cx.text_engine.get_caret_position(&layout, caret, u16_len);
+                                let (cx_offset, cy_offset, _) = cx
+                                    .system
+                                    .text_engine
+                                    .get_caret_position(&layout, caret, u16_len);
 
                                 let line_height = font_size * 1.3;
                                 let target_y = (cy_offset - line_height * 1.1).max(0.0); // 1行分＋マージン
 
-                                let (new_caret, is_trailing) =
-                                    cx.text_engine.hit_test_point(&layout, cx_offset, target_y);
+                                let (new_caret, is_trailing) = cx
+                                    .system
+                                    .text_engine
+                                    .hit_test_point(&layout, cx_offset, target_y);
                                 let final_caret = if is_trailing {
                                     new_caret + 1
                                 } else {
@@ -1295,15 +1333,24 @@ impl Element {
                             }
                         }
                         VirtualKey::DOWN if contents.is_multiline => {
-                            let visual = cx.visual_properties.get(id).unwrap_or(&default_visual);
+                            let visual = cx
+                                .renders
+                                .visual_properties
+                                .get(id)
+                                .unwrap_or(&default_visual);
                             let font_size = visual.font_size.unwrap_or(16.0);
                             let font_family = visual.font_family.as_deref();
                             let font_weight = visual.font_weight;
                             let font_style = visual.font_style;
 
-                            let spans = cx.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+                            let spans = cx
+                                .contents
+                                .text_spans
+                                .get(id)
+                                .map(|s| s.as_slice())
+                                .unwrap_or(&[]);
 
-                            let layout = cx.text_engine.create_layout(
+                            let layout = cx.system.text_engine.create_layout(
                                 &text_val,
                                 font_size,
                                 font_family,
@@ -1313,13 +1360,17 @@ impl Element {
                                 spans,
                             );
 
-                            let (cx_offset, cy_offset, _) =
-                                cx.text_engine.get_caret_position(&layout, caret, u16_len);
+                            let (cx_offset, cy_offset, _) = cx
+                                .system
+                                .text_engine
+                                .get_caret_position(&layout, caret, u16_len);
 
                             let line_height = font_size * 1.3;
                             let target_y = cy_offset + line_height * 1.5;
-                            let (new_caret, is_trailing) =
-                                cx.text_engine.hit_test_point(&layout, cx_offset, target_y);
+                            let (new_caret, is_trailing) = cx
+                                .system
+                                .text_engine
+                                .hit_test_point(&layout, cx_offset, target_y);
                             let final_caret = if is_trailing {
                                 new_caret + 1
                             } else {
@@ -1364,7 +1415,7 @@ impl Element {
 
             // IME連動
             l.on_ime = Some(Box::new(move |cx, ime| {
-                if let Some(contents) = cx.input_contents.get_mut(id) {
+                if let Some(contents) = cx.contents.input_contents.get_mut(id) {
                     contents.last_interacted_time = Some(std::time::Instant::now());
                     contents.ime_state = Some(ime.clone());
 
@@ -1451,10 +1502,10 @@ impl Element {
                             });
                         }
 
-                        cx.text_spans.insert(id, spans);
+                        cx.contents.text_spans.insert(id, spans);
                         cx.active_masks[id].set(STYLE_TEXT_SPANS);
                     } else {
-                        cx.text_spans.remove(id);
+                        cx.contents.text_spans.remove(id);
                         cx.active_masks[id].unset(STYLE_TEXT_SPANS);
                     }
 
@@ -1467,7 +1518,7 @@ impl Element {
         });
 
         cx.create_element_effect(id, EffectCategory::Text, move |cx| {
-            if let Some(contents) = cx.input_contents.get(id) {
+            if let Some(contents) = cx.contents.input_contents.get(id) {
                 let _base_text_val = contents.text.0.get();
             }
             update_input_caret_position(cx, id);
@@ -1482,11 +1533,12 @@ impl Element {
     fn get_or_create_listeners<R>(&self, f: impl FnOnce(&mut EventListeners) -> R) -> R {
         with_context(|cx| {
             // SparseSecondaryMap にキーが存在しない場合は Default (すべて None) で差し込む
-            if !cx.event_listeners.contains_key(self.id) {
-                cx.event_listeners
+            if !cx.events.event_listeners.contains_key(self.id) {
+                cx.events
+                    .event_listeners
                     .insert(self.id, EventListeners::default());
             }
-            let listeners = cx.event_listeners.get_mut(self.id).unwrap();
+            let listeners = cx.events.event_listeners.get_mut(self.id).unwrap();
             f(listeners)
         })
     }
@@ -1712,7 +1764,8 @@ impl Element {
     #[inline]
     pub fn scroll_offset(self) -> LayoutPoint {
         with_context(|cx| {
-            cx.scroll_offsets
+            cx.outputs
+                .scroll_offsets
                 .get(self.id)
                 .copied()
                 .unwrap_or(LayoutPoint::ZERO)
@@ -2362,10 +2415,10 @@ impl Element {
     }
 
     fn uia_property_internal(self, cx: &mut Context, property_id: i32, value: UiaValue) {
-        if !cx.uia_properties.contains_key(self.id) {
-            cx.uia_properties.insert(self.id, Vec::new());
+        if !cx.system.uia_properties.contains_key(self.id) {
+            cx.system.uia_properties.insert(self.id, Vec::new());
         }
-        let list = cx.uia_properties.get_mut(self.id).unwrap();
+        let list = cx.system.uia_properties.get_mut(self.id).unwrap();
         if let Some(pos) = list.iter().position(|(k, _)| *k == property_id) {
             list[pos].1 = value;
         } else {
@@ -2410,7 +2463,7 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
     // (caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)
     let mut scroll_ime_info: Option<(f32, f32, f32, f32, f32, bool)> = None;
 
-    if let Some(contents) = cx.input_contents.get_mut(id) {
+    if let Some(contents) = cx.contents.input_contents.get_mut(id) {
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
         cx.text_selections
             .insert(id, contents.selected_range.clone());
@@ -2458,21 +2511,36 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
         };
 
         let font_size = cx
+            .renders
             .visual_properties
             .get(id)
             .and_then(|v| v.font_size)
             .unwrap_or(16.0);
         let font_family = cx
+            .renders
             .visual_properties
             .get(id)
             .and_then(|v| v.font_family.as_deref());
-        let font_weight = cx.visual_properties.get(id).and_then(|v| v.font_weight);
-        let font_style = cx.visual_properties.get(id).and_then(|v| v.font_style);
+        let font_weight = cx
+            .renders
+            .visual_properties
+            .get(id)
+            .and_then(|v| v.font_weight);
+        let font_style = cx
+            .renders
+            .visual_properties
+            .get(id)
+            .and_then(|v| v.font_style);
 
-        let spans = cx.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+        let spans = cx
+            .contents
+            .text_spans
+            .get(id)
+            .map(|s| s.as_slice())
+            .unwrap_or(&[]);
 
         // 描画テキスト全体のレイアウトサイズを Taffy 測定用に設定
-        let display_layout = cx.text_engine.create_layout(
+        let display_layout = cx.system.text_engine.create_layout(
             &display_text,
             font_size,
             font_family,
@@ -2481,11 +2549,11 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
             None,
             spans,
         );
-        let text_size = cx.text_engine.get_layout_size(&display_layout);
+        let text_size = cx.system.text_engine.get_layout_size(&display_layout);
         contents.last_layout = Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
 
         // キャレット位置測定用のレイアウトをプレースホルダー抜きで作成
-        let caret_layout = cx.text_engine.create_layout(
+        let caret_layout = cx.system.text_engine.create_layout(
             &caret_text,
             font_size,
             font_family,
@@ -2516,7 +2584,8 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
 
         // プレースホルダーに干渉されない純粋なキャレット位置を算出
         let (cx_offset, cy_offset, ch_height) =
-            cx.text_engine
+            cx.system
+                .text_engine
                 .get_caret_position(&caret_layout, caret_index, u16_len_caret);
 
         contents.measured_caret_x = cx_offset;
@@ -2528,9 +2597,9 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
         contents.total_lines = tot_lines;
 
         // 最終表示用テキストを Context 側に反映
-        cx.text_contents.insert(id, display_text.into());
+        cx.contents.text_contents.insert(id, display_text.into());
 
-        if let Some(visual) = cx.visual_properties.get_mut(id) {
+        if let Some(visual) = cx.renders.visual_properties.get_mut(id) {
             let is_ime_active = contents
                 .ime_state
                 .as_ref()
@@ -2542,6 +2611,7 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
                 visual.text_color = contents.placeholder_color;
             } else {
                 let base_color = cx
+                    .renders
                     .base_visual_properties
                     .get(id)
                     .and_then(|v| v.text_color)
@@ -2562,15 +2632,23 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
 
     if let Some((caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)) = scroll_ime_info
     {
-        let rect = cx.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+        let rect = cx
+            .outputs
+            .rects
+            .get(id)
+            .copied()
+            .unwrap_or(LayoutRect::ZERO);
         let mut scroll = cx
+            .outputs
             .scroll_offsets
             .get(id)
             .copied()
             .unwrap_or(LayoutPoint::ZERO);
 
         if rect.width > 0.0 && rect.height > 0.0 {
-            let (basic, _, _) = cx.resolve_active_layouts(id);
+            let (basic, _, _) =
+                cx.layouts
+                    .resolve_active_layouts(id, &cx.active_masks, &cx.parents, &cx.renders);
             let border_left = match basic.border.left {
                 Length::Px(v) => v,
                 _ => 0.0,
@@ -2639,8 +2717,13 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
             let hwnd = GetFocus();
             let himc = ImmGetContext(hwnd);
             if !himc.is_invalid() {
-                let rect = cx.rects[id];
-                let (basic, _, _) = cx.resolve_active_layouts(id);
+                let rect = cx.outputs.rects[id];
+                let (basic, _, _) = cx.layouts.resolve_active_layouts(
+                    id,
+                    &cx.active_masks,
+                    &cx.parents,
+                    &cx.renders,
+                );
                 let border_top = match basic.border.top {
                     Length::Px(v) => v,
                     _ => 0.0,
@@ -2658,7 +2741,7 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
                     _ => 0.0,
                 };
 
-                let scale = cx.scale_factor;
+                let scale = cx.window.scale_factor;
                 // スクロールオフセット（scroll.x / scroll.y）を正確に引いた実座標で同期
                 let caret_phys_x = (((rect.x + border_left + padding_left + caret_x) - scroll.x)
                     * scale)

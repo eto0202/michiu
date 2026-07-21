@@ -233,7 +233,7 @@ mod tests {
         // 座標同期を実行（これでスタイルが解決され、初期値「赤」が登録されます）
         cx.sync_layout_and_render_list(el.id, LayoutSize::new(100.0, 100.0));
         assert_eq!(
-            cx.visual_properties[el.id].bg_color,
+            cx.renders.visual_properties[el.id].bg_color,
             Some(Color::rgb_f32(1.0, 0.0, 0.0))
         );
 
@@ -247,12 +247,12 @@ mod tests {
         assert!(cx.has_active_animations());
         // 起きた瞬間は、まだ赤（スナップしていないこと）を検証
         assert_eq!(
-            cx.visual_properties[el.id].bg_color,
+            cx.renders.visual_properties[el.id].bg_color,
             Some(Color::rgb_f32(1.0, 0.0, 0.0))
         );
 
         // 2. 時間を擬似的に進める (500ms 経過状態を作る)
-        if let Some(list) = cx.active_transitions.get_mut(el.id) {
+        if let Some(list) = cx.renders.active_transitions.get_mut(el.id) {
             for t in list.iter_mut() {
                 t.start_time = Some(Instant::now() - Duration::from_millis(500));
             }
@@ -262,7 +262,7 @@ mod tests {
         cx.tick_transitions();
 
         // 50% 時点の EaseInOutQuad 補間色を確認 (赤 0.5、青 0.5 になっているか)
-        let current_color = cx.visual_properties[el.id].bg_color.unwrap();
+        let current_color = cx.renders.visual_properties[el.id].bg_color.unwrap();
         // 浮動小数点の直接比較 (assert_eq!) を避け、実時間の経過誤差を許容する
         assert!(
             (current_color.r - 0.5).abs() < 0.01,
@@ -276,7 +276,7 @@ mod tests {
         );
 
         // 3. さらに時間を進めて完了させる (1200ms 経過状態を作る)
-        if let Some(list) = cx.active_transitions.get_mut(el.id) {
+        if let Some(list) = cx.renders.active_transitions.get_mut(el.id) {
             for t in list.iter_mut() {
                 t.start_time = Some(Instant::now() - Duration::from_millis(1200));
             }
@@ -287,7 +287,7 @@ mod tests {
 
         // 目標値（青）に完全に達していること、およびアニメーションが終了してクリーンアップされたことを検証
         assert_eq!(
-            cx.visual_properties[el.id].bg_color,
+            cx.renders.visual_properties[el.id].bg_color,
             Some(Color::rgb_f32(0.0, 0.0, 1.0))
         );
         assert!(!cx.has_active_animations()); // 完了したのでリストは空のはず
@@ -328,7 +328,7 @@ mod tests {
         }
 
         // 300ms (30%) 経過させる
-        if let Some(list) = cx.active_transitions.get_mut(el.id) {
+        if let Some(list) = cx.renders.active_transitions.get_mut(el.id) {
             for t in list.iter_mut() {
                 t.start_time = Some(Instant::now() - Duration::from_millis(300));
             }
@@ -336,7 +336,7 @@ mod tests {
         cx.tick_transitions();
 
         // 30% 変化した中間色を検証 (赤: 0.7, 青: 0.3)
-        let mid_color = cx.visual_properties[el.id].bg_color.unwrap();
+        let mid_color = cx.renders.visual_properties[el.id].bg_color.unwrap();
         assert!((mid_color.r - 0.7).abs() < 0.01);
         assert!((mid_color.b - 0.3).abs() < 0.01);
 
@@ -347,7 +347,7 @@ mod tests {
         }
 
         // ★ 割り込みによって、新しい開始点が「中間地点のカラー (0.7, 0.0, 0.3)」に設定されているか検証
-        if let Some(list) = cx.active_transitions.get(el.id) {
+        if let Some(list) = cx.renders.active_transitions.get(el.id) {
             let t = &list[0];
             if let TransitionValue::Color(c_start) = t.start_value {
                 assert!((c_start.r - 0.7).abs() < 0.01);

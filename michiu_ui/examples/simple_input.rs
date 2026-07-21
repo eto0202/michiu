@@ -229,7 +229,7 @@ unsafe extern "system" fn wnd_proc(
                 let height = (client_rect.bottom - client_rect.top) as u32;
 
                 app.renderer.resize((width, height), scale);
-                app.context.scale_factor = scale;
+                app.context.window.scale_factor = scale;
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
@@ -245,7 +245,7 @@ unsafe extern "system" fn wnd_proc(
 
                 app.renderer
                     .resize((width, height), app.renderer.scale_factor);
-                app.context.scale_factor = app.renderer.scale_factor;
+                app.context.window.scale_factor = app.renderer.scale_factor;
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
@@ -484,13 +484,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .select_text_color(Color::CYAN)
                 .select_bg_color(rgba(30, 144, 255, 0.2))
                 .cursor_text(),
-        )
-        .on_char_input_with(move |cx, c| {
-            if let Some(id) = cx.entity_id_focused() {
-                let len = cx.input_contents.get(id).map(|i| i.total_len).unwrap();
-                println!("input: {:?}, total: {}", c, len)
-            }
-        });
+        );
 
         let base_style = ts()
             .text_color(rgb(130, 130, 130))

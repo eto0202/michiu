@@ -54,7 +54,7 @@ fn test_static_style_application() {
     let handle = build_ui(&mut cx, || div_n().style(style));
 
     assert!(cx.active_masks[handle.id].has(STYLE_BG_COLOR));
-    let visual = cx.visual_properties.get(handle.id).unwrap();
+    let visual = cx.renders.visual_properties.get(handle.id).unwrap();
     assert_eq!(visual.bg_color, Some(Color::rgb_f32(1.0, 0.0, 0.0)));
     assert!(cx.active_masks[handle.id].has(STATE_QUEUED_RENDER));
 }
@@ -82,7 +82,7 @@ fn test_reactive_style_with_signal() {
 
     // 初期状態: 赤
     assert_eq!(
-        cx.visual_properties[handle.id].bg_color,
+        cx.renders.visual_properties[handle.id].bg_color,
         Some(Color::rgb_f32(1.0, 0.0, 0.0))
     );
 
@@ -94,7 +94,7 @@ fn test_reactive_style_with_signal() {
 
     // 自動的に青に更新されているか
     assert_eq!(
-        cx.visual_properties[handle.id].bg_color,
+        cx.renders.visual_properties[handle.id].bg_color,
         Some(Color::rgb_f32(0.0, 0.0, 1.0))
     );
 }
@@ -113,7 +113,7 @@ fn test_reactive_text() {
     });
 
     let set_name = set_text_handle.unwrap();
-    assert_eq!(cx.text_contents[handle.id], "Hello, Alice");
+    assert_eq!(cx.contents.text_contents[handle.id], "Hello, Alice");
 
     // シグナル更新
     {
@@ -121,7 +121,7 @@ fn test_reactive_text() {
         set_name.set("Bob");
     }
 
-    assert_eq!(cx.text_contents[handle.id], "Hello, Bob");
+    assert_eq!(cx.contents.text_contents[handle.id], "Hello, Bob");
 }
 
 // 6. 動的コンテンツ差し替え (set_content) の検証
@@ -149,7 +149,7 @@ fn test_reactive_content_switching() {
 
     // 初期状態の子要素を取得
     let child_id_a = cx.children[parent.id][0];
-    assert_eq!(cx.text_contents[child_id_a], "A");
+    assert_eq!(cx.contents.text_contents[child_id_a], "A");
 
     // シグナル更新（切り替え）
     {
@@ -160,7 +160,7 @@ fn test_reactive_content_switching() {
     // 古い子が despawn され、新しい子が生成されているか
     assert!(!cx.entities.contains_key(child_id_a));
     let child_id_b = cx.children[parent.id][0];
-    assert_eq!(cx.text_contents[child_id_b], "B");
+    assert_eq!(cx.contents.text_contents[child_id_b], "B");
 }
 
 // 7. イベントリスナーとシグナルの連動
@@ -181,26 +181,26 @@ fn test_event_trigger_signal() {
         btn
     });
 
-    assert_eq!(cx.text_contents[clicked_id], "0");
+    assert_eq!(cx.contents.text_contents[clicked_id], "0");
 
     // 疑似クリック実行
     {
         let _guard = bind_context(&cx);
         let mut handler = cx
-            .event_listeners
+            .events.event_listeners
             .get_mut(clicked_id)
             .and_then(|l| l.on_click.take())
             .expect("Handler not found");
 
         handler(&mut cx);
 
-        if let Some(listeners) = cx.event_listeners.get_mut(clicked_id) {
+        if let Some(listeners) = cx.events.event_listeners.get_mut(clicked_id) {
             listeners.on_click = Some(handler);
         }
     }
 
     // テキストが "1" に更新されているか
-    assert_eq!(cx.text_contents[clicked_id], "1");
+    assert_eq!(cx.contents.text_contents[clicked_id], "1");
 }
 
 // 8. セッション終了時の despawn 安全性テスト
@@ -299,7 +299,7 @@ fn test_style_application() {
     // 1. BG_COLOR マスクがセットされたか
     assert!(cx.active_masks[handle.id].has(STYLE_BG_COLOR));
     // 2. ビジュアルデータに色情報が代入されたか
-    let visual = cx.visual_properties.get(handle.id).unwrap();
+    let visual = cx.renders.visual_properties.get(handle.id).unwrap();
     assert_eq!(visual.bg_color, Some(Color::rgb_f32(1.0, 0.0, 0.0)));
     // 3. レンダリングDirtyがセットされたか
     assert!(cx.active_masks[handle.id].has(STATE_QUEUED_RENDER));
@@ -318,9 +318,9 @@ fn test_static_and_dynamic_contents() {
     });
 
     // text_with の初回自動評価が実行され、"Dynamic Text" が割り当てられているかを検証
-    assert_eq!(cx.text_contents[handle.id], "Dynamic Text");
+    assert_eq!(cx.contents.text_contents[handle.id], "Dynamic Text");
     // text_closures 側に再評価用のクロージャが登録されているかを検証
-    assert!(cx.element_effects.contains_key(handle.id));
+    assert!(cx.reactive.element_effects.contains_key(handle.id));
     assert!(cx.active_masks[handle.id].has(COMP_TEXT_CONTENT));
 
     cx.despawn(handle);
@@ -340,7 +340,7 @@ fn test_event_listener_registration() {
     });
 
     // EventListeners が正しく保存されているか取り出して検証
-    let mut listeners = cx.event_listeners.remove(handle.id).unwrap();
+    let mut listeners = cx.events.event_listeners.remove(handle.id).unwrap();
     let mut click_handler = listeners.on_click.take().unwrap();
 
     // 実際にコールバックを評価してトリガーされるか確認
@@ -362,7 +362,7 @@ fn test_uia_properties() {
     });
 
     // UIA SoA マップにデータが挿入されているかを検証
-    let props = cx.uia_properties.get(handle.id).unwrap();
+    let props = cx.system.uia_properties.get(handle.id).unwrap();
     // Name Property ID は 30005、Automation ID は 30011
     let name_prop = props.iter().find(|(k, _)| *k == 30005).unwrap();
     let auto_prop = props.iter().find(|(k, _)| *k == 30011).unwrap();
@@ -393,7 +393,7 @@ fn test_element_set_content_with() {
 
     // 2.1 初回評価により、子が自動的に生成・マウントされているかを検証
     assert!(cx.entities.contains_key(parent_handle.id));
-    assert!(cx.element_effects.contains_key(parent_handle.id)); // クロージャが登録されているべき
+    assert!(cx.reactive.element_effects.contains_key(parent_handle.id)); // クロージャが登録されているべき
 
     // 生成された子要素のIDを特定
     let children = cx.children[parent_handle.id].clone();
@@ -408,5 +408,5 @@ fn test_element_set_content_with() {
 
     assert!(!cx.entities.contains_key(parent_handle.id));
     assert!(!cx.entities.contains_key(child_id)); // 子要素も再帰的に despawn されているべき
-    assert!(!cx.element_effects.contains_key(parent_handle.id)); // メモリリーク防止：クロージャマップからも完全に削除されているべき
+    assert!(!cx.reactive.element_effects.contains_key(parent_handle.id)); // メモリリーク防止：クロージャマップからも完全に削除されているべき
 }

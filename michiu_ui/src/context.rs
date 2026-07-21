@@ -1,6 +1,21 @@
 #![allow(unused)]
-pub mod runtime;
-pub use runtime::*;
+pub mod content_store;
+pub mod event_store;
+pub mod layout_store;
+pub mod output_store;
+pub mod reactive_store;
+pub mod render_store;
+pub mod system_store;
+pub mod window_store;
+
+pub use content_store::*;
+pub use event_store::*;
+pub use layout_store::*;
+pub use output_store::*;
+pub use reactive_store::*;
+pub use render_store::*;
+pub use system_store::*;
+pub use window_store::*;
 
 use crate::*;
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
@@ -35,65 +50,6 @@ new_key_type! {
     pub struct EntityId;
 }
 
-// Taffyスタイルを一括解決するヘルパー
-pub(crate) fn resolve_taffy_style(
-    basic: &BasicLayout,
-    flex: &FlexLayout,
-    grid: Option<&GridLayout>,
-    scrollbar: Option<&ScrollbarStyle>,
-) -> taffy::Style {
-    let mut style: taffy::Style = taffy::Style {
-        display: basic.display.into(),
-        box_sizing: basic.box_sizing.into(),
-        direction: basic.direction.into(),
-        overflow: basic.overflow.into(),
-        position: basic.position.into(),
-        inset: basic.inset.into(),
-        size: basic.size.into(),
-        min_size: basic.min_size.into(),
-        max_size: basic.max_size.into(),
-        aspect_ratio: basic.aspect_ratio,
-        margin: basic.margin.into(),
-        padding: basic.padding.into(),
-        border: basic.border.into(),
-        align_items: flex.align_items.map(|f| f.into()),
-        align_self: flex.align_self.map(|f| f.into()),
-        justify_items: flex.justify_items.map(|f| f.into()),
-        justify_self: flex.justify_self.map(|f| f.into()),
-        align_content: flex.align_content.map(|f| f.into()),
-        justify_content: flex.justify_content.map(|f| f.into()),
-        gap: flex.gap.into(),
-        flex_direction: flex.flex_direction.into(),
-        flex_wrap: flex.flex_wrap.into(),
-        flex_basis: flex.flex_basis.into(),
-        flex_grow: flex.flex_grow,
-        flex_shrink: flex.flex_shrink,
-        scrollbar_width: if let Some(sb) = scrollbar
-            && sb.mode == ScrollbarMode::Layout
-            && sb.display != ScrollbarDisplay::None
-        {
-            sb.width
-        } else {
-            0.0
-        },
-
-        ..Default::default()
-    };
-    if let Some(g) = grid {
-        style.grid_template_rows = g.grid_template_rows.clone();
-        style.grid_template_columns = g.grid_template_columns.clone();
-        style.grid_auto_rows = g.grid_auto_rows.clone();
-        style.grid_auto_columns = g.grid_auto_columns.clone();
-        style.grid_auto_flow = g.grid_auto_flow.into();
-        style.grid_template_areas = g.grid_template_areas.clone();
-        style.grid_template_column_names = g.grid_template_column_names.clone();
-        style.grid_template_row_names = g.grid_template_row_names.clone();
-        style.grid_row = g.grid_row.clone().into();
-        style.grid_column = g.grid_column.clone().into();
-    }
-    style
-}
-
 // 利用者用 Context を用意して安定APIはそちらで公開
 // pub struct EventContext<'a> {
 //    cx: &'a mut Context,
@@ -101,162 +57,34 @@ pub(crate) fn resolve_taffy_style(
 // RawContext 側で全てのAPIを公開
 // Facade化するのもあり
 pub struct Context {
-    // 1. 存在 ＆ トポロジー（階層・親子）管理
     /// 全要素の生存期間を管理するプライマリマップ
     pub(crate) entities: SlotMap<EntityId, ()>,
     /// 単方向の親ID参照。親子ポインタを排除した木構造の表現
     pub(crate) parents: SecondaryMap<EntityId, Option<EntityId>>,
     /// 子要素のIDリスト。ヒープ割り当てを防ぐため SmallVec を採用
     pub(crate) children: SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>,
-    /// Taffy側のノードIDとの1対1マッピングテーブル（レイアウト結果の同期に使用）
-    pub(crate) taffy_nodes: SecondaryMap<EntityId, taffy::NodeId>,
-
-    // 2. 特徴・アクセス選別マスク
     /// 各要素がどのSoAプロパティ（コンポーネント）を有効化しているかを示すビットマスク
     pub active_masks: SecondaryMap<EntityId, ComponentMask>,
-
-    // 3. 走査・変更管理（Dirty配列）
     /// 画面に表示されているアクティブな全要素のIDを詰め込んだ1次元配列。
     /// 描画やイベント走査はこの1つの配列のみを回す。
     pub active_entities: Vec<EntityId>,
-
-    /// 今フレームでレイアウト（基本/Flex/Grid）に何らかの変更があった要素のリスト。
-    /// Taffy同期フェーズが完了するとクリア。
-    pub(crate) dirty_layout_entities: Vec<EntityId>,
-
-    /// 今フレームでビジュアル（色/枠線/角丸など）に何らかの変更があった要素のリスト。
-    /// wgpuへのインスタンスバッファ転送が完了するとクリア。
-    pub(crate) dirty_render_entities: Vec<EntityId>,
-
-    // 4. SoAレイアウトデータ領域（Taffy用：ホット / コールド分離）
-    // 別々の配列ではなく、AoSチャンクとしてまとめて格納しキャッシュ効率を最大化
-    /// 基本レイアウト（ホット：Copy可能）
-    pub(crate) basic_layouts: SecondaryMap<EntityId, BasicLayout>,
-    /// Flexレイアウト（ホット：Copy可能）
-    pub(crate) flex_layouts: SecondaryMap<EntityId, FlexLayout>,
-    /// Gridレイアウト（コールド：重い動的配列を含むため、設定された要素のみ確保）
-    pub(crate) grid_layouts: SparseSecondaryMap<EntityId, GridLayout>,
-    // 5. SoAビジュアル・ステート領域（wgpu / 合成用ホットデータ）
-    /// 要素の描画パラメータ群。
-    pub(crate) visual_properties: SecondaryMap<EntityId, VisualProperty>,
-    /// ホバーやプレス等の動的ステートに対応するスタイルオーバーライド群
-    pub(crate) interaction_properties: SecondaryMap<EntityId, InteractionStyles>,
-
-    pub(crate) base_basic_layouts: SecondaryMap<EntityId, BasicLayout>,
-    pub(crate) base_visual_properties: SecondaryMap<EntityId, VisualProperty>,
-
-    /// テキストの実体。すべての要素が持つわけではないため、Sparse で管理
-    pub(crate) text_contents: SparseSecondaryMap<EntityId, Cow<'static, str>>,
-    pub(crate) text_spans: SparseSecondaryMap<EntityId, Vec<TextSpan>>,
-    /// 要素ごとの入力エンジン状態
-    pub input_contents: SparseSecondaryMap<EntityId, InputContents>,
-    /// 画像の実体。必要な要素のみ Sparse で管理
-    pub(crate) image_sources: SparseSecondaryMap<EntityId, ImageSource>,
-    /// 動画の再生プロパティ。必要な要素のみ Sparse で管理
-    pub(crate) movie_properties: SparseSecondaryMap<EntityId, MovieProperty>,
-
-    // 7. 計算結果データ領域（アウトプット）
-    /// Taffyによるレイアウト計算後の、確定した画面上の物理的な矩形（x, y, w, h）。
-    /// ヒットテスト（当たり判定）やwgpuの描画パスはこのデータだけを見て動く。
-    pub rects: SecondaryMap<EntityId, LayoutRect>,
-    /// 親要素の overflow 等によって切り取られた、実際に画面上に表示される制限 viewport。
-    /// wgpu の scissor rect の設定や、ヒットテストの範囲制限に用いる。
-    pub(crate) clip_rects: SecondaryMap<EntityId, LayoutRect>,
-    /// スクロールコンテナの現在のスクロールオフセット (x, y)
-    pub(crate) scroll_offsets: SecondaryMap<EntityId, LayoutPoint>,
-    /// 各要素に紐づくスクロールバースタイリング
-    pub(crate) scrollbar_styles: SparseSecondaryMap<EntityId, ScrollBarState>,
-
-    // 前回値キャッシュ用のダブルバッファ
-    pub(crate) prev_rects: SecondaryMap<EntityId, LayoutRect>,
-    pub(crate) prev_clip_rects: SecondaryMap<EntityId, LayoutRect>,
-
-    // 8. インタラクション・イベント追跡用ランタイム状態
-    /// 現在のポインタの物理座標（ドラッグの移動量算出などに使用）
-    pub(crate) current_pointer_position: Option<LayoutPoint>,
-    /// 対称的に整理された、グローバルなインタラクション対象状態
-    pub interaction_states: InteractionStates,
-    /// イベントハンドラを格納するSoA
-    pub(crate) event_listeners: SparseSecondaryMap<EntityId, EventListeners>,
-
-    /// UI Automation プロパティマップ (PropertyID -> Value)
-    pub(crate) uia_properties: SparseSecondaryMap<EntityId, Vec<(i32, UiaValue)>>,
-
-    /// 永続化された TaffyTree。これにより毎フレーム構築を完全に回避
-    pub(crate) taffy: TaffyTree<EntityId>,
-    /// DFS順にフラットに並べた要素ID。座標の非再帰・高速直線走査に使用
-    flat_dfs_sequence: Vec<EntityId>,
-    /// UIツリーの親子関係に変更があったか
-    is_structure_dirty: bool,
-    // ウィンドウサイズの変更検知用キャッシュ
-    last_window_size: Option<LayoutSize>,
     /// 現在のビルドセッションで新しく生成（Spawn）された要素のリスト
     pub(crate) session_spawned: Vec<EntityId>,
     /// セッション終了時に、親がいなくても破棄してはならないルート要素のリスト
     pub(crate) session_roots: Vec<EntityId>,
-
-    /// 全てのシグナルの実値を保持するストレージ（メインスレッド専用）
-    pub(crate) signals: SlotMap<SignalId, Box<dyn std::any::Any>>,
-    /// 各シグナルに対して、どの一連のエフェクトが購読（依存）しているかを追跡する
-    pub(crate) subscribers: SecondaryMap<SignalId, SmallVec<[EffectId; 4]>>,
-    /// 登録された全エフェクトのクロージャを格納するストレージ
-    pub(crate) effects: SlotMap<EffectId, Effects>,
-    /// 要素（EntityId）に紐づく、カテゴリ分けされた動的エフェクトリスト
-    pub(crate) element_effects: SecondaryMap<EntityId, SmallVec<[(EffectCategory, EffectId); 4]>>,
-    // ワーカースレッドからのメインスレッドディスパッチ用チャネル
-    task_receiver: Receiver<TaskRecv>,
-    task_sender: TaskSender,
-
-    pub(crate) text_engine: TextEngine,
-
-    /// 要素ごとに現在実行中のトランジションリスト
-    pub(crate) active_transitions: SparseSecondaryMap<EntityId, Vec<ActiveTransition>>,
-    /// 要素ごとに現在再生中のキーフレームアニメーションリスト
-    pub(crate) active_animations: SparseSecondaryMap<EntityId, Vec<ActiveAnimation>>,
-
-    /// 各要素の WebView2 の詳細な設定・URL情報（コールドデータ）
-    pub(crate) webview_contents: SparseSecondaryMap<EntityId, WebView2Contents>,
-
-    /// DComp 側で初期化（コントローラー生成）が完了して表示準備が整った WebView2 の一覧
-    pub(crate) active_webviews: HashSet<EntityId>,
-
-    /// ウィンドウの枠線ドラッグ等によるインタラクティブなリサイズ処理の最中であるかを示すフラグ
-    pub is_window_resizing: bool,
-    /// 現在のウィンドウの物理DPIスケール因数
-    pub scale_factor: f32,
-
-    /// アニメーション更新頻度の制御用
-    pub(crate) last_tick_time: Option<Instant>,
-
     // 選択された文字範囲
     pub(crate) text_selections: SparseSecondaryMap<EntityId, std::ops::Range<usize>>,
     pub(crate) selection_start_index: SparseSecondaryMap<EntityId, usize>,
-    pub(crate) selected_rects: SparseSecondaryMap<EntityId, Vec<LayoutRect>>,
-    // DWrite レイアウトキャッシュSoA
-    pub(crate) dwrite_layouts: RefCell<SparseSecondaryMap<EntityId, IDWriteTextLayout>>,
 
-    /// 各要素が提供する型 (TypeId) とその SignalId のマッピング
-    pub(crate) providers: SparseSecondaryMap<EntityId, HashMap<TypeId, SignalId>>,
-    /// エフェクトIDから所有する要素IDへの逆引き用
-    pub(crate) effect_to_element: SecondaryMap<EffectId, EntityId>,
-    /// 構築中に登録され、トポロジー完成まで初回評価が保留されている要素エフェクトのキュー
-    pub(crate) pending_element_effects: Vec<EffectId>,
-
-    /// 現在リサイズドラッグ中の要素の情報
-    pub(crate) resizing_state: Option<ResizingState>,
-    // ドラッグ開始直前のホバー中に算出されたリサイズ方向
-    pub(crate) active_resize_hover: Option<(EntityId, ResizeDirection)>,
-
-    /// ドラッグ可能な要素の設定
-    pub(crate) drag_properties: SparseSecondaryMap<EntityId, DragProperty>,
-    /// ドロップ受け入れ先要素の設定
-    pub(crate) drop_properties: SparseSecondaryMap<EntityId, DropProperty>,
-    /// 現在進行中の D&D セッション状態
-    pub(crate) active_drag_state: Option<ActiveDragState>,
+    pub layouts: LayoutStore,
+    pub renders: RenderStore,
+    pub outputs: OutputStore,
+    pub contents: ContentStore,
+    pub events: EventStore,
+    pub reactive: ReactiveStore,
+    pub window: WindowStore,
+    pub system: SystemStore,
 }
-
-pub(crate) type Effects = Box<dyn FnMut(&mut Context)>;
-pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;
 
 impl Default for Context {
     fn default() -> Self {
@@ -266,75 +94,32 @@ impl Default for Context {
 
 impl Context {
     pub fn new() -> Self {
-        // タスク送受信チャネルの初期化
         let (tx, rx) = std::sync::mpsc::channel();
 
         Self {
             entities: SlotMap::with_key(),
             parents: SecondaryMap::new(),
             children: SecondaryMap::new(),
-            taffy_nodes: SecondaryMap::new(),
             active_masks: SecondaryMap::new(),
             active_entities: Vec::new(),
-            dirty_layout_entities: Vec::new(),
-            dirty_render_entities: Vec::new(),
-            basic_layouts: SecondaryMap::new(),
-            flex_layouts: SecondaryMap::new(),
-            grid_layouts: SparseSecondaryMap::new(),
-            text_contents: SparseSecondaryMap::new(),
-            text_spans: SparseSecondaryMap::new(),
-            image_sources: SparseSecondaryMap::new(),
-            movie_properties: SparseSecondaryMap::new(),
-            input_contents: SparseSecondaryMap::new(),
-            visual_properties: SecondaryMap::new(),
-            interaction_properties: SecondaryMap::new(),
-            base_basic_layouts: SecondaryMap::new(),
-            base_visual_properties: SecondaryMap::new(),
-            rects: SecondaryMap::new(),
-            prev_rects: SecondaryMap::new(),
-            prev_clip_rects: SecondaryMap::new(),
-            clip_rects: SecondaryMap::new(),
-            scroll_offsets: SecondaryMap::new(),
-            event_listeners: SparseSecondaryMap::new(),
-            current_pointer_position: None,
-            interaction_states: InteractionStates::new(),
-            uia_properties: SparseSecondaryMap::new(),
-            flat_dfs_sequence: Vec::new(),
-            is_structure_dirty: true,
-            taffy: TaffyTree::new(),
-            last_window_size: None,
             session_spawned: Vec::new(),
             session_roots: Vec::new(),
-            signals: SlotMap::with_key(),
-            subscribers: SecondaryMap::new(),
-            effects: SlotMap::with_key(),
-            element_effects: SecondaryMap::new(),
-            task_receiver: rx,
-            task_sender: TaskSender {
-                inner: tx,
-                waker: None,
-            },
-            text_engine: TextEngine::new(),
-            active_transitions: SparseSecondaryMap::new(),
-            active_animations: SparseSecondaryMap::new(),
-            webview_contents: SparseSecondaryMap::new(),
-            active_webviews: HashSet::new(),
-            is_window_resizing: false,
-            scale_factor: 1.0,
-            last_tick_time: None,
             text_selections: SparseSecondaryMap::new(),
             selection_start_index: SparseSecondaryMap::new(),
-            selected_rects: SparseSecondaryMap::new(),
-            dwrite_layouts: RefCell::new(SparseSecondaryMap::new()),
-            scrollbar_styles: SparseSecondaryMap::new(),
-            providers: SparseSecondaryMap::new(),
-            effect_to_element: SecondaryMap::new(),
-            pending_element_effects: Vec::new(),
-            resizing_state: None,
-            active_resize_hover: None,
-            drag_properties: SparseSecondaryMap::new(),
-            drop_properties: SparseSecondaryMap::new(),
-            active_drag_state: None,
+            layouts: LayoutStore::new(),
+            renders: RenderStore::new(),
+            outputs: OutputStore::new(),
+            contents: ContentStore::new(),
+            events: EventStore::new(),
+            reactive: ReactiveStore::new(),
+            window: WindowStore::new(),
+            system: SystemStore::new(
+                TaskSender {
+                    inner: tx,
+                    waker: None,
+                },
+                rx,
+            ),
         }
     }
 
@@ -348,10 +133,11 @@ impl Context {
 
         // Leaf ノード作成時に、Context として自分自身の ID を登録する
         let node = self
+            .layouts
             .taffy
             .new_leaf_with_context(taffy::Style::default(), id)
             .unwrap();
-        self.taffy_nodes.insert(id, node);
+        self.layouts.taffy_nodes.insert(id, node);
 
         self.active_entities.push(id);
 
@@ -359,7 +145,7 @@ impl Context {
         // カスタムスタイルが当てられるまではデフォルト（Style::default）を再利用するため
         // mark_layout_dirty(id) の呼び出しを完全にスキップして、Taffyへの無駄な伝播をカット
         self.mark_render_dirty(id);
-        self.is_structure_dirty = true; // 構造変化をマーク
+        self.layouts.is_structure_dirty = true; // 構造変化をマーク
 
         self.session_spawned.push(id);
 
@@ -400,7 +186,7 @@ impl Context {
 
     /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
     pub fn task_sender(&self) -> TaskSender {
-        self.task_sender.clone()
+        self.system.task_sender.clone()
     }
 
     /// ウィンドウ生成後に起床用コールバックを登録します。
@@ -408,7 +194,7 @@ impl Context {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        self.task_sender.waker = Some(Arc::new(f));
+        self.system.task_sender.waker = Some(Arc::new(f));
     }
 
     /// Context インスタンスから直接シグナルを生成します。
@@ -417,8 +203,8 @@ impl Context {
         &mut self,
         initial_value: T,
     ) -> (ReadSignal<T>, WriteSignal<T>) {
-        let id = self.signals.insert(Box::new(initial_value));
-        self.subscribers.insert(id, SmallVec::new());
+        let id = self.reactive.signals.insert(Box::new(initial_value));
+        self.reactive.subscribers.insert(id, SmallVec::new());
         (
             ReadSignal {
                 id,
@@ -436,7 +222,7 @@ impl Context {
     pub fn process_main_thread_tasks(&mut self) {
         let _context_guard = bind_context(self);
         // キューに溜まっているクロージャをすべてメインスレッドのコンテキスト上で実行
-        while let Ok(task) = self.task_receiver.try_recv() {
+        while let Ok(task) = self.system.task_receiver.try_recv() {
             task(self);
         }
     }
@@ -449,15 +235,16 @@ impl Context {
         category: EffectCategory,
         effect_id: EffectId,
     ) {
-        if let Some(effects) = self.element_effects.get_mut(element_id) {
+        if let Some(effects) = self.reactive.element_effects.get_mut(element_id) {
             // 同一カテゴリのエフェクトが既に登録されていれば、古いものを破棄
             if let Some(pos) = effects.iter().position(|(cat, _)| *cat == category) {
                 let (_, old_effect_id) = effects.remove(pos);
-                self.effects.remove(old_effect_id); // SoA から古いエフェクト実体を削除
+                self.reactive.effects.remove(old_effect_id); // SoA から古いエフェクト実体を削除
             }
             effects.push((category, effect_id));
         } else {
-            self.element_effects
+            self.reactive
+                .element_effects
                 .insert(element_id, smallvec::smallvec![(category, effect_id)]);
         }
     }
@@ -472,41 +259,46 @@ impl Context {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        let effect_id = self.effects.insert(Box::new(f));
+        let effect_id = self.reactive.effects.insert(Box::new(f));
 
         // 初回評価が走る前に要素との紐付けを確実に登録
-        self.effect_to_element.insert(effect_id, element_id);
+        self.reactive
+            .effect_to_element
+            .insert(effect_id, element_id);
 
         // 要素のエフェクトリストに登録し、既存の同じカテゴリの古いエフェクトは自動破棄
-        if !self.element_effects.contains_key(element_id) {
-            self.element_effects
+        if !self.reactive.element_effects.contains_key(element_id) {
+            self.reactive
+                .element_effects
                 .insert(element_id, smallvec::smallvec![]);
         }
-        let list = self.element_effects.get_mut(element_id).unwrap();
+        let list = self.reactive.element_effects.get_mut(element_id).unwrap();
         if let Some(pos) = list.iter().position(|(cat, _)| *cat == category) {
             let (_, old_id) = list.remove(pos);
-            self.effects.remove(old_id);
-            self.effect_to_element.remove(old_id);
-            self.pending_element_effects.retain(|&x| x != old_id); // キューから古いものを排除
+            self.reactive.effects.remove(old_id);
+            self.reactive.effect_to_element.remove(old_id);
+            self.reactive
+                .pending_element_effects
+                .retain(|&x| x != old_id); // キューから古いものを排除
         }
         list.push((category, effect_id));
 
         // 即時実行を廃止。トポロジーが整うまで初回評価を一時保留
-        self.pending_element_effects.push(effect_id);
+        self.reactive.pending_element_effects.push(effect_id);
 
         effect_id
     }
 
     /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に安全実行します
     pub(crate) fn evaluate_pending_element_effects(&mut self) {
-        if self.pending_element_effects.is_empty() {
+        if self.reactive.pending_element_effects.is_empty() {
             return;
         }
 
         // 評価中に別のネストしたエフェクトが追加されるケースを許容するため、drain で一度排出して処理
-        let pending: Vec<EffectId> = self.pending_element_effects.drain(..).collect();
+        let pending: Vec<EffectId> = self.reactive.pending_element_effects.drain(..).collect();
         for effect_id in pending {
-            if self.effects.contains_key(effect_id) {
+            if self.reactive.effects.contains_key(effect_id) {
                 crate::execute_effect(effect_id);
             }
         }
@@ -514,10 +306,12 @@ impl Context {
 
     /// 指定された要素に対してシグナルコンテキストを提供します
     pub(crate) fn provide_context<T: Send + 'static>(&mut self, id: EntityId, signal_id: SignalId) {
-        if !self.providers.contains_key(id) {
-            self.providers.insert(id, std::collections::HashMap::new());
+        if !self.reactive.providers.contains_key(id) {
+            self.reactive
+                .providers
+                .insert(id, std::collections::HashMap::new());
         }
-        let map = self.providers.get_mut(id).unwrap();
+        let map = self.reactive.providers.get_mut(id).unwrap();
         map.insert(std::any::TypeId::of::<T>(), signal_id);
     }
 
@@ -530,7 +324,7 @@ impl Context {
         let type_id = std::any::TypeId::of::<T>();
 
         while let Some(curr_id) = curr {
-            if let Some(map) = self.providers.get(curr_id)
+            if let Some(map) = self.reactive.providers.get(curr_id)
                 && let Some(&signal_id) = map.get(&type_id)
             {
                 return Some(ReadSignal::new(signal_id));
@@ -548,7 +342,8 @@ impl Context {
         let element_id = if let Some(active_effect_id) =
             crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
         {
-            self.effect_to_element
+            self.reactive
+                .effect_to_element
                 .get(active_effect_id)
                 .copied()
                 .expect("use_provided failed: active effect is not associated with any UI Element")
@@ -579,7 +374,8 @@ impl Context {
         let element_id = if let Some(active_effect_id) =
             crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
         {
-            self.effect_to_element
+            self.reactive
+                .effect_to_element
                 .get(active_effect_id)
                 .copied()
                 .expect("use_provided_setter failed: active effect not associated with an Element")
@@ -597,7 +393,7 @@ impl Context {
         let type_id = std::any::TypeId::of::<T>();
 
         while let Some(curr_id) = curr {
-            if let Some(map) = self.providers.get(curr_id)
+            if let Some(map) = self.reactive.providers.get(curr_id)
                 && let Some(&signal_id) = map.get(&type_id)
             {
                 return WriteSignal {
@@ -626,12 +422,12 @@ impl Context {
             }
 
             // 2. 古い親の Taffy ノードから安全にデタッチ
-            if let Some(&old_parent_node) = self.taffy_nodes.get(old_parent)
-                && let Some(&child_node) = self.taffy_nodes.get(child)
-                && let Ok(taffy_children) = self.taffy.children(old_parent_node)
+            if let Some(&old_parent_node) = self.layouts.taffy_nodes.get(old_parent)
+                && let Some(&child_node) = self.layouts.taffy_nodes.get(child)
+                && let Ok(taffy_children) = self.layouts.taffy.children(old_parent_node)
                 && taffy_children.contains(&child_node)
             {
-                let _ = self.taffy.remove_child(old_parent_node, child_node);
+                let _ = self.layouts.taffy.remove_child(old_parent_node, child_node);
             }
 
             // 3. 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
@@ -648,14 +444,14 @@ impl Context {
         }
 
         // 新しい親の Taffy ツリーの親子関係を永続的に更新
-        if let Some(&parent_node) = self.taffy_nodes.get(parent)
-            && let Some(&child_node) = self.taffy_nodes.get(child)
+        if let Some(&parent_node) = self.layouts.taffy_nodes.get(parent)
+            && let Some(&child_node) = self.layouts.taffy_nodes.get(child)
         {
-            let _ = self.taffy.add_child(parent_node, child_node);
+            let _ = self.layouts.taffy.add_child(parent_node, child_node);
         }
 
         self.mark_layout_dirty(parent);
-        self.is_structure_dirty = true;
+        self.layouts.is_structure_dirty = true;
     }
 
     /// 一括解放
@@ -663,55 +459,18 @@ impl Context {
         self.entities.clear();
         self.parents.clear();
         self.children.clear();
-        self.taffy_nodes.clear();
         self.active_masks.clear();
         self.active_entities.clear();
-        self.dirty_layout_entities.clear();
-        self.dirty_render_entities.clear();
-        self.basic_layouts.clear();
-        self.flex_layouts.clear();
-        self.grid_layouts.clear();
-        self.text_contents.clear();
-        self.text_spans.clear();
-        self.image_sources.clear();
-        self.movie_properties.clear();
-        self.input_contents.clear();
-        self.visual_properties.clear();
-        self.interaction_properties.clear();
-        self.base_basic_layouts.clear();
-        self.base_visual_properties.clear();
-        self.rects.clear();
-        self.prev_rects.clear();
-        self.prev_clip_rects.clear();
-        self.clip_rects.clear();
-        self.scroll_offsets.clear();
-        self.event_listeners.clear();
-        self.uia_properties.clear();
-        self.flat_dfs_sequence.clear();
-        self.is_structure_dirty = true;
-        self.taffy = TaffyTree::new();
-        self.signals.clear();
-        self.subscribers.clear();
-        self.effects.clear();
-        self.active_transitions.clear();
-        self.active_animations.clear();
-        self.webview_contents.clear();
-        self.active_webviews.clear();
         self.text_selections.clear();
         self.selection_start_index.clear();
-        self.selected_rects.clear();
-        self.dwrite_layouts.borrow_mut().clear();
-        self.scrollbar_styles.clear();
-        self.providers.clear();
-        self.effect_to_element.clear();
-        self.pending_element_effects.clear();
-        self.resizing_state = None;
-        self.active_resize_hover = None;
-        self.drag_properties.clear();
-        self.drop_properties.clear();
-        self.active_drag_state = None;
-        // 溜まっている未処理タスクをすべて排出してクリーンアップ
-        while self.task_receiver.try_recv().is_ok() {}
+        self.layouts.clear();
+        self.renders.clear();
+        self.outputs.clear();
+        self.contents.clear();
+        self.events.clear();
+        self.reactive.clear();
+        self.window.clear();
+        self.system.clear();
     }
 
     /// 外部公開用API: ハンドルを指定して要素を安全に破棄します。
@@ -726,19 +485,26 @@ impl Context {
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
     pub(crate) fn despawn_internal(&mut self, id: EntityId) {
         if self.entities.contains_key(id) {
-            // 親側の Taffy 子要素リストから、自身のノードを安全に削除 (remove_child)
-            if let Some(Some(parent_id)) = self.parents.get(id)
-                && let Some(&parent_node) = self.taffy_nodes.get(*parent_id)
-                && let Some(&child_node) = self.taffy_nodes.get(id)
-                && let Ok(taffy_children) = self.taffy.children(parent_node)
-                && taffy_children.contains(&child_node)
-            {
-                let _ = self.taffy.remove_child(parent_node, child_node);
+            // トポロジーと Taffy ツリーのデタッチ処理
+            if let Some(Some(parent_id)) = self.parents.get(id) {
+                // Taffy からノードをデタッチ
+                if let Some(&parent_node) = self.layouts.taffy_nodes.get(*parent_id)
+                    && let Some(&child_node) = self.layouts.taffy_nodes.get(id)
+                    && let Ok(taffy_children) = self.layouts.taffy.children(parent_node)
+                    && taffy_children.contains(&child_node)
+                {
+                    let _ = self.layouts.taffy.remove_child(parent_node, child_node);
+                }
+
+                // 親の children リストから自身を除外
+                if let Some(parent_children) = self.children.get_mut(*parent_id) {
+                    parent_children.retain(|x| *x != id);
+                }
             }
 
-            // 自身の Taffy ノードを TaffyTree から削除
-            if let Some(node) = self.taffy_nodes.remove(id) {
-                let _ = self.taffy.remove(node);
+            // Taffy ノード自体の削除
+            if let Some(node) = self.layouts.taffy_nodes.remove(id) {
+                let _ = self.layouts.taffy.remove(node);
             }
 
             // 子要素を再帰的に despawn
@@ -748,75 +514,27 @@ impl Context {
                 }
             }
 
-            // 親の children リストから自身を除外
-            if let Some(Some(parent_id)) = self.parents.get(id)
-                && let Some(parent_children) = self.children.get_mut(*parent_id)
-            {
-                parent_children.retain(|x| *x != id);
-            }
-
-            // 要素に紐づいていた全エフェクトを自動クリーンアップ
-            // エフェクトのクリーンアップ時に逆引きマップからも削除
-            if let Some(effects) = self.element_effects.remove(id) {
-                for (_, effect_id) in effects {
-                    self.effects.remove(effect_id);
-                    self.effect_to_element.remove(effect_id);
-                    self.pending_element_effects.retain(|&x| x != effect_id);
-                }
-            }
+            self.layouts.despawn(id);
+            self.renders.despawn(id);
+            self.outputs.despawn(id);
+            self.contents.despawn(id);
+            self.events.despawn(id);
+            self.reactive.despawn(id);
+            self.window.despawn(id);
+            self.system.despawn(id);
 
             self.entities.remove(id);
             self.parents.remove(id);
             self.active_masks.remove(id);
 
-            // SoA側の全データも一斉削除
-            self.basic_layouts.remove(id);
-            self.flex_layouts.remove(id);
-            self.grid_layouts.remove(id);
-            self.text_contents.remove(id);
-            self.text_spans.remove(id);
-            self.image_sources.remove(id);
-            self.movie_properties.remove(id);
-            self.input_contents.remove(id);
-            self.visual_properties.remove(id);
-            self.interaction_properties.remove(id);
-            self.base_basic_layouts.remove(id);
-            self.base_visual_properties.remove(id);
-            self.rects.remove(id);
-            self.clip_rects.remove(id);
-            self.scroll_offsets.remove(id);
-            self.event_listeners.remove(id);
-            self.uia_properties.remove(id);
-            self.active_transitions.remove(id);
-            self.active_animations.remove(id);
-            self.webview_contents.remove(id);
             self.text_selections.remove(id);
             self.selection_start_index.remove(id);
-            self.selected_rects.remove(id);
-            self.dwrite_layouts.borrow_mut().remove(id);
-            self.scrollbar_styles.remove(id);
-            self.providers.remove(id);
-
-            self.drag_properties.remove(id);
-            self.drop_properties.remove(id);
-
-            // 現在の D&D セッションに含まれる要素が破棄された場合はセッションを安全にリセット
-            if let Some(ref state) = self.active_drag_state
-                && (state.source_entity == id || state.placeholder_entity == id)
-            {
-                self.active_drag_state = None;
-            }
 
             // ダーティキュー、DFSシーケンス、アクティブ走査用の一時配列から
             // デスポーンされた無効な ID をその場で即時に抹消クリーンアップします。
-            self.dirty_layout_entities.retain(|&x| x != id);
-            self.dirty_render_entities.retain(|&x| x != id);
             self.active_entities.retain(|&x| x != id);
-            self.flat_dfs_sequence.retain(|&x| x != id);
             self.session_spawned.retain(|&x| x != id);
             self.session_roots.retain(|&x| x != id);
-
-            self.is_structure_dirty = true;
         }
     }
 
@@ -830,10 +548,10 @@ impl Context {
         // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
         // 修正: 古いノードの削除は、直後の despawn_internal が一貫して安全に行うため、
         // ここでの手動 remove_child を撤廃し、Taffy 側への新規アタッチ（add_child）のみを行います。
-        if let Some(&parent_node) = self.taffy_nodes.get(parent)
-            && let Some(&new_node) = self.taffy_nodes.get(new_child)
+        if let Some(&parent_node) = self.layouts.taffy_nodes.get(parent)
+            && let Some(&new_node) = self.layouts.taffy_nodes.get(new_child)
         {
-            let _ = self.taffy.add_child(parent_node, new_node);
+            let _ = self.layouts.taffy.add_child(parent_node, new_node);
         }
 
         // children リスト内のインデックス位置を特定して直接置換
@@ -851,24 +569,24 @@ impl Context {
         self.despawn_internal(old_child);
 
         self.mark_layout_dirty(parent);
-        self.is_structure_dirty = true;
+        self.layouts.is_structure_dirty = true;
     }
 
     /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
     /// 内部 SoA リスト（self.children）の順序に沿って一括して再同期）します。
     pub(crate) fn resync_taffy_children_order(&mut self, parent_id: EntityId) {
-        if let Some(&parent_node) = self.taffy_nodes.get(parent_id) {
+        if let Some(&parent_node) = self.layouts.taffy_nodes.get(parent_id) {
             // 一旦現在登録されているすべての子ノードを Taffy 側から安全にデタッチ
-            if let Ok(taffy_children) = self.taffy.children(parent_node) {
+            if let Ok(taffy_children) = self.layouts.taffy.children(parent_node) {
                 for child_node in taffy_children {
-                    let _ = self.taffy.remove_child(parent_node, child_node);
+                    let _ = self.layouts.taffy.remove_child(parent_node, child_node);
                 }
             }
             // 最新の並び替え順序リストの順に従って、Taffy 側に再アタッチ
             if let Some(children_list) = self.children.get(parent_id).cloned() {
                 for child_id in children_list {
-                    if let Some(&child_node) = self.taffy_nodes.get(child_id) {
-                        let _ = self.taffy.add_child(parent_node, child_node);
+                    if let Some(&child_node) = self.layouts.taffy_nodes.get(child_id) {
+                        let _ = self.layouts.taffy.add_child(parent_node, child_node);
                     }
                 }
             }
@@ -880,9 +598,11 @@ impl Context {
         // SlotMap (entities) にキーが存在するもの（生存している要素）だけを保持する
         self.active_entities
             .retain(|&id| self.entities.contains_key(id));
-        self.dirty_layout_entities
+        self.layouts
+            .dirty_layout_entities
             .retain(|&id| self.entities.contains_key(id));
-        self.dirty_render_entities
+        self.renders
+            .dirty_render_entities
             .retain(|&id| self.entities.contains_key(id));
     }
 
@@ -890,8 +610,8 @@ impl Context {
     pub(crate) fn mark_layout_dirty(&mut self, id: EntityId) {
         let mut curr = id;
         // Taffy 側の該当ノードのレイアウトキャッシュを無効化
-        if let Some(&taffy_node) = self.taffy_nodes.get(curr) {
-            let _ = self.taffy.mark_dirty(taffy_node);
+        if let Some(&taffy_node) = self.layouts.taffy_nodes.get(curr) {
+            let _ = self.layouts.taffy.mark_dirty(taffy_node);
         }
 
         loop {
@@ -900,7 +620,7 @@ impl Context {
                 // 多重登録を防ぎつつ、それより上の親はすでに Dirty 化されているため探索を早期ブレイク
                 if !mask.has(STATE_QUEUED_LAYOUT) {
                     mask.set(STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
-                    self.dirty_layout_entities.push(curr);
+                    self.layouts.dirty_layout_entities.push(curr);
                 } else {
                     break;
                 }
@@ -921,7 +641,7 @@ impl Context {
             // すでにレンダーキューに登録済み（STATE_QUEUED_RENDER がオン）なら早期リターン
             if !mask.has(STATE_QUEUED_RENDER) {
                 mask.set(STATE_QUEUED_RENDER); // フラグをオンにして多重登録を防ぐ
-                self.dirty_render_entities.push(id);
+                self.renders.dirty_render_entities.push(id);
             }
         }
     }
@@ -929,21 +649,21 @@ impl Context {
     /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。
     pub fn is_render_dirty(&self) -> bool {
         // dirty_render_entities に何か登録されている、またはレイアウトに Dirty がある場合
-        !self.dirty_render_entities.is_empty()
-            || !self.dirty_layout_entities.is_empty()
-            || self.is_structure_dirty
+        !self.renders.dirty_render_entities.is_empty()
+            || !self.layouts.dirty_layout_entities.is_empty()
+            || self.layouts.is_structure_dirty
     }
 
     /// 非再帰スタックによるフラットDFS配列の高速構築
     fn rebuild_flat_dfs_sequence(&mut self, root: EntityId) {
-        self.flat_dfs_sequence.clear();
+        self.layouts.flat_dfs_sequence.clear();
 
         // あらかじめ実用的なスタック深度を確保しておきメモリ再確保を削減
         let mut stack = Vec::with_capacity(32);
         stack.push(root);
 
         while let Some(id) = stack.pop() {
-            self.flat_dfs_sequence.push(id);
+            self.layouts.flat_dfs_sequence.push(id);
 
             // 左側の子が先にポップされるように、右側（末尾）の子から逆順にスタックへプッシュ
             if let Some(children) = self.children.get(id) {
@@ -954,7 +674,7 @@ impl Context {
             }
         }
 
-        self.is_structure_dirty = false;
+        self.layouts.is_structure_dirty = false;
     }
 
     /// キャッシュコヒーレントな直列DFS同期（1次元直線ループ同期）
@@ -965,8 +685,8 @@ impl Context {
         // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
         self.evaluate_pending_element_effects();
         // ウィンドウサイズの変更検知
-        let window_resized = if self.last_window_size != Some(window_size) {
-            self.last_window_size = Some(window_size);
+        let window_resized = if self.window.last_window_size != Some(window_size) {
+            self.window.last_window_size = Some(window_size);
             true
         } else {
             false
@@ -974,21 +694,21 @@ impl Context {
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // Taffy計算も、ダブルバッファスワップもすべてスキップして即時帰還する。
-        if self.dirty_layout_entities.is_empty()
-            && !self.is_structure_dirty
+        if self.layouts.dirty_layout_entities.is_empty()
+            && !self.layouts.is_structure_dirty
             && !window_resized
-            && !self.rects.is_empty()
+            && !self.outputs.rects.is_empty()
         {
             return;
         }
 
-        if self.is_structure_dirty {
+        if self.layouts.is_structure_dirty {
             self.rebuild_flat_dfs_sequence(root);
         }
 
         // 全スクロールバー関連IDを一括抽出
         let mut scrollbar_el_ids = HashSet::new();
-        for sb_state in self.scrollbar_styles.values() {
+        for sb_state in self.layouts.scrollbar_styles.values() {
             if let Some(track_id) = sb_state.v_track_id {
                 scrollbar_el_ids.insert(track_id);
             }
@@ -1004,27 +724,32 @@ impl Context {
         }
 
         // 1. Taffy永続ツリーへの差分同期
-        for id in &self.dirty_layout_entities {
+        for id in &self.layouts.dirty_layout_entities {
             // スクロールバー専用要素は手動で物理座標を同期させるため、Taffyへの登録更新を完全にバイパス
             if scrollbar_el_ids.contains(id) {
                 continue;
             }
 
-            let (mut basic, flex, grid) = self.resolve_active_layouts(*id);
+            let (mut basic, flex, grid) = self.layouts.resolve_active_layouts(
+                *id,
+                &self.active_masks,
+                &self.parents,
+                &self.renders,
+            );
 
             // もしこの要素が現在アニメーション中（active_transitions に存在）であれば、
             // resolve_active_layouts が強制マージした目標値を拒否し、
             // tick_transitions が毎フレーム更新している現在値に上書きし直して Taffy に送信。
-            if let Some(active_list) = self.active_transitions.get(*id) {
+            if let Some(active_list) = self.renders.active_transitions.get(*id) {
                 for t_state in active_list {
                     match t_state.property_list {
                         PropertyList::Width => {
-                            if let Some(layout) = self.basic_layouts.get(*id) {
+                            if let Some(layout) = self.layouts.basic_layouts.get(*id) {
                                 basic.size.width = layout.size.width;
                             }
                         }
                         PropertyList::Height => {
-                            if let Some(layout) = self.basic_layouts.get(*id) {
+                            if let Some(layout) = self.layouts.basic_layouts.get(*id) {
                                 basic.size.height = layout.size.height;
                             }
                         }
@@ -1033,15 +758,20 @@ impl Context {
                 }
             }
 
-            let sb_style = self.scrollbar_styles.get(*id).map(|s| &s.style);
-            let taffy_style = resolve_taffy_style(&basic, &flex, grid.as_ref(), sb_style);
-            let taffy_node = self.taffy_nodes[*id];
+            let sb_style = self.layouts.scrollbar_styles.get(*id).map(|s| &s.style);
+            let taffy_style = self
+                .layouts
+                .resolve_taffy_style(*id, (&basic, &flex, grid.as_ref()));
+            let taffy_node = self.layouts.taffy_nodes[*id];
 
-            self.taffy.set_style(taffy_node, taffy_style).unwrap();
+            self.layouts
+                .taffy
+                .set_style(taffy_node, taffy_style)
+                .unwrap();
         }
 
         // 2. Taffy のレイアウト再計算
-        if let Some(&root_node) = self.taffy_nodes.get(root) {
+        if let Some(&root_node) = self.layouts.taffy_nodes.get(root) {
             // 計測関数をクロージャとして定義
             let measure_func = |known_dims: taffy::Size<Option<f32>>,
                                 available_space: taffy::Size<taffy::AvailableSpace>,
@@ -1063,7 +793,7 @@ impl Context {
                     //  一時的に bind_context されているスレッドローカル経由で取得)
                     return with_context(|cx| {
                         if cx.active_masks[id].has(COMP_INPUT_CONTENT)
-                            && let Some(contents) = cx.input_contents.get(id)
+                            && let Some(contents) = cx.contents.input_contents.get(id)
                             && let Some(layout_rect) = contents.last_layout
                         {
                             return taffy::Size {
@@ -1073,8 +803,14 @@ impl Context {
                         }
 
                         if cx.active_masks[id].has(COMP_TEXT_CONTENT) {
-                            let text = cx.text_contents.get(id).map(|s| s.as_ref()).unwrap_or("");
+                            let text = cx
+                                .contents
+                                .text_contents
+                                .get(id)
+                                .map(|s| s.as_ref())
+                                .unwrap_or("");
                             let (font_size, font_family, font_weight, font_style) = cx
+                                .renders
                                 .visual_properties
                                 .get(id)
                                 .map(|v| {
@@ -1090,10 +826,15 @@ impl Context {
 
                             let max_width = None;
 
-                            let spans = cx.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+                            let spans = cx
+                                .contents
+                                .text_spans
+                                .get(id)
+                                .map(|s| s.as_slice())
+                                .unwrap_or(&[]);
 
                             // DirectWrite を使用して正確なサイズを計測
-                            let size = cx.text_engine.measure_text(
+                            let size = cx.system.text_engine.measure_text(
                                 text,
                                 font_size,
                                 font_family,
@@ -1105,7 +846,7 @@ impl Context {
 
                             // 計測した文字自体の正確なサイズをここでインプット要素にキャッシュする
                             if cx.active_masks[id].has(COMP_INPUT_CONTENT)
-                                && let Some(contents) = cx.input_contents.get_mut(id)
+                                && let Some(contents) = cx.contents.input_contents.get_mut(id)
                             {
                                 contents.last_layout =
                                     Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
@@ -1129,7 +870,7 @@ impl Context {
                 taffy::Size::ZERO
             };
 
-            let _ = self.taffy.compute_layout_with_measure(
+            let _ = self.layouts.taffy.compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
@@ -1142,18 +883,21 @@ impl Context {
         self.active_entities.clear();
 
         // スワップおよび一旦コンテンツの rects のみを確定 (scroll_size を正しく算出するため)
-        std::mem::swap(&mut self.rects, &mut self.prev_rects);
-        std::mem::swap(&mut self.clip_rects, &mut self.prev_clip_rects);
+        std::mem::swap(&mut self.outputs.rects, &mut self.outputs.prev_rects);
+        std::mem::swap(
+            &mut self.outputs.clip_rects,
+            &mut self.outputs.prev_clip_rects,
+        );
 
-        self.rects.clear();
-        self.clip_rects.clear();
+        self.outputs.rects.clear();
+        self.outputs.clip_rects.clear();
 
-        let flat_len = self.flat_dfs_sequence.len();
+        let flat_len = self.layouts.flat_dfs_sequence.len();
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
 
         // 1次元非再帰・静的キャッシュバイパスループ
         for i in 0..flat_len {
-            let id = self.flat_dfs_sequence[i];
+            let id = self.layouts.flat_dfs_sequence[i];
 
             // スクロールバー専用子要素は手動で物理座標を強制更新するため、この走査ループから完全にスルー
             if scrollbar_el_ids.contains(&id) {
@@ -1165,10 +909,10 @@ impl Context {
             // 親の移動・リサイズ状態を検証
             let mut parent_changed = false;
             if let Some(parent_id) = parent_id_opt {
-                let prev_parent_rect = self.prev_rects.get(parent_id);
-                let curr_parent_rect = self.rects.get(parent_id);
-                let prev_parent_clip = self.prev_clip_rects.get(parent_id);
-                let curr_parent_clip = self.clip_rects.get(parent_id);
+                let prev_parent_rect = self.outputs.prev_rects.get(parent_id);
+                let curr_parent_rect = self.outputs.rects.get(parent_id);
+                let prev_parent_clip = self.outputs.prev_clip_rects.get(parent_id);
+                let curr_parent_clip = self.outputs.clip_rects.get(parent_id);
                 let is_parent_dirty = self.active_masks[parent_id].has(STATE_QUEUED_LAYOUT);
 
                 if prev_parent_rect != curr_parent_rect
@@ -1185,23 +929,23 @@ impl Context {
             if !window_resized
                 && !has_style_changed
                 && !parent_changed
-                && self.prev_rects.contains_key(id)
+                && self.outputs.prev_rects.contains_key(id)
             {
                 // 自分自身のスタイルが変わっておらず、親も動いていない、かつモニターリサイズもされていないならキャッシュ利用
-                let cached_rect = self.prev_rects[id];
-                self.rects.insert(id, cached_rect);
+                let cached_rect = self.outputs.prev_rects[id];
+                self.outputs.rects.insert(id, cached_rect);
 
                 // クリップも同様にキャッシュ再利用
-                let cached_clip = self.prev_clip_rects[id];
-                self.clip_rects.insert(id, cached_clip);
+                let cached_clip = self.outputs.prev_clip_rects[id];
+                self.outputs.clip_rects.insert(id, cached_clip);
 
                 self.active_entities.push(id);
                 continue;
             }
 
             // キャッシュが使えない場合のみ、Taffyから実データを引き出す
-            let local_rect = if let Some(&taffy_node) = self.taffy_nodes.get(id) {
-                if let Ok(layout) = self.taffy.layout(taffy_node) {
+            let local_rect = if let Some(&taffy_node) = self.layouts.taffy_nodes.get(id) {
+                if let Ok(layout) = self.layouts.taffy.layout(taffy_node) {
                     LayoutRect::new(
                         layout.location.x,
                         layout.location.y,
@@ -1216,10 +960,11 @@ impl Context {
             };
 
             let (abs_rect, parent_clip) = if let Some(parent_id) = parent_id_opt {
-                let parent_rect = self.rects[parent_id];
-                let parent_clip = self.clip_rects[parent_id];
+                let parent_rect = self.outputs.rects[parent_id];
+                let parent_clip = self.outputs.clip_rects[parent_id];
 
                 let is_absolute = self
+                    .layouts
                     .basic_layouts
                     .get(id)
                     .map(|l| l.position == Position::Absolute)
@@ -1228,7 +973,8 @@ impl Context {
                 let parent_scroll = if is_absolute {
                     LayoutPoint::ZERO
                 } else {
-                    self.scroll_offsets
+                    self.outputs
+                        .scroll_offsets
                         .get(parent_id)
                         .copied()
                         .unwrap_or(LayoutPoint::ZERO)
@@ -1253,11 +999,11 @@ impl Context {
                 )
             };
 
-            self.rects.insert(id, abs_rect);
+            self.outputs.rects.insert(id, abs_rect);
             let mask = self.active_masks[id];
 
             if mask.has(COMP_INPUT_CONTENT)
-                && let Some(contents) = self.input_contents.get_mut(id)
+                && let Some(contents) = self.contents.input_contents.get_mut(id)
             {
                 contents.last_bounds = Some(abs_rect);
             }
@@ -1268,26 +1014,33 @@ impl Context {
             } else {
                 parent_clip
             };
-            self.clip_rects.insert(id, current_clip);
+            self.outputs.clip_rects.insert(id, current_clip);
 
             // 常に1次元DFS順でアクティブ要素リストに登録する
             self.active_entities.push(id);
         }
 
         // スクロールバー要素（Track & Thumb）のサイズ・配置・不透明度を一括同期更新
-        let scrollbar_ids: Vec<EntityId> = self.scrollbar_styles.keys().collect();
+        let scrollbar_ids: Vec<EntityId> = self.layouts.scrollbar_styles.keys().collect();
         for id in scrollbar_ids {
-            let sb_state = self.scrollbar_styles.get(id).cloned().unwrap();
-            let container_rect = self.rects[id];
+            let sb_state = self.layouts.scrollbar_styles.get(id).cloned().unwrap();
+            let container_rect = self.outputs.rects[id];
             let scroll_size = self.get_scroll_size(id);
             let current_scroll = self
+                .outputs
                 .scroll_offsets
                 .get(id)
                 .copied()
                 .unwrap_or(LayoutPoint::ZERO);
 
             // 親コンテナのボーダーおよびパディング厚を取得
-            let (basic, _, _) = self.resolve_active_layouts(id);
+            let (basic, _, _) = self.layouts.resolve_active_layouts(
+                id,
+                &self.active_masks,
+                &self.parents,
+                &self.renders,
+            );
+
             let border_right = match basic.border.right {
                 Length::Px(v) => v,
                 _ => 0.0,
@@ -1374,7 +1127,7 @@ impl Context {
                     }
                 }
 
-                let track_node = self.taffy_nodes[v_track];
+                let track_node = self.layouts.taffy_nodes[v_track];
                 if v_track_visible {
                     let mut user_track_h = None;
                     if let Some(ref track_style) = sb_state.style.v_track
@@ -1411,34 +1164,41 @@ impl Context {
                         layout.inset.right = Val::Px(track_right);
                     };
 
-                    if let Some(layout) = self.basic_layouts.get_mut(v_track) {
+                    if let Some(layout) = self.layouts.basic_layouts.get_mut(v_track) {
                         update_layouts(layout);
                     }
-                    if let Some(layout) = self.base_basic_layouts.get_mut(v_track) {
+                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(v_track) {
                         update_layouts(layout);
                     }
 
-                    if let Some(vis) = self.visual_properties.get_mut(v_track) {
+                    if let Some(vis) = self.renders.visual_properties.get_mut(v_track) {
                         vis.opacity = Some(v_track_opacity);
                     }
-                    if let Some(vis) = self.base_visual_properties.get_mut(v_track) {
+                    if let Some(vis) = self.renders.base_visual_properties.get_mut(v_track) {
                         vis.opacity = Some(v_track_opacity);
                     }
 
-                    let (basic, flex, _) = self.resolve_active_layouts(v_track);
-                    let taffy_style = resolve_taffy_style(&basic, &flex, None, None);
-                    let _ = self.taffy.set_style(track_node, taffy_style);
+                    let (basic, flex, _) = self.layouts.resolve_active_layouts(
+                        v_track,
+                        &self.active_masks,
+                        &self.parents,
+                        &self.renders,
+                    );
+                    let taffy_style = self
+                        .layouts
+                        .resolve_taffy_style(v_track, (&basic, &flex, None));
+                    let _ = self.layouts.taffy.set_style(track_node, taffy_style);
                 } else {
                     let hide_layouts = |layout: &mut BasicLayout| {
                         layout.display = Display::None;
                     };
-                    if let Some(layout) = self.basic_layouts.get_mut(v_track) {
+                    if let Some(layout) = self.layouts.basic_layouts.get_mut(v_track) {
                         hide_layouts(layout);
                     }
-                    if let Some(layout) = self.base_basic_layouts.get_mut(v_track) {
+                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(v_track) {
                         hide_layouts(layout);
                     }
-                    let _ = self.taffy.set_style(
+                    let _ = self.layouts.taffy.set_style(
                         track_node,
                         taffy::Style {
                             display: taffy::Display::None,
@@ -1473,7 +1233,7 @@ impl Context {
                     }
                 }
 
-                let thumb_node = self.taffy_nodes[v_thumb];
+                let thumb_node = self.layouts.taffy_nodes[v_thumb];
                 if v_thumb_visible {
                     let track_h = (visible_h
                         - border_top
@@ -1571,34 +1331,41 @@ impl Context {
                     };
 
                     // base_basic_layouts も同時同期することで、ホバー時の強制上書きによる位置ガタつきを完璧に阻止します
-                    if let Some(layout) = self.basic_layouts.get_mut(v_thumb) {
+                    if let Some(layout) = self.layouts.basic_layouts.get_mut(v_thumb) {
                         update_layouts(layout);
                     }
-                    if let Some(layout) = self.base_basic_layouts.get_mut(v_thumb) {
+                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(v_thumb) {
                         update_layouts(layout);
                     }
 
-                    if let Some(vis) = self.visual_properties.get_mut(v_thumb) {
+                    if let Some(vis) = self.renders.visual_properties.get_mut(v_thumb) {
                         vis.opacity = Some(v_thumb_opacity);
                     }
-                    if let Some(vis) = self.base_visual_properties.get_mut(v_thumb) {
+                    if let Some(vis) = self.renders.base_visual_properties.get_mut(v_thumb) {
                         vis.opacity = Some(v_thumb_opacity);
                     }
 
-                    let (basic, flex, _) = self.resolve_active_layouts(v_thumb);
-                    let taffy_style = resolve_taffy_style(&basic, &flex, None, None);
-                    let _ = self.taffy.set_style(thumb_node, taffy_style);
+                    let (basic, flex, _) = self.layouts.resolve_active_layouts(
+                        v_thumb,
+                        &self.active_masks,
+                        &self.parents,
+                        &self.renders,
+                    );
+                    let taffy_style = self
+                        .layouts
+                        .resolve_taffy_style(v_thumb, (&basic, &flex, None));
+                    let _ = self.layouts.taffy.set_style(thumb_node, taffy_style);
                 } else {
                     let hide_layouts = |layout: &mut BasicLayout| {
                         layout.display = Display::None;
                     };
-                    if let Some(layout) = self.basic_layouts.get_mut(v_thumb) {
+                    if let Some(layout) = self.layouts.basic_layouts.get_mut(v_thumb) {
                         hide_layouts(layout);
                     }
-                    if let Some(layout) = self.base_basic_layouts.get_mut(v_thumb) {
+                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(v_thumb) {
                         hide_layouts(layout);
                     }
-                    let _ = self.taffy.set_style(
+                    let _ = self.layouts.taffy.set_style(
                         thumb_node,
                         taffy::Style {
                             display: taffy::Display::None,
@@ -1633,7 +1400,7 @@ impl Context {
                     }
                 }
 
-                let track_node = self.taffy_nodes[h_track];
+                let track_node = self.layouts.taffy_nodes[h_track];
                 if h_track_visible {
                     let track_w = (visible_w
                         - border_left
@@ -1658,34 +1425,41 @@ impl Context {
                         layout.inset.left = Val::Px(0.0);
                     };
 
-                    if let Some(layout) = self.basic_layouts.get_mut(h_track) {
+                    if let Some(layout) = self.layouts.basic_layouts.get_mut(h_track) {
                         update_layouts(layout);
                     }
-                    if let Some(layout) = self.base_basic_layouts.get_mut(h_track) {
+                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(h_track) {
                         update_layouts(layout);
                     }
 
-                    if let Some(vis) = self.visual_properties.get_mut(h_track) {
+                    if let Some(vis) = self.renders.visual_properties.get_mut(h_track) {
                         vis.opacity = Some(h_track_opacity);
                     }
-                    if let Some(vis) = self.base_visual_properties.get_mut(h_track) {
+                    if let Some(vis) = self.renders.base_visual_properties.get_mut(h_track) {
                         vis.opacity = Some(h_track_opacity);
                     }
 
-                    let (basic, flex, _) = self.resolve_active_layouts(h_track);
-                    let taffy_style = resolve_taffy_style(&basic, &flex, None, None);
-                    let _ = self.taffy.set_style(track_node, taffy_style);
+                    let (basic, flex, _) = self.layouts.resolve_active_layouts(
+                        h_track,
+                        &self.active_masks,
+                        &self.parents,
+                        &self.renders,
+                    );
+                    let taffy_style = self
+                        .layouts
+                        .resolve_taffy_style(h_track, (&basic, &flex, None));
+                    let _ = self.layouts.taffy.set_style(track_node, taffy_style);
                 } else {
                     let hide_layouts = |layout: &mut BasicLayout| {
                         layout.display = Display::None;
                     };
-                    if let Some(layout) = self.basic_layouts.get_mut(h_track) {
+                    if let Some(layout) = self.layouts.basic_layouts.get_mut(h_track) {
                         hide_layouts(layout);
                     }
-                    if let Some(layout) = self.base_basic_layouts.get_mut(h_track) {
+                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(h_track) {
                         hide_layouts(layout);
                     }
-                    let _ = self.taffy.set_style(
+                    let _ = self.layouts.taffy.set_style(
                         track_node,
                         taffy::Style {
                             display: taffy::Display::None,
@@ -1720,7 +1494,7 @@ impl Context {
                     }
                 }
 
-                let thumb_node = self.taffy_nodes[h_thumb];
+                let thumb_node = self.layouts.taffy_nodes[h_thumb];
                 if h_thumb_visible {
                     let track_w = (visible_w
                         - border_left
@@ -1813,34 +1587,41 @@ impl Context {
                         layout.inset.top = Val::Px(thumb_y);
                     };
 
-                    if let Some(layout) = self.basic_layouts.get_mut(h_thumb) {
+                    if let Some(layout) = self.layouts.basic_layouts.get_mut(h_thumb) {
                         update_layouts(layout);
                     }
-                    if let Some(layout) = self.base_basic_layouts.get_mut(h_thumb) {
+                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(h_thumb) {
                         update_layouts(layout);
                     }
 
-                    if let Some(vis) = self.visual_properties.get_mut(h_thumb) {
+                    if let Some(vis) = self.renders.visual_properties.get_mut(h_thumb) {
                         vis.opacity = Some(h_thumb_opacity);
                     }
-                    if let Some(vis) = self.base_visual_properties.get_mut(h_thumb) {
+                    if let Some(vis) = self.renders.base_visual_properties.get_mut(h_thumb) {
                         vis.opacity = Some(h_thumb_opacity);
                     }
 
-                    let (basic, flex, _) = self.resolve_active_layouts(h_thumb);
-                    let taffy_style = resolve_taffy_style(&basic, &flex, None, None);
-                    let _ = self.taffy.set_style(thumb_node, taffy_style);
+                    let (basic, flex, _) = self.layouts.resolve_active_layouts(
+                        h_thumb,
+                        &self.active_masks,
+                        &self.parents,
+                        &self.renders,
+                    );
+                    let taffy_style = self
+                        .layouts
+                        .resolve_taffy_style(h_thumb, (&basic, &flex, None));
+                    let _ = self.layouts.taffy.set_style(thumb_node, taffy_style);
                 } else {
                     let hide_layouts = |layout: &mut BasicLayout| {
                         layout.display = Display::None;
                     };
-                    if let Some(layout) = self.basic_layouts.get_mut(h_thumb) {
+                    if let Some(layout) = self.layouts.basic_layouts.get_mut(h_thumb) {
                         hide_layouts(layout);
                     }
-                    if let Some(layout) = self.base_basic_layouts.get_mut(h_thumb) {
+                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(h_thumb) {
                         hide_layouts(layout);
                     }
-                    let _ = self.taffy.set_style(
+                    let _ = self.layouts.taffy.set_style(
                         thumb_node,
                         taffy::Style {
                             display: taffy::Display::None,
@@ -1853,8 +1634,8 @@ impl Context {
 
         // スクロールバー専用要素のサイズ・位置が確定したため、
         // 差分計算を走らせてマージンやパディングを考慮した物理位置を Taffy 内部で正確に解決
-        if let Some(&root_node) = self.taffy_nodes.get(root) {
-            let _ = self.taffy.compute_layout_with_measure(
+        if let Some(&root_node) = self.layouts.taffy_nodes.get(root) {
+            let _ = self.layouts.taffy.compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
@@ -1869,7 +1650,7 @@ impl Context {
                     if let Some(&id) = context.as_deref() {
                         return with_context(|cx| {
                             if cx.active_masks[id].has(COMP_INPUT_CONTENT)
-                                && let Some(contents) = cx.input_contents.get(id)
+                                && let Some(contents) = cx.contents.input_contents.get(id)
                                 && let Some(layout_rect) = contents.last_layout
                             {
                                 return taffy::Size {
@@ -1879,7 +1660,7 @@ impl Context {
                             }
 
                             // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
-                            if let Some(&rect) = cx.rects.get(id) {
+                            if let Some(&rect) = cx.outputs.rects.get(id) {
                                 taffy::Size {
                                     width: known_dims.width.unwrap_or(rect.width),
                                     height: known_dims.height.unwrap_or(rect.height),
@@ -1898,10 +1679,10 @@ impl Context {
         self.active_entities.clear();
 
         for i in 0..flat_len {
-            let id = self.flat_dfs_sequence[i];
+            let id = self.layouts.flat_dfs_sequence[i];
 
-            let local_rect = if let Some(&taffy_node) = self.taffy_nodes.get(id) {
-                if let Ok(layout) = self.taffy.layout(taffy_node) {
+            let local_rect = if let Some(&taffy_node) = self.layouts.taffy_nodes.get(id) {
+                if let Ok(layout) = self.layouts.taffy.layout(taffy_node) {
                     LayoutRect::new(
                         layout.location.x,
                         layout.location.y,
@@ -1917,10 +1698,11 @@ impl Context {
 
             let (abs_rect, parent_clip) =
                 if let Some(parent_id) = self.parents.get(id).copied().flatten() {
-                    let parent_rect = self.rects[parent_id];
-                    let parent_clip = self.clip_rects[parent_id];
+                    let parent_rect = self.outputs.rects[parent_id];
+                    let parent_clip = self.outputs.clip_rects[parent_id];
 
                     let is_absolute = self
+                        .layouts
                         .basic_layouts
                         .get(id)
                         .map(|l| l.position == Position::Absolute)
@@ -1929,7 +1711,8 @@ impl Context {
                     let parent_scroll = if is_absolute {
                         LayoutPoint::ZERO
                     } else {
-                        self.scroll_offsets
+                        self.outputs
+                            .scroll_offsets
                             .get(parent_id)
                             .copied()
                             .unwrap_or(LayoutPoint::ZERO)
@@ -1954,11 +1737,11 @@ impl Context {
                     )
                 };
 
-            self.rects.insert(id, abs_rect);
+            self.outputs.rects.insert(id, abs_rect);
             let mask = self.active_masks[id];
 
             if mask.has(COMP_INPUT_CONTENT)
-                && let Some(contents) = self.input_contents.get_mut(id)
+                && let Some(contents) = self.contents.input_contents.get_mut(id)
             {
                 contents.last_bounds = Some(abs_rect);
             }
@@ -1968,16 +1751,16 @@ impl Context {
             } else {
                 parent_clip
             };
-            self.clip_rects.insert(id, current_clip);
+            self.outputs.clip_rects.insert(id, current_clip);
 
             self.active_entities.push(id);
         }
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
         for i in 0..flat_len {
-            let id = self.flat_dfs_sequence[i];
-            if self.scroll_offsets.contains_key(id) {
-                let current = self.scroll_offsets[id];
+            let id = self.layouts.flat_dfs_sequence[i];
+            if self.outputs.scroll_offsets.contains_key(id) {
+                let current = self.outputs.scroll_offsets[id];
                 // 枠サイズの変更があった場合など、現在の位置からはみ出していれば自動クランプ調整
                 self.scroll_to(id, current.x, current.y);
             }
@@ -1989,22 +1772,22 @@ impl Context {
     }
 
     pub fn clear_layout_dirty(&mut self) {
-        for id in self.dirty_layout_entities.drain(..) {
+        for id in self.layouts.dirty_layout_entities.drain(..) {
             if let Some(mask) = self.active_masks.get_mut(id) {
                 mask.unset(STATE_QUEUED_LAYOUT);
             }
         }
-        self.dirty_layout_entities.clear();
+        self.layouts.dirty_layout_entities.clear();
     }
 
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
     pub fn clear_render_dirty(&mut self) {
-        for id in self.dirty_render_entities.drain(..) {
+        for id in self.renders.dirty_render_entities.drain(..) {
             if let Some(mask) = self.active_masks.get_mut(id) {
                 mask.unset(STATE_QUEUED_RENDER);
             }
         }
-        self.dirty_render_entities.clear();
+        self.renders.dirty_render_entities.clear();
     }
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
@@ -2024,8 +1807,12 @@ impl Context {
         let mut effective_z_indices = SecondaryMap::with_capacity(self.active_entities.len());
 
         // flat_dfs_sequence は必ず親から子への順でフラットに並んでいるため、前方1方向の走査で完結
-        for &id in &self.flat_dfs_sequence {
-            let self_z = self.visual_properties.get(id).and_then(|v| v.z_index);
+        for &id in &self.layouts.flat_dfs_sequence {
+            let self_z = self
+                .renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.z_index);
 
             let parent_z = self
                 .parents
@@ -2045,21 +1832,30 @@ impl Context {
         sorted_entities.sort_by_key(|&id| effective_z_indices.get(id).copied().unwrap_or(0));
 
         for &id in &sorted_entities {
-            let rect = self.rects[id];
+            let rect = self.outputs.rects[id];
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
 
-            let clip = self.clip_rects[id];
+            let clip = self.outputs.clip_rects[id];
 
             let is_webview = self.active_masks[id].has(COMP_WEBVIEW_CONTENT);
 
             // コントローラーがまだ初期化されていない（active_webviewsに入っていない）場合は、
             // 紺色の背景を通常通り描き込み、デスクトップが透けるのを完全に防止します。
-            let is_webview_ready = is_webview && self.active_webviews.contains(&id);
+            let is_webview_ready = is_webview && self.renders.active_webviews.contains(&id);
 
-            let (basic, _, _) = self.resolve_active_layouts(id);
-            let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
+            let (basic, _, _) = self.layouts.resolve_active_layouts(
+                id,
+                &self.active_masks,
+                &self.parents,
+                &self.renders,
+            );
+            let visual = self
+                .renders
+                .visual_properties
+                .get(id)
+                .unwrap_or(&default_visual);
 
             let o_width = visual.outline_width.unwrap_or(EdgeInsets::ZERO);
             let o_color = visual.outline_color.unwrap_or(Color::TRANSPARENT);
@@ -2306,7 +2102,7 @@ impl Context {
 
             // 選択ハイライト背景のwgpu側への差し込み
             // キャッシュされた選択背景矩形群を描画
-            if let Some(rects) = self.selected_rects.get(id) {
+            if let Some(rects) = self.outputs.selected_rects.get(id) {
                 let border_left = match basic.border.left {
                     Length::Px(v) => v,
                     _ => 0.0,
@@ -2330,6 +2126,7 @@ impl Context {
 
                 // スクロールオフセット
                 let scroll = self
+                    .outputs
                     .scroll_offsets
                     .get(id)
                     .copied()
@@ -2545,11 +2342,11 @@ impl Context {
             current_ids.push(id);
 
             let is_input = self.active_masks[id].has(COMP_INPUT_CONTENT);
-            let is_focused = self.interaction_states.focused == Some(id);
+            let is_focused = self.events.interaction_states.focused == Some(id);
 
             if is_input
                 && is_focused
-                && let Some(contents) = self.input_contents.get(id)
+                && let Some(contents) = self.contents.input_contents.get(id)
             {
                 let now_instant = Instant::now();
                 // 現在のミリ秒から点滅周期を自動計算
@@ -2572,7 +2369,11 @@ impl Context {
                 };
 
                 if show_caret {
-                    let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
+                    let visual = self
+                        .renders
+                        .visual_properties
+                        .get(id)
+                        .unwrap_or(&default_visual);
                     let font_size = visual.font_size.unwrap_or(16.0);
 
                     let border_top = match basic.border.top {
@@ -2592,10 +2393,11 @@ impl Context {
                         _ => 0.0,
                     };
 
-                    let scale = self.scale_factor;
+                    let scale = self.window.scale_factor;
 
                     // スクロールオフセットを取得
                     let scroll = self
+                        .outputs
                         .scroll_offsets
                         .get(id)
                         .copied()
@@ -2642,7 +2444,11 @@ impl Context {
                         .caret_color
                         .or(visual.text_color)
                         .unwrap_or(Color::WHITE);
-                    let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
+                    let visual = self
+                        .renders
+                        .visual_properties
+                        .get(id)
+                        .unwrap_or(&default_visual);
 
                     // 通常の Solid 矩形 (mode == 0.0) としてキャレット Quad を最前面に配置
                     let caret_instance = QuadInstance {
@@ -2691,32 +2497,39 @@ impl Context {
     /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
     pub fn has_active_animations(&self) -> bool {
         // トランジション（CSS transition）のアクティブ判定
-        let has_transitions = !self.active_transitions.is_empty()
+        let has_transitions = !self.renders.active_transitions.is_empty()
             && self
+                .renders
                 .active_transitions
                 .values()
                 .any(|list| !list.is_empty());
 
         // キーフレームアニメーション（CSS animation）のアクティブ判定
-        let has_keyframes = !self.active_animations.is_empty()
-            && self.active_animations.values().any(|list| !list.is_empty());
+        let has_keyframes = !self.renders.active_animations.is_empty()
+            && self
+                .renders
+                .active_animations
+                .values()
+                .any(|list| !list.is_empty());
 
         // 3フォーカスされたインプットがあり、キャレット点滅が有効な間は描画ループを駆動
         let has_blinking_input = self
+            .events
             .interaction_states
             .focused
-            .and_then(|id| self.input_contents.get(id))
+            .and_then(|id| self.contents.input_contents.get(id))
             .map(|c| c.has_caret && c.is_blink)
             .unwrap_or(false);
 
         // 一時的表示スクロールバーのフェード進行中は描画更新ループを継続
-        let has_active_transient_scrollbar = self.scrollbar_styles.values().any(|sb_state| {
-            sb_state.style.display == ScrollbarDisplay::Transient
-                && sb_state
-                    .last_scroll_time
-                    .map(|t| t.elapsed() < Duration::from_millis(1500))
-                    .unwrap_or(false)
-        });
+        let has_active_transient_scrollbar =
+            self.layouts.scrollbar_styles.values().any(|sb_state| {
+                sb_state.style.display == ScrollbarDisplay::Transient
+                    && sb_state
+                        .last_scroll_time
+                        .map(|t| t.elapsed() < Duration::from_millis(1500))
+                        .unwrap_or(false)
+            });
 
         // ドラッグ選択中でポインタが可視境界外にある場合も継続
         let has_drag_autoscroll = self.is_drag_autoscroll_active();
@@ -2730,11 +2543,12 @@ impl Context {
 
     /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
     fn is_drag_autoscroll_active(&self) -> bool {
-        if let Some(pressed_id) = self.interaction_states.pressed
-            && let Some(pointer_pos) = self.current_pointer_position
-            && let Some(clip) = self.clip_rects.get(pressed_id)
+        if let Some(pressed_id) = self.events.interaction_states.pressed
+            && let Some(pointer_pos) = self.events.current_pointer_position
+            && let Some(clip) = self.outputs.clip_rects.get(pressed_id)
         {
             let user_select = self
+                .renders
                 .visual_properties
                 .get(pressed_id)
                 .and_then(|v| v.user_select)
@@ -2756,11 +2570,12 @@ impl Context {
         let mut autoscroll_occurred = false;
         let mut active_pos = None;
 
-        if let Some(pressed_id) = self.interaction_states.pressed
-            && let Some(pointer_pos) = self.current_pointer_position
-            && let Some(clip) = self.clip_rects.get(pressed_id).copied()
+        if let Some(pressed_id) = self.events.interaction_states.pressed
+            && let Some(pointer_pos) = self.events.current_pointer_position
+            && let Some(clip) = self.outputs.clip_rects.get(pressed_id).copied()
         {
             let user_select = self
+                .renders
                 .visual_properties
                 .get(pressed_id)
                 .and_then(|v| v.user_select)
@@ -2804,7 +2619,7 @@ impl Context {
             // 選択文字インデックスおよびキャレット位置を同期
             self.inject_pointer_move(pos);
 
-            if let Some(pressed_id) = self.interaction_states.pressed {
+            if let Some(pressed_id) = self.events.interaction_states.pressed {
                 self.mark_render_dirty(pressed_id);
             }
         }
@@ -2816,17 +2631,17 @@ impl Context {
 
         // (1.0 / 120.0 秒 = 約 8,333,333 ナノ秒)
         const FRAME_TIME_120FPS: Duration = Duration::from_nanos(8_333_333);
-        if let Some(last) = self.last_tick_time
+        if let Some(last) = self.renders.last_tick_time
             && now.duration_since(last) < FRAME_TIME_120FPS
         {
             return;
         }
 
         // 実行制限を通過したため、基準時刻を更新して処理を継続
-        self.last_tick_time = Some(now);
+        self.renders.last_tick_time = Some(now);
 
         // 借用チェッカーを回避するため、一時的にマップを take して更新する
-        let mut active_map = std::mem::take(&mut self.active_transitions);
+        let mut active_map = std::mem::take(&mut self.renders.active_transitions);
 
         // 完了して空になった要素のIDを記録する一時配列
         let mut to_remove = Vec::new();
@@ -2850,7 +2665,7 @@ impl Context {
                 // SoA（Context のアクティブなプロパティ）に補間された値を書き戻す
                 match current_val {
                     TransitionValue::Color(c) => {
-                        if let Some(v) = self.visual_properties.get_mut(id) {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
                             if t_state.property_list == PropertyList::BackgroundColor {
                                 v.bg_color = Some(c);
                             } else if t_state.property_list == PropertyList::BorderColor {
@@ -2860,25 +2675,25 @@ impl Context {
                         self.mark_render_dirty(id);
                     }
                     TransitionValue::Opacity(o) => {
-                        if let Some(v) = self.visual_properties.get_mut(id) {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
                             v.opacity = Some(o);
                         }
                         self.mark_render_dirty(id);
                     }
                     TransitionValue::Transform(m) => {
-                        if let Some(v) = self.visual_properties.get_mut(id) {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
                             v.transform = Some(m);
                         }
                         self.mark_render_dirty(id);
                     }
                     TransitionValue::CornerRadius(cr) => {
-                        if let Some(v) = self.visual_properties.get_mut(id) {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
                             v.corner_radius = Some(cr);
                         }
                         self.mark_render_dirty(id);
                     }
                     TransitionValue::Width(w) => {
-                        if let Some(layout) = self.basic_layouts.get_mut(id) {
+                        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
                             layout.size.width = Val::Px(w); // ピクセル値で上書き
                         }
                         self.mark_layout_dirty(id); // レイアウト再計算をマーク
@@ -2890,7 +2705,7 @@ impl Context {
                     }
                     // 縦幅（Height）の毎フレームアニメーション補間
                     TransitionValue::Height(h) => {
-                        if let Some(layout) = self.basic_layouts.get_mut(id) {
+                        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
                             layout.size.height = Val::Px(h);
                         }
                         self.mark_layout_dirty(id);
@@ -2901,7 +2716,7 @@ impl Context {
                     }
                     // 影（BoxShadow）の毎フレームの書き戻し処理
                     TransitionValue::BoxShadow(shadow) => {
-                        if let Some(v) = self.visual_properties.get_mut(id) {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
                             v.shadow_params = Some(shadow);
                             v.shadow_color = Some(shadow.color);
                         }
@@ -2928,7 +2743,7 @@ impl Context {
             active_map.remove(id);
         }
 
-        self.active_transitions = active_map;
+        self.renders.active_transitions = active_map;
     }
 
     /// 必要に応じてトランジションを起動、または上書き（逆再生含む）します
@@ -2943,7 +2758,7 @@ impl Context {
         let is_style_evaluating = crate::signal::ACTIVE_EFFECT.with(|cell| {
             if let Some(effect_id) = cell.get() {
                 // 現在走っているエフェクトがいずれかの要素の StyleCategory::Style のものであるか走査
-                self.element_effects.values().any(|list| {
+                self.reactive.element_effects.values().any(|list| {
                     list.iter()
                         .any(|(cat, eff_id)| *eff_id == effect_id && *cat == EffectCategory::Style)
                 })
@@ -2958,7 +2773,7 @@ impl Context {
         }
 
         // 1. その要素に、このプロパティに対するトランジション設定が定義されているか検証
-        if let Some(visual) = self.base_visual_properties.get(id) {
+        if let Some(visual) = self.renders.base_visual_properties.get(id) {
             // transitions ベクタの中から、一致する PropertyList を探す
             if let Some(t) = visual
                 .transitions
@@ -2966,7 +2781,7 @@ impl Context {
                 .find(|t| t.property_list == property_list || t.property_list == PropertyList::Size)
             {
                 let now = Instant::now();
-                if let Some(entry) = self.active_transitions.entry(id) {
+                if let Some(entry) = self.renders.active_transitions.entry(id) {
                     let active_list = entry.or_insert_with(Vec::new);
 
                     // 2. 割り込み処理の解決（すでに同じプロパティのアニメーションが走っているか）
@@ -3030,154 +2845,195 @@ impl Context {
         let active_mask = self.active_masks[id];
 
         // ビジュアルプロパティ (bg_color, opacity等) の解決
-        let has_base_visual = self.base_visual_properties.contains_key(id);
-        let has_active_visual = self.visual_properties.contains_key(id);
+        let has_base_visual = self.renders.base_visual_properties.contains_key(id);
+        let has_active_visual = self.renders.visual_properties.contains_key(id);
 
         // 要素がホバーやプレス時の動的スタイルを登録しているか
-        let has_interaction_styles = self.interaction_properties.contains_key(id);
+        let has_interaction_styles = self.renders.interaction_properties.contains_key(id);
 
         // スタイルを一切持たない要素は、ヒープアロケーションを避けるため完全にスキップ
         // 静的なベース装飾がなくても、ホバースタイル等を持っていれば確実にカスケード解決を通す
         if has_base_visual || has_active_visual || has_interaction_styles {
             // 不変参照から現在の描画用データを安全に取得 (Copy可能なプリミティブのみ)
             let current_bg = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.bg_color)
                 .unwrap_or(Color::TRANSPARENT);
             let current_border = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.border_color)
                 .unwrap_or(Color::TRANSPARENT);
             let current_outline_width = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.outline_width)
                 .unwrap_or(EdgeInsets::ZERO);
             let current_outline_color = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.outline_color)
                 .unwrap_or(Color::TRANSPARENT);
             let current_outline_offset = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.outline_offset)
                 .unwrap_or(0.0);
             let current_opacity = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.opacity)
                 .unwrap_or(1.0);
             let current_transform = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.transform)
                 .unwrap_or(IDENTITY_MATRIX);
             let current_radius = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.corner_radius)
                 .unwrap_or(CornerRadius::ZERO);
             let current_shadow = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.shadow_params)
                 .unwrap_or(BoxShadow::none());
 
             let mut target_pointer_events = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.pointer_events);
 
-            let mut target_cursor = self.base_visual_properties.get(id).and_then(|v| v.cursor);
+            let mut target_cursor = self
+                .renders
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.cursor);
             let mut target_resizable_cursor = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.resizable_cursor);
 
             // 目標値（Target）をクローンせずに参照経由で構築
-            let mut target_bg = self.base_visual_properties.get(id).and_then(|v| v.bg_color);
+            let mut target_bg = self
+                .renders
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.bg_color);
             let mut target_border = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.border_color);
-            let mut target_opacity = self.base_visual_properties.get(id).and_then(|v| v.opacity);
+            let mut target_opacity = self
+                .renders
+                .base_visual_properties
+                .get(id)
+                .and_then(|v| v.opacity);
             let mut target_transform = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.transform);
             let mut target_radius = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.corner_radius);
             // 影（BoxShadow）の動的ターゲットを初期化
             let mut target_shadow_params = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.shadow_params);
             let mut target_shadow_color = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.shadow_color);
             let mut target_text_color = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.text_color);
             let mut target_select_bg = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.select_bg_color);
             let mut target_select_text = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.select_text_color);
             let mut target_border_lengths = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.border_lengths);
             let mut target_border_styles = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.border_styles);
             let mut target_border_alignments = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.border_alignments);
             let mut target_outline_width = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.outline_width);
             let mut target_outline_color = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.outline_color);
             let mut target_outline_lengths = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.outline_lengths);
             let mut target_outline_styles = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.outline_styles);
             let mut target_outline_alignments = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.outline_alignments);
             let mut target_outline_offset = self
+                .renders
                 .base_visual_properties
                 .get(id)
                 .and_then(|v| v.outline_offset);
 
             // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
             let focus_style_resolved = if active_mask.has(STATE_FOCUSED) {
-                if let Some(interaction) = self.interaction_properties.get(id)
+                if let Some(interaction) = self.renders.interaction_properties.get(id)
                     && let Some(ref self_f_style) = interaction.focused
                 {
                     Some(self_f_style.clone()) // 自身に明確な focused 指定があれば最優先
                 } else {
                     let focus_mode = self
+                        .renders
                         .visual_properties
                         .get(id)
                         .and_then(|v| v.focusable)
@@ -3189,7 +3045,7 @@ impl Context {
                         let mut found_parent_focused_style = None;
                         while let Some(curr_id) = curr {
                             if let Some(parent_interaction) =
-                                self.interaction_properties.get(curr_id)
+                                self.renders.interaction_properties.get(curr_id)
                                 && let Some(ref parent_f_style) = parent_interaction.focused
                             {
                                 found_parent_focused_style = Some(parent_f_style.clone());
@@ -3207,7 +3063,7 @@ impl Context {
             };
 
             // 疑似クラス（Hovered等）のマージをクローンなしで解決
-            if let Some(interaction) = self.interaction_properties.get(id) {
+            if let Some(interaction) = self.renders.interaction_properties.get(id) {
                 let cascade = [
                     (STATE_FOCUSED, &focus_style_resolved),
                     (STATE_SELECTED, &interaction.selected),
@@ -3307,7 +3163,7 @@ impl Context {
             }
 
             if active_mask.has(STYLE_INTERACTION_WITHIN)
-                && let Some(interaction) = self.interaction_properties.get(id)
+                && let Some(interaction) = self.renders.interaction_properties.get(id)
             {
                 // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
                 let cascade_within = [
@@ -3464,7 +3320,7 @@ impl Context {
 
             // プレースホルダー表示状態
             let mut is_placeholder_active = false;
-            if let Some(contents) = self.input_contents.get(id) {
+            if let Some(contents) = self.contents.input_contents.get(id) {
                 // 文字列が空、かつ IME 変換中でない場合はプレースホルダーと判定
                 let has_no_ime = contents
                     .ime_state
@@ -3583,12 +3439,14 @@ impl Context {
                 || outline_width_changed
                 || outline_color_changed
                 || outline_offset_changed
-                || self.base_visual_properties.contains_key(id)
+                || self.renders.base_visual_properties.contains_key(id)
             {
-                if !self.visual_properties.contains_key(id) {
-                    self.visual_properties.insert(id, Default::default());
+                if !self.renders.visual_properties.contains_key(id) {
+                    self.renders
+                        .visual_properties
+                        .insert(id, Default::default());
                 }
-                let active_vis = self.visual_properties.get_mut(id).unwrap();
+                let active_vis = self.renders.visual_properties.get_mut(id).unwrap();
 
                 if !bg_triggered {
                     active_vis.bg_color = target_bg;
@@ -3635,6 +3493,7 @@ impl Context {
                 active_vis.select_text_color = target_select_text;
                 // 常に即時解決する静的プロパティ群
                 active_vis.user_select = self
+                    .renders
                     .base_visual_properties
                     .get(id)
                     .and_then(|v| v.user_select);
@@ -3643,7 +3502,7 @@ impl Context {
                 active_vis.resizable_cursor = target_resizable_cursor;
 
                 // コールドプロパティの即時代入
-                if let Some(target_vis) = self.base_visual_properties.get(id) {
+                if let Some(target_vis) = self.renders.base_visual_properties.get(id) {
                     active_vis.z_index = target_vis.z_index;
                     active_vis.backdrop = target_vis.backdrop;
                     active_vis.font_size = target_vis.font_size;
@@ -3663,19 +3522,29 @@ impl Context {
         }
 
         //  (Width, Height) の解決
-        let has_base_layout = self.base_basic_layouts.contains_key(id);
-        let has_active_layout = self.basic_layouts.contains_key(id);
+        let has_base_layout = self.renders.base_basic_layouts.contains_key(id);
+        let has_active_layout = self.layouts.basic_layouts.contains_key(id);
 
         // レイアウト変更のない要素は完全にスキップ
         if has_base_layout || has_active_layout {
-            let active_layout = self.basic_layouts.get(id).cloned().unwrap_or_default();
+            let active_layout = self
+                .layouts
+                .basic_layouts
+                .get(id)
+                .cloned()
+                .unwrap_or_default();
 
             // BasicLayout は heap allocation を持たないフラットな構造（Copy同等）なので
             // cloned() によるクローンは極めて低コスト（数ナノ秒）です。
-            let base_layout = self.base_basic_layouts.get(id).cloned().unwrap_or_default();
+            let base_layout = self
+                .renders
+                .base_basic_layouts
+                .get(id)
+                .cloned()
+                .unwrap_or_default();
             let mut target_layout = base_layout;
 
-            if let Some(interaction) = self.interaction_properties.get(id) {
+            if let Some(interaction) = self.renders.interaction_properties.get(id) {
                 let cascade = [
                     (STATE_FOCUSED, &interaction.focused),
                     (STATE_SELECTED, &interaction.selected),
@@ -3709,6 +3578,7 @@ impl Context {
 
             // Width または 一括 Size トランジション設定が定義されているか検証
             let can_trigger_width = self
+                .renders
                 .visual_properties
                 .get(id)
                 .map(|v| {
@@ -3736,6 +3606,7 @@ impl Context {
 
             // Height または 一括 Size トランジション設定が定義されているか検証
             let can_trigger_height = self
+                .renders
                 .visual_properties
                 .get(id)
                 .map(|v| {
@@ -3761,10 +3632,10 @@ impl Context {
             }
 
             // 遅延マウント
-            if !self.basic_layouts.contains_key(id) {
-                self.basic_layouts.insert(id, Default::default());
+            if !self.layouts.basic_layouts.contains_key(id) {
+                self.layouts.basic_layouts.insert(id, Default::default());
             }
-            let active_layout_mut = self.basic_layouts.get_mut(id).unwrap();
+            let active_layout_mut = self.layouts.basic_layouts.get_mut(id).unwrap();
             *active_layout_mut = target_layout;
 
             if width_triggered {
@@ -3783,7 +3654,7 @@ impl Context {
         // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
         self.trigger_keyframe_animations_if_needed(id);
 
-        if let Some(effects) = self.element_effects.get(id) {
+        if let Some(effects) = self.reactive.element_effects.get(id) {
             let text_effects: Vec<EffectId> = effects
                 .iter()
                 .filter(|(cat, _)| *cat == EffectCategory::Text)
@@ -3802,7 +3673,8 @@ impl Context {
             Val::Percent(p) => {
                 // 親要素の確定サイズを優先取得
                 let parent_size = if let Some(Some(parent_id)) = self.parents.get(id) {
-                    self.rects
+                    self.outputs
+                        .rects
                         .get(*parent_id)
                         .map(|r| LayoutSize::new(r.width, r.height))
                 } else {
@@ -3810,7 +3682,7 @@ impl Context {
                 };
 
                 // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
-                let ref_size = parent_size.or(self.last_window_size)?;
+                let ref_size = parent_size.or(self.window.last_window_size)?;
                 let ref_val = if is_width {
                     ref_size.width
                 } else {
@@ -3821,7 +3693,8 @@ impl Context {
             }
             Val::Auto => {
                 // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
-                self.rects
+                self.outputs
+                    .rects
                     .get(id)
                     .map(|r| if is_width { r.width } else { r.height })
             }
@@ -3833,7 +3706,7 @@ impl Context {
         let now = Instant::now();
 
         // 借用チェッカーを回避するため、一時的にマップを take して更新
-        let mut active_map = std::mem::take(&mut self.active_animations);
+        let mut active_map = std::mem::take(&mut self.renders.active_animations);
         let mut to_remove = Vec::new();
 
         for (id, animations) in active_map.iter_mut() {
@@ -3890,7 +3763,7 @@ impl Context {
         for id in to_remove {
             active_map.remove(id);
         }
-        self.active_animations = active_map;
+        self.renders.active_animations = active_map;
     }
 
     /// 補間されたアニメーション値を SoA のアクティブプロパティへ安全に上書きします
@@ -3900,10 +3773,12 @@ impl Context {
         property: PropertyList,
         value: &TransitionValue,
     ) {
-        if !self.visual_properties.contains_key(id) {
-            self.visual_properties.insert(id, Default::default());
+        if !self.renders.visual_properties.contains_key(id) {
+            self.renders
+                .visual_properties
+                .insert(id, Default::default());
         }
-        let v = self.visual_properties.get_mut(id).unwrap();
+        let v = self.renders.visual_properties.get_mut(id).unwrap();
 
         match *value {
             TransitionValue::Color(c) => {
@@ -3923,13 +3798,13 @@ impl Context {
                 v.corner_radius = Some(cr);
             }
             TransitionValue::Width(w) => {
-                if let Some(layout) = self.basic_layouts.get_mut(id) {
+                if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
                     layout.size.width = Val::Px(w);
                 }
                 self.mark_layout_dirty(id); // レイアウト再計算を要求（スローパス）
             }
             TransitionValue::Height(h) => {
-                if let Some(layout) = self.basic_layouts.get_mut(id) {
+                if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
                     layout.size.height = Val::Px(h);
                 }
                 self.mark_layout_dirty(id);
@@ -3944,7 +3819,7 @@ impl Context {
     /// 要素が持つ静的な `KeyframeAnimation` 定義に基づいて、
     /// CPU 側のアクティブアニメーション再生テーブルを自動起動します。
     pub(crate) fn trigger_keyframe_animations_if_needed(&mut self, id: EntityId) {
-        if let Some(visual) = self.visual_properties.get(id) {
+        if let Some(visual) = self.renders.visual_properties.get(id) {
             if visual.keyframe_animations.is_empty() {
                 return;
             }
@@ -3954,10 +3829,10 @@ impl Context {
             // 借用回避のため定義を一度クローン
             let anims = visual.keyframe_animations.clone();
 
-            if !self.active_animations.contains_key(id) {
-                self.active_animations.insert(id, Vec::new());
+            if !self.renders.active_animations.contains_key(id) {
+                self.renders.active_animations.insert(id, Vec::new());
             }
-            let active_list = self.active_animations.get_mut(id).unwrap();
+            let active_list = self.renders.active_animations.get_mut(id).unwrap();
 
             for anim in anims {
                 // すでに同じプロパティのアニメーションが駆動中なら重複起動をスルー
@@ -4000,8 +3875,12 @@ impl Context {
     pub fn hit_test(&self, point: LayoutPoint) -> Option<EntityId> {
         // 各要素の実効 z_index を、親から子へカスケードして算出
         let mut effective_z_indices = SecondaryMap::with_capacity(self.active_entities.len());
-        for &id in &self.flat_dfs_sequence {
-            let self_z = self.visual_properties.get(id).and_then(|v| v.z_index);
+        for &id in &self.layouts.flat_dfs_sequence {
+            let self_z = self
+                .renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.z_index);
 
             let parent_z = self
                 .parents
@@ -4020,14 +3899,14 @@ impl Context {
 
         for &id in sorted_entities.iter().rev() {
             // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
-            if Some(id) == self.interaction_states.dragged
+            if Some(id) == self.events.interaction_states.dragged
                 || self.active_masks[id].has(STATE_DRAG_OVER)
             {
                 continue;
             }
 
             // 親などの overflow 等でクリップされている表示範囲外ならスキップ
-            if let Some(clip) = self.clip_rects.get(id)
+            if let Some(clip) = self.outputs.clip_rects.get(id)
                 && !clip.contains(point)
             {
                 continue;
@@ -4035,11 +3914,13 @@ impl Context {
 
             // pointer-events 設定の解決
             let pointer_events = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.pointer_events)
                 .or_else(|| {
-                    self.base_visual_properties
+                    self.renders
+                        .base_visual_properties
                         .get(id)
                         .and_then(|v| v.pointer_events)
                 })
@@ -4050,7 +3931,7 @@ impl Context {
             }
 
             // 物理範囲にヒットしたかを検証
-            if let Some(rect) = self.rects.get(id)
+            if let Some(rect) = self.outputs.rects.get(id)
                 && rect.contains(point)
             {
                 return Some(id);
@@ -4063,7 +3944,7 @@ impl Context {
     fn hit_test_recursive(&self, id: EntityId, point: LayoutPoint) -> Option<EntityId> {
         // 1. 親などの overflow: hidden 等でクリップされている表示範囲をチェック
         // クリップ領域外であれば、この要素もそのすべての子孫要素も画面上に見えていないため、走査を即座にスキップ（枝刈り）
-        if let Some(clip) = self.clip_rects.get(id)
+        if let Some(clip) = self.outputs.clip_rects.get(id)
             && !clip.contains(point)
         {
             return None;
@@ -4083,18 +3964,20 @@ impl Context {
         // pointer_events: none の場合は、自分自身の矩形判定のみをスルーする (子要素は上を辿れるため除外しない)
         // visual_properties (動的) に無ければ base_visual_properties (静的) を見に行く
         let pointer_events = self
+            .renders
             .visual_properties
             .get(id)
             .and_then(|v| v.pointer_events)
             .or_else(|| {
-                self.base_visual_properties
+                self.renders
+                    .base_visual_properties
                     .get(id)
                     .and_then(|v| v.pointer_events)
             })
             .unwrap_or(PointerEvents::Auto);
 
         if pointer_events != PointerEvents::None
-            && let Some(rect) = self.rects.get(id)
+            && let Some(rect) = self.outputs.rects.get(id)
             && rect.contains(point)
         {
             return Some(id);
@@ -4121,7 +4004,7 @@ impl Context {
     /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
     /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
     pub(crate) fn does_state_require_layout(&self, id: EntityId, state_flag: u128) -> bool {
-        if let Some(interaction) = self.interaction_properties.get(id) {
+        if let Some(interaction) = self.renders.interaction_properties.get(id) {
             // 対象となる状態スタイルを取得
             let target_style = match state_flag {
                 STATE_HOVERED => &interaction.hovered,
@@ -4247,13 +4130,14 @@ impl Context {
                         // 無効化（Disabled）状態が有効になった瞬間
                         STATE_DISABLED => {
                             let mut on_dis = self
+                                .events
                                 .event_listeners
                                 .get_mut(id)
                                 .and_then(|l| l.on_disable.take());
                             if let Some(mut handler) = on_dis {
                                 let _guard = crate::ActiveElementGuard::new(id);
                                 handler(self);
-                                if let Some(l) = self.event_listeners.get_mut(id) {
+                                if let Some(l) = self.events.event_listeners.get_mut(id) {
                                     l.on_disable = Some(handler);
                                 }
                             }
@@ -4261,13 +4145,14 @@ impl Context {
                         // アクティブ（Actived：STATE_ACTIVED）状態が有効になった瞬間
                         STATE_ACTIVED => {
                             let mut on_act = self
+                                .events
                                 .event_listeners
                                 .get_mut(id)
                                 .and_then(|l| l.on_active.take());
                             if let Some(mut handler) = on_act {
                                 let _guard = crate::ActiveElementGuard::new(id);
                                 handler(self);
-                                if let Some(l) = self.event_listeners.get_mut(id) {
+                                if let Some(l) = self.events.event_listeners.get_mut(id) {
                                     l.on_active = Some(handler);
                                 }
                             }
@@ -4275,13 +4160,14 @@ impl Context {
                         // セレクト（Selected：STATE_SELECTED）状態が有効になった瞬間
                         STATE_SELECTED => {
                             let mut on_sel = self
+                                .events
                                 .event_listeners
                                 .get_mut(id)
                                 .and_then(|l| l.on_select.take());
                             if let Some(mut handler) = on_sel {
                                 let _guard = crate::ActiveElementGuard::new(id);
                                 handler(self);
-                                if let Some(l) = self.event_listeners.get_mut(id) {
+                                if let Some(l) = self.events.event_listeners.get_mut(id) {
                                     l.on_select = Some(handler);
                                 }
                             }
@@ -4351,124 +4237,21 @@ impl Context {
         self.update_state(id, flag, active);
     }
 
-    /// 各スタイルの解決を1回のルックアップと1回のカスケード解決ループに統合
-    pub(crate) fn resolve_active_layouts(
-        &self,
-        id: EntityId,
-    ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
-        let mut basic = self.basic_layouts.get(id).copied().unwrap_or_default();
-        let mut flex = self.flex_layouts.get(id).copied().unwrap_or_default();
-        let mut grid = self.grid_layouts.get(id).cloned();
-
-        let active_mask = self.active_masks[id];
-
-        // 幅・高さ・一括サイズに対して、現在トランジションアニメーションが駆動中であるかを走査
-        let is_width_transitioning = self
-            .active_transitions
-            .get(id)
-            .map(|list| {
-                list.iter().any(|t| {
-                    t.property_list == PropertyList::Width || t.property_list == PropertyList::Size
-                })
-            })
-            .unwrap_or(false);
-        let is_height_transitioning = self
-            .active_transitions
-            .get(id)
-            .map(|list| {
-                list.iter().any(|t| {
-                    t.property_list == PropertyList::Height || t.property_list == PropertyList::Size
-                })
-            })
-            .unwrap_or(false);
-
-        // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
-        let focus_style_resolved = if active_mask.has(STATE_FOCUSED) {
-            if let Some(interaction) = self.interaction_properties.get(id)
-                && let Some(ref self_f_style) = interaction.focused
-            {
-                Some(self_f_style.clone()) // 自身に明確な focused 指定があれば最優先
-            } else {
-                let focus_mode = self
-                    .visual_properties
-                    .get(id)
-                    .and_then(|v| v.focusable)
-                    .unwrap_or(Focusable::None);
-
-                if matches!(focus_mode, Focusable::Inherit(_)) {
-                    // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
-                    let mut curr = self.parents.get(id).copied().flatten();
-                    let mut found_parent_focused_style = None;
-                    while let Some(curr_id) = curr {
-                        if let Some(parent_interaction) = self.interaction_properties.get(curr_id)
-                            && let Some(ref parent_f_style) = parent_interaction.focused
-                        {
-                            found_parent_focused_style = Some(parent_f_style.clone());
-                            break;
-                        }
-                        curr = self.parents.get(curr_id).copied().flatten();
-                    }
-                    found_parent_focused_style
-                } else {
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        // 状態マッピング解決のルックアップとループを1回に集約
-        if let Some(interaction) = self.interaction_properties.get(id) {
-            let cascade = [
-                (STATE_FOCUSED, &focus_style_resolved),
-                (STATE_SELECTED, &interaction.selected),
-                (STATE_ACTIVED, &interaction.actived),
-                (STATE_HOVERED, &interaction.hovered),
-                (STATE_PRESSED, &interaction.pressed),
-                (STATE_DISABLED, &interaction.disabled),
-                (STATE_DRAGGING, &interaction.dragging),
-                (STATE_DRAG_IN, &interaction.drag_in),
-                (STATE_DRAG_OVER, &interaction.drag_over),
-            ];
-
-            for (state, style_opt) in cascade {
-                if active_mask.has(state)
-                    && let Some(style) = style_opt
-                {
-                    let mut mask = style.inner.mask;
-                    if is_width_transitioning || is_height_transitioning {
-                        mask.unset(STYLE_SIZE);
-                    }
-
-                    basic.override_with(&style.inner.basic_layout, style.inner.mask);
-                    flex.override_with(&style.inner.flex_layout, style.inner.mask);
-
-                    if style.inner.mask.has_grid_layout()
-                        && let Some(ref hover_grid) = style.inner.grid_layout
-                    {
-                        grid = Some(hover_grid.clone());
-                    }
-                }
-            }
-        }
-
-        (basic, flex, grid)
-    }
-
     pub fn inject_pointer_move(&mut self, logical_pos: LayoutPoint) {
         let _context_guard = bind_context(self);
 
-        let prev_pos = self.current_pointer_position;
-        self.current_pointer_position = Some(logical_pos);
+        let prev_pos = self.events.current_pointer_position;
+        self.events.current_pointer_position = Some(logical_pos);
 
         // リサイズ中のドラッグ同期処理
-        if let Some(state) = self.resizing_state.clone() {
+        if let Some(state) = self.events.resizing_state.clone() {
             let id = state.entity_id;
             let delta_x = logical_pos.x - state.start_mouse_pos.x;
             let delta_y = logical_pos.y - state.start_mouse_pos.y;
 
             let start_rect = state.start_rect;
             let position = self
+                .layouts
                 .basic_layouts
                 .get(id)
                 .map(|l| l.position)
@@ -4476,7 +4259,12 @@ impl Context {
 
             // 1-1. 最小サイズ・最大クランプ値の解決
             let (min_w, max_w, min_h, max_h) = {
-                let basic = self.basic_layouts.get(id).copied().unwrap_or_default();
+                let basic = self
+                    .layouts
+                    .basic_layouts
+                    .get(id)
+                    .copied()
+                    .unwrap_or_default();
 
                 let ref_w = start_rect.width;
                 let ref_h = start_rect.height;
@@ -4655,7 +4443,7 @@ impl Context {
             }
 
             // 基本サイズ情報を SoA のアクティブレイアウトへ書き込み
-            if let Some(layout) = self.basic_layouts.get_mut(id) {
+            if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
                 layout.size.width = Val::Px(new_w);
                 layout.size.height = Val::Px(new_h);
 
@@ -4673,7 +4461,7 @@ impl Context {
             }
 
             // base_basic_layouts にも同時に書き込み、解決処理（resolve）によるリセットを完全に防ぐ
-            if let Some(layout) = self.base_basic_layouts.get_mut(id) {
+            if let Some(layout) = self.renders.base_basic_layouts.get_mut(id) {
                 layout.size.width = Val::Px(new_w);
                 layout.size.height = Val::Px(new_h);
 
@@ -4698,7 +4486,7 @@ impl Context {
         let mut scrollbar_dragged = false;
         let mut active_drag_target: Option<(EntityId, bool, bool)> = None;
 
-        for (id, state) in self.scrollbar_styles.iter() {
+        for (id, state) in self.layouts.scrollbar_styles.iter() {
             if state.v_thumb_dragged {
                 active_drag_target = Some((id, true, false));
                 break;
@@ -4710,13 +4498,18 @@ impl Context {
 
         if let Some((c_id, is_v, is_h)) = active_drag_target {
             let (sb_state, container_rect, scroll_size) = {
-                let sb_state = self.scrollbar_styles.get(c_id).cloned().unwrap();
-                let container_rect = self.rects.get(c_id).copied().unwrap_or(LayoutRect::ZERO);
+                let sb_state = self.layouts.scrollbar_styles.get(c_id).cloned().unwrap();
+                let container_rect = self
+                    .outputs
+                    .rects
+                    .get(c_id)
+                    .copied()
+                    .unwrap_or(LayoutRect::ZERO);
                 let scroll_size = self.get_scroll_size(c_id);
                 (sb_state, container_rect, scroll_size)
             };
 
-            let window_size = self.last_window_size.unwrap_or(LayoutSize::ZERO);
+            let window_size = self.window.last_window_size.unwrap_or(LayoutSize::ZERO);
 
             let visible_width = if window_size.width > 0.0 {
                 let left = container_rect.x.max(0.0);
@@ -4737,8 +4530,8 @@ impl Context {
             if is_v {
                 let track_id = sb_state.v_track_id.unwrap();
                 let thumb_id = sb_state.v_thumb_id.unwrap();
-                let track_rect = self.rects[track_id];
-                let thumb_rect = self.rects[thumb_id];
+                let track_rect = self.outputs.rects[track_id];
+                let thumb_rect = self.outputs.rects[thumb_id];
 
                 // サムのマージンを差し引く
                 let mut margin_top = 0.0;
@@ -4763,15 +4556,20 @@ impl Context {
                         let ratio = max_scroll_y / track_range;
                         let target_scroll_y = sb_state.drag_start_offset.y + dy * ratio;
 
-                        let current_x = self.scroll_offsets.get(c_id).map(|o| o.x).unwrap_or(0.0);
+                        let current_x = self
+                            .outputs
+                            .scroll_offsets
+                            .get(c_id)
+                            .map(|o| o.x)
+                            .unwrap_or(0.0);
                         self.scroll_to(c_id, current_x, target_scroll_y);
                     }
                 }
             } else if is_h {
                 let track_id = sb_state.h_track_id.unwrap();
                 let thumb_id = sb_state.h_thumb_id.unwrap();
-                let track_rect = self.rects[track_id];
-                let thumb_rect = self.rects[thumb_id];
+                let track_rect = self.outputs.rects[track_id];
+                let thumb_rect = self.outputs.rects[thumb_id];
 
                 let mut margin_left = 0.0;
                 let mut margin_right = 0.0;
@@ -4793,7 +4591,12 @@ impl Context {
                         let ratio = max_scroll_x / track_range;
                         let target_scroll_x = sb_state.drag_start_offset.x + dx * ratio;
 
-                        let current_y = self.scroll_offsets.get(c_id).map(|o| o.y).unwrap_or(0.0);
+                        let current_y = self
+                            .outputs
+                            .scroll_offsets
+                            .get(c_id)
+                            .map(|o| o.y)
+                            .unwrap_or(0.0);
                         self.scroll_to(c_id, target_scroll_x, current_y);
                     }
                 }
@@ -4804,16 +4607,16 @@ impl Context {
         }
 
         // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
-        let target_id = if let Some(pressed_id) = self.interaction_states.pressed {
+        let target_id = if let Some(pressed_id) = self.events.interaction_states.pressed {
             Some(pressed_id)
         } else {
             self.hit_test(logical_pos)
         };
 
         // 直前のリサイズホバー対象を退避
-        let prev_resize_hover = self.active_resize_hover;
+        let prev_resize_hover = self.events.active_resize_hover;
         // リサイズホバー情報を一旦リセット
-        self.active_resize_hover = None;
+        self.events.active_resize_hover = None;
 
         // ヒットした要素、およびその親先祖に向かってツリーを遡上
         let mut current_id = target_id;
@@ -4821,8 +4624,9 @@ impl Context {
 
         while let Some(id) = current_id {
             if self.active_masks[id].has(STYLE_RESIZABLE) {
-                let rect = self.rects[id];
+                let rect = self.outputs.rects[id];
                 let resizable_flags = self
+                    .layouts
                     .basic_layouts
                     .get(id)
                     .map(|l| l.resizable)
@@ -4841,9 +4645,9 @@ impl Context {
         }
 
         if let Some((id, dir)) = found_resize_hover {
-            self.active_resize_hover = Some((id, dir));
+            self.events.active_resize_hover = Some((id, dir));
 
-            if let Some(vis) = self.visual_properties.get_mut(id) {
+            if let Some(vis) = self.renders.visual_properties.get_mut(id) {
                 // 要素に resizable_cursor の個別指定があれば、方向に応じて該当カーソルを抽出
                 let custom_cursor = if let Some(arr) = vis.resizable_cursor {
                     let idx = match dir {
@@ -4865,7 +4669,7 @@ impl Context {
 
         // 枠線から外れた、または異なる要素に変わった場合
         if let Some((prev_id, _)) = prev_resize_hover {
-            let now_id = self.active_resize_hover.map(|(id, _)| id);
+            let now_id = self.events.active_resize_hover.map(|(id, _)| id);
 
             // 異なるホバー状態になった場合、旧要素のカーソル上書きを破棄し本来のスタイルに即時強制リセット
             if Some(prev_id) != now_id {
@@ -4875,8 +4679,9 @@ impl Context {
             }
         }
 
-        if let Some(pressed_id) = self.interaction_states.pressed {
+        if let Some(pressed_id) = self.events.interaction_states.pressed {
             let user_select = self
+                .renders
                 .visual_properties
                 .get(pressed_id)
                 .and_then(|v| v.user_select)
@@ -4886,7 +4691,7 @@ impl Context {
                 && let Some(start_pos) = self.selection_start_index.get(pressed_id).copied()
             {
                 // プレースホルダー選択のドラッグ遮断
-                if let Some(contents) = self.input_contents.get(pressed_id) {
+                if let Some(contents) = self.contents.input_contents.get(pressed_id) {
                     let text_val = contents.text.0.get();
                     let is_placeholder = text_val.is_empty()
                         && contents
@@ -4900,8 +4705,13 @@ impl Context {
                     }
                 }
 
-                let rect = self.rects[pressed_id];
-                let (basic, _, _) = self.resolve_active_layouts(pressed_id);
+                let rect = self.outputs.rects[pressed_id];
+                let (basic, _, _) = self.layouts.resolve_active_layouts(
+                    pressed_id,
+                    &self.active_masks,
+                    &self.parents,
+                    &self.renders,
+                );
                 let border_left = match basic.border.left {
                     Length::Px(v) => v,
                     _ => 0.0,
@@ -4920,6 +4730,7 @@ impl Context {
                 };
 
                 let scroll = self
+                    .outputs
                     .scroll_offsets
                     .get(pressed_id)
                     .copied()
@@ -4929,8 +4740,10 @@ impl Context {
                 let local_y = logical_pos.y - (rect.y + border_top + padding_top) + scroll.y;
 
                 if let Some(layout) = self.get_or_create_layout(pressed_id) {
-                    let (current_index, is_trailing) =
-                        self.text_engine.hit_test_point(&layout, local_x, local_y);
+                    let (current_index, is_trailing) = self
+                        .system
+                        .text_engine
+                        .hit_test_point(&layout, local_x, local_y);
                     let final_index = if is_trailing {
                         current_index + 1
                     } else {
@@ -4939,13 +4752,13 @@ impl Context {
 
                     let range = if start_pos <= final_index {
                         // 順選択（右方向ドラッグ）
-                        if let Some(contents) = self.input_contents.get_mut(pressed_id) {
+                        if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
                             contents.selection_reversed = false;
                         }
                         start_pos..final_index
                     } else {
                         // 逆選択（左方向ドラッグ）
-                        if let Some(contents) = self.input_contents.get_mut(pressed_id) {
+                        if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
                             contents.selection_reversed = true;
                         }
                         final_index..start_pos
@@ -4955,7 +4768,7 @@ impl Context {
 
                     self.update_selection_rects(pressed_id);
 
-                    if let Some(contents) = self.input_contents.get_mut(pressed_id) {
+                    if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
                         contents.selected_range = range;
                         crate::update_input_caret_position(self, pressed_id);
                     }
@@ -4968,19 +4781,20 @@ impl Context {
         let target_id = self.hit_test(logical_pos);
 
         // ホバー（Enter/Leave）状態の解決
-        if target_id != self.interaction_states.hovered {
+        if target_id != self.events.interaction_states.hovered {
             // 旧ホバー要素からマウスが去った
-            if let Some(old_id) = self.interaction_states.hovered {
+            if let Some(old_id) = self.events.interaction_states.hovered {
                 self.set_hovered(old_id, false);
 
                 let mut on_leave = self
+                    .events
                     .event_listeners
                     .get_mut(old_id)
                     .and_then(|l| l.on_mouse_leave.take());
                 if let Some(mut handler) = on_leave {
                     let _guard = crate::ActiveElementGuard::new(old_id);
                     handler(self);
-                    if let Some(l) = self.event_listeners.get_mut(old_id) {
+                    if let Some(l) = self.events.event_listeners.get_mut(old_id) {
                         l.on_mouse_leave = Some(handler);
                     }
                 }
@@ -4992,67 +4806,75 @@ impl Context {
 
                 // on_mouse_enter
                 let mut on_enter = self
+                    .events
                     .event_listeners
                     .get_mut(new_id)
                     .and_then(|l| l.on_mouse_enter.take());
                 if let Some(mut handler) = on_enter {
                     let _guard = crate::ActiveElementGuard::new(new_id);
                     handler(self);
-                    if let Some(l) = self.event_listeners.get_mut(new_id) {
+                    if let Some(l) = self.events.event_listeners.get_mut(new_id) {
                         l.on_mouse_enter = Some(handler);
                     }
                 }
 
                 // on_hover
                 let mut on_hover = self
+                    .events
                     .event_listeners
                     .get_mut(new_id)
                     .and_then(|l| l.on_hover.take());
                 if let Some(mut handler) = on_hover {
                     let _guard = crate::ActiveElementGuard::new(new_id);
                     handler(self);
-                    if let Some(l) = self.event_listeners.get_mut(new_id) {
+                    if let Some(l) = self.events.event_listeners.get_mut(new_id) {
                         l.on_hover = Some(handler);
                     }
                 }
             }
 
-            self.interaction_states.hovered = target_id;
+            self.events.interaction_states.hovered = target_id;
         }
 
         // カーソル移動イベントの伝播
         if let Some(target_id) = target_id {
             // on_cursor_moved
             let mut on_move = self
+                .events
                 .event_listeners
                 .get_mut(target_id)
                 .and_then(|l| l.on_cursor_moved.take());
             if let Some(mut handler) = on_move {
-                let rect = self.rects[target_id];
+                let rect = self.outputs.rects[target_id];
                 let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
                 let _guard = crate::ActiveElementGuard::new(target_id);
                 handler(self, relative_pos);
-                if let Some(l) = self.event_listeners.get_mut(target_id) {
+                if let Some(l) = self.events.event_listeners.get_mut(target_id) {
                     l.on_cursor_moved = Some(handler);
                 }
             }
         }
 
         // ドラッグイベントの伝播
-        if let Some(pressed_id) = self.interaction_states.pressed
+        if let Some(pressed_id) = self.events.interaction_states.pressed
             && let Some(prev) = prev_pos
         {
             let delta = LayoutPoint::new(logical_pos.x - prev.x, logical_pos.y - prev.y);
             if delta.x != 0.0 || delta.y != 0.0 {
                 self.set_dragged(pressed_id, true);
-                self.interaction_states.dragged = Some(pressed_id);
+                self.events.interaction_states.dragged = Some(pressed_id);
 
                 // D&D 設定（STYLE_DRAGGABLE）を持っている場合のセッションのキック
                 if self.active_masks[pressed_id].has(STYLE_DRAGGABLE)
-                    && self.active_drag_state.is_none()
+                    && self.events.active_drag_state.is_none()
                 {
-                    let drag_prop = self.drag_properties.get(pressed_id).copied().unwrap();
-                    let start_rect = self.rects[pressed_id];
+                    let drag_prop = self
+                        .events
+                        .drag_properties
+                        .get(pressed_id)
+                        .copied()
+                        .unwrap();
+                    let start_rect = self.outputs.rects[pressed_id];
 
                     // 開始時のクリック位置と要素左上の相対的なズレを計算
                     let click_offset = LayoutPoint::new(
@@ -5070,7 +4892,8 @@ impl Context {
                         match drag_prop.placeholder_parent {
                             DragPlaceholderParent::Root => (
                                 Some(root_entity),
-                                self.rects
+                                self.outputs
+                                    .rects
                                     .get(root_entity)
                                     .copied()
                                     .unwrap_or(LayoutRect::ZERO),
@@ -5078,9 +4901,13 @@ impl Context {
                                 0.0,
                             ),
                             DragPlaceholderParent::Custom(p_id) => {
-                                let p_rect =
-                                    self.rects.get(p_id).copied().unwrap_or(LayoutRect::ZERO);
-                                let b_l = if let Some(l) = self.basic_layouts.get(p_id) {
+                                let p_rect = self
+                                    .outputs
+                                    .rects
+                                    .get(p_id)
+                                    .copied()
+                                    .unwrap_or(LayoutRect::ZERO);
+                                let b_l = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
                                     match l.border.left {
                                         Length::Px(v) => v,
                                         _ => 0.0,
@@ -5088,7 +4915,7 @@ impl Context {
                                 } else {
                                     0.0
                                 };
-                                let b_t = if let Some(l) = self.basic_layouts.get(p_id) {
+                                let b_t = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
                                     match l.border.top {
                                         Length::Px(v) => v,
                                         _ => 0.0,
@@ -5107,18 +4934,27 @@ impl Context {
                     }
 
                     // 元要素のレイアウトおよびビジュアル情報をコピーして初期マウント
-                    if let Some(basic) = self.base_basic_layouts.get(pressed_id).copied() {
-                        self.base_basic_layouts.insert(placeholder_id, basic);
-                        self.basic_layouts.insert(placeholder_id, basic);
+                    if let Some(basic) = self.renders.base_basic_layouts.get(pressed_id).copied() {
+                        self.renders
+                            .base_basic_layouts
+                            .insert(placeholder_id, basic);
+                        self.layouts.basic_layouts.insert(placeholder_id, basic);
                     }
-                    if let Some(visual) = self.base_visual_properties.get(pressed_id).cloned() {
-                        self.base_visual_properties
-                            .insert(placeholder_id, visual.clone());
-                        self.visual_properties.insert(placeholder_id, visual);
-                    }
-                    if let Some(interaction) = self.interaction_properties.get(pressed_id).cloned()
+                    if let Some(visual) =
+                        self.renders.base_visual_properties.get(pressed_id).cloned()
                     {
-                        self.interaction_properties
+                        self.renders
+                            .base_visual_properties
+                            .insert(placeholder_id, visual.clone());
+                        self.renders
+                            .visual_properties
+                            .insert(placeholder_id, visual);
+                    }
+                    if let Some(interaction) =
+                        self.renders.interaction_properties.get(pressed_id).cloned()
+                    {
+                        self.renders
+                            .interaction_properties
                             .insert(placeholder_id, interaction);
                     }
 
@@ -5127,12 +4963,12 @@ impl Context {
 
                     // プレースホルダー側は absolute 配置化し、STATE_DRAG_OVER 状態をセット
                     self.set_drag_state(placeholder_id, STATE_DRAG_OVER, true);
-                    if let Some(layout) = self.basic_layouts.get_mut(placeholder_id) {
+                    if let Some(layout) = self.layouts.basic_layouts.get_mut(placeholder_id) {
                         layout.position = Position::Absolute;
                         layout.size.width = Val::Px(start_rect.width);
                         layout.size.height = Val::Px(start_rect.height);
                     }
-                    if let Some(layout) = self.base_basic_layouts.get_mut(placeholder_id) {
+                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(placeholder_id) {
                         layout.position = Position::Absolute;
                         layout.size.width = Val::Px(start_rect.width);
                         layout.size.height = Val::Px(start_rect.height);
@@ -5150,12 +4986,12 @@ impl Context {
                             }
 
                             // Taffy 側の親子構造も、一時的にプレースホルダーに繋ぎ替え
-                            if let Some(&src_node) = self.taffy_nodes.get(pressed_id)
-                                && let Some(&ph_node) = self.taffy_nodes.get(placeholder_id)
-                                && let Some(&child_node) = self.taffy_nodes.get(child_id)
+                            if let Some(&src_node) = self.layouts.taffy_nodes.get(pressed_id)
+                                && let Some(&ph_node) = self.layouts.taffy_nodes.get(placeholder_id)
+                                && let Some(&child_node) = self.layouts.taffy_nodes.get(child_id)
                             {
-                                let _ = self.taffy.remove_child(src_node, child_node);
-                                let _ = self.taffy.add_child(ph_node, child_node);
+                                let _ = self.layouts.taffy.remove_child(src_node, child_node);
+                                let _ = self.layouts.taffy.add_child(ph_node, child_node);
                             }
                         }
 
@@ -5168,10 +5004,10 @@ impl Context {
                     }
 
                     // プレースホルダー自体はヒットテストを完全に透過させる
-                    if let Some(vis) = self.visual_properties.get_mut(placeholder_id) {
+                    if let Some(vis) = self.renders.visual_properties.get_mut(placeholder_id) {
                         vis.pointer_events = Some(PointerEvents::None);
                     }
-                    if let Some(vis) = self.base_visual_properties.get_mut(placeholder_id) {
+                    if let Some(vis) = self.renders.base_visual_properties.get_mut(placeholder_id) {
                         vis.pointer_events = Some(PointerEvents::None);
                     }
                     if let Some(mask) = self.active_masks.get_mut(placeholder_id) {
@@ -5182,7 +5018,7 @@ impl Context {
                     let original_parent = self.parents.get(pressed_id).copied().flatten();
 
                     // セッション開始
-                    self.active_drag_state = Some(ActiveDragState {
+                    self.events.active_drag_state = Some(ActiveDragState {
                         source_entity: pressed_id,
                         placeholder_entity: placeholder_id,
                         current_drop_target: None,
@@ -5194,6 +5030,7 @@ impl Context {
 
                     // ドラッグ開始コールバックに、Original(pressed_id) と Placeholder(placeholder_id) の両ハンドルを渡して実行
                     let mut start_listener_opt = self
+                        .events
                         .event_listeners
                         .get_mut(pressed_id)
                         .and_then(|l| l.on_drag_start.take());
@@ -5206,7 +5043,7 @@ impl Context {
                                 Element::from(placeholder_id),
                             );
                         }
-                        if let Some(l) = self.event_listeners.get_mut(pressed_id) {
+                        if let Some(l) = self.events.event_listeners.get_mut(pressed_id) {
                             l.on_drag_start = Some(listener);
                         }
                     }
@@ -5214,13 +5051,14 @@ impl Context {
 
                 // on_drag
                 let mut on_drag = self
+                    .events
                     .event_listeners
                     .get_mut(pressed_id)
                     .and_then(|l| l.on_drag.take());
                 if let Some(mut handler) = on_drag {
                     let _guard = crate::ActiveElementGuard::new(pressed_id);
                     handler(self, delta);
-                    if let Some(l) = self.event_listeners.get_mut(pressed_id) {
+                    if let Some(l) = self.events.event_listeners.get_mut(pressed_id) {
                         l.on_drag = Some(handler);
                     }
                 }
@@ -5228,10 +5066,10 @@ impl Context {
         }
 
         // D&D プレースホルダーの移動とドロップ先ホバー検知
-        if let Some(mut drag_state) = self.active_drag_state.clone() {
+        if let Some(mut drag_state) = self.events.active_drag_state.clone() {
             let src_id = drag_state.source_entity;
             let placeholder_id = drag_state.placeholder_entity;
-            let drag_prop = self.drag_properties.get(src_id).copied().unwrap();
+            let drag_prop = self.events.drag_properties.get(src_id).copied().unwrap();
 
             // ウィンドウの真のルート要素をライブラリ側で自己解決
             let root_entity = self
@@ -5241,7 +5079,8 @@ impl Context {
             // 5-1. アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
             let (parent_rect, b_l, b_t) = match drag_prop.placeholder_parent {
                 DragPlaceholderParent::Root => (
-                    self.rects
+                    self.outputs
+                        .rects
                         .get(root_entity)
                         .copied()
                         .unwrap_or(LayoutRect::ZERO),
@@ -5249,8 +5088,13 @@ impl Context {
                     0.0,
                 ),
                 DragPlaceholderParent::Custom(p_id) => {
-                    let p_rect = self.rects.get(p_id).copied().unwrap_or(LayoutRect::ZERO);
-                    let b_l = if let Some(l) = self.basic_layouts.get(p_id) {
+                    let p_rect = self
+                        .outputs
+                        .rects
+                        .get(p_id)
+                        .copied()
+                        .unwrap_or(LayoutRect::ZERO);
+                    let b_l = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
                         match l.border.left {
                             Length::Px(v) => v,
                             _ => 0.0,
@@ -5258,7 +5102,7 @@ impl Context {
                     } else {
                         0.0
                     };
-                    let b_t = if let Some(l) = self.basic_layouts.get(p_id) {
+                    let b_t = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
                         match l.border.top {
                             Length::Px(v) => v,
                             _ => 0.0,
@@ -5274,13 +5118,13 @@ impl Context {
             let local_x = logical_pos.x - (parent_rect.x + b_l) - drag_state.click_offset.x;
             let local_y = logical_pos.y - (parent_rect.y + b_t) - drag_state.click_offset.y;
 
-            if let Some(layout) = self.basic_layouts.get_mut(placeholder_id) {
+            if let Some(layout) = self.layouts.basic_layouts.get_mut(placeholder_id) {
                 layout.inset.left = Val::Px(local_x);
                 layout.inset.top = Val::Px(local_y);
                 layout.inset.right = Val::Auto;
                 layout.inset.bottom = Val::Auto;
             }
-            if let Some(layout) = self.base_basic_layouts.get_mut(placeholder_id) {
+            if let Some(layout) = self.renders.base_basic_layouts.get_mut(placeholder_id) {
                 layout.inset.left = Val::Px(local_x);
                 layout.inset.top = Val::Px(local_y);
                 layout.inset.right = Val::Auto;
@@ -5321,13 +5165,14 @@ impl Context {
                     self.set_drag_state(new_target, STATE_DRAG_IN, true);
                 }
                 drag_state.current_drop_target = found_drop_target;
-                self.active_drag_state = Some(drag_state.clone());
+                self.events.active_drag_state = Some(drag_state.clone());
             }
 
             // コールバックを一時的に take して借用を分離した後に実行
             match drag_prop.drag_mode {
                 DragPayload::Element => {
                     let mut listener_opt = self
+                        .events
                         .event_listeners
                         .get_mut(src_id)
                         .and_then(|l| l.on_entity_drag.take());
@@ -5341,13 +5186,14 @@ impl Context {
                             );
                         }
                         // 再度元の場所へ戻す
-                        if let Some(l) = self.event_listeners.get_mut(src_id) {
+                        if let Some(l) = self.events.event_listeners.get_mut(src_id) {
                             l.on_entity_drag = Some(listener);
                         }
                     }
                 }
                 DragPayload::EntityId => {
                     let mut listener_opt = self
+                        .events
                         .event_listeners
                         .get_mut(src_id)
                         .and_then(|l| l.on_id_drag.take());
@@ -5356,7 +5202,7 @@ impl Context {
                             let _guard = crate::ActiveElementGuard::new(src_id);
                             listener(self, src_id, found_drop_target);
                         }
-                        if let Some(l) = self.event_listeners.get_mut(src_id) {
+                        if let Some(l) = self.events.event_listeners.get_mut(src_id) {
                             l.on_id_drag = Some(listener);
                         }
                     }
@@ -5372,15 +5218,16 @@ impl Context {
         modifiers: Modifiers,
     ) {
         let _context_guard = bind_context(self);
-        let current_hovered = self.interaction_states.hovered;
+        let current_hovered = self.events.interaction_states.hovered;
 
         match state {
             ElementState::Pressed => {
                 if button == MouseButton::Left {
                     // リサイズドラッグの開始判定
-                    if let Some((id, dir)) = self.active_resize_hover {
-                        let rect = self.rects[id];
+                    if let Some((id, dir)) = self.events.active_resize_hover {
+                        let rect = self.outputs.rects[id];
                         let position = self
+                            .layouts
                             .basic_layouts
                             .get(id)
                             .map(|l| l.position)
@@ -5391,29 +5238,32 @@ impl Context {
                         let (parent_rect, parent_border_left, parent_border_top) =
                             if let Some(Some(parent_id)) = self.parents.get(id) {
                                 let p_rect = self
+                                    .outputs
                                     .rects
                                     .get(*parent_id)
                                     .copied()
                                     .unwrap_or(LayoutRect::ZERO);
 
-                                let border_l =
-                                    if let Some(layout) = self.basic_layouts.get(*parent_id) {
-                                        match layout.border.left {
-                                            Length::Px(v) => v,
-                                            Length::Percent(p) => p_rect.width * (p / 100.0),
-                                        }
-                                    } else {
-                                        0.0
-                                    };
-                                let border_t =
-                                    if let Some(layout) = self.basic_layouts.get(*parent_id) {
-                                        match layout.border.top {
-                                            Length::Px(v) => v,
-                                            Length::Percent(p) => p_rect.height * (p / 100.0),
-                                        }
-                                    } else {
-                                        0.0
-                                    };
+                                let border_l = if let Some(layout) =
+                                    self.layouts.basic_layouts.get(*parent_id)
+                                {
+                                    match layout.border.left {
+                                        Length::Px(v) => v,
+                                        Length::Percent(p) => p_rect.width * (p / 100.0),
+                                    }
+                                } else {
+                                    0.0
+                                };
+                                let border_t = if let Some(layout) =
+                                    self.layouts.basic_layouts.get(*parent_id)
+                                {
+                                    match layout.border.top {
+                                        Length::Px(v) => v,
+                                        Length::Percent(p) => p_rect.height * (p / 100.0),
+                                    }
+                                } else {
+                                    0.0
+                                };
 
                                 (p_rect, border_l, border_t)
                             } else {
@@ -5440,24 +5290,28 @@ impl Context {
                             start_inset.bottom = Val::Auto;
 
                             // SoA 側も、この Top-Left 座標で即時上書きアップデート
-                            if let Some(layout) = self.basic_layouts.get_mut(id) {
+                            if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
                                 layout.inset = start_inset;
                             }
-                            if let Some(layout) = self.base_basic_layouts.get_mut(id) {
+                            if let Some(layout) = self.renders.base_basic_layouts.get_mut(id) {
                                 layout.inset = start_inset;
                             }
                         } else {
                             // 相対配置時は、通常通りそのままのインセットを使用
                             start_inset = self
+                                .layouts
                                 .basic_layouts
                                 .get(id)
                                 .map(|l| l.inset)
                                 .unwrap_or(BasicLayout::default().inset);
                         }
 
-                        let start_pos = self.current_pointer_position.unwrap_or(LayoutPoint::ZERO);
+                        let start_pos = self
+                            .events
+                            .current_pointer_position
+                            .unwrap_or(LayoutPoint::ZERO);
 
-                        self.resizing_state = Some(ResizingState {
+                        self.events.resizing_state = Some(ResizingState {
                             entity_id: id,
                             direction: dir,
                             start_mouse_pos: start_pos,
@@ -5466,7 +5320,7 @@ impl Context {
                         });
 
                         // リサイズ中の要素は pressed とマーク（多重干渉防止）
-                        self.interaction_states.pressed = Some(id);
+                        self.events.interaction_states.pressed = Some(id);
                         self.mark_render_dirty(id);
                         return; // リサイズドラッグが開始されたため、通常のクリック・フォーカス処理を完全にバイパス
                     }
@@ -5474,7 +5328,7 @@ impl Context {
 
                 let mut clicked_scrollbar = false;
 
-                if let Some(pointer_pos) = self.current_pointer_position
+                if let Some(pointer_pos) = self.events.current_pointer_position
                     && let Some(target_id) = current_hovered
                 {
                     // 1. ヒットした要素がサム、またはトラックであるかを判定
@@ -5484,7 +5338,7 @@ impl Context {
                     let mut is_v_track = false;
                     let mut is_h_track = false;
 
-                    for (c_id, sb_state) in self.scrollbar_styles.iter() {
+                    for (c_id, sb_state) in self.layouts.scrollbar_styles.iter() {
                         if sb_state.v_thumb_id == Some(target_id) {
                             parent_container = Some(c_id);
                             is_v_thumb = true;
@@ -5508,14 +5362,20 @@ impl Context {
                         clicked_scrollbar = true;
 
                         let (sb_state, container_rect, scroll_size) = {
-                            let sb_state = self.scrollbar_styles.get(c_id).cloned().unwrap();
-                            let container_rect =
-                                self.rects.get(c_id).copied().unwrap_or(LayoutRect::ZERO);
+                            let sb_state =
+                                self.layouts.scrollbar_styles.get(c_id).cloned().unwrap();
+                            let container_rect = self
+                                .outputs
+                                .rects
+                                .get(c_id)
+                                .copied()
+                                .unwrap_or(LayoutRect::ZERO);
                             let scroll_size = self.get_scroll_size(c_id);
                             (sb_state, container_rect, scroll_size)
                         };
 
                         let offset = self
+                            .outputs
                             .scroll_offsets
                             .get(c_id)
                             .copied()
@@ -5523,7 +5383,7 @@ impl Context {
 
                         if is_v_thumb || is_h_thumb {
                             // A. サムをクリックした場合：ドラッグを開始
-                            if let Some(st) = self.scrollbar_styles.get_mut(c_id) {
+                            if let Some(st) = self.layouts.scrollbar_styles.get_mut(c_id) {
                                 if is_v_thumb {
                                     st.v_thumb_dragged = true;
                                 } else {
@@ -5532,10 +5392,11 @@ impl Context {
                                 st.drag_start_mouse = pointer_pos;
                                 st.drag_start_offset = offset;
                             }
-                            self.interaction_states.pressed = Some(target_id); // サム要素自体を pressed に設定
+                            self.events.interaction_states.pressed = Some(target_id); // サム要素自体を pressed に設定
                             self.mark_render_dirty(target_id);
                         } else if is_v_track || is_h_track {
-                            let window_size = self.last_window_size.unwrap_or(LayoutSize::ZERO);
+                            let window_size =
+                                self.window.last_window_size.unwrap_or(LayoutSize::ZERO);
 
                             let visible_width = if window_size.width > 0.0 {
                                 let left = container_rect.x.max(0.0);
@@ -5557,8 +5418,8 @@ impl Context {
 
                             // B. レールをクリックした場合：ダイレクトジャンプスクロールを実行
                             if is_v_track {
-                                let track_rect = self.rects[target_id];
-                                let thumb_rect = self.rects[sb_state.v_thumb_id.unwrap()];
+                                let track_rect = self.outputs.rects[target_id];
+                                let thumb_rect = self.outputs.rects[sb_state.v_thumb_id.unwrap()];
                                 let relative_y = pointer_pos.y - track_rect.y;
 
                                 let track_range = track_rect.height - thumb_rect.height;
@@ -5573,21 +5434,22 @@ impl Context {
                                 self.scroll_to(c_id, offset.x, target_y);
 
                                 let new_offset = self
+                                    .outputs
                                     .scroll_offsets
                                     .get(c_id)
                                     .copied()
                                     .unwrap_or(LayoutPoint::ZERO);
-                                if let Some(st) = self.scrollbar_styles.get_mut(c_id) {
+                                if let Some(st) = self.layouts.scrollbar_styles.get_mut(c_id) {
                                     st.v_thumb_dragged = true;
                                     st.drag_start_mouse = pointer_pos;
                                     st.drag_start_offset = new_offset;
                                 }
-                                self.interaction_states.pressed =
+                                self.events.interaction_states.pressed =
                                     Some(sb_state.v_thumb_id.unwrap());
                                 self.mark_render_dirty(sb_state.v_thumb_id.unwrap());
                             } else {
-                                let track_rect = self.rects[target_id];
-                                let thumb_rect = self.rects[sb_state.h_thumb_id.unwrap()];
+                                let track_rect = self.outputs.rects[target_id];
+                                let thumb_rect = self.outputs.rects[sb_state.h_thumb_id.unwrap()];
                                 let relative_x = pointer_pos.x - track_rect.x;
 
                                 let track_range = track_rect.width - thumb_rect.width;
@@ -5602,16 +5464,17 @@ impl Context {
                                 self.scroll_to(c_id, target_x, offset.y);
 
                                 let new_offset = self
+                                    .outputs
                                     .scroll_offsets
                                     .get(c_id)
                                     .copied()
                                     .unwrap_or(LayoutPoint::ZERO);
-                                if let Some(st) = self.scrollbar_styles.get_mut(c_id) {
+                                if let Some(st) = self.layouts.scrollbar_styles.get_mut(c_id) {
                                     st.h_thumb_dragged = true;
                                     st.drag_start_mouse = pointer_pos;
                                     st.drag_start_offset = new_offset;
                                 }
-                                self.interaction_states.pressed =
+                                self.events.interaction_states.pressed =
                                     Some(sb_state.h_thumb_id.unwrap());
                                 self.mark_render_dirty(sb_state.h_thumb_id.unwrap());
                             }
@@ -5624,10 +5487,11 @@ impl Context {
                 }
 
                 if let Some(target_id) = current_hovered {
-                    self.interaction_states.pressed = Some(target_id);
+                    self.events.interaction_states.pressed = Some(target_id);
                     self.set_pressed(target_id, true);
 
                     let user_select = self
+                        .renders
                         .visual_properties
                         .get(target_id)
                         .and_then(|v| v.user_select)
@@ -5637,10 +5501,15 @@ impl Context {
 
                     if user_select == UserSelect::Text
                         && !is_input
-                        && let Some(pointer_pos) = self.current_pointer_position
+                        && let Some(pointer_pos) = self.events.current_pointer_position
                     {
-                        let rect = self.rects[target_id];
-                        let (basic, _, _) = self.resolve_active_layouts(target_id);
+                        let rect = self.outputs.rects[target_id];
+                        let (basic, _, _) = self.layouts.resolve_active_layouts(
+                            target_id,
+                            &self.active_masks,
+                            &self.parents,
+                            &self.renders,
+                        );
                         let border_left = match basic.border.left {
                             Length::Px(v) => v,
                             _ => 0.0,
@@ -5659,6 +5528,7 @@ impl Context {
                         };
 
                         let scroll = self
+                            .outputs
                             .scroll_offsets
                             .get(target_id)
                             .copied()
@@ -5670,8 +5540,10 @@ impl Context {
                             pointer_pos.y - (rect.y + border_top + padding_top) + scroll.y;
 
                         if let Some(layout) = self.get_or_create_layout(target_id) {
-                            let (clicked_index, is_trailing) =
-                                self.text_engine.hit_test_point(&layout, local_x, local_y);
+                            let (clicked_index, is_trailing) = self
+                                .system
+                                .text_engine
+                                .hit_test_point(&layout, local_x, local_y);
                             let final_index = if is_trailing {
                                 clicked_index + 1
                             } else {
@@ -5700,7 +5572,7 @@ impl Context {
                                 self.selection_start_index.insert(target_id, final_index);
                                 self.text_selections
                                     .insert(target_id, final_index..final_index);
-                                self.selected_rects.remove(target_id);
+                                self.outputs.selected_rects.remove(target_id);
                             }
 
                             self.mark_render_dirty(target_id);
@@ -5712,6 +5584,7 @@ impl Context {
                         || self.active_masks[target_id].has(COMP_WEBVIEW_CONTENT)
                         || (self.active_masks[target_id].has(STYLE_FOCUSABLE)
                             && self
+                                .renders
                                 .visual_properties
                                 .get(target_id)
                                 .and_then(|v| v.focusable)
@@ -5726,19 +5599,22 @@ impl Context {
 
                     if is_focusable {
                         // フォーカスの自動切り替え
-                        if self.interaction_states.focused != Some(target_id) {
-                            if let Some(old_focus_id) = self.interaction_states.focused {
+                        if self.events.interaction_states.focused != Some(target_id) {
+                            if let Some(old_focus_id) = self.events.interaction_states.focused {
                                 self.set_focused(old_focus_id, false);
 
                                 // on_blur
                                 let mut on_blur = self
+                                    .events
                                     .event_listeners
                                     .get_mut(old_focus_id)
                                     .and_then(|l| l.on_blur.take());
                                 if let Some(mut handler) = on_blur {
                                     let _guard = crate::ActiveElementGuard::new(old_focus_id);
                                     handler(self);
-                                    if let Some(l) = self.event_listeners.get_mut(old_focus_id) {
+                                    if let Some(l) =
+                                        self.events.event_listeners.get_mut(old_focus_id)
+                                    {
                                         l.on_blur = Some(handler);
                                     }
                                 }
@@ -5749,48 +5625,51 @@ impl Context {
 
                             // on_focus
                             let mut on_focus = self
+                                .events
                                 .event_listeners
                                 .get_mut(target_id)
                                 .and_then(|l| l.on_focus.take());
                             if let Some(mut handler) = on_focus {
                                 let _guard = crate::ActiveElementGuard::new(target_id);
                                 handler(self);
-                                if let Some(l) = self.event_listeners.get_mut(target_id) {
+                                if let Some(l) = self.events.event_listeners.get_mut(target_id) {
                                     l.on_focus = Some(handler);
                                 }
                             }
-                            self.interaction_states.focused = Some(target_id);
+                            self.events.interaction_states.focused = Some(target_id);
                         }
                     } else {
                         // フォーカス不可能な要素をクリックした場合は、
                         // 現在フォーカスされているインプットからフォーカスを完全に外し状態をクリアする
-                        if let Some(old_focus_id) = self.interaction_states.focused {
+                        if let Some(old_focus_id) = self.events.interaction_states.focused {
                             self.set_focused(old_focus_id, false);
 
                             let mut on_blur = self
+                                .events
                                 .event_listeners
                                 .get_mut(old_focus_id)
                                 .and_then(|l| l.on_blur.take());
                             if let Some(mut handler) = on_blur {
                                 let _guard = crate::ActiveElementGuard::new(old_focus_id);
                                 handler(self);
-                                if let Some(l) = self.event_listeners.get_mut(old_focus_id) {
+                                if let Some(l) = self.events.event_listeners.get_mut(old_focus_id) {
                                     l.on_blur = Some(handler);
                                 }
                             }
-                            self.interaction_states.focused = None;
+                            self.events.interaction_states.focused = None;
                         }
                     }
 
                     // on_mouse_input
                     let mut on_input = self
+                        .events
                         .event_listeners
                         .get_mut(target_id)
                         .and_then(|l| l.on_mouse_input.take());
                     if let Some(mut handler) = on_input {
                         let _guard = crate::ActiveElementGuard::new(target_id);
                         handler(self, button, modifiers, state);
-                        if let Some(l) = self.event_listeners.get_mut(target_id) {
+                        if let Some(l) = self.events.event_listeners.get_mut(target_id) {
                             l.on_mouse_input = Some(handler);
                         }
                     }
@@ -5798,14 +5677,14 @@ impl Context {
             }
             ElementState::Released => {
                 // リサイズドラッグの終了処理
-                if let Some(state) = self.resizing_state.take() {
+                if let Some(state) = self.events.resizing_state.take() {
                     let id = state.entity_id;
-                    self.interaction_states.pressed = None;
+                    self.events.interaction_states.pressed = None;
 
                     // 元のリサイズホバーカーソル表示を維持するために再検出をマーク
                     // リサイズ状態が解除された「この瞬間」に現在の座標で move を再キックし、
                     // すり抜けていた通常のホバー・離脱判定（Leave）を正確に評価させる
-                    if let Some(pos) = self.current_pointer_position {
+                    if let Some(pos) = self.events.current_pointer_position {
                         self.inject_pointer_move(pos);
                     }
                     self.mark_render_dirty(id);
@@ -5813,10 +5692,10 @@ impl Context {
                 }
 
                 // D&D ドラッグ終了・ドロップ確定処理
-                if let Some(drag_state) = self.active_drag_state.take() {
+                if let Some(drag_state) = self.events.active_drag_state.take() {
                     let src_id = drag_state.source_entity;
                     let placeholder_id = drag_state.placeholder_entity;
-                    let drag_prop = self.drag_properties.get(src_id).copied().unwrap();
+                    let drag_prop = self.events.drag_properties.get(src_id).copied().unwrap();
 
                     // 疑似クラス（STATE_DRAGGING, STATE_DRAG_IN）を解除
                     self.set_drag_state(src_id, STATE_DRAGGING, false);
@@ -5826,15 +5705,15 @@ impl Context {
 
                     // プレースホルダー要素を親および Taffy から安全にデスポーン
                     // このタイミングではまだ despawn_internal せず最後に移動させます。
-                    self.interaction_states.pressed = None;
-                    self.interaction_states.dragged = None;
+                    self.events.interaction_states.pressed = None;
+                    self.events.interaction_states.dragged = None;
 
                     let drop_success = drag_state.current_drop_target;
 
                     // A. 実体移動（DragMode::Entity）の場合のツリートポロジー書き換え
                     if let Some(target_id) = drop_success
                         && drag_prop.drag_mode == DragPayload::Element
-                        && let Some(drop_prop) = self.drop_properties.get(target_id).copied()
+                        && let Some(drop_prop) = self.events.drop_properties.get(target_id).copied()
                     {
                         // 1. まずドラッグ元要素を現在の親の children リストから安全に引き抜いて削除
                         if let Some(src_parent_id) = drag_state.original_parent {
@@ -5848,6 +5727,7 @@ impl Context {
 
                         // ドラッグ元要素の配置（Position）の取得
                         let position = self
+                            .layouts
                             .basic_layouts
                             .get(src_id)
                             .map(|l| l.position)
@@ -5858,6 +5738,7 @@ impl Context {
                             if drag_prop.update_position {
                                 // 1. プレースホルダーの最終的な絶対画面座標を取得
                                 let ph_abs_rect = self
+                                    .outputs
                                     .rects
                                     .get(placeholder_id)
                                     .copied()
@@ -5865,24 +5746,26 @@ impl Context {
 
                                 // 2. 新しい親（target_id）の絶対画面座標とボーダー厚みを取得
                                 let target_rect = self
+                                    .outputs
                                     .rects
                                     .get(target_id)
                                     .copied()
                                     .unwrap_or(LayoutRect::ZERO);
-                                let (border_l, border_t) =
-                                    if let Some(layout) = self.basic_layouts.get(target_id) {
-                                        let b_l = match layout.border.left {
-                                            Length::Px(v) => v,
-                                            _ => 0.0,
-                                        };
-                                        let b_t = match layout.border.top {
-                                            Length::Px(v) => v,
-                                            _ => 0.0,
-                                        };
-                                        (b_l, b_t)
-                                    } else {
-                                        (0.0, 0.0)
+                                let (border_l, border_t) = if let Some(layout) =
+                                    self.layouts.basic_layouts.get(target_id)
+                                {
+                                    let b_l = match layout.border.left {
+                                        Length::Px(v) => v,
+                                        _ => 0.0,
                                     };
+                                    let b_t = match layout.border.top {
+                                        Length::Px(v) => v,
+                                        _ => 0.0,
+                                    };
+                                    (b_l, b_t)
+                                } else {
+                                    (0.0, 0.0)
+                                };
 
                                 // 3. 新しい親を基準にした新しいローカル相対位置を逆算して割り出す
                                 let new_inset_left = ph_abs_rect.x - (target_rect.x + border_l);
@@ -5895,10 +5778,12 @@ impl Context {
                                     left: Val::Px(new_inset_left),
                                 };
 
-                                if let Some(layout) = self.basic_layouts.get_mut(src_id) {
+                                if let Some(layout) = self.layouts.basic_layouts.get_mut(src_id) {
                                     layout.inset = new_inset;
                                 }
-                                if let Some(layout) = self.base_basic_layouts.get_mut(src_id) {
+                                if let Some(layout) =
+                                    self.renders.base_basic_layouts.get_mut(src_id)
+                                {
                                     layout.inset = new_inset;
                                 }
                             }
@@ -5908,8 +5793,10 @@ impl Context {
                         } else {
                             // 【相対配置（Relative）】: マウス座標に基づいた子要素の動的並び替えアタッチ
                             if drag_prop.update_position {
-                                let mouse_pos =
-                                    self.current_pointer_position.unwrap_or(LayoutPoint::ZERO);
+                                let mouse_pos = self
+                                    .events
+                                    .current_pointer_position
+                                    .unwrap_or(LayoutPoint::ZERO);
                                 let insert_idx = calculate_insert_index(self, target_id, mouse_pos);
 
                                 if let Some(parent_children) = self.children.get_mut(target_id) {
@@ -5927,7 +5814,7 @@ impl Context {
                             self.mark_layout_dirty(target_id);
                         }
 
-                        self.is_structure_dirty = true;
+                        self.layouts.is_structure_dirty = true;
                     }
 
                     // 避難していた本物の子要素トポロジーを、元の要素（src_id）の配下へ自動復元
@@ -5942,12 +5829,12 @@ impl Context {
                             }
 
                             // Taffy 側の親子構造も、元の要素に繋ぎ戻し
-                            if let Some(&src_node) = self.taffy_nodes.get(src_id)
-                                && let Some(&ph_node) = self.taffy_nodes.get(placeholder_id)
-                                && let Some(&child_node) = self.taffy_nodes.get(child_id)
+                            if let Some(&src_node) = self.layouts.taffy_nodes.get(src_id)
+                                && let Some(&ph_node) = self.layouts.taffy_nodes.get(placeholder_id)
+                                && let Some(&child_node) = self.layouts.taffy_nodes.get(child_id)
                             {
-                                let _ = self.taffy.remove_child(ph_node, child_node);
-                                let _ = self.taffy.add_child(src_node, child_node);
+                                let _ = self.layouts.taffy.remove_child(ph_node, child_node);
+                                let _ = self.layouts.taffy.add_child(src_node, child_node);
                             }
                         }
 
@@ -5963,6 +5850,7 @@ impl Context {
                     match drag_prop.drag_mode {
                         DragPayload::Element => {
                             let mut listener_opt = self
+                                .events
                                 .event_listeners
                                 .get_mut(src_id)
                                 .and_then(|l| l.on_entity_drop.take());
@@ -5975,13 +5863,14 @@ impl Context {
                                         drop_success.map(Element::from),
                                     );
                                 }
-                                if let Some(l) = self.event_listeners.get_mut(src_id) {
+                                if let Some(l) = self.events.event_listeners.get_mut(src_id) {
                                     l.on_entity_drop = Some(listener);
                                 }
                             }
                         }
                         DragPayload::EntityId => {
                             let mut listener_opt = self
+                                .events
                                 .event_listeners
                                 .get_mut(src_id)
                                 .and_then(|l| l.on_id_drop.take());
@@ -5990,7 +5879,7 @@ impl Context {
                                     let _guard = crate::ActiveElementGuard::new(src_id);
                                     listener(self, src_id, drop_success);
                                 }
-                                if let Some(l) = self.event_listeners.get_mut(src_id) {
+                                if let Some(l) = self.events.event_listeners.get_mut(src_id) {
                                     l.on_id_drop = Some(listener);
                                 }
                             }
@@ -6001,7 +5890,7 @@ impl Context {
                     self.despawn_internal(placeholder_id);
 
                     // 離脱直後に位置を再移動評価して、通常のホバーを正しく復元
-                    if let Some(pos) = self.current_pointer_position {
+                    if let Some(pos) = self.events.current_pointer_position {
                         self.inject_pointer_move(pos);
                     }
 
@@ -6010,7 +5899,7 @@ impl Context {
                 }
 
                 let mut dirty_ids = smallvec::SmallVec::<[EntityId; 4]>::new();
-                for (id, state) in self.scrollbar_styles.iter_mut() {
+                for (id, state) in self.layouts.scrollbar_styles.iter_mut() {
                     if state.v_thumb_dragged || state.h_thumb_dragged {
                         state.v_thumb_dragged = false;
                         state.h_thumb_dragged = false;
@@ -6022,41 +5911,44 @@ impl Context {
                     self.mark_render_dirty(id);
                 }
 
-                if let Some(pressed_id) = self.interaction_states.pressed {
+                if let Some(pressed_id) = self.events.interaction_states.pressed {
                     self.set_pressed(pressed_id, false);
                     self.set_dragged(pressed_id, false);
-                    self.interaction_states.dragged = None;
+                    self.events.interaction_states.dragged = None;
 
-                    if let Some(contents) = self.input_contents.get_mut(pressed_id) {
+                    if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
                         contents.is_selecting = false;
                     }
 
                     // 1. on_mouse_input の発火（ボタンの種類を問わず常に呼ぶ）
                     let mut on_input = self
+                        .events
                         .event_listeners
                         .get_mut(pressed_id)
                         .and_then(|l| l.on_mouse_input.take());
                     if let Some(mut handler) = on_input {
                         let _guard = crate::ActiveElementGuard::new(pressed_id);
                         handler(self, button, modifiers, state);
-                        if let Some(l) = self.event_listeners.get_mut(pressed_id) {
+                        if let Some(l) = self.events.event_listeners.get_mut(pressed_id) {
                             l.on_mouse_input = Some(handler);
                         }
                     }
 
                     // 2. 同一要素上で離された場合の各種クリック解決
-                    if self.interaction_states.hovered == Some(pressed_id) {
+                    if self.events.interaction_states.hovered == Some(pressed_id) {
                         match button {
                             // 左クリックの解決
                             MouseButton::Left => {
                                 let mut on_click = self
+                                    .events
                                     .event_listeners
                                     .get_mut(pressed_id)
                                     .and_then(|l| l.on_click.take());
                                 if let Some(mut handler) = on_click {
                                     let _guard = crate::ActiveElementGuard::new(pressed_id);
                                     handler(self);
-                                    if let Some(l) = self.event_listeners.get_mut(pressed_id) {
+                                    if let Some(l) = self.events.event_listeners.get_mut(pressed_id)
+                                    {
                                         l.on_click = Some(handler);
                                     }
                                 }
@@ -6064,13 +5956,15 @@ impl Context {
                             // 右クリックの解決（追加）
                             MouseButton::Right => {
                                 let mut on_right = self
+                                    .events
                                     .event_listeners
                                     .get_mut(pressed_id)
                                     .and_then(|l| l.on_right_click.take());
                                 if let Some(mut handler) = on_right {
                                     let _guard = crate::ActiveElementGuard::new(pressed_id);
                                     handler(self);
-                                    if let Some(l) = self.event_listeners.get_mut(pressed_id) {
+                                    if let Some(l) = self.events.event_listeners.get_mut(pressed_id)
+                                    {
                                         l.on_right_click = Some(handler);
                                     }
                                 }
@@ -6079,7 +5973,7 @@ impl Context {
                         }
                     }
 
-                    self.interaction_states.pressed = None;
+                    self.events.interaction_states.pressed = None;
                 }
             }
         }
@@ -6089,7 +5983,7 @@ impl Context {
     pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
         // すでにフラットシーケンスが構築されていればその先頭、
         // 無ければ parents マップをスキャンして親が None の生存要素をフォールバック解決します
-        self.flat_dfs_sequence.first().copied().or_else(|| {
+        self.layouts.flat_dfs_sequence.first().copied().or_else(|| {
             self.parents
                 .iter()
                 .find(|&(id, &parent_id_opt)| {
@@ -6103,19 +5997,20 @@ impl Context {
     // ダブルクリック
     pub fn inject_pointer_double_click(&mut self, modifiers: Modifiers) {
         let _context_guard = bind_context(self);
-        let current_hovered = self.interaction_states.hovered;
+        let current_hovered = self.events.interaction_states.hovered;
 
         if let Some(target_id) = current_hovered {
             let user_select = self
+                .renders
                 .visual_properties
                 .get(target_id)
                 .and_then(|v| v.user_select)
                 .unwrap_or(UserSelect::None);
 
             if user_select == UserSelect::Text
-                && let Some(pointer_pos) = self.current_pointer_position
+                && let Some(pointer_pos) = self.events.current_pointer_position
             {
-                if let Some(contents) = self.input_contents.get(target_id) {
+                if let Some(contents) = self.contents.input_contents.get(target_id) {
                     let text_val = contents.text.0.get();
                     let is_placeholder = text_val.is_empty()
                         && contents
@@ -6129,8 +6024,13 @@ impl Context {
                     }
                 }
 
-                let rect = self.rects[target_id];
-                let (basic, _, _) = self.resolve_active_layouts(target_id);
+                let rect = self.outputs.rects[target_id];
+                let (basic, _, _) = self.layouts.resolve_active_layouts(
+                    target_id,
+                    &self.active_masks,
+                    &self.parents,
+                    &self.renders,
+                );
                 let border_left = match basic.border.left {
                     Length::Px(v) => v,
                     _ => 0.0,
@@ -6152,15 +6052,17 @@ impl Context {
                 let local_y = pointer_pos.y - (rect.y + border_top + padding_top);
 
                 if let Some(layout) = self.get_or_create_layout(target_id) {
-                    let (clicked_index, is_trailing) =
-                        self.text_engine.hit_test_point(&layout, local_x, local_y);
+                    let (clicked_index, is_trailing) = self
+                        .system
+                        .text_engine
+                        .hit_test_point(&layout, local_x, local_y);
                     let final_index = if is_trailing {
                         clicked_index + 1
                     } else {
                         clicked_index
                     };
 
-                    if let Some(text) = self.text_contents.get(target_id) {
+                    if let Some(text) = self.contents.text_contents.get(target_id) {
                         let text_u16: Vec<u16> = text.encode_utf16().collect();
 
                         // 高精度な文節境界を抽出
@@ -6171,7 +6073,7 @@ impl Context {
                         self.selection_start_index.insert(target_id, range.start);
                         self.update_selection_rects(target_id); // 選択矩形を更新
 
-                        if let Some(contents) = self.input_contents.get_mut(target_id) {
+                        if let Some(contents) = self.contents.input_contents.get_mut(target_id) {
                             contents.selected_range = range;
                             contents.selection_reversed = false; // キャレットは右端に配置
                             crate::update_input_caret_position(self, target_id);
@@ -6189,13 +6091,14 @@ impl Context {
     pub fn inject_mouse_wheel(&mut self, scroll_x: f32, scroll_y: f32) {
         let _context_guard = bind_context(self);
 
-        let mut curr = self.interaction_states.hovered;
+        let mut curr = self.events.interaction_states.hovered;
         let mut handled = false;
 
         // イベントバブリング: ホバー要素から親へ辿る
         while let Some(curr_id) = curr {
             // 個別に定義された `on_mouse_wheel` ハンドラがあれば最優先実行
             let mut on_wheel = self
+                .events
                 .event_listeners
                 .get_mut(curr_id)
                 .and_then(|l| l.on_mouse_wheel.take());
@@ -6203,7 +6106,7 @@ impl Context {
             if let Some(mut handler) = on_wheel {
                 let _guard = crate::ActiveElementGuard::new(curr_id);
                 handler(self, scroll_x, scroll_y);
-                if let Some(l) = self.event_listeners.get_mut(curr_id) {
+                if let Some(l) = self.events.event_listeners.get_mut(curr_id) {
                     l.on_mouse_wheel = Some(handler);
                 }
                 handled = true; // イベントが消費されたため、これ以降のコンテナスクロールは行わない
@@ -6213,7 +6116,12 @@ impl Context {
             // ユーザーハンドラがない場合、要素がスクロールコンテナであるか判定
             let mask = self.active_masks[curr_id];
             if mask.has(STYLE_OVERFLOW) {
-                let (basic, _, _) = self.resolve_active_layouts(curr_id);
+                let (basic, _, _) = self.layouts.resolve_active_layouts(
+                    curr_id,
+                    &self.active_masks,
+                    &self.parents,
+                    &self.renders,
+                );
 
                 let mut scrolled = false;
 
@@ -6260,12 +6168,13 @@ impl Context {
             return;
         }
 
-        if let Some(focused_id) = self.interaction_states.focused {
+        if let Some(focused_id) = self.events.interaction_states.focused {
             // フォーカス中に Enter または Space が押されたら自動的にクリックをエミュレートする
             if state == ElementState::Pressed
                 && (key == VirtualKey::RETURN || key == VirtualKey::SPACE)
             {
                 let mut on_click = self
+                    .events
                     .event_listeners
                     .get_mut(focused_id)
                     .and_then(|l| l.on_click.take());
@@ -6273,7 +6182,7 @@ impl Context {
                 if let Some(mut handler) = on_click {
                     let _guard = crate::ActiveElementGuard::new(focused_id);
                     handler(self);
-                    if let Some(l) = self.event_listeners.get_mut(focused_id) {
+                    if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
                         l.on_click = Some(handler);
                     }
                 }
@@ -6282,6 +6191,7 @@ impl Context {
             // 内部で完結する全選択（Ctrl+A）のみを自動処理
             if state == ElementState::Pressed && modifiers.ctrl {
                 let user_select = self
+                    .renders
                     .visual_properties
                     .get(focused_id)
                     .and_then(|v| v.user_select)
@@ -6289,7 +6199,7 @@ impl Context {
 
                 if key == VirtualKey::A && user_select == UserSelect::Text {
                     if let Some(layout) = self.get_or_create_layout(focused_id)
-                        && let Some(text) = self.text_contents.get(focused_id)
+                        && let Some(text) = self.contents.text_contents.get(focused_id)
                     {
                         let u16_len = text.encode_utf16().count();
                         let full_range = 0..u16_len;
@@ -6298,7 +6208,7 @@ impl Context {
 
                         self.update_selection_rects(focused_id);
 
-                        if let Some(contents) = self.input_contents.get_mut(focused_id) {
+                        if let Some(contents) = self.contents.input_contents.get_mut(focused_id) {
                             contents.selected_range = full_range;
                             contents.selection_reversed = false;
                             crate::update_input_caret_position(self, focused_id);
@@ -6310,13 +6220,14 @@ impl Context {
             }
 
             let mut on_key = self
+                .events
                 .event_listeners
                 .get_mut(focused_id)
                 .and_then(|l| l.on_keyboard_input.take());
             if let Some(mut handler) = on_key {
                 let _guard = crate::ActiveElementGuard::new(focused_id);
                 handler(self, key, modifiers, state);
-                if let Some(l) = self.event_listeners.get_mut(focused_id) {
+                if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
                     l.on_keyboard_input = Some(handler);
                 }
             }
@@ -6325,16 +6236,16 @@ impl Context {
 
     /// キーボードフォーカスを次の適格な要素へ巡回させます
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
-        if self.flat_dfs_sequence.is_empty() {
+        if self.layouts.flat_dfs_sequence.is_empty() {
             return;
         }
 
-        let len = self.flat_dfs_sequence.len();
+        let len = self.layouts.flat_dfs_sequence.len();
 
         // 現在フォーカスされている要素のインデックスを特定（無ければ探索方向の末端から開始）
-        let current_focused = self.interaction_states.focused;
+        let current_focused = self.events.interaction_states.focused;
         let start_idx = current_focused
-            .and_then(|id| self.flat_dfs_sequence.iter().position(|&x| x == id))
+            .and_then(|id| self.layouts.flat_dfs_sequence.iter().position(|&x| x == id))
             .unwrap_or(if reverse { len - 1 } else { 0 });
 
         let mut idx = start_idx;
@@ -6351,15 +6262,15 @@ impl Context {
                 break;
             }
 
-            let candidate_id = self.flat_dfs_sequence[idx];
+            let candidate_id = self.layouts.flat_dfs_sequence[idx];
 
             if self.is_keyboard_focusable(candidate_id) {
                 // 古い要素のフォーカスを外し、新しい要素へフォーカスを設定
-                if let Some(old_id) = self.interaction_states.focused {
+                if let Some(old_id) = self.events.interaction_states.focused {
                     self.set_focused(old_id, false);
                 }
                 self.set_focused(candidate_id, true);
-                self.interaction_states.focused = Some(candidate_id);
+                self.events.interaction_states.focused = Some(candidate_id);
 
                 // WebView2 要素だった場合はシステム側にフォーカスをプログラム駆動で移譲
                 if self.active_masks[candidate_id].has(COMP_WEBVIEW_CONTENT) {
@@ -6384,6 +6295,7 @@ impl Context {
             || self.active_masks[id].has(COMP_WEBVIEW_CONTENT)
             || (self.active_masks[id].has(STYLE_FOCUSABLE)
                 && self
+                    .renders
                     .visual_properties
                     .get(id)
                     .and_then(|v| v.focusable)
@@ -6402,7 +6314,7 @@ impl Context {
         // 自分自身、および親先祖ツリーに非表示（Display::None）が1つも含まれていないか検証
         let mut curr = Some(id);
         while let Some(curr_id) = curr {
-            if let Some(layout) = self.basic_layouts.get(curr_id)
+            if let Some(layout) = self.layouts.basic_layouts.get(curr_id)
                 && layout.display == Display::None
             {
                 return false;
@@ -6415,15 +6327,16 @@ impl Context {
 
     pub fn inject_character(&mut self, c: char) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.interaction_states.focused {
+        if let Some(focused_id) = self.events.interaction_states.focused {
             let mut on_char = self
+                .events
                 .event_listeners
                 .get_mut(focused_id)
                 .and_then(|l| l.on_char_input.take());
             if let Some(mut handler) = on_char {
                 let _guard = crate::ActiveElementGuard::new(focused_id);
                 handler(self, c);
-                if let Some(l) = self.event_listeners.get_mut(focused_id) {
+                if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
                     l.on_char_input = Some(handler);
                 }
             }
@@ -6432,15 +6345,16 @@ impl Context {
 
     pub fn inject_ime(&mut self, ime_state: ImeState) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.interaction_states.focused {
+        if let Some(focused_id) = self.events.interaction_states.focused {
             let mut on_ime = self
+                .events
                 .event_listeners
                 .get_mut(focused_id)
                 .and_then(|l| l.on_ime.take());
             if let Some(mut handler) = on_ime {
                 let _guard = crate::ActiveElementGuard::new(focused_id);
                 handler(self, ime_state);
-                if let Some(l) = self.event_listeners.get_mut(focused_id) {
+                if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
                     l.on_ime = Some(handler);
                 }
             }
@@ -6449,15 +6363,16 @@ impl Context {
 
     pub fn inject_file_dropped(&mut self, paths: Vec<PathBuf>) {
         let _context_guard = bind_context(self);
-        if let Some(target_id) = self.interaction_states.hovered {
+        if let Some(target_id) = self.events.interaction_states.hovered {
             let mut on_drop = self
+                .events
                 .event_listeners
                 .get_mut(target_id)
                 .and_then(|l| l.on_file_dropped.take());
             if let Some(mut handler) = on_drop {
                 let _guard = crate::ActiveElementGuard::new(target_id);
                 handler(self, paths);
-                if let Some(l) = self.event_listeners.get_mut(target_id) {
+                if let Some(l) = self.events.event_listeners.get_mut(target_id) {
                     l.on_file_dropped = Some(handler);
                 }
             }
@@ -6508,30 +6423,39 @@ impl Context {
                     metric.height,
                 ));
             });
-            self.selected_rects.insert(id, rects);
+            self.outputs.selected_rects.insert(id, rects);
             return;
         }
         // 範囲が 0、または選択なしの時は自動クリーンアップ
-        self.selected_rects.remove(id);
+        self.outputs.selected_rects.remove(id);
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     pub(crate) fn get_or_create_layout(&self, id: EntityId) -> Option<IDWriteTextLayout> {
-        if let Some(layout) = self.dwrite_layouts.borrow().get(id) {
+        if let Some(layout) = self.system.dwrite_layouts.borrow().get(id) {
             return Some(layout.clone());
         }
 
-        let text = self.text_contents.get(id)?;
+        let text = self.contents.text_contents.get(id)?;
         let default_visual = VisualProperty::default();
-        let visual = self.visual_properties.get(id).unwrap_or(&default_visual);
+        let visual = self
+            .renders
+            .visual_properties
+            .get(id)
+            .unwrap_or(&default_visual);
         let font_size = visual.font_size.unwrap_or(16.0);
         let font_family = visual.font_family.as_deref();
         let font_weight = visual.font_weight;
         let font_style = visual.font_style;
 
-        let spans = self.text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+        let spans = self
+            .contents
+            .text_spans
+            .get(id)
+            .map(|s| s.as_slice())
+            .unwrap_or(&[]);
 
-        let layout = self.text_engine.create_layout(
+        let layout = self.system.text_engine.create_layout(
             text,
             font_size,
             font_family,
@@ -6541,19 +6465,23 @@ impl Context {
             spans,
         );
 
-        self.dwrite_layouts.borrow_mut().insert(id, layout.clone());
+        self.system
+            .dwrite_layouts
+            .borrow_mut()
+            .insert(id, layout.clone());
         Some(layout)
     }
 
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     pub(crate) fn clear_layout_cache(&mut self, id: EntityId) {
-        self.dwrite_layouts.borrow_mut().remove(id);
+        self.system.dwrite_layouts.borrow_mut().remove(id);
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
     pub fn get_selected_text(&self) -> Option<String> {
-        let focused_id = self.interaction_states.focused?;
+        let focused_id = self.events.interaction_states.focused?;
         let user_select = self
+            .renders
             .visual_properties
             .get(focused_id)
             .and_then(|v| v.user_select)
@@ -6562,7 +6490,7 @@ impl Context {
         if user_select == UserSelect::Text {
             let range = self.text_selections.get(focused_id)?;
             if range.start < range.end {
-                let text = self.text_contents.get(focused_id)?;
+                let text = self.contents.text_contents.get(focused_id)?;
                 let u16_text: Vec<u16> = text.encode_utf16().collect();
                 let slice =
                     &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
@@ -6575,9 +6503,9 @@ impl Context {
     /// 外部から提供されたテキストを、現在フォーカスされている入力要素にペーストします。
     pub fn inject_paste(&mut self, text: &str) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.interaction_states.focused
+        if let Some(focused_id) = self.events.interaction_states.focused
             && self.active_masks[focused_id].has(COMP_INPUT_CONTENT)
-            && let Some(contents) = self.input_contents.get_mut(focused_id)
+            && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
         {
             let text_val = contents.text.0.get();
             let range = contents.selected_range.clone();
@@ -6626,7 +6554,7 @@ impl Context {
             contents.selected_range = new_caret..new_caret;
             self.text_selections
                 .insert(focused_id, new_caret..new_caret);
-            self.selected_rects.remove(focused_id);
+            self.outputs.selected_rects.remove(focused_id);
             contents.text.1.set(new_text);
 
             crate::update_input_caret_position(self, focused_id);
@@ -6637,9 +6565,9 @@ impl Context {
     /// Undo (元に戻す) のインジェクション
     pub fn inject_undo(&mut self) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.interaction_states.focused
+        if let Some(focused_id) = self.events.interaction_states.focused
             && self.active_masks[focused_id].has(COMP_INPUT_CONTENT)
-            && let Some(contents) = self.input_contents.get_mut(focused_id)
+            && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             && let Some((prev_text, prev_sel)) = contents.undo_stack.pop()
         {
             let current_text = contents.text.0.get();
@@ -6648,7 +6576,7 @@ impl Context {
 
             contents.selected_range = prev_sel.clone();
             self.text_selections.insert(focused_id, prev_sel);
-            self.selected_rects.remove(focused_id);
+            self.outputs.selected_rects.remove(focused_id);
             contents.text.1.set(prev_text);
 
             crate::update_input_caret_position(self, focused_id);
@@ -6659,9 +6587,9 @@ impl Context {
     /// Redo (やり直し) のインジェクション
     pub fn inject_redo(&mut self) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.interaction_states.focused
+        if let Some(focused_id) = self.events.interaction_states.focused
             && self.active_masks[focused_id].has(COMP_INPUT_CONTENT)
-            && let Some(contents) = self.input_contents.get_mut(focused_id)
+            && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             && let Some((next_text, next_sel)) = contents.redo_stack.pop()
         {
             let current_text = contents.text.0.get();
@@ -6670,7 +6598,7 @@ impl Context {
 
             contents.selected_range = next_sel.clone();
             self.text_selections.insert(focused_id, next_sel);
-            self.selected_rects.remove(focused_id);
+            self.outputs.selected_rects.remove(focused_id);
             contents.text.1.set(next_text);
 
             crate::update_input_caret_position(self, focused_id);
@@ -6681,8 +6609,9 @@ impl Context {
     /// 切り取り (Ctrl+X) の実行と削除後のテキスト取得
     pub fn inject_cut(&mut self) -> Option<String> {
         let _context_guard = bind_context(self);
-        let focused_id = self.interaction_states.focused?;
+        let focused_id = self.events.interaction_states.focused?;
         let user_select = self
+            .renders
             .visual_properties
             .get(focused_id)
             .and_then(|v| v.user_select)
@@ -6691,7 +6620,7 @@ impl Context {
         if user_select == UserSelect::Text
             && let Some(range) = self.text_selections.get(focused_id).cloned()
             && range.start < range.end
-            && let Some(text) = self.text_contents.get(focused_id)
+            && let Some(text) = self.contents.text_contents.get(focused_id)
         {
             let u16_text: Vec<u16> = text.encode_utf16().collect();
             let slice = &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
@@ -6699,7 +6628,7 @@ impl Context {
 
             // 対象が Input コントロールである場合のみ、切り取り削除上書きを実行
             if self.active_masks[focused_id].has(COMP_INPUT_CONTENT)
-                && let Some(contents) = self.input_contents.get_mut(focused_id)
+                && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             {
                 // 削除前の履歴セーブ
                 let current_text = contents.text.0.get();
@@ -6715,7 +6644,7 @@ impl Context {
                 contents.selected_range = range.start..range.start;
                 self.text_selections
                     .insert(focused_id, range.start..range.start);
-                self.selected_rects.remove(focused_id);
+                self.outputs.selected_rects.remove(focused_id);
                 contents.text.1.set(new_text);
 
                 crate::update_input_caret_position(self, focused_id);
@@ -6735,7 +6664,7 @@ impl Context {
 
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
         if self.active_masks[id].has(COMP_INPUT_CONTENT)
-            && let Some(contents) = self.input_contents.get(id)
+            && let Some(contents) = self.contents.input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
             max_x = layout_rect.width + contents.caret_width.unwrap_or(1.5);
@@ -6743,13 +6672,18 @@ impl Context {
         } else if self.active_masks[id].has(COMP_TEXT_CONTENT)
             && let Some(layout) = self.get_or_create_layout(id)
         {
-            let size = self.text_engine.get_layout_size(&layout);
+            let size = self.system.text_engine.get_layout_size(&layout);
             max_x = size.width;
             max_y = size.height;
         }
 
         // 親要素自体のボーダー・パディング厚を取得
-        let (basic, _, _) = self.resolve_active_layouts(id);
+        let (basic, _, _) = self.layouts.resolve_active_layouts(
+            id,
+            &self.active_masks,
+            &self.parents,
+            &self.renders,
+        );
         let border_left = match basic.border.left {
             Length::Px(v) => v,
             _ => 0.0,
@@ -6771,11 +6705,12 @@ impl Context {
         let offset_y = border_top + padding_top;
 
         // スクロールバー要素のIDを取得して除外対象にする
-        let (v_track_opt, h_track_opt) = if let Some(sb_state) = self.scrollbar_styles.get(id) {
-            (sb_state.v_track_id, sb_state.h_track_id)
-        } else {
-            (None, None)
-        };
+        let (v_track_opt, h_track_opt) =
+            if let Some(sb_state) = self.layouts.scrollbar_styles.get(id) {
+                (sb_state.v_track_id, sb_state.h_track_id)
+            } else {
+                (None, None)
+            };
 
         if let Some(children_list) = self.children.get(id) {
             for &child_id in children_list {
@@ -6786,6 +6721,7 @@ impl Context {
 
                 // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
                 let is_absolute = self
+                    .layouts
                     .basic_layouts
                     .get(child_id)
                     .map(|l| l.position == Position::Absolute)
@@ -6794,9 +6730,15 @@ impl Context {
                     continue;
                 }
 
-                if let Some(&rect) = self.rects.get(child_id) {
-                    let parent_rect = self.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+                if let Some(&rect) = self.outputs.rects.get(child_id) {
+                    let parent_rect = self
+                        .outputs
+                        .rects
+                        .get(id)
+                        .copied()
+                        .unwrap_or(LayoutRect::ZERO);
                     let scroll_offset = self
+                        .outputs
                         .scroll_offsets
                         .get(id)
                         .copied()
@@ -6820,16 +6762,21 @@ impl Context {
     /// スクロールオフセットを目標位置へクランプした上で代入します。
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打ちます。
     pub fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
-        let rect = match self.rects.get(id).copied() {
+        let rect = match self.outputs.rects.get(id).copied() {
             Some(r) => r,
             None => return false,
         };
 
         let scroll_size = self.get_scroll_size(id);
-        let window_size = self.last_window_size.unwrap_or(LayoutSize::ZERO);
+        let window_size = self.window.last_window_size.unwrap_or(LayoutSize::ZERO);
 
         // 親コンテナのボーダーおよびパディング厚を取得
-        let (basic, _, _) = self.resolve_active_layouts(id);
+        let (basic, _, _) = self.layouts.resolve_active_layouts(
+            id,
+            &self.active_masks,
+            &self.parents,
+            &self.renders,
+        );
         let border_right = match basic.border.right {
             Length::Px(v) => v,
             _ => 0.0,
@@ -6894,17 +6841,17 @@ impl Context {
         y = y.clamp(0.0, max_scroll_y);
 
         // スロットが存在しない場合はあらかじめ挿入して初期化
-        if !self.scroll_offsets.contains_key(id) {
-            self.scroll_offsets.insert(id, LayoutPoint::ZERO);
+        if !self.outputs.scroll_offsets.contains_key(id) {
+            self.outputs.scroll_offsets.insert(id, LayoutPoint::ZERO);
         }
 
-        let current = self.scroll_offsets.get_mut(id).unwrap();
+        let current = self.outputs.scroll_offsets.get_mut(id).unwrap();
         if (current.x - x).abs() > 0.01 || (current.y - y).abs() > 0.01 {
             current.x = x;
             current.y = y;
 
             // スクロールバー状態の最終スクロール時刻を更新
-            if let Some(sb_state) = self.scrollbar_styles.get_mut(id) {
+            if let Some(sb_state) = self.layouts.scrollbar_styles.get_mut(id) {
                 sb_state.last_scroll_time = Some(Instant::now());
             }
 
@@ -6924,8 +6871,8 @@ impl Context {
         sb: &ScrollbarStyle,
         merge: bool,
     ) {
-        if !self.scrollbar_styles.contains_key(id) {
-            self.scrollbar_styles.insert(
+        if !self.layouts.scrollbar_styles.contains_key(id) {
+            self.layouts.scrollbar_styles.insert(
                 id,
                 ScrollBarState {
                     style: sb.clone(),
@@ -6944,7 +6891,7 @@ impl Context {
             );
         }
 
-        let mut state = self.scrollbar_styles.get(id).cloned().unwrap();
+        let mut state = self.layouts.scrollbar_styles.get(id).cloned().unwrap();
         state.style = sb.clone();
         let mut changed = false;
 
@@ -7061,14 +7008,15 @@ impl Context {
         }
 
         if changed {
-            *self.scrollbar_styles.get_mut(id).unwrap() = state;
-            self.is_structure_dirty = true; // flat_dfs_sequence の更新契機
+            *self.layouts.scrollbar_styles.get_mut(id).unwrap() = state;
+            self.layouts.is_structure_dirty = true; // flat_dfs_sequence の更新契機
         }
     }
 
     /// 現在のスクロール位置から相対移動します。
     pub fn scroll_by(&mut self, id: EntityId, dx: f32, dy: f32) -> bool {
         let current = self
+            .outputs
             .scroll_offsets
             .get(id)
             .copied()
@@ -7083,14 +7031,15 @@ impl Context {
         target: StyleTarget,
     ) -> Option<&mut BasicLayout> {
         match target {
-            StyleTarget::Base => self.base_basic_layouts.get_mut(id),
+            StyleTarget::Base => self.renders.base_basic_layouts.get_mut(id),
             _ => {
                 // interaction_properties SoA スロットの存在を保証
-                if !self.interaction_properties.contains_key(id) {
-                    self.interaction_properties
+                if !self.renders.interaction_properties.contains_key(id) {
+                    self.renders
+                        .interaction_properties
                         .insert(id, InteractionStyles::default());
                 }
-                let styles = self.interaction_properties.get_mut(id).unwrap();
+                let styles = self.renders.interaction_properties.get_mut(id).unwrap();
 
                 // すべての StyleTarget に対応する Option<ThisStyle> フィールドを完全に解決
                 let style_ref = match target {
@@ -7143,13 +7092,14 @@ impl Context {
         target: StyleTarget,
     ) -> Option<&mut VisualProperty> {
         match target {
-            StyleTarget::Base => self.base_visual_properties.get_mut(id),
+            StyleTarget::Base => self.renders.base_visual_properties.get_mut(id),
             _ => {
-                if !self.interaction_properties.contains_key(id) {
-                    self.interaction_properties
+                if !self.renders.interaction_properties.contains_key(id) {
+                    self.renders
+                        .interaction_properties
                         .insert(id, InteractionStyles::default());
                 }
-                let styles = self.interaction_properties.get_mut(id).unwrap();
+                let styles = self.renders.interaction_properties.get_mut(id).unwrap();
 
                 let style_ref = match target {
                     StyleTarget::Hovered => styles.hovered.get_or_insert_with(ThisStyle::new),
@@ -7200,13 +7150,14 @@ impl Context {
         target: StyleTarget,
     ) -> Option<&mut FlexLayout> {
         match target {
-            StyleTarget::Base => self.flex_layouts.get_mut(id),
+            StyleTarget::Base => self.layouts.flex_layouts.get_mut(id),
             _ => {
-                if !self.interaction_properties.contains_key(id) {
-                    self.interaction_properties
+                if !self.renders.interaction_properties.contains_key(id) {
+                    self.renders
+                        .interaction_properties
                         .insert(id, InteractionStyles::default());
                 }
-                let styles = self.interaction_properties.get_mut(id).unwrap();
+                let styles = self.renders.interaction_properties.get_mut(id).unwrap();
 
                 let style_ref = match target {
                     StyleTarget::Hovered => styles.hovered.get_or_insert_with(ThisStyle::new),
@@ -7337,22 +7288,22 @@ impl Context {
 
     #[inline]
     pub fn entity_id_focused(&self) -> Option<EntityId> {
-        self.interaction_states.focused
+        self.events.interaction_states.focused
     }
 
     #[inline]
     pub fn entity_id_dragged(&self) -> Option<EntityId> {
-        self.interaction_states.dragged
+        self.events.interaction_states.dragged
     }
 
     #[inline]
     pub fn entity_id_hovered(&self) -> Option<EntityId> {
-        self.interaction_states.hovered
+        self.events.interaction_states.hovered
     }
 
     #[inline]
     pub fn entity_id_pressed(&self) -> Option<EntityId> {
-        self.interaction_states.pressed
+        self.events.interaction_states.pressed
     }
 
     /// 指定された要素をプログラム駆動でクリックさせます
@@ -7361,6 +7312,7 @@ impl Context {
             return;
         }
         let mut on_click = self
+            .events
             .event_listeners
             .get_mut(id)
             .and_then(|l| l.on_click.take());
@@ -7368,7 +7320,7 @@ impl Context {
         if let Some(mut handler) = on_click {
             let _guard = crate::ActiveElementGuard::new(id);
             handler(self);
-            if let Some(l) = self.event_listeners.get_mut(id) {
+            if let Some(l) = self.events.event_listeners.get_mut(id) {
                 l.on_click = Some(handler);
             }
         }
@@ -7376,12 +7328,12 @@ impl Context {
 
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
     pub fn rect(&self, handle: Element) -> Option<LayoutRect> {
-        self.rects.get(handle.id).copied()
+        self.outputs.rects.get(handle.id).copied()
     }
 
     /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
     pub fn clip_rect(&self, handle: Element) -> Option<LayoutRect> {
-        self.clip_rects.get(handle.id).copied()
+        self.outputs.clip_rects.get(handle.id).copied()
     }
 
     /// 指定した要素の子要素一覧を取得します。
@@ -7399,17 +7351,23 @@ impl Context {
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
     pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
         // 現在プレス中の要素（pressed）があればそれを最優先で探索の基点にする
-        let start_id = self.interaction_states.pressed.unwrap_or(hovered_id);
+        let start_id = self.events.interaction_states.pressed.unwrap_or(hovered_id);
 
         let mut curr = Some(start_id);
         let mut global_cursor = None;
 
         while let Some(id) = curr {
             let cursor_opt = self
+                .renders
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.cursor)
-                .or_else(|| self.base_visual_properties.get(id).and_then(|v| v.cursor));
+                .or_else(|| {
+                    self.renders
+                        .base_visual_properties
+                        .get(id)
+                        .and_then(|v| v.cursor)
+                });
 
             if let Some(cursor) = cursor_opt {
                 match cursor {
@@ -7508,12 +7466,17 @@ fn calculate_insert_index(cx: &Context, parent_id: EntityId, logical_pos: Layout
     let mut insert_idx = 0;
 
     if let Some(children) = cx.children.get(parent_id) {
-        let parent_flex = cx.flex_layouts.get(parent_id).copied().unwrap_or_default();
+        let parent_flex = cx
+            .layouts
+            .flex_layouts
+            .get(parent_id)
+            .copied()
+            .unwrap_or_default();
         let is_row = parent_flex.flex_direction == FlexDirection::Row
             || parent_flex.flex_direction == FlexDirection::RowReverse;
 
         for (idx, &child_id) in children.iter().enumerate() {
-            if let Some(rect) = cx.rects.get(child_id) {
+            if let Some(rect) = cx.outputs.rects.get(child_id) {
                 if is_row {
                     let center_x = rect.x + rect.width * 0.5;
                     if logical_pos.x > center_x {

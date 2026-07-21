@@ -76,7 +76,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
         ACTIVE_EFFECT.with(|cell| {
             if let Some(active_effect_id) = cell.get() {
                 with_context(|cx| {
-                    if let Some(subs) = cx.subscribers.get_mut(self.id) {
+                    if let Some(subs) = cx.reactive.subscribers.get_mut(self.id) {
                         // すでに依存関係リストに登録されていなければ追加
                         if !subs.contains(&active_effect_id) {
                             subs.push(active_effect_id);
@@ -85,7 +85,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
                         // 新規登録
                         let mut subs = smallvec::SmallVec::new();
                         subs.push(active_effect_id);
-                        cx.subscribers.insert(self.id, subs);
+                        cx.reactive.subscribers.insert(self.id, subs);
                     }
                 });
             }
@@ -93,7 +93,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
 
         // 実値の取得とキャスト
         with_context(|cx| {
-            let any_val = &cx.signals[self.id];
+            let any_val = &cx.reactive.signals[self.id];
             any_val
                 .downcast_ref::<T>()
                 .cloned()
@@ -149,7 +149,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
     #[inline]
     pub fn get_untracked(&self) -> T {
         with_context(|cx| {
-            let any_val = &cx.signals[self.id];
+            let any_val = &cx.reactive.signals[self.id];
             any_val
                 .downcast_ref::<T>()
                 .cloned()
@@ -297,10 +297,10 @@ impl<T: Send + 'static> WriteSignal<T> {
 
         with_context(|cx| {
             // 新しい値に差し替え
-            cx.signals[self.id] = Box::new(new_value);
+            cx.reactive.signals[self.id] = Box::new(new_value);
 
             // 依存しているエフェクトIDのリストをクローン
-            if let Some(subs) = cx.subscribers.get(self.id) {
+            if let Some(subs) = cx.reactive.subscribers.get(self.id) {
                 effects_to_run = subs.clone();
             }
         });
@@ -308,7 +308,7 @@ impl<T: Send + 'static> WriteSignal<T> {
         // 依存エフェクトを順次実行
         for effect_id in effects_to_run {
             // エフェクトがデスポーンされて消滅していない場合のみ実行する
-            let exists = with_context(|cx| cx.effects.contains_key(effect_id));
+            let exists = with_context(|cx| cx.reactive.effects.contains_key(effect_id));
             if exists {
                 execute_effect(effect_id);
             }
@@ -376,7 +376,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
         // エフェクトのクロージャを一時的にダミーのプレースホルダと入れ替えて安全に取り出す
         // slotMap のキーやバージョンを完全に維持しつつ、多重借用を回避
         let mut effect_closure = std::mem::replace(
-            cx.effects.get_mut(effect_id).expect("Effect lost"),
+            cx.reactive.effects.get_mut(effect_id).expect("Effect lost"),
             Box::new(move |_| {
                 // このプレースホルダが呼び出されたということは、
                 // 元のクロージャがまだ実行中（返却前）に、同一のエフェクトが再帰トリガーされたことを意味する
@@ -403,7 +403,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
         ACTIVE_EFFECT.with(|cell| cell.set(prev_effect));
 
         // プレースホルダがあった場所に元のクロージャを書き戻す
-        if let Some(slot) = cx.effects.get_mut(effect_id) {
+        if let Some(slot) = cx.reactive.effects.get_mut(effect_id) {
             *slot = effect_closure;
         }
     });
@@ -416,7 +416,7 @@ where
     F: FnMut(&mut Context) + 'static,
 {
     // SoA にクロージャを登録
-    let id = with_context(|cx| cx.effects.insert(Box::new(f)));
+    let id = with_context(|cx| cx.reactive.effects.insert(Box::new(f)));
     // 初回評価を実行し、同時にシグナルとの依存関係マップを自動構築する
     execute_effect(id);
     id

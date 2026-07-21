@@ -584,9 +584,15 @@ impl WgpuRenderer {
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> QuadInstance {
-        let (basic, _, _) = cx.resolve_active_layouts(entity_id);
+        let (basic, _, _) = cx.layouts.resolve_active_layouts(
+            entity_id,
+            &cx.active_masks,
+            &cx.parents,
+            &cx.renders,
+        );
         let default_visual = VisualProperty::default();
         let visual = cx
+            .renders
             .visual_properties
             .get(entity_id)
             .unwrap_or(&default_visual);
@@ -654,7 +660,7 @@ impl WgpuRenderer {
             let mut curr_id = entity_id;
             while let Some(Some(parent_id)) = cx.parents.get(curr_id) {
                 if cx.active_masks[*parent_id].has(COMP_WEBVIEW_CONTENT)
-                    && cx.active_webviews.contains(parent_id)
+                    && cx.renders.active_webviews.contains(parent_id)
                 {
                     has_active_webview_parent = true;
                     break;
@@ -694,23 +700,25 @@ impl WgpuRenderer {
 
         if !is_decorator && cx.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
             let spans = cx
+                .contents
                 .text_spans
                 .get(entity_id)
                 .map(|s| s.as_slice())
                 .unwrap_or(&[]);
 
             let text_size = if cx.active_masks[entity_id].has(COMP_INPUT_CONTENT)
-                && let Some(contents) = cx.input_contents.get(entity_id)
+                && let Some(contents) = cx.contents.input_contents.get(entity_id)
                 && let Some(layout_rect) = contents.last_layout
             {
                 LayoutSize::new(layout_rect.width, layout_rect.height)
             } else {
-                let text = &cx.text_contents[entity_id];
+                let text = &cx.contents.text_contents[entity_id];
                 let visual = cx
+                    .renders
                     .visual_properties
                     .get(entity_id)
                     .unwrap_or(&default_visual);
-                let layout = cx.text_engine.create_layout(
+                let layout = cx.system.text_engine.create_layout(
                     text,
                     visual.font_size.unwrap_or(16.0),
                     visual.font_family.as_deref(),
@@ -719,7 +727,7 @@ impl WgpuRenderer {
                     None,
                     spans,
                 );
-                cx.text_engine.get_layout_size(&layout)
+                cx.system.text_engine.get_layout_size(&layout)
             };
 
             let border_left = match basic.border.left {
@@ -741,6 +749,7 @@ impl WgpuRenderer {
 
             // スクロールオフセット
             let scroll = cx
+                .outputs
                 .scroll_offsets
                 .get(entity_id)
                 .copied()
@@ -764,12 +773,14 @@ impl WgpuRenderer {
         } else if !is_decorator && cx.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
             // テキスト要素である場合
             let text = cx
+                .contents
                 .text_contents
                 .get(entity_id)
                 .cloned()
                 .unwrap_or_else(|| "".into());
 
             let font_size = cx
+                .renders
                 .visual_properties
                 .get(entity_id)
                 .and_then(|v| v.font_size)
@@ -777,6 +788,7 @@ impl WgpuRenderer {
 
             // IME 未確定テキストが入力中か否かを判定
             let is_ime_active = cx
+                .contents
                 .input_contents
                 .get(entity_id)
                 .and_then(|c| c.ime_state.as_ref())
@@ -784,12 +796,14 @@ impl WgpuRenderer {
                 .unwrap_or(false);
 
             let base_text_empty = cx
+                .contents
                 .input_contents
                 .get(entity_id)
                 .map(|c| c.text.0.get().is_empty())
                 .unwrap_or(false);
 
             let placeholder_color = cx
+                .contents
                 .input_contents
                 .get(entity_id)
                 .and_then(|p| p.placeholder_color)
@@ -801,13 +815,15 @@ impl WgpuRenderer {
                 placeholder_color
             } else {
                 // 通常文字入力中はユーザー指定色、無ければ不透明白
-                cx.visual_properties
+                cx.renders
+                    .visual_properties
                     .get(entity_id)
                     .and_then(|v| v.text_color)
                     .unwrap_or(Color::WHITE)
             };
 
             let mut spans = cx
+                .contents
                 .text_spans
                 .get(entity_id)
                 .cloned()
@@ -833,16 +849,19 @@ impl WgpuRenderer {
             let text_clone = text.clone();
             let key = TextCacheKey {
                 text,
-                font_size_bits: (font_size * cx.scale_factor).to_bits(),
+                font_size_bits: (font_size * cx.window.scale_factor).to_bits(),
                 font_style: cx
+                    .renders
                     .visual_properties
                     .get(entity_id)
                     .and_then(|v| v.font_style),
                 font_family: cx
+                    .renders
                     .visual_properties
                     .get(entity_id)
                     .and_then(|f| f.font_family.clone()),
                 font_weight: cx
+                    .renders
                     .visual_properties
                     .get(entity_id)
                     .and_then(|v| v.font_weight),
@@ -852,9 +871,10 @@ impl WgpuRenderer {
             let uv = if let Some(cached) = self.text_cache.get(&key) {
                 (cached.uv_min, cached.uv_max)
             } else {
-                let physical_font_size = font_size * cx.scale_factor;
+                let physical_font_size = font_size * cx.window.scale_factor;
 
                 let mut spans = cx
+                    .contents
                     .text_spans
                     .get(entity_id)
                     .cloned()
@@ -874,28 +894,31 @@ impl WgpuRenderer {
                     });
                 }
 
-                let physical_layout = cx.text_engine.create_layout(
+                let physical_layout = cx.system.text_engine.create_layout(
                     &text_clone,
                     physical_font_size,
-                    cx.visual_properties
+                    cx.renders
+                        .visual_properties
                         .get(entity_id)
                         .and_then(|v| v.font_family.as_deref()),
-                    cx.visual_properties
+                    cx.renders
+                        .visual_properties
                         .get(entity_id)
                         .and_then(|v| v.font_weight),
-                    cx.visual_properties
+                    cx.renders
+                        .visual_properties
                         .get(entity_id)
                         .and_then(|v| v.font_style),
                     None,
                     &spans,
                 );
 
-                let size = cx.text_engine.get_layout_size(&physical_layout);
+                let size = cx.system.text_engine.get_layout_size(&physical_layout);
                 let r8_pixels = self.text_rasterizer.rasterize(
                     &physical_layout,
                     size,
                     &spans,
-                    &cx.text_engine.rendering_params,
+                    &cx.system.text_engine.rendering_params,
                 );
 
                 let width = size.width.ceil() as u32;
