@@ -6,32 +6,44 @@ use webview2_com::CapturePreviewCompletedHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, ICoreWebView2,
 };
-use windows::Graphics::Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem};
-use windows::Graphics::DirectX::Direct3D11::IDirect3DDevice;
-use windows::UI::Composition::Visual as WinRTVisual;
-use windows::Win32::Foundation::{HANDLE, HGLOBAL};
-use windows::Win32::Graphics::Direct3D11::{
-    D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX, D3D11_TEXTURE2D_DESC,
-    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
-};
-use windows::Win32::Graphics::Direct3D12::ID3D12Resource;
-use windows::Win32::Graphics::DirectComposition::IDCompositionVisual;
-use windows::Win32::Graphics::Dxgi::{
-    DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE, IDXGISwapChain1,
-};
-use windows::Win32::Graphics::Dxgi::{IDXGIDevice, IDXGIResource1};
-use windows::Win32::Graphics::Imaging::{
-    GUID_WICPixelFormat32bppPBGRA, IWICImagingFactory, WICBitmapDitherTypeNone,
-    WICBitmapInterpolationModeLinear, WICBitmapPaletteTypeMedianCut,
-    WICDecodeMetadataCacheOnDemand,
-};
-use windows::Win32::System::Com::IStream;
-use windows::Win32::System::Com::StructuredStorage::{CreateStreamOnHGlobal, GetHGlobalFromStream};
-use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
-use windows::Win32::System::WinRT::Direct3D11::{
-    CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
-};
 use windows::core::Interface;
+use windows::{
+    Graphics::{
+        Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem},
+        DirectX::Direct3D11::IDirect3DDevice,
+    },
+    UI::Composition::Visual as WinRTVisual,
+    Win32::{
+        Foundation::{HANDLE, HGLOBAL},
+        Graphics::{
+            Direct3D11::{
+                D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX,
+                D3D11_TEXTURE2D_DESC, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+            },
+            Direct3D12::ID3D12Resource,
+            DirectComposition::IDCompositionVisual,
+            Dxgi::{
+                DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE, IDXGIDevice, IDXGIResource1,
+                IDXGISwapChain1,
+            },
+            Imaging::{
+                GUID_WICPixelFormat32bppPBGRA, IWICImagingFactory, WICBitmapDitherTypeNone,
+                WICBitmapInterpolationModeLinear, WICBitmapPaletteTypeMedianCut,
+                WICDecodeMetadataCacheOnDemand,
+            },
+        },
+        System::{
+            Com::{
+                IStream,
+                StructuredStorage::{CreateStreamOnHGlobal, GetHGlobalFromStream},
+            },
+            Memory::{GlobalLock, GlobalSize, GlobalUnlock},
+            WinRT::Direct3D11::{
+                CreateDirect3D11DeviceFromDXGIDevice, IDirect3DDxgiInterfaceAccess,
+            },
+        },
+    },
+};
 
 /// WebView2 から非アクティブ時の静止画（1フレーム）をキャプチャし、
 /// wgpu 側の wgpu::Texture へとピクセルデータを転送します。

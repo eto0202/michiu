@@ -6,13 +6,7 @@ use windows::Win32::UI::Input::{
     KeyboardAndMouse::GetFocus,
 };
 
-use crate::{
-    BasicLayout, Color, Context, EffectCategory, ElementState, EntityId, EventListeners,
-    ImageMetadata, ImageSource, ImeState, InputContents, LayoutPoint, LayoutRect, Length,
-    LinearGradient, Modifiers, MouseButton, MovieMetadata, MovieProperty, ReadSignal, Rect, Size,
-    StyleTarget, StyleValue, TextSpan, Transform, UiaValue, UnderlineStyle, Val, VirtualKey,
-    VisualProperty, WebView2Contents, bitmap::*, create_effect, div_n, style::ThisStyle,
-};
+use crate::*;
 use std::{borrow::Cow, cell::Cell, path::PathBuf, rc::Rc};
 
 thread_local! {
@@ -49,6 +43,35 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
         .expect("No active UI Context found in this thread context");
     // UIスレッドは単一かつ非同期にまたがらないため、ポインタの生存期間は保証される。
     unsafe { f(&mut *ptr) }
+}
+
+// コンテキストを復元するための一時的なガード構造体
+pub(crate) struct ContextGuard {
+    old: Option<*mut Context>,
+}
+
+/// 現在のスレッドローカル（ACTIVE_CONTEXT）に Context を一時的にバインドします。
+/// 戻り値のガードオブジェクト（ContextGuard）がスコープを抜ける際、自動的に元のコンテキストに復元されます。
+#[inline(always)]
+pub(crate) fn bind_context(cx: &Context) -> ContextGuard {
+    let old = ACTIVE_CONTEXT.get();
+    // 借用チェッカーと衝突しないよう、生ポインタキャストを行ってスレッドローカルに格納
+    ACTIVE_CONTEXT.set(Some(cx as *const Context as *mut Context));
+    ContextGuard { old }
+}
+
+impl Drop for ContextGuard {
+    #[inline]
+    fn drop(&mut self) {
+        ACTIVE_CONTEXT.set(self.old);
+    }
+}
+
+/// 静的な値、または動的に変化する値（Signalやクロージャ）を抽象化する型
+pub enum Prop<T> {
+    None,
+    Static(T),
+    Dynamic(Box<dyn Fn() -> T + 'static>),
 }
 
 /// 構築が完了したUI要素を表す軽量なハンドル
@@ -2676,307 +2699,6 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
                 let _ = ImmReleaseContext(hwnd, himc);
             }
         }
-    }
-}
-
-// コンテキストを復元するための一時的なガード構造体
-pub(crate) struct ContextGuard {
-    old: Option<*mut Context>,
-}
-
-/// 現在のスレッドローカル（ACTIVE_CONTEXT）に Context を一時的にバインドします。
-/// 戻り値のガードオブジェクト（ContextGuard）がスコープを抜ける際、自動的に元のコンテキストに復元されます。
-#[inline(always)]
-pub(crate) fn bind_context(cx: &Context) -> ContextGuard {
-    let old = ACTIVE_CONTEXT.get();
-    // 借用チェッカーと衝突しないよう、生ポインタキャストを行ってスレッドローカルに格納
-    ACTIVE_CONTEXT.set(Some(cx as *const Context as *mut Context));
-    ContextGuard { old }
-}
-
-impl Drop for ContextGuard {
-    #[inline]
-    fn drop(&mut self) {
-        ACTIVE_CONTEXT.set(self.old);
-    }
-}
-
-/// 静的な値、または動的に変化する値（Signalやクロージャ）を抽象化する型
-pub enum Prop<T> {
-    None,
-    Static(T),
-    Dynamic(Box<dyn Fn() -> T + 'static>),
-}
-
-impl<T> From<Option<T>> for Prop<T> {
-    fn from(opt: Option<T>) -> Self {
-        match opt {
-            Some(v) => Self::Static(v),
-            None => Self::None,
-        }
-    }
-}
-
-// 文字列リテラル用
-impl From<&'static str> for Prop<Cow<'static, str>> {
-    fn from(s: &'static str) -> Self {
-        Self::Static(s.into())
-    }
-}
-
-// String用
-impl From<String> for Prop<Cow<'static, str>> {
-    fn from(s: String) -> Self {
-        Self::Static(s.into())
-    }
-}
-
-// Cowそのもの
-impl From<Cow<'static, str>> for Prop<Cow<'static, str>> {
-    fn from(s: Cow<'static, str>) -> Self {
-        Self::Static(s)
-    }
-}
-
-// Displayを実装している型のSignal (u32, i32など)
-impl<T: std::fmt::Display + Clone + Send + 'static> From<ReadSignal<T>>
-    for Prop<Cow<'static, str>>
-{
-    fn from(sig: ReadSignal<T>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get().to_string().into()))
-    }
-}
-
-// クロージャ用 (戻り値が Cow に変換可能なもの)
-impl<F, S> From<F> for Prop<Cow<'static, str>>
-where
-    F: Fn() -> S + 'static,
-    S: Into<Cow<'static, str>>,
-{
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(move || f().into()))
-    }
-}
-
-impl From<ThisStyle> for Prop<ThisStyle> {
-    fn from(s: ThisStyle) -> Self {
-        Self::Static(s)
-    }
-}
-
-impl From<ReadSignal<ThisStyle>> for Prop<ThisStyle> {
-    fn from(sig: ReadSignal<ThisStyle>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-
-impl<F> From<F> for Prop<ThisStyle>
-where
-    F: Fn() -> ThisStyle + 'static,
-{
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(f))
-    }
-}
-
-impl From<Element> for Prop<Element> {
-    fn from(el: Element) -> Self {
-        Self::Static(el)
-    }
-}
-
-impl From<ReadSignal<Element>> for Prop<Element> {
-    fn from(sig: ReadSignal<Element>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-
-impl<F> From<F> for Prop<Element>
-where
-    F: Fn() -> Element + 'static,
-{
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(f))
-    }
-}
-
-impl From<ReadSignal<ImageSource>> for Prop<ImageSource> {
-    #[inline]
-    fn from(sig: ReadSignal<ImageSource>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-impl From<ReadSignal<MovieProperty>> for Prop<MovieProperty> {
-    #[inline]
-    fn from(sig: ReadSignal<MovieProperty>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-
-impl<F, S> From<F> for Prop<ImageSource>
-where
-    F: Fn() -> S + 'static,
-    S: Into<ImageSource>,
-{
-    #[inline]
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(move || f().into()))
-    }
-}
-impl<F, S> From<F> for Prop<MovieProperty>
-where
-    F: Fn() -> S + 'static,
-    S: Into<MovieProperty>,
-{
-    #[inline]
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(move || f().into()))
-    }
-}
-
-impl From<Transform> for Prop<Transform> {
-    #[inline]
-    fn from(t: Transform) -> Self {
-        Self::Static(t)
-    }
-}
-impl From<[[f32; 4]; 4]> for Prop<Transform> {
-    #[inline]
-    fn from(m: [[f32; 4]; 4]) -> Self {
-        Self::Static(Transform { matrix: m })
-    }
-}
-impl From<ReadSignal<Transform>> for Prop<Transform> {
-    #[inline]
-    fn from(sig: ReadSignal<Transform>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-impl<F> From<F> for Prop<Transform>
-where
-    F: Fn() -> Transform + 'static,
-{
-    #[inline]
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(f))
-    }
-}
-
-impl From<LinearGradient> for Prop<LinearGradient> {
-    #[inline]
-    fn from(g: LinearGradient) -> Self {
-        Self::Static(g)
-    }
-}
-impl From<ReadSignal<LinearGradient>> for Prop<LinearGradient> {
-    #[inline]
-    fn from(sig: ReadSignal<LinearGradient>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-impl<F> From<F> for Prop<LinearGradient>
-where
-    F: Fn() -> LinearGradient + 'static,
-{
-    #[inline]
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(f))
-    }
-}
-
-impl From<ReadSignal<u32>> for Prop<u32> {
-    #[inline]
-    fn from(sig: ReadSignal<u32>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-impl<F> From<F> for Prop<u32>
-where
-    F: Fn() -> u32 + 'static,
-{
-    #[inline]
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(f))
-    }
-}
-
-impl From<WebView2Contents> for Prop<WebView2Contents> {
-    fn from(c: WebView2Contents) -> Self {
-        Self::Static(c)
-    }
-}
-impl From<ReadSignal<WebView2Contents>> for Prop<WebView2Contents> {
-    fn from(sig: ReadSignal<WebView2Contents>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-
-impl From<InputContents> for Prop<InputContents> {
-    #[inline]
-    fn from(c: InputContents) -> Self {
-        Self::Static(c)
-    }
-}
-
-impl From<ReadSignal<InputContents>> for Prop<InputContents> {
-    #[inline]
-    fn from(sig: ReadSignal<InputContents>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-
-impl<F> From<F> for Prop<InputContents>
-where
-    F: Fn() -> InputContents + 'static,
-{
-    #[inline]
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(f))
-    }
-}
-
-impl From<&ThisStyle> for Prop<ThisStyle> {
-    #[inline]
-    fn from(s: &ThisStyle) -> Self {
-        Self::Static(s.clone())
-    }
-}
-
-/// StyleValue（スレッド安全なクロージャ付き）から Prop への透過変換をサポート
-impl<T: 'static> From<StyleValue<T>> for Prop<T> {
-    #[inline]
-    fn from(val: StyleValue<T>) -> Self {
-        match val {
-            StyleValue::Static(v) => Prop::Static(v),
-            StyleValue::Dynamic(getter) => {
-                // スレッド安全な動的ゲッターを実行時に評価する Prop::Dynamic に変換
-                Prop::Dynamic(Box::new(getter))
-            }
-        }
-    }
-}
-
-impl From<bool> for Prop<bool> {
-    #[inline]
-    fn from(b: bool) -> Self {
-        Self::Static(b)
-    }
-}
-
-impl From<ReadSignal<bool>> for Prop<bool> {
-    #[inline]
-    fn from(sig: ReadSignal<bool>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-
-impl<F> From<F> for Prop<bool>
-where
-    F: Fn() -> bool + 'static,
-{
-    #[inline]
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(f))
     }
 }
 

@@ -1,12 +1,28 @@
-use crate::{
-    BoxShadow, CornerRadius, Element, FlexDirection, ImageSource, InputContents, LayoutPoint,
-    Length, MovieProperty, Point, Prop, Rect, Size, StyleValue, ThisStyle, Val, WebView2Contents,
-};
+use crate::*;
 use std::borrow::Cow;
 
 #[inline]
 pub fn ts() -> ThisStyle {
     ThisStyle::new()
+}
+
+/// 新しいシグナルを構築します。必ず build_ui のスコープ内で呼び出す必要があります。
+pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, WriteSignal<T>) {
+    with_context(|cx| cx.create_signal(initial_value))
+}
+
+/// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
+/// 親ツリー（トポロジー）を遡って自動解決された型 T の Context（ReadSignal）を取得します。
+#[inline]
+pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
+    with_context(|cx| cx.use_provided::<T>())
+}
+
+/// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
+/// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+#[inline]
+pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
+    with_context(|cx| cx.use_provided_setter::<T>())
 }
 
 /// プロバイダーの型 `P` から、クロージャ `F` を通して値 `V` を解決する動的なスタイル値を生成
@@ -19,10 +35,49 @@ where
     StyleValue::Dynamic(Box::new(move || {
         // ここでプロバイダーの ReadSignal に対する `.get()` を実行することで、
         // 呼び出し元のスタイルエフェクトに自動的に依存関係が購読される
-        let signal = crate::use_provided::<P>();
+        let signal = use_provided::<P>();
         let val = signal.get();
         selector(&val)
     }))
+}
+
+/// 0~255 の整数値（u8）で、不透明な RGB カラーを生成します
+#[inline]
+pub fn rgb(r: u8, g: u8, b: u8) -> Color {
+    Color {
+        r: r as f32 / 255.0,
+        g: g as f32 / 255.0,
+        b: b as f32 / 255.0,
+        a: 1.0,
+    }
+}
+
+/// 0~255 の整数値（u8）でRGBを、0.0~1.0（f32）で不透明度（Alpha）を指定して RGBA カラーを生成します
+#[inline]
+pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
+    Color {
+        r: r as f32 / 255.0,
+        g: g as f32 / 255.0,
+        b: b as f32 / 255.0,
+        a,
+    }
+}
+
+#[inline]
+pub fn hex(value: impl IntoHexColor) -> Color {
+    value.into_hex_color()
+}
+
+/// HSL（Hue: 0..360, Saturation: 0.0..100.0%, Lightness: 0.0..100.0%）カラーを生成するショートハンド
+#[inline]
+pub fn hsl(h: f32, s: f32, l: f32) -> Color {
+    Color::hsl(h, s, l)
+}
+
+/// HSL にアルファ（0.0..1.0）を付与して HSLA カラーを生成するショートハンド
+#[inline]
+pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
+    Color::hsla(h, s, l, a)
 }
 
 /// スタイルを適用して生成するコンテナ。
@@ -356,470 +411,5 @@ pub fn raw_wheel_delta_to_logical_pixels(raw_delta: f32) -> f32 {
         // 1行あたり 30.0px（論理ピクセル）として移動量を算出
         let notches = raw_delta / 120.0;
         -notches * (scroll_lines as f32) * 30.0
-    }
-}
-
-// 単位の相互キャスト用の中間トレイト
-pub trait Convert<T> {
-    fn convert(self) -> T;
-}
-
-// 具象型からターゲット単位へのキャスト実装
-impl Convert<Val> for f32 {
-    #[inline]
-    fn convert(self) -> Val {
-        Val::Px(self)
-    }
-}
-impl Convert<Val> for i32 {
-    #[inline]
-    fn convert(self) -> Val {
-        Val::Px(self as f32)
-    }
-}
-impl Convert<Val> for Pixel {
-    #[inline]
-    fn convert(self) -> Val {
-        Val::Px(self.0)
-    }
-}
-impl Convert<Val> for Percent {
-    #[inline]
-    fn convert(self) -> Val {
-        Val::Percent(self.0)
-    }
-}
-impl Convert<Val> for Auto {
-    #[inline]
-    fn convert(self) -> Val {
-        Val::Auto
-    }
-}
-
-impl Convert<Length> for f32 {
-    #[inline]
-    fn convert(self) -> Length {
-        Length::Px(self)
-    }
-}
-impl Convert<Length> for i32 {
-    #[inline]
-    fn convert(self) -> Length {
-        Length::Px(self as f32)
-    }
-}
-impl Convert<Length> for Pixel {
-    #[inline]
-    fn convert(self) -> Length {
-        Length::Px(self.0)
-    }
-}
-impl Convert<Length> for Percent {
-    #[inline]
-    fn convert(self) -> Length {
-        Length::Percent(self.0)
-    }
-}
-
-impl Convert<f32> for f32 {
-    #[inline]
-    fn convert(self) -> f32 {
-        self
-    }
-}
-impl Convert<f32> for i32 {
-    #[inline]
-    fn convert(self) -> f32 {
-        self as f32
-    }
-}
-
-// Size<T> 用
-pub trait IntoSize<T> {
-    fn into_size(self) -> Size<T>;
-}
-
-// 具象型ごとの単一値(all)実装
-impl<T> IntoSize<T> for f32
-where
-    f32: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_size(self) -> Size<T> {
-        let v = self.convert();
-        Size {
-            width: v.clone(),
-            height: v,
-        }
-    }
-}
-impl<T> IntoSize<T> for i32
-where
-    i32: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_size(self) -> Size<T> {
-        let v = self.convert();
-        Size {
-            width: v.clone(),
-            height: v,
-        }
-    }
-}
-impl<T> IntoSize<T> for Pixel
-where
-    Pixel: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_size(self) -> Size<T> {
-        let v = self.convert();
-        Size {
-            width: v.clone(),
-            height: v,
-        }
-    }
-}
-impl<T> IntoSize<T> for Percent
-where
-    Percent: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_size(self) -> Size<T> {
-        let v = self.convert();
-        Size {
-            width: v.clone(),
-            height: v,
-        }
-    }
-}
-impl<T> IntoSize<T> for Auto
-where
-    Auto: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_size(self) -> Size<T> {
-        let v = self.convert();
-        Size {
-            width: v.clone(),
-            height: v,
-        }
-    }
-}
-
-// 2連タプル (width, height)
-impl<W, H, T> IntoSize<T> for (W, H)
-where
-    W: Convert<T>,
-    H: Convert<T>,
-{
-    #[inline]
-    fn into_size(self) -> Size<T> {
-        Size {
-            width: self.0.convert(),
-            height: self.1.convert(),
-        }
-    }
-}
-
-// Rect<T> 用
-pub trait IntoRect<T> {
-    fn into_rect(self) -> Rect<T>;
-}
-
-// 具象型ごとの単一値(all)実装
-impl<T> IntoRect<T> for f32
-where
-    f32: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_rect(self) -> Rect<T> {
-        let v = self.convert();
-        Rect {
-            top: v.clone(),
-            right: v.clone(),
-            bottom: v.clone(),
-            left: v,
-        }
-    }
-}
-impl<T> IntoRect<T> for i32
-where
-    i32: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_rect(self) -> Rect<T> {
-        let v = self.convert();
-        Rect {
-            top: v.clone(),
-            right: v.clone(),
-            bottom: v.clone(),
-            left: v,
-        }
-    }
-}
-impl<T> IntoRect<T> for Pixel
-where
-    Pixel: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_rect(self) -> Rect<T> {
-        let v = self.convert();
-        Rect {
-            top: v.clone(),
-            right: v.clone(),
-            bottom: v.clone(),
-            left: v,
-        }
-    }
-}
-impl<T> IntoRect<T> for Percent
-where
-    Percent: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_rect(self) -> Rect<T> {
-        let v = self.convert();
-        Rect {
-            top: v.clone(),
-            right: v.clone(),
-            bottom: v.clone(),
-            left: v,
-        }
-    }
-}
-
-// Auto 単一値 ➔ Rect (4方向すべてを Auto 一括設定)
-impl<T> IntoRect<T> for Auto
-where
-    Auto: Convert<T> + Clone,
-    T: Clone,
-{
-    #[inline]
-    fn into_rect(self) -> Rect<T> {
-        let val = self.convert();
-        Rect {
-            top: val.clone(),
-            right: val.clone(),
-            bottom: val.clone(),
-            left: val,
-        }
-    }
-}
-
-// 2連タプル (vertical, horizontal)
-impl<V, H, T> IntoRect<T> for (V, H)
-where
-    V: Convert<T> + Clone,
-    H: Convert<T> + Clone,
-    T: Clone,
-{
-    #[inline]
-    fn into_rect(self) -> Rect<T> {
-        let vert = self.0.convert();
-        let horiz = self.1.convert();
-        Rect {
-            top: vert.clone(),
-            right: horiz.clone(),
-            bottom: vert,
-            left: horiz,
-        }
-    }
-}
-
-// 4連タプル (top, right, bottom, left)
-impl<Top, Right, Bottom, Left, T> IntoRect<T> for (Top, Right, Bottom, Left)
-where
-    Top: Convert<T>,
-    Right: Convert<T>,
-    Bottom: Convert<T>,
-    Left: Convert<T>,
-{
-    #[inline]
-    fn into_rect(self) -> Rect<T> {
-        Rect {
-            top: self.0.convert(),
-            right: self.1.convert(),
-            bottom: self.2.convert(),
-            left: self.3.convert(),
-        }
-    }
-}
-
-// Point<T> 用
-pub trait IntoPoint<T> {
-    fn into_point(self) -> Point<T>;
-}
-
-impl<T> IntoPoint<T> for f32
-where
-    f32: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_point(self) -> Point<T> {
-        let v = self.convert();
-        Point { x: v.clone(), y: v }
-    }
-}
-impl<T> IntoPoint<T> for i32
-where
-    i32: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_point(self) -> Point<T> {
-        let v = self.convert();
-        Point { x: v.clone(), y: v }
-    }
-}
-impl<T> IntoPoint<T> for Pixel
-where
-    Pixel: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_point(self) -> Point<T> {
-        let v = self.convert();
-        Point { x: v.clone(), y: v }
-    }
-}
-impl<T> IntoPoint<T> for Percent
-where
-    Percent: Convert<T>,
-    T: Clone,
-{
-    #[inline]
-    fn into_point(self) -> Point<T> {
-        let v = self.convert();
-        Point { x: v.clone(), y: v }
-    }
-}
-
-impl<X, Y, T> IntoPoint<T> for (X, Y)
-where
-    X: Convert<T>,
-    Y: Convert<T>,
-{
-    #[inline]
-    fn into_point(self) -> Point<T> {
-        Point {
-            x: self.0.convert(),
-            y: self.1.convert(),
-        }
-    }
-}
-
-// CornerRadius 用
-pub trait IntoCornerRadius {
-    fn into_corner_radius(self) -> CornerRadius;
-}
-
-impl IntoCornerRadius for f32 {
-    #[inline]
-    fn into_corner_radius(self) -> CornerRadius {
-        CornerRadius::all(self)
-    }
-}
-impl IntoCornerRadius for i32 {
-    #[inline]
-    fn into_corner_radius(self) -> CornerRadius {
-        CornerRadius::all(self as f32)
-    }
-}
-
-impl<V, H> IntoCornerRadius for (V, H)
-where
-    V: Convert<f32>,
-    H: Convert<f32>,
-{
-    #[inline]
-    fn into_corner_radius(self) -> CornerRadius {
-        CornerRadius::symmetric(self.0.convert(), self.1.convert())
-    }
-}
-
-impl<TL, TR, BR, BL> IntoCornerRadius for (TL, TR, BR, BL)
-where
-    TL: Convert<f32>,
-    TR: Convert<f32>,
-    BR: Convert<f32>,
-    BL: Convert<f32>,
-{
-    #[inline]
-    fn into_corner_radius(self) -> CornerRadius {
-        CornerRadius {
-            top_left: self.0.convert(),
-            top_right: self.1.convert(),
-            bottom_right: self.2.convert(),
-            bottom_left: self.3.convert(),
-        }
-    }
-}
-
-// LayoutPoint（BoxShadow 等のオフセット）用
-pub trait IntoLayoutPoint {
-    fn into_layout_point(self) -> LayoutPoint;
-}
-
-impl IntoLayoutPoint for f32 {
-    #[inline]
-    fn into_layout_point(self) -> LayoutPoint {
-        LayoutPoint { x: self, y: self }
-    }
-}
-impl IntoLayoutPoint for i32 {
-    #[inline]
-    fn into_layout_point(self) -> LayoutPoint {
-        LayoutPoint {
-            x: self as f32,
-            y: self as f32,
-        }
-    }
-}
-
-impl<X, Y> IntoLayoutPoint for (X, Y)
-where
-    X: Convert<f32>,
-    Y: Convert<f32>,
-{
-    #[inline]
-    fn into_layout_point(self) -> LayoutPoint {
-        LayoutPoint {
-            x: self.0.convert(),
-            y: self.1.convert(),
-        }
-    }
-}
-
-// Val 自身から Val への同一変換を実装
-impl Convert<Val> for Val {
-    #[inline]
-    fn convert(self) -> Val {
-        self
-    }
-}
-
-// Length 自身から Length への同一変換を実装
-impl Convert<Length> for Length {
-    #[inline]
-    fn convert(self) -> Length {
-        self
-    }
-}
-
-// bool から f32 への変換 (true ➔ 1.0f32, false ➔ 0.0f32)
-impl Convert<f32> for bool {
-    #[inline]
-    fn convert(self) -> f32 {
-        if self { 1.0 } else { 0.0 }
     }
 }

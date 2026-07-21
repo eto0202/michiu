@@ -87,10 +87,7 @@ fn event_btn() -> Element {
         .on_click_with(move |cx| {
             count += 1;
 
-            let id = cx.entity_id_pressed().unwrap();
-            let el = Element::from(id);
-
-            el.set_contents(div_n().label(move || format!("Event: {}", count), &style));
+            cx.current().set_contents(div_n().label(move || format!("Event: {}", count), &style));
         })
 }
 

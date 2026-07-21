@@ -1,18 +1,8 @@
 #![allow(unused)]
-use crate::{
-    ActiveAnimation, ActiveTransition, AlignContent, AlignItems, AlignSelf, BasicLayout, BatchType,
-    BorderAlignment, BorderStyle, BoxShadow, BoxSizing, Color, CornerRadius, CursorIcon, Direction,
-    Display, DragPayload, DragPlaceholderParent, DragProperty, DrawBatch, DropProperty, DropTarget,
-    EdgeInsets, EffectId, Element, ElementState, EventListeners, FlexDirection, FlexLayout,
-    FlexWrap, FocusTrigger, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine,
-    GridPlacement, IDENTITY_MATRIX, ImageSource, ImeState, InputContents, InteractionStates,
-    InteractionStyles, JustifyContent, LayoutOverflow, LayoutPoint, LayoutRect, LayoutSize, Length,
-    Modifiers, MouseButton, MovieProperty, MovieSource, Overflow, PlaybackCount, PointerEvents,
-    Position, QuadInstance, ReadSignal, Rect, RenderData, ScrollbarDisplay, ScrollbarMode,
-    ScrollbarStyle, SignalId, Size, StyleTarget, TextAlign, TextEngine, TextSpan, ThisStyle,
-    TransitionValue, UiaValue, UserSelect, Val, VirtualKey, VisualProperty, WebView2Contents,
-    WriteSignal, bind_context, bitmap::*, with_context,
-};
+pub mod runtime;
+pub use runtime::*;
+
+use crate::*;
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
 use std::{
@@ -102,87 +92,6 @@ pub(crate) fn resolve_taffy_style(
         style.grid_column = g.grid_column.clone().into();
     }
     style
-}
-
-pub(crate) type TaskSenderType = Sender<Box<dyn FnOnce(&mut Context) + Send + 'static>>;
-/// メインスレッド（UIスレッド）に対して、スレッドセーフに任意のタスクを送信する送信端。
-#[derive(Clone)]
-pub struct TaskSender {
-    pub(crate) inner: TaskSenderType,
-    // コアから Win32 を隠蔽するためのウェイクアップコールバック
-    pub(crate) waker: Option<Arc<dyn Fn() + Send + Sync + 'static>>,
-}
-
-impl TaskSender {
-    /// ワーカースレッド等からメインスレッドで実行してほしい処理（クロージャ）を送信します。
-    /// ライブラリ内部で自動的に Box に包むため、呼び出し側での Box::new は不要です。
-    #[allow(clippy::result_unit_err)]
-    pub fn send<F>(&self, f: F) -> Result<(), ()>
-    where
-        F: FnOnce(&mut Context) + Send + 'static,
-    {
-        // 内部で Box::new に包んで送信し、複雑なエラー型はシンプルな Result<(), ()> に変換して隠蔽する
-        self.inner.send(Box::new(f)).map_err(|_| ())?;
-
-        // タスク送信に成功したら即座にメインスレッドをウェイクアップさせる
-        if let Some(ref waker) = self.waker {
-            waker();
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EffectCategory {
-    None,
-    Style,
-    Text,
-    Input,
-    Image,
-    Movie,
-    WebView2,
-    Contents,
-    UiaName,
-    UiaAutomationId,
-    ActiveState,
-    SelectState,
-    DisableState,
-    FocusState,
-    FocusableState,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ScrollBarState {
-    pub(crate) style: ScrollbarStyle,
-
-    // レイアウトツリーに動的挿入される Element の EntityId
-    pub(crate) v_track_id: Option<EntityId>,
-    pub(crate) v_thumb_id: Option<EntityId>,
-    pub(crate) h_track_id: Option<EntityId>,
-    pub(crate) h_thumb_id: Option<EntityId>,
-
-    // ホバー・ドラッグのランタイム状態
-    pub(crate) v_thumb_hovered: bool,
-    pub(crate) v_thumb_dragged: bool,
-    pub(crate) h_thumb_hovered: bool,
-    pub(crate) h_thumb_dragged: bool,
-
-    pub(crate) drag_start_mouse: LayoutPoint,
-    pub(crate) drag_start_offset: LayoutPoint,
-
-    // 一時表示（Transient）モードの表示制御用
-    pub(crate) last_scroll_time: Option<Instant>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ActiveDragState {
-    pub(crate) source_entity: EntityId,      // ドラッグ元の要素
-    pub(crate) placeholder_entity: EntityId, // ルートまたは親に浮かせているプレースホルダー
-    pub(crate) current_drop_target: Option<EntityId>, // 現在ホバー侵入中のドロップターゲット要素
-    pub(crate) start_mouse_pos: LayoutPoint, // ドラッグ開始時のマウス座標
-    pub(crate) start_rect: LayoutRect,       // ドラッグ元の初期サイズ・座標
-    pub(crate) click_offset: LayoutPoint,    // ドラッグ開始時のマウスと要素左上端の相対的なズレ
-    pub(crate) original_parent: Option<EntityId>,
 }
 
 // 利用者用 Context を用意して安定APIはそちらで公開
@@ -7541,27 +7450,6 @@ impl Context {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ResizeDirection {
-    Top,
-    Right,
-    Bottom,
-    Left,
-    TopLeft,
-    TopRight,
-    BottomLeft,
-    BottomRight,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ResizingState {
-    pub(crate) entity_id: EntityId,
-    pub(crate) direction: ResizeDirection,
-    pub(crate) start_mouse_pos: LayoutPoint,
-    pub(crate) start_rect: LayoutRect,
-    pub(crate) start_inset: Rect<Val>,
-}
-
 /// リサイズ方向から対応するカーソル種別へ変換するヘルパー
 fn resize_direction_to_cursor(dir: ResizeDirection) -> CursorIcon {
     match dir {
@@ -7645,7 +7533,7 @@ fn calculate_insert_index(cx: &Context, parent_id: EntityId, logical_pos: Layout
 }
 
 // クリップボード API による UTF-16 読み書きヘルパー
-unsafe fn win32_set_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn win32_set_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> {
     let text_u16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
     let size = text_u16.len() * 2;
     let h_mem = unsafe { GlobalAlloc(GMEM_MOVEABLE, size)? };
@@ -7662,7 +7550,7 @@ unsafe fn win32_set_clipboard(text: &str) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
-unsafe fn win32_get_clipboard() -> Result<String, Box<dyn std::error::Error>> {
+fn win32_get_clipboard() -> Result<String, Box<dyn std::error::Error>> {
     let mut result = String::new();
     if unsafe { OpenClipboard(None).is_ok() } {
         let h_mem = unsafe { GetClipboardData(13)? };

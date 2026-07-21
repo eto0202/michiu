@@ -1,4 +1,4 @@
-use crate::{Context, TaskSender, with_context};
+use crate::*;
 use slotmap::new_key_type;
 use smallvec::SmallVec;
 use std::cell::Cell;
@@ -370,11 +370,6 @@ impl<T: Send + 'static> SignalSender<T> {
     }
 }
 
-/// 新しいシグナルを構築します。必ず build_ui のスコープ内で呼び出す必要があります。
-pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, WriteSignal<T>) {
-    with_context(|cx| cx.create_signal(initial_value))
-}
-
 /// 指定されたエフェクトをメインスレッドのコンテキスト下で評価（実行）する内部ユーティリティ。
 pub(crate) fn execute_effect(effect_id: EffectId) {
     with_context(|cx| {
@@ -425,20 +420,6 @@ where
     // 初回評価を実行し、同時にシグナルとの依存関係マップを自動構築する
     execute_effect(id);
     id
-}
-
-/// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
-/// 親ツリー（トポロジー）を遡って自動解決された型 T の Context（ReadSignal）を取得します。
-#[inline]
-pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
-    with_context(|cx| cx.use_provided::<T>())
-}
-
-/// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
-/// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
-#[inline]
-pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
-    with_context(|cx| cx.use_provided_setter::<T>())
 }
 
 #[cfg(test)]

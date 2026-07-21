@@ -16,19 +16,25 @@ use std::collections::HashMap;
 use std::num::NonZeroIsize;
 use wgpu::CurrentSurfaceTexture;
 use wgpu::util::DeviceExt;
-use windows::Win32::Foundation::HANDLE;
-use windows::Win32::Graphics::Direct3D11::{
-    D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_SHARED,
-    D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, ID3D11Device,
-    ID3D11Texture2D,
+use windows::{
+    Win32::{
+        Foundation::HANDLE,
+        Graphics::{
+            Direct3D11::{
+                D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE, D3D11_RESOURCE_MISC_SHARED,
+                D3D11_RESOURCE_MISC_SHARED_NTHANDLE, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+                ID3D11Device, ID3D11Texture2D,
+            },
+            Direct3D12::ID3D12Resource,
+            DirectWrite::IDWriteTextLayout,
+            Dxgi::{
+                Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
+                DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE, IDXGIResource1,
+            },
+        },
+    },
+    core::Interface,
 };
-use windows::Win32::Graphics::Direct3D12::ID3D12Resource;
-use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
-use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
-use windows::Win32::Graphics::Dxgi::{
-    DXGI_SHARED_RESOURCE_READ, DXGI_SHARED_RESOURCE_WRITE, IDXGIResource1,
-};
-use windows::core::Interface;
 
 pub struct WgpuRenderer {
     pub(crate) surface: wgpu::Surface<'static>,

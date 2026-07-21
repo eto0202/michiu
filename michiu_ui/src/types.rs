@@ -1,5 +1,11 @@
+pub mod from_into;
+pub mod layout_data;
+
+pub use from_into::*;
+pub use layout_data::*;
+
 use bytemuck::{Pod, Zeroable};
-use std::{borrow::Cow, path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use windows::Win32::{
     Graphics::Gdi::{
         BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
@@ -8,10 +14,7 @@ use windows::Win32::{
     UI::WindowsAndMessaging::{CreateIconIndirect, HCURSOR, ICONINFO},
 };
 
-use crate::{
-    AnimationCurve, Context, Convert, Element, EntityId, IntoLayoutPoint, KeyframeAnimation,
-    VirtualKey, bitmap::*, style::ThisStyle,
-};
+use crate::*;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Default, Pod, Zeroable)]
@@ -169,28 +172,6 @@ impl Color {
     }
 }
 
-/// 0~255 の整数値（u8）で、不透明な RGB カラーを生成します
-#[inline]
-pub fn rgb(r: u8, g: u8, b: u8) -> Color {
-    Color {
-        r: r as f32 / 255.0,
-        g: g as f32 / 255.0,
-        b: b as f32 / 255.0,
-        a: 1.0,
-    }
-}
-
-/// 0~255 の整数値（u8）でRGBを、0.0~1.0（f32）で不透明度（Alpha）を指定して RGBA カラーを生成します
-#[inline]
-pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
-    Color {
-        r: r as f32 / 255.0,
-        g: g as f32 / 255.0,
-        b: b as f32 / 255.0,
-        a,
-    }
-}
-
 pub trait IntoHexColor {
     fn into_hex_color(self) -> Color;
 }
@@ -235,23 +216,6 @@ fn parse_u32_to_color(num: u32, is_8digit: bool) -> Color {
         let a = (num & 0xFF) as f32 / 255.0;
         Color { r, g, b, a }
     }
-}
-
-#[inline]
-pub fn hex(value: impl IntoHexColor) -> Color {
-    value.into_hex_color()
-}
-
-/// HSL（Hue: 0..360, Saturation: 0.0..100.0%, Lightness: 0.0..100.0%）カラーを生成するショートハンド
-#[inline]
-pub fn hsl(h: f32, s: f32, l: f32) -> Color {
-    Color::hsl(h, s, l)
-}
-
-/// HSL にアルファ（0.0..1.0）を付与して HSLA カラーを生成するショートハンド
-#[inline]
-pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
-    Color::hsla(h, s, l, a)
 }
 
 #[repr(C)]
@@ -575,32 +539,6 @@ impl<T> Size<T> {
     }
 }
 
-impl<T, U> From<Size<T>> for taffy::Size<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(size: Size<T>) -> Self {
-        Self {
-            width: U::from(size.width),
-            height: U::from(size.height),
-        }
-    }
-}
-
-impl<T, U> From<taffy::Size<T>> for Size<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(size: taffy::Size<T>) -> Self {
-        Self {
-            width: U::from(size.width),
-            height: U::from(size.height),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Rect<T> {
     pub top: T,
@@ -643,36 +581,6 @@ impl<T: Clone> Rect<T> {
     }
 }
 
-impl<T, U> From<Rect<T>> for taffy::Rect<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(rect: Rect<T>) -> Self {
-        Self {
-            top: U::from(rect.top),
-            right: U::from(rect.right),
-            bottom: U::from(rect.bottom),
-            left: U::from(rect.left),
-        }
-    }
-}
-
-impl<T, U> From<taffy::Rect<T>> for Rect<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(rect: taffy::Rect<T>) -> Self {
-        Self {
-            top: U::from(rect.top),
-            right: U::from(rect.right),
-            bottom: U::from(rect.bottom),
-            left: U::from(rect.left),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Point<T> {
     pub x: T,
@@ -696,45 +604,10 @@ impl<T: Clone> Point<T> {
     }
 }
 
-impl<T, U> From<Point<T>> for taffy::Point<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(point: Point<T>) -> Self {
-        Self {
-            x: U::from(point.x),
-            y: U::from(point.y),
-        }
-    }
-}
-
-impl<T, U> From<taffy::Point<T>> for Point<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(point: taffy::Point<T>) -> Self {
-        Self {
-            x: U::from(point.x),
-            y: U::from(point.y),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Length {
     Px(f32),
     Percent(f32),
-}
-
-impl From<Length> for f32 {
-    fn from(length: Length) -> Self {
-        match length {
-            Length::Px(val) => val,
-            Length::Percent(val) => val,
-        }
-    }
 }
 
 impl Length {
@@ -746,34 +619,6 @@ impl Length {
     #[inline]
     pub fn pct(percent: f32) -> Self {
         Self::Percent(percent)
-    }
-}
-
-impl From<f32> for Length {
-    #[inline]
-    fn from(val: f32) -> Self {
-        Self::Px(val)
-    }
-}
-
-impl From<Length> for taffy::LengthPercentage {
-    #[inline]
-    fn from(len: Length) -> Self {
-        match len {
-            Length::Px(val) => Self::length(val),
-            Length::Percent(val) => Self::percent(val / 100.0),
-        }
-    }
-}
-
-impl From<taffy::LengthPercentage> for Length {
-    #[inline]
-    fn from(t: taffy::style::LengthPercentage) -> Self {
-        let raw = t.into_raw();
-        match raw.tag() {
-            2 => Self::Percent(raw.value() * 100.0),
-            _ => Self::Px(raw.value()), // calc等未対応のものはPxにフォールバック
-        }
     }
 }
 
@@ -801,91 +646,6 @@ impl Val {
     }
 }
 
-impl From<f32> for Val {
-    #[inline]
-    fn from(val: f32) -> Self {
-        Self::Px(val)
-    }
-}
-
-impl From<Val> for taffy::Dimension {
-    #[inline]
-    fn from(val: Val) -> Self {
-        match val {
-            Val::Auto => Self::auto(),
-            Val::Px(v) => Self::length(v),
-            Val::Percent(v) => Self::percent(v / 100.0),
-        }
-    }
-}
-
-impl From<taffy::Dimension> for Val {
-    #[inline]
-    fn from(t: taffy::Dimension) -> Self {
-        let raw = t.into_raw();
-        if raw.is_auto() {
-            Self::Auto
-        } else {
-            match raw.tag() {
-                2 => Self::Percent(raw.value() * 100.0),
-                _ => Self::Px(raw.value()),
-            }
-        }
-    }
-}
-
-impl From<Val> for taffy::LengthPercentage {
-    #[inline]
-    fn from(val: Val) -> Self {
-        match val {
-            Val::Auto => Self::length(0.0),
-            Val::Px(v) => Self::length(v),
-            Val::Percent(v) => Self::percent(v / 100.0),
-        }
-    }
-}
-
-impl From<taffy::LengthPercentage> for Val {
-    #[inline]
-    fn from(t: taffy::LengthPercentage) -> Self {
-        let raw = t.into_raw();
-        if raw.is_auto() {
-            Self::Auto
-        } else {
-            match raw.tag() {
-                2 => Self::Percent(raw.value() * 100.0),
-                _ => Self::Px(raw.value()),
-            }
-        }
-    }
-}
-
-impl From<Val> for taffy::LengthPercentageAuto {
-    #[inline]
-    fn from(val: Val) -> Self {
-        match val {
-            Val::Auto => Self::auto(),
-            Val::Px(v) => Self::length(v),
-            Val::Percent(v) => Self::percent(v / 100.0),
-        }
-    }
-}
-
-impl From<taffy::LengthPercentageAuto> for Val {
-    #[inline]
-    fn from(t: taffy::LengthPercentageAuto) -> Self {
-        let raw = t.into_raw();
-        if raw.is_auto() {
-            Self::Auto
-        } else {
-            match raw.tag() {
-                2 => Self::Percent(raw.value() * 100.0),
-                _ => Self::Px(raw.value()),
-            }
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Display {
     #[default]
@@ -895,55 +655,11 @@ pub enum Display {
     None,
 }
 
-impl From<Display> for taffy::Display {
-    #[inline]
-    fn from(d: Display) -> Self {
-        match d {
-            Display::Flex => Self::Flex,
-            Display::Grid => Self::Grid,
-            Display::Block => Self::Block,
-            Display::None => Self::None,
-        }
-    }
-}
-
-impl From<taffy::Display> for Display {
-    #[inline]
-    fn from(t: taffy::Display) -> Self {
-        match t {
-            taffy::Display::Flex => Self::Flex,
-            taffy::Display::Grid => Self::Grid,
-            taffy::Display::Block => Self::Block,
-            taffy::Display::None => Self::None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Position {
     #[default]
     Relative,
     Absolute,
-}
-
-impl From<Position> for taffy::Position {
-    #[inline]
-    fn from(p: Position) -> Self {
-        match p {
-            Position::Relative => Self::Relative,
-            Position::Absolute => Self::Absolute,
-        }
-    }
-}
-
-impl From<taffy::Position> for Position {
-    #[inline]
-    fn from(t: taffy::Position) -> Self {
-        match t {
-            taffy::Position::Relative => Self::Relative,
-            taffy::Position::Absolute => Self::Absolute,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -953,51 +669,11 @@ pub enum BoxSizing {
     ContentBox,
 }
 
-impl From<BoxSizing> for taffy::BoxSizing {
-    #[inline]
-    fn from(b: BoxSizing) -> Self {
-        match b {
-            BoxSizing::BorderBox => Self::BorderBox,
-            BoxSizing::ContentBox => Self::ContentBox,
-        }
-    }
-}
-
-impl From<taffy::BoxSizing> for BoxSizing {
-    #[inline]
-    fn from(t: taffy::BoxSizing) -> Self {
-        match t {
-            taffy::BoxSizing::BorderBox => Self::BorderBox,
-            taffy::BoxSizing::ContentBox => Self::ContentBox,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Direction {
     #[default]
     Ltr,
     Rtl,
-}
-
-impl From<Direction> for taffy::Direction {
-    #[inline]
-    fn from(d: Direction) -> Self {
-        match d {
-            Direction::Ltr => Self::Ltr,
-            Direction::Rtl => Self::Rtl,
-        }
-    }
-}
-
-impl From<taffy::Direction> for Direction {
-    #[inline]
-    fn from(t: taffy::Direction) -> Self {
-        match t {
-            taffy::Direction::Ltr => Self::Ltr,
-            taffy::Direction::Rtl => Self::Rtl,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -1009,54 +685,10 @@ pub enum Overflow {
     Clip,
 }
 
-impl From<Overflow> for taffy::Overflow {
-    #[inline]
-    fn from(o: Overflow) -> Self {
-        match o {
-            Overflow::Visible => Self::Visible,
-            Overflow::Hidden => Self::Hidden,
-            Overflow::Scroll => Self::Scroll,
-            Overflow::Clip => Self::Clip,
-        }
-    }
-}
-
-impl From<taffy::Overflow> for Overflow {
-    #[inline]
-    fn from(t: taffy::Overflow) -> Self {
-        match t {
-            taffy::Overflow::Visible => Self::Visible,
-            taffy::Overflow::Hidden => Self::Hidden,
-            taffy::Overflow::Scroll => Self::Scroll,
-            taffy::Overflow::Clip => Self::Clip,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct LayoutOverflow {
     pub x: Overflow,
     pub y: Overflow,
-}
-
-impl From<LayoutOverflow> for taffy::Point<taffy::Overflow> {
-    #[inline]
-    fn from(lo: LayoutOverflow) -> Self {
-        Self {
-            x: lo.x.into(),
-            y: lo.y.into(),
-        }
-    }
-}
-
-impl From<taffy::Point<taffy::Overflow>> for LayoutOverflow {
-    #[inline]
-    fn from(t: taffy::Point<taffy::Overflow>) -> Self {
-        Self {
-            x: t.x.into(),
-            y: t.y.into(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -1068,58 +700,12 @@ pub enum FlexDirection {
     ColumnReverse,
 }
 
-impl From<FlexDirection> for taffy::FlexDirection {
-    #[inline]
-    fn from(fd: FlexDirection) -> Self {
-        match fd {
-            FlexDirection::Row => Self::Row,
-            FlexDirection::Column => Self::Column,
-            FlexDirection::RowReverse => Self::RowReverse,
-            FlexDirection::ColumnReverse => Self::ColumnReverse,
-        }
-    }
-}
-
-impl From<taffy::FlexDirection> for FlexDirection {
-    #[inline]
-    fn from(t: taffy::FlexDirection) -> Self {
-        match t {
-            taffy::FlexDirection::Row => Self::Row,
-            taffy::FlexDirection::Column => Self::Column,
-            taffy::FlexDirection::RowReverse => Self::RowReverse,
-            taffy::FlexDirection::ColumnReverse => Self::ColumnReverse,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum FlexWrap {
     #[default]
     NoWrap,
     Wrap,
     WrapReverse,
-}
-
-impl From<FlexWrap> for taffy::FlexWrap {
-    #[inline]
-    fn from(fw: FlexWrap) -> Self {
-        match fw {
-            FlexWrap::NoWrap => Self::NoWrap,
-            FlexWrap::Wrap => Self::Wrap,
-            FlexWrap::WrapReverse => Self::WrapReverse,
-        }
-    }
-}
-
-impl From<taffy::FlexWrap> for FlexWrap {
-    #[inline]
-    fn from(t: taffy::FlexWrap) -> Self {
-        match t {
-            taffy::FlexWrap::NoWrap => Self::NoWrap,
-            taffy::FlexWrap::Wrap => Self::Wrap,
-            taffy::FlexWrap::WrapReverse => Self::WrapReverse,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -1139,47 +725,6 @@ pub enum AlignItems {
     SafeCenter,
 }
 
-impl From<AlignItems> for taffy::AlignItems {
-    #[inline]
-    fn from(ai: AlignItems) -> Self {
-        match ai {
-            AlignItems::Start => Self::START,
-            AlignItems::End => Self::END,
-            AlignItems::FlexStart => Self::FLEX_START,
-            AlignItems::FlexEnd => Self::FLEX_END,
-            AlignItems::Center => Self::CENTER,
-            AlignItems::Baseline => Self::BASELINE,
-            AlignItems::Stretch => Self::STRETCH,
-            AlignItems::SafeStart => Self::SAFE_START,
-            AlignItems::SafeEnd => Self::SAFE_END,
-            AlignItems::SafeFlexStart => Self::SAFE_FLEX_START,
-            AlignItems::SafeFlexEnd => Self::SAFE_FLEX_END,
-            AlignItems::SafeCenter => Self::SAFE_CENTER,
-        }
-    }
-}
-
-impl From<taffy::AlignItems> for AlignItems {
-    #[inline]
-    fn from(t: taffy::AlignItems) -> Self {
-        match t {
-            taffy::AlignItems::START => Self::Start,
-            taffy::AlignItems::END => Self::End,
-            taffy::AlignItems::FLEX_START => Self::FlexStart,
-            taffy::AlignItems::FLEX_END => Self::FlexEnd,
-            taffy::AlignItems::CENTER => Self::Center,
-            taffy::AlignItems::BASELINE => Self::Baseline,
-            taffy::AlignItems::STRETCH => Self::Stretch,
-            taffy::AlignItems::SAFE_START => Self::SafeStart,
-            taffy::AlignItems::SAFE_END => Self::SafeEnd,
-            taffy::AlignItems::SAFE_FLEX_START => Self::SafeFlexStart,
-            taffy::AlignItems::SAFE_FLEX_END => Self::SafeFlexEnd,
-            taffy::AlignItems::SAFE_CENTER => Self::SafeCenter,
-            _ => Self::Stretch,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum AlignSelf {
     Start,
@@ -1195,47 +740,6 @@ pub enum AlignSelf {
     SafeFlexStart,
     SafeFlexEnd,
     SafeCenter,
-}
-
-impl From<AlignSelf> for taffy::AlignSelf {
-    #[inline]
-    fn from(asf: AlignSelf) -> Self {
-        match asf {
-            AlignSelf::Start => Self::START,
-            AlignSelf::End => Self::END,
-            AlignSelf::Center => Self::CENTER,
-            AlignSelf::Baseline => Self::BASELINE,
-            AlignSelf::Stretch => Self::STRETCH,
-            AlignSelf::FlexStart => Self::FLEX_START,
-            AlignSelf::FlexEnd => Self::FLEX_END,
-            AlignSelf::SafeStart => Self::SAFE_START,
-            AlignSelf::SafeEnd => Self::SAFE_END,
-            AlignSelf::SafeFlexStart => Self::SAFE_FLEX_START,
-            AlignSelf::SafeFlexEnd => Self::SAFE_FLEX_END,
-            AlignSelf::SafeCenter => Self::SAFE_CENTER,
-        }
-    }
-}
-
-impl From<taffy::style::AlignSelf> for AlignSelf {
-    #[inline]
-    fn from(t: taffy::style::AlignSelf) -> Self {
-        match t {
-            taffy::AlignSelf::START => Self::Start,
-            taffy::AlignSelf::END => Self::End,
-            taffy::AlignSelf::CENTER => Self::Center,
-            taffy::AlignSelf::BASELINE => Self::Baseline,
-            taffy::AlignSelf::STRETCH => Self::Stretch,
-            taffy::AlignSelf::FLEX_START => Self::FlexStart,
-            taffy::AlignSelf::FLEX_END => Self::FlexEnd,
-            taffy::AlignSelf::SAFE_START => Self::SafeStart,
-            taffy::AlignSelf::SAFE_END => Self::SafeEnd,
-            taffy::AlignSelf::SAFE_FLEX_START => Self::SafeFlexStart,
-            taffy::AlignSelf::SAFE_FLEX_END => Self::SafeFlexEnd,
-            taffy::AlignSelf::SAFE_CENTER => Self::SafeCenter,
-            _ => Self::Stretch,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -1257,51 +761,6 @@ pub enum JustifyContent {
     SafeCenter,
 }
 
-impl From<JustifyContent> for taffy::JustifyContent {
-    #[inline]
-    fn from(jc: JustifyContent) -> Self {
-        match jc {
-            JustifyContent::Start => Self::START,
-            JustifyContent::End => Self::END,
-            JustifyContent::Center => Self::CENTER,
-            JustifyContent::Stretch => Self::STRETCH,
-            JustifyContent::SpaceBetween => Self::SPACE_BETWEEN,
-            JustifyContent::SpaceAround => Self::SPACE_AROUND,
-            JustifyContent::SpaceEvenly => Self::SPACE_EVENLY,
-            JustifyContent::FlexStart => Self::FLEX_START,
-            JustifyContent::FlexEnd => Self::FLEX_END,
-            JustifyContent::SafeStart => Self::SAFE_START,
-            JustifyContent::SafeEnd => Self::SAFE_END,
-            JustifyContent::SafeFlexStart => Self::SAFE_FLEX_START,
-            JustifyContent::SafeFlexEnd => Self::SAFE_FLEX_END,
-            JustifyContent::SafeCenter => Self::SAFE_CENTER,
-        }
-    }
-}
-
-impl From<taffy::JustifyContent> for JustifyContent {
-    #[inline]
-    fn from(t: taffy::JustifyContent) -> Self {
-        match t {
-            taffy::JustifyContent::START => Self::Start,
-            taffy::JustifyContent::END => Self::End,
-            taffy::JustifyContent::CENTER => Self::Center,
-            taffy::JustifyContent::STRETCH => Self::Stretch,
-            taffy::JustifyContent::SPACE_BETWEEN => Self::SpaceBetween,
-            taffy::JustifyContent::SPACE_AROUND => Self::SpaceAround,
-            taffy::JustifyContent::SPACE_EVENLY => Self::SpaceEvenly,
-            taffy::JustifyContent::SAFE_START => Self::SafeStart,
-            taffy::JustifyContent::SAFE_END => Self::SafeEnd,
-            taffy::JustifyContent::SAFE_FLEX_START => Self::SafeFlexStart,
-            taffy::JustifyContent::SAFE_FLEX_END => Self::SafeFlexEnd,
-            taffy::JustifyContent::FLEX_START => Self::FlexStart,
-            taffy::JustifyContent::FLEX_END => Self::FlexEnd,
-            taffy::JustifyContent::SAFE_CENTER => Self::Center,
-            _ => Self::Stretch,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum AlignContent {
     Start,
@@ -1321,51 +780,6 @@ pub enum AlignContent {
     SafeCenter,
 }
 
-impl From<AlignContent> for taffy::AlignContent {
-    #[inline]
-    fn from(ac: AlignContent) -> Self {
-        match ac {
-            AlignContent::Start => Self::START,
-            AlignContent::End => Self::END,
-            AlignContent::Center => Self::CENTER,
-            AlignContent::Stretch => Self::STRETCH,
-            AlignContent::SpaceBetween => Self::SPACE_BETWEEN,
-            AlignContent::SpaceAround => Self::SPACE_AROUND,
-            AlignContent::SpaceEvenly => Self::SPACE_EVENLY,
-            AlignContent::FlexStart => Self::FLEX_START,
-            AlignContent::FlexEnd => Self::FLEX_END,
-            AlignContent::SafeStart => Self::SAFE_START,
-            AlignContent::SafeEnd => Self::SAFE_END,
-            AlignContent::SafeFlexStart => Self::SAFE_FLEX_START,
-            AlignContent::SafeFlexEnd => Self::SAFE_FLEX_END,
-            AlignContent::SafeCenter => Self::SAFE_CENTER,
-        }
-    }
-}
-
-impl From<taffy::AlignContent> for AlignContent {
-    #[inline]
-    fn from(t: taffy::AlignContent) -> Self {
-        match t {
-            taffy::AlignContent::START => Self::Start,
-            taffy::AlignContent::END => Self::End,
-            taffy::AlignContent::CENTER => Self::Center,
-            taffy::AlignContent::STRETCH => Self::Stretch,
-            taffy::AlignContent::SPACE_BETWEEN => Self::SpaceBetween,
-            taffy::AlignContent::SPACE_AROUND => Self::SpaceAround,
-            taffy::AlignContent::SPACE_EVENLY => Self::SpaceEvenly,
-            taffy::AlignContent::SAFE_START => Self::SafeStart,
-            taffy::AlignContent::SAFE_END => Self::SafeEnd,
-            taffy::AlignContent::SAFE_FLEX_START => Self::SafeFlexStart,
-            taffy::AlignContent::SAFE_FLEX_END => Self::SafeFlexEnd,
-            taffy::AlignContent::FLEX_START => Self::FlexStart,
-            taffy::AlignContent::FLEX_END => Self::FlexEnd,
-            taffy::AlignContent::SAFE_CENTER => Self::Center,
-            _ => Self::Stretch,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum TextAlign {
     #[default]
@@ -1375,30 +789,6 @@ pub enum TextAlign {
     Center,
 }
 
-impl From<TextAlign> for taffy::TextAlign {
-    #[inline]
-    fn from(ta: TextAlign) -> Self {
-        match ta {
-            TextAlign::Auto => Self::Auto,
-            TextAlign::Left => Self::LegacyLeft,
-            TextAlign::Right => Self::LegacyRight,
-            TextAlign::Center => Self::LegacyCenter,
-        }
-    }
-}
-
-impl From<taffy::TextAlign> for TextAlign {
-    #[inline]
-    fn from(t: taffy::TextAlign) -> Self {
-        match t {
-            taffy::TextAlign::Auto => Self::Auto,
-            taffy::TextAlign::LegacyLeft => Self::Left,
-            taffy::TextAlign::LegacyRight => Self::Right,
-            taffy::TextAlign::LegacyCenter => Self::Center,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum GridAutoFlow {
     #[default]
@@ -1406,30 +796,6 @@ pub enum GridAutoFlow {
     Column,
     RowDense,
     ColumnDense,
-}
-
-impl From<GridAutoFlow> for taffy::GridAutoFlow {
-    #[inline]
-    fn from(gaf: GridAutoFlow) -> Self {
-        match gaf {
-            GridAutoFlow::Row => Self::Row,
-            GridAutoFlow::Column => Self::Column,
-            GridAutoFlow::RowDense => Self::RowDense,
-            GridAutoFlow::ColumnDense => Self::ColumnDense,
-        }
-    }
-}
-
-impl From<taffy::GridAutoFlow> for GridAutoFlow {
-    #[inline]
-    fn from(t: taffy::GridAutoFlow) -> Self {
-        match t {
-            taffy::GridAutoFlow::Row => Self::Row,
-            taffy::GridAutoFlow::Column => Self::Column,
-            taffy::GridAutoFlow::RowDense => Self::RowDense,
-            taffy::GridAutoFlow::ColumnDense => Self::ColumnDense,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -1445,85 +811,11 @@ where
     NamedSpan(S),
 }
 
-impl<S> From<GridPlacement<S>> for taffy::GridPlacement<String>
-where
-    S: ToString,
-{
-    #[inline]
-    fn from(gp: GridPlacement<S>) -> Self {
-        match gp {
-            GridPlacement::Auto => Self::Auto,
-            GridPlacement::Line(s) => {
-                let s_str = s.to_string();
-                if let Ok(val) = s_str.parse::<i16>() {
-                    // GridLine の直接インポートを避けるため型推論に委ねる
-                    Self::Line(val.into())
-                } else {
-                    Self::NamedLine(s_str, 1)
-                }
-            }
-            GridPlacement::NamedLine(s) => Self::NamedLine(s.to_string(), 1),
-            GridPlacement::Span(s) => {
-                let s_str = s.to_string();
-                if let Ok(val) = s_str.parse::<u16>() {
-                    Self::Span(val)
-                } else {
-                    Self::Auto
-                }
-            }
-            // Taffy 0.11 の NamedSpan(S, u16) の引数順序に適合
-            GridPlacement::NamedSpan(s) => Self::NamedSpan(s.to_string(), 1),
-        }
-    }
-}
-
-impl From<taffy::GridPlacement<String>> for GridPlacement<String> {
-    #[inline]
-    fn from(t: taffy::GridPlacement<String>) -> Self {
-        match t {
-            taffy::GridPlacement::Auto => Self::Auto,
-            // 【解決策】型名を明示せず、grid_line に実装されている .as_i16() を直接呼び出し
-            taffy::GridPlacement::Line(grid_line) => Self::Line(grid_line.as_i16().to_string()),
-            taffy::GridPlacement::NamedLine(s, _val) => Self::NamedLine(s),
-            taffy::GridPlacement::Span(val) => Self::Span(val.to_string()),
-            taffy::GridPlacement::NamedSpan(s, _val) => Self::NamedSpan(s),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridLine<T> {
     pub start: T,
     pub end: T,
 }
-
-impl<T, U> From<GridLine<T>> for taffy::Line<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(line: GridLine<T>) -> Self {
-        Self {
-            start: U::from(line.start),
-            end: U::from(line.end),
-        }
-    }
-}
-
-impl<T, U> From<taffy::Line<T>> for GridLine<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(line: taffy::Line<T>) -> Self {
-        Self {
-            start: U::from(line.start),
-            end: U::from(line.end),
-        }
-    }
-}
-
-// types.rs に追加
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
@@ -1633,6 +925,93 @@ impl Transition {
     }
 }
 
+/// アニメーションのイージングカーブを定義する列挙型。
+/// 軽量なため Clone と Copy が可能です。
+// TODO: バネ物理シミュレーション Spring Physics
+// 摩擦（Damping）とバネの強さ（Stiffness）のパラメータから毎フレーム物理演算
+#[derive(Debug, Clone, Copy)]
+pub enum AnimationCurve {
+    /// イージングなし（線形 / リニア）
+    Linear,
+    /// 加減速をかける標準的な2次イージング
+    EaseInOutQuad,
+    /// 加速（2次）
+    EaseInQuad,
+    /// 減速（2次）
+    EaseOutQuad,
+    /// ユーザーが独自のイージング計算（0.0～1.0 を受け取り 0.0～1.0 を返す）を行えるエスケープハッチ
+    Custom(fn(f32) -> f32),
+}
+
+impl AnimationCurve {
+    /// 経過割合 t (0.0 <= t <= 1.0) に基づいて、イージングされた値を評価します
+    pub fn evaluate(&self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match *self {
+            AnimationCurve::Linear => t,
+            AnimationCurve::EaseInQuad => t * t,
+            AnimationCurve::EaseOutQuad => t * (2.0 - t),
+            AnimationCurve::EaseInOutQuad => {
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    -1.0 + (4.0 - 2.0 * t) * t
+                }
+            }
+            AnimationCurve::Custom(f) => f(t),
+        }
+    }
+}
+
+impl PartialEq for AnimationCurve {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Linear, Self::Linear) => true,
+            (Self::EaseInOutQuad, Self::EaseInOutQuad) => true,
+            (Self::EaseInQuad, Self::EaseInQuad) => true,
+            (Self::EaseOutQuad, Self::EaseOutQuad) => true,
+            (Self::Custom(f1), Self::Custom(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackCount {
+    Infinite,
+    Count(u32),
+}
+
+/// CSS Animation 相当の設定を定義
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KeyframeAnimation {
+    /// 何をアニメーションさせるか
+    pub property: PropertyList,
+    /// 1周（ループ）にかかる時間
+    pub duration: Duration,
+    /// ループ回数
+    pub iteration_count: PlaybackCount,
+    /// イージングカーブ
+    pub curve: AnimationCurve,
+}
+
+impl KeyframeAnimation {
+    #[inline]
+    pub fn new(
+        property: PropertyList,
+        duration: Duration,
+        iteration_count: PlaybackCount,
+        curve: AnimationCurve,
+    ) -> Self {
+        Self {
+            property,
+            duration,
+            iteration_count,
+            curve,
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LinearGradient {
@@ -1665,361 +1044,6 @@ pub enum PointerEvents {
 }
 
 // 1. BasicLayout (基本レイアウト：18プロパティ) - ホットデータ
-/// 要素がほぼ必ず持つ、基本のレイアウト情報。
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BasicLayout {
-    pub display: Display,
-    pub item_is_table: bool,
-    pub item_is_replaced: bool,
-    pub box_sizing: BoxSizing,
-    pub direction: Direction,
-    pub overflow: LayoutOverflow,
-    pub position: Position,
-    pub inset: Rect<Val>,
-    pub size: Size<Val>,
-    pub min_size: Size<Val>,
-    pub max_size: Size<Val>,
-    pub aspect_ratio: Option<f32>,
-    pub margin: Rect<Val>,
-    pub padding: Rect<Length>,
-    pub border: Rect<Length>,
-    pub resizable: [bool; 4],
-}
-
-impl Default for BasicLayout {
-    fn default() -> Self {
-        // Taffy のデフォルトの Style から基本設定値をコピーして初期化
-        let default_style: taffy::Style = taffy::Style::default();
-        Self {
-            display: default_style.display.into(),
-            item_is_table: default_style.item_is_table,
-            item_is_replaced: default_style.item_is_replaced,
-            box_sizing: default_style.box_sizing.into(),
-            direction: default_style.direction.into(),
-            overflow: default_style.overflow.into(),
-            position: default_style.position.into(),
-            inset: default_style.inset.into(),
-            size: default_style.size.into(),
-            min_size: default_style.min_size.into(),
-            max_size: default_style.max_size.into(),
-            aspect_ratio: default_style.aspect_ratio,
-            margin: default_style.margin.into(),
-            padding: default_style.padding.into(),
-            border: default_style.border.into(),
-            resizable: [false; 4],
-        }
-    }
-}
-
-impl BasicLayout {
-    /// 指定されたプロパティマスクに基づいて、自身を別のレイアウトデータで上書きします。
-    pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
-        if mask.has(STYLE_DISPLAY) {
-            self.display = other.display;
-        }
-        if mask.has(STYLE_ITEM_IS_TABLE) {
-            self.item_is_table = other.item_is_table;
-        }
-        if mask.has(STYLE_ITEM_IS_REPLACED) {
-            self.item_is_replaced = other.item_is_replaced;
-        }
-        if mask.has(STYLE_BOX_SIZING) {
-            self.box_sizing = other.box_sizing;
-        }
-        if mask.has(STYLE_DIRECTION) {
-            self.direction = other.direction;
-        }
-        if mask.has(STYLE_OVERFLOW) {
-            self.overflow = other.overflow;
-        }
-        if mask.has(STYLE_POSITION) {
-            self.position = other.position;
-        }
-        if mask.has(STYLE_INSET) {
-            self.inset = other.inset;
-        }
-        if mask.has(STYLE_SIZE) {
-            self.size = other.size;
-        }
-        if mask.has(STYLE_MIN_SIZE) {
-            self.min_size = other.min_size;
-        }
-        if mask.has(STYLE_MAX_SIZE) {
-            self.max_size = other.max_size;
-        }
-        if mask.has(STYLE_ASPECT_RATIO) {
-            self.aspect_ratio = other.aspect_ratio;
-        }
-        if mask.has(STYLE_MARGIN) {
-            self.margin = other.margin;
-        }
-        if mask.has(STYLE_PADDING) {
-            self.padding = other.padding;
-        }
-        if mask.has(STYLE_BORDER) {
-            self.border = other.border;
-        }
-        if mask.has(STYLE_RESIZABLE) {
-            self.resizable = other.resizable;
-        }
-    }
-}
-
-// 2. FlexLayout (Flexboxレイアウト：13プロパティ) - ホットデータ
-/// Flexboxコンテナ、またはその子要素に適用される情報。
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct FlexLayout {
-    pub align_items: Option<AlignItems>,
-    pub align_self: Option<AlignSelf>,
-    pub justify_items: Option<AlignItems>,
-    pub justify_self: Option<AlignSelf>,
-    pub align_content: Option<AlignContent>,
-    pub justify_content: Option<JustifyContent>,
-    pub gap: Size<Val>,
-    pub text_align: TextAlign,
-    pub flex_direction: FlexDirection,
-    pub flex_wrap: FlexWrap,
-    pub flex_basis: Val,
-    pub flex_grow: f32,
-    pub flex_shrink: f32,
-}
-
-impl FlexLayout {
-    /// 指定されたプロパティマスクに基づいて、自身を別のFlexレイアウトデータで上書きします。
-    pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
-        if mask.has(STYLE_ALIGN_ITEMS) {
-            self.align_items = other.align_items;
-        }
-        if mask.has(STYLE_ALIGN_SELF) {
-            self.align_self = other.align_self;
-        }
-        if mask.has(STYLE_JUSTIFY_ITEMS) {
-            self.justify_items = other.justify_items;
-        }
-        if mask.has(STYLE_JUSTIFY_SELF) {
-            self.justify_self = other.justify_self;
-        }
-        if mask.has(STYLE_ALIGN_CONTENT) {
-            self.align_content = other.align_content;
-        }
-        if mask.has(STYLE_JUSTIFY_CONTENT) {
-            self.justify_content = other.justify_content;
-        }
-        if mask.has(STYLE_GAP) {
-            self.gap = other.gap;
-        }
-        if mask.has(STYLE_TEXT_ALIGN) {
-            self.text_align = other.text_align;
-        }
-        if mask.has(STYLE_FLEX_DIRECTION) {
-            self.flex_direction = other.flex_direction;
-        }
-        if mask.has(STYLE_FLEX_WRAP) {
-            self.flex_wrap = other.flex_wrap;
-        }
-        if mask.has(STYLE_FLEX_BASIS) {
-            self.flex_basis = other.flex_basis;
-        }
-        if mask.has(STYLE_FLEX_GROW) {
-            self.flex_grow = other.flex_grow;
-        }
-        if mask.has(STYLE_FLEX_SHRINK) {
-            self.flex_shrink = other.flex_shrink;
-        }
-    }
-}
-
-impl Default for FlexLayout {
-    fn default() -> Self {
-        let default_style: taffy::Style = taffy::Style::default();
-        Self {
-            align_items: default_style.align_items.map(|a| a.into()),
-            align_self: default_style.align_self.map(|a| a.into()),
-            justify_items: default_style.justify_items.map(|a| a.into()),
-            justify_self: default_style.justify_self.map(|a| a.into()),
-            align_content: default_style.align_content.map(|a| a.into()),
-            justify_content: default_style.justify_content.map(|a| a.into()),
-            gap: default_style.gap.into(),
-            text_align: default_style.text_align.into(),
-            flex_direction: default_style.flex_direction.into(),
-            flex_wrap: default_style.flex_wrap.into(),
-            flex_basis: default_style.flex_basis.into(),
-            flex_grow: default_style.flex_grow,
-            flex_shrink: default_style.flex_shrink,
-        }
-    }
-}
-
-// 3. GridLayout (Gridレイアウト：10プロパティ) - コールドデータ
-/// Gridコンテナ、およびGrid子要素に適用される複雑な情報。
-/// `Vec`（動的配列）を多数含み、メモリ上で重いため `Copy` は不可能（`Clone` のみ）。
-/// 滅多に使われないため、`SparseSecondaryMap` で隔離し、未使用の要素には一切メモリを消費させない。
-#[derive(Debug, Clone, PartialEq)]
-pub struct GridLayout {
-    pub grid_template_rows: Vec<taffy::GridTemplateComponent<String>>,
-    pub grid_template_columns: Vec<taffy::GridTemplateComponent<String>>,
-    pub grid_auto_rows: Vec<taffy::TrackSizingFunction>,
-    pub grid_auto_columns: Vec<taffy::TrackSizingFunction>,
-    pub grid_auto_flow: GridAutoFlow,
-    pub grid_template_areas: Vec<taffy::GridTemplateArea<String>>,
-    pub grid_template_column_names: Vec<Vec<String>>,
-    pub grid_template_row_names: Vec<Vec<String>>,
-    pub grid_row: GridLine<GridPlacement<String>>,
-    pub grid_column: GridLine<GridPlacement<String>>,
-}
-
-impl Default for GridLayout {
-    fn default() -> Self {
-        // Taffyデフォルト値と完全に一致するように空のVecで初期化
-        Self {
-            grid_template_rows: Vec::new(),
-            grid_template_columns: Vec::new(),
-            grid_auto_rows: Vec::new(),
-            grid_auto_columns: Vec::new(),
-            grid_auto_flow: GridAutoFlow::Row,
-            grid_template_areas: Vec::new(),
-            grid_template_column_names: Vec::new(),
-            grid_template_row_names: Vec::new(),
-            grid_row: GridLine {
-                start: GridPlacement::Auto,
-                end: GridPlacement::Auto,
-            },
-            grid_column: GridLine {
-                start: GridPlacement::Auto,
-                end: GridPlacement::Auto,
-            },
-        }
-    }
-}
-
-/// 要素の描画（ペイント）に関する一括情報。
-/// wgpu への高速インスタンスバッファ転送時に、時間・空間的キャッシュ局所性を最大化するために一塊で管理。
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct VisualProperty {
-    pub bg_color: Option<Color>,
-    pub border_color: Option<Color>,
-    pub border_lengths: Option<EdgeInsets>,
-    pub border_styles: Option<[BorderStyle; 4]>,
-    pub border_alignments: Option<[BorderAlignment; 4]>,
-    pub corner_radius: Option<CornerRadius>,
-    pub opacity: Option<f32>,
-    pub shadow_params: Option<BoxShadow>,
-    pub shadow_color: Option<Color>,
-    pub transform: Option<[[f32; 4]; 4]>,
-    pub transform_origin: Option<Point<f32>>,
-    pub z_index: Option<i32>,
-    pub cursor: Option<CursorIcon>,
-    /// 各方向 [Ns, Ew, Nesw, Nwse] のカスタムカーソル指定
-    pub resizable_cursor: Option<[Option<CursorIcon>; 4]>,
-    pub backdrop: Backdrop,
-    pub text_color: Option<Color>,
-    pub font_size: Option<f32>,
-    pub font_family: Option<Cow<'static, str>>,
-    pub font_weight: Option<u32>,
-    pub font_style: Option<u32>,
-    pub bg_gradient: Option<LinearGradient>,
-    pub transitions: Vec<Transition>,
-    pub keyframe_animations: Vec<KeyframeAnimation>,
-    pub pointer_events: Option<PointerEvents>,
-    pub user_select: Option<UserSelect>,
-    pub select_bg_color: Option<Color>,
-    pub select_text_color: Option<Color>,
-    pub focusable: Option<Focusable>,
-    pub outline_width: Option<EdgeInsets>, // アウトラインはレイアウトに影響を与えないため
-    pub outline_color: Option<Color>,
-    pub outline_lengths: Option<EdgeInsets>,
-    pub outline_styles: Option<[BorderStyle; 4]>,
-    pub outline_alignments: Option<[BorderAlignment; 4]>,
-    pub outline_offset: Option<f32>,
-}
-
-impl VisualProperty {
-    pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
-        if mask.has(STYLE_BG_COLOR) {
-            self.bg_color = other.bg_color;
-            self.bg_gradient = other.bg_gradient;
-        }
-        if mask.has(STYLE_BORDER_COLOR) {
-            self.border_color = other.border_color;
-        }
-        if mask.has(STYLE_BORDER) {
-            self.border_lengths = other.border_lengths;
-            self.border_styles = other.border_styles;
-            self.border_alignments = other.border_alignments;
-        }
-        if mask.has(STYLE_CORNER_RADIUS) {
-            self.corner_radius = other.corner_radius;
-        }
-        if mask.has(STYLE_OPACITY) {
-            self.opacity = other.opacity;
-        }
-        if mask.has(STYLE_BOX_SHADOW) {
-            self.shadow_params = other.shadow_params;
-            self.shadow_color = other.shadow_color;
-        }
-        if mask.has(STYLE_TRANSFORM) {
-            self.transform = other.transform;
-            self.transform_origin = other.transform_origin;
-        }
-        if mask.has(STYLE_Z_INDEX) {
-            self.z_index = other.z_index;
-        }
-        if mask.has(STYLE_CURSOR) {
-            self.cursor = other.cursor;
-        }
-        if mask.has(STYLE_RESIZABLE) {
-            self.resizable_cursor = other.resizable_cursor;
-        }
-        if mask.has(STYLE_BACKDROP) {
-            self.backdrop = other.backdrop;
-        }
-        if mask.has(STYLE_TEXT_COLOR) {
-            self.text_color = other.text_color;
-        }
-        if mask.has(STYLE_FONT_SIZE) {
-            self.font_size = other.font_size;
-        }
-        if mask.has(STYLE_EXT_PROPERTIES) {
-            if other.font_family.is_some() {
-                self.font_family = other.font_family.clone();
-            }
-            if other.font_weight.is_some() {
-                self.font_weight = other.font_weight;
-            }
-            if other.font_style.is_some() {
-                self.font_style = other.font_style;
-            }
-        }
-        if mask.has(STYLE_POINTER_EVENTS) {
-            self.pointer_events = other.pointer_events;
-        }
-        if mask.has(STYLE_USER_SELECT) {
-            self.user_select = other.user_select;
-            self.select_bg_color = other.select_bg_color;
-            self.select_text_color = other.select_text_color;
-        }
-        if mask.has(STYLE_FOCUSABLE) {
-            self.focusable = other.focusable;
-        }
-        if mask.has(STYLE_OUTLINE) {
-            self.outline_width = other.outline_width;
-            self.outline_color = other.outline_color;
-            self.outline_lengths = other.outline_lengths;
-            self.outline_styles = other.outline_styles;
-            self.outline_alignments = other.outline_alignments;
-            self.outline_offset = other.outline_offset;
-        }
-
-        // 複数追加できるものは破棄せず結合
-        if mask.has(STYLE_TRANSITIONS) {
-            self.transitions.extend(other.transitions.clone());
-        }
-        if mask.has(STYLE_ANIMATIONS) {
-            self.keyframe_animations
-                .extend(other.keyframe_animations.clone());
-        }
-    }
-}
 
 /// 子要素から伝播して解決可能なインタラクション定義
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -2032,102 +1056,6 @@ pub enum InteractionName {
     Select,
     Drag,
     All,
-}
-
-/// インタラクション（動的状態）ごとにオーバーライドして適用される、追加のスタイル表現。
-/// 滅多に使われない、かつ再帰的な構造を持つため、StyleInner の直下ではなくこの構造体に隠蔽して管理。
-#[derive(Debug, Clone, Default)]
-pub(crate) struct InteractionStyles {
-    pub(crate) hovered: Option<ThisStyle>,
-    pub(crate) focused: Option<ThisStyle>,
-    pub(crate) pressed: Option<ThisStyle>,
-    pub(crate) disabled: Option<ThisStyle>,
-    pub(crate) actived: Option<ThisStyle>,
-    pub(crate) selected: Option<ThisStyle>,
-    pub(crate) dragged: Option<ThisStyle>,
-
-    pub(crate) dragging: Option<ThisStyle>,
-    pub(crate) drag_in: Option<ThisStyle>,
-    pub(crate) drag_over: Option<ThisStyle>,
-
-    pub(crate) hovered_within: Option<ThisStyle>,
-    pub(crate) focused_within: Option<ThisStyle>,
-    pub(crate) pressed_within: Option<ThisStyle>,
-    pub(crate) disabled_within: Option<ThisStyle>,
-    pub(crate) actived_within: Option<ThisStyle>,
-    pub(crate) selected_within: Option<ThisStyle>,
-    pub(crate) dragged_within: Option<ThisStyle>,
-    pub(crate) any_within: Option<ThisStyle>, // All（いずれかのインタラクションがあればON）
-}
-
-impl InteractionStyles {
-    pub(crate) fn override_with(&mut self, other: &Self, _mask: ComponentMask) {
-        let merge = |target: &mut Option<ThisStyle>, source: &Option<ThisStyle>| {
-            if let Some(src) = source {
-                if let Some(dst) = target {
-                    let dst_inner = Arc::make_mut(&mut dst.inner);
-                    let src_inner = &src.inner;
-
-                    dst_inner.mask.0 |= src_inner.mask.0;
-                    dst_inner
-                        .basic_layout
-                        .override_with(&src_inner.basic_layout, src_inner.mask);
-                    dst_inner
-                        .flex_layout
-                        .override_with(&src_inner.flex_layout, src_inner.mask);
-                    dst_inner
-                        .visual_property
-                        .override_with(&src_inner.visual_property, src_inner.mask);
-
-                    if src_inner.mask.has_grid_layout()
-                        && let Some(ref g) = src_inner.grid_layout
-                    {
-                        dst_inner.grid_layout = Some(g.clone());
-                    }
-                    dst_inner
-                        .dynamic_setters
-                        .extend(src_inner.dynamic_setters.clone());
-                } else {
-                    *target = Some(src.clone());
-                }
-            }
-        };
-
-        merge(&mut self.hovered, &other.hovered);
-        merge(&mut self.focused, &other.focused);
-        merge(&mut self.pressed, &other.pressed);
-        merge(&mut self.disabled, &other.disabled);
-        merge(&mut self.actived, &other.actived);
-        merge(&mut self.selected, &other.selected);
-        merge(&mut self.dragged, &other.dragged);
-        merge(&mut self.dragging, &other.dragging);
-        merge(&mut self.drag_in, &other.drag_in);
-        merge(&mut self.drag_over, &other.drag_over);
-
-        merge(&mut self.hovered_within, &other.hovered_within);
-        merge(&mut self.focused_within, &other.focused_within);
-        merge(&mut self.pressed_within, &other.pressed_within);
-        merge(&mut self.disabled_within, &other.disabled_within);
-        merge(&mut self.actived_within, &other.actived_within);
-        merge(&mut self.selected_within, &other.selected_within);
-        merge(&mut self.dragged_within, &other.dragged_within);
-        merge(&mut self.any_within, &other.any_within);
-    }
-}
-
-/// 実行時にウィンドウ内で現在アクティブ（排他的）になっている、各状態の対象要素（EntityId）を管理します。
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct InteractionStates {
-    pub hovered: Option<EntityId>,
-    pub focused: Option<EntityId>,
-    pub pressed: Option<EntityId>,
-    pub dragged: Option<EntityId>,
-}
-
-impl InteractionStates {
-    pub fn new() -> Self {
-        Self::default()
-    }
 }
 
 pub type ClickCallback = Box<dyn FnMut(&mut Context) + 'static>;
@@ -2554,18 +1482,6 @@ pub enum ImageSource {
     Bytes(Arc<[u8]>),
 }
 
-impl From<PathBuf> for ImageSource {
-    fn from(path: PathBuf) -> Self {
-        Self::Path(path)
-    }
-}
-
-impl From<&'static str> for ImageSource {
-    fn from(s: &'static str) -> Self {
-        Self::Path(PathBuf::from(s))
-    }
-}
-
 /// 画像ファイルがロードされた際に取得できるメタデータ
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImageMetadata {
@@ -2582,18 +1498,6 @@ pub struct ImageMetadata {
 pub enum MovieSource {
     Path(PathBuf),
     Url(String),
-}
-
-impl From<PathBuf> for MovieSource {
-    fn from(path: PathBuf) -> Self {
-        Self::Path(path)
-    }
-}
-
-impl From<&'static str> for MovieSource {
-    fn from(s: &'static str) -> Self {
-        Self::Path(PathBuf::from(s))
-    }
 }
 
 /// 動画要素が保持する再生設定プロパティ
@@ -2662,30 +1566,6 @@ pub enum UiaValue {
     Bool(bool),
     Int(i32),
     Double(f64),
-}
-
-impl From<&'static str> for UiaValue {
-    fn from(s: &'static str) -> Self {
-        Self::String(String::from(s))
-    }
-}
-
-impl From<String> for UiaValue {
-    fn from(s: String) -> Self {
-        Self::String(s)
-    }
-}
-
-impl From<bool> for UiaValue {
-    fn from(b: bool) -> Self {
-        Self::Bool(b)
-    }
-}
-
-impl From<i32> for UiaValue {
-    fn from(i: i32) -> Self {
-        Self::Int(i)
-    }
 }
 
 /// Windows 11 のネイティブシステムバックドロップ（ウィンドウ背景ぼかし）効果
