@@ -566,29 +566,6 @@ impl Context {
             || self.layouts.is_structure_dirty
     }
 
-    /// 非再帰スタックによるフラットDFS配列の高速構築
-    fn rebuild_flat_dfs_sequence(&mut self, root: EntityId) {
-        self.layouts.flat_dfs_sequence.clear();
-
-        // あらかじめ実用的なスタック深度を確保しておきメモリ再確保を削減
-        let mut stack = Vec::with_capacity(32);
-        stack.push(root);
-
-        while let Some(id) = stack.pop() {
-            self.layouts.flat_dfs_sequence.push(id);
-
-            // 左側の子が先にポップされるように、右側（末尾）の子から逆順にスタックへプッシュ
-            if let Some(children) = self.children.get(id) {
-                let len = children.len();
-                for i in (0..len).rev() {
-                    stack.push(children[i]);
-                }
-            }
-        }
-
-        self.layouts.is_structure_dirty = false;
-    }
-
     /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出します。
     #[inline]
     pub(crate) fn calculate_inner_content_size(
@@ -628,7 +605,7 @@ impl Context {
         }
 
         if self.layouts.is_structure_dirty {
-            self.rebuild_flat_dfs_sequence(root);
+            LayoutStore::rebuild_flat_dfs_sequence(root, &mut self.layouts, &self.children);
         }
 
         // 全スクロールバー関連IDを一括抽出
@@ -702,79 +679,14 @@ impl Context {
                     // (クロージャの外側の self (= Context) は直接キャプチャできないため、
                     //  一時的に bind_context されているスレッドローカル経由で取得)
                     return with_context(|cx| {
-                        if cx.active_masks[id].has(COMP_INPUT_CONTENT)
-                            && let Some(contents) = cx.contents.input_contents.get(id)
-                            && let Some(layout_rect) = contents.last_layout
-                        {
-                            return taffy::Size {
-                                width: known_dims.width.unwrap_or(layout_rect.width),
-                                height: known_dims.height.unwrap_or(layout_rect.height),
-                            };
-                        }
-
-                        if cx.active_masks[id].has(COMP_TEXT_CONTENT) {
-                            let text = cx
-                                .contents
-                                .text_contents
-                                .get(id)
-                                .map(|s| s.as_ref())
-                                .unwrap_or("");
-                            let (font_size, font_family, font_weight, font_style) = cx
-                                .renders
-                                .visual_properties
-                                .get(id)
-                                .map(|v| {
-                                    (
-                                        v.font_size.unwrap_or(16.0),
-                                        v.font_family.as_deref(),
-                                        v.font_weight,
-                                        v.font_style,
-                                    )
-                                })
-                                // もし該当要素に VisualProperty 自体がなければデフォルト値をあてる
-                                .unwrap_or((16.0, None, None, None));
-
-                            let max_width = None;
-
-                            let spans = cx
-                                .contents
-                                .text_spans
-                                .get(id)
-                                .map(|s| s.as_slice())
-                                .unwrap_or(&[]);
-
-                            // DirectWrite を使用して正確なサイズを計測
-                            let size = cx.system.text_engine.measure_text(
-                                text,
-                                font_size,
-                                font_family,
-                                font_weight,
-                                font_style,
-                                max_width,
-                                spans,
-                            );
-
-                            // 計測した文字自体の正確なサイズをここでインプット要素にキャッシュする
-                            if cx.active_masks[id].has(COMP_INPUT_CONTENT)
-                                && let Some(contents) = cx.contents.input_contents.get_mut(id)
-                            {
-                                contents.last_layout =
-                                    Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
-                            }
-
-                            // 文字のみのサイズ
-                            return taffy::Size {
-                                width: known_dims.width.unwrap_or(size.width),
-                                height: known_dims.height.unwrap_or(size.height),
-                            };
-                        }
-
-                        // テキストも入力も持たない空の div 等の場合、
-                        // スタイルに割り当てられたサイズがあればそれを優先して返し、無ければ ZERO とする
-                        taffy::Size {
-                            width: known_dims.width.unwrap_or(0.0),
-                            height: known_dims.height.unwrap_or(0.0),
-                        }
+                        ContentStore::measure_content(
+                            id,
+                            &mut self.contents,
+                            &self.active_masks,
+                            &self.renders.visual_properties,
+                            &self.system.text_engine,
+                            known_dims,
+                        )
                     });
                 }
                 taffy::Size::ZERO
@@ -792,18 +704,10 @@ impl Context {
 
         self.active_entities.clear();
 
-        // スワップおよび一旦コンテンツの rects のみを確定 (scroll_size を正しく算出するため)
-        std::mem::swap(&mut self.outputs.rects, &mut self.outputs.prev_rects);
-        std::mem::swap(
-            &mut self.outputs.clip_rects,
-            &mut self.outputs.prev_clip_rects,
-        );
-
-        self.outputs.rects.clear();
-        self.outputs.clip_rects.clear();
+        // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの rects のみを確定
+        OutputStore::swap_output_rect(&mut self.outputs);
 
         let flat_len = self.layouts.flat_dfs_sequence.len();
-        let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
 
         // 1次元非再帰・静的キャッシュバイパスループ
         for i in 0..flat_len {
@@ -814,24 +718,9 @@ impl Context {
                 continue;
             }
 
-            let parent_id_opt = self.parents.get(id).copied().flatten();
-
             // 親の移動・リサイズ状態を検証
-            let mut parent_changed = false;
-            if let Some(parent_id) = parent_id_opt {
-                let prev_parent_rect = self.outputs.prev_rects.get(parent_id);
-                let curr_parent_rect = self.outputs.rects.get(parent_id);
-                let prev_parent_clip = self.outputs.prev_clip_rects.get(parent_id);
-                let curr_parent_clip = self.outputs.clip_rects.get(parent_id);
-                let is_parent_dirty = self.active_masks[parent_id].has(STATE_QUEUED_LAYOUT);
-
-                if prev_parent_rect != curr_parent_rect
-                    || prev_parent_clip != curr_parent_clip
-                    || is_parent_dirty
-                {
-                    parent_changed = true; // 親が動いた、サイズが変わった、クリップが変わった、または親にレイアウト変更がある
-                }
-            }
+            let parent_changed =
+                OutputStore::parent_changed(id, &self.outputs, &self.parents, &self.active_masks);
 
             // 静的キャッシュバイパス判定
             let has_style_changed = self.active_masks[id].has(STATE_QUEUED_LAYOUT);
@@ -853,61 +742,13 @@ impl Context {
                 continue;
             }
 
-            // キャッシュが使えない場合のみ、Taffyから実データを引き出す
-            let local_rect = if let Some(&taffy_node) = self.layouts.taffy_nodes.get(id) {
-                if let Ok(layout) = self.layouts.taffy.layout(taffy_node) {
-                    LayoutRect::new(
-                        layout.location.x,
-                        layout.location.y,
-                        layout.size.width,
-                        layout.size.height,
-                    )
-                } else {
-                    LayoutRect::ZERO
-                }
-            } else {
-                LayoutRect::ZERO
-            };
-
-            let (abs_rect, parent_clip) = if let Some(parent_id) = parent_id_opt {
-                let parent_rect = self.outputs.rects[parent_id];
-                let parent_clip = self.outputs.clip_rects[parent_id];
-
-                let is_absolute = self
-                    .layouts
-                    .basic_layouts
-                    .get(id)
-                    .map(|l| l.position == Position::Absolute)
-                    .unwrap_or(false);
-
-                let parent_scroll = if is_absolute {
-                    LayoutPoint::ZERO
-                } else {
-                    self.outputs
-                        .scroll_offsets
-                        .get(parent_id)
-                        .copied()
-                        .unwrap_or(LayoutPoint::ZERO)
-                };
-
-                let abs_x = parent_rect.x + local_rect.x - parent_scroll.x;
-                let abs_y = parent_rect.y + local_rect.y - parent_scroll.y;
-
-                (
-                    LayoutRect::new(abs_x, abs_y, local_rect.width, local_rect.height),
-                    parent_clip,
-                )
-            } else {
-                (
-                    LayoutRect::new(
-                        local_rect.x,
-                        local_rect.y,
-                        local_rect.width,
-                        local_rect.height,
-                    ),
-                    initial_clip,
-                )
-            };
+            let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
+                id,
+                &self.outputs,
+                &self.layouts,
+                &self.parents,
+                window_size,
+            );
 
             self.outputs.rects.insert(id, abs_rect);
             let mask = self.active_masks[id];
@@ -918,7 +759,6 @@ impl Context {
                 contents.last_bounds = Some(abs_rect);
             }
 
-            // サイズが0.0の要素や画面外の要素の描画スキップ処理は、将来レンダラー側（wgpu等）に委譲。
             let current_clip = if mask.has(STYLE_OVERFLOW) {
                 parent_clip.intersect(&abs_rect)
             } else {
@@ -1391,61 +1231,13 @@ impl Context {
         for i in 0..flat_len {
             let id = self.layouts.flat_dfs_sequence[i];
 
-            let local_rect = if let Some(&taffy_node) = self.layouts.taffy_nodes.get(id) {
-                if let Ok(layout) = self.layouts.taffy.layout(taffy_node) {
-                    LayoutRect::new(
-                        layout.location.x,
-                        layout.location.y,
-                        layout.size.width,
-                        layout.size.height,
-                    )
-                } else {
-                    LayoutRect::ZERO
-                }
-            } else {
-                LayoutRect::ZERO
-            };
-
-            let (abs_rect, parent_clip) =
-                if let Some(parent_id) = self.parents.get(id).copied().flatten() {
-                    let parent_rect = self.outputs.rects[parent_id];
-                    let parent_clip = self.outputs.clip_rects[parent_id];
-
-                    let is_absolute = self
-                        .layouts
-                        .basic_layouts
-                        .get(id)
-                        .map(|l| l.position == Position::Absolute)
-                        .unwrap_or(false);
-
-                    let parent_scroll = if is_absolute {
-                        LayoutPoint::ZERO
-                    } else {
-                        self.outputs
-                            .scroll_offsets
-                            .get(parent_id)
-                            .copied()
-                            .unwrap_or(LayoutPoint::ZERO)
-                    };
-
-                    let abs_x = parent_rect.x + local_rect.x - parent_scroll.x;
-                    let abs_y = parent_rect.y + local_rect.y - parent_scroll.y;
-
-                    (
-                        LayoutRect::new(abs_x, abs_y, local_rect.width, local_rect.height),
-                        parent_clip,
-                    )
-                } else {
-                    (
-                        LayoutRect::new(
-                            local_rect.x,
-                            local_rect.y,
-                            local_rect.width,
-                            local_rect.height,
-                        ),
-                        initial_clip,
-                    )
-                };
+            let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
+                id,
+                &self.outputs,
+                &self.layouts,
+                &self.parents,
+                window_size,
+            );
 
             self.outputs.rects.insert(id, abs_rect);
             let mask = self.active_masks[id];
@@ -1526,7 +1318,6 @@ impl Context {
             &self.renders,
         );
 
-        // 4. TaffyTreeへの同期適用 (LayoutStore)
         LayoutStore::set_taffy_style(id, &mut self.layouts, &basic, &flex, grid.as_ref());
     }
 
@@ -3660,35 +3451,6 @@ impl Context {
         false
     }
 
-    /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
-    /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
-    pub(crate) fn does_state_require_layout(&self, id: EntityId, state_flag: u128) -> bool {
-        if let Some(interaction) = self.renders.interaction_properties.get(id) {
-            // 対象となる状態スタイルを取得
-            let target_style = match state_flag {
-                STATE_HOVERED => &interaction.hovered,
-                STATE_FOCUSED => &interaction.focused,
-                STATE_PRESSED => &interaction.pressed,
-                STATE_DISABLED => &interaction.disabled,
-                STATE_ACTIVED => &interaction.actived,
-                STATE_SELECTED => &interaction.selected,
-                STATE_DRAGGED => &interaction.dragged,
-                STATE_DRAGGING => &interaction.dragging,
-                STATE_DRAG_IN => &interaction.drag_in,
-                STATE_DRAG_OVER => &interaction.drag_over,
-                _ => &None,
-            };
-
-            // 指定された状態スタイルが存在する場合のみ、内部マスクを検証
-            if let Some(style) = target_style {
-                let mask = style.inner.mask;
-                // 基本レイアウト、Flexレイアウト、またはGridレイアウト変更が含まれていれば true
-                return mask.has_basic_layout() || mask.has_flex_layout() || mask.has_grid_layout();
-            }
-        }
-        false
-    }
-
     /// 子孫要素のインタラクション状態（state_flag）を走査します
     pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u128) -> bool {
         // ヒープアロケーションを防ぐため、スタック領域に16要素まで確保可能な SmallVec を用意
@@ -3773,7 +3535,11 @@ impl Context {
                         if parent_mask.has(STYLE_INTERACTION_WITHIN) {
                             self.resolve_element_style_state(parent_id, true);
 
-                            if self.does_state_require_layout(parent_id, state_flag) {
+                            if RenderStore::does_state_require_layout(
+                                parent_id,
+                                &self.renders,
+                                state_flag,
+                            ) {
                                 self.mark_layout_dirty(parent_id);
                             } else {
                                 self.mark_render_dirty(parent_id);
@@ -3836,7 +3602,7 @@ impl Context {
                 }
 
                 // 3. レイアウト再計算（スローパス）か描画更新（ファストパス）かを自動判定
-                if self.does_state_require_layout(id, state_flag) {
+                if RenderStore::does_state_require_layout(id, &self.renders, state_flag) {
                     self.mark_layout_dirty(id);
                 } else {
                     self.mark_render_dirty(id);

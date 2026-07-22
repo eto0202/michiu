@@ -92,7 +92,8 @@ impl RenderStore {
             StyleTarget::Base => renders.base_visual_properties.get_mut(id),
             _ => {
                 if !renders.interaction_properties.contains_key(id) {
-                    renders.interaction_properties
+                    renders
+                        .interaction_properties
                         .insert(id, InteractionStyles::default());
                 }
                 let styles = renders.interaction_properties.get_mut(id).unwrap();
@@ -112,7 +113,8 @@ impl RenderStore {
             StyleTarget::Base => flex_layouts.get_mut(id),
             _ => {
                 if !renders.interaction_properties.contains_key(id) {
-                    renders.interaction_properties
+                    renders
+                        .interaction_properties
                         .insert(id, InteractionStyles::default());
                 }
                 let styles = renders.interaction_properties.get_mut(id).unwrap();
@@ -160,7 +162,6 @@ impl RenderStore {
                 }
 
                 // 初期値（開始値）と目標値（100%キーフレームに相当する値）を設定
-                // ※ ここでは例として「回転 (Transform)」の場合、0度から360度へ向かう値を算出します。
                 let (start_val, end_val) = match anim.property {
                     PropertyList::Transform => {
                         let start = TransitionValue::Transform(IDENTITY_MATRIX);
@@ -173,7 +174,7 @@ impl RenderStore {
                     PropertyList::Opacity => {
                         (TransitionValue::Opacity(1.0), TransitionValue::Opacity(0.0)) // フェードアウト等
                     }
-                    _ => continue, // 必要に応じて他プロパティも定義
+                    _ => continue, // TODO: 他プロパティも定義
                 };
 
                 active_list.push(ActiveAnimation {
@@ -187,5 +188,38 @@ impl RenderStore {
                 });
             }
         }
+    }
+
+    /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
+    /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
+    pub(crate) fn does_state_require_layout(
+        id: EntityId,
+        renders: &RenderStore,
+        state_flag: u128,
+    ) -> bool {
+        if let Some(interaction) = renders.interaction_properties.get(id) {
+            // 対象となる状態スタイルを取得
+            let target_style = match state_flag {
+                STATE_HOVERED => &interaction.hovered,
+                STATE_FOCUSED => &interaction.focused,
+                STATE_PRESSED => &interaction.pressed,
+                STATE_DISABLED => &interaction.disabled,
+                STATE_ACTIVED => &interaction.actived,
+                STATE_SELECTED => &interaction.selected,
+                STATE_DRAGGED => &interaction.dragged,
+                STATE_DRAGGING => &interaction.dragging,
+                STATE_DRAG_IN => &interaction.drag_in,
+                STATE_DRAG_OVER => &interaction.drag_over,
+                _ => &None,
+            };
+
+            // 指定された状態スタイルが存在する場合のみ、内部マスクを検証
+            if let Some(style) = target_style {
+                let mask = style.inner.mask;
+                // 基本レイアウト、Flexレイアウト、またはGridレイアウト変更が含まれていれば true
+                return mask.has_basic_layout() || mask.has_flex_layout() || mask.has_grid_layout();
+            }
+        }
+        false
     }
 }

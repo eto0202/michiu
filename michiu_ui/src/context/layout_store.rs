@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
+use smallvec::SmallVec;
 use taffy::TaffyTree;
 
 #[derive(Debug, Clone)]
@@ -385,6 +386,50 @@ impl LayoutStore {
         }
         if let Some(layout) = renders.base_basic_layouts.get_mut(id) {
             hide(layout);
+        }
+    }
+
+    /// 非再帰スタックによるフラットDFS配列の高速構築
+    pub(crate) fn rebuild_flat_dfs_sequence(
+        root: EntityId,
+        layouts: &mut LayoutStore,
+        children: &SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>,
+    ) {
+        layouts.flat_dfs_sequence.clear();
+
+        // あらかじめ実用的なスタック深度を確保しておきメモリ再確保を削減
+        let mut stack = Vec::with_capacity(32);
+        stack.push(root);
+
+        while let Some(id) = stack.pop() {
+            layouts.flat_dfs_sequence.push(id);
+
+            // 左側の子が先にポップされるように、右側（末尾）の子から逆順にスタックへプッシュ
+            if let Some(children) = children.get(id) {
+                let len = children.len();
+                for i in (0..len).rev() {
+                    stack.push(children[i]);
+                }
+            }
+        }
+
+        layouts.is_structure_dirty = false;
+    }
+
+    pub(crate) fn local_rect_from_taffy(id: EntityId, layouts: &LayoutStore) -> LayoutRect {
+        if let Some(&taffy_node) = layouts.taffy_nodes.get(id) {
+            if let Ok(layout) = layouts.taffy.layout(taffy_node) {
+                LayoutRect::new(
+                    layout.location.x,
+                    layout.location.y,
+                    layout.size.width,
+                    layout.size.height,
+                )
+            } else {
+                LayoutRect::ZERO
+            }
+        } else {
+            LayoutRect::ZERO
         }
     }
 }
