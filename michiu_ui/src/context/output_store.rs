@@ -49,3 +49,15 @@ impl OutputStore {
         self.selected_rects.remove(id);
     }
 }
+
+impl OutputStore {
+    /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
+    pub fn rect(&self, handle: Element) -> Option<LayoutRect> {
+        self.rects.get(handle.id).copied()
+    }
+
+    /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
+    pub fn clip_rect(&self, handle: Element) -> Option<LayoutRect> {
+        self.clip_rects.get(handle.id).copied()
+    }
+}

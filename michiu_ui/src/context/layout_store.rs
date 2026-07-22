@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use taffy::TaffyTree;
@@ -252,5 +254,130 @@ impl LayoutStore {
             style.grid_column = g.grid_column.clone().into();
         }
         style
+    }
+
+    /// 指定された要素の現在解決されている物理ボーダー（EdgeInsets）を取得します。
+    pub(crate) fn get_physical_border(
+        &self,
+        id: EntityId,
+        basic: &BasicLayout,
+        outputs: &OutputStore,
+    ) -> EdgeInsets {
+        let rect = outputs.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+
+        EdgeInsets {
+            top: self.resolve_length_to_px(basic.border.top, rect.height),
+            right: self.resolve_length_to_px(basic.border.right, rect.width),
+            bottom: self.resolve_length_to_px(basic.border.bottom, rect.height),
+            left: self.resolve_length_to_px(basic.border.left, rect.width),
+        }
+    }
+
+    /// 指定された要素の現在解決されている物理パディング（EdgeInsets）を取得します。
+    pub(crate) fn get_physical_padding(
+        &self,
+        id: EntityId,
+        basic: &BasicLayout,
+        outputs: &OutputStore,
+    ) -> EdgeInsets {
+        let rect = outputs.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
+
+        EdgeInsets {
+            top: self.resolve_length_to_px(basic.padding.top, rect.height),
+            right: self.resolve_length_to_px(basic.padding.right, rect.width),
+            bottom: self.resolve_length_to_px(basic.padding.bottom, rect.height),
+            left: self.resolve_length_to_px(basic.padding.left, rect.width),
+        }
+    }
+
+    #[inline]
+    fn resolve_length_to_px(&self, length: Length, reference: f32) -> f32 {
+        match length {
+            Length::Px(v) => v,
+            Length::Percent(p) => reference * (p / 100.0),
+        }
+    }
+
+    // 全スクロールバー関連IDを一括抽出
+    #[inline]
+    pub(crate) fn scrollbar_el_ids(&self) -> HashSet<EntityId> {
+        let mut scrollbar_el_ids = HashSet::new();
+        for sb_state in self.scrollbar_styles.values() {
+            if let Some(track_id) = sb_state.v_track_id {
+                scrollbar_el_ids.insert(track_id);
+            }
+            if let Some(thumb_id) = sb_state.v_thumb_id {
+                scrollbar_el_ids.insert(thumb_id);
+            }
+            if let Some(track_id) = sb_state.h_track_id {
+                scrollbar_el_ids.insert(track_id);
+            }
+            if let Some(thumb_id) = sb_state.h_thumb_id {
+                scrollbar_el_ids.insert(thumb_id);
+            }
+        }
+        scrollbar_el_ids
+    }
+
+    /// スクロールバー用要素（TrackやThumb）のレイアウト情報（解決値と静的ベース値）をアトミックに同時同期して更新します。
+    pub(crate) fn update_scrollbar_element_layout(
+        &mut self,
+        id: EntityId,
+        renders: &mut RenderStore,
+        size: Size<Val>,
+        inset: Rect<Val>,
+    ) {
+        let display = Display::Flex;
+
+        let apply = |layout: &mut BasicLayout| {
+            layout.display = display;
+            layout.size = size;
+            layout.inset = inset;
+        };
+
+        // 1. LayoutStore 側の解決値（basic_layouts）を更新
+        if let Some(layout) = self.basic_layouts.get_mut(id) {
+            apply(layout);
+        }
+        // 2. RenderStore 側のベース静的値（base_basic_layouts）を同時更新
+        if let Some(layout) = renders.base_basic_layouts.get_mut(id) {
+            apply(layout);
+        }
+
+        // affy 側のノードスタイルも Display::None にして即時同期
+        let node = self.taffy_nodes[id];
+        let _ = self.taffy.set_style(
+            node,
+            taffy::Style {
+                display: taffy::Display::None,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// 解決済みの基本スタイルを TaffyTree のノードへ即時同期して適用します。
+    #[inline]
+    pub(crate) fn set_taffy_style(
+        &mut self,
+        id: EntityId,
+        layouts: (&BasicLayout, &FlexLayout, Option<&GridLayout>),
+    ) {
+        let taffy_style = self.resolve_taffy_style(id, layouts);
+        let node = self.taffy_nodes[id];
+        let _ = self.taffy.set_style(node, taffy_style);
+    }
+
+    /// スクロールバー用要素をレイアウト上から安全に隠します。
+    #[inline]
+    pub(crate) fn hide_scrollbar_element(&mut self, id: EntityId, renders: &mut RenderStore) {
+        let hide = |layout: &mut BasicLayout| {
+            layout.display = Display::None;
+        };
+        if let Some(layout) = self.basic_layouts.get_mut(id) {
+            hide(layout);
+        }
+        if let Some(layout) = renders.base_basic_layouts.get_mut(id) {
+            hide(layout);
+        }
     }
 }

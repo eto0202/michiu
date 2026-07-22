@@ -103,4 +103,56 @@ impl EventStore {
             self.active_drag_state = None;
         }
     }
+
+    /// リサイズ方向から対応するカーソル種別へ変換するヘルパー
+    pub(crate) fn resize_direction_to_cursor(dir: ResizeDirection) -> CursorIcon {
+        match dir {
+            ResizeDirection::Top | ResizeDirection::Bottom => CursorIcon::ResizeNs(None),
+            ResizeDirection::Left | ResizeDirection::Right => CursorIcon::ResizeEw(None),
+            ResizeDirection::TopRight | ResizeDirection::BottomLeft => CursorIcon::ResizeNesw(None),
+            ResizeDirection::TopLeft | ResizeDirection::BottomRight => CursorIcon::ResizeNwse(None),
+        }
+    }
+
+    /// マウス位置と要素の境界・リサイズ許可フラグから、該当するリサイズ方向を算出するヘルパー
+    pub(crate) fn detect_resize_direction(
+        rect: LayoutRect,
+        resizable: [bool; 4], // [top, right, bottom, left]
+        pos: LayoutPoint,
+        border: f32,
+    ) -> Option<ResizeDirection> {
+        let [t, r, b, l] = resizable;
+        if !t && !r && !b && !l {
+            return None;
+        }
+
+        // 境界線の外側（-border）から内側（+border）までのあそびの範囲を厳密に判定
+        let on_t = t
+            && (pos.y >= rect.y - border && pos.y <= rect.y + border)
+            && (pos.x >= rect.x - border && pos.x <= rect.x + rect.width + border);
+
+        let on_b = b
+            && (pos.y >= rect.y + rect.height - border && pos.y <= rect.y + rect.height + border)
+            && (pos.x >= rect.x - border && pos.x <= rect.x + rect.width + border);
+
+        let on_l = l
+            && (pos.x >= rect.x - border && pos.x <= rect.x + border)
+            && (pos.y >= rect.y - border && pos.y <= rect.y + rect.height + border);
+
+        let on_r = r
+            && (pos.x >= rect.x + rect.width - border && pos.x <= rect.x + rect.width + border)
+            && (pos.y >= rect.y - border && pos.y <= rect.y + rect.height + border);
+
+        match (on_t, on_r, on_b, on_l) {
+            (true, true, _, _) => Some(ResizeDirection::TopRight),
+            (true, _, _, true) => Some(ResizeDirection::TopLeft),
+            (_, true, true, _) => Some(ResizeDirection::BottomRight),
+            (_, _, true, true) => Some(ResizeDirection::BottomLeft),
+            (true, _, _, _) => Some(ResizeDirection::Top),
+            (_, true, _, _) => Some(ResizeDirection::Right),
+            (_, _, true, _) => Some(ResizeDirection::Bottom),
+            (_, _, _, true) => Some(ResizeDirection::Left),
+            _ => None,
+        }
+    }
 }

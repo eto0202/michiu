@@ -32,3 +32,39 @@ impl WindowStore {
     #[inline]
     pub fn despawn(&mut self, _id: EntityId) {}
 }
+
+impl WindowStore {
+    /// ウィンドウサイズの変更検知
+    #[inline]
+    pub(crate) fn window_resize_detection(&mut self, window_size: LayoutSize) -> bool {
+        if self.last_window_size != Some(window_size) {
+            self.last_window_size = Some(window_size);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出します。
+    pub(crate) fn calculate_visible_size(&self, container_rect: LayoutRect) -> LayoutSize {
+        let window_size = self.last_window_size.unwrap_or(LayoutSize::ZERO);
+
+        let visible_w = if window_size.width > 0.0 {
+            let left = container_rect.x.max(0.0);
+            let right = (container_rect.x + container_rect.width).min(window_size.width);
+            (right - left).max(0.0)
+        } else {
+            container_rect.width
+        };
+
+        let visible_h = if window_size.height > 0.0 {
+            let top = container_rect.y.max(0.0);
+            let bottom = (container_rect.y + container_rect.height).min(window_size.height);
+            (bottom - top).max(0.0)
+        } else {
+            container_rect.height
+        };
+
+        LayoutSize::new(visible_w, visible_h)
+    }
+}

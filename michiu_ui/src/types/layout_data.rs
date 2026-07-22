@@ -385,6 +385,33 @@ pub(crate) struct InteractionStyles {
 }
 
 impl InteractionStyles {
+    /// 与えられた疑似状態（StyleTarget）に対応する Option<ThisStyle> フィールドの実体可変参照を取得します
+    #[inline]
+    pub(crate) fn get_style_target_mut(&mut self, target: StyleTarget) -> &mut ThisStyle {
+        match target {
+            StyleTarget::Hovered => self.hovered.get_or_insert_with(ThisStyle::new),
+            StyleTarget::Focused => self.focused.get_or_insert_with(ThisStyle::new),
+            StyleTarget::Pressed => self.pressed.get_or_insert_with(ThisStyle::new),
+            StyleTarget::Disabled => self.disabled.get_or_insert_with(ThisStyle::new),
+            StyleTarget::Actived => self.actived.get_or_insert_with(ThisStyle::new),
+            StyleTarget::Selected => self.selected.get_or_insert_with(ThisStyle::new),
+            StyleTarget::Dragged => self.dragged.get_or_insert_with(ThisStyle::new),
+            StyleTarget::Dragging => self.dragging.get_or_insert_with(ThisStyle::new),
+            StyleTarget::DragIn => self.drag_in.get_or_insert_with(ThisStyle::new),
+            StyleTarget::DragOver => self.drag_over.get_or_insert_with(ThisStyle::new),
+
+            StyleTarget::HoveredWithin => self.hovered_within.get_or_insert_with(ThisStyle::new),
+            StyleTarget::FocusedWithin => self.focused_within.get_or_insert_with(ThisStyle::new),
+            StyleTarget::PressedWithin => self.pressed_within.get_or_insert_with(ThisStyle::new),
+            StyleTarget::DisabledWithin => self.disabled_within.get_or_insert_with(ThisStyle::new),
+            StyleTarget::ActivedWithin => self.actived_within.get_or_insert_with(ThisStyle::new),
+            StyleTarget::SelectedWithin => self.selected_within.get_or_insert_with(ThisStyle::new),
+            StyleTarget::DraggedWithin => self.dragged_within.get_or_insert_with(ThisStyle::new),
+            StyleTarget::AnyWithin => self.any_within.get_or_insert_with(ThisStyle::new),
+            StyleTarget::Base => unreachable!("Base target must be handled individually"),
+        }
+    }
+
     pub(crate) fn override_with(&mut self, other: &Self, _mask: ComponentMask) {
         let merge = |target: &mut Option<ThisStyle>, source: &Option<ThisStyle>| {
             if let Some(src) = source {

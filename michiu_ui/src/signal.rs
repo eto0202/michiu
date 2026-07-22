@@ -564,7 +564,7 @@ mod tests {
                 let _ = count.get();
             });
 
-            with_context(|cx| cx.register_element_effect(el_id, EffectCategory::None, effect_id));
+            with_context(|cx| cx.reactive.register_element_effect(el_id, EffectCategory::None, effect_id));
 
             el
         });

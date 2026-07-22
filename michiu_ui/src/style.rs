@@ -582,7 +582,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.inset = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -612,7 +612,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.inset.right = size.width;
                         v.inset.left = size.height;
                     }
@@ -637,7 +637,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.inset.top = size.width;
                         v.inset.bottom = size.height;
                     }
@@ -660,7 +660,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.inset.top = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -682,7 +682,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.inset.right = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -704,7 +704,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.inset.bottom = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -726,7 +726,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.inset.left = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -750,7 +750,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.size = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -788,7 +788,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.size.width = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -831,7 +831,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.size.height = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -875,7 +875,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MIN_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.min_size = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -899,7 +899,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MAX_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.max_size = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -922,7 +922,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MIN_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.min_size.width = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -945,7 +945,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MIN_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.min_size.height = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -968,7 +968,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MAX_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.max_size.width = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -991,7 +991,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MAX_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.max_size.height = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1111,7 +1111,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.margin = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1150,7 +1150,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.margin.right = size.width;
                         v.margin.left = size.height;
                     }
@@ -1175,7 +1175,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.margin.top = size.width;
                         v.margin.bottom = size.height;
                     }
@@ -1197,7 +1197,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.margin.top = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1219,7 +1219,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.margin.right = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1241,7 +1241,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.margin.bottom = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1263,7 +1263,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.margin.left = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1287,7 +1287,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.padding = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1321,7 +1321,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.padding.right = size.width;
                         v.padding.left = size.height;
                     }
@@ -1346,7 +1346,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.padding.top = size.width;
                         v.padding.bottom = size.height;
                     }
@@ -1369,7 +1369,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.padding.top = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1391,7 +1391,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.padding.right = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1413,7 +1413,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.padding.bottom = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1435,7 +1435,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.padding.left = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -1482,10 +1482,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let w = get_w();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(layout) = cx.renders.get_basic_layout_mut(id, target) {
                         layout.border = w;
                     }
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         vis.border_styles = Some([s; 4]);
                     }
                     cx.mark_layout_dirty(id);
@@ -1561,10 +1561,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(layout) = cx.renders.get_basic_layout_mut(id, target) {
                         layout.border.top = v;
                     }
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[0] = s;
                         vis.border_styles = Some(styles);
@@ -1618,10 +1618,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(layout) = cx.renders.get_basic_layout_mut(id, target) {
                         layout.border.right = v;
                     }
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[1] = s;
                         vis.border_styles = Some(styles);
@@ -1675,10 +1675,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(layout) = cx.renders.get_basic_layout_mut(id, target) {
                         layout.border.bottom = v;
                     }
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[2] = s;
                         vis.border_styles = Some(styles);
@@ -1732,10 +1732,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(layout) = cx.renders.get_basic_layout_mut(id, target) {
                         layout.border.left = v;
                     }
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[3] = s;
                         vis.border_styles = Some(styles);
@@ -1767,7 +1767,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let v = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         vis.border_lengths = Some(EdgeInsets {
                             top: v.top,
                             right: v.right,
@@ -1800,7 +1800,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
                         lengths.top = val;
                         vis.border_lengths = Some(lengths);
@@ -1830,7 +1830,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
                         lengths.right = val;
                         vis.border_lengths = Some(lengths);
@@ -1860,7 +1860,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
                         lengths.bottom = val;
                         vis.border_lengths = Some(lengths);
@@ -1890,7 +1890,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
                         lengths.left = val;
                         vis.border_lengths = Some(lengths);
@@ -1916,7 +1916,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         vis.border_alignments = Some([val; 4]);
                     }
                     cx.mark_render_dirty(id);
@@ -1940,7 +1940,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         vis.border_alignments = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -1971,7 +1971,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         let mut aligns =
                             vis.border_alignments.unwrap_or([BorderAlignment::Start; 4]);
                         aligns[idx] = val;
@@ -2042,7 +2042,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let w = get_w();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         vis.outline_width = Some(EdgeInsets {
                             top: w.top.into(),
                             right: w.right.into(),
@@ -2096,7 +2096,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.outline_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -2120,7 +2120,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.outline_offset = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -2149,7 +2149,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let v = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         vis.outline_lengths = Some(EdgeInsets {
                             top: v.top,
                             right: v.right,
@@ -2178,7 +2178,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         vis.outline_alignments = Some([val; 4]);
                     }
                     cx.mark_render_dirty(id);
@@ -2201,7 +2201,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                    if let Some(vis) = cx.renders.get_visual_property_mut(id, target) {
                         vis.outline_alignments = Some([val; 4]);
                     }
                     cx.mark_render_dirty(id);
@@ -2225,7 +2225,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_ALIGN_ITEMS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.align_items = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2309,7 +2309,10 @@ impl ThisStyle {
                 inner.mask.set(STYLE_ALIGN_SELF);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) =
+                        cx.renders
+                            .get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts)
+                    {
                         v.align_self = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2398,7 +2401,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_JUSTIFY_ITEMS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.justify_items = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2482,7 +2485,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_JUSTIFY_SELF);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.justify_self = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2571,7 +2574,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_ALIGN_CONTENT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.align_content = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2665,7 +2668,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_JUSTIFY_CONTENT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.justify_content = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2759,7 +2762,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_GAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.gap = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2792,7 +2795,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_GAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.gap.height = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2815,7 +2818,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_GAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.gap.width = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2851,7 +2854,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_TEXT_ALIGN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.text_align = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -2982,7 +2985,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_FLEX_BASIS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.flex_basis = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -3022,7 +3025,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_FLEX_GROW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.flex_grow = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -3059,7 +3062,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_FLEX_SHRINK);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_flex_layout_mut(id, target, &mut cx.layouts.flex_layouts) {
                         v.flex_shrink = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -3095,7 +3098,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BG_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.bg_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3119,7 +3122,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BORDER_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.border_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3143,7 +3146,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_CORNER_RADIUS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.corner_radius = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3234,7 +3237,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_OPACITY);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.opacity = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3274,7 +3277,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BOX_SHADOW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.shadow_params = Some(val);
                         v.shadow_color = Some(val.color);
                     }
@@ -3299,7 +3302,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BOX_SHADOW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.shadow_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3323,7 +3326,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_Z_INDEX);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.z_index = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3367,7 +3370,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_CURSOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.cursor = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3457,7 +3460,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BACKDROP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.backdrop = val;
                     }
                     cx.mark_render_dirty(id);
@@ -3501,7 +3504,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_TEXT_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.text_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -3947,7 +3950,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.resizable = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -3971,7 +3974,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.resizable = [val; 4];
                     }
                     cx.mark_layout_dirty(id);
@@ -3996,7 +3999,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.resizable[1] = val;
                         v.resizable[3] = val;
                     }
@@ -4022,7 +4025,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.resizable[0] = val;
                         v.resizable[2] = val;
                     }
@@ -4070,7 +4073,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
+                    if let Some(v) = cx.renders.get_basic_layout_mut(id, target) {
                         v.resizable[idx] = val;
                     }
                     cx.mark_layout_dirty(id);
@@ -4349,7 +4352,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_TRANSFORM);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.transform = Some(val.matrix);
                     }
                     cx.mark_render_dirty(id);
@@ -4372,7 +4375,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_TRANSFORM);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.transform_origin = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4530,7 +4533,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_BG_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.bg_gradient = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4554,7 +4557,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_EXT_PROPERTIES);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.font_family = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4578,7 +4581,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_EXT_PROPERTIES);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.font_weight = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4602,7 +4605,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_EXT_PROPERTIES);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.font_size = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4626,7 +4629,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_EXT_PROPERTIES);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.font_style = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4650,7 +4653,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_USER_SELECT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.user_select = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4691,7 +4694,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_USER_SELECT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.select_bg_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4714,7 +4717,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_USER_SELECT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.select_text_color = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4739,7 +4742,7 @@ impl ThisStyle {
                 inner.mask.set(STYLE_FOCUSABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                    if let Some(v) = cx.renders.get_visual_property_mut(id, target) {
                         v.focusable = Some(val);
                     }
                     cx.mark_render_dirty(id);
@@ -4856,7 +4859,8 @@ impl ThisStyle {
                         let val = getter(); // ThisStyle の動的評価結果
 
                         if !cx.renders.interaction_properties.contains_key(id) {
-                            cx.renders.interaction_properties
+                            cx.renders
+                                .interaction_properties
                                 .insert(id, InteractionStyles::default());
                         }
                         let styles = cx.renders.interaction_properties.get_mut(id).unwrap();

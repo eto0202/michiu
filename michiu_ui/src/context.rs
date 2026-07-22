@@ -227,94 +227,6 @@ impl Context {
         }
     }
 
-    /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録します。
-    /// 同一カテゴリのエフェクトが既に存在する場合、自動的に古いエフェクトを破棄してから上書きします。
-    pub(crate) fn register_element_effect(
-        &mut self,
-        element_id: EntityId,
-        category: EffectCategory,
-        effect_id: EffectId,
-    ) {
-        if let Some(effects) = self.reactive.element_effects.get_mut(element_id) {
-            // 同一カテゴリのエフェクトが既に登録されていれば、古いものを破棄
-            if let Some(pos) = effects.iter().position(|(cat, _)| *cat == category) {
-                let (_, old_effect_id) = effects.remove(pos);
-                self.reactive.effects.remove(old_effect_id); // SoA から古いエフェクト実体を削除
-            }
-            effects.push((category, effect_id));
-        } else {
-            self.reactive
-                .element_effects
-                .insert(element_id, smallvec::smallvec![(category, effect_id)]);
-        }
-    }
-
-    /// 要素に動的エフェクト（Style、Text等のリアクティブクロージャ）を安全に登録し、初期評価を実行します。
-    pub(crate) fn create_element_effect<F>(
-        &mut self,
-        element_id: EntityId,
-        category: EffectCategory,
-        f: F,
-    ) -> EffectId
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        let effect_id = self.reactive.effects.insert(Box::new(f));
-
-        // 初回評価が走る前に要素との紐付けを確実に登録
-        self.reactive
-            .effect_to_element
-            .insert(effect_id, element_id);
-
-        // 要素のエフェクトリストに登録し、既存の同じカテゴリの古いエフェクトは自動破棄
-        if !self.reactive.element_effects.contains_key(element_id) {
-            self.reactive
-                .element_effects
-                .insert(element_id, smallvec::smallvec![]);
-        }
-        let list = self.reactive.element_effects.get_mut(element_id).unwrap();
-        if let Some(pos) = list.iter().position(|(cat, _)| *cat == category) {
-            let (_, old_id) = list.remove(pos);
-            self.reactive.effects.remove(old_id);
-            self.reactive.effect_to_element.remove(old_id);
-            self.reactive
-                .pending_element_effects
-                .retain(|&x| x != old_id); // キューから古いものを排除
-        }
-        list.push((category, effect_id));
-
-        // 即時実行を廃止。トポロジーが整うまで初回評価を一時保留
-        self.reactive.pending_element_effects.push(effect_id);
-
-        effect_id
-    }
-
-    /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に安全実行します
-    pub(crate) fn evaluate_pending_element_effects(&mut self) {
-        if self.reactive.pending_element_effects.is_empty() {
-            return;
-        }
-
-        // 評価中に別のネストしたエフェクトが追加されるケースを許容するため、drain で一度排出して処理
-        let pending: Vec<EffectId> = self.reactive.pending_element_effects.drain(..).collect();
-        for effect_id in pending {
-            if self.reactive.effects.contains_key(effect_id) {
-                crate::execute_effect(effect_id);
-            }
-        }
-    }
-
-    /// 指定された要素に対してシグナルコンテキストを提供します
-    pub(crate) fn provide_context<T: Send + 'static>(&mut self, id: EntityId, signal_id: SignalId) {
-        if !self.reactive.providers.contains_key(id) {
-            self.reactive
-                .providers
-                .insert(id, std::collections::HashMap::new());
-        }
-        let map = self.reactive.providers.get_mut(id).unwrap();
-        map.insert(std::any::TypeId::of::<T>(), signal_id);
-    }
-
     /// 要素の階層トポロジーを親（Ancestor）に向かって遡り、最初に見つかった型 T の ReadSignal を解決して返します
     pub(crate) fn use_provided_from<T: Clone + 'static>(
         &self,
@@ -677,20 +589,33 @@ impl Context {
         self.layouts.is_structure_dirty = false;
     }
 
+    /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出します。
+    #[inline]
+    pub(crate) fn calculate_inner_content_size(
+        &self,
+        visible_size: LayoutSize,
+        border: EdgeInsets,
+        padding: EdgeInsets,
+    ) -> LayoutSize {
+        let content_w =
+            (visible_size.width - border.left - border.right - padding.left - padding.right)
+                .max(0.0);
+        let content_h =
+            (visible_size.height - border.top - border.bottom - padding.top - padding.bottom)
+                .max(0.0);
+
+        LayoutSize::new(content_w, content_h)
+    }
+
     /// キャッシュコヒーレントな直列DFS同期（1次元直線ループ同期）
     /// Taffy自動計算を完全内包
     pub fn sync_layout_and_render_list(&mut self, root: EntityId, window_size: LayoutSize) {
         // 同期処理の開始時に自身をバインドする
         let _context_guard = bind_context(self);
         // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
-        self.evaluate_pending_element_effects();
+        self.reactive.evaluate_pending_element_effects();
         // ウィンドウサイズの変更検知
-        let window_resized = if self.window.last_window_size != Some(window_size) {
-            self.window.last_window_size = Some(window_size);
-            true
-        } else {
-            false
-        };
+        let window_resized = self.window.window_resize_detection(window_size);
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // Taffy計算も、ダブルバッファスワップもすべてスキップして即時帰還する。
@@ -707,21 +632,7 @@ impl Context {
         }
 
         // 全スクロールバー関連IDを一括抽出
-        let mut scrollbar_el_ids = HashSet::new();
-        for sb_state in self.layouts.scrollbar_styles.values() {
-            if let Some(track_id) = sb_state.v_track_id {
-                scrollbar_el_ids.insert(track_id);
-            }
-            if let Some(thumb_id) = sb_state.v_thumb_id {
-                scrollbar_el_ids.insert(thumb_id);
-            }
-            if let Some(track_id) = sb_state.h_track_id {
-                scrollbar_el_ids.insert(track_id);
-            }
-            if let Some(thumb_id) = sb_state.h_thumb_id {
-                scrollbar_el_ids.insert(thumb_id);
-            }
-        }
+        let scrollbar_el_ids = self.layouts.scrollbar_el_ids();
 
         // 1. Taffy永続ツリーへの差分同期
         for id in &self.layouts.dirty_layout_entities {
@@ -758,7 +669,6 @@ impl Context {
                 }
             }
 
-            let sb_style = self.layouts.scrollbar_styles.get(*id).map(|s| &s.style);
             let taffy_style = self
                 .layouts
                 .resolve_taffy_style(*id, (&basic, &flex, grid.as_ref()));
@@ -1041,66 +951,17 @@ impl Context {
                 &self.renders,
             );
 
-            let border_right = match basic.border.right {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let border_bottom = match basic.border.bottom {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let border_left = match basic.border.left {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let border_top = match basic.border.top {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
+            let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
+            let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
 
-            let padding_bottom = match basic.padding.bottom {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let padding_right = match basic.padding.right {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let padding_left = match basic.padding.left {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let padding_top = match basic.padding.top {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-
-            // ウィンドウ内の有効表示サイズを算出
-            let visible_w = if window_size.width > 0.0 {
-                let left = container_rect.x.max(0.0);
-                let right = (container_rect.x + container_rect.width).min(window_size.width);
-                (right - left).max(0.0)
-            } else {
-                container_rect.width
-            };
-
-            let visible_h = if window_size.height > 0.0 {
-                let top = container_rect.y.max(0.0);
-                let bottom = (container_rect.y + container_rect.height).min(window_size.height);
-                (bottom - top).max(0.0)
-            } else {
-                container_rect.height
-            };
-
-            // 全体表示サイズから、ボーダーとパディングを差し引いた内枠の有効表示領域サイズを算出
-            let content_w =
-                (visible_w - border_left - border_right - padding_left - padding_right).max(0.0);
-            let content_h =
-                (visible_h - border_top - border_bottom - padding_top - padding_bottom).max(0.0);
+            // ウィンドウ境界によるクランプ可視サイズの算出
+            let visible_size = self.window.calculate_visible_size(container_rect);
+            // 枠線と余白を引いた内枠コンテンツサイズの算出
+            let content_size = self.calculate_inner_content_size(visible_size, border, padding);
 
             // 内枠の有効表示領域と、同じく内枠基準の scroll_size を精密に比較する
-            let show_v_bar = scroll_size.height > content_h;
-            let show_h_bar = scroll_size.width > content_w;
+            let show_v_bar = scroll_size.height > content_size.height;
+            let show_h_bar = scroll_size.width > content_size.width;
 
             // 縦スクロールバーの同期
             if let Some(v_track) = sb_state.v_track_id {
@@ -1127,7 +988,6 @@ impl Context {
                     }
                 }
 
-                let track_node = self.layouts.taffy_nodes[v_track];
                 if v_track_visible {
                     let mut user_track_h = None;
                     if let Some(ref track_style) = sb_state.style.v_track
@@ -1140,9 +1000,9 @@ impl Context {
                     let track_h = if let Some(h) = user_track_h {
                         h
                     } else {
-                        (visible_h
-                            - border_top
-                            - border_bottom
+                        (visible_size.height
+                            - border.top
+                            - border.bottom
                             - (if show_h_bar {
                                 sb_state.style.width
                             } else {
@@ -1151,60 +1011,22 @@ impl Context {
                         .max(0.0)
                     };
 
-                    let track_right = if sb_state.style.mode == ScrollbarMode::Layout {
-                        -sb_state.style.width
-                    } else {
-                        0.0
-                    };
+                    let track_right = 0.0;
 
-                    let update_layouts = |layout: &mut BasicLayout| {
-                        layout.display = Display::Flex;
-                        layout.size.height = Val::Px(track_h);
-                        layout.inset.top = Val::Px(0.0);
-                        layout.inset.right = Val::Px(track_right);
-                    };
-
-                    if let Some(layout) = self.layouts.basic_layouts.get_mut(v_track) {
-                        update_layouts(layout);
-                    }
-                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(v_track) {
-                        update_layouts(layout);
-                    }
-
-                    if let Some(vis) = self.renders.visual_properties.get_mut(v_track) {
-                        vis.opacity = Some(v_track_opacity);
-                    }
-                    if let Some(vis) = self.renders.base_visual_properties.get_mut(v_track) {
-                        vis.opacity = Some(v_track_opacity);
-                    }
-
-                    let (basic, flex, _) = self.layouts.resolve_active_layouts(
+                    // v_track の幅を Val::Auto に上書きしたため、Taffy 側で known_dims.width が None（Auto）になる
+                    // Taffy 側の measure_func は  outputs.rects から値を取得しようと試みる
+                    // スクロールバー要素は 1 回目のパスで走査スルーされているため、この時点では outputs.rects に座標が登録されていない
+                    // 結果としてサイズ 0.0 が返り、Track の幅が 0.0 に潰れて不可視になっていた
+                    // Val::Auto ではなく Val::Px(sb_state.style.width) に修正して SoA 上に実サイズを維持
+                    self.update_scrollbar_element(
                         v_track,
-                        &self.active_masks,
-                        &self.parents,
-                        &self.renders,
+                        Size::new(Val::Px(sb_state.style.width), Val::Px(track_h)),
+                        Rect::new(Val::Px(0.0), Val::Px(track_right), Val::Auto, Val::Auto),
+                        v_track_opacity,
                     );
-                    let taffy_style = self
-                        .layouts
-                        .resolve_taffy_style(v_track, (&basic, &flex, None));
-                    let _ = self.layouts.taffy.set_style(track_node, taffy_style);
                 } else {
-                    let hide_layouts = |layout: &mut BasicLayout| {
-                        layout.display = Display::None;
-                    };
-                    if let Some(layout) = self.layouts.basic_layouts.get_mut(v_track) {
-                        hide_layouts(layout);
-                    }
-                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(v_track) {
-                        hide_layouts(layout);
-                    }
-                    let _ = self.layouts.taffy.set_style(
-                        track_node,
-                        taffy::Style {
-                            display: taffy::Display::None,
-                            ..Default::default()
-                        },
-                    );
+                    self.layouts
+                        .hide_scrollbar_element(v_track, &mut self.renders);
                 }
             }
 
@@ -1233,11 +1055,10 @@ impl Context {
                     }
                 }
 
-                let thumb_node = self.layouts.taffy_nodes[v_thumb];
                 if v_thumb_visible {
-                    let track_h = (visible_h
-                        - border_top
-                        - border_bottom
+                    let track_h = (visible_size.height
+                        - border.top
+                        - border.bottom
                         - (if show_h_bar {
                             sb_state.style.width
                         } else {
@@ -1254,7 +1075,7 @@ impl Context {
 
                     // コンテンツ比率 (分母・分子に一貫してクランプ済み表示領域を採用)
                     let view_ratio = if scroll_size.height > 0.0 {
-                        (visible_h / scroll_size.height).min(1.0)
+                        (visible_size.height / scroll_size.height).min(1.0)
                     } else {
                         1.0
                     };
@@ -1288,8 +1109,9 @@ impl Context {
                         }
                     }
 
-                    let scroll_ratio = if scroll_size.height > visible_h {
-                        (current_scroll.y / (scroll_size.height - visible_h)).clamp(0.0, 1.0)
+                    let scroll_ratio = if scroll_size.height > visible_size.height {
+                        (current_scroll.y / (scroll_size.height - visible_size.height))
+                            .clamp(0.0, 1.0)
                     } else {
                         0.0
                     };
@@ -1322,56 +1144,15 @@ impl Context {
                         (sb_state.style.width - thumb_width) * 0.5
                     };
 
-                    let update_layouts = |layout: &mut BasicLayout| {
-                        layout.display = Display::Flex;
-                        layout.size.height = Val::Px(thumb_height);
-                        layout.size.width = Val::Px(thumb_width);
-                        layout.inset.top = Val::Px(thumb_y);
-                        layout.inset.left = Val::Px(thumb_x);
-                    };
-
-                    // base_basic_layouts も同時同期することで、ホバー時の強制上書きによる位置ガタつきを完璧に阻止します
-                    if let Some(layout) = self.layouts.basic_layouts.get_mut(v_thumb) {
-                        update_layouts(layout);
-                    }
-                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(v_thumb) {
-                        update_layouts(layout);
-                    }
-
-                    if let Some(vis) = self.renders.visual_properties.get_mut(v_thumb) {
-                        vis.opacity = Some(v_thumb_opacity);
-                    }
-                    if let Some(vis) = self.renders.base_visual_properties.get_mut(v_thumb) {
-                        vis.opacity = Some(v_thumb_opacity);
-                    }
-
-                    let (basic, flex, _) = self.layouts.resolve_active_layouts(
+                    self.update_scrollbar_element(
                         v_thumb,
-                        &self.active_masks,
-                        &self.parents,
-                        &self.renders,
+                        Size::new(Val::Px(thumb_width), Val::Px(thumb_height)),
+                        Rect::new(Val::Px(thumb_y), Val::Auto, Val::Auto, Val::Px(thumb_x)),
+                        v_thumb_opacity,
                     );
-                    let taffy_style = self
-                        .layouts
-                        .resolve_taffy_style(v_thumb, (&basic, &flex, None));
-                    let _ = self.layouts.taffy.set_style(thumb_node, taffy_style);
                 } else {
-                    let hide_layouts = |layout: &mut BasicLayout| {
-                        layout.display = Display::None;
-                    };
-                    if let Some(layout) = self.layouts.basic_layouts.get_mut(v_thumb) {
-                        hide_layouts(layout);
-                    }
-                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(v_thumb) {
-                        hide_layouts(layout);
-                    }
-                    let _ = self.layouts.taffy.set_style(
-                        thumb_node,
-                        taffy::Style {
-                            display: taffy::Display::None,
-                            ..Default::default()
-                        },
-                    );
+                    self.layouts
+                        .hide_scrollbar_element(v_thumb, &mut self.renders);
                 }
             }
 
@@ -1400,11 +1181,10 @@ impl Context {
                     }
                 }
 
-                let track_node = self.layouts.taffy_nodes[h_track];
                 if h_track_visible {
-                    let track_w = (visible_w
-                        - border_left
-                        - border_right
+                    let track_w = (visible_size.width
+                        - border.left
+                        - border.right
                         - (if show_v_bar {
                             sb_state.style.width
                         } else {
@@ -1412,60 +1192,17 @@ impl Context {
                         }))
                     .max(0.0);
 
-                    let track_bottom = if sb_state.style.mode == ScrollbarMode::Layout {
-                        -sb_state.style.width
-                    } else {
-                        0.0
-                    };
+                    let track_bottom = 0.0;
 
-                    let update_layouts = |layout: &mut BasicLayout| {
-                        layout.display = Display::Flex;
-                        layout.size.width = Val::Px(track_w);
-                        layout.inset.bottom = Val::Px(track_bottom);
-                        layout.inset.left = Val::Px(0.0);
-                    };
-
-                    if let Some(layout) = self.layouts.basic_layouts.get_mut(h_track) {
-                        update_layouts(layout);
-                    }
-                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(h_track) {
-                        update_layouts(layout);
-                    }
-
-                    if let Some(vis) = self.renders.visual_properties.get_mut(h_track) {
-                        vis.opacity = Some(h_track_opacity);
-                    }
-                    if let Some(vis) = self.renders.base_visual_properties.get_mut(h_track) {
-                        vis.opacity = Some(h_track_opacity);
-                    }
-
-                    let (basic, flex, _) = self.layouts.resolve_active_layouts(
+                    self.update_scrollbar_element(
                         h_track,
-                        &self.active_masks,
-                        &self.parents,
-                        &self.renders,
+                        Size::new(Val::Px(track_w), Val::Px(sb_state.style.width)),
+                        Rect::new(Val::Auto, Val::Auto, Val::Px(track_bottom), Val::Px(0.0)),
+                        h_track_opacity,
                     );
-                    let taffy_style = self
-                        .layouts
-                        .resolve_taffy_style(h_track, (&basic, &flex, None));
-                    let _ = self.layouts.taffy.set_style(track_node, taffy_style);
                 } else {
-                    let hide_layouts = |layout: &mut BasicLayout| {
-                        layout.display = Display::None;
-                    };
-                    if let Some(layout) = self.layouts.basic_layouts.get_mut(h_track) {
-                        hide_layouts(layout);
-                    }
-                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(h_track) {
-                        hide_layouts(layout);
-                    }
-                    let _ = self.layouts.taffy.set_style(
-                        track_node,
-                        taffy::Style {
-                            display: taffy::Display::None,
-                            ..Default::default()
-                        },
-                    );
+                    self.layouts
+                        .hide_scrollbar_element(h_track, &mut self.renders);
                 }
             }
 
@@ -1494,11 +1231,10 @@ impl Context {
                     }
                 }
 
-                let thumb_node = self.layouts.taffy_nodes[h_thumb];
                 if h_thumb_visible {
-                    let track_w = (visible_w
-                        - border_left
-                        - border_right
+                    let track_w = (visible_size.width
+                        - border.left
+                        - border.right
                         - (if show_v_bar {
                             sb_state.style.width
                         } else {
@@ -1514,7 +1250,7 @@ impl Context {
                     }
 
                     let view_ratio = if scroll_size.width > 0.0 {
-                        (visible_w / scroll_size.width).min(1.0)
+                        (visible_size.width / scroll_size.width).min(1.0)
                     } else {
                         1.0
                     };
@@ -1547,8 +1283,9 @@ impl Context {
                         }
                     }
 
-                    let scroll_ratio = if scroll_size.width > visible_w {
-                        (current_scroll.x / (scroll_size.width - visible_w)).clamp(0.0, 1.0)
+                    let scroll_ratio = if scroll_size.width > visible_size.width {
+                        (current_scroll.x / (scroll_size.width - visible_size.width))
+                            .clamp(0.0, 1.0)
                     } else {
                         0.0
                     };
@@ -1579,55 +1316,15 @@ impl Context {
                         (sb_state.style.width - thumb_height) * 0.5
                     };
 
-                    let update_layouts = |layout: &mut BasicLayout| {
-                        layout.display = Display::Flex;
-                        layout.size.width = Val::Px(thumb_width);
-                        layout.size.height = Val::Px(thumb_height);
-                        layout.inset.left = Val::Px(thumb_x);
-                        layout.inset.top = Val::Px(thumb_y);
-                    };
-
-                    if let Some(layout) = self.layouts.basic_layouts.get_mut(h_thumb) {
-                        update_layouts(layout);
-                    }
-                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(h_thumb) {
-                        update_layouts(layout);
-                    }
-
-                    if let Some(vis) = self.renders.visual_properties.get_mut(h_thumb) {
-                        vis.opacity = Some(h_thumb_opacity);
-                    }
-                    if let Some(vis) = self.renders.base_visual_properties.get_mut(h_thumb) {
-                        vis.opacity = Some(h_thumb_opacity);
-                    }
-
-                    let (basic, flex, _) = self.layouts.resolve_active_layouts(
+                    self.update_scrollbar_element(
                         h_thumb,
-                        &self.active_masks,
-                        &self.parents,
-                        &self.renders,
+                        Size::new(Val::Px(thumb_width), Val::Px(thumb_height)),
+                        Rect::new(Val::Px(thumb_y), Val::Auto, Val::Auto, Val::Px(thumb_x)),
+                        h_thumb_opacity,
                     );
-                    let taffy_style = self
-                        .layouts
-                        .resolve_taffy_style(h_thumb, (&basic, &flex, None));
-                    let _ = self.layouts.taffy.set_style(thumb_node, taffy_style);
                 } else {
-                    let hide_layouts = |layout: &mut BasicLayout| {
-                        layout.display = Display::None;
-                    };
-                    if let Some(layout) = self.layouts.basic_layouts.get_mut(h_thumb) {
-                        hide_layouts(layout);
-                    }
-                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(h_thumb) {
-                        hide_layouts(layout);
-                    }
-                    let _ = self.layouts.taffy.set_style(
-                        thumb_node,
-                        taffy::Style {
-                            display: taffy::Display::None,
-                            ..Default::default()
-                        },
-                    );
+                    self.layouts
+                        .hide_scrollbar_element(h_thumb, &mut self.renders);
                 }
             }
         }
@@ -1788,6 +1485,31 @@ impl Context {
             }
         }
         self.renders.dirty_render_entities.clear();
+    }
+
+    /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
+    pub(crate) fn update_scrollbar_element(
+        &mut self,
+        id: EntityId,
+        size: Size<Val>,
+        inset: Rect<Val>,
+        opacity: f32,
+    ) {
+        self.layouts
+            .update_scrollbar_element_layout(id, &mut self.renders, size, inset);
+
+        self.renders.update_scrollbar_element_opacity(id, opacity);
+
+        let (basic, flex, grid) = self.layouts.resolve_active_layouts(
+            id,
+            &self.active_masks,
+            &self.parents,
+            &self.renders,
+        );
+
+        // 4. TaffyTreeへの同期適用 (LayoutStore)
+        self.layouts
+            .set_taffy_style(id, (&basic, &flex, grid.as_ref()));
     }
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
@@ -2103,22 +1825,8 @@ impl Context {
             // 選択ハイライト背景のwgpu側への差し込み
             // キャッシュされた選択背景矩形群を描画
             if let Some(rects) = self.outputs.selected_rects.get(id) {
-                let border_left = match basic.border.left {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let padding_left = match basic.padding.left {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let border_top = match basic.border.top {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let padding_top = match basic.padding.top {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
+                let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
+                let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
 
                 let sel_bg = visual
                     .select_bg_color
@@ -2134,8 +1842,8 @@ impl Context {
 
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
-                        rect.x + border_left + padding_left + metric_rect.x - scroll.x,
-                        rect.y + border_top + padding_top + metric_rect.y - scroll.y,
+                        rect.x + border.left + padding.left + metric_rect.x - scroll.x,
+                        rect.y + border.top + padding.top + metric_rect.y - scroll.y,
                         metric_rect.width,
                         metric_rect.height,
                     );
@@ -2376,22 +2084,8 @@ impl Context {
                         .unwrap_or(&default_visual);
                     let font_size = visual.font_size.unwrap_or(16.0);
 
-                    let border_top = match basic.border.top {
-                        Length::Px(v) => v,
-                        _ => 0.0,
-                    };
-                    let border_left = match basic.border.left {
-                        Length::Px(v) => v,
-                        _ => 0.0,
-                    };
-                    let padding_top = match basic.padding.top {
-                        Length::Px(v) => v,
-                        _ => 0.0,
-                    };
-                    let padding_left = match basic.padding.left {
-                        Length::Px(v) => v,
-                        _ => 0.0,
-                    };
+                    let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
+                    let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
 
                     let scale = self.window.scale_factor;
 
@@ -2405,7 +2099,7 @@ impl Context {
 
                     // 1. X座標をDPIスケーリング後の物理ピクセルグリッドに完全にスナップ
                     let logical_x =
-                        rect.x + border_left + padding_left + contents.measured_caret_x - scroll.x;
+                        rect.x + border.left + padding.left + contents.measured_caret_x - scroll.x;
                     let aligned_x = (logical_x * scale).round() / scale;
 
                     let line_height = contents.caret_line_height;
@@ -2427,8 +2121,8 @@ impl Context {
                     };
 
                     let logical_y = rect.y
-                        + border_top
-                        + padding_top
+                        + border.top
+                        + padding.top
                         + contents.measured_caret_y
                         + contents.caret_offset
                         - scroll.y;
@@ -3652,7 +3346,7 @@ impl Context {
 
         // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
         // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
-        self.trigger_keyframe_animations_if_needed(id);
+        self.renders.trigger_keyframe_animations_if_needed(id);
 
         if let Some(effects) = self.reactive.element_effects.get(id) {
             let text_effects: Vec<EffectId> = effects
@@ -3812,60 +3506,6 @@ impl Context {
             TransitionValue::BoxShadow(shadow) => {
                 v.shadow_params = Some(shadow);
                 v.shadow_color = Some(shadow.color);
-            }
-        }
-    }
-
-    /// 要素が持つ静的な `KeyframeAnimation` 定義に基づいて、
-    /// CPU 側のアクティブアニメーション再生テーブルを自動起動します。
-    pub(crate) fn trigger_keyframe_animations_if_needed(&mut self, id: EntityId) {
-        if let Some(visual) = self.renders.visual_properties.get(id) {
-            if visual.keyframe_animations.is_empty() {
-                return;
-            }
-
-            let now = Instant::now();
-
-            // 借用回避のため定義を一度クローン
-            let anims = visual.keyframe_animations.clone();
-
-            if !self.renders.active_animations.contains_key(id) {
-                self.renders.active_animations.insert(id, Vec::new());
-            }
-            let active_list = self.renders.active_animations.get_mut(id).unwrap();
-
-            for anim in anims {
-                // すでに同じプロパティのアニメーションが駆動中なら重複起動をスルー
-                if active_list.iter().any(|a| a.property == anim.property) {
-                    continue;
-                }
-
-                // 初期値（開始値）と目標値（100%キーフレームに相当する値）を設定
-                // ※ ここでは例として「回転 (Transform)」の場合、0度から360度へ向かう値を算出します。
-                let (start_val, end_val) = match anim.property {
-                    PropertyList::Transform => {
-                        let start = TransitionValue::Transform(IDENTITY_MATRIX);
-                        // Z軸を1周（2PI）回転させる行列を終点にする
-                        let mut end_transform =
-                            crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
-                        let end = TransitionValue::Transform(end_transform.matrix);
-                        (start, end)
-                    }
-                    PropertyList::Opacity => {
-                        (TransitionValue::Opacity(1.0), TransitionValue::Opacity(0.0)) // フェードアウト等
-                    }
-                    _ => continue, // 必要に応じて他プロパティも定義
-                };
-
-                active_list.push(ActiveAnimation {
-                    property: anim.property,
-                    start_time: now,
-                    duration: anim.duration,
-                    iteration_count: anim.iteration_count,
-                    curve: anim.curve,
-                    start_value: start_val,
-                    end_value: end_val,
-                });
             }
         }
     }
@@ -4269,45 +3909,12 @@ impl Context {
                 let ref_w = start_rect.width;
                 let ref_h = start_rect.height;
 
-                // ボーダー厚みの計算
-                let b_l = match basic.border.left {
-                    Length::Px(v) => v,
-                    Length::Percent(p) => ref_w * (p / 100.0),
-                };
-                let b_r = match basic.border.right {
-                    Length::Px(v) => v,
-                    Length::Percent(p) => ref_w * (p / 100.0),
-                };
-                let b_t = match basic.border.top {
-                    Length::Px(v) => v,
-                    Length::Percent(p) => ref_h * (p / 100.0),
-                };
-                let b_b = match basic.border.bottom {
-                    Length::Px(v) => v,
-                    Length::Percent(p) => ref_h * (p / 100.0),
-                };
-
-                // パディング厚みの計算
-                let p_l = match basic.padding.left {
-                    Length::Px(v) => v,
-                    Length::Percent(p) => ref_w * (p / 100.0),
-                };
-                let p_r = match basic.padding.right {
-                    Length::Px(v) => v,
-                    Length::Percent(p) => ref_w * (p / 100.0),
-                };
-                let p_t = match basic.padding.top {
-                    Length::Px(v) => v,
-                    Length::Percent(p) => ref_h * (p / 100.0),
-                };
-                let p_b = match basic.padding.bottom {
-                    Length::Px(v) => v,
-                    Length::Percent(p) => ref_h * (p / 100.0),
-                };
+                let b = self.layouts.get_physical_border(id, &basic, &self.outputs);
+                let p = self.layouts.get_physical_padding(id, &basic, &self.outputs);
 
                 // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
-                let abs_min_w = b_l + b_r + p_l + p_r;
-                let abs_min_h = b_t + b_b + p_t + p_b;
+                let abs_min_w = b.left + b.right + p.left + p.right;
+                let abs_min_h = b.top + b.bottom + p.top + p.bottom;
 
                 // ユーザー指定の min_size / max_size を物理ピクセルに解決
                 let user_min_w = match basic.min_size.width {
@@ -4509,23 +4116,7 @@ impl Context {
                 (sb_state, container_rect, scroll_size)
             };
 
-            let window_size = self.window.last_window_size.unwrap_or(LayoutSize::ZERO);
-
-            let visible_width = if window_size.width > 0.0 {
-                let left = container_rect.x.max(0.0);
-                let right = (container_rect.x + container_rect.width).min(window_size.width);
-                (right - left).max(0.0)
-            } else {
-                container_rect.width
-            };
-
-            let visible_height = if window_size.height > 0.0 {
-                let top = container_rect.y.max(0.0);
-                let bottom = (container_rect.y + container_rect.height).min(window_size.height);
-                (bottom - top).max(0.0)
-            } else {
-                container_rect.height
-            };
+            let visible_size = self.window.calculate_visible_size(container_rect);
 
             if is_v {
                 let track_id = sb_state.v_track_id.unwrap();
@@ -4550,7 +4141,7 @@ impl Context {
                     track_rect.height - thumb_rect.height - margin_top - margin_bottom;
                 if track_range > 0.0 {
                     let dy = logical_pos.y - sb_state.drag_start_mouse.y;
-                    let max_scroll_y = scroll_size.height - visible_height;
+                    let max_scroll_y = scroll_size.height - visible_size.height;
 
                     if max_scroll_y > 0.0 {
                         let ratio = max_scroll_y / track_range;
@@ -4585,7 +4176,7 @@ impl Context {
                 let track_range = track_rect.width - thumb_rect.width - margin_left - margin_right;
                 if track_range > 0.0 {
                     let dx = logical_pos.x - sb_state.drag_start_mouse.x;
-                    let max_scroll_x = scroll_size.width - visible_width;
+                    let max_scroll_x = scroll_size.width - visible_size.width;
 
                     if max_scroll_x > 0.0 {
                         let ratio = max_scroll_x / track_range;
@@ -4634,9 +4225,12 @@ impl Context {
 
                 // 境界外周に 6.0px のあそびを持たせてヒット判定
                 let detect_border = 6.0f32;
-                if let Some(dir) =
-                    detect_resize_direction(rect, resizable_flags, logical_pos, detect_border)
-                {
+                if let Some(dir) = EventStore::detect_resize_direction(
+                    rect,
+                    resizable_flags,
+                    logical_pos,
+                    detect_border,
+                ) {
                     found_resize_hover = Some((id, dir));
                     break; // 最も前面寄りのリサイズ親要素を優先採用
                 }
@@ -4662,7 +4256,9 @@ impl Context {
                 };
 
                 // 独自指定があればそれを使い、無ければライブラリの自動マッピングを使用
-                vis.cursor = Some(custom_cursor.unwrap_or_else(|| resize_direction_to_cursor(dir)));
+                vis.cursor = Some(
+                    custom_cursor.unwrap_or_else(|| EventStore::resize_direction_to_cursor(dir)),
+                );
             }
             self.mark_render_dirty(id);
         }
@@ -5395,26 +4991,7 @@ impl Context {
                             self.events.interaction_states.pressed = Some(target_id); // サム要素自体を pressed に設定
                             self.mark_render_dirty(target_id);
                         } else if is_v_track || is_h_track {
-                            let window_size =
-                                self.window.last_window_size.unwrap_or(LayoutSize::ZERO);
-
-                            let visible_width = if window_size.width > 0.0 {
-                                let left = container_rect.x.max(0.0);
-                                let right = (container_rect.x + container_rect.width)
-                                    .min(window_size.width);
-                                (right - left).max(0.0)
-                            } else {
-                                container_rect.width
-                            };
-
-                            let visible_height = if window_size.height > 0.0 {
-                                let top = container_rect.y.max(0.0);
-                                let bottom = (container_rect.y + container_rect.height)
-                                    .min(window_size.height);
-                                (bottom - top).max(0.0)
-                            } else {
-                                container_rect.height
-                            };
+                            let visible_size = self.window.calculate_visible_size(container_rect);
 
                             // B. レールをクリックした場合：ダイレクトジャンプスクロールを実行
                             if is_v_track {
@@ -5430,7 +5007,8 @@ impl Context {
                                     0.0
                                 };
 
-                                let target_y = scroll_ratio * (scroll_size.height - visible_height);
+                                let target_y =
+                                    scroll_ratio * (scroll_size.height - visible_size.height);
                                 self.scroll_to(c_id, offset.x, target_y);
 
                                 let new_offset = self
@@ -5460,7 +5038,8 @@ impl Context {
                                     0.0
                                 };
 
-                                let target_x = scroll_ratio * (scroll_size.width - visible_width);
+                                let target_x =
+                                    scroll_ratio * (scroll_size.width - visible_size.width);
                                 self.scroll_to(c_id, target_x, offset.y);
 
                                 let new_offset = self
@@ -5754,15 +5333,12 @@ impl Context {
                                 let (border_l, border_t) = if let Some(layout) =
                                     self.layouts.basic_layouts.get(target_id)
                                 {
-                                    let b_l = match layout.border.left {
-                                        Length::Px(v) => v,
-                                        _ => 0.0,
-                                    };
-                                    let b_t = match layout.border.top {
-                                        Length::Px(v) => v,
-                                        _ => 0.0,
-                                    };
-                                    (b_l, b_t)
+                                    let border = self.layouts.get_physical_border(
+                                        target_id,
+                                        layout,
+                                        &self.outputs,
+                                    );
+                                    (border.left, border.top)
                                 } else {
                                     (0.0, 0.0)
                                 };
@@ -6031,25 +5607,15 @@ impl Context {
                     &self.parents,
                     &self.renders,
                 );
-                let border_left = match basic.border.left {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let padding_left = match basic.padding.left {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let border_top = match basic.border.top {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let padding_top = match basic.padding.top {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
+                let border = self
+                    .layouts
+                    .get_physical_border(target_id, &basic, &self.outputs);
+                let padding = self
+                    .layouts
+                    .get_physical_padding(target_id, &basic, &self.outputs);
 
-                let local_x = pointer_pos.x - (rect.x + border_left + padding_left);
-                let local_y = pointer_pos.y - (rect.y + border_top + padding_top);
+                let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
+                let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
 
                 if let Some(layout) = self.get_or_create_layout(target_id) {
                     let (clicked_index, is_trailing) = self
@@ -6472,11 +6038,6 @@ impl Context {
         Some(layout)
     }
 
-    /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
-    pub(crate) fn clear_layout_cache(&mut self, id: EntityId) {
-        self.system.dwrite_layouts.borrow_mut().remove(id);
-    }
-
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
     pub fn get_selected_text(&self) -> Option<String> {
         let focused_id = self.events.interaction_states.focused?;
@@ -6684,25 +6245,11 @@ impl Context {
             &self.parents,
             &self.renders,
         );
-        let border_left = match basic.border.left {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let border_top = match basic.border.top {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let padding_left = match basic.padding.left {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let padding_top = match basic.padding.top {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
+        let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
+        let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
 
-        let offset_x = border_left + padding_left;
-        let offset_y = border_top + padding_top;
+        let offset_x = border.left + padding.left;
+        let offset_y = border.top + padding.top;
 
         // スクロールバー要素のIDを取得して除外対象にする
         let (v_track_opt, h_track_opt) =
@@ -6768,7 +6315,6 @@ impl Context {
         };
 
         let scroll_size = self.get_scroll_size(id);
-        let window_size = self.window.last_window_size.unwrap_or(LayoutSize::ZERO);
 
         // 親コンテナのボーダーおよびパディング厚を取得
         let (basic, _, _) = self.layouts.resolve_active_layouts(
@@ -6777,65 +6323,15 @@ impl Context {
             &self.parents,
             &self.renders,
         );
-        let border_right = match basic.border.right {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let border_bottom = match basic.border.bottom {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let border_left = match basic.border.left {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let border_top = match basic.border.top {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let padding_bottom = match basic.padding.bottom {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let padding_right = match basic.padding.right {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let padding_left = match basic.padding.left {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
-        let padding_top = match basic.padding.top {
-            Length::Px(v) => v,
-            _ => 0.0,
-        };
+        let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
+        let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
 
-        // ウィンドウ内に実際に収まっている有効なコンテナ表示サイズを算出
-        let visible_width = if window_size.width > 0.0 {
-            let left = rect.x.max(0.0);
-            let right = (rect.x + rect.width).min(window_size.width);
-            (right - left).max(0.0)
-        } else {
-            rect.width
-        };
-
-        let visible_height = if window_size.height > 0.0 {
-            let top = rect.y.max(0.0);
-            let bottom = (rect.y + rect.height).min(window_size.height);
-            (bottom - top).max(0.0)
-        } else {
-            rect.height
-        };
-
-        // 全体サイズから境界（ボーダーとパディング）を差し引き内枠の有効表示可能サイズを正確に算出
-        let content_w =
-            (visible_width - border_left - border_right - padding_left - padding_right).max(0.0);
-        let content_h =
-            (visible_height - border_top - border_bottom - padding_top - padding_bottom).max(0.0);
+        let visible_size = self.window.calculate_visible_size(rect);
+        let content_size = self.calculate_inner_content_size(visible_size, border, padding);
 
         // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
-        let max_scroll_x = (scroll_size.width - content_w).max(0.0);
-        let max_scroll_y = (scroll_size.height - content_h).max(0.0);
+        let max_scroll_x = (scroll_size.width - content_size.width).max(0.0);
+        let max_scroll_y = (scroll_size.height - content_size.height).max(0.0);
 
         x = x.clamp(0.0, max_scroll_x);
         y = y.clamp(0.0, max_scroll_y);
@@ -7024,183 +6520,6 @@ impl Context {
         self.scroll_to(id, current.x + dx, current.y + dy)
     }
 
-    /// StyleTarget に応じた可変 BasicLayout を自動生成（Ensure）を解決した上で取得します
-    pub(crate) fn get_basic_layout_mut(
-        &mut self,
-        id: EntityId,
-        target: StyleTarget,
-    ) -> Option<&mut BasicLayout> {
-        match target {
-            StyleTarget::Base => self.renders.base_basic_layouts.get_mut(id),
-            _ => {
-                // interaction_properties SoA スロットの存在を保証
-                if !self.renders.interaction_properties.contains_key(id) {
-                    self.renders
-                        .interaction_properties
-                        .insert(id, InteractionStyles::default());
-                }
-                let styles = self.renders.interaction_properties.get_mut(id).unwrap();
-
-                // すべての StyleTarget に対応する Option<ThisStyle> フィールドを完全に解決
-                let style_ref = match target {
-                    StyleTarget::Hovered => styles.hovered.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Focused => styles.focused.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Pressed => styles.pressed.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Disabled => styles.disabled.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Actived => styles.actived.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Selected => styles.selected.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Dragged => styles.dragged.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Dragging => styles.dragging.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::DragIn => styles.drag_in.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::DragOver => styles.drag_over.get_or_insert_with(ThisStyle::new),
-
-                    StyleTarget::HoveredWithin => {
-                        styles.hovered_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::FocusedWithin => {
-                        styles.focused_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::PressedWithin => {
-                        styles.pressed_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::DisabledWithin => {
-                        styles.disabled_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::ActivedWithin => {
-                        styles.actived_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::SelectedWithin => {
-                        styles.selected_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::DraggedWithin => {
-                        styles.dragged_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::AnyWithin => styles.any_within.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Base => unreachable!(),
-                };
-
-                // CoW (Arc::make_mut) 解決を安全に施した inner の可変参照を引き出す
-                Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
-            }
-        }
-    }
-
-    /// StyleTarget に応じた可変 VisualProperty を自動生成（Ensure）を解決した上で取得します
-    pub(crate) fn get_visual_property_mut(
-        &mut self,
-        id: EntityId,
-        target: StyleTarget,
-    ) -> Option<&mut VisualProperty> {
-        match target {
-            StyleTarget::Base => self.renders.base_visual_properties.get_mut(id),
-            _ => {
-                if !self.renders.interaction_properties.contains_key(id) {
-                    self.renders
-                        .interaction_properties
-                        .insert(id, InteractionStyles::default());
-                }
-                let styles = self.renders.interaction_properties.get_mut(id).unwrap();
-
-                let style_ref = match target {
-                    StyleTarget::Hovered => styles.hovered.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Focused => styles.focused.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Pressed => styles.pressed.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Disabled => styles.disabled.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Actived => styles.actived.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Selected => styles.selected.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Dragged => styles.dragged.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Dragging => styles.dragging.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::DragIn => styles.drag_in.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::DragOver => styles.drag_over.get_or_insert_with(ThisStyle::new),
-
-                    StyleTarget::HoveredWithin => {
-                        styles.hovered_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::FocusedWithin => {
-                        styles.focused_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::PressedWithin => {
-                        styles.pressed_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::DisabledWithin => {
-                        styles.disabled_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::ActivedWithin => {
-                        styles.actived_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::SelectedWithin => {
-                        styles.selected_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::DraggedWithin => {
-                        styles.dragged_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::AnyWithin => styles.any_within.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Base => unreachable!(),
-                };
-
-                Some(&mut Arc::make_mut(&mut style_ref.inner).visual_property)
-            }
-        }
-    }
-
-    /// StyleTarget に応じた可変 FlexLayout を自動生成（Ensure）を解決した上で取得します
-    pub(crate) fn get_flex_layout_mut(
-        &mut self,
-        id: EntityId,
-        target: StyleTarget,
-    ) -> Option<&mut FlexLayout> {
-        match target {
-            StyleTarget::Base => self.layouts.flex_layouts.get_mut(id),
-            _ => {
-                if !self.renders.interaction_properties.contains_key(id) {
-                    self.renders
-                        .interaction_properties
-                        .insert(id, InteractionStyles::default());
-                }
-                let styles = self.renders.interaction_properties.get_mut(id).unwrap();
-
-                let style_ref = match target {
-                    StyleTarget::Hovered => styles.hovered.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Focused => styles.focused.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Pressed => styles.pressed.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Disabled => styles.disabled.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Actived => styles.actived.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Selected => styles.selected.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Dragged => styles.dragged.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Dragging => styles.dragging.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::DragIn => styles.drag_in.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::DragOver => styles.drag_over.get_or_insert_with(ThisStyle::new),
-
-                    StyleTarget::HoveredWithin => {
-                        styles.hovered_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::FocusedWithin => {
-                        styles.focused_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::PressedWithin => {
-                        styles.pressed_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::DisabledWithin => {
-                        styles.disabled_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::ActivedWithin => {
-                        styles.actived_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::SelectedWithin => {
-                        styles.selected_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::DraggedWithin => {
-                        styles.dragged_within.get_or_insert_with(ThisStyle::new)
-                    }
-                    StyleTarget::AnyWithin => styles.any_within.get_or_insert_with(ThisStyle::new),
-                    StyleTarget::Base => unreachable!(),
-                };
-
-                Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
-            }
-        }
-    }
-
     /// 指定された要素が現在マウスホバーされているか判定します
     #[inline]
     pub fn is_hovered(&self, id: EntityId) -> bool {
@@ -7326,16 +6645,6 @@ impl Context {
         }
     }
 
-    /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
-    pub fn rect(&self, handle: Element) -> Option<LayoutRect> {
-        self.outputs.rects.get(handle.id).copied()
-    }
-
-    /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
-    pub fn clip_rect(&self, handle: Element) -> Option<LayoutRect> {
-        self.outputs.clip_rects.get(handle.id).copied()
-    }
-
     /// 指定した要素の子要素一覧を取得します。
     pub fn children_list(&self, handle: Element) -> Option<Vec<Element>> {
         self.children
@@ -7405,58 +6714,6 @@ impl Context {
             // 先祖に何の設定もない場合はデフォルトの矢印
             CursorIcon::Default(None)
         }
-    }
-}
-
-/// リサイズ方向から対応するカーソル種別へ変換するヘルパー
-fn resize_direction_to_cursor(dir: ResizeDirection) -> CursorIcon {
-    match dir {
-        ResizeDirection::Top | ResizeDirection::Bottom => CursorIcon::ResizeNs(None),
-        ResizeDirection::Left | ResizeDirection::Right => CursorIcon::ResizeEw(None),
-        ResizeDirection::TopRight | ResizeDirection::BottomLeft => CursorIcon::ResizeNesw(None),
-        ResizeDirection::TopLeft | ResizeDirection::BottomRight => CursorIcon::ResizeNwse(None),
-    }
-}
-
-/// マウス位置と要素の境界・リサイズ許可フラグから、該当するリサイズ方向を算出するヘルパー
-fn detect_resize_direction(
-    rect: LayoutRect,
-    resizable: [bool; 4], // [top, right, bottom, left]
-    pos: LayoutPoint,
-    border: f32,
-) -> Option<ResizeDirection> {
-    let [t, r, b, l] = resizable;
-    if !t && !r && !b && !l {
-        return None;
-    }
-
-    // 境界線の外側（-border）から内側（+border）までのあそびの範囲を厳密に判定
-    let on_t = t
-        && (pos.y >= rect.y - border && pos.y <= rect.y + border)
-        && (pos.x >= rect.x - border && pos.x <= rect.x + rect.width + border);
-
-    let on_b = b
-        && (pos.y >= rect.y + rect.height - border && pos.y <= rect.y + rect.height + border)
-        && (pos.x >= rect.x - border && pos.x <= rect.x + rect.width + border);
-
-    let on_l = l
-        && (pos.x >= rect.x - border && pos.x <= rect.x + border)
-        && (pos.y >= rect.y - border && pos.y <= rect.y + rect.height + border);
-
-    let on_r = r
-        && (pos.x >= rect.x + rect.width - border && pos.x <= rect.x + rect.width + border)
-        && (pos.y >= rect.y - border && pos.y <= rect.y + rect.height + border);
-
-    match (on_t, on_r, on_b, on_l) {
-        (true, true, _, _) => Some(ResizeDirection::TopRight),
-        (true, _, _, true) => Some(ResizeDirection::TopLeft),
-        (_, true, true, _) => Some(ResizeDirection::BottomRight),
-        (_, _, true, true) => Some(ResizeDirection::BottomLeft),
-        (true, _, _, _) => Some(ResizeDirection::Top),
-        (_, true, _, _) => Some(ResizeDirection::Right),
-        (_, _, true, _) => Some(ResizeDirection::Bottom),
-        (_, _, _, true) => Some(ResizeDirection::Left),
-        _ => None,
     }
 }
 

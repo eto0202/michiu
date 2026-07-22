@@ -1,6 +1,6 @@
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
-use std::collections::HashSet;
+use std::{collections::HashSet, sync::Arc, time::Instant};
 
 pub struct RenderStore {
     pub(crate) visual_properties: SecondaryMap<EntityId, VisualProperty>,
@@ -59,5 +59,128 @@ impl RenderStore {
         self.active_transitions.remove(id);
         self.active_animations.remove(id);
         self.active_webviews.remove(&id);
+    }
+}
+
+impl RenderStore {
+    pub(crate) fn get_basic_layout_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut BasicLayout> {
+        match target {
+            StyleTarget::Base => self.base_basic_layouts.get_mut(id),
+            _ => {
+                if !self.interaction_properties.contains_key(id) {
+                    self.interaction_properties
+                        .insert(id, InteractionStyles::default());
+                }
+                let styles = self.interaction_properties.get_mut(id).unwrap();
+                let style_ref = styles.get_style_target_mut(target);
+                Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
+            }
+        }
+    }
+
+    pub(crate) fn get_visual_property_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut VisualProperty> {
+        match target {
+            StyleTarget::Base => self.base_visual_properties.get_mut(id),
+            _ => {
+                if !self.interaction_properties.contains_key(id) {
+                    self.interaction_properties
+                        .insert(id, InteractionStyles::default());
+                }
+                let styles = self.interaction_properties.get_mut(id).unwrap();
+                let style_ref = styles.get_style_target_mut(target);
+                Some(&mut Arc::make_mut(&mut style_ref.inner).visual_property)
+            }
+        }
+    }
+
+    pub(crate) fn get_flex_layout_mut<'a>(
+        &'a mut self,
+        id: EntityId,
+        target: StyleTarget,
+        flex_layouts: &'a mut SecondaryMap<EntityId, FlexLayout>,
+    ) -> Option<&'a mut FlexLayout> {
+        match target {
+            StyleTarget::Base => flex_layouts.get_mut(id),
+            _ => {
+                if !self.interaction_properties.contains_key(id) {
+                    self.interaction_properties
+                        .insert(id, InteractionStyles::default());
+                }
+                let styles = self.interaction_properties.get_mut(id).unwrap();
+                let style_ref = styles.get_style_target_mut(target);
+                Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
+            }
+        }
+    }
+
+    /// スクロールバー用要素の不透明度（解決値と静的ベース値）を同時同期して更新します。
+    #[inline]
+    pub(crate) fn update_scrollbar_element_opacity(&mut self, id: EntityId, opacity: f32) {
+        if let Some(vis) = self.visual_properties.get_mut(id) {
+            vis.opacity = Some(opacity);
+        }
+        if let Some(vis) = self.base_visual_properties.get_mut(id) {
+            vis.opacity = Some(opacity);
+        }
+    }
+
+    pub(crate) fn trigger_keyframe_animations_if_needed(&mut self, id: EntityId) {
+        if let Some(visual) = self.visual_properties.get(id) {
+            if visual.keyframe_animations.is_empty() {
+                return;
+            }
+
+            let now = Instant::now();
+
+            // 借用回避のため定義を一度クローン
+            let anims = visual.keyframe_animations.clone();
+
+            if !self.active_animations.contains_key(id) {
+                self.active_animations.insert(id, Vec::new());
+            }
+            let active_list = self.active_animations.get_mut(id).unwrap();
+
+            for anim in anims {
+                // すでに同じプロパティのアニメーションが駆動中なら重複起動をスルー
+                if active_list.iter().any(|a| a.property == anim.property) {
+                    continue;
+                }
+
+                // 初期値（開始値）と目標値（100%キーフレームに相当する値）を設定
+                // ※ ここでは例として「回転 (Transform)」の場合、0度から360度へ向かう値を算出します。
+                let (start_val, end_val) = match anim.property {
+                    PropertyList::Transform => {
+                        let start = TransitionValue::Transform(IDENTITY_MATRIX);
+                        // Z軸を1周（2PI）回転させる行列を終点にする
+                        let mut end_transform =
+                            crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
+                        let end = TransitionValue::Transform(end_transform.matrix);
+                        (start, end)
+                    }
+                    PropertyList::Opacity => {
+                        (TransitionValue::Opacity(1.0), TransitionValue::Opacity(0.0)) // フェードアウト等
+                    }
+                    _ => continue, // 必要に応じて他プロパティも定義
+                };
+
+                active_list.push(ActiveAnimation {
+                    property: anim.property,
+                    start_time: now,
+                    duration: anim.duration,
+                    iteration_count: anim.iteration_count,
+                    curve: anim.curve,
+                    start_value: start_val,
+                    end_value: end_val,
+                });
+            }
+        }
     }
 }

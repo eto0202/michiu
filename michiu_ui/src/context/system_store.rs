@@ -67,3 +67,10 @@ impl SystemStore {
         self.uia_properties.remove(id);
     }
 }
+
+impl SystemStore {
+    /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
+    pub(crate) fn clear_layout_cache(&mut self, id: EntityId) {
+        self.dwrite_layouts.borrow_mut().remove(id);
+    }
+}
