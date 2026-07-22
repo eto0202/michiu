@@ -91,16 +91,15 @@ impl LayoutStore {
     /// 各スタイルの解決を1回のルックアップと1回のカスケード解決ループに統合
     pub(crate) fn resolve_active_layouts(
         id: EntityId,
+        topology: &TopologyStore,
         layouts: &LayoutStore,
-        active_masks: &SecondaryMap<EntityId, ComponentMask>,
-        parents: &SecondaryMap<EntityId, Option<EntityId>>,
         renders: &RenderStore,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
         let mut basic = layouts.basic_layouts.get(id).copied().unwrap_or_default();
         let mut flex = layouts.flex_layouts.get(id).copied().unwrap_or_default();
         let mut grid = layouts.grid_layouts.get(id).cloned();
 
-        let active_mask = active_masks[id];
+        let active_mask = topology.active_masks[id];
 
         // 幅・高さ・一括サイズに対して、現在トランジションアニメーションが駆動中であるかを走査
         let is_width_transitioning = renders
@@ -137,7 +136,7 @@ impl LayoutStore {
 
                 if matches!(focus_mode, Focusable::Inherit(_)) {
                     // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
-                    let mut curr = parents.get(id).copied().flatten();
+                    let mut curr = topology.parents.get(id).copied().flatten();
                     let mut found_parent_focused_style = None;
                     while let Some(curr_id) = curr {
                         if let Some(parent_interaction) =
@@ -147,7 +146,7 @@ impl LayoutStore {
                             found_parent_focused_style = Some(parent_f_style.clone());
                             break;
                         }
-                        curr = parents.get(curr_id).copied().flatten();
+                        curr = topology.parents.get(curr_id).copied().flatten();
                     }
                     found_parent_focused_style
                 } else {
@@ -393,7 +392,7 @@ impl LayoutStore {
     pub(crate) fn rebuild_flat_dfs_sequence(
         root: EntityId,
         layouts: &mut LayoutStore,
-        children: &SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>,
+        topology: &TopologyStore,
     ) {
         layouts.flat_dfs_sequence.clear();
 
@@ -405,7 +404,7 @@ impl LayoutStore {
             layouts.flat_dfs_sequence.push(id);
 
             // 左側の子が先にポップされるように、右側（末尾）の子から逆順にスタックへプッシュ
-            if let Some(children) = children.get(id) {
+            if let Some(children) = topology.children.get(id) {
                 let len = children.len();
                 for i in (0..len).rev() {
                     stack.push(children[i]);
@@ -438,7 +437,7 @@ impl LayoutStore {
     pub(crate) fn resync_taffy_children_order(
         parent_id: EntityId,
         layouts: &mut LayoutStore,
-        children: &SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>,
+        topology: &TopologyStore,
     ) {
         if let Some(&parent_node) = layouts.taffy_nodes.get(parent_id) {
             // 一旦現在登録されているすべての子ノードを Taffy 側から安全にデタッチ
@@ -448,7 +447,7 @@ impl LayoutStore {
                 }
             }
             // 最新の並び替え順序リストの順に従って、Taffy 側に再アタッチ
-            if let Some(children_list) = children.get(parent_id).cloned() {
+            if let Some(children_list) = topology.children.get(parent_id).cloned() {
                 for child_id in children_list {
                     if let Some(&child_node) = layouts.taffy_nodes.get(child_id) {
                         let _ = layouts.taffy.add_child(parent_node, child_node);

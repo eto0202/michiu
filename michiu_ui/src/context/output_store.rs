@@ -8,6 +8,8 @@ pub struct OutputStore {
     pub(crate) prev_rects: SecondaryMap<EntityId, LayoutRect>,
     pub(crate) prev_clip_rects: SecondaryMap<EntityId, LayoutRect>,
     pub(crate) selected_rects: SparseSecondaryMap<EntityId, Vec<LayoutRect>>,
+    pub(crate) text_selections: SparseSecondaryMap<EntityId, std::ops::Range<usize>>,
+    pub(crate) selection_start_index: SparseSecondaryMap<EntityId, usize>,
 }
 
 impl Default for OutputStore {
@@ -26,6 +28,8 @@ impl OutputStore {
             prev_rects: SecondaryMap::new(),
             prev_clip_rects: SecondaryMap::new(),
             selected_rects: SparseSecondaryMap::new(),
+            text_selections: SparseSecondaryMap::new(),
+            selection_start_index: SparseSecondaryMap::new(),
         }
     }
 
@@ -37,6 +41,8 @@ impl OutputStore {
         self.prev_rects.clear();
         self.prev_clip_rects.clear();
         self.selected_rects.clear();
+        self.text_selections.clear();
+        self.selection_start_index.clear();
     }
 
     #[inline]
@@ -47,6 +53,8 @@ impl OutputStore {
         self.prev_rects.remove(id);
         self.prev_clip_rects.remove(id);
         self.selected_rects.remove(id);
+        self.text_selections.remove(id);
+        self.selection_start_index.remove(id);
     }
 }
 
@@ -72,10 +80,9 @@ impl OutputStore {
     pub(crate) fn parent_changed(
         id: EntityId,
         outputs: &OutputStore,
-        parents: &SecondaryMap<EntityId, Option<EntityId>>,
-        active_masks: &SecondaryMap<EntityId, ComponentMask>,
+        topology: &TopologyStore,
     ) -> bool {
-        let parent_id_opt = parents.get(id).copied().flatten();
+        let parent_id_opt = topology.parents.get(id).copied().flatten();
 
         let mut parent_changed = false;
 
@@ -84,7 +91,7 @@ impl OutputStore {
             let curr_parent_rect = outputs.rects.get(parent_id);
             let prev_parent_clip = outputs.prev_clip_rects.get(parent_id);
             let curr_parent_clip = outputs.clip_rects.get(parent_id);
-            let is_parent_dirty = active_masks[parent_id].has(STATE_QUEUED_LAYOUT);
+            let is_parent_dirty = topology.active_masks[parent_id].has(STATE_QUEUED_LAYOUT);
 
             // 親が動いた、サイズが変わった、クリップが変わった、または親にレイアウト変更がある
             if prev_parent_rect != curr_parent_rect
@@ -102,7 +109,7 @@ impl OutputStore {
         id: EntityId,
         outputs: &OutputStore,
         layouts: &LayoutStore,
-        parents: &SecondaryMap<EntityId, Option<EntityId>>,
+        topology: &TopologyStore,
         window_size: LayoutSize,
     ) -> (LayoutRect, LayoutRect) {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
@@ -110,7 +117,7 @@ impl OutputStore {
         // Taffyから実データを引き出す
         let local_rect = LayoutStore::local_rect_from_taffy(id, layouts);
 
-        let parent_id_opt = parents.get(id).copied().flatten();
+        let parent_id_opt = topology.parents.get(id).copied().flatten();
         let (abs_rect, parent_clip) = if let Some(parent_id) = parent_id_opt {
             let parent_rect = outputs.rects[parent_id];
             let parent_clip = outputs.clip_rects[parent_id];

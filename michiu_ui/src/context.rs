@@ -6,6 +6,7 @@ pub mod output_store;
 pub mod reactive_store;
 pub mod render_store;
 pub mod system_store;
+pub mod topology_store;
 pub mod window_store;
 
 pub use content_store::*;
@@ -15,8 +16,8 @@ pub use output_store::*;
 pub use reactive_store::*;
 pub use render_store::*;
 pub use system_store::*;
+pub use topology_store::*;
 pub use window_store::*;
-use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
 use crate::*;
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
@@ -35,6 +36,7 @@ use std::{
     time::{Duration, Instant},
 };
 use taffy::TaffyTree;
+use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
 new_key_type! {
     /// UI内の各要素（Entity）を識別する一意な世代管理ID
@@ -48,25 +50,7 @@ new_key_type! {
 // RawContext 側で全てのAPIを公開
 // Facade化するのもあり
 pub struct Context {
-    /// 全要素の生存期間を管理するプライマリマップ
-    pub(crate) entities: SlotMap<EntityId, ()>,
-    /// 単方向の親ID参照。親子ポインタを排除した木構造の表現
-    pub(crate) parents: SecondaryMap<EntityId, Option<EntityId>>,
-    /// 子要素のIDリスト。ヒープ割り当てを防ぐため SmallVec を採用
-    pub(crate) children: SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>,
-    /// 各要素がどのSoAプロパティ（コンポーネント）を有効化しているかを示すビットマスク
-    pub active_masks: SecondaryMap<EntityId, ComponentMask>,
-    /// 画面に表示されているアクティブな全要素のIDを詰め込んだ1次元配列。
-    /// 描画やイベント走査はこの1つの配列のみを回す。
-    pub active_entities: Vec<EntityId>,
-    /// 現在のビルドセッションで新しく生成（Spawn）された要素のリスト
-    pub(crate) session_spawned: Vec<EntityId>,
-    /// セッション終了時に、親がいなくても破棄してはならないルート要素のリスト
-    pub(crate) session_roots: Vec<EntityId>,
-    // 選択された文字範囲
-    pub(crate) text_selections: SparseSecondaryMap<EntityId, std::ops::Range<usize>>,
-    pub(crate) selection_start_index: SparseSecondaryMap<EntityId, usize>,
-
+    pub topology: TopologyStore,
     pub layouts: LayoutStore,
     pub renders: RenderStore,
     pub outputs: OutputStore,
@@ -88,15 +72,7 @@ impl Context {
         let (tx, rx) = std::sync::mpsc::channel();
 
         Self {
-            entities: SlotMap::with_key(),
-            parents: SecondaryMap::new(),
-            children: SecondaryMap::new(),
-            active_masks: SecondaryMap::new(),
-            active_entities: Vec::new(),
-            session_spawned: Vec::new(),
-            session_roots: Vec::new(),
-            text_selections: SparseSecondaryMap::new(),
-            selection_start_index: SparseSecondaryMap::new(),
+            topology: TopologyStore::new(),
             layouts: LayoutStore::new(),
             renders: RenderStore::new(),
             outputs: OutputStore::new(),
@@ -116,11 +92,11 @@ impl Context {
 
     /// 要素を新規に生成（Spawn）
     pub(crate) fn spawn(&mut self, parent_id: Option<EntityId>) -> EntityId {
-        let id = self.entities.insert(());
+        let id = self.topology.entities.insert(());
 
-        self.parents.insert(id, parent_id);
-        self.children.insert(id, SmallVec::new());
-        self.active_masks.insert(id, ComponentMask::new(0)); // 初期状態はどのプロパティも無効
+        self.topology.parents.insert(id, parent_id);
+        self.topology.children.insert(id, SmallVec::new());
+        self.topology.active_masks.insert(id, ComponentMask::new(0)); // 初期状態はどのプロパティも無効
 
         // Leaf ノード作成時に、Context として自分自身の ID を登録する
         let node = self
@@ -130,7 +106,7 @@ impl Context {
             .unwrap();
         self.layouts.taffy_nodes.insert(id, node);
 
-        self.active_entities.push(id);
+        self.topology.active_entities.push(id);
 
         // 新規作成された要素は、当然レイアウトと描画の対象となる
         // カスタムスタイルが当てられるまではデフォルト（Style::default）を再利用するため
@@ -138,32 +114,35 @@ impl Context {
         self.mark_render_dirty(id);
         self.layouts.is_structure_dirty = true; // 構造変化をマーク
 
-        self.session_spawned.push(id);
+        self.topology.session_spawned.push(id);
 
         id
     }
 
     // セッションの開始マーカーを取得
     pub(crate) fn start_session(&mut self) -> usize {
-        self.session_spawned.len()
+        self.topology.session_spawned.len()
     }
 
     // ルート要素として保護するIDを登録
     pub(crate) fn register_root(&mut self, id: EntityId) {
-        self.session_roots.push(id);
+        self.topology.session_roots.push(id);
     }
 
     // セッションのクリーンアップを実行
     pub(crate) fn end_session(&mut self, start_marker: usize) {
         // start_marker 以降に生成された要素をスキャン
-        let spawned_in_session: Vec<EntityId> =
-            self.session_spawned.drain(start_marker..).collect();
+        let spawned_in_session: Vec<EntityId> = self
+            .topology
+            .session_spawned
+            .drain(start_marker..)
+            .collect();
 
         for id in spawned_in_session {
             // 親が存在しない
-            let has_no_parent = self.parents.get(id).copied().flatten().is_none();
+            let has_no_parent = self.topology.parents.get(id).copied().flatten().is_none();
             // ルート要素としても登録されていない
-            let is_not_root = !self.session_roots.contains(&id);
+            let is_not_root = !self.topology.session_roots.contains(&id);
 
             // 上記を満たす完全な孤児を自動で一掃
             if has_no_parent && is_not_root {
@@ -172,7 +151,7 @@ impl Context {
         }
 
         // ルートリストをクリア
-        self.session_roots.clear();
+        self.topology.session_roots.clear();
     }
 
     /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
@@ -233,7 +212,7 @@ impl Context {
                 return Some(ReadSignal::new(signal_id));
             }
             // トポロジー親を安全に探索
-            curr = self.parents.get(curr_id).copied().flatten();
+            curr = self.topology.parents.get(curr_id).copied().flatten();
         }
         None
     }
@@ -304,7 +283,7 @@ impl Context {
                     _marker: std::marker::PhantomData,
                 };
             }
-            curr = self.parents.get(curr_id).copied().flatten();
+            curr = self.topology.parents.get(curr_id).copied().flatten();
         }
         panic!(
             "Dependency resolution failed: No Provider Setter found in ancestor sub-tree for type: '{}'",
@@ -316,11 +295,11 @@ impl Context {
     /// 子がすでに別の親に属している場合は古い親からデタッチします。
     pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
         // 子がすでに別の親に属しているか検証
-        if let Some(Some(old_parent)) = self.parents.get(child).copied()
+        if let Some(Some(old_parent)) = self.topology.parents.get(child).copied()
             && old_parent != parent
         {
             // 1. 古い親の children SoA リストから自分自身を安全に削除
-            if let Some(old_children) = self.children.get_mut(old_parent) {
+            if let Some(old_children) = self.topology.children.get_mut(old_parent) {
                 old_children.retain(|x| *x != child);
             }
 
@@ -334,13 +313,13 @@ impl Context {
             }
 
             // 3. 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
-            LayoutStore::resync_taffy_children_order(old_parent, &mut self.layouts, &self.children);
+            LayoutStore::resync_taffy_children_order(old_parent, &mut self.layouts, &self.topology);
             self.mark_layout_dirty(old_parent);
         }
 
         // 新しい親の親子関係を更新
-        self.parents.insert(child, Some(parent));
-        if let Some(children_list) = self.children.get_mut(parent)
+        self.topology.parents.insert(child, Some(parent));
+        if let Some(children_list) = self.topology.children.get_mut(parent)
             && !children_list.contains(&child)
         {
             children_list.push(child);
@@ -359,13 +338,7 @@ impl Context {
 
     /// 一括解放
     pub fn clear(&mut self) {
-        self.entities.clear();
-        self.parents.clear();
-        self.children.clear();
-        self.active_masks.clear();
-        self.active_entities.clear();
-        self.text_selections.clear();
-        self.selection_start_index.clear();
+        self.topology.clear();
         self.layouts.clear();
         self.renders.clear();
         self.outputs.clear();
@@ -387,9 +360,9 @@ impl Context {
 
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
     pub(crate) fn despawn_internal(&mut self, id: EntityId) {
-        if self.entities.contains_key(id) {
+        if self.topology.entities.contains_key(id) {
             // トポロジーと Taffy ツリーのデタッチ処理
-            if let Some(Some(parent_id)) = self.parents.get(id) {
+            if let Some(Some(parent_id)) = self.topology.parents.get(id) {
                 // Taffy からノードをデタッチ
                 if let Some(&parent_node) = self.layouts.taffy_nodes.get(*parent_id)
                     && let Some(&child_node) = self.layouts.taffy_nodes.get(id)
@@ -400,7 +373,7 @@ impl Context {
                 }
 
                 // 親の children リストから自身を除外
-                if let Some(parent_children) = self.children.get_mut(*parent_id) {
+                if let Some(parent_children) = self.topology.children.get_mut(*parent_id) {
                     parent_children.retain(|x| *x != id);
                 }
             }
@@ -411,12 +384,13 @@ impl Context {
             }
 
             // 子要素を再帰的に despawn
-            if let Some(children_list) = self.children.remove(id) {
+            if let Some(children_list) = self.topology.children.remove(id) {
                 for child_id in children_list {
                     self.despawn_internal(child_id);
                 }
             }
 
+            self.topology.despawn(id);
             self.layouts.despawn(id);
             self.renders.despawn(id);
             self.outputs.despawn(id);
@@ -425,19 +399,6 @@ impl Context {
             self.reactive.despawn(id);
             self.window.despawn(id);
             self.system.despawn(id);
-
-            self.entities.remove(id);
-            self.parents.remove(id);
-            self.active_masks.remove(id);
-
-            self.text_selections.remove(id);
-            self.selection_start_index.remove(id);
-
-            // ダーティキュー、DFSシーケンス、アクティブ走査用の一時配列から
-            // デスポーンされた無効な ID をその場で即時に抹消クリーンアップします。
-            self.active_entities.retain(|&x| x != id);
-            self.session_spawned.retain(|&x| x != id);
-            self.session_roots.retain(|&x| x != id);
         }
     }
 
@@ -458,14 +419,14 @@ impl Context {
         }
 
         // children リスト内のインデックス位置を特定して直接置換
-        if let Some(children_list) = self.children.get_mut(parent)
+        if let Some(children_list) = self.topology.children.get_mut(parent)
             && let Some(pos) = children_list.iter().position(|&x| x == old_child)
         {
             children_list[pos] = new_child;
         }
 
         // 親子参照の更新
-        self.parents.insert(new_child, Some(parent));
+        self.topology.parents.insert(new_child, Some(parent));
 
         // 古い子要素（およびその子孫）を完全に安全デスポーン
         // この中で Taffy からの remove_child も安全に実行されます
@@ -478,14 +439,15 @@ impl Context {
     /// デスポーン済みの無効な EntityId を各走査・Dirty配列から一括して排除。
     pub(crate) fn gc_inactive_entities(&mut self) {
         // SlotMap (entities) にキーが存在するもの（生存している要素）だけを保持する
-        self.active_entities
-            .retain(|&id| self.entities.contains_key(id));
+        self.topology
+            .active_entities
+            .retain(|&id| self.topology.entities.contains_key(id));
         self.layouts
             .dirty_layout_entities
-            .retain(|&id| self.entities.contains_key(id));
+            .retain(|&id| self.topology.entities.contains_key(id));
         self.renders
             .dirty_render_entities
-            .retain(|&id| self.entities.contains_key(id));
+            .retain(|&id| self.topology.entities.contains_key(id));
     }
 
     /// レイアウト変更フラグを立てる（Taffy同期要求）
@@ -497,7 +459,7 @@ impl Context {
         }
 
         loop {
-            if let Some(mask) = self.active_masks.get_mut(curr) {
+            if let Some(mask) = self.topology.active_masks.get_mut(curr) {
                 // すでにレイアウトキューに登録済み（STATE_QUEUED_LAYOUT がオン）なら
                 // 多重登録を防ぎつつ、それより上の親はすでに Dirty 化されているため探索を早期ブレイク
                 if !mask.has(STATE_QUEUED_LAYOUT) {
@@ -509,7 +471,7 @@ impl Context {
             }
 
             // 親要素（先祖）をルートまで辿って Dirty フラグを連鎖伝播させる
-            if let Some(Some(parent_id)) = self.parents.get(curr).copied() {
+            if let Some(Some(parent_id)) = self.topology.parents.get(curr).copied() {
                 curr = parent_id;
             } else {
                 break;
@@ -519,7 +481,7 @@ impl Context {
 
     /// 描画変更フラグを立てる（wgpu転送要求）
     pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
-        if let Some(mask) = self.active_masks.get_mut(id) {
+        if let Some(mask) = self.topology.active_masks.get_mut(id) {
             // すでにレンダーキューに登録済み（STATE_QUEUED_RENDER がオン）なら早期リターン
             if !mask.has(STATE_QUEUED_RENDER) {
                 mask.set(STATE_QUEUED_RENDER); // フラグをオンにして多重登録を防ぐ
@@ -575,7 +537,7 @@ impl Context {
         }
 
         if self.layouts.is_structure_dirty {
-            LayoutStore::rebuild_flat_dfs_sequence(root, &mut self.layouts, &self.children);
+            LayoutStore::rebuild_flat_dfs_sequence(root, &mut self.layouts, &self.topology);
         }
 
         // 全スクロールバー関連IDを一括抽出
@@ -590,9 +552,8 @@ impl Context {
 
             let (mut basic, flex, grid) = LayoutStore::resolve_active_layouts(
                 *id,
+                &self.topology,
                 &self.layouts,
-                &self.active_masks,
-                &self.parents,
                 &self.renders,
             );
 
@@ -652,7 +613,7 @@ impl Context {
                         ContentStore::measure_content(
                             id,
                             &mut self.contents,
-                            &self.active_masks,
+                            &self.topology.active_masks,
                             &self.renders.visual_properties,
                             &self.system.text_engine,
                             known_dims,
@@ -672,7 +633,7 @@ impl Context {
             );
         }
 
-        self.active_entities.clear();
+        self.topology.active_entities.clear();
 
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの rects のみを確定
         OutputStore::swap_output_rect(&mut self.outputs);
@@ -689,11 +650,10 @@ impl Context {
             }
 
             // 親の移動・リサイズ状態を検証
-            let parent_changed =
-                OutputStore::parent_changed(id, &self.outputs, &self.parents, &self.active_masks);
+            let parent_changed = OutputStore::parent_changed(id, &self.outputs, &self.topology);
 
             // 静的キャッシュバイパス判定
-            let has_style_changed = self.active_masks[id].has(STATE_QUEUED_LAYOUT);
+            let has_style_changed = self.topology.active_masks[id].has(STATE_QUEUED_LAYOUT);
 
             if !window_resized
                 && !has_style_changed
@@ -708,7 +668,7 @@ impl Context {
                 let cached_clip = self.outputs.prev_clip_rects[id];
                 self.outputs.clip_rects.insert(id, cached_clip);
 
-                self.active_entities.push(id);
+                self.topology.active_entities.push(id);
                 continue;
             }
 
@@ -716,12 +676,12 @@ impl Context {
                 id,
                 &self.outputs,
                 &self.layouts,
-                &self.parents,
+                &self.topology,
                 window_size,
             );
 
             self.outputs.rects.insert(id, abs_rect);
-            let mask = self.active_masks[id];
+            let mask = self.topology.active_masks[id];
 
             if mask.has(COMP_INPUT_CONTENT)
                 && let Some(contents) = self.contents.input_contents.get_mut(id)
@@ -737,7 +697,7 @@ impl Context {
             self.outputs.clip_rects.insert(id, current_clip);
 
             // 常に1次元DFS順でアクティブ要素リストに登録する
-            self.active_entities.push(id);
+            self.topology.active_entities.push(id);
         }
 
         // スクロールバー要素（Track & Thumb）のサイズ・配置・不透明度を一括同期更新
@@ -760,7 +720,7 @@ impl Context {
                  -> taffy::Size<f32> {
                     if let Some(&id) = context.as_deref() {
                         return with_context(|cx| {
-                            if cx.active_masks[id].has(COMP_INPUT_CONTENT)
+                            if cx.topology.active_masks[id].has(COMP_INPUT_CONTENT)
                                 && let Some(contents) = cx.contents.input_contents.get(id)
                                 && let Some(layout_rect) = contents.last_layout
                             {
@@ -787,7 +747,7 @@ impl Context {
         }
 
         // スクロールバー要素も含めて、Taffy から最終確定位置をすべて引き出して rects にマウント
-        self.active_entities.clear();
+        self.topology.active_entities.clear();
 
         for i in 0..flat_len {
             let id = self.layouts.flat_dfs_sequence[i];
@@ -796,12 +756,12 @@ impl Context {
                 id,
                 &self.outputs,
                 &self.layouts,
-                &self.parents,
+                &self.topology,
                 window_size,
             );
 
             self.outputs.rects.insert(id, abs_rect);
-            let mask = self.active_masks[id];
+            let mask = self.topology.active_masks[id];
 
             if mask.has(COMP_INPUT_CONTENT)
                 && let Some(contents) = self.contents.input_contents.get_mut(id)
@@ -816,7 +776,7 @@ impl Context {
             };
             self.outputs.clip_rects.insert(id, current_clip);
 
-            self.active_entities.push(id);
+            self.topology.active_entities.push(id);
         }
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
@@ -836,7 +796,7 @@ impl Context {
 
     pub fn clear_layout_dirty(&mut self) {
         for id in self.layouts.dirty_layout_entities.drain(..) {
-            if let Some(mask) = self.active_masks.get_mut(id) {
+            if let Some(mask) = self.topology.active_masks.get_mut(id) {
                 mask.unset(STATE_QUEUED_LAYOUT);
             }
         }
@@ -846,7 +806,7 @@ impl Context {
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
     pub fn clear_render_dirty(&mut self) {
         for id in self.renders.dirty_render_entities.drain(..) {
-            if let Some(mask) = self.active_masks.get_mut(id) {
+            if let Some(mask) = self.topology.active_masks.get_mut(id) {
                 mask.unset(STATE_QUEUED_RENDER);
             }
         }
@@ -871,13 +831,8 @@ impl Context {
 
         RenderStore::update_scrollbar_element_opacity(id, &mut self.renders, opacity);
 
-        let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
-            id,
-            &self.layouts,
-            &self.active_masks,
-            &self.parents,
-            &self.renders,
-        );
+        let (basic, flex, grid) =
+            LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders);
 
         LayoutStore::set_taffy_style(id, &mut self.layouts, &basic, &flex, grid.as_ref());
     }
@@ -898,9 +853,8 @@ impl Context {
             // 親コンテナのボーダーおよびパディング厚を取得
             let (basic, _, _) = LayoutStore::resolve_active_layouts(
                 id,
+                &self.topology,
                 &self.layouts,
-                &self.active_masks,
-                &self.parents,
                 &self.renders,
             );
 
@@ -1309,7 +1263,8 @@ impl Context {
         let default_visual = VisualProperty::default();
 
         // 各要素の実効 z_index を親から子へカスケード（伝播）して計算
-        let mut effective_z_indices = SecondaryMap::with_capacity(self.active_entities.len());
+        let mut effective_z_indices =
+            SecondaryMap::with_capacity(self.topology.active_entities.len());
 
         // flat_dfs_sequence は必ず親から子への順でフラットに並んでいるため、前方1方向の走査で完結
         for &id in &self.layouts.flat_dfs_sequence {
@@ -1320,6 +1275,7 @@ impl Context {
                 .and_then(|v| v.z_index);
 
             let parent_z = self
+                .topology
                 .parents
                 .get(id)
                 .copied()
@@ -1333,7 +1289,7 @@ impl Context {
         }
 
         // 実効 z_index で active_entities を安定ソート
-        let mut sorted_entities = self.active_entities.clone();
+        let mut sorted_entities = self.topology.active_entities.clone();
         sorted_entities.sort_by_key(|&id| effective_z_indices.get(id).copied().unwrap_or(0));
 
         for &id in &sorted_entities {
@@ -1344,7 +1300,7 @@ impl Context {
 
             let clip = self.outputs.clip_rects[id];
 
-            let is_webview = self.active_masks[id].has(COMP_WEBVIEW_CONTENT);
+            let is_webview = self.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT);
 
             // コントローラーがまだ初期化されていない（active_webviewsに入っていない）場合は、
             // 紺色の背景を通常通り描き込み、デスクトップが透けるのを完全に防止します。
@@ -1352,9 +1308,8 @@ impl Context {
 
             let (basic, _, _) = LayoutStore::resolve_active_layouts(
                 id,
+                &self.topology,
                 &self.layouts,
-                &self.active_masks,
-                &self.parents,
                 &self.renders,
             );
             let visual = self
@@ -1668,7 +1623,7 @@ impl Context {
             }
 
             // 背景色とテキストの多重描画の解決
-            let is_text = self.active_masks[id].has(COMP_TEXT_CONTENT);
+            let is_text = self.topology.active_masks[id].has(COMP_TEXT_CONTENT);
             let has_bg = visual.bg_color.is_some()
                 || visual.bg_gradient.is_some()
                 || visual.border_color.is_some()
@@ -1735,7 +1690,7 @@ impl Context {
 
             // 以下、通常のテキスト/背景描画を重ねる（選択矩形が文字の下に）
             // テキスト要素の場合は「テキストの色」、それ以外は「背景色」を color にセットする
-            let color = if self.active_masks[id].has(COMP_TEXT_CONTENT) {
+            let color = if self.topology.active_masks[id].has(COMP_TEXT_CONTENT) {
                 visual.text_color.unwrap_or(Color::BLACK)
             } else {
                 visual.bg_color.unwrap_or(Color::TRANSPARENT)
@@ -1833,7 +1788,7 @@ impl Context {
             current_instances.push(instance);
             current_ids.push(id);
 
-            let is_input = self.active_masks[id].has(COMP_INPUT_CONTENT);
+            let is_input = self.topology.active_masks[id].has(COMP_INPUT_CONTENT);
             let is_focused = self.events.interaction_states.focused == Some(id);
 
             if is_input
@@ -2177,7 +2132,7 @@ impl Context {
                         self.mark_layout_dirty(id); // レイアウト再計算をマーク
 
                         // キャッシュを毎フレーム強制バイパスさせるためにマスクを再セット
-                        if let Some(mask) = self.active_masks.get_mut(id) {
+                        if let Some(mask) = self.topology.active_masks.get_mut(id) {
                             mask.set(STATE_QUEUED_LAYOUT);
                         }
                     }
@@ -2188,7 +2143,7 @@ impl Context {
                         }
                         self.mark_layout_dirty(id);
 
-                        if let Some(mask) = self.active_masks.get_mut(id) {
+                        if let Some(mask) = self.topology.active_masks.get_mut(id) {
                             mask.set(STATE_QUEUED_LAYOUT);
                         }
                     }
@@ -2320,7 +2275,7 @@ impl Context {
 
     /// 状態の変更を検知し、アニメーション（トランジション）が必要な箇所を自動的に開始・制御します。
     pub(crate) fn resolve_element_style_state(&mut self, id: EntityId, allow_transition: bool) {
-        let active_mask = self.active_masks[id];
+        let active_mask = self.topology.active_masks[id];
 
         // ビジュアルプロパティ (bg_color, opacity等) の解決
         let has_base_visual = self.renders.base_visual_properties.contains_key(id);
@@ -2336,297 +2291,29 @@ impl Context {
             let mut target = RenderStore::get_target_style(id, &self.renders);
 
             // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
-            let focus_style_resolved = if active_mask.has(STATE_FOCUSED) {
-                if let Some(interaction) = self.renders.interaction_properties.get(id)
-                    && let Some(ref self_f_style) = interaction.focused
-                {
-                    Some(self_f_style.clone()) // 自身に明確な focused 指定があれば最優先
-                } else {
-                    let focus_mode = self
-                        .renders
-                        .visual_properties
-                        .get(id)
-                        .and_then(|v| v.focusable)
-                        .unwrap_or(Focusable::None);
+            let focus_style_resolved = RenderStore::resolv_focus_style(
+                id,
+                &self.renders,
+                &active_mask,
+                &self.topology.parents,
+            );
 
-                    if matches!(focus_mode, Focusable::Inherit(_)) {
-                        // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
-                        let mut curr = self.parents.get(id).copied().flatten();
-                        let mut found_parent_focused_style = None;
-                        while let Some(curr_id) = curr {
-                            if let Some(parent_interaction) =
-                                self.renders.interaction_properties.get(curr_id)
-                                && let Some(ref parent_f_style) = parent_interaction.focused
-                            {
-                                found_parent_focused_style = Some(parent_f_style.clone());
-                                break;
-                            }
-                            curr = self.parents.get(curr_id).copied().flatten();
-                        }
-                        found_parent_focused_style
-                    } else {
-                        None
-                    }
-                }
-            } else {
-                None
-            };
+            // 疑似クラス（Hovered等）のマージ
+            RenderStore::cascade_interaction(
+                id,
+                &self.renders,
+                active_mask,
+                &mut target,
+                focus_style_resolved,
+            );
 
-            // 疑似クラス（Hovered等）のマージをクローンなしで解決
-            if let Some(interaction) = self.renders.interaction_properties.get(id) {
-                let cascade = [
-                    (STATE_FOCUSED, &focus_style_resolved),
-                    (STATE_SELECTED, &interaction.selected),
-                    (STATE_ACTIVED, &interaction.actived),
-                    (STATE_HOVERED, &interaction.hovered),
-                    (STATE_PRESSED, &interaction.pressed),
-                    (STATE_DISABLED, &interaction.disabled),
-                    (STATE_DRAGGED, &interaction.dragged),
-                    (STATE_DRAGGING, &interaction.dragging),
-                    (STATE_DRAG_IN, &interaction.drag_in),
-                    (STATE_DRAG_OVER, &interaction.drag_over),
-                ];
-
-                for (state, style_opt) in cascade {
-                    if active_mask.has(state)
-                        && let Some(style) = style_opt
-                    {
-                        let inner_vis = &style.inner.visual_property;
-                        let inner_mask = style.inner.mask;
-
-                        if inner_mask.has(STYLE_BG_COLOR) {
-                            target.bg_color = inner_vis.bg_color;
-                        }
-                        if inner_mask.has(STYLE_BORDER_COLOR) {
-                            target.border_color = inner_vis.border_color;
-                        }
-                        if inner_mask.has(STYLE_OPACITY) {
-                            target.opacity = inner_vis.opacity;
-                        }
-                        if inner_mask.has(STYLE_TRANSFORM) {
-                            target.transform = inner_vis.transform;
-                        }
-                        if inner_mask.has(STYLE_CORNER_RADIUS) {
-                            target.corner_radius = inner_vis.corner_radius;
-                        }
-                        if inner_mask.has(STYLE_POINTER_EVENTS) {
-                            target.pointer_events = inner_vis.pointer_events;
-                        }
-                        if inner_mask.has(STYLE_BOX_SHADOW) {
-                            if inner_vis.shadow_params.is_some() {
-                                target.shadow_params = inner_vis.shadow_params;
-                            }
-                            if inner_vis.shadow_color.is_some() {
-                                target.shadow_color = inner_vis.shadow_color;
-                            }
-                        }
-                        if inner_mask.has(STYLE_TEXT_COLOR) {
-                            target.text_color = inner_vis.text_color;
-                        }
-                        if inner_mask.has(STYLE_USER_SELECT) {
-                            if inner_vis.select_bg_color.is_some() {
-                                target.select_bg_color = inner_vis.select_bg_color;
-                            }
-                            if inner_vis.select_text_color.is_some() {
-                                target.select_text_color= inner_vis.select_text_color;
-                            }
-                        }
-                        if inner_mask.has(STYLE_BORDER) {
-                            if inner_vis.border_lengths.is_some() {
-                                target.border_lengths = inner_vis.border_lengths;
-                            }
-                            if inner_vis.border_styles.is_some() {
-                                target.border_styles = inner_vis.border_styles;
-                            }
-                            if inner_vis.border_alignments.is_some() {
-                                target.border_alignments = inner_vis.border_alignments;
-                            }
-                        }
-                        if inner_mask.has(STYLE_OUTLINE) {
-                            if inner_vis.outline_width.is_some() {
-                                target.outline_width = inner_vis.outline_width;
-                            }
-                            if inner_vis.outline_color.is_some() {
-                                target.outline_color = inner_vis.outline_color;
-                            }
-                            if inner_vis.outline_lengths.is_some() {
-                                target.outline_lengths = inner_vis.outline_lengths;
-                            }
-                            if inner_vis.outline_styles.is_some() {
-                                target.outline_styles = inner_vis.outline_styles;
-                            }
-                            if inner_vis.outline_alignments.is_some() {
-                                target.outline_alignments = inner_vis.outline_alignments;
-                            }
-                            if inner_vis.outline_offset.is_some() {
-                                target.outline_offset = inner_vis.outline_offset;
-                            }
-                        }
-                        if inner_mask.has(STYLE_CURSOR) {
-                            target.cursor = inner_vis.cursor;
-                        }
-                        if inner_mask.has(STYLE_RESIZABLE) {
-                            target.resizable_cursor = inner_vis.resizable_cursor;
-                        }
-                    }
-                }
-            }
-
-            if active_mask.has(STYLE_INTERACTION_WITHIN)
-                && let Some(interaction) = self.renders.interaction_properties.get(id)
-            {
-                // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
-                let cascade_within = [
-                    (STATE_FOCUSED, &interaction.focused_within),
-                    (STATE_SELECTED, &interaction.selected_within),
-                    (STATE_ACTIVED, &interaction.actived_within),
-                    (STATE_HOVERED, &interaction.hovered_within),
-                    (STATE_PRESSED, &interaction.pressed_within),
-                    (STATE_DISABLED, &interaction.disabled_within),
-                    (STATE_DRAGGING, &interaction.dragged_within),
-                    (STATE_DRAG_IN, &interaction.hovered_within),
-                ];
-
-                for (state, style_opt) in cascade_within {
-                    // 子孫要素のいずれかがこの state_flag を満たしているか
-                    if self.has_descendant_with_state(id, state)
-                        && let Some(style) = style_opt
-                    {
-                        let inner_vis = &style.inner.visual_property;
-                        let inner_mask = style.inner.mask;
-
-                        if inner_mask.has(STYLE_BG_COLOR) {
-                            target.bg_color = inner_vis.bg_color;
-                        }
-                        if inner_mask.has(STYLE_BORDER_COLOR) {
-                            target.border_color = inner_vis.border_color;
-                        }
-                        if inner_mask.has(STYLE_OPACITY) {
-                            target.opacity = inner_vis.opacity;
-                        }
-                        if inner_mask.has(STYLE_TRANSFORM) {
-                            target.transform = inner_vis.transform;
-                        }
-                        if inner_mask.has(STYLE_CORNER_RADIUS) {
-                            target.corner_radius = inner_vis.corner_radius;
-                        }
-                        if inner_mask.has(STYLE_POINTER_EVENTS) {
-                            target.pointer_events = inner_vis.pointer_events;
-                        }
-                        if inner_mask.has(STYLE_BOX_SHADOW) {
-                            if inner_vis.shadow_params.is_some() {
-                                target.shadow_params = inner_vis.shadow_params;
-                            }
-                            if inner_vis.shadow_color.is_some() {
-                                target.shadow_color = inner_vis.shadow_color;
-                            }
-                        }
-                        if inner_mask.has(STYLE_TEXT_COLOR) {
-                            target.text_color = inner_vis.text_color;
-                        }
-                        if inner_mask.has(STYLE_BORDER) {
-                            if inner_vis.border_lengths.is_some() {
-                                target.border_lengths = inner_vis.border_lengths;
-                            }
-                            if inner_vis.border_styles.is_some() {
-                                target.border_styles = inner_vis.border_styles;
-                            }
-                            if inner_vis.border_alignments.is_some() {
-                                target.border_alignments = inner_vis.border_alignments;
-                            }
-                        }
-                        if inner_mask.has(STYLE_OUTLINE) {
-                            if inner_vis.outline_width.is_some() {
-                                target.outline_width = inner_vis.outline_width;
-                            }
-                            if inner_vis.outline_color.is_some() {
-                                target.outline_color = inner_vis.outline_color;
-                            }
-                            if inner_vis.outline_lengths.is_some() {
-                                target.outline_lengths = inner_vis.outline_lengths;
-                            }
-                            if inner_vis.outline_styles.is_some() {
-                                target.outline_styles = inner_vis.outline_styles;
-                            }
-                            if inner_vis.outline_alignments.is_some() {
-                                target.outline_alignments = inner_vis.outline_alignments;
-                            }
-                            if inner_vis.outline_offset.is_some() {
-                                target.outline_offset = inner_vis.outline_offset;
-                            }
-                        }
-                    }
-                }
-
-                // All（いずれかのインタラクションがあればON）の解決
-                if let Some(ref style) = interaction.any_within
-                    && self.has_descendant_with_any_active_state(id)
-                {
-                    let inner_vis = &style.inner.visual_property;
-                    let inner_mask = style.inner.mask;
-
-                    if inner_mask.has(STYLE_BG_COLOR) {
-                        target.bg_color = inner_vis.bg_color;
-                    }
-                    if inner_mask.has(STYLE_BORDER_COLOR) {
-                        target.border_color = inner_vis.border_color;
-                    }
-                    if inner_mask.has(STYLE_OPACITY) {
-                        target.opacity = inner_vis.opacity;
-                    }
-                    if inner_mask.has(STYLE_TRANSFORM) {
-                        target.transform = inner_vis.transform;
-                    }
-                    if inner_mask.has(STYLE_CORNER_RADIUS) {
-                        target.corner_radius = inner_vis.corner_radius;
-                    }
-                    if inner_mask.has(STYLE_POINTER_EVENTS) {
-                        target.pointer_events = inner_vis.pointer_events;
-                    }
-                    if inner_mask.has(STYLE_BOX_SHADOW) {
-                        if inner_vis.shadow_params.is_some() {
-                            target.shadow_params = inner_vis.shadow_params;
-                        }
-                        if inner_vis.shadow_color.is_some() {
-                            target.shadow_color = inner_vis.shadow_color;
-                        }
-                    }
-                    if inner_mask.has(STYLE_TEXT_COLOR) {
-                        target.text_color = inner_vis.text_color;
-                    }
-                    if inner_mask.has(STYLE_BORDER) {
-                        if inner_vis.border_lengths.is_some() {
-                            target.border_lengths = inner_vis.border_lengths;
-                        }
-                        if inner_vis.border_styles.is_some() {
-                            target.border_styles = inner_vis.border_styles;
-                        }
-                        if inner_vis.border_alignments.is_some() {
-                            target.border_alignments = inner_vis.border_alignments;
-                        }
-                    }
-                    if inner_mask.has(STYLE_OUTLINE) {
-                        if inner_vis.outline_width.is_some() {
-                            target.outline_width = inner_vis.outline_width;
-                        }
-                        if inner_vis.outline_color.is_some() {
-                            target.outline_color = inner_vis.outline_color;
-                        }
-                        if inner_vis.outline_lengths.is_some() {
-                            target.outline_lengths = inner_vis.outline_lengths;
-                        }
-                        if inner_vis.outline_styles.is_some() {
-                            target.outline_styles = inner_vis.outline_styles;
-                        }
-                        if inner_vis.outline_alignments.is_some() {
-                            target.outline_alignments = inner_vis.outline_alignments;
-                        }
-                        if inner_vis.outline_offset.is_some() {
-                            target.outline_offset = inner_vis.outline_offset;
-                        }
-                    }
-                }
-            }
+            RenderStore::cascade_within_interaction(
+                id,
+                &self.topology,
+                &self.renders,
+                active_mask,
+                &mut target,
+            );
 
             // プレースホルダー表示状態
             let mut is_placeholder_active = false;
@@ -2982,7 +2669,7 @@ impl Context {
             Val::Px(v) => Some(v),
             Val::Percent(p) => {
                 // 親要素の確定サイズを優先取得
-                let parent_size = if let Some(Some(parent_id)) = self.parents.get(id) {
+                let parent_size = if let Some(Some(parent_id)) = self.topology.parents.get(id) {
                     self.outputs
                         .rects
                         .get(*parent_id)
@@ -3130,7 +2817,8 @@ impl Context {
     /// 階層的な早期枝刈りヒットテスト
     pub fn hit_test(&self, point: LayoutPoint) -> Option<EntityId> {
         // 各要素の実効 z_index を、親から子へカスケードして算出
-        let mut effective_z_indices = SecondaryMap::with_capacity(self.active_entities.len());
+        let mut effective_z_indices =
+            SecondaryMap::with_capacity(self.topology.active_entities.len());
         for &id in &self.layouts.flat_dfs_sequence {
             let self_z = self
                 .renders
@@ -3139,6 +2827,7 @@ impl Context {
                 .and_then(|v| v.z_index);
 
             let parent_z = self
+                .topology
                 .parents
                 .get(id)
                 .copied()
@@ -3150,13 +2839,13 @@ impl Context {
         }
 
         // 実効 z_index に基づいて active_entities を安定ソート
-        let mut sorted_entities = self.active_entities.clone();
+        let mut sorted_entities = self.topology.active_entities.clone();
         sorted_entities.sort_by_key(|&id| effective_z_indices.get(id).copied().unwrap_or(0));
 
         for &id in sorted_entities.iter().rev() {
             // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
             if Some(id) == self.events.interaction_states.dragged
-                || self.active_masks[id].has(STATE_DRAG_OVER)
+                || self.topology.active_masks[id].has(STATE_DRAG_OVER)
             {
                 continue;
             }
@@ -3207,7 +2896,7 @@ impl Context {
         }
 
         // 2. 子要素を逆順（前面優先）で再帰降下
-        if let Some(children) = self.children.get(id) {
+        if let Some(children) = self.topology.children.get(id) {
             let child_len = children.len();
             for i in (0..child_len).rev() {
                 let child_id = children[i];
@@ -3248,7 +2937,7 @@ impl Context {
             return true;
         }
         let mut curr = target;
-        while let Some(Some(p)) = self.parents.get(curr) {
+        while let Some(Some(p)) = self.topology.parents.get(curr) {
             if *p == parent {
                 return true;
             }
@@ -3257,68 +2946,10 @@ impl Context {
         false
     }
 
-    /// 子孫要素のインタラクション状態（state_flag）を走査します
-    pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u128) -> bool {
-        // ヒープアロケーションを防ぐため、スタック領域に16要素まで確保可能な SmallVec を用意
-        let mut stack = SmallVec::<[EntityId; 16]>::new();
-
-        if let Some(children) = self.children.get(parent) {
-            for &child_id in children {
-                stack.push(child_id);
-            }
-        }
-
-        while let Some(child_id) = stack.pop() {
-            if self.entities.contains_key(child_id)
-                && let Some(mask) = self.active_masks.get(child_id)
-                && mask.has(state_flag)
-            {
-                return true; // 状態が見つかれば、関数呼び出しを重ねることなく即時早期リターン
-            }
-
-            // 子要素があれば、非再帰スタックにプッシュして探索を継続
-            if let Some(children) = self.children.get(child_id) {
-                for &next_child in children {
-                    stack.push(next_child);
-                }
-            }
-        }
-
-        false
-    }
-
-    /// いずれか一つのアクティブなユーザーインタラクションが子孫要素でONになっているか非再帰で走査します
-    pub(crate) fn has_descendant_with_any_active_state(&self, parent: EntityId) -> bool {
-        let mut stack = SmallVec::<[EntityId; 16]>::new();
-
-        if let Some(children) = self.children.get(parent) {
-            for &child_id in children {
-                stack.push(child_id);
-            }
-        }
-
-        while let Some(child_id) = stack.pop() {
-            if self.entities.contains_key(child_id)
-                && let Some(mask) = self.active_masks.get(child_id)
-                && mask.has_active_interaction_property()
-            {
-                return true;
-            }
-
-            if let Some(children) = self.children.get(child_id) {
-                for &next_child in children {
-                    stack.push(next_child);
-                }
-            }
-        }
-
-        false
-    }
-
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
     #[inline(always)]
     fn update_state(&mut self, id: EntityId, state_flag: u128, active: bool) {
-        if let Some(mask) = self.active_masks.get_mut(id) {
+        if let Some(mask) = self.topology.active_masks.get_mut(id) {
             let was_active = mask.has(state_flag);
             if was_active != active {
                 // 1. ビットマスクの更新
@@ -3333,9 +2964,9 @@ impl Context {
 
                 // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
                 let mut curr = id;
-                while let Some(Some(parent_id)) = self.parents.get(curr).copied() {
-                    if self.entities.contains_key(parent_id) {
-                        let parent_mask = self.active_masks[parent_id];
+                while let Some(Some(parent_id)) = self.topology.parents.get(curr).copied() {
+                    if self.topology.entities.contains_key(parent_id) {
+                        let parent_mask = self.topology.active_masks[parent_id];
 
                         // 先祖要素が one of the within スタイルを1つでも持っている場合のみ深く入る
                         if parent_mask.has(STYLE_INTERACTION_WITHIN) {
@@ -3817,7 +3448,7 @@ impl Context {
         let mut found_resize_hover = None;
 
         while let Some(id) = current_id {
-            if self.active_masks[id].has(STYLE_RESIZABLE) {
+            if self.topology.active_masks[id].has(STYLE_RESIZABLE) {
                 let rect = self.outputs.rects[id];
                 let resizable_flags = self
                     .layouts
@@ -3838,7 +3469,7 @@ impl Context {
                     break; // 最も前面寄りのリサイズ親要素を優先採用
                 }
             }
-            current_id = self.parents.get(id).copied().flatten();
+            current_id = self.topology.parents.get(id).copied().flatten();
         }
 
         if let Some((id, dir)) = found_resize_hover {
@@ -3887,7 +3518,7 @@ impl Context {
                 .unwrap_or(UserSelect::None);
 
             if user_select == UserSelect::Text
-                && let Some(start_pos) = self.selection_start_index.get(pressed_id).copied()
+                && let Some(start_pos) = self.outputs.selection_start_index.get(pressed_id).copied()
             {
                 // プレースホルダー選択のドラッグ遮断
                 if let Some(contents) = self.contents.input_contents.get(pressed_id) {
@@ -3907,9 +3538,8 @@ impl Context {
                 let rect = self.outputs.rects[pressed_id];
                 let (basic, _, _) = LayoutStore::resolve_active_layouts(
                     pressed_id,
+                    &self.topology,
                     &self.layouts,
-                    &self.active_masks,
-                    &self.parents,
                     &self.renders,
                 );
                 let border = LayoutStore::get_physical_border(pressed_id, &basic, &self.outputs);
@@ -3950,7 +3580,9 @@ impl Context {
                         final_index..start_pos
                     };
 
-                    self.text_selections.insert(pressed_id, range.clone());
+                    self.outputs
+                        .text_selections
+                        .insert(pressed_id, range.clone());
 
                     self.update_selection_rects(pressed_id);
 
@@ -4051,7 +3683,7 @@ impl Context {
                 self.events.interaction_states.dragged = Some(pressed_id);
 
                 // D&D 設定（STYLE_DRAGGABLE）を持っている場合のセッションのキック
-                if self.active_masks[pressed_id].has(STYLE_DRAGGABLE)
+                if self.topology.active_masks[pressed_id].has(STYLE_DRAGGABLE)
                     && self.events.active_drag_state.is_none()
                 {
                     let drag_prop = self
@@ -4161,13 +3793,15 @@ impl Context {
                     }
 
                     // 元の要素が持つ本物の子要素トポロジーを、一時的にプレースホルダー配下へ自動アタッチ
-                    if let Some(src_children) = self.children.get(pressed_id).cloned() {
+                    if let Some(src_children) = self.topology.children.get(pressed_id).cloned() {
                         for child_id in src_children {
                             // 子要素の親ポインタをプレースホルダーに付け替え
-                            self.parents.insert(child_id, Some(placeholder_id));
+                            self.topology.parents.insert(child_id, Some(placeholder_id));
 
                             // プレースホルダー側の子要素リストへ追加
-                            if let Some(ph_children) = self.children.get_mut(placeholder_id) {
+                            if let Some(ph_children) =
+                                self.topology.children.get_mut(placeholder_id)
+                            {
                                 ph_children.push(child_id);
                             }
 
@@ -4182,7 +3816,7 @@ impl Context {
                         }
 
                         // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
-                        if let Some(src_children_mut) = self.children.get_mut(pressed_id) {
+                        if let Some(src_children_mut) = self.topology.children.get_mut(pressed_id) {
                             src_children_mut.clear();
                         }
                         self.mark_layout_dirty(pressed_id);
@@ -4196,12 +3830,12 @@ impl Context {
                     if let Some(vis) = self.renders.base_visual_properties.get_mut(placeholder_id) {
                         vis.pointer_events = Some(PointerEvents::None);
                     }
-                    if let Some(mask) = self.active_masks.get_mut(placeholder_id) {
+                    if let Some(mask) = self.topology.active_masks.get_mut(placeholder_id) {
                         mask.set(STYLE_POINTER_EVENTS);
                     }
 
                     // プレースホルダーアタッチ前の、本当の元の親要素のIDを安全に記録
-                    let original_parent = self.parents.get(pressed_id).copied().flatten();
+                    let original_parent = self.topology.parents.get(pressed_id).copied().flatten();
 
                     // セッション開始
                     self.events.active_drag_state = Some(ActiveDragState {
@@ -4330,15 +3964,15 @@ impl Context {
                     // ヒットした要素がドラッグ元（src_id）自身、またはその子孫である場合は
                     // ドロップ先として誤認されるのを完全に防ぐため、スルーしてさらに上の親を辿る
                     if id == src_id || self.is_descendant_of(id, src_id) {
-                        current_id = self.parents.get(id).copied().flatten();
+                        current_id = self.topology.parents.get(id).copied().flatten();
                         continue;
                     }
 
-                    if id != placeholder_id && self.active_masks[id].has(STYLE_DROPPABLE) {
+                    if id != placeholder_id && self.topology.active_masks[id].has(STYLE_DROPPABLE) {
                         found_drop_target = Some(id);
                         break;
                     }
-                    current_id = self.parents.get(id).copied().flatten();
+                    current_id = self.topology.parents.get(id).copied().flatten();
                 }
             }
 
@@ -4422,7 +4056,7 @@ impl Context {
                         // 親要素の矩形を取得
                         // 親要素の矩形と、その「左・上ボーダーの厚み」を正確に取得する
                         let (parent_rect, parent_border_left, parent_border_top) =
-                            if let Some(Some(parent_id)) = self.parents.get(id) {
+                            if let Some(Some(parent_id)) = self.topology.parents.get(id) {
                                 let p_rect = self
                                     .outputs
                                     .rects
@@ -4667,7 +4301,7 @@ impl Context {
                         .and_then(|v| v.user_select)
                         .unwrap_or(UserSelect::None);
 
-                    let is_input = self.active_masks[target_id].has(COMP_INPUT_CONTENT);
+                    let is_input = self.topology.active_masks[target_id].has(COMP_INPUT_CONTENT);
 
                     if user_select == UserSelect::Text
                         && !is_input
@@ -4676,9 +4310,8 @@ impl Context {
                         let rect = self.outputs.rects[target_id];
                         let (basic, _, _) = LayoutStore::resolve_active_layouts(
                             target_id,
+                            &self.topology,
                             &self.layouts,
-                            &self.active_masks,
-                            &self.parents,
                             &self.renders,
                         );
                         let border_left = match basic.border.left {
@@ -4724,24 +4357,30 @@ impl Context {
                             if modifiers.shift {
                                 // 共通の Shift選択拡張
                                 let anchor = self
+                                    .outputs
                                     .selection_start_index
                                     .get(target_id)
                                     .copied()
                                     .unwrap_or(final_index);
-                                if !self.selection_start_index.contains_key(target_id) {
-                                    self.selection_start_index.insert(target_id, final_index);
+                                if !self.outputs.selection_start_index.contains_key(target_id) {
+                                    self.outputs
+                                        .selection_start_index
+                                        .insert(target_id, final_index);
                                 }
                                 let range = if anchor <= final_index {
                                     anchor..final_index
                                 } else {
                                     final_index..anchor
                                 };
-                                self.text_selections.insert(target_id, range);
+                                self.outputs.text_selections.insert(target_id, range);
                                 self.update_selection_rects(target_id);
                             } else {
                                 // 共通の通常クリックリセット
-                                self.selection_start_index.insert(target_id, final_index);
-                                self.text_selections
+                                self.outputs
+                                    .selection_start_index
+                                    .insert(target_id, final_index);
+                                self.outputs
+                                    .text_selections
                                     .insert(target_id, final_index..final_index);
                                 self.outputs.selected_rects.remove(target_id);
                             }
@@ -4751,9 +4390,10 @@ impl Context {
                     }
 
                     // フォーカス可能要素のみにフォーカスを制限
-                    let is_focusable = self.active_masks[target_id].has(COMP_INPUT_CONTENT)
-                        || self.active_masks[target_id].has(COMP_WEBVIEW_CONTENT)
-                        || (self.active_masks[target_id].has(STYLE_FOCUSABLE)
+                    let is_focusable = self.topology.active_masks[target_id]
+                        .has(COMP_INPUT_CONTENT)
+                        || self.topology.active_masks[target_id].has(COMP_WEBVIEW_CONTENT)
+                        || (self.topology.active_masks[target_id].has(STYLE_FOCUSABLE)
                             && self
                                 .renders
                                 .visual_properties
@@ -4888,14 +4528,16 @@ impl Context {
                     {
                         // 1. まずドラッグ元要素を現在の親の children リストから安全に引き抜いて削除
                         if let Some(src_parent_id) = drag_state.original_parent {
-                            if let Some(src_children) = self.children.get_mut(src_parent_id) {
+                            if let Some(src_children) =
+                                self.topology.children.get_mut(src_parent_id)
+                            {
                                 src_children.retain(|x| *x != src_id);
                             }
                             // 旧親側の Taffy 順序も再同期
                             LayoutStore::resync_taffy_children_order(
                                 src_parent_id,
                                 &mut self.layouts,
-                                &self.children,
+                                &self.topology,
                             );
                             self.mark_layout_dirty(src_parent_id);
                         }
@@ -4971,17 +4613,19 @@ impl Context {
                                     .unwrap_or(LayoutPoint::ZERO);
                                 let insert_idx = calculate_insert_index(self, target_id, mouse_pos);
 
-                                if let Some(parent_children) = self.children.get_mut(target_id) {
+                                if let Some(parent_children) =
+                                    self.topology.children.get_mut(target_id)
+                                {
                                     // 算出されたインデックス位置へ挿入
                                     parent_children.insert(insert_idx, src_id);
                                 }
-                                self.parents.insert(src_id, Some(target_id));
+                                self.topology.parents.insert(src_id, Some(target_id));
 
                                 // Taffy 側のノード順序を物理並び替え結果に沿って一括して再同期
                                 LayoutStore::resync_taffy_children_order(
                                     target_id,
                                     &mut self.layouts,
-                                    &self.children,
+                                    &self.topology,
                                 );
                             } else {
                                 // 自動更新オフの場合は末尾に通常アタッチ
@@ -4994,13 +4638,13 @@ impl Context {
                     }
 
                     // 避難していた本物の子要素トポロジーを、元の要素（src_id）の配下へ自動復元
-                    if let Some(ph_children) = self.children.get(placeholder_id).cloned() {
+                    if let Some(ph_children) = self.topology.children.get(placeholder_id).cloned() {
                         for child_id in ph_children {
                             // 子要素の親ポインタを元の要素に書き戻し
-                            self.parents.insert(child_id, Some(src_id));
+                            self.topology.parents.insert(child_id, Some(src_id));
 
                             // 元の要素の子要素リストへ復旧
-                            if let Some(src_children) = self.children.get_mut(src_id) {
+                            if let Some(src_children) = self.topology.children.get_mut(src_id) {
                                 src_children.push(child_id);
                             }
 
@@ -5015,7 +4659,9 @@ impl Context {
                         }
 
                         // プレースホルダー側は空にして破棄に備える
-                        if let Some(ph_children_mut) = self.children.get_mut(placeholder_id) {
+                        if let Some(ph_children_mut) =
+                            self.topology.children.get_mut(placeholder_id)
+                        {
                             ph_children_mut.clear();
                         }
                         self.mark_layout_dirty(src_id);
@@ -5160,11 +4806,12 @@ impl Context {
         // すでにフラットシーケンスが構築されていればその先頭、
         // 無ければ parents マップをスキャンして親が None の生存要素をフォールバック解決します
         self.layouts.flat_dfs_sequence.first().copied().or_else(|| {
-            self.parents
+            self.topology
+                .parents
                 .iter()
                 .find(|&(id, &parent_id_opt)| {
                     // 親が None かつ、要素 id 自体が slotmap (entities) に生存しているか
-                    parent_id_opt.is_none() && self.entities.contains_key(id)
+                    parent_id_opt.is_none() && self.topology.entities.contains_key(id)
                 })
                 .map(|(id, _)| id)
         })
@@ -5203,9 +4850,8 @@ impl Context {
                 let rect = self.outputs.rects[target_id];
                 let (basic, _, _) = LayoutStore::resolve_active_layouts(
                     target_id,
+                    &self.topology,
                     &self.layouts,
-                    &self.active_masks,
-                    &self.parents,
                     &self.renders,
                 );
                 let border = LayoutStore::get_physical_border(target_id, &basic, &self.outputs);
@@ -5231,9 +4877,13 @@ impl Context {
                         // 高精度な文節境界を抽出
                         let range = crate::find_word_boundaries(&text_u16, final_index);
 
-                        self.text_selections.insert(target_id, range.clone());
+                        self.outputs
+                            .text_selections
+                            .insert(target_id, range.clone());
                         // アンカー開始を文節左端にセット
-                        self.selection_start_index.insert(target_id, range.start);
+                        self.outputs
+                            .selection_start_index
+                            .insert(target_id, range.start);
                         self.update_selection_rects(target_id); // 選択矩形を更新
 
                         if let Some(contents) = self.contents.input_contents.get_mut(target_id) {
@@ -5277,13 +4927,12 @@ impl Context {
             }
 
             // ユーザーハンドラがない場合、要素がスクロールコンテナであるか判定
-            let mask = self.active_masks[curr_id];
+            let mask = self.topology.active_masks[curr_id];
             if mask.has(STYLE_OVERFLOW) {
                 let (basic, _, _) = LayoutStore::resolve_active_layouts(
                     curr_id,
+                    &self.topology,
                     &self.layouts,
-                    &self.active_masks,
-                    &self.parents,
                     &self.renders,
                 );
 
@@ -5314,7 +4963,7 @@ impl Context {
             }
 
             // 先祖へ伝播
-            curr = self.parents.get(curr_id).copied().flatten();
+            curr = self.topology.parents.get(curr_id).copied().flatten();
         }
     }
 
@@ -5368,7 +5017,9 @@ impl Context {
                         let u16_len = text.encode_utf16().count();
                         let full_range = 0..u16_len;
 
-                        self.text_selections.insert(focused_id, full_range.clone());
+                        self.outputs
+                            .text_selections
+                            .insert(focused_id, full_range.clone());
 
                         self.update_selection_rects(focused_id);
 
@@ -5437,7 +5088,7 @@ impl Context {
                 self.events.interaction_states.focused = Some(candidate_id);
 
                 // WebView2 要素だった場合はシステム側にフォーカスをプログラム駆動で移譲
-                if self.active_masks[candidate_id].has(COMP_WEBVIEW_CONTENT) {
+                if self.topology.active_masks[candidate_id].has(COMP_WEBVIEW_CONTENT) {
                     // 通常のレンダラーから focus_webview を呼び出すため
                 }
 
@@ -5450,14 +5101,14 @@ impl Context {
     /// 対象の要素がキーボードフォーカス可能であるかを総合検証します
     fn is_keyboard_focusable(&self, id: EntityId) -> bool {
         // 生存確認、および無効化（Disabled）状態でないか検証
-        if !self.entities.contains_key(id) || self.is_disabled(id) {
+        if !self.topology.entities.contains_key(id) || self.is_disabled(id) {
             return false;
         }
 
         // 暗黙的または明示的にキーボードフォーカスを要求しているか
-        let is_target = self.active_masks[id].has(COMP_INPUT_CONTENT)
-            || self.active_masks[id].has(COMP_WEBVIEW_CONTENT)
-            || (self.active_masks[id].has(STYLE_FOCUSABLE)
+        let is_target = self.topology.active_masks[id].has(COMP_INPUT_CONTENT)
+            || self.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT)
+            || (self.topology.active_masks[id].has(STYLE_FOCUSABLE)
                 && self
                     .renders
                     .visual_properties
@@ -5483,7 +5134,7 @@ impl Context {
             {
                 return false;
             }
-            curr = self.parents.get(curr_id).copied().flatten();
+            curr = self.topology.parents.get(curr_id).copied().flatten();
         }
 
         true
@@ -5546,7 +5197,7 @@ impl Context {
     /// 現在の選択範囲（text_selections）に基づき、
     /// 描画用の物理選択矩形（selected_rects）を自動再計算して SoA キャッシュを更新します。
     pub(crate) fn update_selection_rects(&mut self, id: EntityId) {
-        if let Some(range) = self.text_selections.get(id).cloned()
+        if let Some(range) = self.outputs.text_selections.get(id).cloned()
             && range.start < range.end
             && let Some(layout) = self.get_or_create_layout(id)
         {
@@ -5647,7 +5298,7 @@ impl Context {
             .unwrap_or(UserSelect::None);
 
         if user_select == UserSelect::Text {
-            let range = self.text_selections.get(focused_id)?;
+            let range = self.outputs.text_selections.get(focused_id)?;
             if range.start < range.end {
                 let text = self.contents.text_contents.get(focused_id)?;
                 let u16_text: Vec<u16> = text.encode_utf16().collect();
@@ -5663,7 +5314,7 @@ impl Context {
     pub fn inject_paste(&mut self, text: &str) {
         let _context_guard = bind_context(self);
         if let Some(focused_id) = self.events.interaction_states.focused
-            && self.active_masks[focused_id].has(COMP_INPUT_CONTENT)
+            && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
             && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
         {
             let text_val = contents.text.0.get();
@@ -5711,7 +5362,8 @@ impl Context {
             contents.record_undo(text_val.clone(), range.clone());
 
             contents.selected_range = new_caret..new_caret;
-            self.text_selections
+            self.outputs
+                .text_selections
                 .insert(focused_id, new_caret..new_caret);
             self.outputs.selected_rects.remove(focused_id);
             contents.text.1.set(new_text);
@@ -5725,7 +5377,7 @@ impl Context {
     pub fn inject_undo(&mut self) {
         let _context_guard = bind_context(self);
         if let Some(focused_id) = self.events.interaction_states.focused
-            && self.active_masks[focused_id].has(COMP_INPUT_CONTENT)
+            && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
             && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             && let Some((prev_text, prev_sel)) = contents.undo_stack.pop()
         {
@@ -5734,7 +5386,7 @@ impl Context {
             contents.redo_stack.push((current_text, current_sel)); // 現在の状態を Redo 用にセーブ
 
             contents.selected_range = prev_sel.clone();
-            self.text_selections.insert(focused_id, prev_sel);
+            self.outputs.text_selections.insert(focused_id, prev_sel);
             self.outputs.selected_rects.remove(focused_id);
             contents.text.1.set(prev_text);
 
@@ -5747,7 +5399,7 @@ impl Context {
     pub fn inject_redo(&mut self) {
         let _context_guard = bind_context(self);
         if let Some(focused_id) = self.events.interaction_states.focused
-            && self.active_masks[focused_id].has(COMP_INPUT_CONTENT)
+            && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
             && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             && let Some((next_text, next_sel)) = contents.redo_stack.pop()
         {
@@ -5756,7 +5408,7 @@ impl Context {
             contents.undo_stack.push((current_text, current_sel)); // 現在の状態を Undo 用に退避
 
             contents.selected_range = next_sel.clone();
-            self.text_selections.insert(focused_id, next_sel);
+            self.outputs.text_selections.insert(focused_id, next_sel);
             self.outputs.selected_rects.remove(focused_id);
             contents.text.1.set(next_text);
 
@@ -5777,7 +5429,7 @@ impl Context {
             .unwrap_or(UserSelect::None);
 
         if user_select == UserSelect::Text
-            && let Some(range) = self.text_selections.get(focused_id).cloned()
+            && let Some(range) = self.outputs.text_selections.get(focused_id).cloned()
             && range.start < range.end
             && let Some(text) = self.contents.text_contents.get(focused_id)
         {
@@ -5786,7 +5438,7 @@ impl Context {
             let cut_text = String::from_utf16(slice).ok()?;
 
             // 対象が Input コントロールである場合のみ、切り取り削除上書きを実行
-            if self.active_masks[focused_id].has(COMP_INPUT_CONTENT)
+            if self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
                 && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             {
                 // 削除前の履歴セーブ
@@ -5801,7 +5453,8 @@ impl Context {
 
                 let new_text = String::from_utf16_lossy(&left);
                 contents.selected_range = range.start..range.start;
-                self.text_selections
+                self.outputs
+                    .text_selections
                     .insert(focused_id, range.start..range.start);
                 self.outputs.selected_rects.remove(focused_id);
                 contents.text.1.set(new_text);
@@ -5822,13 +5475,13 @@ impl Context {
         let mut max_y = 0.0f32;
 
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
-        if self.active_masks[id].has(COMP_INPUT_CONTENT)
+        if self.topology.active_masks[id].has(COMP_INPUT_CONTENT)
             && let Some(contents) = self.contents.input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
             max_x = layout_rect.width + contents.caret_width.unwrap_or(1.5);
             max_y = layout_rect.height;
-        } else if self.active_masks[id].has(COMP_TEXT_CONTENT)
+        } else if self.topology.active_masks[id].has(COMP_TEXT_CONTENT)
             && let Some(layout) = self.get_or_create_layout(id)
         {
             let size = self.system.text_engine.get_layout_size(&layout);
@@ -5837,13 +5490,8 @@ impl Context {
         }
 
         // 親要素自体のボーダー・パディング厚を取得
-        let (basic, _, _) = LayoutStore::resolve_active_layouts(
-            id,
-            &self.layouts,
-            &self.active_masks,
-            &self.parents,
-            &self.renders,
-        );
+        let (basic, _, _) =
+            LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders);
         let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
         let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
 
@@ -5858,7 +5506,7 @@ impl Context {
                 (None, None)
             };
 
-        if let Some(children_list) = self.children.get(id) {
+        if let Some(children_list) = self.topology.children.get(id) {
             for &child_id in children_list {
                 // スクロールバーのトラックはサイズ計算から除外
                 if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
@@ -5916,13 +5564,8 @@ impl Context {
         let scroll_size = self.get_scroll_size(id);
 
         // 親コンテナのボーダーおよびパディング厚を取得
-        let (basic, _, _) = LayoutStore::resolve_active_layouts(
-            id,
-            &self.layouts,
-            &self.active_masks,
-            &self.parents,
-            &self.renders,
-        );
+        let (basic, _, _) =
+            LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders);
         let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
         let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
 
@@ -6123,7 +5766,8 @@ impl Context {
     /// 指定された要素が現在マウスホバーされているか判定します
     #[inline]
     pub fn is_hovered(&self, id: EntityId) -> bool {
-        self.active_masks
+        self.topology
+            .active_masks
             .get(id)
             .map(|m| m.has(STATE_HOVERED))
             .unwrap_or(false)
@@ -6132,7 +5776,8 @@ impl Context {
     /// 指定された要素が現在キーボードフォーカスを得ているか判定します
     #[inline]
     pub fn is_focused(&self, id: EntityId) -> bool {
-        self.active_masks
+        self.topology
+            .active_masks
             .get(id)
             .map(|m| m.has(STATE_FOCUSED))
             .unwrap_or(false)
@@ -6141,7 +5786,8 @@ impl Context {
     /// 指定された要素が現在マウスやタップで押し下げられているか判定します
     #[inline]
     pub fn is_pressed(&self, id: EntityId) -> bool {
-        self.active_masks
+        self.topology
+            .active_masks
             .get(id)
             .map(|m| m.has(STATE_PRESSED))
             .unwrap_or(false)
@@ -6150,7 +5796,8 @@ impl Context {
     /// 指定された要素が無効化（操作不可）状態にあるか判定します
     #[inline]
     pub fn is_disabled(&self, id: EntityId) -> bool {
-        self.active_masks
+        self.topology
+            .active_masks
             .get(id)
             .map(|m| m.has(STATE_DISABLED))
             .unwrap_or(false)
@@ -6159,7 +5806,8 @@ impl Context {
     /// 指定された要素が現在アクティブ（有効選択など）状態にあるか判定します
     #[inline]
     pub fn is_actived(&self, id: EntityId) -> bool {
-        self.active_masks
+        self.topology
+            .active_masks
             .get(id)
             .map(|m| m.has(STATE_ACTIVED))
             .unwrap_or(false)
@@ -6168,7 +5816,8 @@ impl Context {
     /// 指定された要素が現在テキストまたはトグル選択されているか判定します
     #[inline]
     pub fn is_selected(&self, id: EntityId) -> bool {
-        self.active_masks
+        self.topology
+            .active_masks
             .get(id)
             .map(|m| m.has(STATE_SELECTED))
             .unwrap_or(false)
@@ -6177,7 +5826,8 @@ impl Context {
     /// 指定された要素が現在ドラッグ操作中にあるか判定します
     #[inline]
     pub fn is_dragged(&self, id: EntityId) -> bool {
-        self.active_masks
+        self.topology
+            .active_masks
             .get(id)
             .map(|m| m.has(STATE_DRAGGED))
             .unwrap_or(false)
@@ -6227,7 +5877,7 @@ impl Context {
 
     /// 指定された要素をプログラム駆動でクリックさせます
     pub fn trigger_element_click(&mut self, id: EntityId) {
-        if !self.entities.contains_key(id) || self.is_disabled(id) {
+        if !self.topology.entities.contains_key(id) || self.is_disabled(id) {
             return;
         }
         let mut on_click = self
@@ -6247,14 +5897,15 @@ impl Context {
 
     /// 指定した要素の子要素一覧を取得します。
     pub fn children_list(&self, handle: Element) -> Option<Vec<Element>> {
-        self.children
+        self.topology
+            .children
             .get(handle.id)
             .map(|c| c.iter().map(|&id| Element { id }).collect())
     }
 
     /// 画面上でアクティブ（有効）になっている要素の総数を取得します。
     pub fn active_entities_count(&self) -> usize {
-        self.active_entities.len()
+        self.topology.active_entities.len()
     }
 
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
@@ -6293,7 +5944,7 @@ impl Context {
                     }
                 }
             }
-            curr = self.parents.get(id).copied().flatten();
+            curr = self.topology.parents.get(id).copied().flatten();
         }
 
         // 個別指定がなく、親のいずれかに Global カーソルが定義されていた場合はそれを採用
@@ -6322,7 +5973,7 @@ impl Context {
 fn calculate_insert_index(cx: &Context, parent_id: EntityId, logical_pos: LayoutPoint) -> usize {
     let mut insert_idx = 0;
 
-    if let Some(children) = cx.children.get(parent_id) {
+    if let Some(children) = cx.topology.children.get(parent_id) {
         let parent_flex = cx
             .layouts
             .flex_layouts

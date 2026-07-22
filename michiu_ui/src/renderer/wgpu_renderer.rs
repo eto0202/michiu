@@ -576,13 +576,8 @@ impl WgpuRenderer {
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> QuadInstance {
-        let (basic, _, _) = LayoutStore::resolve_active_layouts(
-            entity_id,
-            &cx.layouts,
-            &cx.active_masks,
-            &cx.parents,
-            &cx.renders,
-        );
+        let (basic, _, _) =
+            LayoutStore::resolve_active_layouts(entity_id, &cx.topology, &cx.layouts, &cx.renders);
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders
@@ -651,8 +646,8 @@ impl WgpuRenderer {
         if shadow_color != Color::TRANSPARENT {
             let mut has_active_webview_parent = false;
             let mut curr_id = entity_id;
-            while let Some(Some(parent_id)) = cx.parents.get(curr_id) {
-                if cx.active_masks[*parent_id].has(COMP_WEBVIEW_CONTENT)
+            while let Some(Some(parent_id)) = cx.topology.parents.get(curr_id) {
+                if cx.topology.active_masks[*parent_id].has(COMP_WEBVIEW_CONTENT)
                     && cx.renders.active_webviews.contains(parent_id)
                 {
                     has_active_webview_parent = true;
@@ -691,7 +686,7 @@ impl WgpuRenderer {
         let mut final_rect = instance.rect;
         let mut final_color = instance.color;
 
-        if !is_decorator && cx.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
+        if !is_decorator && cx.topology.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
             let spans = cx
                 .contents
                 .text_spans
@@ -699,7 +694,7 @@ impl WgpuRenderer {
                 .map(|s| s.as_slice())
                 .unwrap_or(&[]);
 
-            let text_size = if cx.active_masks[entity_id].has(COMP_INPUT_CONTENT)
+            let text_size = if cx.topology.active_masks[entity_id].has(COMP_INPUT_CONTENT)
                 && let Some(contents) = cx.contents.input_contents.get(entity_id)
                 && let Some(layout_rect) = contents.last_layout
             {
@@ -763,7 +758,7 @@ impl WgpuRenderer {
             current_mode = 3.0;
             uv_min = [0.0, 0.0];
             uv_max = [1.0, 1.0];
-        } else if !is_decorator && cx.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
+        } else if !is_decorator && cx.topology.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
             // テキスト要素である場合
             let text = cx
                 .contents
@@ -823,7 +818,7 @@ impl WgpuRenderer {
                 .unwrap_or_else(Vec::new);
 
             // 選択範囲がある場合、ハイライトスパンをキャッシュ判定の前にマージ
-            if let Some(selection) = cx.text_selections.get(entity_id)
+            if let Some(selection) = cx.outputs.text_selections.get(entity_id)
                 && selection.start < selection.end
                 && let Some(sel_text) = visual.select_text_color
             {
@@ -874,7 +869,7 @@ impl WgpuRenderer {
                     .unwrap_or_else(Vec::new);
 
                 // 選択範囲が存在する場合、カラーハイライト用の TextSpan を動的にマージ
-                if let Some(selection) = cx.text_selections.get(entity_id)
+                if let Some(selection) = cx.outputs.text_selections.get(entity_id)
                     && selection.start < selection.end
                     && let Some(sel_text) = visual.select_text_color
                 {

@@ -21,8 +21,8 @@ fn test_session_cleanup() {
     });
 
     // root は登録されているが、child は孤児なので despawn されているはず
-    assert!(cx.entities.contains_key(root.id));
-    assert!(!cx.entities.contains_key(child_id));
+    assert!(cx.topology.entities.contains_key(root.id));
+    assert!(!cx.topology.entities.contains_key(child_id));
 }
 
 // 2. 親子関係構築による寿命の維持テスト
@@ -40,9 +40,9 @@ fn test_parent_ownership() {
     });
 
     // 親子関係があるため、両方とも生存しているはず
-    assert!(cx.entities.contains_key(root.id));
-    assert!(cx.entities.contains_key(child_id));
-    assert_eq!(cx.parents[child_id], Some(root.id));
+    assert!(cx.topology.entities.contains_key(root.id));
+    assert!(cx.topology.entities.contains_key(child_id));
+    assert_eq!(cx.topology.parents[child_id], Some(root.id));
 }
 
 // 3. 静的なスタイル適用の検証
@@ -53,10 +53,10 @@ fn test_static_style_application() {
     let style = ThisStyle::new().bg_color(Color::rgb_f32(1.0, 0.0, 0.0));
     let handle = build_ui(&mut cx, || div_n().style(style));
 
-    assert!(cx.active_masks[handle.id].has(STYLE_BG_COLOR));
+    assert!(cx.topology.active_masks[handle.id].has(STYLE_BG_COLOR));
     let visual = cx.renders.visual_properties.get(handle.id).unwrap();
     assert_eq!(visual.bg_color, Some(Color::rgb_f32(1.0, 0.0, 0.0)));
-    assert!(cx.active_masks[handle.id].has(STATE_QUEUED_RENDER));
+    assert!(cx.topology.active_masks[handle.id].has(STATE_QUEUED_RENDER));
 }
 
 // 4. リアクティブなスタイル適用の検証 (style)
@@ -148,7 +148,7 @@ fn test_reactive_content_switching() {
     let set_show = set_show_handle.unwrap();
 
     // 初期状態の子要素を取得
-    let child_id_a = cx.children[parent.id][0];
+    let child_id_a = cx.topology.children[parent.id][0];
     assert_eq!(cx.contents.text_contents[child_id_a], "A");
 
     // シグナル更新（切り替え）
@@ -158,8 +158,8 @@ fn test_reactive_content_switching() {
     }
 
     // 古い子が despawn され、新しい子が生成されているか
-    assert!(!cx.entities.contains_key(child_id_a));
-    let child_id_b = cx.children[parent.id][0];
+    assert!(!cx.topology.entities.contains_key(child_id_a));
+    let child_id_b = cx.topology.children[parent.id][0];
     assert_eq!(cx.contents.text_contents[child_id_b], "B");
 }
 
@@ -263,19 +263,19 @@ fn test_child_ownership_preservation() {
     });
 
     // スコープを抜けても、ルートが release されているため、親子ともに Context 上で生き続けているかを検証
-    assert!(cx.entities.contains_key(root_handle.id));
-    assert!(cx.entities.contains_key(child_handle.id));
+    assert!(cx.topology.entities.contains_key(root_handle.id));
+    assert!(cx.topology.entities.contains_key(child_handle.id));
 
     // 親子のトポロジー関係も正しく保存されているかを検証
-    assert_eq!(cx.parents[child_handle.id], Some(root_handle.id));
-    assert!(cx.children[root_handle.id].contains(&child_handle.id));
+    assert_eq!(cx.topology.parents[child_handle.id], Some(root_handle.id));
+    assert!(cx.topology.children[root_handle.id].contains(&child_handle.id));
 
     // 外部（手動）デスポーンを実行
     cx.despawn(root_handle);
 
     // 手動デスポーンによって再帰的に両方が消滅したかを検証
-    assert!(!cx.entities.contains_key(root_handle.id));
-    assert!(!cx.entities.contains_key(child_handle.id));
+    assert!(!cx.topology.entities.contains_key(root_handle.id));
+    assert!(!cx.topology.entities.contains_key(child_handle.id));
 }
 
 // ビルダーによるスタイル適用のマッピング検証
@@ -297,12 +297,12 @@ fn test_style_application() {
     let handle = build_ui(&mut cx, || div_n().style(custom_style));
 
     // 1. BG_COLOR マスクがセットされたか
-    assert!(cx.active_masks[handle.id].has(STYLE_BG_COLOR));
+    assert!(cx.topology.active_masks[handle.id].has(STYLE_BG_COLOR));
     // 2. ビジュアルデータに色情報が代入されたか
     let visual = cx.renders.visual_properties.get(handle.id).unwrap();
     assert_eq!(visual.bg_color, Some(Color::rgb_f32(1.0, 0.0, 0.0)));
     // 3. レンダリングDirtyがセットされたか
-    assert!(cx.active_masks[handle.id].has(STATE_QUEUED_RENDER));
+    assert!(cx.topology.active_masks[handle.id].has(STATE_QUEUED_RENDER));
 
     cx.despawn(handle);
 }
@@ -321,7 +321,7 @@ fn test_static_and_dynamic_contents() {
     assert_eq!(cx.contents.text_contents[handle.id], "Dynamic Text");
     // text_closures 側に再評価用のクロージャが登録されているかを検証
     assert!(cx.reactive.element_effects.contains_key(handle.id));
-    assert!(cx.active_masks[handle.id].has(COMP_TEXT_CONTENT));
+    assert!(cx.topology.active_masks[handle.id].has(COMP_TEXT_CONTENT));
 
     cx.despawn(handle);
 }
@@ -369,7 +369,7 @@ fn test_uia_properties() {
 
     assert_eq!(name_prop.1, UiaValue::String("Custom Button".to_string()));
     assert_eq!(auto_prop.1, UiaValue::String("btn_01".to_string()));
-    assert!(cx.active_masks[handle.id].has(COMP_UIA_CONTENT));
+    assert!(cx.topology.active_masks[handle.id].has(COMP_UIA_CONTENT));
 
     cx.despawn(handle);
 }
@@ -392,21 +392,21 @@ fn test_element_set_content_with() {
     });
 
     // 2.1 初回評価により、子が自動的に生成・マウントされているかを検証
-    assert!(cx.entities.contains_key(parent_handle.id));
+    assert!(cx.topology.entities.contains_key(parent_handle.id));
     assert!(cx.reactive.element_effects.contains_key(parent_handle.id)); // クロージャが登録されているべき
 
     // 生成された子要素のIDを特定
-    let children = cx.children[parent_handle.id].clone();
+    let children = cx.topology.children[parent_handle.id].clone();
     assert_eq!(children.len(), 1);
     let child_id = children[0];
 
-    assert!(cx.entities.contains_key(child_id));
-    assert_eq!(cx.parents[child_id], Some(parent_handle.id));
+    assert!(cx.topology.entities.contains_key(child_id));
+    assert_eq!(cx.topology.parents[child_id], Some(parent_handle.id));
 
     // 2.2 親コンテナを despawn した際、中身の動的クロージャも SoA 上から完全にリークせず消えるかを検証
     cx.despawn(parent_handle);
 
-    assert!(!cx.entities.contains_key(parent_handle.id));
-    assert!(!cx.entities.contains_key(child_id)); // 子要素も再帰的に despawn されているべき
+    assert!(!cx.topology.entities.contains_key(parent_handle.id));
+    assert!(!cx.topology.entities.contains_key(child_id)); // 子要素も再帰的に despawn されているべき
     assert!(!cx.reactive.element_effects.contains_key(parent_handle.id)); // メモリリーク防止：クロージャマップからも完全に削除されているべき
 }

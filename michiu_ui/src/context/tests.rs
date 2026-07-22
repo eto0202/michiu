@@ -48,17 +48,17 @@ fn test_spawn_and_recursive_despawn() {
         .insert(grandchild, Cow::Borrowed("grandchild text"));
 
     // 存在を確認
-    assert!(cx.entities.contains_key(root));
-    assert!(cx.entities.contains_key(child));
-    assert!(cx.entities.contains_key(grandchild));
+    assert!(cx.topology.entities.contains_key(root));
+    assert!(cx.topology.entities.contains_key(child));
+    assert!(cx.topology.entities.contains_key(grandchild));
 
     // ルート要素を破棄（デスポーン）
     cx.despawn_internal(root);
 
     // 親子のつながりが再帰的にすべて消去されているかを検証
-    assert!(!cx.entities.contains_key(root));
-    assert!(!cx.entities.contains_key(child));
-    assert!(!cx.entities.contains_key(grandchild));
+    assert!(!cx.topology.entities.contains_key(root));
+    assert!(!cx.topology.entities.contains_key(child));
+    assert!(!cx.topology.entities.contains_key(grandchild));
 
     // SoA側も連動してメモリが完全に解放されているかを検証
     assert!(cx.layouts.basic_layouts.get(root).is_none());
@@ -93,7 +93,7 @@ fn test_garbage_collection_and_dirty_queues() {
     cx.gc_inactive_entities();
 
     // 破棄された要素が各走査リストから瞬時に、かつ確実に排除されているかを検証
-    assert!(cx.active_entities.is_empty());
+    assert!(cx.topology.active_entities.is_empty());
     assert!(cx.layouts.dirty_layout_entities.is_empty());
     assert!(cx.renders.dirty_render_entities.is_empty());
 }
@@ -143,7 +143,11 @@ fn test_dfs_layout_resolution_clip_and_scroll() {
     assert_eq!(child_rect, LayoutRect::new(50.0, 50.0, 100.0, 100.0));
 
     // 3.2 境界クリップ (STYLE_OVERFLOWオン) の検証
-    cx.active_masks.get_mut(root).unwrap().set(STYLE_OVERFLOW);
+    cx.topology
+        .active_masks
+        .get_mut(root)
+        .unwrap()
+        .set(STYLE_OVERFLOW);
     cx.mark_layout_dirty(root);
 
     // 再同期
@@ -265,25 +269,23 @@ fn test_style_cascade_overrides() {
     );
 
     // 5.1 ホバーのみが有効な場合
-    cx.active_masks.get_mut(id).unwrap().set(STATE_HOVERED);
-    let (resolved_hover, _, _) = LayoutStore::resolve_active_layouts(
-        id,
-        &cx.layouts,
-        &cx.active_masks,
-        &cx.parents,
-        &cx.renders,
-    );
+    cx.topology
+        .active_masks
+        .get_mut(id)
+        .unwrap()
+        .set(STATE_HOVERED);
+    let (resolved_hover, _, _) =
+        LayoutStore::resolve_active_layouts(id, &cx.topology, &cx.layouts, &cx.renders);
     assert_eq!(resolved_hover.size.width, Val::Px(50.0));
 
     // 5.2 ホバーと無効化（Disabled）が同時に有効な場合
-    cx.active_masks.get_mut(id).unwrap().set(STATE_DISABLED);
-    let (resolved_both, _, _) = LayoutStore::resolve_active_layouts(
-        id,
-        &cx.layouts,
-        &cx.active_masks,
-        &cx.parents,
-        &cx.renders,
-    );
+    cx.topology
+        .active_masks
+        .get_mut(id)
+        .unwrap()
+        .set(STATE_DISABLED);
+    let (resolved_both, _, _) =
+        LayoutStore::resolve_active_layouts(id, &cx.topology, &cx.layouts, &cx.renders);
     assert_eq!(resolved_both.size.width, Val::Px(100.0));
 }
 
@@ -366,20 +368,20 @@ fn test_pointer_and_focus_event_injection() {
     cx.inject_pointer_move(LayoutPoint::new(80.0, 90.0));
     assert_eq!(enter_count.load(Ordering::SeqCst), 1);
     assert_eq!(move_count.load(Ordering::SeqCst), 1);
-    assert!(cx.active_masks[id].has(STATE_HOVERED));
+    assert!(cx.topology.active_masks[id].has(STATE_HOVERED));
 
     // 6.3 プレス状態でドラッグ移動 (Move & Drag 発火)
     cx.events.interaction_states.pressed = Some(id);
     cx.inject_pointer_move(LayoutPoint::new(90.0, 95.0)); // delta: (10, 5)
     assert_eq!(drag_count.load(Ordering::SeqCst), 1);
     assert_eq!(move_count.load(Ordering::SeqCst), 2); // 2回目のカーソル移動が安全に実行される
-    assert!(cx.active_masks[id].has(STATE_DRAGGED));
+    assert!(cx.topology.active_masks[id].has(STATE_DRAGGED));
 
     // 6.4 要素外への離脱 (Leave 発火)
     cx.events.interaction_states.pressed = None;
     cx.inject_pointer_move(LayoutPoint::new(200.0, 200.0));
     assert_eq!(leave_count.load(Ordering::SeqCst), 1);
-    assert!(!cx.active_masks[id].has(STATE_HOVERED));
+    assert!(!cx.topology.active_masks[id].has(STATE_HOVERED));
 }
 
 // 7. プレス、フォーカス切り替え、クリック・右クリックイベント解決の厳密テスト
@@ -464,7 +466,11 @@ fn test_pointer_button_click_and_right_click() {
 
     // 7.1 初期フォーカスを root にセット
     cx.events.interaction_states.focused = Some(root);
-    cx.active_masks.get_mut(root).unwrap().set(STATE_FOCUSED);
+    cx.topology
+        .active_masks
+        .get_mut(root)
+        .unwrap()
+        .set(STATE_FOCUSED);
 
     // 7.2 sibling上でのマウスプレス -> フォーカスの切り替え
     cx.events.interaction_states.hovered = Some(sibling);
@@ -477,8 +483,8 @@ fn test_pointer_button_click_and_right_click() {
     // root から sibling にフォーカスが移り、blur と focus が1回ずつ発火するべき
     assert_eq!(blur_fired.load(Ordering::SeqCst), 1);
     assert_eq!(focus_fired.load(Ordering::SeqCst), 1);
-    assert!(!cx.active_masks[root].has(STATE_FOCUSED));
-    assert!(cx.active_masks[sibling].has(STATE_FOCUSED));
+    assert!(!cx.topology.active_masks[root].has(STATE_FOCUSED));
+    assert!(cx.topology.active_masks[sibling].has(STATE_FOCUSED));
 
     // 7.3 root上で左クリックダウン -> アップによるクリック解決の検証
     cx.events.interaction_states.hovered = Some(root);
@@ -488,7 +494,7 @@ fn test_pointer_button_click_and_right_click() {
         ElementState::Pressed,
         Modifiers::default(),
     );
-    assert!(cx.active_masks[root].has(STATE_PRESSED));
+    assert!(cx.topology.active_masks[root].has(STATE_PRESSED));
     assert_eq!(cx.events.interaction_states.pressed, Some(root));
 
     // アップ
@@ -497,7 +503,7 @@ fn test_pointer_button_click_and_right_click() {
         ElementState::Released,
         Modifiers::default(),
     );
-    assert!(!cx.active_masks[root].has(STATE_PRESSED));
+    assert!(!cx.topology.active_masks[root].has(STATE_PRESSED));
     assert_eq!(click_fired.load(Ordering::SeqCst), 1); // 同一要素上でのリリースのため、クリック成立
 
     // 7.4 右クリックによる解決の検証
@@ -534,7 +540,7 @@ fn test_reactive_signal_updates() {
     // 2. 座標同期を実行して active_entities を埋める
     cx.sync_layout_and_render_list(root.id, LayoutSize::new(800.0, 600.0));
 
-    let active_id = cx.active_entities[0];
+    let active_id = cx.topology.active_entities[0];
     assert_eq!(cx.contents.text_contents[active_id], "Count: 0");
 
     // 3. 更新フェーズ（コンテキストをバインド）
@@ -545,8 +551,8 @@ fn test_reactive_signal_updates() {
 
     // 依存エフェクトが即座に SoA を更新しているか検証
     assert_eq!(cx.contents.text_contents[active_id], "Count: 1");
-    assert!(cx.active_masks[active_id].has(STATE_QUEUED_LAYOUT));
-    assert!(cx.active_masks[active_id].has(STATE_QUEUED_RENDER));
+    assert!(cx.topology.active_masks[active_id].has(STATE_QUEUED_LAYOUT));
+    assert!(cx.topology.active_masks[active_id].has(STATE_QUEUED_RENDER));
 }
 
 // 巨大UI構造の負荷・速度検証テスト
@@ -592,7 +598,7 @@ fn test_massive_ui_performance() {
     cx.sync_layout_and_render_list(super_root_handle.id, window_size);
     println!("2. 【初回】同期時間: {:.2?}", start_sync_1.elapsed());
 
-    let total_elements = cx.active_entities.len();
+    let total_elements = cx.topology.active_entities.len();
     println!("   -> 同期済みアクティブ要素数: {} 個", total_elements);
     assert_eq!(total_elements, 46802);
 
@@ -662,7 +668,7 @@ fn test_extreme_deep_nesting_performance() {
         "2 & 3. 永続Taffyレイアウト計算 ＆ DFS同期時間: {:.2?}",
         duration_sync
     );
-    assert_eq!(cx.active_entities.len(), 251);
+    assert_eq!(cx.topology.active_entities.len(), 251);
 
     // 200階層の再帰的な一括デスポーン速度を検証
     let start_despawn = Instant::now();
@@ -706,7 +712,7 @@ fn test_extreme_wide_flat_performance() {
         "2 & 3. 永続Taffyレイアウト計算 ＆ DFS同期時間: {:.2?}",
         duration_sync
     );
-    assert_eq!(cx.active_entities.len(), 40001);
+    assert_eq!(cx.topology.active_entities.len(), 40001);
 
     // 4万個の子要素を持つ親をデスポーンした際の回収速度を検証
     let start_despawn = Instant::now();
@@ -745,7 +751,7 @@ fn test_single_and_global_mutation_performance() {
     // 座標同期
     let window_size = LayoutSize::new(1920.0, 1080.0);
     cx.sync_layout_and_render_list(super_root_handle.id, window_size);
-    assert_eq!(cx.active_entities.len(), 10001);
+    assert_eq!(cx.topology.active_entities.len(), 10001);
 
     // テスト前にDirtyキューを完全にクリアしておく
     cx.layouts.dirty_layout_entities.clear();
@@ -753,8 +759,8 @@ fn test_single_and_global_mutation_performance() {
 
     // 将来的にレンダラー（wgpu）の描画転送フェーズで行われる
     // `STATE_QUEUED_RENDER` フラグの一括アンセット（解除）をシミュレート
-    for &id in &cx.active_entities {
-        if let Some(mask) = cx.active_masks.get_mut(id) {
+    for &id in &cx.topology.active_entities {
+        if let Some(mask) = cx.topology.active_masks.get_mut(id) {
             mask.unset(STATE_QUEUED_RENDER);
         }
     }
@@ -763,7 +769,7 @@ fn test_single_and_global_mutation_performance() {
     println!("\n=== C. 部分変更・全体変更の性能比較（基盤ツリー: 10,001要素） ===");
 
     // パターン A: 1箇所のみ変更する際（Single-point Mutation）の応答性
-    let target_id = cx.active_entities[5000];
+    let target_id = cx.topology.active_entities[5000];
 
     let start_single = Instant::now();
     // 対象 of Hovered をオンにする（ダイレクトセッター）
@@ -783,13 +789,13 @@ fn test_single_and_global_mutation_performance() {
     cx.set_hovered(target_id, false);
 
     // パターンAの解除動作で立った `target_id` の Queued フラグもテスト移行前にクリア
-    if let Some(mask) = cx.active_masks.get_mut(target_id) {
+    if let Some(mask) = cx.topology.active_masks.get_mut(target_id) {
         mask.unset(STATE_QUEUED_RENDER);
     }
     cx.renders.dirty_render_entities.clear();
 
     // パターン B: 全要素の全ステート・全プロパティの同時変更（Global Mutation）
-    let all_elements = cx.active_entities.clone();
+    let all_elements = cx.topology.active_entities.clone();
 
     let start_global = Instant::now();
     // 10,001要素すべての、全ステートおよび全スタイルプロパティを一斉に変更する
@@ -882,7 +888,7 @@ fn test_single_and_global_mutation_performance() {
         cx.renders.visual_properties.insert(id, visual);
 
         // --- 5. すべてのコンポーネントマスクを強制的にセットする ---
-        if let Some(mask) = cx.active_masks.get_mut(id) {
+        if let Some(mask) = cx.topology.active_masks.get_mut(id) {
             mask.set(
                 STYLE_BASIC_LAYOUT
                     | STYLE_FLEX_LAYOUT
@@ -974,8 +980,8 @@ fn test_realistic_app_lifecycle_performance() {
         start_sync_1.elapsed()
     );
 
-    let sidebar_id = cx.active_entities[22];
-    let target_card_id = cx.active_entities[500];
+    let sidebar_id = cx.topology.active_entities[22];
+    let target_card_id = cx.topology.active_entities[500];
 
     // Idle
     let start_sync_2 = Instant::now();
@@ -1025,7 +1031,7 @@ fn test_realistic_app_lifecycle_performance() {
     let start_sync_6 = Instant::now();
     {
         let _guard = bind_context(&cx);
-        let main_id = cx.active_entities[21];
+        let main_id = cx.topology.active_entities[21];
         cx.outputs
             .scroll_offsets
             .insert(main_id, LayoutPoint::new(0.0, 10.0));

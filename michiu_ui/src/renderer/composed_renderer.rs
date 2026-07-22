@@ -203,7 +203,7 @@ impl ComposedRenderer {
             }
 
             // ルート要素（root_node）のスタイルから DWM アクリル効果を自動検出して同期
-            if let Some(&root_id) = cx.active_entities.first()
+            if let Some(&root_id) = cx.topology.active_entities.first()
                 && let Some(visual_prop) = cx.renders.visual_properties.get(root_id)
             {
                 let target_backdrop = visual_prop.backdrop;
@@ -269,9 +269,9 @@ impl ComposedRenderer {
 
             let mut current_promoted_ids = Vec::new();
 
-            for &id in &cx.active_entities {
+            for &id in &cx.topology.active_entities {
                 // WebView2 要素を抽出して昇格させる
-                let is_webview = cx.active_masks[id].has(COMP_WEBVIEW_CONTENT);
+                let is_webview = cx.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT);
 
                 let is_always_active = cx
                     .contents.webview_contents
@@ -387,7 +387,7 @@ impl ComposedRenderer {
                 let id = self.promoted_visuals[i].entity_id;
 
                 // 生存していない（despawn済みの）要素はクリーンアップ
-                if !cx.entities.contains_key(id) {
+                if !cx.topology.entities.contains_key(id) {
                     let promoted = &self.promoted_visuals[i];
                     if promoted.is_visible {
                         let _ = self.root_visual.RemoveVisual(&promoted.visual);
@@ -733,7 +733,7 @@ impl ComposedRenderer {
             let webview_controller = Rc::new(RefCell::new(None));
 
             // B. WebView2 設定のバインド (COMP_WEBVIEW_CONTENTフラグ)
-            if cx.active_masks[id].has(COMP_WEBVIEW_CONTENT)
+            if cx.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT)
                 && let Some(contents) = cx.contents.webview_contents.get(id)
             {
                 let slot_clone = webview_controller.clone();
@@ -883,11 +883,11 @@ pub(crate) unsafe fn setup_direct_composition(
 // 親子関係を再帰的に走査してアクティビティを伝播するヘルパー関数の追加 ───
 fn has_interactive_descendant(cx: &Context, id: EntityId) -> bool {
     // 自分自身がフォーカス、またはアクティブ状態のインタラクション属性を持っているか
-    if cx.active_masks[id].has_active_interaction_property() {
+    if cx.topology.active_masks[id].has_active_interaction_property() {
         return true;
     }
     // 子要素を再帰的にチェック
-    if let Some(children) = cx.children.get(id) {
+    if let Some(children) = cx.topology.children.get(id) {
         for &child_id in children {
             if has_interactive_descendant(cx, child_id) {
                 return true;

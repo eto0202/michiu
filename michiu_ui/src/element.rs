@@ -140,7 +140,8 @@ impl Element {
     #[inline]
     pub fn is_draggable(self) -> bool {
         with_context(|cx| {
-            cx.active_masks
+            cx.topology
+                .active_masks
                 .get(self.id)
                 .map(|m| m.has(STYLE_DRAGGABLE))
                 .unwrap_or(false)
@@ -241,7 +242,7 @@ impl Element {
         // 動的なインタラクション状態フラグ（STYLE_INTERACTION_PROPERTY）は
         // 実行時にのみ制御されるべきなので、ここでは除外（マスクアウト）する
         let property_only_mask = mask.0 & !STYLE_INTERACTION_PROPERTY;
-        cx.active_masks[self.id].0 |= property_only_mask;
+        cx.topology.active_masks[self.id].0 |= property_only_mask;
 
         // ベースの基本レイアウトをマージ
         if mask.has_basic_layout() {
@@ -555,7 +556,7 @@ impl Element {
         }
 
         // 2. 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
-        if let Some(children_list) = cx.children.get(id) {
+        if let Some(children_list) = cx.topology.children.get(id) {
             let old_children: Vec<EntityId> = children_list.iter().copied().collect();
             for child_id in old_children {
                 if !scrollbar_ids.contains(&child_id) {
@@ -582,7 +583,7 @@ impl Element {
             Prop::Static(val) => {
                 with_context(|cx| {
                     cx.contents.text_contents.insert(self.id, val);
-                    cx.active_masks[self.id].set(COMP_TEXT_CONTENT);
+                    cx.topology.active_masks[self.id].set(COMP_TEXT_CONTENT);
                     SystemStore::clear_layout_cache(self.id, &mut cx.system);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
@@ -598,7 +599,7 @@ impl Element {
                         move |cx| {
                             let new_text = f();
                             cx.contents.text_contents.insert(id, new_text);
-                            cx.active_masks[id].set(COMP_TEXT_CONTENT);
+                            cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
                             SystemStore::clear_layout_cache(self.id, &mut cx.system);
                             cx.mark_layout_dirty(id);
                             cx.mark_render_dirty(id);
@@ -633,7 +634,7 @@ impl Element {
             Prop::Static(src) => {
                 with_context(|cx| {
                     cx.contents.image_sources.insert(self.id, src);
-                    cx.active_masks[self.id].set(COMP_IMAGE_CONTENT);
+                    cx.topology.active_masks[self.id].set(COMP_IMAGE_CONTENT);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
                 });
@@ -648,7 +649,7 @@ impl Element {
                         move |cx| {
                             let src = f();
                             cx.contents.image_sources.insert(id, src);
-                            cx.active_masks[id].set(COMP_IMAGE_CONTENT);
+                            cx.topology.active_masks[id].set(COMP_IMAGE_CONTENT);
                             cx.mark_layout_dirty(id);
                             cx.mark_render_dirty(id);
                         },
@@ -681,7 +682,7 @@ impl Element {
             Prop::Static(p) => {
                 with_context(|cx| {
                     cx.contents.movie_properties.insert(self.id, p);
-                    cx.active_masks[self.id].set(COMP_MOVIE_CONTENT);
+                    cx.topology.active_masks[self.id].set(COMP_MOVIE_CONTENT);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
                 });
@@ -696,7 +697,7 @@ impl Element {
                         move |cx| {
                             let p = f();
                             cx.contents.movie_properties.insert(id, p);
-                            cx.active_masks[id].set(COMP_MOVIE_CONTENT);
+                            cx.topology.active_masks[id].set(COMP_MOVIE_CONTENT);
                             cx.mark_layout_dirty(id);
                             cx.mark_render_dirty(id);
                         },
@@ -729,7 +730,7 @@ impl Element {
             Prop::Static(contents) => {
                 with_context(|cx| {
                     cx.contents.webview_contents.insert(self.id, contents);
-                    cx.active_masks[self.id].set(COMP_WEBVIEW_CONTENT);
+                    cx.topology.active_masks[self.id].set(COMP_WEBVIEW_CONTENT);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
                 });
@@ -744,7 +745,7 @@ impl Element {
                         move |cx| {
                             let contents = f();
                             cx.contents.webview_contents.insert(id, contents);
-                            cx.active_masks[id].set(COMP_WEBVIEW_CONTENT);
+                            cx.topology.active_masks[id].set(COMP_WEBVIEW_CONTENT);
                             cx.mark_layout_dirty(id);
                             cx.mark_render_dirty(id);
                         },
@@ -895,8 +896,8 @@ impl Element {
         c.selected_range = current_len..current_len;
 
         cx.contents.input_contents.insert(id, c);
-        cx.active_masks[id].set(COMP_INPUT_CONTENT);
-        cx.active_masks[id].set(COMP_TEXT_CONTENT);
+        cx.topology.active_masks[id].set(COMP_INPUT_CONTENT);
+        cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
 
         self.get_or_create_listeners(|l| {
             l.on_mouse_input = Some(Box::new(move |cx, button, modifiers, state| {
@@ -909,9 +910,8 @@ impl Element {
                     // 要素の境界枠（border + padding）を取得してローカル座標を算出
                     let (basic, _, _) = LayoutStore::resolve_active_layouts(
                         id,
+                        &cx.topology,
                         &cx.layouts,
-                        &cx.active_masks,
-                        &cx.parents,
                         &cx.renders,
                     );
                     let border = LayoutStore::get_physical_border(id, &basic, &cx.outputs);
@@ -1013,13 +1013,15 @@ impl Element {
 
                         if modifiers.shift && allow_selection {
                             let anchor = cx
+                                .outputs
                                 .selection_start_index
                                 .get(id)
                                 .copied()
                                 .unwrap_or(contents.selected_range.start);
 
-                            if !cx.selection_start_index.contains_key(id) {
-                                cx.selection_start_index
+                            if !cx.outputs.selection_start_index.contains_key(id) {
+                                cx.outputs
+                                    .selection_start_index
                                     .insert(id, contents.selected_range.start);
                             }
 
@@ -1032,13 +1034,16 @@ impl Element {
                             };
 
                             contents.selected_range = range.clone();
-                            cx.text_selections.insert(id, range);
+                            cx.outputs.text_selections.insert(id, range);
                             update_rects_needed = true;
                         } else {
                             contents.selected_range = final_caret_clamped..final_caret_clamped;
-                            cx.text_selections
+                            cx.outputs
+                                .text_selections
                                 .insert(id, final_caret_clamped..final_caret_clamped);
-                            cx.selection_start_index.insert(id, final_caret_clamped);
+                            cx.outputs
+                                .selection_start_index
+                                .insert(id, final_caret_clamped);
                             cx.outputs.selected_rects.remove(id);
                             contents.selection_reversed = false;
                         }
@@ -1136,10 +1141,10 @@ impl Element {
                         let new_caret = range.start + ch_u16_slice.len();
 
                         contents.selected_range = new_caret..new_caret;
-                        cx.text_selections.insert(id, new_caret..new_caret); // 選択表示をリセット
+                        cx.outputs.text_selections.insert(id, new_caret..new_caret); // 選択表示をリセット
                         cx.outputs.selected_rects.remove(id);
                         // タイピング編集が発生したため古い開始選択アンカーを消去
-                        cx.selection_start_index.remove(id);
+                        cx.outputs.selection_start_index.remove(id);
                         contents.text.1.set(new_text);
                         cx.mark_render_dirty(id);
                     }
@@ -1180,16 +1185,18 @@ impl Element {
 
                                 let new_text = String::from_utf16_lossy(&left);
                                 contents.selected_range = range.start..range.start;
-                                cx.text_selections.insert(id, range.start..range.start);
-                                cx.selection_start_index.remove(id);
+                                cx.outputs
+                                    .text_selections
+                                    .insert(id, range.start..range.start);
+                                cx.outputs.selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             } else {
                                 // 通常の1文字バックスペース
                                 let new_text = crate::input_backspace(&text_val, &mut caret);
                                 contents.selected_range = caret..caret;
                                 // Context側の描画SoAにも最新のキャレット位置を強制同期
-                                cx.text_selections.insert(id, caret..caret);
-                                cx.selection_start_index.remove(id);
+                                cx.outputs.text_selections.insert(id, caret..caret);
+                                cx.outputs.selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             }
                             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1206,15 +1213,17 @@ impl Element {
 
                                 let new_text = String::from_utf16_lossy(&left);
                                 contents.selected_range = range.start..range.start;
-                                cx.text_selections.insert(id, range.start..range.start);
-                                cx.selection_start_index.remove(id);
+                                cx.outputs
+                                    .text_selections
+                                    .insert(id, range.start..range.start);
+                                cx.outputs.selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             } else {
                                 // 通常の1文字デリート
                                 let new_text = crate::input_delete(&text_val, caret);
                                 contents.selected_range = caret..caret;
-                                cx.text_selections.insert(id, caret..caret);
-                                cx.selection_start_index.remove(id);
+                                cx.outputs.text_selections.insert(id, caret..caret);
+                                cx.outputs.selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             }
                             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1227,9 +1236,9 @@ impl Element {
                                 // 選択範囲をすべて解除し、キャレットを左端（start）に収束
                                 let new_caret = range.start;
                                 contents.selected_range = new_caret..new_caret;
-                                cx.text_selections.insert(id, new_caret..new_caret);
+                                cx.outputs.text_selections.insert(id, new_caret..new_caret);
                                 cx.outputs.selected_rects.remove(id);
-                                cx.selection_start_index.remove(id);
+                                cx.outputs.selection_start_index.remove(id);
                                 contents.selection_reversed = false;
                                 contents.last_interacted_time = Some(std::time::Instant::now());
                                 changed = true;
@@ -1238,10 +1247,14 @@ impl Element {
 
                                 if modifiers.shift {
                                     // Shiftキー押下中：選択の拡張
-                                    let anchor =
-                                        cx.selection_start_index.get(id).copied().unwrap_or(caret);
-                                    if !cx.selection_start_index.contains_key(id) {
-                                        cx.selection_start_index.insert(id, caret);
+                                    let anchor = cx
+                                        .outputs
+                                        .selection_start_index
+                                        .get(id)
+                                        .copied()
+                                        .unwrap_or(caret);
+                                    if !cx.outputs.selection_start_index.contains_key(id) {
+                                        cx.outputs.selection_start_index.insert(id, caret);
                                     }
                                     let range = if anchor <= new_caret {
                                         contents.selection_reversed = false;
@@ -1251,13 +1264,13 @@ impl Element {
                                         new_caret..anchor
                                     };
                                     contents.selected_range = range.clone();
-                                    cx.text_selections.insert(id, range);
+                                    cx.outputs.text_selections.insert(id, range);
                                 } else {
                                     // Shiftキー非押下：選択解除して単なる移動
                                     contents.selected_range = new_caret..new_caret;
-                                    cx.text_selections.insert(id, new_caret..new_caret);
+                                    cx.outputs.text_selections.insert(id, new_caret..new_caret);
                                     cx.outputs.selected_rects.remove(id);
-                                    cx.selection_start_index.remove(id);
+                                    cx.outputs.selection_start_index.remove(id);
                                 }
                                 contents.last_interacted_time = Some(std::time::Instant::now());
                                 changed = true;
@@ -1269,9 +1282,9 @@ impl Element {
                             if range.start < range.end && !modifiers.shift {
                                 let new_caret = range.end;
                                 contents.selected_range = new_caret..new_caret;
-                                cx.text_selections.insert(id, new_caret..new_caret);
+                                cx.outputs.text_selections.insert(id, new_caret..new_caret);
                                 cx.outputs.selected_rects.remove(id);
-                                cx.selection_start_index.remove(id);
+                                cx.outputs.selection_start_index.remove(id);
                                 contents.selection_reversed = false;
                                 contents.last_interacted_time = Some(std::time::Instant::now());
                                 changed = true;
@@ -1279,10 +1292,14 @@ impl Element {
                                 let new_caret = caret + 1;
 
                                 if modifiers.shift {
-                                    let anchor =
-                                        cx.selection_start_index.get(id).copied().unwrap_or(caret);
-                                    if !cx.selection_start_index.contains_key(id) {
-                                        cx.selection_start_index.insert(id, caret);
+                                    let anchor = cx
+                                        .outputs
+                                        .selection_start_index
+                                        .get(id)
+                                        .copied()
+                                        .unwrap_or(caret);
+                                    if !cx.outputs.selection_start_index.contains_key(id) {
+                                        cx.outputs.selection_start_index.insert(id, caret);
                                     }
                                     let range = if anchor <= new_caret {
                                         contents.selection_reversed = false;
@@ -1292,12 +1309,12 @@ impl Element {
                                         new_caret..anchor
                                     };
                                     contents.selected_range = range.clone();
-                                    cx.text_selections.insert(id, range);
+                                    cx.outputs.text_selections.insert(id, range);
                                 } else {
                                     contents.selected_range = new_caret..new_caret;
-                                    cx.text_selections.insert(id, new_caret..new_caret);
+                                    cx.outputs.text_selections.insert(id, new_caret..new_caret);
                                     cx.outputs.selected_rects.remove(id);
-                                    cx.selection_start_index.remove(id);
+                                    cx.outputs.selection_start_index.remove(id);
                                 }
                                 contents.last_interacted_time = Some(std::time::Instant::now());
                                 changed = true;
@@ -1351,10 +1368,14 @@ impl Element {
                                 };
 
                                 if modifiers.shift {
-                                    let anchor =
-                                        cx.selection_start_index.get(id).copied().unwrap_or(caret);
-                                    if !cx.selection_start_index.contains_key(id) {
-                                        cx.selection_start_index.insert(id, caret);
+                                    let anchor = cx
+                                        .outputs
+                                        .selection_start_index
+                                        .get(id)
+                                        .copied()
+                                        .unwrap_or(caret);
+                                    if !cx.outputs.selection_start_index.contains_key(id) {
+                                        cx.outputs.selection_start_index.insert(id, caret);
                                     }
                                     let range = if anchor <= final_caret {
                                         contents.selection_reversed = false;
@@ -1364,11 +1385,13 @@ impl Element {
                                         final_caret..anchor
                                     };
                                     contents.selected_range = range.clone();
-                                    cx.text_selections.insert(id, range);
+                                    cx.outputs.text_selections.insert(id, range);
                                 } else {
                                     contents.selected_range = final_caret..final_caret;
-                                    cx.text_selections.insert(id, final_caret..final_caret);
-                                    cx.selection_start_index.remove(id);
+                                    cx.outputs
+                                        .text_selections
+                                        .insert(id, final_caret..final_caret);
+                                    cx.outputs.selection_start_index.remove(id);
                                     contents.selection_reversed = false;
                                 }
 
@@ -1422,10 +1445,14 @@ impl Element {
                             };
 
                             if modifiers.shift {
-                                let anchor =
-                                    cx.selection_start_index.get(id).copied().unwrap_or(caret);
-                                if !cx.selection_start_index.contains_key(id) {
-                                    cx.selection_start_index.insert(id, caret);
+                                let anchor = cx
+                                    .outputs
+                                    .selection_start_index
+                                    .get(id)
+                                    .copied()
+                                    .unwrap_or(caret);
+                                if !cx.outputs.selection_start_index.contains_key(id) {
+                                    cx.outputs.selection_start_index.insert(id, caret);
                                 }
                                 let range = if anchor <= final_caret {
                                     contents.selection_reversed = false;
@@ -1435,11 +1462,13 @@ impl Element {
                                     final_caret..anchor
                                 };
                                 contents.selected_range = range.clone();
-                                cx.text_selections.insert(id, range);
+                                cx.outputs.text_selections.insert(id, range);
                             } else {
                                 contents.selected_range = final_caret..final_caret;
-                                cx.text_selections.insert(id, final_caret..final_caret);
-                                cx.selection_start_index.remove(id);
+                                cx.outputs
+                                    .text_selections
+                                    .insert(id, final_caret..final_caret);
+                                cx.outputs.selection_start_index.remove(id);
                                 contents.selection_reversed = false;
                             }
 
@@ -1547,10 +1576,10 @@ impl Element {
                         }
 
                         cx.contents.text_spans.insert(id, spans);
-                        cx.active_masks[id].set(STYLE_TEXT_SPANS);
+                        cx.topology.active_masks[id].set(STYLE_TEXT_SPANS);
                     } else {
                         cx.contents.text_spans.remove(id);
-                        cx.active_masks[id].unset(STYLE_TEXT_SPANS);
+                        cx.topology.active_masks[id].unset(STYLE_TEXT_SPANS);
                     }
 
                     // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
@@ -2498,7 +2527,7 @@ impl Element {
         } else {
             list.push((property_id, value));
         }
-        cx.active_masks[self.id].set(COMP_UIA_CONTENT);
+        cx.topology.active_masks[self.id].set(COMP_UIA_CONTENT);
     }
 
     /// 自動テストフレームワークやデバッグで要素を特定するための「Automation ID」を設定します（UIA_AutomationIdPropertyId 互換）。
@@ -2544,7 +2573,8 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
 
     if let Some(contents) = cx.contents.input_contents.get_mut(id) {
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
-        cx.text_selections
+        cx.outputs
+            .text_selections
             .insert(id, contents.selected_range.clone());
 
         let text_val = contents.text.0.get();
@@ -2725,13 +2755,8 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
             .unwrap_or(LayoutPoint::ZERO);
 
         if rect.width > 0.0 && rect.height > 0.0 {
-            let (basic, _, _) = LayoutStore::resolve_active_layouts(
-                id,
-                &cx.layouts,
-                &cx.active_masks,
-                &cx.parents,
-                &cx.renders,
-            );
+            let (basic, _, _) =
+                LayoutStore::resolve_active_layouts(id, &cx.topology, &cx.layouts, &cx.renders);
             let border = LayoutStore::get_physical_border(id, &basic, &cx.outputs);
             let padding = LayoutStore::get_physical_padding(id, &basic, &cx.outputs);
 
@@ -2771,13 +2796,8 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
             let himc = ImmGetContext(hwnd);
             if !himc.is_invalid() {
                 let rect = cx.outputs.rects[id];
-                let (basic, _, _) = LayoutStore::resolve_active_layouts(
-                    id,
-                    &cx.layouts,
-                    &cx.active_masks,
-                    &cx.parents,
-                    &cx.renders,
-                );
+                let (basic, _, _) =
+                    LayoutStore::resolve_active_layouts(id, &cx.topology, &cx.layouts, &cx.renders);
                 let border_top = match basic.border.top {
                     Length::Px(v) => v,
                     _ => 0.0,
