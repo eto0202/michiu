@@ -1,7 +1,16 @@
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{cell::RefCell, sync::mpsc::Receiver};
-use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
+use windows::Win32::{
+    Foundation::{HANDLE, HGLOBAL},
+    Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout},
+    System::{
+        DataExchange::{
+            CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
+        },
+        Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
+    },
+};
 
 pub(crate) type TaskSenderType =
     std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Context) + Send + 'static>>;
@@ -72,5 +81,44 @@ impl SystemStore {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     pub(crate) fn clear_layout_cache(id: EntityId, system: &mut SystemStore) {
         system.dwrite_layouts.borrow_mut().remove(id);
+    }
+    // クリップボード API による UTF-16 読み書きヘルパー
+    fn win32_set_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let text_u16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
+        let size = text_u16.len() * 2;
+        let h_mem = unsafe { GlobalAlloc(GMEM_MOVEABLE, size)? };
+        let ptr = unsafe { GlobalLock(h_mem) };
+        unsafe {
+            std::ptr::copy_nonoverlapping(text_u16.as_ptr(), ptr as *mut u16, text_u16.len());
+        }
+        let _ = unsafe { GlobalUnlock(h_mem) };
+        if unsafe { OpenClipboard(None).is_ok() } {
+            let _ = unsafe { EmptyClipboard() };
+            let _ = unsafe { SetClipboardData(13, Some(HANDLE(h_mem.0))) }; // 13 = CF_UNICODETEXT
+            let _ = unsafe { CloseClipboard() };
+        }
+        Ok(())
+    }
+
+    fn win32_get_clipboard() -> Result<String, Box<dyn std::error::Error>> {
+        let mut result = String::new();
+        if unsafe { OpenClipboard(None).is_ok() } {
+            let h_mem = unsafe { GetClipboardData(13)? };
+            if !h_mem.is_invalid() {
+                let ptr = unsafe { GlobalLock(HGLOBAL(h_mem.0)) };
+                if !ptr.is_null() {
+                    let u16_ptr = ptr as *const u16;
+                    let mut len = 0;
+                    while unsafe { *u16_ptr.add(len) } != 0 {
+                        len += 1;
+                    }
+                    let slice = unsafe { std::slice::from_raw_parts(u16_ptr, len) };
+                    result = String::from_utf16_lossy(slice);
+                    let _ = unsafe { GlobalUnlock(HGLOBAL(h_mem.0)) };
+                }
+            }
+            let _ = unsafe { CloseClipboard() };
+        }
+        Ok(result)
     }
 }

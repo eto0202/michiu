@@ -432,4 +432,29 @@ impl LayoutStore {
             LayoutRect::ZERO
         }
     }
+
+    /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
+    /// 内部 SoA リスト（self.children）の順序に沿って一括して再同期）します。
+    pub(crate) fn resync_taffy_children_order(
+        parent_id: EntityId,
+        layouts: &mut LayoutStore,
+        children: &SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>,
+    ) {
+        if let Some(&parent_node) = layouts.taffy_nodes.get(parent_id) {
+            // 一旦現在登録されているすべての子ノードを Taffy 側から安全にデタッチ
+            if let Ok(taffy_children) = layouts.taffy.children(parent_node) {
+                for child_node in taffy_children {
+                    let _ = layouts.taffy.remove_child(parent_node, child_node);
+                }
+            }
+            // 最新の並び替え順序リストの順に従って、Taffy 側に再アタッチ
+            if let Some(children_list) = children.get(parent_id).cloned() {
+                for child_id in children_list {
+                    if let Some(&child_node) = layouts.taffy_nodes.get(child_id) {
+                        let _ = layouts.taffy.add_child(parent_node, child_node);
+                    }
+                }
+            }
+        }
+    }
 }

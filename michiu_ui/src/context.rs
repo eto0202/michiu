@@ -16,6 +16,7 @@ pub use reactive_store::*;
 pub use render_store::*;
 pub use system_store::*;
 pub use window_store::*;
+use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
 use crate::*;
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
@@ -34,16 +35,6 @@ use std::{
     time::{Duration, Instant},
 };
 use taffy::TaffyTree;
-use windows::Win32::{
-    Foundation::{HANDLE, HGLOBAL},
-    Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout},
-    System::{
-        DataExchange::{
-            CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
-        },
-        Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
-    },
-};
 
 new_key_type! {
     /// UI内の各要素（Entity）を識別する一意な世代管理ID
@@ -343,7 +334,7 @@ impl Context {
             }
 
             // 3. 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
-            self.resync_taffy_children_order(old_parent);
+            LayoutStore::resync_taffy_children_order(old_parent, &mut self.layouts, &self.children);
             self.mark_layout_dirty(old_parent);
         }
 
@@ -482,27 +473,6 @@ impl Context {
 
         self.mark_layout_dirty(parent);
         self.layouts.is_structure_dirty = true;
-    }
-
-    /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
-    /// 内部 SoA リスト（self.children）の順序に沿って一括して再同期）します。
-    pub(crate) fn resync_taffy_children_order(&mut self, parent_id: EntityId) {
-        if let Some(&parent_node) = self.layouts.taffy_nodes.get(parent_id) {
-            // 一旦現在登録されているすべての子ノードを Taffy 側から安全にデタッチ
-            if let Ok(taffy_children) = self.layouts.taffy.children(parent_node) {
-                for child_node in taffy_children {
-                    let _ = self.layouts.taffy.remove_child(parent_node, child_node);
-                }
-            }
-            // 最新の並び替え順序リストの順に従って、Taffy 側に再アタッチ
-            if let Some(children_list) = self.children.get(parent_id).cloned() {
-                for child_id in children_list {
-                    if let Some(&child_node) = self.layouts.taffy_nodes.get(child_id) {
-                        let _ = self.layouts.taffy.add_child(parent_node, child_node);
-                    }
-                }
-            }
-        }
     }
 
     /// デスポーン済みの無効な EntityId を各走査・Dirty配列から一括して排除。
@@ -771,6 +741,148 @@ impl Context {
         }
 
         // スクロールバー要素（Track & Thumb）のサイズ・配置・不透明度を一括同期更新
+        self.sync_scrollbar_styles();
+
+        // スクロールバー専用要素のサイズ・位置が確定したため、
+        // 差分計算を走らせてマージンやパディングを考慮した物理位置を Taffy 内部で正確に解決
+        if let Some(&root_node) = self.layouts.taffy_nodes.get(root) {
+            let _ = self.layouts.taffy.compute_layout_with_measure(
+                root_node,
+                taffy::Size {
+                    width: taffy::AvailableSpace::Definite(window_size.width),
+                    height: taffy::AvailableSpace::Definite(window_size.height),
+                },
+                |known_dims: taffy::Size<Option<f32>>,
+                 _available_space: taffy::Size<taffy::AvailableSpace>,
+                 _node_id: taffy::NodeId,
+                 context: Option<&mut EntityId>,
+                 _style: &taffy::Style|
+                 -> taffy::Size<f32> {
+                    if let Some(&id) = context.as_deref() {
+                        return with_context(|cx| {
+                            if cx.active_masks[id].has(COMP_INPUT_CONTENT)
+                                && let Some(contents) = cx.contents.input_contents.get(id)
+                                && let Some(layout_rect) = contents.last_layout
+                            {
+                                return taffy::Size {
+                                    width: known_dims.width.unwrap_or(layout_rect.width),
+                                    height: known_dims.height.unwrap_or(layout_rect.height),
+                                };
+                            }
+
+                            // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
+                            if let Some(&rect) = cx.outputs.rects.get(id) {
+                                taffy::Size {
+                                    width: known_dims.width.unwrap_or(rect.width),
+                                    height: known_dims.height.unwrap_or(rect.height),
+                                }
+                            } else {
+                                taffy::Size::ZERO
+                            }
+                        });
+                    }
+                    taffy::Size::ZERO
+                },
+            );
+        }
+
+        // スクロールバー要素も含めて、Taffy から最終確定位置をすべて引き出して rects にマウント
+        self.active_entities.clear();
+
+        for i in 0..flat_len {
+            let id = self.layouts.flat_dfs_sequence[i];
+
+            let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
+                id,
+                &self.outputs,
+                &self.layouts,
+                &self.parents,
+                window_size,
+            );
+
+            self.outputs.rects.insert(id, abs_rect);
+            let mask = self.active_masks[id];
+
+            if mask.has(COMP_INPUT_CONTENT)
+                && let Some(contents) = self.contents.input_contents.get_mut(id)
+            {
+                contents.last_bounds = Some(abs_rect);
+            }
+
+            let current_clip = if mask.has(STYLE_OVERFLOW) {
+                parent_clip.intersect(&abs_rect)
+            } else {
+                parent_clip
+            };
+            self.outputs.clip_rects.insert(id, current_clip);
+
+            self.active_entities.push(id);
+        }
+
+        // 全アクティブコンテナのスクロールオフセット自動クランプ同期
+        for i in 0..flat_len {
+            let id = self.layouts.flat_dfs_sequence[i];
+            if self.outputs.scroll_offsets.contains_key(id) {
+                let current = self.outputs.scroll_offsets[id];
+                // 枠サイズの変更があった場合など、現在の位置からはみ出していれば自動クランプ調整
+                self.scroll_to(id, current.x, current.y);
+            }
+        }
+
+        // 全ての座標確定と絶対クリップ範囲の同期が完了した最末尾で、
+        // 一括して Dirty フラグの完全クリアおよびキューリストのリセットを実行
+        self.clear_layout_dirty();
+    }
+
+    pub fn clear_layout_dirty(&mut self) {
+        for id in self.layouts.dirty_layout_entities.drain(..) {
+            if let Some(mask) = self.active_masks.get_mut(id) {
+                mask.unset(STATE_QUEUED_LAYOUT);
+            }
+        }
+        self.layouts.dirty_layout_entities.clear();
+    }
+
+    /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
+    pub fn clear_render_dirty(&mut self) {
+        for id in self.renders.dirty_render_entities.drain(..) {
+            if let Some(mask) = self.active_masks.get_mut(id) {
+                mask.unset(STATE_QUEUED_RENDER);
+            }
+        }
+        self.renders.dirty_render_entities.clear();
+    }
+
+    /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
+    pub(crate) fn update_scrollbar_element(
+        &mut self,
+        id: EntityId,
+        size: Size<Val>,
+        inset: Rect<Val>,
+        opacity: f32,
+    ) {
+        LayoutStore::update_scrollbar_element_layout(
+            id,
+            &mut self.layouts,
+            &mut self.renders,
+            size,
+            inset,
+        );
+
+        RenderStore::update_scrollbar_element_opacity(id, &mut self.renders, opacity);
+
+        let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
+            id,
+            &self.layouts,
+            &self.active_masks,
+            &self.parents,
+            &self.renders,
+        );
+
+        LayoutStore::set_taffy_style(id, &mut self.layouts, &basic, &flex, grid.as_ref());
+    }
+
+    fn sync_scrollbar_styles(&mut self) {
         let scrollbar_ids: Vec<EntityId> = self.layouts.scrollbar_styles.keys().collect();
         for id in scrollbar_ids {
             let sb_state = self.layouts.scrollbar_styles.get(id).cloned().unwrap();
@@ -1181,144 +1293,6 @@ impl Context {
                 }
             }
         }
-
-        // スクロールバー専用要素のサイズ・位置が確定したため、
-        // 差分計算を走らせてマージンやパディングを考慮した物理位置を Taffy 内部で正確に解決
-        if let Some(&root_node) = self.layouts.taffy_nodes.get(root) {
-            let _ = self.layouts.taffy.compute_layout_with_measure(
-                root_node,
-                taffy::Size {
-                    width: taffy::AvailableSpace::Definite(window_size.width),
-                    height: taffy::AvailableSpace::Definite(window_size.height),
-                },
-                |known_dims: taffy::Size<Option<f32>>,
-                 _available_space: taffy::Size<taffy::AvailableSpace>,
-                 _node_id: taffy::NodeId,
-                 context: Option<&mut EntityId>,
-                 _style: &taffy::Style|
-                 -> taffy::Size<f32> {
-                    if let Some(&id) = context.as_deref() {
-                        return with_context(|cx| {
-                            if cx.active_masks[id].has(COMP_INPUT_CONTENT)
-                                && let Some(contents) = cx.contents.input_contents.get(id)
-                                && let Some(layout_rect) = contents.last_layout
-                            {
-                                return taffy::Size {
-                                    width: known_dims.width.unwrap_or(layout_rect.width),
-                                    height: known_dims.height.unwrap_or(layout_rect.height),
-                                };
-                            }
-
-                            // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
-                            if let Some(&rect) = cx.outputs.rects.get(id) {
-                                taffy::Size {
-                                    width: known_dims.width.unwrap_or(rect.width),
-                                    height: known_dims.height.unwrap_or(rect.height),
-                                }
-                            } else {
-                                taffy::Size::ZERO
-                            }
-                        });
-                    }
-                    taffy::Size::ZERO
-                },
-            );
-        }
-
-        // スクロールバー要素も含めて、Taffy から最終確定位置をすべて引き出して rects にマウント
-        self.active_entities.clear();
-
-        for i in 0..flat_len {
-            let id = self.layouts.flat_dfs_sequence[i];
-
-            let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
-                id,
-                &self.outputs,
-                &self.layouts,
-                &self.parents,
-                window_size,
-            );
-
-            self.outputs.rects.insert(id, abs_rect);
-            let mask = self.active_masks[id];
-
-            if mask.has(COMP_INPUT_CONTENT)
-                && let Some(contents) = self.contents.input_contents.get_mut(id)
-            {
-                contents.last_bounds = Some(abs_rect);
-            }
-
-            let current_clip = if mask.has(STYLE_OVERFLOW) {
-                parent_clip.intersect(&abs_rect)
-            } else {
-                parent_clip
-            };
-            self.outputs.clip_rects.insert(id, current_clip);
-
-            self.active_entities.push(id);
-        }
-
-        // 全アクティブコンテナのスクロールオフセット自動クランプ同期
-        for i in 0..flat_len {
-            let id = self.layouts.flat_dfs_sequence[i];
-            if self.outputs.scroll_offsets.contains_key(id) {
-                let current = self.outputs.scroll_offsets[id];
-                // 枠サイズの変更があった場合など、現在の位置からはみ出していれば自動クランプ調整
-                self.scroll_to(id, current.x, current.y);
-            }
-        }
-
-        // 全ての座標確定と絶対クリップ範囲の同期が完了した最末尾で、
-        // 一括して Dirty フラグの完全クリアおよびキューリストのリセットを実行
-        self.clear_layout_dirty();
-    }
-
-    pub fn clear_layout_dirty(&mut self) {
-        for id in self.layouts.dirty_layout_entities.drain(..) {
-            if let Some(mask) = self.active_masks.get_mut(id) {
-                mask.unset(STATE_QUEUED_LAYOUT);
-            }
-        }
-        self.layouts.dirty_layout_entities.clear();
-    }
-
-    /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
-    pub fn clear_render_dirty(&mut self) {
-        for id in self.renders.dirty_render_entities.drain(..) {
-            if let Some(mask) = self.active_masks.get_mut(id) {
-                mask.unset(STATE_QUEUED_RENDER);
-            }
-        }
-        self.renders.dirty_render_entities.clear();
-    }
-
-    /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
-    pub(crate) fn update_scrollbar_element(
-        &mut self,
-        id: EntityId,
-        size: Size<Val>,
-        inset: Rect<Val>,
-        opacity: f32,
-    ) {
-        LayoutStore::update_scrollbar_element_layout(
-            id,
-            &mut self.layouts,
-            &mut self.renders,
-            size,
-            inset,
-        );
-
-        RenderStore::update_scrollbar_element_opacity(id, &mut self.renders, opacity);
-
-        let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
-            id,
-            &self.layouts,
-            &self.active_masks,
-            &self.parents,
-            &self.renders,
-        );
-
-        LayoutStore::set_taffy_style(id, &mut self.layouts, &basic, &flex, grid.as_ref());
     }
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
@@ -2358,176 +2332,8 @@ impl Context {
         // スタイルを一切持たない要素は、ヒープアロケーションを避けるため完全にスキップ
         // 静的なベース装飾がなくても、ホバースタイル等を持っていれば確実にカスケード解決を通す
         if has_base_visual || has_active_visual || has_interaction_styles {
-            // 不変参照から現在の描画用データを安全に取得 (Copy可能なプリミティブのみ)
-            let current_bg = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.bg_color)
-                .unwrap_or(Color::TRANSPARENT);
-            let current_border = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.border_color)
-                .unwrap_or(Color::TRANSPARENT);
-            let current_outline_width = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.outline_width)
-                .unwrap_or(EdgeInsets::ZERO);
-            let current_outline_color = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.outline_color)
-                .unwrap_or(Color::TRANSPARENT);
-            let current_outline_offset = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.outline_offset)
-                .unwrap_or(0.0);
-            let current_opacity = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.opacity)
-                .unwrap_or(1.0);
-            let current_transform = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.transform)
-                .unwrap_or(IDENTITY_MATRIX);
-            let current_radius = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.corner_radius)
-                .unwrap_or(CornerRadius::ZERO);
-            let current_shadow = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.shadow_params)
-                .unwrap_or(BoxShadow::none());
-
-            let mut target_pointer_events = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.pointer_events);
-
-            let mut target_cursor = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.cursor);
-            let mut target_resizable_cursor = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.resizable_cursor);
-
-            // 目標値（Target）をクローンせずに参照経由で構築
-            let mut target_bg = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.bg_color);
-            let mut target_border = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.border_color);
-            let mut target_opacity = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.opacity);
-            let mut target_transform = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.transform);
-            let mut target_radius = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.corner_radius);
-            // 影（BoxShadow）の動的ターゲットを初期化
-            let mut target_shadow_params = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.shadow_params);
-            let mut target_shadow_color = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.shadow_color);
-            let mut target_text_color = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.text_color);
-            let mut target_select_bg = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.select_bg_color);
-            let mut target_select_text = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.select_text_color);
-            let mut target_border_lengths = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.border_lengths);
-            let mut target_border_styles = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.border_styles);
-            let mut target_border_alignments = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.border_alignments);
-            let mut target_outline_width = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.outline_width);
-            let mut target_outline_color = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.outline_color);
-            let mut target_outline_lengths = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.outline_lengths);
-            let mut target_outline_styles = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.outline_styles);
-            let mut target_outline_alignments = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.outline_alignments);
-            let mut target_outline_offset = self
-                .renders
-                .base_visual_properties
-                .get(id)
-                .and_then(|v| v.outline_offset);
+            let current = RenderStore::get_current_style(id, &self.renders);
+            let mut target = RenderStore::get_target_style(id, &self.renders);
 
             // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
             let focus_style_resolved = if active_mask.has(STATE_FOCUSED) {
@@ -2589,78 +2395,78 @@ impl Context {
                         let inner_mask = style.inner.mask;
 
                         if inner_mask.has(STYLE_BG_COLOR) {
-                            target_bg = inner_vis.bg_color;
+                            target.bg_color = inner_vis.bg_color;
                         }
                         if inner_mask.has(STYLE_BORDER_COLOR) {
-                            target_border = inner_vis.border_color;
+                            target.border_color = inner_vis.border_color;
                         }
                         if inner_mask.has(STYLE_OPACITY) {
-                            target_opacity = inner_vis.opacity;
+                            target.opacity = inner_vis.opacity;
                         }
                         if inner_mask.has(STYLE_TRANSFORM) {
-                            target_transform = inner_vis.transform;
+                            target.transform = inner_vis.transform;
                         }
                         if inner_mask.has(STYLE_CORNER_RADIUS) {
-                            target_radius = inner_vis.corner_radius;
+                            target.corner_radius = inner_vis.corner_radius;
                         }
                         if inner_mask.has(STYLE_POINTER_EVENTS) {
-                            target_pointer_events = inner_vis.pointer_events;
+                            target.pointer_events = inner_vis.pointer_events;
                         }
                         if inner_mask.has(STYLE_BOX_SHADOW) {
                             if inner_vis.shadow_params.is_some() {
-                                target_shadow_params = inner_vis.shadow_params;
+                                target.shadow_params = inner_vis.shadow_params;
                             }
                             if inner_vis.shadow_color.is_some() {
-                                target_shadow_color = inner_vis.shadow_color;
+                                target.shadow_color = inner_vis.shadow_color;
                             }
                         }
                         if inner_mask.has(STYLE_TEXT_COLOR) {
-                            target_text_color = inner_vis.text_color;
+                            target.text_color = inner_vis.text_color;
                         }
                         if inner_mask.has(STYLE_USER_SELECT) {
                             if inner_vis.select_bg_color.is_some() {
-                                target_select_bg = inner_vis.select_bg_color;
+                                target.select_bg_color = inner_vis.select_bg_color;
                             }
                             if inner_vis.select_text_color.is_some() {
-                                target_select_text = inner_vis.select_text_color;
+                                target.select_text_color= inner_vis.select_text_color;
                             }
                         }
                         if inner_mask.has(STYLE_BORDER) {
                             if inner_vis.border_lengths.is_some() {
-                                target_border_lengths = inner_vis.border_lengths;
+                                target.border_lengths = inner_vis.border_lengths;
                             }
                             if inner_vis.border_styles.is_some() {
-                                target_border_styles = inner_vis.border_styles;
+                                target.border_styles = inner_vis.border_styles;
                             }
                             if inner_vis.border_alignments.is_some() {
-                                target_border_alignments = inner_vis.border_alignments;
+                                target.border_alignments = inner_vis.border_alignments;
                             }
                         }
                         if inner_mask.has(STYLE_OUTLINE) {
                             if inner_vis.outline_width.is_some() {
-                                target_outline_width = inner_vis.outline_width;
+                                target.outline_width = inner_vis.outline_width;
                             }
                             if inner_vis.outline_color.is_some() {
-                                target_outline_color = inner_vis.outline_color;
+                                target.outline_color = inner_vis.outline_color;
                             }
                             if inner_vis.outline_lengths.is_some() {
-                                target_outline_lengths = inner_vis.outline_lengths;
+                                target.outline_lengths = inner_vis.outline_lengths;
                             }
                             if inner_vis.outline_styles.is_some() {
-                                target_outline_styles = inner_vis.outline_styles;
+                                target.outline_styles = inner_vis.outline_styles;
                             }
                             if inner_vis.outline_alignments.is_some() {
-                                target_outline_alignments = inner_vis.outline_alignments;
+                                target.outline_alignments = inner_vis.outline_alignments;
                             }
                             if inner_vis.outline_offset.is_some() {
-                                target_outline_offset = inner_vis.outline_offset;
+                                target.outline_offset = inner_vis.outline_offset;
                             }
                         }
                         if inner_mask.has(STYLE_CURSOR) {
-                            target_cursor = inner_vis.cursor;
+                            target.cursor = inner_vis.cursor;
                         }
                         if inner_mask.has(STYLE_RESIZABLE) {
-                            target_resizable_cursor = inner_vis.resizable_cursor;
+                            target.resizable_cursor = inner_vis.resizable_cursor;
                         }
                     }
                 }
@@ -2690,63 +2496,63 @@ impl Context {
                         let inner_mask = style.inner.mask;
 
                         if inner_mask.has(STYLE_BG_COLOR) {
-                            target_bg = inner_vis.bg_color;
+                            target.bg_color = inner_vis.bg_color;
                         }
                         if inner_mask.has(STYLE_BORDER_COLOR) {
-                            target_border = inner_vis.border_color;
+                            target.border_color = inner_vis.border_color;
                         }
                         if inner_mask.has(STYLE_OPACITY) {
-                            target_opacity = inner_vis.opacity;
+                            target.opacity = inner_vis.opacity;
                         }
                         if inner_mask.has(STYLE_TRANSFORM) {
-                            target_transform = inner_vis.transform;
+                            target.transform = inner_vis.transform;
                         }
                         if inner_mask.has(STYLE_CORNER_RADIUS) {
-                            target_radius = inner_vis.corner_radius;
+                            target.corner_radius = inner_vis.corner_radius;
                         }
                         if inner_mask.has(STYLE_POINTER_EVENTS) {
-                            target_pointer_events = inner_vis.pointer_events;
+                            target.pointer_events = inner_vis.pointer_events;
                         }
                         if inner_mask.has(STYLE_BOX_SHADOW) {
                             if inner_vis.shadow_params.is_some() {
-                                target_shadow_params = inner_vis.shadow_params;
+                                target.shadow_params = inner_vis.shadow_params;
                             }
                             if inner_vis.shadow_color.is_some() {
-                                target_shadow_color = inner_vis.shadow_color;
+                                target.shadow_color = inner_vis.shadow_color;
                             }
                         }
                         if inner_mask.has(STYLE_TEXT_COLOR) {
-                            target_text_color = inner_vis.text_color;
+                            target.text_color = inner_vis.text_color;
                         }
                         if inner_mask.has(STYLE_BORDER) {
                             if inner_vis.border_lengths.is_some() {
-                                target_border_lengths = inner_vis.border_lengths;
+                                target.border_lengths = inner_vis.border_lengths;
                             }
                             if inner_vis.border_styles.is_some() {
-                                target_border_styles = inner_vis.border_styles;
+                                target.border_styles = inner_vis.border_styles;
                             }
                             if inner_vis.border_alignments.is_some() {
-                                target_border_alignments = inner_vis.border_alignments;
+                                target.border_alignments = inner_vis.border_alignments;
                             }
                         }
                         if inner_mask.has(STYLE_OUTLINE) {
                             if inner_vis.outline_width.is_some() {
-                                target_outline_width = inner_vis.outline_width;
+                                target.outline_width = inner_vis.outline_width;
                             }
                             if inner_vis.outline_color.is_some() {
-                                target_outline_color = inner_vis.outline_color;
+                                target.outline_color = inner_vis.outline_color;
                             }
                             if inner_vis.outline_lengths.is_some() {
-                                target_outline_lengths = inner_vis.outline_lengths;
+                                target.outline_lengths = inner_vis.outline_lengths;
                             }
                             if inner_vis.outline_styles.is_some() {
-                                target_outline_styles = inner_vis.outline_styles;
+                                target.outline_styles = inner_vis.outline_styles;
                             }
                             if inner_vis.outline_alignments.is_some() {
-                                target_outline_alignments = inner_vis.outline_alignments;
+                                target.outline_alignments = inner_vis.outline_alignments;
                             }
                             if inner_vis.outline_offset.is_some() {
-                                target_outline_offset = inner_vis.outline_offset;
+                                target.outline_offset = inner_vis.outline_offset;
                             }
                         }
                     }
@@ -2760,63 +2566,63 @@ impl Context {
                     let inner_mask = style.inner.mask;
 
                     if inner_mask.has(STYLE_BG_COLOR) {
-                        target_bg = inner_vis.bg_color;
+                        target.bg_color = inner_vis.bg_color;
                     }
                     if inner_mask.has(STYLE_BORDER_COLOR) {
-                        target_border = inner_vis.border_color;
+                        target.border_color = inner_vis.border_color;
                     }
                     if inner_mask.has(STYLE_OPACITY) {
-                        target_opacity = inner_vis.opacity;
+                        target.opacity = inner_vis.opacity;
                     }
                     if inner_mask.has(STYLE_TRANSFORM) {
-                        target_transform = inner_vis.transform;
+                        target.transform = inner_vis.transform;
                     }
                     if inner_mask.has(STYLE_CORNER_RADIUS) {
-                        target_radius = inner_vis.corner_radius;
+                        target.corner_radius = inner_vis.corner_radius;
                     }
                     if inner_mask.has(STYLE_POINTER_EVENTS) {
-                        target_pointer_events = inner_vis.pointer_events;
+                        target.pointer_events = inner_vis.pointer_events;
                     }
                     if inner_mask.has(STYLE_BOX_SHADOW) {
                         if inner_vis.shadow_params.is_some() {
-                            target_shadow_params = inner_vis.shadow_params;
+                            target.shadow_params = inner_vis.shadow_params;
                         }
                         if inner_vis.shadow_color.is_some() {
-                            target_shadow_color = inner_vis.shadow_color;
+                            target.shadow_color = inner_vis.shadow_color;
                         }
                     }
                     if inner_mask.has(STYLE_TEXT_COLOR) {
-                        target_text_color = inner_vis.text_color;
+                        target.text_color = inner_vis.text_color;
                     }
                     if inner_mask.has(STYLE_BORDER) {
                         if inner_vis.border_lengths.is_some() {
-                            target_border_lengths = inner_vis.border_lengths;
+                            target.border_lengths = inner_vis.border_lengths;
                         }
                         if inner_vis.border_styles.is_some() {
-                            target_border_styles = inner_vis.border_styles;
+                            target.border_styles = inner_vis.border_styles;
                         }
                         if inner_vis.border_alignments.is_some() {
-                            target_border_alignments = inner_vis.border_alignments;
+                            target.border_alignments = inner_vis.border_alignments;
                         }
                     }
                     if inner_mask.has(STYLE_OUTLINE) {
                         if inner_vis.outline_width.is_some() {
-                            target_outline_width = inner_vis.outline_width;
+                            target.outline_width = inner_vis.outline_width;
                         }
                         if inner_vis.outline_color.is_some() {
-                            target_outline_color = inner_vis.outline_color;
+                            target.outline_color = inner_vis.outline_color;
                         }
                         if inner_vis.outline_lengths.is_some() {
-                            target_outline_lengths = inner_vis.outline_lengths;
+                            target.outline_lengths = inner_vis.outline_lengths;
                         }
                         if inner_vis.outline_styles.is_some() {
-                            target_outline_styles = inner_vis.outline_styles;
+                            target.outline_styles = inner_vis.outline_styles;
                         }
                         if inner_vis.outline_alignments.is_some() {
-                            target_outline_alignments = inner_vis.outline_alignments;
+                            target.outline_alignments = inner_vis.outline_alignments;
                         }
                         if inner_vis.outline_offset.is_some() {
-                            target_outline_offset = inner_vis.outline_offset;
+                            target.outline_offset = inner_vis.outline_offset;
                         }
                     }
                 }
@@ -2837,33 +2643,33 @@ impl Context {
             }
 
             // 各プロパティの即時適用の変更を評価
-            let target_bg_val = target_bg.unwrap_or(Color::TRANSPARENT);
-            let bg_changed = current_bg != target_bg_val;
+            let target_bg_val = target.bg_color.unwrap_or(Color::TRANSPARENT);
+            let bg_changed = current.bg_color != target_bg_val;
 
-            let target_border_val = target_border.unwrap_or(Color::TRANSPARENT);
-            let border_changed = current_border != target_border_val;
+            let target_border_val = target.border_color.unwrap_or(Color::TRANSPARENT);
+            let border_changed = current.border_color != target_border_val;
 
-            let target_outline_width_val = target_outline_width.unwrap_or(EdgeInsets::ZERO);
-            let outline_width_changed = current_outline_width != target_outline_width_val;
+            let target_outline_width_val = target.outline_width.unwrap_or(EdgeInsets::ZERO);
+            let outline_width_changed = current.outline_width != target_outline_width_val;
 
-            let target_outline_color_val = target_outline_color.unwrap_or(Color::TRANSPARENT);
-            let outline_color_changed = current_outline_color != target_outline_color_val;
+            let target_outline_color_val = target.outline_color.unwrap_or(Color::TRANSPARENT);
+            let outline_color_changed = current.outline_color != target_outline_color_val;
 
-            let target_outline_offset_val = target_outline_offset.unwrap_or(0.0);
+            let target_outline_offset_val = target.outline_offset.unwrap_or(0.0);
             let outline_offset_changed =
-                (current_outline_offset - target_outline_offset_val).abs() > 0.001;
+                (current.outline_offset - target_outline_offset_val).abs() > 0.001;
 
-            let target_opacity_val = target_opacity.unwrap_or(1.0);
-            let opacity_changed = (current_opacity - target_opacity_val).abs() > 0.001;
+            let target_opacity_val = target.opacity.unwrap_or(1.0);
+            let opacity_changed = (current.opacity - target_opacity_val).abs() > 0.001;
 
-            let target_transform_val = target_transform.unwrap_or(IDENTITY_MATRIX);
-            let transform_changed = current_transform != target_transform_val;
+            let target_transform_val = target.transform.unwrap_or(IDENTITY_MATRIX);
+            let transform_changed = current.transform != target_transform_val;
 
-            let target_radius_val = target_radius.unwrap_or(CornerRadius::ZERO);
-            let radius_changed = current_radius != target_radius_val;
+            let target_radius_val = target.corner_radius.unwrap_or(CornerRadius::ZERO);
+            let radius_changed = current.corner_radius != target_radius_val;
 
-            let target_shadow_val = target_shadow_params.unwrap_or(BoxShadow::none());
-            let shadow_changed = current_shadow != target_shadow_val;
+            let target_shadow_val = target.shadow_params.unwrap_or(BoxShadow::none());
+            let shadow_changed = current.shadow_params != target_shadow_val;
 
             // トランジション判定 (変更がある場合のみトリガー)
             let mut bg_triggered = false;
@@ -2871,7 +2677,7 @@ impl Context {
                 bg_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::BackgroundColor,
-                    TransitionValue::Color(current_bg),
+                    TransitionValue::Color(current.bg_color),
                     TransitionValue::Color(target_bg_val),
                 );
             }
@@ -2881,7 +2687,7 @@ impl Context {
                 border_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::BorderColor,
-                    TransitionValue::Color(current_border),
+                    TransitionValue::Color(current.border_color),
                     TransitionValue::Color(target_border_val),
                 );
             }
@@ -2891,7 +2697,7 @@ impl Context {
                 opacity_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::Opacity,
-                    TransitionValue::Opacity(current_opacity),
+                    TransitionValue::Opacity(current.opacity),
                     TransitionValue::Opacity(target_opacity_val),
                 );
             }
@@ -2901,7 +2707,7 @@ impl Context {
                 transform_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::Transform,
-                    TransitionValue::Transform(current_transform),
+                    TransitionValue::Transform(current.transform),
                     TransitionValue::Transform(target_transform_val),
                 );
             }
@@ -2911,7 +2717,7 @@ impl Context {
                 radius_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::CornerRadius,
-                    TransitionValue::CornerRadius(current_radius),
+                    TransitionValue::CornerRadius(current.corner_radius),
                     TransitionValue::CornerRadius(target_radius_val),
                 );
             }
@@ -2921,7 +2727,7 @@ impl Context {
                 shadow_triggered = self.trigger_transition_if_needed(
                     id,
                     PropertyList::BoxShadow,
-                    TransitionValue::BoxShadow(current_shadow),
+                    TransitionValue::BoxShadow(current.shadow_params),
                     TransitionValue::BoxShadow(target_shadow_val),
                 );
             }
@@ -2953,48 +2759,48 @@ impl Context {
                 let active_vis = self.renders.visual_properties.get_mut(id).unwrap();
 
                 if !bg_triggered {
-                    active_vis.bg_color = target_bg;
+                    active_vis.bg_color = target.bg_color;
                 }
                 if !border_triggered {
-                    active_vis.border_color = target_border;
+                    active_vis.border_color = target.border_color;
                 }
                 if !opacity_triggered {
-                    active_vis.opacity = target_opacity;
+                    active_vis.opacity = target.opacity;
                 }
                 if !transform_triggered {
-                    active_vis.transform = target_transform;
+                    active_vis.transform = target.transform;
                 }
                 if !radius_triggered {
-                    active_vis.corner_radius = target_radius;
+                    active_vis.corner_radius = target.corner_radius;
                 }
                 if is_placeholder_active {
                     // プレースホルダー時はフォーカスに関わらず、強制的に半透明の薄いグレー
                     active_vis.text_color = Some(Color::rgb_f32(0.5, 0.5, 0.5));
                 } else {
-                    active_vis.text_color = target_text_color; // 通常時、または疑似状態（Hover等）のテキストカラー
+                    active_vis.text_color = target.text_color; // 通常時、または疑似状態（Hover等）のテキストカラー
                 }
 
                 // 解決した影（target_shadow）をアクティブプロパティに代入
                 // アニメーション非起動時のみ行うように修正
                 if !shadow_triggered {
-                    active_vis.shadow_params = target_shadow_params;
-                    active_vis.shadow_color = target_shadow_color;
+                    active_vis.shadow_params = target.shadow_params;
+                    active_vis.shadow_color = target.shadow_color;
                 }
 
-                active_vis.border_lengths = target_border_lengths;
-                active_vis.border_styles = target_border_styles;
-                active_vis.border_alignments = target_border_alignments;
+                active_vis.border_lengths = target.border_lengths;
+                active_vis.border_styles = target.border_styles;
+                active_vis.border_alignments = target.border_alignments;
 
-                active_vis.outline_width = target_outline_width;
-                active_vis.outline_color = target_outline_color;
-                active_vis.outline_lengths = target_outline_lengths;
-                active_vis.outline_styles = target_outline_styles;
-                active_vis.outline_alignments = target_outline_alignments;
-                active_vis.outline_offset = target_outline_offset;
+                active_vis.outline_width = target.outline_width;
+                active_vis.outline_color = target.outline_color;
+                active_vis.outline_lengths = target.outline_lengths;
+                active_vis.outline_styles = target.outline_styles;
+                active_vis.outline_alignments = target.outline_alignments;
+                active_vis.outline_offset = target.outline_offset;
 
                 // 解決された選択色をアクティブビジュアルに代入
-                active_vis.select_bg_color = target_select_bg;
-                active_vis.select_text_color = target_select_text;
+                active_vis.select_bg_color = target.select_bg_color;
+                active_vis.select_text_color = target.select_text_color;
                 // 常に即時解決する静的プロパティ群
                 active_vis.user_select = self
                     .renders
@@ -3002,8 +2808,8 @@ impl Context {
                     .get(id)
                     .and_then(|v| v.user_select);
 
-                active_vis.cursor = target_cursor;
-                active_vis.resizable_cursor = target_resizable_cursor;
+                active_vis.cursor = target.cursor;
+                active_vis.resizable_cursor = target.resizable_cursor;
 
                 // コールドプロパティの即時代入
                 if let Some(target_vis) = self.renders.base_visual_properties.get(id) {
@@ -3662,219 +3468,211 @@ impl Context {
         self.update_state(id, flag, active);
     }
 
-    pub fn inject_pointer_move(&mut self, logical_pos: LayoutPoint) {
-        let _context_guard = bind_context(self);
+    fn sync_resizing_drag(&mut self, logical_pos: LayoutPoint, state: ResizingState) {
+        let id = state.entity_id;
+        let delta_x = logical_pos.x - state.start_mouse_pos.x;
+        let delta_y = logical_pos.y - state.start_mouse_pos.y;
 
-        let prev_pos = self.events.current_pointer_position;
-        self.events.current_pointer_position = Some(logical_pos);
+        let start_rect = state.start_rect;
+        let position = self
+            .layouts
+            .basic_layouts
+            .get(id)
+            .map(|l| l.position)
+            .unwrap_or(Position::Relative);
 
-        // リサイズ中のドラッグ同期処理
-        if let Some(state) = self.events.resizing_state.clone() {
-            let id = state.entity_id;
-            let delta_x = logical_pos.x - state.start_mouse_pos.x;
-            let delta_y = logical_pos.y - state.start_mouse_pos.y;
-
-            let start_rect = state.start_rect;
-            let position = self
+        // 1-1. 最小サイズ・最大クランプ値の解決
+        let (min_w, max_w, min_h, max_h) = {
+            let basic = self
                 .layouts
                 .basic_layouts
                 .get(id)
-                .map(|l| l.position)
-                .unwrap_or(Position::Relative);
+                .copied()
+                .unwrap_or_default();
 
-            // 1-1. 最小サイズ・最大クランプ値の解決
-            let (min_w, max_w, min_h, max_h) = {
-                let basic = self
-                    .layouts
-                    .basic_layouts
-                    .get(id)
-                    .copied()
-                    .unwrap_or_default();
+            let ref_w = start_rect.width;
+            let ref_h = start_rect.height;
 
-                let ref_w = start_rect.width;
-                let ref_h = start_rect.height;
+            let b = LayoutStore::get_physical_border(id, &basic, &self.outputs);
+            let p = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
 
-                let b = LayoutStore::get_physical_border(id, &basic, &self.outputs);
-                let p = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
+            // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
+            let abs_min_w = b.left + b.right + p.left + p.right;
+            let abs_min_h = b.top + b.bottom + p.top + p.bottom;
 
-                // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
-                let abs_min_w = b.left + b.right + p.left + p.right;
-                let abs_min_h = b.top + b.bottom + p.top + p.bottom;
-
-                // ユーザー指定の min_size / max_size を物理ピクセルに解決
-                let user_min_w = match basic.min_size.width {
-                    Val::Px(v) => v,
-                    Val::Percent(_) => self
-                        .resolve_val_to_px(id, basic.min_size.width, true)
-                        .unwrap_or(0.0),
-                    Val::Auto => 0.0, // Autoのときは最小値制約なし
-                };
-                let user_min_h = match basic.min_size.height {
-                    Val::Px(v) => v,
-                    Val::Percent(_) => self
-                        .resolve_val_to_px(id, basic.min_size.height, false)
-                        .unwrap_or(0.0),
-                    Val::Auto => 0.0,
-                };
-                let user_max_w = match basic.max_size.width {
-                    Val::Px(v) => v,
-                    Val::Percent(_) => self
-                        .resolve_val_to_px(id, basic.max_size.width, true)
-                        .unwrap_or(f32::MAX),
-                    Val::Auto => f32::MAX, // Autoのときは最大値制限なし
-                };
-                let user_max_h = match basic.max_size.height {
-                    Val::Px(v) => v,
-                    Val::Percent(_) => self
-                        .resolve_val_to_px(id, basic.max_size.height, false)
-                        .unwrap_or(f32::MAX),
-                    Val::Auto => f32::MAX,
-                };
-
-                (
-                    abs_min_w.max(user_min_w).max(10.0), // 最低限 10px は維持
-                    user_max_w,
-                    abs_min_h.max(user_min_h).max(10.0),
-                    user_max_h,
-                )
+            // ユーザー指定の min_size / max_size を物理ピクセルに解決
+            let user_min_w = match basic.min_size.width {
+                Val::Px(v) => v,
+                Val::Percent(_) => self
+                    .resolve_val_to_px(id, basic.min_size.width, true)
+                    .unwrap_or(0.0),
+                Val::Auto => 0.0, // Autoのときは最小値制約なし
+            };
+            let user_min_h = match basic.min_size.height {
+                Val::Px(v) => v,
+                Val::Percent(_) => self
+                    .resolve_val_to_px(id, basic.min_size.height, false)
+                    .unwrap_or(0.0),
+                Val::Auto => 0.0,
+            };
+            let user_max_w = match basic.max_size.width {
+                Val::Px(v) => v,
+                Val::Percent(_) => self
+                    .resolve_val_to_px(id, basic.max_size.width, true)
+                    .unwrap_or(f32::MAX),
+                Val::Auto => f32::MAX, // Autoのときは最大値制限なし
+            };
+            let user_max_h = match basic.max_size.height {
+                Val::Px(v) => v,
+                Val::Percent(_) => self
+                    .resolve_val_to_px(id, basic.max_size.height, false)
+                    .unwrap_or(f32::MAX),
+                Val::Auto => f32::MAX,
             };
 
-            let mut new_w = start_rect.width;
-            let mut new_h = start_rect.height;
+            (
+                abs_min_w.max(user_min_w).max(10.0), // 最低限 10px は維持
+                user_max_w,
+                abs_min_h.max(user_min_h).max(10.0),
+                user_max_h,
+            )
+        };
 
-            let mut delta_inset_top = 0.0;
-            let mut delta_inset_left = 0.0;
+        let mut new_w = start_rect.width;
+        let mut new_h = start_rect.height;
 
-            // 配置モードによるサイズ変更と位置補正の切り分け
-            if position == Position::Absolute {
-                // 絶対配置（Absolute）物理サイズ変更と、Top / Left 引っ張り時の Inset 同期移動補正を行う
-                match state.direction {
-                    ResizeDirection::Right => {
-                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-                    }
-                    ResizeDirection::Bottom => {
-                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                    }
-                    ResizeDirection::BottomRight => {
-                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                    }
-                    ResizeDirection::Left => {
-                        let potential_w = start_rect.width - delta_x;
-                        new_w = potential_w.clamp(min_w, max_w);
-                        // サイズが大きくなった分（start - new_w）だけ、正確に左端（left）を左（マイナス）へ補正
-                        delta_inset_left = start_rect.width - new_w;
-                    }
-                    ResizeDirection::Top => {
-                        let potential_h = start_rect.height - delta_y;
-                        new_h = potential_h.clamp(min_h, max_h);
-                        // サイズが大きくなった分だけ、正確に上端（top）を上（マイナス）へ補正
-                        delta_inset_top = start_rect.height - new_h;
-                    }
-                    ResizeDirection::TopLeft => {
-                        let potential_w = start_rect.width - delta_x;
-                        new_w = potential_w.clamp(min_w, max_w);
-                        delta_inset_left = start_rect.width - new_w;
+        let mut delta_inset_top = 0.0;
+        let mut delta_inset_left = 0.0;
 
-                        let potential_h = start_rect.height - delta_y;
-                        new_h = potential_h.clamp(min_h, max_h);
-                        delta_inset_top = start_rect.height - new_h;
-                    }
-                    ResizeDirection::TopRight => {
-                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-
-                        let potential_h = start_rect.height - delta_y;
-                        new_h = potential_h.clamp(min_h, max_h);
-                        delta_inset_top = start_rect.height - new_h;
-                    }
-                    ResizeDirection::BottomLeft => {
-                        let potential_w = start_rect.width - delta_x;
-                        new_w = potential_w.clamp(min_w, max_w);
-                        delta_inset_left = start_rect.width - new_w;
-
-                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                    }
+        // 配置モードによるサイズ変更と位置補正の切り分け
+        if position == Position::Absolute {
+            // 絶対配置（Absolute）物理サイズ変更と、Top / Left 引っ張り時の Inset 同期移動補正を行う
+            match state.direction {
+                ResizeDirection::Right => {
+                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
                 }
-            } else {
-                // 相対配置（Relative）フローを崩さないため inset は変更せず、
-                // 引っ張る方向（Top/Left時はマイナス乗算）に合わせてサイズ（幅・高さ）のみを増減させる
-                match state.direction {
-                    ResizeDirection::Right | ResizeDirection::Left => {
-                        let factor = if state.direction == ResizeDirection::Left {
-                            -1.0
-                        } else {
-                            1.0
-                        };
-                        new_w = (start_rect.width + delta_x * factor).clamp(min_w, max_w);
-                    }
-                    ResizeDirection::Bottom | ResizeDirection::Top => {
-                        let factor = if state.direction == ResizeDirection::Top {
-                            -1.0
-                        } else {
-                            1.0
-                        };
-                        new_h = (start_rect.height + delta_y * factor).clamp(min_h, max_h);
-                    }
-                    ResizeDirection::TopLeft => {
-                        new_w = (start_rect.width - delta_x).clamp(min_w, max_w);
-                        new_h = (start_rect.height - delta_y).clamp(min_h, max_h);
-                    }
-                    ResizeDirection::TopRight => {
-                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-                        new_h = (start_rect.height - delta_y).clamp(min_h, max_h);
-                    }
-                    ResizeDirection::BottomLeft => {
-                        new_w = (start_rect.width - delta_x).clamp(min_w, max_w);
-                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                    }
-                    ResizeDirection::BottomRight => {
-                        new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-                        new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                    }
+                ResizeDirection::Bottom => {
+                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
+                }
+                ResizeDirection::BottomRight => {
+                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
+                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
+                }
+                ResizeDirection::Left => {
+                    let potential_w = start_rect.width - delta_x;
+                    new_w = potential_w.clamp(min_w, max_w);
+                    // サイズが大きくなった分（start - new_w）だけ、正確に左端（left）を左（マイナス）へ補正
+                    delta_inset_left = start_rect.width - new_w;
+                }
+                ResizeDirection::Top => {
+                    let potential_h = start_rect.height - delta_y;
+                    new_h = potential_h.clamp(min_h, max_h);
+                    // サイズが大きくなった分だけ、正確に上端（top）を上（マイナス）へ補正
+                    delta_inset_top = start_rect.height - new_h;
+                }
+                ResizeDirection::TopLeft => {
+                    let potential_w = start_rect.width - delta_x;
+                    new_w = potential_w.clamp(min_w, max_w);
+                    delta_inset_left = start_rect.width - new_w;
+
+                    let potential_h = start_rect.height - delta_y;
+                    new_h = potential_h.clamp(min_h, max_h);
+                    delta_inset_top = start_rect.height - new_h;
+                }
+                ResizeDirection::TopRight => {
+                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
+
+                    let potential_h = start_rect.height - delta_y;
+                    new_h = potential_h.clamp(min_h, max_h);
+                    delta_inset_top = start_rect.height - new_h;
+                }
+                ResizeDirection::BottomLeft => {
+                    let potential_w = start_rect.width - delta_x;
+                    new_w = potential_w.clamp(min_w, max_w);
+                    delta_inset_left = start_rect.width - new_w;
+
+                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
                 }
             }
-
-            // 基本サイズ情報を SoA のアクティブレイアウトへ書き込み
-            if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
-                layout.size.width = Val::Px(new_w);
-                layout.size.height = Val::Px(new_h);
-
-                // 絶対配置時のみ位置を動的に補正し、制約衝突を回避するため right / bottom を Auto 化
-                if position == Position::Absolute {
-                    if let Val::Px(start_top) = state.start_inset.top {
-                        layout.inset.top = Val::Px(start_top + delta_inset_top);
-                    }
-                    if let Val::Px(start_left) = state.start_inset.left {
-                        layout.inset.left = Val::Px(start_left + delta_inset_left);
-                    }
-                    layout.inset.right = Val::Auto;
-                    layout.inset.bottom = Val::Auto;
+        } else {
+            // 相対配置（Relative）フローを崩さないため inset は変更せず、
+            // 引っ張る方向（Top/Left時はマイナス乗算）に合わせてサイズ（幅・高さ）のみを増減させる
+            match state.direction {
+                ResizeDirection::Right | ResizeDirection::Left => {
+                    let factor = if state.direction == ResizeDirection::Left {
+                        -1.0
+                    } else {
+                        1.0
+                    };
+                    new_w = (start_rect.width + delta_x * factor).clamp(min_w, max_w);
+                }
+                ResizeDirection::Bottom | ResizeDirection::Top => {
+                    let factor = if state.direction == ResizeDirection::Top {
+                        -1.0
+                    } else {
+                        1.0
+                    };
+                    new_h = (start_rect.height + delta_y * factor).clamp(min_h, max_h);
+                }
+                ResizeDirection::TopLeft => {
+                    new_w = (start_rect.width - delta_x).clamp(min_w, max_w);
+                    new_h = (start_rect.height - delta_y).clamp(min_h, max_h);
+                }
+                ResizeDirection::TopRight => {
+                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
+                    new_h = (start_rect.height - delta_y).clamp(min_h, max_h);
+                }
+                ResizeDirection::BottomLeft => {
+                    new_w = (start_rect.width - delta_x).clamp(min_w, max_w);
+                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
+                }
+                ResizeDirection::BottomRight => {
+                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
+                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
                 }
             }
-
-            // base_basic_layouts にも同時に書き込み、解決処理（resolve）によるリセットを完全に防ぐ
-            if let Some(layout) = self.renders.base_basic_layouts.get_mut(id) {
-                layout.size.width = Val::Px(new_w);
-                layout.size.height = Val::Px(new_h);
-
-                if position == Position::Absolute {
-                    if let Val::Px(start_top) = state.start_inset.top {
-                        layout.inset.top = Val::Px(start_top + delta_inset_top);
-                    }
-                    if let Val::Px(start_left) = state.start_inset.left {
-                        layout.inset.left = Val::Px(start_left + delta_inset_left);
-                    }
-                    layout.inset.right = Val::Auto;
-                    layout.inset.bottom = Val::Auto;
-                }
-            }
-
-            // Taffy 測定キャッシュをバイパスし再計算をマーク
-            self.mark_layout_dirty(id);
-            self.mark_render_dirty(id);
-            return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
         }
 
+        // 基本サイズ情報を SoA のアクティブレイアウトへ書き込み
+        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
+            layout.size.width = Val::Px(new_w);
+            layout.size.height = Val::Px(new_h);
+
+            // 絶対配置時のみ位置を動的に補正し、制約衝突を回避するため right / bottom を Auto 化
+            if position == Position::Absolute {
+                if let Val::Px(start_top) = state.start_inset.top {
+                    layout.inset.top = Val::Px(start_top + delta_inset_top);
+                }
+                if let Val::Px(start_left) = state.start_inset.left {
+                    layout.inset.left = Val::Px(start_left + delta_inset_left);
+                }
+                layout.inset.right = Val::Auto;
+                layout.inset.bottom = Val::Auto;
+            }
+        }
+
+        // base_basic_layouts にも同時に書き込み、解決処理（resolve）によるリセットを完全に防ぐ
+        if let Some(layout) = self.renders.base_basic_layouts.get_mut(id) {
+            layout.size.width = Val::Px(new_w);
+            layout.size.height = Val::Px(new_h);
+
+            if position == Position::Absolute {
+                if let Val::Px(start_top) = state.start_inset.top {
+                    layout.inset.top = Val::Px(start_top + delta_inset_top);
+                }
+                if let Val::Px(start_left) = state.start_inset.left {
+                    layout.inset.left = Val::Px(start_left + delta_inset_left);
+                }
+                layout.inset.right = Val::Auto;
+                layout.inset.bottom = Val::Auto;
+            }
+        }
+        // Taffy 測定キャッシュをバイパスし再計算をマーク
+        self.mark_layout_dirty(id);
+        self.mark_render_dirty(id);
+    }
+
+    fn sync_scrollbar_drag(&mut self, logical_pos: LayoutPoint) {
         let mut scrollbar_dragged = false;
         let mut active_drag_target: Option<(EntityId, bool, bool)> = None;
 
@@ -3888,22 +3686,27 @@ impl Context {
             }
         }
 
-        if let Some((c_id, is_v, is_h)) = active_drag_target {
+        if let Some((current_id, is_vertical, is_horiazon)) = active_drag_target {
             let (sb_state, container_rect, scroll_size) = {
-                let sb_state = self.layouts.scrollbar_styles.get(c_id).cloned().unwrap();
+                let sb_state = self
+                    .layouts
+                    .scrollbar_styles
+                    .get(current_id)
+                    .cloned()
+                    .unwrap();
                 let container_rect = self
                     .outputs
                     .rects
-                    .get(c_id)
+                    .get(current_id)
                     .copied()
                     .unwrap_or(LayoutRect::ZERO);
-                let scroll_size = self.get_scroll_size(c_id);
+                let scroll_size = self.get_scroll_size(current_id);
                 (sb_state, container_rect, scroll_size)
             };
 
             let visible_size = WindowStore::calculate_visible_size(&self.window, container_rect);
 
-            if is_v {
+            if is_vertical {
                 let track_id = sb_state.v_track_id.unwrap();
                 let thumb_id = sb_state.v_thumb_id.unwrap();
                 let track_rect = self.outputs.rects[track_id];
@@ -3935,13 +3738,13 @@ impl Context {
                         let current_x = self
                             .outputs
                             .scroll_offsets
-                            .get(c_id)
+                            .get(current_id)
                             .map(|o| o.x)
                             .unwrap_or(0.0);
-                        self.scroll_to(c_id, current_x, target_scroll_y);
+                        self.scroll_to(current_id, current_x, target_scroll_y);
                     }
                 }
-            } else if is_h {
+            } else if is_horiazon {
                 let track_id = sb_state.h_track_id.unwrap();
                 let thumb_id = sb_state.h_thumb_id.unwrap();
                 let track_rect = self.outputs.rects[track_id];
@@ -3970,17 +3773,32 @@ impl Context {
                         let current_y = self
                             .outputs
                             .scroll_offsets
-                            .get(c_id)
+                            .get(current_id)
                             .map(|o| o.y)
                             .unwrap_or(0.0);
-                        self.scroll_to(c_id, target_scroll_x, current_y);
+                        self.scroll_to(current_id, target_scroll_x, current_y);
                     }
                 }
             }
 
-            self.mark_render_dirty(c_id);
+            self.mark_render_dirty(current_id);
             scrollbar_dragged = true;
         }
+    }
+
+    pub fn inject_pointer_move(&mut self, logical_pos: LayoutPoint) {
+        let _context_guard = bind_context(self);
+
+        let prev_pos = self.events.current_pointer_position;
+        self.events.current_pointer_position = Some(logical_pos);
+
+        // リサイズ中のドラッグ同期処理
+        if let Some(state) = self.events.resizing_state.clone() {
+            self.sync_resizing_drag(logical_pos, state);
+            return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
+        }
+
+        self.sync_scrollbar_drag(logical_pos);
 
         // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
         let target_id = if let Some(pressed_id) = self.events.interaction_states.pressed {
@@ -4094,22 +3912,8 @@ impl Context {
                     &self.parents,
                     &self.renders,
                 );
-                let border_left = match basic.border.left {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let padding_left = match basic.padding.left {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let border_top = match basic.border.top {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let padding_top = match basic.padding.top {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
+                let border = LayoutStore::get_physical_border(pressed_id, &basic, &self.outputs);
+                let padding = LayoutStore::get_physical_padding(pressed_id, &basic, &self.outputs);
 
                 let scroll = self
                     .outputs
@@ -4118,8 +3922,8 @@ impl Context {
                     .copied()
                     .unwrap_or(LayoutPoint::ZERO);
 
-                let local_x = logical_pos.x - (rect.x + border_left + padding_left) + scroll.x;
-                let local_y = logical_pos.y - (rect.y + border_top + padding_top) + scroll.y;
+                let local_x = logical_pos.x - (rect.x + border.left + padding.left) + scroll.x;
+                let local_y = logical_pos.y - (rect.y + border.top + padding.top) + scroll.y;
 
                 if let Some(layout) = self.get_or_create_layout(pressed_id) {
                     let (current_index, is_trailing) = self
@@ -5088,7 +4892,11 @@ impl Context {
                                 src_children.retain(|x| *x != src_id);
                             }
                             // 旧親側の Taffy 順序も再同期
-                            self.resync_taffy_children_order(src_parent_id);
+                            LayoutStore::resync_taffy_children_order(
+                                src_parent_id,
+                                &mut self.layouts,
+                                &self.children,
+                            );
                             self.mark_layout_dirty(src_parent_id);
                         }
 
@@ -5170,7 +4978,11 @@ impl Context {
                                 self.parents.insert(src_id, Some(target_id));
 
                                 // Taffy 側のノード順序を物理並び替え結果に沿って一括して再同期
-                                self.resync_taffy_children_order(target_id);
+                                LayoutStore::resync_taffy_children_order(
+                                    target_id,
+                                    &mut self.layouts,
+                                    &self.children,
+                                );
                             } else {
                                 // 自動更新オフの場合は末尾に通常アタッチ
                                 self.add_child(target_id, src_id);
@@ -6538,46 +6350,6 @@ fn calculate_insert_index(cx: &Context, parent_id: EntityId, logical_pos: Layout
     }
 
     insert_idx
-}
-
-// クリップボード API による UTF-16 読み書きヘルパー
-fn win32_set_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let text_u16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
-    let size = text_u16.len() * 2;
-    let h_mem = unsafe { GlobalAlloc(GMEM_MOVEABLE, size)? };
-    let ptr = unsafe { GlobalLock(h_mem) };
-    unsafe {
-        std::ptr::copy_nonoverlapping(text_u16.as_ptr(), ptr as *mut u16, text_u16.len());
-    }
-    let _ = unsafe { GlobalUnlock(h_mem) };
-    if unsafe { OpenClipboard(None).is_ok() } {
-        let _ = unsafe { EmptyClipboard() };
-        let _ = unsafe { SetClipboardData(13, Some(HANDLE(h_mem.0))) }; // 13 = CF_UNICODETEXT
-        let _ = unsafe { CloseClipboard() };
-    }
-    Ok(())
-}
-
-fn win32_get_clipboard() -> Result<String, Box<dyn std::error::Error>> {
-    let mut result = String::new();
-    if unsafe { OpenClipboard(None).is_ok() } {
-        let h_mem = unsafe { GetClipboardData(13)? };
-        if !h_mem.is_invalid() {
-            let ptr = unsafe { GlobalLock(HGLOBAL(h_mem.0)) };
-            if !ptr.is_null() {
-                let u16_ptr = ptr as *const u16;
-                let mut len = 0;
-                while unsafe { *u16_ptr.add(len) } != 0 {
-                    len += 1;
-                }
-                let slice = unsafe { std::slice::from_raw_parts(u16_ptr, len) };
-                result = String::from_utf16_lossy(slice);
-                let _ = unsafe { GlobalUnlock(HGLOBAL(h_mem.0)) };
-            }
-        }
-        let _ = unsafe { CloseClipboard() };
-    }
-    Ok(result)
 }
 
 #[cfg(test)]
