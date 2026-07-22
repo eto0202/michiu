@@ -103,7 +103,9 @@ impl EventStore {
             self.active_drag_state = None;
         }
     }
+}
 
+impl EventStore {
     /// リサイズ方向から対応するカーソル種別へ変換するヘルパー
     pub(crate) fn resize_direction_to_cursor(dir: ResizeDirection) -> CursorIcon {
         match dir {

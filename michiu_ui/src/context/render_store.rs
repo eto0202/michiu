@@ -64,18 +64,19 @@ impl RenderStore {
 
 impl RenderStore {
     pub(crate) fn get_basic_layout_mut(
-        &mut self,
         id: EntityId,
+        renders: &mut RenderStore,
         target: StyleTarget,
     ) -> Option<&mut BasicLayout> {
         match target {
-            StyleTarget::Base => self.base_basic_layouts.get_mut(id),
+            StyleTarget::Base => renders.base_basic_layouts.get_mut(id),
             _ => {
-                if !self.interaction_properties.contains_key(id) {
-                    self.interaction_properties
+                if !renders.interaction_properties.contains_key(id) {
+                    renders
+                        .interaction_properties
                         .insert(id, InteractionStyles::default());
                 }
-                let styles = self.interaction_properties.get_mut(id).unwrap();
+                let styles = renders.interaction_properties.get_mut(id).unwrap();
                 let style_ref = styles.get_style_target_mut(target);
                 Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
             }
@@ -83,18 +84,18 @@ impl RenderStore {
     }
 
     pub(crate) fn get_visual_property_mut(
-        &mut self,
         id: EntityId,
+        renders: &mut RenderStore,
         target: StyleTarget,
     ) -> Option<&mut VisualProperty> {
         match target {
-            StyleTarget::Base => self.base_visual_properties.get_mut(id),
+            StyleTarget::Base => renders.base_visual_properties.get_mut(id),
             _ => {
-                if !self.interaction_properties.contains_key(id) {
-                    self.interaction_properties
+                if !renders.interaction_properties.contains_key(id) {
+                    renders.interaction_properties
                         .insert(id, InteractionStyles::default());
                 }
-                let styles = self.interaction_properties.get_mut(id).unwrap();
+                let styles = renders.interaction_properties.get_mut(id).unwrap();
                 let style_ref = styles.get_style_target_mut(target);
                 Some(&mut Arc::make_mut(&mut style_ref.inner).visual_property)
             }
@@ -102,19 +103,19 @@ impl RenderStore {
     }
 
     pub(crate) fn get_flex_layout_mut<'a>(
-        &'a mut self,
         id: EntityId,
+        renders: &'a mut RenderStore,
         target: StyleTarget,
         flex_layouts: &'a mut SecondaryMap<EntityId, FlexLayout>,
     ) -> Option<&'a mut FlexLayout> {
         match target {
             StyleTarget::Base => flex_layouts.get_mut(id),
             _ => {
-                if !self.interaction_properties.contains_key(id) {
-                    self.interaction_properties
+                if !renders.interaction_properties.contains_key(id) {
+                    renders.interaction_properties
                         .insert(id, InteractionStyles::default());
                 }
-                let styles = self.interaction_properties.get_mut(id).unwrap();
+                let styles = renders.interaction_properties.get_mut(id).unwrap();
                 let style_ref = styles.get_style_target_mut(target);
                 Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
             }
@@ -123,17 +124,21 @@ impl RenderStore {
 
     /// スクロールバー用要素の不透明度（解決値と静的ベース値）を同時同期して更新します。
     #[inline]
-    pub(crate) fn update_scrollbar_element_opacity(&mut self, id: EntityId, opacity: f32) {
-        if let Some(vis) = self.visual_properties.get_mut(id) {
+    pub(crate) fn update_scrollbar_element_opacity(
+        id: EntityId,
+        renders: &mut RenderStore,
+        opacity: f32,
+    ) {
+        if let Some(vis) = renders.visual_properties.get_mut(id) {
             vis.opacity = Some(opacity);
         }
-        if let Some(vis) = self.base_visual_properties.get_mut(id) {
+        if let Some(vis) = renders.base_visual_properties.get_mut(id) {
             vis.opacity = Some(opacity);
         }
     }
 
-    pub(crate) fn trigger_keyframe_animations_if_needed(&mut self, id: EntityId) {
-        if let Some(visual) = self.visual_properties.get(id) {
+    pub(crate) fn trigger_keyframe_animations_if_needed(id: EntityId, renders: &mut RenderStore) {
+        if let Some(visual) = renders.visual_properties.get(id) {
             if visual.keyframe_animations.is_empty() {
                 return;
             }
@@ -143,10 +148,10 @@ impl RenderStore {
             // 借用回避のため定義を一度クローン
             let anims = visual.keyframe_animations.clone();
 
-            if !self.active_animations.contains_key(id) {
-                self.active_animations.insert(id, Vec::new());
+            if !renders.active_animations.contains_key(id) {
+                renders.active_animations.insert(id, Vec::new());
             }
-            let active_list = self.active_animations.get_mut(id).unwrap();
+            let active_list = renders.active_animations.get_mut(id).unwrap();
 
             for anim in anims {
                 // すでに同じプロパティのアニメーションが駆動中なら重複起動をスルー

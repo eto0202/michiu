@@ -613,9 +613,9 @@ impl Context {
         // 同期処理の開始時に自身をバインドする
         let _context_guard = bind_context(self);
         // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
-        self.reactive.evaluate_pending_element_effects();
+        ReactiveStore::evaluate_pending_element_effects(&mut self.reactive);
         // ウィンドウサイズの変更検知
-        let window_resized = self.window.window_resize_detection(window_size);
+        let window_resized = WindowStore::window_resize_detection(&mut self.window, window_size);
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // Taffy計算も、ダブルバッファスワップもすべてスキップして即時帰還する。
@@ -632,7 +632,7 @@ impl Context {
         }
 
         // 全スクロールバー関連IDを一括抽出
-        let scrollbar_el_ids = self.layouts.scrollbar_el_ids();
+        let scrollbar_el_ids = LayoutStore::scrollbar_el_ids(&self.layouts.scrollbar_styles);
 
         // 1. Taffy永続ツリーへの差分同期
         for id in &self.layouts.dirty_layout_entities {
@@ -641,8 +641,9 @@ impl Context {
                 continue;
             }
 
-            let (mut basic, flex, grid) = self.layouts.resolve_active_layouts(
+            let (mut basic, flex, grid) = LayoutStore::resolve_active_layouts(
                 *id,
+                &self.layouts,
                 &self.active_masks,
                 &self.parents,
                 &self.renders,
@@ -669,9 +670,8 @@ impl Context {
                 }
             }
 
-            let taffy_style = self
-                .layouts
-                .resolve_taffy_style(*id, (&basic, &flex, grid.as_ref()));
+            let taffy_style =
+                LayoutStore::resolve_taffy_style(*id, &self.layouts, &basic, &flex, grid.as_ref());
             let taffy_node = self.layouts.taffy_nodes[*id];
 
             self.layouts
@@ -944,18 +944,19 @@ impl Context {
                 .unwrap_or(LayoutPoint::ZERO);
 
             // 親コンテナのボーダーおよびパディング厚を取得
-            let (basic, _, _) = self.layouts.resolve_active_layouts(
+            let (basic, _, _) = LayoutStore::resolve_active_layouts(
                 id,
+                &self.layouts,
                 &self.active_masks,
                 &self.parents,
                 &self.renders,
             );
 
-            let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
-            let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
+            let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
+            let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
 
             // ウィンドウ境界によるクランプ可視サイズの算出
-            let visible_size = self.window.calculate_visible_size(container_rect);
+            let visible_size = WindowStore::calculate_visible_size(&self.window, container_rect);
             // 枠線と余白を引いた内枠コンテンツサイズの算出
             let content_size = self.calculate_inner_content_size(visible_size, border, padding);
 
@@ -1025,8 +1026,11 @@ impl Context {
                         v_track_opacity,
                     );
                 } else {
-                    self.layouts
-                        .hide_scrollbar_element(v_track, &mut self.renders);
+                    LayoutStore::hide_scrollbar_element(
+                        v_track,
+                        &mut self.layouts,
+                        &mut self.renders,
+                    );
                 }
             }
 
@@ -1151,8 +1155,11 @@ impl Context {
                         v_thumb_opacity,
                     );
                 } else {
-                    self.layouts
-                        .hide_scrollbar_element(v_thumb, &mut self.renders);
+                    LayoutStore::hide_scrollbar_element(
+                        v_thumb,
+                        &mut self.layouts,
+                        &mut self.renders,
+                    );
                 }
             }
 
@@ -1201,8 +1208,11 @@ impl Context {
                         h_track_opacity,
                     );
                 } else {
-                    self.layouts
-                        .hide_scrollbar_element(h_track, &mut self.renders);
+                    LayoutStore::hide_scrollbar_element(
+                        h_track,
+                        &mut self.layouts,
+                        &mut self.renders,
+                    );
                 }
             }
 
@@ -1323,8 +1333,11 @@ impl Context {
                         h_thumb_opacity,
                     );
                 } else {
-                    self.layouts
-                        .hide_scrollbar_element(h_thumb, &mut self.renders);
+                    LayoutStore::hide_scrollbar_element(
+                        h_thumb,
+                        &mut self.layouts,
+                        &mut self.renders,
+                    );
                 }
             }
         }
@@ -1495,21 +1508,26 @@ impl Context {
         inset: Rect<Val>,
         opacity: f32,
     ) {
-        self.layouts
-            .update_scrollbar_element_layout(id, &mut self.renders, size, inset);
-
-        self.renders.update_scrollbar_element_opacity(id, opacity);
-
-        let (basic, flex, grid) = self.layouts.resolve_active_layouts(
+        LayoutStore::update_scrollbar_element_layout(
             id,
+            &mut self.layouts,
+            &mut self.renders,
+            size,
+            inset,
+        );
+
+        RenderStore::update_scrollbar_element_opacity(id, &mut self.renders, opacity);
+
+        let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
+            id,
+            &self.layouts,
             &self.active_masks,
             &self.parents,
             &self.renders,
         );
 
         // 4. TaffyTreeへの同期適用 (LayoutStore)
-        self.layouts
-            .set_taffy_style(id, (&basic, &flex, grid.as_ref()));
+        LayoutStore::set_taffy_style(id, &mut self.layouts, &basic, &flex, grid.as_ref());
     }
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
@@ -1567,8 +1585,9 @@ impl Context {
             // 紺色の背景を通常通り描き込み、デスクトップが透けるのを完全に防止します。
             let is_webview_ready = is_webview && self.renders.active_webviews.contains(&id);
 
-            let (basic, _, _) = self.layouts.resolve_active_layouts(
+            let (basic, _, _) = LayoutStore::resolve_active_layouts(
                 id,
+                &self.layouts,
                 &self.active_masks,
                 &self.parents,
                 &self.renders,
@@ -1825,8 +1844,8 @@ impl Context {
             // 選択ハイライト背景のwgpu側への差し込み
             // キャッシュされた選択背景矩形群を描画
             if let Some(rects) = self.outputs.selected_rects.get(id) {
-                let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
-                let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
+                let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
+                let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
 
                 let sel_bg = visual
                     .select_bg_color
@@ -2084,8 +2103,8 @@ impl Context {
                         .unwrap_or(&default_visual);
                     let font_size = visual.font_size.unwrap_or(16.0);
 
-                    let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
-                    let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
+                    let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
+                    let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
 
                     let scale = self.window.scale_factor;
 
@@ -3346,7 +3365,7 @@ impl Context {
 
         // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
         // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
-        self.renders.trigger_keyframe_animations_if_needed(id);
+        RenderStore::trigger_keyframe_animations_if_needed(id, &mut self.renders);
 
         if let Some(effects) = self.reactive.element_effects.get(id) {
             let text_effects: Vec<EffectId> = effects
@@ -3909,8 +3928,8 @@ impl Context {
                 let ref_w = start_rect.width;
                 let ref_h = start_rect.height;
 
-                let b = self.layouts.get_physical_border(id, &basic, &self.outputs);
-                let p = self.layouts.get_physical_padding(id, &basic, &self.outputs);
+                let b = LayoutStore::get_physical_border(id, &basic, &self.outputs);
+                let p = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
 
                 // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
                 let abs_min_w = b.left + b.right + p.left + p.right;
@@ -4116,7 +4135,7 @@ impl Context {
                 (sb_state, container_rect, scroll_size)
             };
 
-            let visible_size = self.window.calculate_visible_size(container_rect);
+            let visible_size = WindowStore::calculate_visible_size(&self.window, container_rect);
 
             if is_v {
                 let track_id = sb_state.v_track_id.unwrap();
@@ -4302,8 +4321,9 @@ impl Context {
                 }
 
                 let rect = self.outputs.rects[pressed_id];
-                let (basic, _, _) = self.layouts.resolve_active_layouts(
+                let (basic, _, _) = LayoutStore::resolve_active_layouts(
                     pressed_id,
+                    &self.layouts,
                     &self.active_masks,
                     &self.parents,
                     &self.renders,
@@ -4991,7 +5011,8 @@ impl Context {
                             self.events.interaction_states.pressed = Some(target_id); // サム要素自体を pressed に設定
                             self.mark_render_dirty(target_id);
                         } else if is_v_track || is_h_track {
-                            let visible_size = self.window.calculate_visible_size(container_rect);
+                            let visible_size =
+                                WindowStore::calculate_visible_size(&self.window, container_rect);
 
                             // B. レールをクリックした場合：ダイレクトジャンプスクロールを実行
                             if is_v_track {
@@ -5083,8 +5104,9 @@ impl Context {
                         && let Some(pointer_pos) = self.events.current_pointer_position
                     {
                         let rect = self.outputs.rects[target_id];
-                        let (basic, _, _) = self.layouts.resolve_active_layouts(
+                        let (basic, _, _) = LayoutStore::resolve_active_layouts(
                             target_id,
+                            &self.layouts,
                             &self.active_masks,
                             &self.parents,
                             &self.renders,
@@ -5333,7 +5355,7 @@ impl Context {
                                 let (border_l, border_t) = if let Some(layout) =
                                     self.layouts.basic_layouts.get(target_id)
                                 {
-                                    let border = self.layouts.get_physical_border(
+                                    let border = LayoutStore::get_physical_border(
                                         target_id,
                                         layout,
                                         &self.outputs,
@@ -5601,18 +5623,15 @@ impl Context {
                 }
 
                 let rect = self.outputs.rects[target_id];
-                let (basic, _, _) = self.layouts.resolve_active_layouts(
+                let (basic, _, _) = LayoutStore::resolve_active_layouts(
                     target_id,
+                    &self.layouts,
                     &self.active_masks,
                     &self.parents,
                     &self.renders,
                 );
-                let border = self
-                    .layouts
-                    .get_physical_border(target_id, &basic, &self.outputs);
-                let padding = self
-                    .layouts
-                    .get_physical_padding(target_id, &basic, &self.outputs);
+                let border = LayoutStore::get_physical_border(target_id, &basic, &self.outputs);
+                let padding = LayoutStore::get_physical_padding(target_id, &basic, &self.outputs);
 
                 let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
                 let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
@@ -5682,8 +5701,9 @@ impl Context {
             // ユーザーハンドラがない場合、要素がスクロールコンテナであるか判定
             let mask = self.active_masks[curr_id];
             if mask.has(STYLE_OVERFLOW) {
-                let (basic, _, _) = self.layouts.resolve_active_layouts(
+                let (basic, _, _) = LayoutStore::resolve_active_layouts(
                     curr_id,
+                    &self.layouts,
                     &self.active_masks,
                     &self.parents,
                     &self.renders,
@@ -6239,14 +6259,15 @@ impl Context {
         }
 
         // 親要素自体のボーダー・パディング厚を取得
-        let (basic, _, _) = self.layouts.resolve_active_layouts(
+        let (basic, _, _) = LayoutStore::resolve_active_layouts(
             id,
+            &self.layouts,
             &self.active_masks,
             &self.parents,
             &self.renders,
         );
-        let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
-        let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
+        let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
+        let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
 
         let offset_x = border.left + padding.left;
         let offset_y = border.top + padding.top;
@@ -6317,16 +6338,17 @@ impl Context {
         let scroll_size = self.get_scroll_size(id);
 
         // 親コンテナのボーダーおよびパディング厚を取得
-        let (basic, _, _) = self.layouts.resolve_active_layouts(
+        let (basic, _, _) = LayoutStore::resolve_active_layouts(
             id,
+            &self.layouts,
             &self.active_masks,
             &self.parents,
             &self.renders,
         );
-        let border = self.layouts.get_physical_border(id, &basic, &self.outputs);
-        let padding = self.layouts.get_physical_padding(id, &basic, &self.outputs);
+        let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
+        let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
 
-        let visible_size = self.window.calculate_visible_size(rect);
+        let visible_size = WindowStore::calculate_visible_size(&self.window, rect);
         let content_size = self.calculate_inner_content_size(visible_size, border, padding);
 
         // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出

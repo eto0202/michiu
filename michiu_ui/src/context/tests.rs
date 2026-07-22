@@ -266,16 +266,24 @@ fn test_style_cascade_overrides() {
 
     // 5.1 ホバーのみが有効な場合
     cx.active_masks.get_mut(id).unwrap().set(STATE_HOVERED);
-    let (resolved_hover, _, _) =
-        cx.layouts
-            .resolve_active_layouts(id, &cx.active_masks, &cx.parents, &cx.renders);
+    let (resolved_hover, _, _) = LayoutStore::resolve_active_layouts(
+        id,
+        &cx.layouts,
+        &cx.active_masks,
+        &cx.parents,
+        &cx.renders,
+    );
     assert_eq!(resolved_hover.size.width, Val::Px(50.0));
 
     // 5.2 ホバーと無効化（Disabled）が同時に有効な場合
     cx.active_masks.get_mut(id).unwrap().set(STATE_DISABLED);
-    let (resolved_both, _, _) =
-        cx.layouts
-            .resolve_active_layouts(id, &cx.active_masks, &cx.parents, &cx.renders);
+    let (resolved_both, _, _) = LayoutStore::resolve_active_layouts(
+        id,
+        &cx.layouts,
+        &cx.active_masks,
+        &cx.parents,
+        &cx.renders,
+    );
     assert_eq!(resolved_both.size.width, Val::Px(100.0));
 }
 

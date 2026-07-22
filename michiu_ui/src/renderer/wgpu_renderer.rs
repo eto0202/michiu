@@ -1,13 +1,5 @@
 #![allow(dead_code)]
-use crate::{
-    BatchType, BorderAlignment, BorderStyle, BoxSizing, COMP_INPUT_CONTENT, COMP_WEBVIEW_CONTENT,
-    DrawBatch, LayoutPoint, Length, TextSpan,
-};
-use crate::{
-    COMP_TEXT_CONTENT, Color, Context, CornerRadius, EdgeInsets, EntityId, IDENTITY_MATRIX,
-    LayoutRect, LayoutSize, QuadInstance, TextCacheKey, TextCacheValue, TextRasterizer,
-    TextureAtlas, VisualProperty, renderer::Vertex,
-};
+use crate::*;
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
 };
@@ -584,8 +576,9 @@ impl WgpuRenderer {
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> QuadInstance {
-        let (basic, _, _) = cx.layouts.resolve_active_layouts(
+        let (basic, _, _) = LayoutStore::resolve_active_layouts(
             entity_id,
+            &cx.layouts,
             &cx.active_masks,
             &cx.parents,
             &cx.renders,

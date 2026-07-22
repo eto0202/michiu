@@ -70,7 +70,7 @@ impl SystemStore {
 
 impl SystemStore {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
-    pub(crate) fn clear_layout_cache(&mut self, id: EntityId) {
-        self.dwrite_layouts.borrow_mut().remove(id);
+    pub(crate) fn clear_layout_cache(id: EntityId, system: &mut SystemStore) {
+        system.dwrite_layouts.borrow_mut().remove(id);
     }
 }

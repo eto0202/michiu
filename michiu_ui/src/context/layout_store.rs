@@ -89,15 +89,15 @@ impl LayoutStore {
 impl LayoutStore {
     /// 各スタイルの解決を1回のルックアップと1回のカスケード解決ループに統合
     pub(crate) fn resolve_active_layouts(
-        &self,
         id: EntityId,
+        layouts: &LayoutStore,
         active_masks: &SecondaryMap<EntityId, ComponentMask>,
         parents: &SecondaryMap<EntityId, Option<EntityId>>,
         renders: &RenderStore,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
-        let mut basic = self.basic_layouts.get(id).copied().unwrap_or_default();
-        let mut flex = self.flex_layouts.get(id).copied().unwrap_or_default();
-        let mut grid = self.grid_layouts.get(id).cloned();
+        let mut basic = layouts.basic_layouts.get(id).copied().unwrap_or_default();
+        let mut flex = layouts.flex_layouts.get(id).copied().unwrap_or_default();
+        let mut grid = layouts.grid_layouts.get(id).cloned();
 
         let active_mask = active_masks[id];
 
@@ -197,12 +197,13 @@ impl LayoutStore {
 
     // Taffyスタイルを一括解決するヘルパー
     pub(crate) fn resolve_taffy_style(
-        &self,
         id: EntityId,
-        layouts: (&BasicLayout, &FlexLayout, Option<&GridLayout>),
+        layouts: &LayoutStore,
+        basic: &BasicLayout,
+        flex: &FlexLayout,
+        grid: Option<&GridLayout>,
     ) -> taffy::Style {
-        let (basic, flex, grid) = (layouts.0, layouts.1, layouts.2);
-        let sb_style = self.scrollbar_styles.get(id).map(|s| &s.style);
+        let sb_style = layouts.scrollbar_styles.get(id).map(|s| &s.style);
 
         let mut style: taffy::Style = taffy::Style {
             display: basic.display.into(),
@@ -258,7 +259,6 @@ impl LayoutStore {
 
     /// 指定された要素の現在解決されている物理ボーダー（EdgeInsets）を取得します。
     pub(crate) fn get_physical_border(
-        &self,
         id: EntityId,
         basic: &BasicLayout,
         outputs: &OutputStore,
@@ -266,16 +266,15 @@ impl LayoutStore {
         let rect = outputs.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
 
         EdgeInsets {
-            top: self.resolve_length_to_px(basic.border.top, rect.height),
-            right: self.resolve_length_to_px(basic.border.right, rect.width),
-            bottom: self.resolve_length_to_px(basic.border.bottom, rect.height),
-            left: self.resolve_length_to_px(basic.border.left, rect.width),
+            top: LayoutStore::resolve_length_to_px(basic.border.top, rect.height),
+            right: LayoutStore::resolve_length_to_px(basic.border.right, rect.width),
+            bottom: LayoutStore::resolve_length_to_px(basic.border.bottom, rect.height),
+            left: LayoutStore::resolve_length_to_px(basic.border.left, rect.width),
         }
     }
 
     /// 指定された要素の現在解決されている物理パディング（EdgeInsets）を取得します。
     pub(crate) fn get_physical_padding(
-        &self,
         id: EntityId,
         basic: &BasicLayout,
         outputs: &OutputStore,
@@ -283,15 +282,15 @@ impl LayoutStore {
         let rect = outputs.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
 
         EdgeInsets {
-            top: self.resolve_length_to_px(basic.padding.top, rect.height),
-            right: self.resolve_length_to_px(basic.padding.right, rect.width),
-            bottom: self.resolve_length_to_px(basic.padding.bottom, rect.height),
-            left: self.resolve_length_to_px(basic.padding.left, rect.width),
+            top: LayoutStore::resolve_length_to_px(basic.padding.top, rect.height),
+            right: LayoutStore::resolve_length_to_px(basic.padding.right, rect.width),
+            bottom: LayoutStore::resolve_length_to_px(basic.padding.bottom, rect.height),
+            left: LayoutStore::resolve_length_to_px(basic.padding.left, rect.width),
         }
     }
 
     #[inline]
-    fn resolve_length_to_px(&self, length: Length, reference: f32) -> f32 {
+    fn resolve_length_to_px(length: Length, reference: f32) -> f32 {
         match length {
             Length::Px(v) => v,
             Length::Percent(p) => reference * (p / 100.0),
@@ -300,9 +299,11 @@ impl LayoutStore {
 
     // 全スクロールバー関連IDを一括抽出
     #[inline]
-    pub(crate) fn scrollbar_el_ids(&self) -> HashSet<EntityId> {
+    pub(crate) fn scrollbar_el_ids(
+        scrollbar_styles: &SparseSecondaryMap<EntityId, ScrollBarState>,
+    ) -> HashSet<EntityId> {
         let mut scrollbar_el_ids = HashSet::new();
-        for sb_state in self.scrollbar_styles.values() {
+        for sb_state in scrollbar_styles.values() {
             if let Some(track_id) = sb_state.v_track_id {
                 scrollbar_el_ids.insert(track_id);
             }
@@ -321,8 +322,8 @@ impl LayoutStore {
 
     /// スクロールバー用要素（TrackやThumb）のレイアウト情報（解決値と静的ベース値）をアトミックに同時同期して更新します。
     pub(crate) fn update_scrollbar_element_layout(
-        &mut self,
         id: EntityId,
+        layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         size: Size<Val>,
         inset: Rect<Val>,
@@ -336,7 +337,7 @@ impl LayoutStore {
         };
 
         // 1. LayoutStore 側の解決値（basic_layouts）を更新
-        if let Some(layout) = self.basic_layouts.get_mut(id) {
+        if let Some(layout) = layouts.basic_layouts.get_mut(id) {
             apply(layout);
         }
         // 2. RenderStore 側のベース静的値（base_basic_layouts）を同時更新
@@ -345,8 +346,8 @@ impl LayoutStore {
         }
 
         // affy 側のノードスタイルも Display::None にして即時同期
-        let node = self.taffy_nodes[id];
-        let _ = self.taffy.set_style(
+        let node = layouts.taffy_nodes[id];
+        let _ = layouts.taffy.set_style(
             node,
             taffy::Style {
                 display: taffy::Display::None,
@@ -358,22 +359,28 @@ impl LayoutStore {
     /// 解決済みの基本スタイルを TaffyTree のノードへ即時同期して適用します。
     #[inline]
     pub(crate) fn set_taffy_style(
-        &mut self,
         id: EntityId,
-        layouts: (&BasicLayout, &FlexLayout, Option<&GridLayout>),
+        layouts: &mut LayoutStore,
+        basic: &BasicLayout,
+        flex: &FlexLayout,
+        grid: Option<&GridLayout>,
     ) {
-        let taffy_style = self.resolve_taffy_style(id, layouts);
-        let node = self.taffy_nodes[id];
-        let _ = self.taffy.set_style(node, taffy_style);
+        let taffy_style = LayoutStore::resolve_taffy_style(id, layouts, basic, flex, grid);
+        let node = layouts.taffy_nodes[id];
+        let _ = layouts.taffy.set_style(node, taffy_style);
     }
 
     /// スクロールバー用要素をレイアウト上から安全に隠します。
     #[inline]
-    pub(crate) fn hide_scrollbar_element(&mut self, id: EntityId, renders: &mut RenderStore) {
+    pub(crate) fn hide_scrollbar_element(
+        id: EntityId,
+        layouts: &mut LayoutStore,
+        renders: &mut RenderStore,
+    ) {
         let hide = |layout: &mut BasicLayout| {
             layout.display = Display::None;
         };
-        if let Some(layout) = self.basic_layouts.get_mut(id) {
+        if let Some(layout) = layouts.basic_layouts.get_mut(id) {
             hide(layout);
         }
         if let Some(layout) = renders.base_basic_layouts.get_mut(id) {
