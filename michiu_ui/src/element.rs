@@ -30,7 +30,7 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
 
     // ツリーのすべてのトポロジーおよび provide 関係が組み上がったこの瞬間に、
     // キューされて保留されていた全子孫要素のエフェクトを一括して初回評価
-    ReactiveStore::evaluate_pending_element_effects(&mut cx.reactive);
+    cx.evaluate_pending_element_effects();
 
     result
 }
@@ -152,7 +152,7 @@ impl Element {
     /// この要素、およびそのすべての子孫要素のエフェクトから `use_provided::<T>()` で取得可能になります。
     pub fn provide<T: Send + 'static>(self, read_signal: ReadSignal<T>) -> Self {
         with_context(|cx| {
-            ReactiveStore::provide_context::<T>(self.id, &mut cx.reactive, read_signal.id);
+            cx.provide_context::<T>(self.id, read_signal.id);
         });
         self
     }
@@ -171,44 +171,34 @@ impl Element {
                     // 動的なセッターが存在する場合、それらを単一のエフェクトとして登録
                     if !s.inner.dynamic_setters.is_empty() {
                         let setters = s.inner.dynamic_setters.clone();
-                        ReactiveStore::create_element_effect(
-                            id,
-                            &mut cx.reactive,
-                            EffectCategory::Style,
-                            move |cx| {
-                                // すべての動的セッターを実行
-                                for setter in &setters {
-                                    setter(cx, id, StyleTarget::Base);
-                                }
-                                // 状態が変化したため、最後に必ずスタイル解決を走り込ませる
-                                cx.resolve_element_style_state(id, false);
-                            },
-                        );
+                        cx.create_element_effect(id, EffectCategory::Style, move |cx| {
+                            // すべての動的セッターを実行
+                            for setter in &setters {
+                                setter(cx, id, StyleTarget::Base);
+                            }
+                            // 状態が変化したため、最後に必ずスタイル解決を走り込ませる
+                            cx.resolve_element_style_state(id, false);
+                        });
                     }
                 });
             }
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::Style,
-                        move |cx| {
-                            let s = f();
-                            let element = Element { id };
-                            // 動的評価された最新スタイルは、蓄積を避けるため置換（merge = false）
-                            // 修正: 動的評価されたスタイルもマージ（true）としてマウントします。
-                            // これにより、v_flex_c 等のColumn構造が破壊されるのを完全に防ぎます。
-                            element.style_internal(cx, s.clone(), true);
+                    cx.create_element_effect(id, EffectCategory::Style, move |cx| {
+                        let s = f();
+                        let element = Element { id };
+                        // 動的評価された最新スタイルは、蓄積を避けるため置換（merge = false）
+                        // 修正: 動的評価されたスタイルもマージ（true）としてマウントします。
+                        // これにより、v_flex_c 等のColumn構造が破壊されるのを完全に防ぎます。
+                        element.style_internal(cx, s.clone(), true);
 
-                            // 動的スタイルが自身の中で動的なプロバイダーを含む場合も評価
-                            for setter in &s.inner.dynamic_setters {
-                                setter(cx, id, StyleTarget::Base);
-                            }
-                            cx.resolve_element_style_state(id, false);
-                        },
-                    );
+                        // 動的スタイルが自身の中で動的なプロバイダーを含む場合も評価
+                        for setter in &s.inner.dynamic_setters {
+                            setter(cx, id, StyleTarget::Base);
+                        }
+                        cx.resolve_element_style_state(id, false);
+                    });
                 });
             }
         }
@@ -340,26 +330,21 @@ impl Element {
                     let current_child: Rc<Cell<Option<EntityId>>> = Rc::new(Cell::new(None));
                     let current_child_clone = current_child.clone();
 
-                    ReactiveStore::create_element_effect(
-                        parent_id,
-                        &mut cx.reactive,
-                        EffectCategory::Contents,
-                        move |cx| {
-                            // 新しい子要素をクロージャから生成
-                            let new_child = f();
+                    cx.create_element_effect(parent_id, EffectCategory::Contents, move |cx| {
+                        // 新しい子要素をクロージャから生成
+                        let new_child = f();
 
-                            if let Some(old_child) = current_child_clone.get() {
-                                // 2回目以降の評価: 旧要素を直接新しい要素へ置換
-                                cx.replace_child(parent_id, old_child, new_child.id);
-                            } else {
-                                // 初回の評価: ダイレクトに親の子要素リストへ追加
-                                cx.add_child(parent_id, new_child.id);
-                            }
+                        if let Some(old_child) = current_child_clone.get() {
+                            // 2回目以降の評価: 旧要素を直接新しい要素へ置換
+                            cx.replace_child(parent_id, old_child, new_child.id);
+                        } else {
+                            // 初回の評価: ダイレクトに親の子要素リストへ追加
+                            cx.add_child(parent_id, new_child.id);
+                        }
 
-                            // 最新の生成要素 ID を退避・更新
-                            current_child_clone.set(Some(new_child.id));
-                        },
-                    );
+                        // 最新の生成要素 ID を退避・更新
+                        current_child_clone.set(Some(new_child.id));
+                    });
                 });
             }
         }
@@ -414,43 +399,36 @@ impl Element {
                 Rc::new(std::cell::RefCell::new(Vec::new()));
             let current_children_clone = current_children.clone();
 
-            ReactiveStore::create_element_effect(
-                parent_id,
-                &mut cx.reactive,
-                EffectCategory::Contents,
-                move |cx| {
-                    // プロバイダーの値を動的解決
-                    let signal = crate::use_provided::<P>();
-                    let val = signal.get();
+            cx.create_element_effect(parent_id, EffectCategory::Contents, move |cx| {
+                // プロバイダーの値を動的解決
+                let signal = crate::use_provided::<P>();
+                let val = signal.get();
 
-                    // 新しい子要素群の生成
-                    let new_elements: Vec<Element> = f(&val)
-                        .into_iter()
-                        .map(|e| match e.into() {
-                            Prop::Static(el) => el,
-                            _ => panic!(
-                                "Dynamic nested elements inside children_c are not supported"
-                            ),
-                        })
-                        .collect();
+                // 新しい子要素群の生成
+                let new_elements: Vec<Element> = f(&val)
+                    .into_iter()
+                    .map(|e| match e.into() {
+                        Prop::Static(el) => el,
+                        _ => panic!("Dynamic nested elements inside children_c are not supported"),
+                    })
+                    .collect();
 
-                    // 前回マウントした古い子要素群を安全に一括破棄（Taffyツリーからのデタッチ含む）
-                    let mut old_children = current_children_clone.borrow_mut();
-                    for old_id in old_children.drain(..) {
-                        cx.despawn_internal(old_id);
-                    }
+                // 前回マウントした古い子要素群を安全に一括破棄（Taffyツリーからのデタッチ含む）
+                let mut old_children = current_children_clone.borrow_mut();
+                for old_id in old_children.drain(..) {
+                    cx.despawn_internal(old_id);
+                }
 
-                    // 生成された新しい子要素群を親コンテナの直下にマウント
-                    for new_el in &new_elements {
-                        cx.add_child(parent_id, new_el.id);
-                        old_children.push(new_el.id);
-                    }
+                // 生成された新しい子要素群を親コンテナの直下にマウント
+                for new_el in &new_elements {
+                    cx.add_child(parent_id, new_el.id);
+                    old_children.push(new_el.id);
+                }
 
-                    // 親コンテナのレイアウト再計算と描画をダーティマーク
-                    cx.mark_layout_dirty(parent_id);
-                    cx.mark_render_dirty(parent_id);
-                },
-            );
+                // 親コンテナのレイアウト再計算と描画をダーティマーク
+                cx.mark_layout_dirty(parent_id);
+                cx.mark_render_dirty(parent_id);
+            });
         });
 
         self
@@ -517,17 +495,12 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::Contents,
-                        move |cx| {
-                            let new_child = f();
-                            let container = Element { id };
-                            // Dynamic 実行時は自身を自殺させないためそのままマウントを実行
-                            container.set_contents_internal(cx, new_child);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::Contents, move |cx| {
+                        let new_child = f();
+                        let container = Element { id };
+                        // Dynamic 実行時は自身を自殺させないためそのままマウントを実行
+                        container.set_contents_internal(cx, new_child);
+                    });
                 });
             }
         }
@@ -584,7 +557,7 @@ impl Element {
                 with_context(|cx| {
                     cx.contents.text_contents.insert(self.id, val);
                     cx.topology.active_masks[self.id].set(COMP_TEXT_CONTENT);
-                    SystemStore::clear_layout_cache(self.id, &mut cx.system);
+                    cx.clear_layout_cache(self.id);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
                 });
@@ -592,19 +565,14 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::Text,
-                        move |cx| {
-                            let new_text = f();
-                            cx.contents.text_contents.insert(id, new_text);
-                            cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
-                            SystemStore::clear_layout_cache(self.id, &mut cx.system);
-                            cx.mark_layout_dirty(id);
-                            cx.mark_render_dirty(id);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::Text, move |cx| {
+                        let new_text = f();
+                        cx.contents.text_contents.insert(id, new_text);
+                        cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
+                        cx.clear_layout_cache(self.id);
+                        cx.mark_layout_dirty(id);
+                        cx.mark_render_dirty(id);
+                    });
                 });
             }
         }
@@ -642,18 +610,13 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::Image,
-                        move |cx| {
-                            let src = f();
-                            cx.contents.image_sources.insert(id, src);
-                            cx.topology.active_masks[id].set(COMP_IMAGE_CONTENT);
-                            cx.mark_layout_dirty(id);
-                            cx.mark_render_dirty(id);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::Image, move |cx| {
+                        let src = f();
+                        cx.contents.image_sources.insert(id, src);
+                        cx.topology.active_masks[id].set(COMP_IMAGE_CONTENT);
+                        cx.mark_layout_dirty(id);
+                        cx.mark_render_dirty(id);
+                    });
                 });
             }
         }
@@ -690,18 +653,13 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::Movie,
-                        move |cx| {
-                            let p = f();
-                            cx.contents.movie_properties.insert(id, p);
-                            cx.topology.active_masks[id].set(COMP_MOVIE_CONTENT);
-                            cx.mark_layout_dirty(id);
-                            cx.mark_render_dirty(id);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::Movie, move |cx| {
+                        let p = f();
+                        cx.contents.movie_properties.insert(id, p);
+                        cx.topology.active_masks[id].set(COMP_MOVIE_CONTENT);
+                        cx.mark_layout_dirty(id);
+                        cx.mark_render_dirty(id);
+                    });
                 });
             }
         }
@@ -738,18 +696,13 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::WebView2,
-                        move |cx| {
-                            let contents = f();
-                            cx.contents.webview_contents.insert(id, contents);
-                            cx.topology.active_masks[id].set(COMP_WEBVIEW_CONTENT);
-                            cx.mark_layout_dirty(id);
-                            cx.mark_render_dirty(id);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::WebView2, move |cx| {
+                        let contents = f();
+                        cx.contents.webview_contents.insert(id, contents);
+                        cx.topology.active_masks[id].set(COMP_WEBVIEW_CONTENT);
+                        cx.mark_layout_dirty(id);
+                        cx.mark_render_dirty(id);
+                    });
                 });
             }
         }
@@ -781,16 +734,11 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::Input,
-                        move |cx| {
-                            let c = f();
-                            let el = Element { id };
-                            el.input_internal(cx, c);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::Input, move |cx| {
+                        let c = f();
+                        let el = Element { id };
+                        el.input_internal(cx, c);
+                    });
                 });
             }
         }
@@ -823,17 +771,12 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::Input,
-                        move |cx| {
-                            let mut c = f();
-                            c.is_multiline = true;
-                            let el = Element { id };
-                            el.input_internal(cx, c);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::Input, move |cx| {
+                        let mut c = f();
+                        c.is_multiline = true;
+                        let el = Element { id };
+                        el.input_internal(cx, c);
+                    });
                 });
             }
         }
@@ -908,14 +851,9 @@ impl Element {
                     let rect = cx.outputs.rects[id];
 
                     // 要素の境界枠（border + padding）を取得してローカル座標を算出
-                    let (basic, _, _) = LayoutStore::resolve_active_layouts(
-                        id,
-                        &cx.topology,
-                        &cx.layouts,
-                        &cx.renders,
-                    );
-                    let border = LayoutStore::get_physical_border(id, &basic, &cx.outputs);
-                    let padding = LayoutStore::get_physical_padding(id, &basic, &cx.outputs);
+                    let (basic, _, _) = cx.resolve_active_layouts(id);
+                    let border = cx.get_physical_border(id, &basic);
+                    let padding = cx.get_physical_padding(id, &basic);
 
                     let scroll = cx
                         .outputs
@@ -1590,19 +1528,14 @@ impl Element {
             }));
         });
 
-        ReactiveStore::create_element_effect(
-            id,
-            &mut cx.reactive,
-            EffectCategory::Text,
-            move |cx| {
-                if let Some(contents) = cx.contents.input_contents.get(id) {
-                    let _base_text_val = contents.text.0.get();
-                }
-                update_input_caret_position(cx, id);
-                cx.mark_layout_dirty(id);
-                cx.mark_render_dirty(id);
-            },
-        );
+        cx.create_element_effect(id, EffectCategory::Text, move |cx| {
+            if let Some(contents) = cx.contents.input_contents.get(id) {
+                let _base_text_val = contents.text.0.get();
+            }
+            update_input_caret_position(cx, id);
+            cx.mark_layout_dirty(id);
+            cx.mark_render_dirty(id);
+        });
     }
 
     /// 内部ヘルパー：この要素に対応する `EventListeners` が SoA 上に存在しない場合は新規に作成し、
@@ -2389,15 +2322,10 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::ActiveState,
-                        move |cx| {
-                            let active_val = f();
-                            cx.set_actived(id, active_val);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::ActiveState, move |cx| {
+                        let active_val = f();
+                        cx.set_actived(id, active_val);
+                    });
                 });
             }
         }
@@ -2416,15 +2344,10 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::SelectState,
-                        move |cx| {
-                            let selected_val = f();
-                            cx.set_selected(id, selected_val);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::SelectState, move |cx| {
+                        let selected_val = f();
+                        cx.set_selected(id, selected_val);
+                    });
                 });
             }
         }
@@ -2443,15 +2366,10 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::DisableState,
-                        move |cx| {
-                            let disabled_val = f();
-                            cx.set_disabled(id, disabled_val);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::DisableState, move |cx| {
+                        let disabled_val = f();
+                        cx.set_disabled(id, disabled_val);
+                    });
                 });
             }
         }
@@ -2470,15 +2388,10 @@ impl Element {
             Prop::Dynamic(f) => {
                 let id = self.id;
                 with_context(|cx| {
-                    ReactiveStore::create_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::FocusState,
-                        move |cx| {
-                            let focused_val = f();
-                            cx.set_focused(id, focused_val);
-                        },
-                    );
+                    cx.create_element_effect(id, EffectCategory::FocusState, move |cx| {
+                        let focused_val = f();
+                        cx.set_focused(id, focused_val);
+                    });
                 });
             }
         }
@@ -2505,12 +2418,7 @@ impl Element {
                     el.uia_property_internal(cx, 30005, UiaValue::String(s.into()));
                 });
                 with_context(|cx| {
-                    ReactiveStore::register_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::UiaName,
-                        effect_id,
-                    )
+                    cx.register_element_effect(id, EffectCategory::UiaName, effect_id)
                 });
                 self
             }
@@ -2544,12 +2452,7 @@ impl Element {
                     el.uia_property_internal(cx, 30011, UiaValue::String(s.into()));
                 });
                 with_context(|cx| {
-                    ReactiveStore::register_element_effect(
-                        id,
-                        &mut cx.reactive,
-                        EffectCategory::UiaAutomationId,
-                        effect_id,
-                    )
+                    cx.register_element_effect(id, EffectCategory::UiaAutomationId, effect_id)
                 });
                 self
             }
@@ -2566,7 +2469,7 @@ impl Element {
 /// 現在のテキスト・IME状態・フォントサイズから、
 /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して SoA を更新。
 pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
-    SystemStore::clear_layout_cache(id, &mut cx.system); // IMEやタイピング中の古いキャッシュを破棄
+    cx.clear_layout_cache(id); // IMEやタイピング中の古いキャッシュを破棄
 
     // (caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)
     let mut scroll_ime_info: Option<(f32, f32, f32, f32, f32, bool)> = None;
@@ -2755,10 +2658,9 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
             .unwrap_or(LayoutPoint::ZERO);
 
         if rect.width > 0.0 && rect.height > 0.0 {
-            let (basic, _, _) =
-                LayoutStore::resolve_active_layouts(id, &cx.topology, &cx.layouts, &cx.renders);
-            let border = LayoutStore::get_physical_border(id, &basic, &cx.outputs);
-            let padding = LayoutStore::get_physical_padding(id, &basic, &cx.outputs);
+            let (basic, _, _) = cx.resolve_active_layouts(id);
+            let border = cx.get_physical_border(id, &basic);
+            let padding = cx.get_physical_padding(id, &basic);
 
             let viewport_w =
                 (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
@@ -2796,8 +2698,7 @@ pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
             let himc = ImmGetContext(hwnd);
             if !himc.is_invalid() {
                 let rect = cx.outputs.rects[id];
-                let (basic, _, _) =
-                    LayoutStore::resolve_active_layouts(id, &cx.topology, &cx.layouts, &cx.renders);
+                let (basic, _, _) = cx.resolve_active_layouts(id);
                 let border_top = match basic.border.top {
                     Length::Px(v) => v,
                     _ => 0.0,

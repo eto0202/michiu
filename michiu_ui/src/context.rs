@@ -91,75 +91,57 @@ impl Context {
     }
 
     /// 要素を新規に生成（Spawn）
+    #[inline]
     pub(crate) fn spawn(&mut self, parent_id: Option<EntityId>) -> EntityId {
-        let id = self.topology.entities.insert(());
+        TopologyStore::spawn(
+            parent_id,
+            &mut self.topology,
+            &mut self.layouts,
+            &mut self.renders,
+        )
+    }
 
-        self.topology.parents.insert(id, parent_id);
-        self.topology.children.insert(id, SmallVec::new());
-        self.topology.active_masks.insert(id, ComponentMask::new(0)); // 初期状態はどのプロパティも無効
+    #[inline]
+    pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
+        TopologyStore::add_child(parent, child, &mut self.topology, &mut self.layouts);
+    }
 
-        // Leaf ノード作成時に、Context として自分自身の ID を登録する
-        let node = self
-            .layouts
-            .taffy
-            .new_leaf_with_context(taffy::Style::default(), id)
-            .unwrap();
-        self.layouts.taffy_nodes.insert(id, node);
+    #[inline]
+    pub(crate) fn mark_layout_dirty(&mut self, id: EntityId) {
+        TopologyStore::mark_layout_dirty(id, &mut self.topology, &mut self.layouts);
+    }
 
-        self.topology.active_entities.push(id);
-
-        // 新規作成された要素は、当然レイアウトと描画の対象となる
-        // カスタムスタイルが当てられるまではデフォルト（Style::default）を再利用するため
-        // mark_layout_dirty(id) の呼び出しを完全にスキップして、Taffyへの無駄な伝播をカット
-        self.mark_render_dirty(id);
-        self.layouts.is_structure_dirty = true; // 構造変化をマーク
-
-        self.topology.session_spawned.push(id);
-
-        id
+    #[inline]
+    pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
+        TopologyStore::mark_render_dirty(id, &mut self.topology, &mut self.renders);
     }
 
     // セッションの開始マーカーを取得
+    #[inline]
     pub(crate) fn start_session(&mut self) -> usize {
         self.topology.session_spawned.len()
     }
 
     // ルート要素として保護するIDを登録
+    #[inline]
     pub(crate) fn register_root(&mut self, id: EntityId) {
         self.topology.session_roots.push(id);
     }
 
     // セッションのクリーンアップを実行
+    #[inline]
     pub(crate) fn end_session(&mut self, start_marker: usize) {
-        // start_marker 以降に生成された要素をスキャン
-        let spawned_in_session: Vec<EntityId> = self
-            .topology
-            .session_spawned
-            .drain(start_marker..)
-            .collect();
-
-        for id in spawned_in_session {
-            // 親が存在しない
-            let has_no_parent = self.topology.parents.get(id).copied().flatten().is_none();
-            // ルート要素としても登録されていない
-            let is_not_root = !self.topology.session_roots.contains(&id);
-
-            // 上記を満たす完全な孤児を自動で一掃
-            if has_no_parent && is_not_root {
-                self.despawn_internal(id);
-            }
-        }
-
-        // ルートリストをクリア
-        self.topology.session_roots.clear();
+        TopologyStore::end_session(self, start_marker);
     }
 
     /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
+    #[inline]
     pub fn task_sender(&self) -> TaskSender {
         self.system.task_sender.clone()
     }
 
     /// ウィンドウ生成後に起床用コールバックを登録します。
+    #[inline]
     pub fn set_waker<F>(&mut self, f: F)
     where
         F: Fn() + Send + Sync + 'static,
@@ -169,6 +151,7 @@ impl Context {
 
     /// Context インスタンスから直接シグナルを生成します。
     /// これにより build_ui の外側（メインスレッド上）でもシグナルを定義できます。
+    #[inline]
     pub fn create_signal<T: Send + 'static>(
         &mut self,
         initial_value: T,
@@ -189,6 +172,7 @@ impl Context {
 
     /// メインスレッドの毎フレーム開始時（またはイベントハンドラの先頭など）に呼び出され、
     /// バックグラウンドから届いたシグナル更新タスクなどの処理を安全に一括実行します。
+    #[inline]
     pub fn process_main_thread_tasks(&mut self) {
         let _context_guard = bind_context(self);
         // キューに溜まっているクロージャをすべてメインスレッドのコンテキスト上で実行
@@ -198,142 +182,64 @@ impl Context {
     }
 
     /// 要素の階層トポロジーを親（Ancestor）に向かって遡り、最初に見つかった型 T の ReadSignal を解決して返します
+    #[inline]
     pub(crate) fn use_provided_from<T: Clone + 'static>(
         &self,
         id: EntityId,
     ) -> Option<ReadSignal<T>> {
-        let mut curr = Some(id);
-        let type_id = std::any::TypeId::of::<T>();
-
-        while let Some(curr_id) = curr {
-            if let Some(map) = self.reactive.providers.get(curr_id)
-                && let Some(&signal_id) = map.get(&type_id)
-            {
-                return Some(ReadSignal::new(signal_id));
-            }
-            // トポロジー親を安全に探索
-            curr = self.topology.parents.get(curr_id).copied().flatten();
-        }
-        None
+        ReactiveStore::use_provided_from(id, &self.reactive, &self.topology)
     }
 
     /// 現在のスレッドローカルコンテキスト（アクティブなエフェクト、またはイベントハンドラ）から、
     /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の ReadSignal を解決します。
+    #[inline]
     pub fn use_provided<T: Clone + 'static>(&self) -> ReadSignal<T> {
-        // 1. ACTIVE_EFFECT（エフェクト実行中）から解決を試みる
-        let element_id = if let Some(active_effect_id) =
-            crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
-        {
-            self.reactive
-                .effect_to_element
-                .get(active_effect_id)
-                .copied()
-                .expect("use_provided failed: active effect is not associated with any UI Element")
-        } else if let Some(active_element_id) =
-            crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
-        {
-            // 2. ACTIVE_EFFECTがNoneであれば、ACTIVE_ELEMENT（イベントハンドラ実行中）にフォールバック
-            active_element_id
-        } else {
-            panic!(
-                "use_provided must be called inside a dynamic style, text, content closure, or an active event handler context"
-            );
-        };
-
-        // 3. 親ツリーを遡って解決
-        self.use_provided_from::<T>(element_id)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
-                        std::any::type_name::<T>()
-                    )
-                })
+        ReactiveStore::use_provided(&self.reactive, &self.topology)
     }
 
     /// 現在のスレッドローカルコンテキストから、
     /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+    #[inline]
     pub fn use_provided_setter<T: Send + 'static>(&self) -> WriteSignal<T> {
-        let element_id = if let Some(active_effect_id) =
-            crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
-        {
-            self.reactive
-                .effect_to_element
-                .get(active_effect_id)
-                .copied()
-                .expect("use_provided_setter failed: active effect not associated with an Element")
-        } else if let Some(active_element_id) =
-            crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
-        {
-            active_element_id
-        } else {
-            panic!(
-                "use_provided_setter must be called inside a dynamic reactive context or an active event handler context"
-            );
-        };
-
-        let mut curr = Some(element_id);
-        let type_id = std::any::TypeId::of::<T>();
-
-        while let Some(curr_id) = curr {
-            if let Some(map) = self.reactive.providers.get(curr_id)
-                && let Some(&signal_id) = map.get(&type_id)
-            {
-                return WriteSignal {
-                    id: signal_id,
-                    _marker: std::marker::PhantomData,
-                };
-            }
-            curr = self.topology.parents.get(curr_id).copied().flatten();
-        }
-        panic!(
-            "Dependency resolution failed: No Provider Setter found in ancestor sub-tree for type: '{}'",
-            std::any::type_name::<T>()
-        )
+        ReactiveStore::use_provided_setter(&self.reactive, &self.topology)
     }
 
-    /// 親子関係の追加と、永続Taffy構造のリアルタイム同期。
-    /// 子がすでに別の親に属している場合は古い親からデタッチします。
-    pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
-        // 子がすでに別の親に属しているか検証
-        if let Some(Some(old_parent)) = self.topology.parents.get(child).copied()
-            && old_parent != parent
-        {
-            // 1. 古い親の children SoA リストから自分自身を安全に削除
-            if let Some(old_children) = self.topology.children.get_mut(old_parent) {
-                old_children.retain(|x| *x != child);
-            }
+    /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録します。
+    /// 同一カテゴリのエフェクトが既に存在する場合、自動的に古いエフェクトを破棄してから上書きします。
+    #[inline]
+    pub(crate) fn register_element_effect(
+        &mut self,
+        element_id: EntityId,
+        category: EffectCategory,
+        effect_id: EffectId,
+    ) {
+        ReactiveStore::register_element_effect(element_id, &mut self.reactive, category, effect_id);
+    }
 
-            // 2. 古い親の Taffy ノードから安全にデタッチ
-            if let Some(&old_parent_node) = self.layouts.taffy_nodes.get(old_parent)
-                && let Some(&child_node) = self.layouts.taffy_nodes.get(child)
-                && let Ok(taffy_children) = self.layouts.taffy.children(old_parent_node)
-                && taffy_children.contains(&child_node)
-            {
-                let _ = self.layouts.taffy.remove_child(old_parent_node, child_node);
-            }
+    /// 要素に動的エフェクト（Style、Text等のリアクティブクロージャ）を安全に登録し、初期評価を実行します。
+    #[inline]
+    pub(crate) fn create_element_effect<F>(
+        &mut self,
+        element_id: EntityId,
+        category: EffectCategory,
+        f: F,
+    ) -> EffectId
+    where
+        F: FnMut(&mut Context) + 'static,
+    {
+        ReactiveStore::create_element_effect(element_id, &mut self.reactive, category, f)
+    }
 
-            // 3. 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
-            LayoutStore::resync_taffy_children_order(old_parent, &mut self.layouts, &self.topology);
-            self.mark_layout_dirty(old_parent);
-        }
+    /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に安全実行します
+    #[inline]
+    pub(crate) fn evaluate_pending_element_effects(&mut self) {
+        ReactiveStore::evaluate_pending_element_effects(&mut self.reactive);
+    }
 
-        // 新しい親の親子関係を更新
-        self.topology.parents.insert(child, Some(parent));
-        if let Some(children_list) = self.topology.children.get_mut(parent)
-            && !children_list.contains(&child)
-        {
-            children_list.push(child);
-        }
-
-        // 新しい親の Taffy ツリーの親子関係を永続的に更新
-        if let Some(&parent_node) = self.layouts.taffy_nodes.get(parent)
-            && let Some(&child_node) = self.layouts.taffy_nodes.get(child)
-        {
-            let _ = self.layouts.taffy.add_child(parent_node, child_node);
-        }
-
-        self.mark_layout_dirty(parent);
-        self.layouts.is_structure_dirty = true;
+    /// 指定された要素に対してシグナルコンテキストを提供します
+    #[inline]
+    pub(crate) fn provide_context<T: Send + 'static>(&mut self, id: EntityId, signal_id: SignalId) {
+        ReactiveStore::provide_context::<T>(id, &mut self.reactive, signal_id);
     }
 
     /// 一括解放
@@ -359,138 +265,34 @@ impl Context {
     }
 
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
+    #[inline]
     pub(crate) fn despawn_internal(&mut self, id: EntityId) {
-        if self.topology.entities.contains_key(id) {
-            // トポロジーと Taffy ツリーのデタッチ処理
-            if let Some(Some(parent_id)) = self.topology.parents.get(id) {
-                // Taffy からノードをデタッチ
-                if let Some(&parent_node) = self.layouts.taffy_nodes.get(*parent_id)
-                    && let Some(&child_node) = self.layouts.taffy_nodes.get(id)
-                    && let Ok(taffy_children) = self.layouts.taffy.children(parent_node)
-                    && taffy_children.contains(&child_node)
-                {
-                    let _ = self.layouts.taffy.remove_child(parent_node, child_node);
-                }
-
-                // 親の children リストから自身を除外
-                if let Some(parent_children) = self.topology.children.get_mut(*parent_id) {
-                    parent_children.retain(|x| *x != id);
-                }
-            }
-
-            // Taffy ノード自体の削除
-            if let Some(node) = self.layouts.taffy_nodes.remove(id) {
-                let _ = self.layouts.taffy.remove(node);
-            }
-
-            // 子要素を再帰的に despawn
-            if let Some(children_list) = self.topology.children.remove(id) {
-                for child_id in children_list {
-                    self.despawn_internal(child_id);
-                }
-            }
-
-            self.topology.despawn(id);
-            self.layouts.despawn(id);
-            self.renders.despawn(id);
-            self.outputs.despawn(id);
-            self.contents.despawn(id);
-            self.events.despawn(id);
-            self.reactive.despawn(id);
-            self.window.despawn(id);
-            self.system.despawn(id);
-        }
+        TopologyStore::despawn_internal(id, self);
     }
 
     /// 親要素の特定の古い子要素を、順序（インデックス）を維持したまま新しい子要素へ直接差し替えます。
+    #[inline]
     pub(crate) fn replace_child(
         &mut self,
         parent: EntityId,
         old_child: EntityId,
         new_child: EntityId,
     ) {
-        // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
-        // 修正: 古いノードの削除は、直後の despawn_internal が一貫して安全に行うため、
-        // ここでの手動 remove_child を撤廃し、Taffy 側への新規アタッチ（add_child）のみを行います。
-        if let Some(&parent_node) = self.layouts.taffy_nodes.get(parent)
-            && let Some(&new_node) = self.layouts.taffy_nodes.get(new_child)
-        {
-            let _ = self.layouts.taffy.add_child(parent_node, new_node);
-        }
-
-        // children リスト内のインデックス位置を特定して直接置換
-        if let Some(children_list) = self.topology.children.get_mut(parent)
-            && let Some(pos) = children_list.iter().position(|&x| x == old_child)
-        {
-            children_list[pos] = new_child;
-        }
-
-        // 親子参照の更新
-        self.topology.parents.insert(new_child, Some(parent));
-
-        // 古い子要素（およびその子孫）を完全に安全デスポーン
-        // この中で Taffy からの remove_child も安全に実行されます
-        self.despawn_internal(old_child);
-
-        self.mark_layout_dirty(parent);
-        self.layouts.is_structure_dirty = true;
+        TopologyStore::replace_child(parent, old_child, new_child, self);
     }
 
     /// デスポーン済みの無効な EntityId を各走査・Dirty配列から一括して排除。
+    #[inline]
     pub(crate) fn gc_inactive_entities(&mut self) {
-        // SlotMap (entities) にキーが存在するもの（生存している要素）だけを保持する
-        self.topology
-            .active_entities
-            .retain(|&id| self.topology.entities.contains_key(id));
-        self.layouts
-            .dirty_layout_entities
-            .retain(|&id| self.topology.entities.contains_key(id));
-        self.renders
-            .dirty_render_entities
-            .retain(|&id| self.topology.entities.contains_key(id));
-    }
-
-    /// レイアウト変更フラグを立てる（Taffy同期要求）
-    pub(crate) fn mark_layout_dirty(&mut self, id: EntityId) {
-        let mut curr = id;
-        // Taffy 側の該当ノードのレイアウトキャッシュを無効化
-        if let Some(&taffy_node) = self.layouts.taffy_nodes.get(curr) {
-            let _ = self.layouts.taffy.mark_dirty(taffy_node);
-        }
-
-        loop {
-            if let Some(mask) = self.topology.active_masks.get_mut(curr) {
-                // すでにレイアウトキューに登録済み（STATE_QUEUED_LAYOUT がオン）なら
-                // 多重登録を防ぎつつ、それより上の親はすでに Dirty 化されているため探索を早期ブレイク
-                if !mask.has(STATE_QUEUED_LAYOUT) {
-                    mask.set(STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
-                    self.layouts.dirty_layout_entities.push(curr);
-                } else {
-                    break;
-                }
-            }
-
-            // 親要素（先祖）をルートまで辿って Dirty フラグを連鎖伝播させる
-            if let Some(Some(parent_id)) = self.topology.parents.get(curr).copied() {
-                curr = parent_id;
-            } else {
-                break;
-            }
-        }
-    }
-
-    /// 描画変更フラグを立てる（wgpu転送要求）
-    pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
-        if let Some(mask) = self.topology.active_masks.get_mut(id) {
-            // すでにレンダーキューに登録済み（STATE_QUEUED_RENDER がオン）なら早期リターン
-            if !mask.has(STATE_QUEUED_RENDER) {
-                mask.set(STATE_QUEUED_RENDER); // フラグをオンにして多重登録を防ぐ
-                self.renders.dirty_render_entities.push(id);
-            }
-        }
+        TopologyStore::gc_inactive_entities(
+            &mut self.topology,
+            &mut self.layouts,
+            &mut self.renders,
+        );
     }
 
     /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。
+    #[inline]
     pub fn is_render_dirty(&self) -> bool {
         // dirty_render_entities に何か登録されている、またはレイアウトに Dirty がある場合
         !self.renders.dirty_render_entities.is_empty()
@@ -516,15 +318,339 @@ impl Context {
         LayoutSize::new(content_w, content_h)
     }
 
+    #[inline]
+    pub(crate) fn get_basic_layout_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut BasicLayout> {
+        RenderStore::get_basic_layout_mut(id, &mut self.renders, target)
+    }
+
+    #[inline]
+    pub(crate) fn get_visual_property_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut VisualProperty> {
+        RenderStore::get_visual_property_mut(id, &mut self.renders, target)
+    }
+
+    #[inline]
+    pub(crate) fn get_flex_layout_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut FlexLayout> {
+        RenderStore::get_flex_layout_mut(
+            id,
+            &mut self.renders,
+            target,
+            &mut self.layouts.flex_layouts,
+        )
+    }
+
+    /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
+    #[inline]
+    pub(crate) fn measure_content(
+        &mut self,
+        id: EntityId,
+        visual_properties: &SecondaryMap<EntityId, VisualProperty>,
+        known_dims: taffy::Size<Option<f32>>,
+    ) -> taffy::Size<f32> {
+        ContentStore::measure_content(
+            id,
+            &mut self.contents,
+            &self.topology.active_masks,
+            visual_properties,
+            &self.system.text_engine,
+            known_dims,
+        )
+    }
+
+    /// リサイズ方向から対応するカーソル種別へ変換するヘルパー
+    #[inline]
+    pub(crate) fn resize_direction_to_cursor(dir: ResizeDirection) -> CursorIcon {
+        EventStore::resize_direction_to_cursor(dir)
+    }
+
+    /// マウス位置と要素の境界・リサイズ許可フラグから、該当するリサイズ方向を算出するヘルパー
+    #[inline]
+    pub(crate) fn detect_resize_direction(
+        rect: LayoutRect,
+        resizable: [bool; 4], // [top, right, bottom, left]
+        pos: LayoutPoint,
+        border: f32,
+    ) -> Option<ResizeDirection> {
+        EventStore::detect_resize_direction(rect, resizable, pos, border)
+    }
+
+    /// 各スタイルの解決を1回のルックアップと1回のカスケード解決ループに統合
+    #[inline]
+    pub(crate) fn resolve_active_layouts(
+        &self,
+        id: EntityId,
+    ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
+        LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders)
+    }
+
+    // Taffyスタイルを一括解決するヘルパー
+    #[inline]
+    pub(crate) fn resolve_taffy_style(
+        &self,
+        id: EntityId,
+        basic: &BasicLayout,
+        flex: &FlexLayout,
+        grid: Option<&GridLayout>,
+    ) -> taffy::Style {
+        LayoutStore::resolve_taffy_style(id, &self.layouts, basic, flex, grid)
+    }
+
+    /// 指定された要素の現在解決されている物理ボーダー（EdgeInsets）を取得します。
+    pub(crate) fn get_physical_border(&self, id: EntityId, basic: &BasicLayout) -> EdgeInsets {
+        LayoutStore::get_physical_border(id, basic, &self.outputs)
+    }
+
+    /// 指定された要素の現在解決されている物理パディング（EdgeInsets）を取得します。
+    pub(crate) fn get_physical_padding(&self, id: EntityId, basic: &BasicLayout) -> EdgeInsets {
+        LayoutStore::get_physical_padding(id, basic, &self.outputs)
+    }
+
+    // 全スクロールバー関連IDを一括抽出
+    #[inline]
+    pub(crate) fn scrollbar_el_ids(&self) -> HashSet<EntityId> {
+        LayoutStore::scrollbar_el_ids(&self.layouts.scrollbar_styles)
+    }
+
+    /// スクロールバー用要素（TrackやThumb）のレイアウト情報（解決値と静的ベース値）をアトミックに同時同期して更新します。
+    #[inline]
+    pub(crate) fn update_scrollbar_element_layout(
+        &mut self,
+        id: EntityId,
+        size: Size<Val>,
+        inset: Rect<Val>,
+    ) {
+        LayoutStore::update_scrollbar_element_layout(
+            id,
+            &mut self.layouts,
+            &mut self.renders,
+            size,
+            inset,
+        );
+    }
+
+    /// 解決済みの基本スタイルを TaffyTree のノードへ即時同期して適用します。
+    #[inline]
+    pub(crate) fn set_taffy_style(
+        &mut self,
+        id: EntityId,
+        basic: &BasicLayout,
+        flex: &FlexLayout,
+        grid: Option<&GridLayout>,
+    ) {
+        LayoutStore::set_taffy_style(id, &mut self.layouts, basic, flex, grid);
+    }
+
+    /// スクロールバー用要素をレイアウト上から安全に隠します。
+    #[inline]
+    pub(crate) fn hide_scrollbar_element(&mut self, id: EntityId) {
+        LayoutStore::hide_scrollbar_element(id, &mut self.layouts, &mut self.renders);
+    }
+
+    /// 非再帰スタックによるフラットDFS配列の高速構築
+    #[inline]
+    pub(crate) fn rebuild_flat_dfs_sequence(&mut self, root: EntityId) {
+        LayoutStore::rebuild_flat_dfs_sequence(root, &mut self.layouts, &self.topology);
+    }
+
+    #[inline]
+    pub(crate) fn local_rect_from_taffy(&self, id: EntityId) -> LayoutRect {
+        LayoutStore::local_rect_from_taffy(id, &self.layouts)
+    }
+
+    /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
+    /// 内部 SoA リスト（self.children）の順序に沿って一括して再同期）します。
+    #[inline]
+    pub(crate) fn resync_taffy_children_order(&mut self, parent_id: EntityId) {
+        LayoutStore::resync_taffy_children_order(parent_id, &mut self.layouts, &self.topology);
+    }
+
+    /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
+    #[inline]
+    pub fn rect(&self, handle: Element) -> Option<LayoutRect> {
+        self.outputs.rects.get(handle.id).copied()
+    }
+
+    /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
+    #[inline]
+    pub fn clip_rect(&self, handle: Element) -> Option<LayoutRect> {
+        self.outputs.clip_rects.get(handle.id).copied()
+    }
+
+    #[inline]
+    pub(crate) fn swap_output_rect(&mut self) {
+        OutputStore::swap_output_rect(&mut self.outputs);
+    }
+
+    #[inline]
+    pub(crate) fn parent_changed(&self, id: EntityId) -> bool {
+        OutputStore::parent_changed(id, &self.outputs, &self.topology)
+    }
+
+    #[inline]
+    pub(crate) fn calc_local_rect(
+        &self,
+        id: EntityId,
+        window_size: LayoutSize,
+    ) -> (LayoutRect, LayoutRect) {
+        OutputStore::calc_local_rect(
+            id,
+            &self.outputs,
+            &self.layouts,
+            &self.topology,
+            window_size,
+        )
+    }
+
+    /// スクロールバー用要素の不透明度（解決値と静的ベース値）を同時同期して更新します。
+    #[inline]
+    pub(crate) fn update_scrollbar_element_opacity(&mut self, id: EntityId, opacity: f32) {
+        RenderStore::update_scrollbar_element_opacity(id, &mut self.renders, opacity);
+    }
+
+    #[inline]
+    pub(crate) fn trigger_keyframe_animations_if_needed(&mut self, id: EntityId) {
+        RenderStore::trigger_keyframe_animations_if_needed(id, &mut self.renders);
+    }
+
+    /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
+    /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
+    #[inline]
+    pub(crate) fn does_state_require_layout(&self, id: EntityId, state_flag: u128) -> bool {
+        RenderStore::does_state_require_layout(id, &self.renders, state_flag)
+    }
+
+    #[inline]
+    pub(crate) fn resolv_focus_style(
+        &self,
+        id: EntityId,
+        active_mask: &ComponentMask,
+    ) -> Option<ThisStyle> {
+        RenderStore::resolv_focus_style(id, &self.renders, active_mask, &self.topology.parents)
+    }
+
+    #[inline]
+    pub(crate) fn cascade_interaction(
+        &self,
+        id: EntityId,
+        active_mask: ComponentMask,
+        target: &mut TargetStyle,
+        focus_style_resolved: Option<ThisStyle>,
+    ) {
+        RenderStore::cascade_interaction(
+            id,
+            &self.renders,
+            active_mask,
+            target,
+            focus_style_resolved,
+        );
+    }
+
+    #[inline]
+    pub(crate) fn cascade_within_interaction(
+        &self,
+        id: EntityId,
+        active_mask: ComponentMask,
+        target: &mut TargetStyle,
+    ) {
+        RenderStore::cascade_within_interaction(
+            id,
+            &self.topology,
+            &self.renders,
+            active_mask,
+            target,
+        );
+    }
+
+    #[inline]
+    pub(crate) fn cascade_basic_layout(
+        &self,
+        id: EntityId,
+        active_mask: ComponentMask,
+        target_layout: &mut BasicLayout,
+    ) {
+        RenderStore::cascade_basic_layout(id, &self.renders, active_mask, target_layout);
+    }
+
+    /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
+    #[inline]
+    pub(crate) fn get_current_style(&self, id: EntityId) -> CurrentStyle {
+        RenderStore::get_current_style(id, &self.renders)
+    }
+
+    /// 目標値を参照経由で構築
+    #[inline]
+    pub(crate) fn get_target_style(&self, id: EntityId) -> TargetStyle {
+        RenderStore::get_target_style(id, &self.renders)
+    }
+
+    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
+    pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
+        RenderStore::resolve_cursor(hovered_id, &self.events, &self.renders, &self.topology)
+    }
+
+    /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
+    #[inline]
+    pub(crate) fn clear_layout_cache(&self, id: EntityId) {
+        self.system.dwrite_layouts.borrow_mut().remove(id);
+    }
+
+    /// 子孫要素のインタラクション状態（state_flag）を走査します
+    #[inline]
+    pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u128) -> bool {
+        TopologyStore::has_descendant_with_state(parent, &self.topology, state_flag)
+    }
+
+    /// いずれか一つのアクティブなユーザーインタラクションが子孫要素でONになっているか非再帰で走査します
+    #[inline]
+    pub(crate) fn has_descendant_with_any_active_state(&self, parent: EntityId) -> bool {
+        TopologyStore::has_descendant_with_any_active_state(parent, &self.topology)
+    }
+
+    /// ドロップ先コンテナのフレックス方向（Row / Column）に基づいて、
+    /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出します。
+    #[inline]
+    fn calculate_insert_index(&self, parent_id: EntityId, logical_pos: LayoutPoint) -> usize {
+        TopologyStore::calculate_insert_index(
+            parent_id,
+            logical_pos,
+            &self.topology,
+            &self.layouts,
+            &self.outputs,
+        )
+    }
+
+    /// ウィンドウサイズの変更検知
+    #[inline]
+    pub(crate) fn window_resize_detection(&mut self, window_size: LayoutSize) -> bool {
+        WindowStore::window_resize_detection(&mut self.window, window_size)
+    }
+
+    /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出します。
+    #[inline]
+    pub(crate) fn calculate_visible_size(&self, container_rect: LayoutRect) -> LayoutSize {
+        WindowStore::calculate_visible_size(&self.window, container_rect)
+    }
+
     /// キャッシュコヒーレントな直列DFS同期（1次元直線ループ同期）
     /// Taffy自動計算を完全内包
     pub fn sync_layout_and_render_list(&mut self, root: EntityId, window_size: LayoutSize) {
         // 同期処理の開始時に自身をバインドする
         let _context_guard = bind_context(self);
         // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
-        ReactiveStore::evaluate_pending_element_effects(&mut self.reactive);
+        self.evaluate_pending_element_effects();
         // ウィンドウサイズの変更検知
-        let window_resized = WindowStore::window_resize_detection(&mut self.window, window_size);
+        let window_resized = self.window_resize_detection(window_size);
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // Taffy計算も、ダブルバッファスワップもすべてスキップして即時帰還する。
@@ -537,11 +663,11 @@ impl Context {
         }
 
         if self.layouts.is_structure_dirty {
-            LayoutStore::rebuild_flat_dfs_sequence(root, &mut self.layouts, &self.topology);
+            self.rebuild_flat_dfs_sequence(root);
         }
 
         // 全スクロールバー関連IDを一括抽出
-        let scrollbar_el_ids = LayoutStore::scrollbar_el_ids(&self.layouts.scrollbar_styles);
+        let scrollbar_el_ids = self.scrollbar_el_ids();
 
         // 1. Taffy永続ツリーへの差分同期
         for id in &self.layouts.dirty_layout_entities {
@@ -550,12 +676,7 @@ impl Context {
                 continue;
             }
 
-            let (mut basic, flex, grid) = LayoutStore::resolve_active_layouts(
-                *id,
-                &self.topology,
-                &self.layouts,
-                &self.renders,
-            );
+            let (mut basic, flex, grid) = self.resolve_active_layouts(*id);
 
             // もしこの要素が現在アニメーション中（active_transitions に存在）であれば、
             // resolve_active_layouts が強制マージした目標値を拒否し、
@@ -578,8 +699,7 @@ impl Context {
                 }
             }
 
-            let taffy_style =
-                LayoutStore::resolve_taffy_style(*id, &self.layouts, &basic, &flex, grid.as_ref());
+            let taffy_style = self.resolve_taffy_style(*id, &basic, &flex, grid.as_ref());
             let taffy_node = self.layouts.taffy_nodes[*id];
 
             self.layouts
@@ -610,14 +730,7 @@ impl Context {
                     // (クロージャの外側の self (= Context) は直接キャプチャできないため、
                     //  一時的に bind_context されているスレッドローカル経由で取得)
                     return with_context(|cx| {
-                        ContentStore::measure_content(
-                            id,
-                            &mut self.contents,
-                            &self.topology.active_masks,
-                            &self.renders.visual_properties,
-                            &self.system.text_engine,
-                            known_dims,
-                        )
+                        cx.measure_content(id, &self.renders.visual_properties, known_dims)
                     });
                 }
                 taffy::Size::ZERO
@@ -636,7 +749,7 @@ impl Context {
         self.topology.active_entities.clear();
 
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの rects のみを確定
-        OutputStore::swap_output_rect(&mut self.outputs);
+        self.swap_output_rect();
 
         let flat_len = self.layouts.flat_dfs_sequence.len();
 
@@ -650,7 +763,7 @@ impl Context {
             }
 
             // 親の移動・リサイズ状態を検証
-            let parent_changed = OutputStore::parent_changed(id, &self.outputs, &self.topology);
+            let parent_changed = self.parent_changed(id);
 
             // 静的キャッシュバイパス判定
             let has_style_changed = self.topology.active_masks[id].has(STATE_QUEUED_LAYOUT);
@@ -672,13 +785,7 @@ impl Context {
                 continue;
             }
 
-            let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
-                id,
-                &self.outputs,
-                &self.layouts,
-                &self.topology,
-                window_size,
-            );
+            let (abs_rect, parent_clip) = self.calc_local_rect(id, window_size);
 
             self.outputs.rects.insert(id, abs_rect);
             let mask = self.topology.active_masks[id];
@@ -752,13 +859,7 @@ impl Context {
         for i in 0..flat_len {
             let id = self.layouts.flat_dfs_sequence[i];
 
-            let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
-                id,
-                &self.outputs,
-                &self.layouts,
-                &self.topology,
-                window_size,
-            );
+            let (abs_rect, parent_clip) = self.calc_local_rect(id, window_size);
 
             self.outputs.rects.insert(id, abs_rect);
             let mask = self.topology.active_masks[id];
@@ -821,20 +922,13 @@ impl Context {
         inset: Rect<Val>,
         opacity: f32,
     ) {
-        LayoutStore::update_scrollbar_element_layout(
-            id,
-            &mut self.layouts,
-            &mut self.renders,
-            size,
-            inset,
-        );
+        self.update_scrollbar_element_layout(id, size, inset);
 
-        RenderStore::update_scrollbar_element_opacity(id, &mut self.renders, opacity);
+        self.update_scrollbar_element_opacity(id, opacity);
 
-        let (basic, flex, grid) =
-            LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders);
+        let (basic, flex, grid) = self.resolve_active_layouts(id);
 
-        LayoutStore::set_taffy_style(id, &mut self.layouts, &basic, &flex, grid.as_ref());
+        self.set_taffy_style(id, &basic, &flex, grid.as_ref());
     }
 
     fn sync_scrollbar_styles(&mut self) {
@@ -851,18 +945,13 @@ impl Context {
                 .unwrap_or(LayoutPoint::ZERO);
 
             // 親コンテナのボーダーおよびパディング厚を取得
-            let (basic, _, _) = LayoutStore::resolve_active_layouts(
-                id,
-                &self.topology,
-                &self.layouts,
-                &self.renders,
-            );
+            let (basic, _, _) = self.resolve_active_layouts(id);
 
-            let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
-            let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
+            let border = self.get_physical_border(id, &basic);
+            let padding = self.get_physical_padding(id, &basic);
 
             // ウィンドウ境界によるクランプ可視サイズの算出
-            let visible_size = WindowStore::calculate_visible_size(&self.window, container_rect);
+            let visible_size = self.calculate_visible_size(container_rect);
             // 枠線と余白を引いた内枠コンテンツサイズの算出
             let content_size = self.calculate_inner_content_size(visible_size, border, padding);
 
@@ -932,11 +1021,7 @@ impl Context {
                         v_track_opacity,
                     );
                 } else {
-                    LayoutStore::hide_scrollbar_element(
-                        v_track,
-                        &mut self.layouts,
-                        &mut self.renders,
-                    );
+                    self.hide_scrollbar_element(v_track);
                 }
             }
 
@@ -1061,11 +1146,7 @@ impl Context {
                         v_thumb_opacity,
                     );
                 } else {
-                    LayoutStore::hide_scrollbar_element(
-                        v_thumb,
-                        &mut self.layouts,
-                        &mut self.renders,
-                    );
+                    self.hide_scrollbar_element(v_thumb);
                 }
             }
 
@@ -1114,11 +1195,7 @@ impl Context {
                         h_track_opacity,
                     );
                 } else {
-                    LayoutStore::hide_scrollbar_element(
-                        h_track,
-                        &mut self.layouts,
-                        &mut self.renders,
-                    );
+                    self.hide_scrollbar_element(h_track);
                 }
             }
 
@@ -1239,11 +1316,7 @@ impl Context {
                         h_thumb_opacity,
                     );
                 } else {
-                    LayoutStore::hide_scrollbar_element(
-                        h_thumb,
-                        &mut self.layouts,
-                        &mut self.renders,
-                    );
+                    self.hide_scrollbar_element(h_thumb);
                 }
             }
         }
@@ -1306,12 +1379,7 @@ impl Context {
             // 紺色の背景を通常通り描き込み、デスクトップが透けるのを完全に防止します。
             let is_webview_ready = is_webview && self.renders.active_webviews.contains(&id);
 
-            let (basic, _, _) = LayoutStore::resolve_active_layouts(
-                id,
-                &self.topology,
-                &self.layouts,
-                &self.renders,
-            );
+            let (basic, _, _) = self.resolve_active_layouts(id);
             let visual = self
                 .renders
                 .visual_properties
@@ -1564,8 +1632,8 @@ impl Context {
             // 選択ハイライト背景のwgpu側への差し込み
             // キャッシュされた選択背景矩形群を描画
             if let Some(rects) = self.outputs.selected_rects.get(id) {
-                let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
-                let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
+                let border = self.get_physical_border(id, &basic);
+                let padding = self.get_physical_padding(id, &basic);
 
                 let sel_bg = visual
                     .select_bg_color
@@ -1823,8 +1891,8 @@ impl Context {
                         .unwrap_or(&default_visual);
                     let font_size = visual.font_size.unwrap_or(16.0);
 
-                    let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
-                    let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
+                    let border = self.get_physical_border(id, &basic);
+                    let padding = self.get_physical_padding(id, &basic);
 
                     let scale = self.window.scale_factor;
 
@@ -2287,33 +2355,15 @@ impl Context {
         // スタイルを一切持たない要素は、ヒープアロケーションを避けるため完全にスキップ
         // 静的なベース装飾がなくても、ホバースタイル等を持っていれば確実にカスケード解決を通す
         if has_base_visual || has_active_visual || has_interaction_styles {
-            let current = RenderStore::get_current_style(id, &self.renders);
-            let mut target = RenderStore::get_target_style(id, &self.renders);
+            let current = self.get_current_style(id);
+            let mut target = self.get_target_style(id);
 
             // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
-            let focus_style_resolved = RenderStore::resolv_focus_style(
-                id,
-                &self.renders,
-                &active_mask,
-                &self.topology.parents,
-            );
+            let focus_style_resolved = self.resolv_focus_style(id, &active_mask);
 
             // 疑似クラス（Hovered等）のマージ
-            RenderStore::cascade_interaction(
-                id,
-                &self.renders,
-                active_mask,
-                &mut target,
-                focus_style_resolved,
-            );
-
-            RenderStore::cascade_within_interaction(
-                id,
-                &self.topology,
-                &self.renders,
-                active_mask,
-                &mut target,
-            );
+            self.cascade_interaction(id, active_mask, &mut target, focus_style_resolved);
+            self.cascade_within_interaction(id, active_mask, &mut target);
 
             // プレースホルダー表示状態
             let mut is_placeholder_active = false;
@@ -2532,7 +2582,7 @@ impl Context {
                 .unwrap_or_default();
 
             // BasicLayout は heap allocation を持たないフラットな構造（Copy同等）なので
-            // cloned() によるクローンは極めて低コスト（数ナノ秒）です。
+            // cloned() によるクローンは極めて低コスト
             let base_layout = self
                 .renders
                 .base_basic_layouts
@@ -2541,28 +2591,7 @@ impl Context {
                 .unwrap_or_default();
             let mut target_layout = base_layout;
 
-            if let Some(interaction) = self.renders.interaction_properties.get(id) {
-                let cascade = [
-                    (STATE_FOCUSED, &interaction.focused),
-                    (STATE_SELECTED, &interaction.selected),
-                    (STATE_ACTIVED, &interaction.actived),
-                    (STATE_HOVERED, &interaction.hovered),
-                    (STATE_PRESSED, &interaction.pressed),
-                    (STATE_DISABLED, &interaction.disabled),
-                    (STATE_DRAGGED, &interaction.dragged),
-                    (STATE_DRAGGING, &interaction.dragging),
-                    (STATE_DRAG_IN, &interaction.drag_in),
-                    (STATE_DRAG_OVER, &interaction.drag_over),
-                ];
-
-                for (state, style_opt) in cascade {
-                    if active_mask.has(state)
-                        && let Some(style) = style_opt
-                    {
-                        target_layout.override_with(&style.inner.basic_layout, style.inner.mask);
-                    }
-                }
-            }
+            self.cascade_basic_layout(id, active_mask, &mut target_layout);
 
             // 単位を親/ウィンドウアラインメントを考慮した物理ピクセル(f32)へ解決
             let target_w_px = self.resolve_val_to_px(id, target_layout.size.width, true);
@@ -2649,7 +2678,7 @@ impl Context {
 
         // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
         // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
-        RenderStore::trigger_keyframe_animations_if_needed(id, &mut self.renders);
+        self.trigger_keyframe_animations_if_needed(id);
 
         if let Some(effects) = self.reactive.element_effects.get(id) {
             let text_effects: Vec<EffectId> = effects
@@ -2972,11 +3001,7 @@ impl Context {
                         if parent_mask.has(STYLE_INTERACTION_WITHIN) {
                             self.resolve_element_style_state(parent_id, true);
 
-                            if RenderStore::does_state_require_layout(
-                                parent_id,
-                                &self.renders,
-                                state_flag,
-                            ) {
+                            if self.does_state_require_layout(parent_id, state_flag) {
                                 self.mark_layout_dirty(parent_id);
                             } else {
                                 self.mark_render_dirty(parent_id);
@@ -3039,7 +3064,7 @@ impl Context {
                 }
 
                 // 3. レイアウト再計算（スローパス）か描画更新（ファストパス）かを自動判定
-                if RenderStore::does_state_require_layout(id, &self.renders, state_flag) {
+                if self.does_state_require_layout(id, state_flag) {
                     self.mark_layout_dirty(id);
                 } else {
                     self.mark_render_dirty(id);
@@ -3124,8 +3149,8 @@ impl Context {
             let ref_w = start_rect.width;
             let ref_h = start_rect.height;
 
-            let b = LayoutStore::get_physical_border(id, &basic, &self.outputs);
-            let p = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
+            let b = self.get_physical_border(id, &basic);
+            let p = self.get_physical_padding(id, &basic);
 
             // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
             let abs_min_w = b.left + b.right + p.left + p.right;
@@ -3335,7 +3360,7 @@ impl Context {
                 (sb_state, container_rect, scroll_size)
             };
 
-            let visible_size = WindowStore::calculate_visible_size(&self.window, container_rect);
+            let visible_size = self.calculate_visible_size(container_rect);
 
             if is_vertical {
                 let track_id = sb_state.v_track_id.unwrap();
@@ -3459,7 +3484,7 @@ impl Context {
 
                 // 境界外周に 6.0px のあそびを持たせてヒット判定
                 let detect_border = 6.0f32;
-                if let Some(dir) = EventStore::detect_resize_direction(
+                if let Some(dir) = Context::detect_resize_direction(
                     rect,
                     resizable_flags,
                     logical_pos,
@@ -3490,9 +3515,8 @@ impl Context {
                 };
 
                 // 独自指定があればそれを使い、無ければライブラリの自動マッピングを使用
-                vis.cursor = Some(
-                    custom_cursor.unwrap_or_else(|| EventStore::resize_direction_to_cursor(dir)),
-                );
+                vis.cursor =
+                    Some(custom_cursor.unwrap_or_else(|| Context::resize_direction_to_cursor(dir)));
             }
             self.mark_render_dirty(id);
         }
@@ -3536,14 +3560,9 @@ impl Context {
                 }
 
                 let rect = self.outputs.rects[pressed_id];
-                let (basic, _, _) = LayoutStore::resolve_active_layouts(
-                    pressed_id,
-                    &self.topology,
-                    &self.layouts,
-                    &self.renders,
-                );
-                let border = LayoutStore::get_physical_border(pressed_id, &basic, &self.outputs);
-                let padding = LayoutStore::get_physical_padding(pressed_id, &basic, &self.outputs);
+                let (basic, _, _) = self.resolve_active_layouts(pressed_id);
+                let border = self.get_physical_border(pressed_id, &basic);
+                let padding = self.get_physical_padding(pressed_id, &basic);
 
                 let scroll = self
                     .outputs
@@ -4215,8 +4234,7 @@ impl Context {
                             self.events.interaction_states.pressed = Some(target_id); // サム要素自体を pressed に設定
                             self.mark_render_dirty(target_id);
                         } else if is_v_track || is_h_track {
-                            let visible_size =
-                                WindowStore::calculate_visible_size(&self.window, container_rect);
+                            let visible_size = self.calculate_visible_size(container_rect);
 
                             // B. レールをクリックした場合：ダイレクトジャンプスクロールを実行
                             if is_v_track {
@@ -4308,12 +4326,7 @@ impl Context {
                         && let Some(pointer_pos) = self.events.current_pointer_position
                     {
                         let rect = self.outputs.rects[target_id];
-                        let (basic, _, _) = LayoutStore::resolve_active_layouts(
-                            target_id,
-                            &self.topology,
-                            &self.layouts,
-                            &self.renders,
-                        );
+                        let (basic, _, _) = self.resolve_active_layouts(target_id);
                         let border_left = match basic.border.left {
                             Length::Px(v) => v,
                             _ => 0.0,
@@ -4534,11 +4547,7 @@ impl Context {
                                 src_children.retain(|x| *x != src_id);
                             }
                             // 旧親側の Taffy 順序も再同期
-                            LayoutStore::resync_taffy_children_order(
-                                src_parent_id,
-                                &mut self.layouts,
-                                &self.topology,
-                            );
+                            self.resync_taffy_children_order(src_parent_id);
                             self.mark_layout_dirty(src_parent_id);
                         }
 
@@ -4571,11 +4580,7 @@ impl Context {
                                 let (border_l, border_t) = if let Some(layout) =
                                     self.layouts.basic_layouts.get(target_id)
                                 {
-                                    let border = LayoutStore::get_physical_border(
-                                        target_id,
-                                        layout,
-                                        &self.outputs,
-                                    );
+                                    let border = self.get_physical_border(target_id, layout);
                                     (border.left, border.top)
                                 } else {
                                     (0.0, 0.0)
@@ -4611,7 +4616,7 @@ impl Context {
                                     .events
                                     .current_pointer_position
                                     .unwrap_or(LayoutPoint::ZERO);
-                                let insert_idx = calculate_insert_index(self, target_id, mouse_pos);
+                                let insert_idx = self.calculate_insert_index(target_id, mouse_pos);
 
                                 if let Some(parent_children) =
                                     self.topology.children.get_mut(target_id)
@@ -4622,11 +4627,7 @@ impl Context {
                                 self.topology.parents.insert(src_id, Some(target_id));
 
                                 // Taffy 側のノード順序を物理並び替え結果に沿って一括して再同期
-                                LayoutStore::resync_taffy_children_order(
-                                    target_id,
-                                    &mut self.layouts,
-                                    &self.topology,
-                                );
+                                self.resync_taffy_children_order(target_id);
                             } else {
                                 // 自動更新オフの場合は末尾に通常アタッチ
                                 self.add_child(target_id, src_id);
@@ -4848,14 +4849,9 @@ impl Context {
                 }
 
                 let rect = self.outputs.rects[target_id];
-                let (basic, _, _) = LayoutStore::resolve_active_layouts(
-                    target_id,
-                    &self.topology,
-                    &self.layouts,
-                    &self.renders,
-                );
-                let border = LayoutStore::get_physical_border(target_id, &basic, &self.outputs);
-                let padding = LayoutStore::get_physical_padding(target_id, &basic, &self.outputs);
+                let (basic, _, _) = self.resolve_active_layouts(target_id);
+                let border = self.get_physical_border(target_id, &basic);
+                let padding = self.get_physical_padding(target_id, &basic);
 
                 let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
                 let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
@@ -4929,12 +4925,7 @@ impl Context {
             // ユーザーハンドラがない場合、要素がスクロールコンテナであるか判定
             let mask = self.topology.active_masks[curr_id];
             if mask.has(STYLE_OVERFLOW) {
-                let (basic, _, _) = LayoutStore::resolve_active_layouts(
-                    curr_id,
-                    &self.topology,
-                    &self.layouts,
-                    &self.renders,
-                );
+                let (basic, _, _) = self.resolve_active_layouts(curr_id);
 
                 let mut scrolled = false;
 
@@ -5490,10 +5481,9 @@ impl Context {
         }
 
         // 親要素自体のボーダー・パディング厚を取得
-        let (basic, _, _) =
-            LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders);
-        let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
-        let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
+        let (basic, _, _) = self.resolve_active_layouts(id);
+        let border = self.get_physical_border(id, &basic);
+        let padding = self.get_physical_padding(id, &basic);
 
         let offset_x = border.left + padding.left;
         let offset_y = border.top + padding.top;
@@ -5564,12 +5554,11 @@ impl Context {
         let scroll_size = self.get_scroll_size(id);
 
         // 親コンテナのボーダーおよびパディング厚を取得
-        let (basic, _, _) =
-            LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders);
-        let border = LayoutStore::get_physical_border(id, &basic, &self.outputs);
-        let padding = LayoutStore::get_physical_padding(id, &basic, &self.outputs);
+        let (basic, _, _) = self.resolve_active_layouts(id);
+        let border = self.get_physical_border(id, &basic);
+        let padding = self.get_physical_padding(id, &basic);
 
-        let visible_size = WindowStore::calculate_visible_size(&self.window, rect);
+        let visible_size = self.calculate_visible_size(rect);
         let content_size = self.calculate_inner_content_size(visible_size, border, padding);
 
         // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
@@ -5907,100 +5896,6 @@ impl Context {
     pub fn active_entities_count(&self) -> usize {
         self.topology.active_entities.len()
     }
-
-    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
-    pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
-        // 現在プレス中の要素（pressed）があればそれを最優先で探索の基点にする
-        let start_id = self.events.interaction_states.pressed.unwrap_or(hovered_id);
-
-        let mut curr = Some(start_id);
-        let mut global_cursor = None;
-
-        while let Some(id) = curr {
-            let cursor_opt = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.cursor)
-                .or_else(|| {
-                    self.renders
-                        .base_visual_properties
-                        .get(id)
-                        .and_then(|v| v.cursor)
-                });
-
-            if let Some(cursor) = cursor_opt {
-                match cursor {
-                    // Global バリアントを見つけた場合、より具体的な個別カーソルが見つかっていない場合のみ記録
-                    CursorIcon::Global(global_icon) => {
-                        if global_cursor.is_none() {
-                            global_cursor = Some(global_icon);
-                        }
-                    }
-                    // 通常の個別カーソルが見つかった場合はこれが最優先なので即時採用
-                    // 親の Global の影響を遮断してDefault()に戻したい場合は、子要素側で Default() がヒットするため即時解決
-                    normal_cursor => {
-                        return normal_cursor;
-                    }
-                }
-            }
-            curr = self.topology.parents.get(id).copied().flatten();
-        }
-
-        // 個別指定がなく、親のいずれかに Global カーソルが定義されていた場合はそれを採用
-        if let Some(global) = global_cursor {
-            match global {
-                GlobalCursorIcon::Default(opt) => CursorIcon::Default(opt),
-                GlobalCursorIcon::Pointer(opt) => CursorIcon::Pointer(opt),
-                GlobalCursorIcon::Text(opt) => CursorIcon::Text(opt),
-                GlobalCursorIcon::Grab(opt) => CursorIcon::Grab(opt),
-                GlobalCursorIcon::Grabbing(opt) => CursorIcon::Grabbing(opt),
-                GlobalCursorIcon::NotAllowed(opt) => CursorIcon::NotAllowed(opt),
-                GlobalCursorIcon::ResizeNs(opt) => CursorIcon::ResizeNs(opt),
-                GlobalCursorIcon::ResizeEw(opt) => CursorIcon::ResizeEw(opt),
-                GlobalCursorIcon::ResizeNesw(opt) => CursorIcon::ResizeNesw(opt),
-                GlobalCursorIcon::ResizeNwse(opt) => CursorIcon::ResizeNwse(opt),
-            }
-        } else {
-            // 先祖に何の設定もない場合はデフォルトの矢印
-            CursorIcon::Default(None)
-        }
-    }
-}
-
-/// ドロップ先コンテナのフレックス方向（Row / Column）に基づいて、
-/// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出します。
-fn calculate_insert_index(cx: &Context, parent_id: EntityId, logical_pos: LayoutPoint) -> usize {
-    let mut insert_idx = 0;
-
-    if let Some(children) = cx.topology.children.get(parent_id) {
-        let parent_flex = cx
-            .layouts
-            .flex_layouts
-            .get(parent_id)
-            .copied()
-            .unwrap_or_default();
-        let is_row = parent_flex.flex_direction == FlexDirection::Row
-            || parent_flex.flex_direction == FlexDirection::RowReverse;
-
-        for (idx, &child_id) in children.iter().enumerate() {
-            if let Some(rect) = cx.outputs.rects.get(child_id) {
-                if is_row {
-                    let center_x = rect.x + rect.width * 0.5;
-                    if logical_pos.x > center_x {
-                        insert_idx = idx + 1;
-                    }
-                } else {
-                    let center_y = rect.y + rect.height * 0.5;
-                    if logical_pos.y > center_y {
-                        insert_idx = idx + 1;
-                    }
-                }
-            }
-        }
-    }
-
-    insert_idx
 }
 
 #[cfg(test)]

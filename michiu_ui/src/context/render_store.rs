@@ -1,6 +1,20 @@
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
-use std::{collections::HashSet, sync::Arc, time::Instant};
+use std::{collections::HashSet, sync::Arc, time::{Duration, Instant}};
+
+/// CPU 側で現在再生中の動的なキーフレームアニメーションの状態
+#[derive(Debug, Clone)]
+pub(crate) struct ActiveAnimation {
+    pub(crate) property: PropertyList,
+    pub(crate) start_time: Instant,
+    pub(crate) duration: Duration,
+    pub(crate) iteration_count: PlaybackCount,
+    pub(crate) curve: AnimationCurve,
+
+    // 回転アニメーションなどのために、現在の周回（ループ）における開始ベース値と目標値を定義
+    pub(crate) start_value: TransitionValue,
+    pub(crate) end_value: TransitionValue,
+}
 
 pub struct RenderStore {
     pub(crate) visual_properties: SecondaryMap<EntityId, VisualProperty>,
@@ -533,6 +547,99 @@ impl RenderStore {
                     }
                 }
             }
+        }
+    }
+
+    pub(crate) fn cascade_basic_layout(
+        id: EntityId,
+        renders: &RenderStore,
+        active_mask: ComponentMask,
+        target_layout: &mut BasicLayout,
+    ) {
+        if let Some(interaction) = renders.interaction_properties.get(id) {
+            let cascade = [
+                (STATE_FOCUSED, &interaction.focused),
+                (STATE_SELECTED, &interaction.selected),
+                (STATE_ACTIVED, &interaction.actived),
+                (STATE_HOVERED, &interaction.hovered),
+                (STATE_PRESSED, &interaction.pressed),
+                (STATE_DISABLED, &interaction.disabled),
+                (STATE_DRAGGED, &interaction.dragged),
+                (STATE_DRAGGING, &interaction.dragging),
+                (STATE_DRAG_IN, &interaction.drag_in),
+                (STATE_DRAG_OVER, &interaction.drag_over),
+            ];
+
+            for (state, style_opt) in cascade {
+                if active_mask.has(state)
+                    && let Some(style) = style_opt
+                {
+                    target_layout.override_with(&style.inner.basic_layout, style.inner.mask);
+                }
+            }
+        }
+    }
+
+    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
+    pub fn resolve_cursor(
+        hovered_id: EntityId,
+        events: &EventStore,
+        renders: &RenderStore,
+        topology: &TopologyStore,
+    ) -> CursorIcon {
+        // 現在プレス中の要素（pressed）があればそれを最優先で探索の基点にする
+        let start_id = events.interaction_states.pressed.unwrap_or(hovered_id);
+
+        let mut curr = Some(start_id);
+        let mut global_cursor = None;
+
+        while let Some(id) = curr {
+            let cursor_opt = renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.cursor)
+                .or_else(|| {
+                    renders
+                        .base_visual_properties
+                        .get(id)
+                        .and_then(|v| v.cursor)
+                });
+
+            if let Some(cursor) = cursor_opt {
+                match cursor {
+                    // Global バリアントを見つけた場合、より具体的な個別カーソルが見つかっていない場合のみ記録
+                    CursorIcon::Global(global_icon) => {
+                        if global_cursor.is_none() {
+                            global_cursor = Some(global_icon);
+                        }
+                    }
+                    // 通常の個別カーソルが見つかった場合はこれが最優先なので即時採用
+                    // 親の Global の影響を遮断してDefault()に戻したい場合は、子要素側で Default() がヒットするため即時解決
+                    normal_cursor => {
+                        return normal_cursor;
+                    }
+                }
+            }
+            curr = topology.parents.get(id).copied().flatten();
+        }
+
+        // 個別指定がなく、親のいずれかに Global カーソルが定義されていた場合はそれを採用
+        if let Some(global) = global_cursor {
+            match global {
+                GlobalCursorIcon::Default(opt) => CursorIcon::Default(opt),
+                GlobalCursorIcon::Pointer(opt) => CursorIcon::Pointer(opt),
+                GlobalCursorIcon::Text(opt) => CursorIcon::Text(opt),
+                GlobalCursorIcon::Grab(opt) => CursorIcon::Grab(opt),
+                GlobalCursorIcon::Grabbing(opt) => CursorIcon::Grabbing(opt),
+                GlobalCursorIcon::NotAllowed(opt) => CursorIcon::NotAllowed(opt),
+                GlobalCursorIcon::ResizeNs(opt) => CursorIcon::ResizeNs(opt),
+                GlobalCursorIcon::ResizeEw(opt) => CursorIcon::ResizeEw(opt),
+                GlobalCursorIcon::ResizeNesw(opt) => CursorIcon::ResizeNesw(opt),
+                GlobalCursorIcon::ResizeNwse(opt) => CursorIcon::ResizeNwse(opt),
+            }
+        } else {
+            // 先祖に何の設定もない場合はデフォルトの矢印
+            CursorIcon::Default(None)
         }
     }
 }

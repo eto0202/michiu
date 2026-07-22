@@ -79,6 +79,107 @@ impl ReactiveStore {
 }
 
 impl ReactiveStore {
+    /// 要素の階層トポロジーを親（Ancestor）に向かって遡り、最初に見つかった型 T の ReadSignal を解決して返します
+    pub(crate) fn use_provided_from<T: Clone + 'static>(
+        id: EntityId,
+        reactive: &ReactiveStore,
+        topology: &TopologyStore,
+    ) -> Option<ReadSignal<T>> {
+        let mut curr = Some(id);
+        let type_id = std::any::TypeId::of::<T>();
+
+        while let Some(curr_id) = curr {
+            if let Some(map) = reactive.providers.get(curr_id)
+                && let Some(&signal_id) = map.get(&type_id)
+            {
+                return Some(ReadSignal::new(signal_id));
+            }
+            // トポロジー親を安全に探索
+            curr = topology.parents.get(curr_id).copied().flatten();
+        }
+        None
+    }
+
+    /// 現在のスレッドローカルコンテキスト（アクティブなエフェクト、またはイベントハンドラ）から、
+    /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の ReadSignal を解決します。
+    pub fn use_provided<T: Clone + 'static>(
+        reactive: &ReactiveStore,
+        topology: &TopologyStore,
+    ) -> ReadSignal<T> {
+        // 1. ACTIVE_EFFECT（エフェクト実行中）から解決を試みる
+        let element_id = if let Some(active_effect_id) =
+            crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
+        {
+            reactive
+                .effect_to_element
+                .get(active_effect_id)
+                .copied()
+                .expect("use_provided failed: active effect is not associated with any UI Element")
+        } else if let Some(active_element_id) =
+            crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
+        {
+            // 2. ACTIVE_EFFECTがNoneであれば、ACTIVE_ELEMENT（イベントハンドラ実行中）にフォールバック
+            active_element_id
+        } else {
+            panic!(
+                "use_provided must be called inside a dynamic style, text, content closure, or an active event handler context"
+            );
+        };
+
+        // 3. 親ツリーを遡って解決
+        ReactiveStore::use_provided_from::<T>(element_id, reactive, topology)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
+                        std::any::type_name::<T>()
+                    )
+                })
+    }
+
+    /// 現在のスレッドローカルコンテキストから、
+    /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+    pub fn use_provided_setter<T: Send + 'static>(
+        reactive: &ReactiveStore,
+        topology: &TopologyStore,
+    ) -> WriteSignal<T> {
+        let element_id = if let Some(active_effect_id) =
+            crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
+        {
+            reactive
+                .effect_to_element
+                .get(active_effect_id)
+                .copied()
+                .expect("use_provided_setter failed: active effect not associated with an Element")
+        } else if let Some(active_element_id) =
+            crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
+        {
+            active_element_id
+        } else {
+            panic!(
+                "use_provided_setter must be called inside a dynamic reactive context or an active event handler context"
+            );
+        };
+
+        let mut curr = Some(element_id);
+        let type_id = std::any::TypeId::of::<T>();
+
+        while let Some(curr_id) = curr {
+            if let Some(map) = reactive.providers.get(curr_id)
+                && let Some(&signal_id) = map.get(&type_id)
+            {
+                return WriteSignal {
+                    id: signal_id,
+                    _marker: std::marker::PhantomData,
+                };
+            }
+            curr = topology.parents.get(curr_id).copied().flatten();
+        }
+        panic!(
+            "Dependency resolution failed: No Provider Setter found in ancestor sub-tree for type: '{}'",
+            std::any::type_name::<T>()
+        )
+    }
+
     /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録します。
     /// 同一カテゴリのエフェクトが既に存在する場合、自動的に古いエフェクトを破棄してから上書きします。
     pub(crate) fn register_element_effect(
@@ -161,7 +262,9 @@ impl ReactiveStore {
         signal_id: SignalId,
     ) {
         if !reactive.providers.contains_key(id) {
-            reactive.providers.insert(id, std::collections::HashMap::new());
+            reactive
+                .providers
+                .insert(id, std::collections::HashMap::new());
         }
         let map = reactive.providers.get_mut(id).unwrap();
         map.insert(std::any::TypeId::of::<T>(), signal_id);

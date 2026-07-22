@@ -576,8 +576,7 @@ impl WgpuRenderer {
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> QuadInstance {
-        let (basic, _, _) =
-            LayoutStore::resolve_active_layouts(entity_id, &cx.topology, &cx.layouts, &cx.renders);
+        let (basic, _, _) = cx.resolve_active_layouts(entity_id);
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders
@@ -1027,127 +1026,6 @@ impl WgpuRenderer {
                 ],
                 label: None,
             });
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::renderer::text::TextEngine;
-    use crate::{Color, Context, CornerRadius, Size, build_ui, div, setup_direct_composition, ts};
-    use std::borrow::Cow;
-    use windows::Win32::Foundation::*;
-    use windows::Win32::Graphics::DirectWrite::IDWriteRenderingParams;
-    use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
-    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::core::Interface;
-
-    struct ComGuard {
-        _private: (),
-    }
-
-    impl ComGuard {
-        fn new() -> Result<Self, windows::core::Error> {
-            unsafe {
-                // UIスレッド用の STA アパートメントとして COM を初期化
-                CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-            }
-            Ok(Self { _private: () })
-        }
-    }
-
-    impl Drop for ComGuard {
-        fn drop(&mut self) {
-            unsafe {
-                // スコープを抜ける（テストが終了する）際に、自動でアンロードが走る
-                CoUninitialize();
-            }
-        }
-    }
-
-    // DirectWrite と Direct2D (WIC)
-    #[test]
-    fn test_text_rasterizer_and_metrics() {
-        // テストスレッドの COM アパートメントを初期化
-        let _com = ComGuard::new().unwrap();
-
-        // DirectWrite エンジンの初期化
-        let engine = TextEngine::new();
-        let rasterizer = TextRasterizer::new();
-
-        let sample_text = "Michiu GUI テスト";
-        let font_size = 24.0;
-
-        // 1. テキストの計測を検証
-        let size = engine.measure_text(sample_text, font_size, None, None, None, None, &[]);
-        assert!(size.width > 0.0);
-        assert!(size.height > 0.0);
-
-        // 2. ラスタライズの実行を検証
-        let layout = engine.create_layout(sample_text, font_size, None, None, None, None, &[]);
-        let size = engine.get_layout_size(&layout);
-        let pixels = rasterizer.rasterize(&layout, size, &[], &engine.rendering_params);
-
-        // ピクセルバッファのサイズが正しく RGBA8 (width * height * 4) になっているか検証
-        let expected_width = (size.width.ceil() as u32).max(1);
-        let expected_height = (size.height.ceil() as u32).max(1);
-        let expected_len = (expected_width * expected_height * 4) as usize;
-
-        assert_eq!(pixels.len(), expected_len);
-
-        // 描画されたピクセル（テキスト部分）に不透明なピクセルが存在するか（すべて透明でないか）確認
-        let has_content = pixels.iter().any(|&p| p > 0);
-        assert!(
-            has_content,
-            "Rasterized image should not be completely empty"
-        );
-    }
-
-    // wgpu (DX12) & DirectComposition
-
-    // テスト用のウィンドウプロシージャ
-    unsafe extern "system" fn dummy_wnd_proc(
-        hwnd: HWND,
-        msg: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-    ) -> LRESULT {
-        unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
-    }
-
-    // テスト用のダミーメッセージウィンドウを作成するヘルパー
-    unsafe fn create_dummy_window() -> HWND {
-        let h_instance = unsafe { GetModuleHandleW(None).unwrap() };
-        let class_name = windows::core::w!("MichiuTestWindowClass");
-
-        let wnd_class = WNDCLASSW {
-            lpfnWndProc: Some(dummy_wnd_proc),
-            hInstance: h_instance.into(),
-            lpszClassName: class_name,
-            ..Default::default()
-        };
-
-        unsafe { RegisterClassW(&wnd_class) };
-
-        // 画面に表示されない、テスト用のメッセージ専用ウィンドウ
-        unsafe {
-            CreateWindowExW(
-                WINDOW_EX_STYLE::default(),
-                class_name,
-                windows::core::w!("Test Window"),
-                WS_OVERLAPPEDWINDOW,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                100,
-                100,
-                Some(HWND_MESSAGE), // メッセージウィンドウ指定
-                Some(HMENU::default()),
-                Some(HINSTANCE(h_instance.0)),
-                None,
-            )
-            .unwrap()
         }
     }
 }

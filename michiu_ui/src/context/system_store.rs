@@ -78,10 +78,6 @@ impl SystemStore {
 }
 
 impl SystemStore {
-    /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
-    pub(crate) fn clear_layout_cache(id: EntityId, system: &mut SystemStore) {
-        system.dwrite_layouts.borrow_mut().remove(id);
-    }
     // クリップボード API による UTF-16 読み書きヘルパー
     fn win32_set_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> {
         let text_u16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
