@@ -467,6 +467,45 @@ impl RenderStore {
             CursorIcon::Default(None)
         }
     }
+
+    #[inline]
+    pub fn get_transform_and_origin(visual: &VisualProperty) -> ([[f32; 4]; 3], [f32; 2]) {
+        let origin = visual
+            .transform_origin
+            .map(|p| [p.x, p.y])
+            .unwrap_or([0.5, 0.5]);
+
+        let full_transform = visual.transform.unwrap_or(IDENTITY_MATRIX);
+        let packed_transform = [
+            full_transform[0], // X軸基底
+            full_transform[1], // Y軸基底
+            full_transform[3], // 平行移動部
+        ];
+        (packed_transform, origin)
+    }
+
+    #[inline]
+    pub(crate) fn get_outline_params(
+        visual: &VisualProperty,
+    ) -> (EdgeInsets, Color, EdgeInsets, [f32; 4]) {
+        let o_width = visual.outline_width.unwrap_or(EdgeInsets::ZERO);
+        let o_color = visual.outline_color.unwrap_or(Color::TRANSPARENT);
+        let o_lengths = visual.outline_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+        let o_offset = visual.outline_offset.unwrap_or(0.0);
+        let o_styles = visual.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+        let o_aligns = visual
+            .outline_alignments
+            .unwrap_or([BorderAlignment::Start; 4]);
+
+        let mut o_flags = 0u32;
+        for idx in 0..4 {
+            o_flags |= (o_styles[idx] as u32) << (idx * 4);
+            o_flags |= (o_aligns[idx] as u32) << (idx * 4 + 2);
+        }
+        let outline_offset_and_flags = [o_offset, o_flags as f32, 0.0, 0.0];
+
+        (o_width, o_color, o_lengths, outline_offset_and_flags)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -772,5 +811,914 @@ impl TargetStyle {
         if inner_mask.has(STYLE_RESIZABLE) {
             target.resizable_cursor = inner_vis.resizable_cursor;
         }
+    }
+}
+
+impl Context {
+    #[inline]
+    pub(crate) fn get_basic_layout_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut BasicLayout> {
+        RenderStore::get_basic_layout_mut(id, &mut self.renders, target)
+    }
+
+    #[inline]
+    pub(crate) fn get_visual_property_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut VisualProperty> {
+        RenderStore::get_visual_property_mut(id, &mut self.renders, target)
+    }
+
+    #[inline]
+    pub(crate) fn get_flex_layout_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut FlexLayout> {
+        RenderStore::get_flex_layout_mut(
+            id,
+            &mut self.renders,
+            target,
+            &mut self.layouts.flex_layouts,
+        )
+    }
+
+    #[inline]
+    pub fn get_transform_and_origin(&self, visual: &VisualProperty) -> ([[f32; 4]; 3], [f32; 2]) {
+        RenderStore::get_transform_and_origin(visual)
+    }
+
+    #[inline]
+    pub(crate) fn get_outline_params(
+        &self,
+        visual: &VisualProperty,
+    ) -> (EdgeInsets, Color, EdgeInsets, [f32; 4]) {
+        RenderStore::get_outline_params(visual)
+    }
+
+    #[inline]
+    pub(crate) fn trigger_keyframe_animations_if_needed(&mut self, id: EntityId) {
+        RenderStore::trigger_keyframe_animations_if_needed(id, &mut self.renders);
+    }
+
+    /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
+    /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
+    #[inline]
+    pub(crate) fn does_state_require_layout(&self, id: EntityId, state_flag: u128) -> bool {
+        RenderStore::does_state_require_layout(id, &self.renders, state_flag)
+    }
+
+    #[inline]
+    pub(crate) fn resolv_focus_style(
+        &self,
+        id: EntityId,
+        active_mask: &ComponentMask,
+    ) -> Option<ThisStyle> {
+        RenderStore::resolv_focus_style(id, &self.renders, active_mask, &self.topology.parents)
+    }
+
+    #[inline]
+    pub(crate) fn cascade_interaction(
+        &self,
+        id: EntityId,
+        active_mask: ComponentMask,
+        target: &mut TargetStyle,
+        focus_style_resolved: Option<ThisStyle>,
+    ) {
+        if let Some(interaction) = self.renders.interaction_properties.get(id) {
+            let cascade = RenderStore::cascade_interaction_flag(
+                id,
+                &self.renders,
+                interaction,
+                &focus_style_resolved,
+            );
+
+            for (state, style_opt) in cascade {
+                if active_mask.has(state)
+                    && let Some(style) = style_opt
+                {
+                    TargetStyle::apply_visual_property(
+                        target,
+                        &style.inner.visual_property,
+                        style.inner.mask,
+                    );
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn cascade_within_interaction(
+        &self,
+        id: EntityId,
+        active_mask: ComponentMask,
+        target: &mut TargetStyle,
+    ) {
+        if active_mask.has(STYLE_INTERACTION_WITHIN)
+            && let Some(interaction) = self.renders.interaction_properties.get(id)
+        {
+            // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
+            let cascade_within = RenderStore::cascade_within_interaction_flag(id, interaction);
+
+            for (state, style_opt) in cascade_within {
+                // 子孫要素のいずれかがこの state_flag を満たしているか
+                if TopologyStore::has_descendant_with_state(id, &self.topology, state)
+                    && let Some(style) = style_opt
+                {
+                    TargetStyle::apply_visual_property(
+                        target,
+                        &style.inner.visual_property,
+                        style.inner.mask,
+                    );
+                }
+            }
+
+            // All（いずれかのインタラクションがあればON）の解決
+            if let Some(ref style) = interaction.any_within
+                && TopologyStore::has_descendant_with_any_active_state(id, &self.topology)
+            {
+                TargetStyle::apply_visual_property(
+                    target,
+                    &style.inner.visual_property,
+                    style.inner.mask,
+                );
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn cascade_basic_layout(
+        &self,
+        id: EntityId,
+        active_mask: ComponentMask,
+        target_layout: &mut BasicLayout,
+    ) {
+        RenderStore::cascade_basic_layout(id, &self.renders, active_mask, target_layout);
+    }
+
+    /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
+    #[inline]
+    pub(crate) fn get_current_style(&self, id: EntityId) -> CurrentStyle {
+        RenderStore::get_current_style(id, &self.renders)
+    }
+
+    /// 目標値を参照経由で構築
+    #[inline]
+    pub(crate) fn get_target_style(&self, id: EntityId) -> TargetStyle {
+        RenderStore::get_target_style(id, &self.renders)
+    }
+
+    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
+    #[inline]
+    pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
+        RenderStore::resolve_cursor(hovered_id, &self.events, &self.renders, &self.topology)
+    }
+
+    /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
+    #[inline]
+    pub fn clear_render_dirty(&mut self) {
+        RenderStore::clear_render_dirty(&mut self.renders, &mut self.topology);
+    }
+
+    /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
+    pub fn has_active_animations(&self) -> bool {
+        // ドラッグ選択中でポインタが可視境界外にある場合も継続
+        let has_drag_autoscroll =
+            OutputStore::is_drag_autoscroll_active(&self.events, &self.outputs, &self.renders);
+
+        RenderStore::has_active_animations(
+            &self.renders,
+            &self.events,
+            &self.layouts,
+            &self.contents,
+            has_drag_autoscroll,
+        )
+    }
+
+    /// 対象の要素がキーボードフォーカス可能であるかを総合検証します
+    pub(crate) fn is_keyboard_focusable(&self, id: EntityId) -> bool {
+        // 生存確認、および無効化（Disabled）状態でないか検証
+        if !self.topology.entities.contains_key(id) || self.is_disabled(id) {
+            return false;
+        }
+
+        // 暗黙的または明示的にキーボードフォーカスを要求しているか
+        let is_target = self.topology.active_masks[id].has(COMP_INPUT_CONTENT)
+            || self.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT)
+            || (self.topology.active_masks[id].has(STYLE_FOCUSABLE)
+                && self
+                    .renders
+                    .visual_properties
+                    .get(id)
+                    .and_then(|v| v.focusable)
+                    .map(|f| match f {
+                        Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
+                            trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
+                        }
+                        Focusable::None => false,
+                    })
+                    .unwrap_or(false));
+
+        if !is_target {
+            return false;
+        }
+
+        // 自分自身、および親先祖ツリーに非表示（Display::None）が1つも含まれていないか検証
+        let mut curr = Some(id);
+        while let Some(curr_id) = curr {
+            if let Some(layout) = self.layouts.basic_layouts.get(curr_id)
+                && layout.display == Display::None
+            {
+                return false;
+            }
+            curr = self.topology.parents.get(curr_id).copied().flatten();
+        }
+
+        true
+    }
+
+    /// 補間されたアニメーション値を SoA のアクティブプロパティへ安全に上書きします
+    pub(crate) fn apply_animation_value(
+        &mut self,
+        id: EntityId,
+        property: PropertyList,
+        value: &TransitionValue,
+    ) {
+        if !self.renders.visual_properties.contains_key(id) {
+            self.renders
+                .visual_properties
+                .insert(id, Default::default());
+        }
+        let v = self.renders.visual_properties.get_mut(id).unwrap();
+
+        match *value {
+            TransitionValue::Color(c) => {
+                if property == PropertyList::BackgroundColor {
+                    v.bg_color = Some(c);
+                } else if property == PropertyList::BorderColor {
+                    v.border_color = Some(c);
+                }
+            }
+            TransitionValue::Opacity(o) => {
+                v.opacity = Some(o);
+            }
+            TransitionValue::Transform(m) => {
+                v.transform = Some(m);
+            }
+            TransitionValue::CornerRadius(cr) => {
+                v.corner_radius = Some(cr);
+            }
+            TransitionValue::Width(w) => {
+                if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
+                    layout.size.width = Val::Px(w);
+                }
+                self.mark_layout_dirty(id); // レイアウト再計算を要求（スローパス）
+            }
+            TransitionValue::Height(h) => {
+                if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
+                    layout.size.height = Val::Px(h);
+                }
+                self.mark_layout_dirty(id);
+            }
+            TransitionValue::BoxShadow(shadow) => {
+                v.shadow_params = Some(shadow);
+                v.shadow_color = Some(shadow.color);
+            }
+        }
+    }
+
+    /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
+    pub fn tick_animations(&mut self) {
+        let now = Instant::now();
+
+        // 借用チェッカーを回避するため、一時的にマップを take して更新
+        let mut active_map = std::mem::take(&mut self.renders.active_animations);
+        let mut to_remove = Vec::new();
+
+        for (id, animations) in active_map.iter_mut() {
+            let mut i = 0;
+            while i < animations.len() {
+                let anim = &mut animations[i];
+                let elapsed = now.duration_since(anim.start_time);
+                let elapsed_secs = elapsed.as_secs_f32();
+                let duration_secs = anim.duration.as_secs_f32();
+
+                // 1. 現在の周回回数（ループインデックス）の算出
+                let current_iteration = (elapsed_secs / duration_secs).floor() as u32;
+
+                // ループ制限に達しているかチェック
+                let is_finished = match anim.iteration_count {
+                    PlaybackCount::Count(max_count) => current_iteration >= max_count,
+                    PlaybackCount::Infinite => false,
+                };
+
+                if is_finished {
+                    // ループ終了：目標の最終値（end_value）で固定してアニメーションを破棄
+                    self.apply_animation_value(id, anim.property, &anim.end_value);
+                    animations.remove(i);
+                    continue;
+                }
+
+                // 2. 現在のループ内での正規化進行度 (0.0 ～ 1.0) の計算
+                let local_time = elapsed_secs % duration_secs;
+                let progress = if duration_secs > 0.0 {
+                    (local_time / duration_secs).min(1.0)
+                } else {
+                    1.0
+                };
+                let eased_t = anim.curve.evaluate(progress);
+
+                // 3. 値の補間
+                let current_val = anim.start_value.lerp(&anim.end_value, eased_t);
+
+                // 4. SoA へ補間された動的スタイル値を上書き書き戻し
+                self.apply_animation_value(id, anim.property, &current_val);
+
+                // レンダラーへ再描画要求（ファストパス）
+                self.mark_render_dirty(id);
+
+                i += 1;
+            }
+
+            if animations.is_empty() {
+                to_remove.push(id);
+            }
+        }
+
+        // 空になったエントリをクリーンアップ
+        for id in to_remove {
+            active_map.remove(id);
+        }
+        self.renders.active_animations = active_map;
+    }
+
+    /// 状態の変更を検知し、アニメーション（トランジション）が必要な箇所を自動的に開始・制御します。
+    pub(crate) fn resolve_element_style_state(&mut self, id: EntityId, allow_transition: bool) {
+        let active_mask = self.topology.active_masks[id];
+
+        // ビジュアルプロパティ (bg_color, opacity等) の解決
+        let has_base_visual = self.renders.base_visual_properties.contains_key(id);
+        let has_active_visual = self.renders.visual_properties.contains_key(id);
+
+        // 要素がホバーやプレス時の動的スタイルを登録しているか
+        let has_interaction_styles = self.renders.interaction_properties.contains_key(id);
+
+        // スタイルを一切持たない要素は、ヒープアロケーションを避けるため完全にスキップ
+        // 静的なベース装飾がなくても、ホバースタイル等を持っていれば確実にカスケード解決を通す
+        if has_base_visual || has_active_visual || has_interaction_styles {
+            let current = self.get_current_style(id);
+            let mut target = self.get_target_style(id);
+
+            // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
+            let focus_style_resolved = self.resolv_focus_style(id, &active_mask);
+
+            // 疑似クラス（Hovered等）のマージ
+            self.cascade_interaction(id, active_mask, &mut target, focus_style_resolved);
+            self.cascade_within_interaction(id, active_mask, &mut target);
+
+            // プレースホルダー表示状態
+            let mut is_placeholder_active = false;
+            if let Some(contents) = self.contents.input_contents.get(id) {
+                // 文字列が空、かつ IME 変換中でない場合はプレースホルダーと判定
+                let has_no_ime = contents
+                    .ime_state
+                    .as_ref()
+                    .map(|s| s.composition_text.is_empty())
+                    .unwrap_or(true);
+                if contents.text.0.get().is_empty() && has_no_ime {
+                    is_placeholder_active = true;
+                }
+            }
+
+            // 各プロパティの即時適用の変更を評価
+            let target_bg_val = target.bg_color.unwrap_or(Color::TRANSPARENT);
+            let bg_changed = current.bg_color != target_bg_val;
+
+            let target_border_val = target.border_color.unwrap_or(Color::TRANSPARENT);
+            let border_changed = current.border_color != target_border_val;
+
+            let target_outline_width_val = target.outline_width.unwrap_or(EdgeInsets::ZERO);
+            let outline_width_changed = current.outline_width != target_outline_width_val;
+
+            let target_outline_color_val = target.outline_color.unwrap_or(Color::TRANSPARENT);
+            let outline_color_changed = current.outline_color != target_outline_color_val;
+
+            let target_outline_offset_val = target.outline_offset.unwrap_or(0.0);
+            let outline_offset_changed =
+                (current.outline_offset - target_outline_offset_val).abs() > 0.001;
+
+            let target_opacity_val = target.opacity.unwrap_or(1.0);
+            let opacity_changed = (current.opacity - target_opacity_val).abs() > 0.001;
+
+            let target_transform_val = target.transform.unwrap_or(IDENTITY_MATRIX);
+            let transform_changed = current.transform != target_transform_val;
+
+            let target_radius_val = target.corner_radius.unwrap_or(CornerRadius::ZERO);
+            let radius_changed = current.corner_radius != target_radius_val;
+
+            let target_shadow_val = target.shadow_params.unwrap_or(BoxShadow::none());
+            let shadow_changed = current.shadow_params != target_shadow_val;
+
+            // トランジション判定 (変更がある場合のみトリガー)
+            let mut bg_triggered = false;
+            if allow_transition && bg_changed && has_active_visual {
+                bg_triggered = self.trigger_transition_if_needed(
+                    id,
+                    PropertyList::BackgroundColor,
+                    TransitionValue::Color(current.bg_color),
+                    TransitionValue::Color(target_bg_val),
+                );
+            }
+
+            let mut border_triggered = false;
+            if border_changed && has_active_visual {
+                border_triggered = self.trigger_transition_if_needed(
+                    id,
+                    PropertyList::BorderColor,
+                    TransitionValue::Color(current.border_color),
+                    TransitionValue::Color(target_border_val),
+                );
+            }
+
+            let mut opacity_triggered = false;
+            if opacity_changed && has_active_visual {
+                opacity_triggered = self.trigger_transition_if_needed(
+                    id,
+                    PropertyList::Opacity,
+                    TransitionValue::Opacity(current.opacity),
+                    TransitionValue::Opacity(target_opacity_val),
+                );
+            }
+
+            let mut transform_triggered = false;
+            if transform_changed {
+                transform_triggered = self.trigger_transition_if_needed(
+                    id,
+                    PropertyList::Transform,
+                    TransitionValue::Transform(current.transform),
+                    TransitionValue::Transform(target_transform_val),
+                );
+            }
+
+            let mut radius_triggered = false;
+            if radius_changed && has_active_visual {
+                radius_triggered = self.trigger_transition_if_needed(
+                    id,
+                    PropertyList::CornerRadius,
+                    TransitionValue::CornerRadius(current.corner_radius),
+                    TransitionValue::CornerRadius(target_radius_val),
+                );
+            }
+
+            let mut shadow_triggered = false;
+            if shadow_changed && has_active_visual {
+                shadow_triggered = self.trigger_transition_if_needed(
+                    id,
+                    PropertyList::BoxShadow,
+                    TransitionValue::BoxShadow(current.shadow_params),
+                    TransitionValue::BoxShadow(target_shadow_val),
+                );
+            }
+
+            // アニメーションが起動した、または明示的にベースの描画プロパティがある場合のみ
+            // 遅延評価（Lazy）でマップを確保し、書き込みを行う
+            if bg_triggered
+                || border_triggered
+                || opacity_triggered
+                || transform_triggered
+                || radius_triggered
+                || shadow_triggered
+                || bg_changed
+                || border_changed
+                || opacity_changed
+                || transform_changed
+                || radius_changed
+                || shadow_changed
+                || outline_width_changed
+                || outline_color_changed
+                || outline_offset_changed
+                || self.renders.base_visual_properties.contains_key(id)
+            {
+                if !self.renders.visual_properties.contains_key(id) {
+                    self.renders
+                        .visual_properties
+                        .insert(id, Default::default());
+                }
+                let active_vis = self.renders.visual_properties.get_mut(id).unwrap();
+
+                if !bg_triggered {
+                    active_vis.bg_color = target.bg_color;
+                }
+                if !border_triggered {
+                    active_vis.border_color = target.border_color;
+                }
+                if !opacity_triggered {
+                    active_vis.opacity = target.opacity;
+                }
+                if !transform_triggered {
+                    active_vis.transform = target.transform;
+                }
+                if !radius_triggered {
+                    active_vis.corner_radius = target.corner_radius;
+                }
+                if is_placeholder_active {
+                    // プレースホルダー時はフォーカスに関わらず、強制的に半透明の薄いグレー
+                    active_vis.text_color = Some(Color::rgb_f32(0.5, 0.5, 0.5));
+                } else {
+                    active_vis.text_color = target.text_color; // 通常時、または疑似状態（Hover等）のテキストカラー
+                }
+
+                // 解決した影（target_shadow）をアクティブプロパティに代入
+                // アニメーション非起動時のみ行うように修正
+                if !shadow_triggered {
+                    active_vis.shadow_params = target.shadow_params;
+                    active_vis.shadow_color = target.shadow_color;
+                }
+
+                active_vis.border_lengths = target.border_lengths;
+                active_vis.border_styles = target.border_styles;
+                active_vis.border_alignments = target.border_alignments;
+
+                active_vis.outline_width = target.outline_width;
+                active_vis.outline_color = target.outline_color;
+                active_vis.outline_lengths = target.outline_lengths;
+                active_vis.outline_styles = target.outline_styles;
+                active_vis.outline_alignments = target.outline_alignments;
+                active_vis.outline_offset = target.outline_offset;
+
+                // 解決された選択色をアクティブビジュアルに代入
+                active_vis.select_bg_color = target.select_bg_color;
+                active_vis.select_text_color = target.select_text_color;
+                // 常に即時解決する静的プロパティ群
+                active_vis.user_select = self
+                    .renders
+                    .base_visual_properties
+                    .get(id)
+                    .and_then(|v| v.user_select);
+
+                active_vis.cursor = target.cursor;
+                active_vis.resizable_cursor = target.resizable_cursor;
+
+                // コールドプロパティの即時代入
+                if let Some(target_vis) = self.renders.base_visual_properties.get(id) {
+                    active_vis.z_index = target_vis.z_index;
+                    active_vis.backdrop = target_vis.backdrop;
+                    active_vis.font_size = target_vis.font_size;
+                    active_vis.font_family = target_vis.font_family.clone();
+                    active_vis.font_weight = target_vis.font_weight;
+                    active_vis.font_style = target_vis.font_style;
+                    active_vis.bg_gradient = target_vis.bg_gradient;
+                    active_vis.pointer_events = target_vis.pointer_events;
+                    active_vis.transitions = target_vis.transitions.clone();
+                    active_vis.keyframe_animations = target_vis.keyframe_animations.clone();
+                    active_vis.focusable = target_vis.focusable;
+                }
+
+                // 即時変更があったため、レンダラーへの転送 Dirty をマーク
+                self.mark_render_dirty(id);
+            }
+        }
+
+        //  (Width, Height) の解決
+        let has_base_layout = self.renders.base_basic_layouts.contains_key(id);
+        let has_active_layout = self.layouts.basic_layouts.contains_key(id);
+
+        // レイアウト変更のない要素は完全にスキップ
+        if has_base_layout || has_active_layout {
+            let active_layout = self
+                .layouts
+                .basic_layouts
+                .get(id)
+                .cloned()
+                .unwrap_or_default();
+
+            // BasicLayout は heap allocation を持たないフラットな構造（Copy同等）なので
+            // cloned() によるクローンは極めて低コスト
+            let base_layout = self
+                .renders
+                .base_basic_layouts
+                .get(id)
+                .cloned()
+                .unwrap_or_default();
+            let mut target_layout = base_layout;
+
+            self.cascade_basic_layout(id, active_mask, &mut target_layout);
+
+            // 単位を親/ウィンドウアラインメントを考慮した物理ピクセル(f32)へ解決
+            let target_w_px = self.resolve_val_to_px(id, target_layout.size.width, true);
+            let current_w_px = self.resolve_val_to_px(id, active_layout.size.width, true);
+            let target_h_px = self.resolve_val_to_px(id, target_layout.size.height, false);
+            let current_h_px = self.resolve_val_to_px(id, active_layout.size.height, false);
+
+            let mut width_triggered = false;
+            let mut height_triggered = false;
+
+            // Width または 一括 Size トランジション設定が定義されているか検証
+            let can_trigger_width = self
+                .renders
+                .visual_properties
+                .get(id)
+                .map(|v| {
+                    v.transitions.iter().any(|t| {
+                        t.property_list == PropertyList::Width
+                            || t.property_list == PropertyList::Size
+                    })
+                })
+                .unwrap_or(false);
+
+            if allow_transition
+                && can_trigger_width
+                && has_active_layout
+                && let (Some(cw), Some(tw)) = (current_w_px, target_w_px)
+                && (cw - tw).abs() > 0.01
+            // 浮動小数点誤差を無視
+            {
+                width_triggered = self.trigger_transition_if_needed(
+                    id,
+                    PropertyList::Width,
+                    TransitionValue::Width(cw),
+                    TransitionValue::Width(tw),
+                );
+            }
+
+            // Height または 一括 Size トランジション設定が定義されているか検証
+            let can_trigger_height = self
+                .renders
+                .visual_properties
+                .get(id)
+                .map(|v| {
+                    v.transitions.iter().any(|t| {
+                        t.property_list == PropertyList::Height
+                            || t.property_list == PropertyList::Size
+                    })
+                })
+                .unwrap_or(false);
+
+            if allow_transition
+                && can_trigger_height
+                && has_active_layout
+                && let (Some(ch), Some(th)) = (current_h_px, target_h_px)
+                && (ch - th).abs() > 0.01
+            {
+                height_triggered = self.trigger_transition_if_needed(
+                    id,
+                    PropertyList::Height,
+                    TransitionValue::Height(ch),
+                    TransitionValue::Height(th),
+                );
+            }
+
+            // 遅延マウント
+            if !self.layouts.basic_layouts.contains_key(id) {
+                self.layouts.basic_layouts.insert(id, Default::default());
+            }
+            let active_layout_mut = self.layouts.basic_layouts.get_mut(id).unwrap();
+            *active_layout_mut = target_layout;
+
+            if width_triggered {
+                active_layout_mut.size.width = Val::Px(current_w_px.unwrap());
+            }
+            if height_triggered {
+                active_layout_mut.size.height = Val::Px(current_h_px.unwrap());
+            }
+
+            // 最終的に解決されたレイアウトを Taffy ツリーに即時同期させるため、
+            // スタイル解決の末尾でレイアウトの Dirty マークを叩きます
+            self.mark_layout_dirty(id);
+        }
+
+        // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
+        // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
+        self.trigger_keyframe_animations_if_needed(id);
+
+        if let Some(effects) = self.reactive.element_effects.get(id) {
+            let text_effects: Vec<EffectId> = effects
+                .iter()
+                .filter(|(cat, _)| *cat == EffectCategory::Text)
+                .map(|(_, eff_id)| *eff_id)
+                .collect();
+            for eff_id in text_effects {
+                crate::execute_effect(eff_id);
+            }
+        }
+    }
+
+    /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
+    pub fn tick_transitions(&mut self) {
+        let now = Instant::now();
+
+        // (1.0 / 120.0 秒 = 約 8,333,333 ナノ秒)
+        const FRAME_TIME_120FPS: Duration = Duration::from_nanos(8_333_333);
+        if let Some(last) = self.renders.last_tick_time
+            && now.duration_since(last) < FRAME_TIME_120FPS
+        {
+            return;
+        }
+
+        // 実行制限を通過したため、基準時刻を更新して処理を継続
+        self.renders.last_tick_time = Some(now);
+
+        // 借用チェッカーを回避するため、一時的にマップを take して更新する
+        let mut active_map = std::mem::take(&mut self.renders.active_transitions);
+
+        // 完了して空になった要素のIDを記録する一時配列
+        let mut to_remove = Vec::new();
+
+        for (id, transitions) in active_map.iter_mut() {
+            let mut i = 0;
+            while i < transitions.len() {
+                let t_state = &mut transitions[i];
+
+                // start_time が None なら、このフレームの時刻 now を格納しその値を取り出す。
+                let start_time = *t_state.start_time.get_or_insert(now);
+                let elapsed = now.duration_since(start_time);
+
+                // 進行度 (0.0 ～ 1.0)
+                let progress = (elapsed.as_secs_f32() / t_state.duration.as_secs_f32()).min(1.0);
+                let eased_t = t_state.curve.evaluate(progress);
+
+                // Lerpによる新しい値の決定
+                let current_val = t_state.start_value.lerp(&t_state.end_value, eased_t);
+
+                // SoA（Context のアクティブなプロパティ）に補間された値を書き戻す
+                match current_val {
+                    TransitionValue::Color(c) => {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
+                            if t_state.property_list == PropertyList::BackgroundColor {
+                                v.bg_color = Some(c);
+                            } else if t_state.property_list == PropertyList::BorderColor {
+                                v.border_color = Some(c);
+                            }
+                        }
+                        self.mark_render_dirty(id);
+                    }
+                    TransitionValue::Opacity(o) => {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
+                            v.opacity = Some(o);
+                        }
+                        self.mark_render_dirty(id);
+                    }
+                    TransitionValue::Transform(m) => {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
+                            v.transform = Some(m);
+                        }
+                        self.mark_render_dirty(id);
+                    }
+                    TransitionValue::CornerRadius(cr) => {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
+                            v.corner_radius = Some(cr);
+                        }
+                        self.mark_render_dirty(id);
+                    }
+                    TransitionValue::Width(w) => {
+                        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
+                            layout.size.width = Val::Px(w); // ピクセル値で上書き
+                        }
+                        self.mark_layout_dirty(id); // レイアウト再計算をマーク
+
+                        // キャッシュを毎フレーム強制バイパスさせるためにマスクを再セット
+                        if let Some(mask) = self.topology.active_masks.get_mut(id) {
+                            mask.set(STATE_QUEUED_LAYOUT);
+                        }
+                    }
+                    // 縦幅（Height）の毎フレームアニメーション補間
+                    TransitionValue::Height(h) => {
+                        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
+                            layout.size.height = Val::Px(h);
+                        }
+                        self.mark_layout_dirty(id);
+
+                        if let Some(mask) = self.topology.active_masks.get_mut(id) {
+                            mask.set(STATE_QUEUED_LAYOUT);
+                        }
+                    }
+                    // 影（BoxShadow）の毎フレームの書き戻し処理
+                    TransitionValue::BoxShadow(shadow) => {
+                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
+                            v.shadow_params = Some(shadow);
+                            v.shadow_color = Some(shadow.color);
+                        }
+                        self.mark_render_dirty(id);
+                    }
+                }
+
+                // アニメーション完了判定
+                if progress >= 1.0 {
+                    transitions.remove(i);
+                } else {
+                    i += 1;
+                }
+
+                // トランジションが空になった要素をマーク
+                if transitions.is_empty() {
+                    to_remove.push(id);
+                }
+            }
+        }
+
+        // 空になったエントリをマップから完全削除（クリーンアップ）
+        for id in to_remove {
+            active_map.remove(id);
+        }
+
+        self.renders.active_transitions = active_map;
+    }
+
+    /// 必要に応じてトランジションを起動、または上書き（逆再生含む）します
+    pub(crate) fn trigger_transition_if_needed(
+        &mut self,
+        id: EntityId,
+        property_list: PropertyList,
+        start_value: TransitionValue,
+        end_value: TransitionValue,
+    ) -> bool {
+        // スタイルの再評価エフェクトの実行中であるか
+        let is_style_evaluating = crate::signal::ACTIVE_EFFECT.with(|cell| {
+            if let Some(effect_id) = cell.get() {
+                // 現在走っているエフェクトがいずれかの要素の StyleCategory::Style のものであるか走査
+                self.reactive.element_effects.values().any(|list| {
+                    list.iter()
+                        .any(|(cat, eff_id)| *eff_id == effect_id && *cat == EffectCategory::Style)
+                })
+            } else {
+                false
+            }
+        });
+
+        // スタイルエフェクト評価中であればトランジションの開始を完全拒否して値の即時書き換え
+        if is_style_evaluating {
+            return false;
+        }
+
+        // 1. その要素に、このプロパティに対するトランジション設定が定義されているか検証
+        if let Some(visual) = self.renders.base_visual_properties.get(id) {
+            // transitions ベクタの中から、一致する PropertyList を探す
+            if let Some(t) = visual
+                .transitions
+                .iter()
+                .find(|t| t.property_list == property_list || t.property_list == PropertyList::Size)
+            {
+                let now = Instant::now();
+                if let Some(entry) = self.renders.active_transitions.entry(id) {
+                    let active_list = entry.or_insert_with(Vec::new);
+
+                    // 2. 割り込み処理の解決（すでに同じプロパティのアニメーションが走っているか）
+                    let actual_start = if let Some(existing) = active_list
+                        .iter_mut()
+                        .find(|et| et.property_list == property_list)
+                    {
+                        // すでに同じ目的地に向かってアニメーション中の場合は、
+                        // 割り込みを一切行わず、そのまま既存アニメーションを走らせる
+                        if existing.end_value == end_value {
+                            return true;
+                        }
+
+                        // すでに駆動中の場合は、その現在の補間位置をリアルタイム計算する
+                        // ※ start_time が None の場合（登録されたが一度も tick されていない場合）は
+                        // 経過時間 0 として進捗 progress を 0.0 にする
+                        let elapsed = existing
+                            .start_time
+                            .map(|st| now.duration_since(st))
+                            .unwrap_or(Duration::ZERO);
+                        let progress =
+                            (elapsed.as_secs_f32() / existing.duration.as_secs_f32()).min(1.0);
+                        let eased_t = existing.curve.evaluate(progress);
+
+                        // 中間位置の算出（これが新しいアニメーションの開始点になる）
+                        let current_interposed_val =
+                            existing.start_value.lerp(&existing.end_value, eased_t);
+
+                        // 既存のアニメーション状態をリセットし、現在地点から新しい目標値（end_value）へ向かうように上書き
+                        existing.start_time = None;
+                        existing.start_value = current_interposed_val;
+                        existing.end_value = end_value;
+                        existing.duration = t.duration;
+                        existing.curve = t.curve;
+
+                        return true; // 既存のアニメーションを上書き更新したため即時復帰
+                    } else {
+                        // 新規開始の場合は、渡された現在の開始値をそのまま採用
+                        start_value
+                    };
+
+                    // 3. 新規トランジションをアクティブリストに登録
+                    active_list.push(ActiveTransition {
+                        property_list,
+                        start_time: None,
+                        duration: t.duration,
+                        curve: t.curve,
+                        start_value: actual_start,
+                        end_value,
+                    });
+
+                    return true; // トランジションを正常に起動
+                }
+            }
+        }
+        false // トランジション設定がなかったため、即時適用パスへ
     }
 }

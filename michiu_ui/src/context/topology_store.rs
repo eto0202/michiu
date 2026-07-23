@@ -411,4 +411,282 @@ impl TopologyStore {
         }
         false
     }
+
+    pub(crate) fn compute_effective_z_indices(
+        topology: &TopologyStore,
+        layouts: &LayoutStore,
+        renders: &RenderStore,
+    ) -> SecondaryMap<EntityId, i32> {
+        // 各要素の実効 z_index を親から子へカスケード（伝播）して計算
+        let mut effective_z_indices = SecondaryMap::with_capacity(topology.active_entities.len());
+
+        // flat_dfs_sequence は必ず親から子への順でフラットに並んでいるため、前方1方向の走査で完結
+        for &id in &layouts.flat_dfs_sequence {
+            let self_z = renders.visual_properties.get(id).and_then(|v| v.z_index);
+
+            let parent_z = topology
+                .parents
+                .get(id)
+                .copied()
+                .flatten()
+                .and_then(|pid| effective_z_indices.get(pid).copied());
+
+            // 自身に z_index 指定があればそれを最優先し、
+            // なければ親の実効 z_index を継承する（双方になければデフォルト 0）
+            let eff_z = self_z.or(parent_z).unwrap_or(0);
+            effective_z_indices.insert(id, eff_z);
+        }
+
+        effective_z_indices
+    }
+}
+
+impl Context {
+    /// 要素を新規に生成（Spawn）
+    #[inline]
+    pub(crate) fn spawn(&mut self, parent_id: Option<EntityId>) -> EntityId {
+        TopologyStore::spawn(
+            parent_id,
+            &mut self.topology,
+            &mut self.layouts,
+            &mut self.renders,
+        )
+    }
+
+    #[inline]
+    pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
+        TopologyStore::add_child(parent, child, &mut self.topology, &mut self.layouts);
+    }
+
+    #[inline]
+    pub(crate) fn mark_layout_dirty(&mut self, id: EntityId) {
+        TopologyStore::mark_layout_dirty(id, &mut self.topology, &mut self.layouts);
+    }
+
+    #[inline]
+    pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
+        TopologyStore::mark_render_dirty(id, &mut self.topology, &mut self.renders);
+    }
+
+    // セッションの開始マーカーを取得
+    #[inline]
+    pub(crate) fn start_session(&mut self) -> usize {
+        self.topology.session_spawned.len()
+    }
+
+    // ルート要素として保護するIDを登録
+    #[inline]
+    pub(crate) fn register_root(&mut self, id: EntityId) {
+        self.topology.session_roots.push(id);
+    }
+
+    // セッションのクリーンアップを実行
+    #[inline]
+    pub(crate) fn end_session(&mut self, start_marker: usize) {
+        // start_marker 以降に生成された要素をスキャン
+        let spawned_in_session: Vec<EntityId> = self
+            .topology
+            .session_spawned
+            .drain(start_marker..)
+            .collect();
+
+        for id in spawned_in_session {
+            if TopologyStore::no_root_no_parent(id, &self.topology) {
+                TopologyStore::despawn_internal(id, self);
+            }
+        }
+        // ルートリストをクリア
+        self.topology.session_roots.clear();
+    }
+
+    /// 外部公開用API: ハンドルを指定して要素を安全に破棄します。
+    ///
+    /// 親を持たないルート要素の破棄（手動での寿命管理）に使用します。
+    /// 子要素が存在する場合は、自動的に再帰破棄されます。
+    #[inline]
+    pub fn despawn(&mut self, handle: Element) {
+        self.despawn_internal(handle.id);
+    }
+
+    /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
+    #[inline]
+    pub(crate) fn despawn_internal(&mut self, id: EntityId) {
+        TopologyStore::despawn_internal(id, self);
+    }
+
+    /// 親要素の特定の古い子要素を、順序（インデックス）を維持したまま新しい子要素へ直接差し替えます。
+    #[inline]
+    pub(crate) fn replace_child(
+        &mut self,
+        parent: EntityId,
+        old_child: EntityId,
+        new_child: EntityId,
+    ) {
+        TopologyStore::replace_child(
+            parent,
+            old_child,
+            new_child,
+            &mut self.layouts,
+            &mut self.topology,
+        );
+
+        // 親子参照の更新
+        self.topology.parents.insert(new_child, Some(parent));
+
+        // 古い子要素（およびその子孫）を完全に安全デスポーン
+        // この中で Taffy からの remove_child も安全に実行されます
+        TopologyStore::despawn_internal(old_child, self);
+
+        TopologyStore::mark_layout_dirty(parent, &mut self.topology, &mut self.layouts);
+        self.layouts.is_structure_dirty = true;
+    }
+
+    /// デスポーン済みの無効な EntityId を各走査・Dirty配列から一括して排除。
+    #[inline]
+    pub(crate) fn gc_inactive_entities(&mut self) {
+        TopologyStore::gc_inactive_entities(
+            &mut self.topology,
+            &mut self.layouts,
+            &mut self.renders,
+        );
+    }
+
+    /// 子孫要素のインタラクション状態（state_flag）を走査します
+    #[inline]
+    pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u128) -> bool {
+        TopologyStore::has_descendant_with_state(parent, &self.topology, state_flag)
+    }
+
+    /// いずれか一つのアクティブなユーザーインタラクションが子孫要素でONになっているか非再帰で走査します
+    #[inline]
+    pub(crate) fn has_descendant_with_any_active_state(&self, parent: EntityId) -> bool {
+        TopologyStore::has_descendant_with_any_active_state(parent, &self.topology)
+    }
+
+    /// ドロップ先コンテナのフレックス方向（Row / Column）に基づいて、
+    /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出します。
+    #[inline]
+    pub(crate) fn calculate_insert_index(
+        &self,
+        parent_id: EntityId,
+        logical_pos: LayoutPoint,
+    ) -> usize {
+        TopologyStore::calculate_insert_index(
+            parent_id,
+            logical_pos,
+            &self.topology,
+            &self.layouts,
+            &self.outputs,
+        )
+    }
+
+    #[inline]
+    pub(crate) fn compute_effective_z_indices(&self) -> SecondaryMap<EntityId, i32> {
+        TopologyStore::compute_effective_z_indices(&self.topology, &self.layouts, &self.renders)
+    }
+
+    /// 指定された要素（target）が、ある親要素（parent）自身、またはその子孫であるかを判定します。
+    #[inline]
+    pub(crate) fn is_descendant_of(&self, target: EntityId, parent: EntityId) -> bool {
+        TopologyStore::is_descendant_of(target, parent, &self.topology)
+    }
+
+    /// 指定した要素の子要素一覧を取得します。
+    pub fn children_list(&self, handle: Element) -> Option<Vec<Element>> {
+        self.topology
+            .children
+            .get(handle.id)
+            .map(|c| c.iter().map(|&id| Element { id }).collect())
+    }
+
+    /// 画面上でアクティブ（有効）になっている要素の総数を取得します。
+    pub fn active_entities_count(&self) -> usize {
+        self.topology.active_entities.len()
+    }
+
+    /// 指定された要素が現在マウスホバーされているか判定します
+    #[inline]
+    pub fn is_hovered(&self, id: EntityId) -> bool {
+        self.topology
+            .active_masks
+            .get(id)
+            .map(|m| m.has(STATE_HOVERED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在キーボードフォーカスを得ているか判定します
+    #[inline]
+    pub fn is_focused(&self, id: EntityId) -> bool {
+        self.topology
+            .active_masks
+            .get(id)
+            .map(|m| m.has(STATE_FOCUSED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在マウスやタップで押し下げられているか判定します
+    #[inline]
+    pub fn is_pressed(&self, id: EntityId) -> bool {
+        self.topology
+            .active_masks
+            .get(id)
+            .map(|m| m.has(STATE_PRESSED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が無効化（操作不可）状態にあるか判定します
+    #[inline]
+    pub fn is_disabled(&self, id: EntityId) -> bool {
+        self.topology
+            .active_masks
+            .get(id)
+            .map(|m| m.has(STATE_DISABLED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在アクティブ（有効選択など）状態にあるか判定します
+    #[inline]
+    pub fn is_actived(&self, id: EntityId) -> bool {
+        self.topology
+            .active_masks
+            .get(id)
+            .map(|m| m.has(STATE_ACTIVED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在テキストまたはトグル選択されているか判定します
+    #[inline]
+    pub fn is_selected(&self, id: EntityId) -> bool {
+        self.topology
+            .active_masks
+            .get(id)
+            .map(|m| m.has(STATE_SELECTED))
+            .unwrap_or(false)
+    }
+
+    /// 指定された要素が現在ドラッグ操作中にあるか判定します
+    #[inline]
+    pub fn is_dragged(&self, id: EntityId) -> bool {
+        self.topology
+            .active_masks
+            .get(id)
+            .map(|m| m.has(STATE_DRAGGED))
+            .unwrap_or(false)
+    }
+
+    /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。
+    pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
+        // すでにフラットシーケンスが構築されていればその先頭、
+        // 無ければ parents マップをスキャンして親が None の生存要素をフォールバック解決します
+        self.layouts.flat_dfs_sequence.first().copied().or_else(|| {
+            self.topology
+                .parents
+                .iter()
+                .find(|&(id, &parent_id_opt)| {
+                    // 親が None かつ、要素 id 自体が slotmap (entities) に生存しているか
+                    parent_id_opt.is_none() && self.topology.entities.contains_key(id)
+                })
+                .map(|(id, _)| id)
+        })
+    }
 }

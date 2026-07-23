@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{ops::Range, time::Instant};
 
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -193,6 +193,38 @@ impl OutputStore {
                     .map(|r| if is_width { r.width } else { r.height })
             }
         }
+    }
+
+    pub(crate) fn calculate_caret_rect(
+        rect: LayoutRect,
+        border: EdgeInsets,
+        padding: EdgeInsets,
+        contents: &InputContents,
+        scale: f32,
+        scroll: LayoutPoint,
+    ) -> LayoutRect {
+        let logical_x = rect.x + border.left + padding.left + contents.measured_caret_x - scroll.x;
+        let aligned_x = (logical_x * scale).round() / scale;
+
+        let line_height = contents.caret_line_height;
+        let caret_width = contents.caret_width.unwrap_or(1.5);
+        let caret_height = contents.caret_height.unwrap_or(line_height);
+
+        let vertical_center_offset = if contents.caret_height.is_some() {
+            (line_height - caret_height) * 0.5
+        } else {
+            0.0
+        };
+
+        let logical_y =
+            rect.y + border.top + padding.top + contents.measured_caret_y + contents.caret_offset
+                - scroll.y;
+
+        let aligned_y = ((logical_y + vertical_center_offset) * scale).round() / scale;
+        let aligned_width = (caret_width * scale).round().max(1.0) / scale;
+        let aligned_height = (caret_height * scale).round().max(1.0) / scale;
+
+        LayoutRect::new(aligned_x, aligned_y, aligned_width, aligned_height)
     }
 
     /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
@@ -412,5 +444,472 @@ impl OutputStore {
             .insert(focused_id, range.start..range.start);
         outputs.selected_rects.remove(focused_id);
         contents.text.1.set(new_text);
+    }
+}
+
+impl Context {
+    /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
+    #[inline]
+    pub fn rect(&self, handle: Element) -> Option<LayoutRect> {
+        self.outputs.rects.get(handle.id).copied()
+    }
+
+    /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
+    #[inline]
+    pub fn clip_rect(&self, handle: Element) -> Option<LayoutRect> {
+        self.outputs.clip_rects.get(handle.id).copied()
+    }
+
+    #[inline]
+    pub(crate) fn swap_output_rect(&mut self) {
+        OutputStore::swap_output_rect(&mut self.outputs);
+    }
+
+    #[inline]
+    pub(crate) fn parent_changed(&self, id: EntityId) -> bool {
+        OutputStore::parent_changed(id, &self.outputs, &self.topology)
+    }
+
+    #[inline]
+    pub(crate) fn calc_local_rect(
+        &self,
+        id: EntityId,
+        window_size: LayoutSize,
+    ) -> (LayoutRect, LayoutRect) {
+        OutputStore::calc_local_rect(
+            id,
+            &self.outputs,
+            &self.layouts,
+            &self.topology,
+            window_size,
+        )
+    }
+
+    /// 単位（Px, Percent, Auto）を親要素のサイズまたはウィンドウ基準をベースに f32 (物理ピクセル) へ解決します。
+    #[inline]
+    pub(crate) fn resolve_val_to_px(&self, id: EntityId, val: Val, is_width: bool) -> Option<f32> {
+        OutputStore::resolve_val_to_px(
+            id,
+            val,
+            is_width,
+            &self.topology,
+            &self.outputs,
+            &self.window,
+        )
+    }
+
+    #[inline]
+    pub(crate) fn calculate_caret_rect(
+        &self,
+        rect: LayoutRect,
+        border: EdgeInsets,
+        padding: EdgeInsets,
+        contents: &InputContents,
+        scale: f32,
+        scroll: LayoutPoint,
+    ) -> LayoutRect {
+        OutputStore::calculate_caret_rect(rect, border, padding, contents, scale, scroll)
+    }
+
+    /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
+    #[inline]
+    pub(crate) fn is_drag_autoscroll_active(&self) -> bool {
+        OutputStore::is_drag_autoscroll_active(&self.events, &self.outputs, &self.renders)
+    }
+
+    /// 現在の選択範囲（text_selections）に基づき、
+    /// 描画用の物理選択矩形（selected_rects）を自動再計算して SoA キャッシュを更新します。
+    #[inline]
+    pub(crate) fn update_selection_rects(&mut self, id: EntityId) {
+        if let Some(range) = self.outputs.text_selections.get(id).cloned()
+            && range.start < range.end
+            && let Some(layout) = self.get_or_create_layout(id)
+        {
+            let rects = OutputStore::calc_selection_rects(id, layout, range, &mut self.outputs);
+            self.outputs.selected_rects.insert(id, rects);
+            return;
+        }
+        // 範囲が 0、または選択なしの時は自動クリーンアップ
+        self.outputs.selected_rects.remove(id);
+    }
+
+    /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
+    #[inline]
+    pub fn get_selected_text(&self) -> Option<String> {
+        OutputStore::get_selected_text(&self.events, &self.renders, &self.outputs, &self.contents)
+    }
+
+    /// 現在のスクロール位置から相対移動します。
+    pub fn scroll_by(&mut self, id: EntityId, dx: f32, dy: f32) -> bool {
+        let current = self
+            .outputs
+            .scroll_offsets
+            .get(id)
+            .copied()
+            .unwrap_or(LayoutPoint::ZERO);
+        self.scroll_to(id, current.x + dx, current.y + dy)
+    }
+
+    pub(crate) fn sync_scrollbar_drag(&mut self, logical_pos: LayoutPoint) {
+        let mut scrollbar_dragged = false;
+        let mut active_drag_target: Option<(EntityId, bool, bool)> = None;
+
+        for (id, state) in self.layouts.scrollbar_styles.iter() {
+            if state.v_thumb_dragged {
+                active_drag_target = Some((id, true, false));
+                break;
+            } else if state.h_thumb_dragged {
+                active_drag_target = Some((id, false, true));
+                break;
+            }
+        }
+
+        if let Some((current_id, is_vertical, is_horiazon)) = active_drag_target {
+            let (sb_state, container_rect, scroll_size) = {
+                let sb_state = self
+                    .layouts
+                    .scrollbar_styles
+                    .get(current_id)
+                    .cloned()
+                    .unwrap();
+                let container_rect = self
+                    .outputs
+                    .rects
+                    .get(current_id)
+                    .copied()
+                    .unwrap_or(LayoutRect::ZERO);
+                let scroll_size = self.get_scroll_size(current_id);
+                (sb_state, container_rect, scroll_size)
+            };
+
+            let visible_size = self.calculate_visible_size(container_rect);
+
+            if is_vertical {
+                let track_id = sb_state.v_track_id.unwrap();
+                let thumb_id = sb_state.v_thumb_id.unwrap();
+                let track_rect = self.outputs.rects[track_id];
+                let thumb_rect = self.outputs.rects[thumb_id];
+
+                // サムのマージンを差し引く
+                let mut margin_top = 0.0;
+                let mut margin_bottom = 0.0;
+                if let Some(ref thumb_style) = sb_state.style.v_thumb {
+                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.top {
+                        margin_top = val;
+                    }
+                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.bottom {
+                        margin_bottom = val;
+                    }
+                }
+
+                // 同期処理と同じく、マージンを含めた実際の有効可動域を正確に計算
+                let track_range =
+                    track_rect.height - thumb_rect.height - margin_top - margin_bottom;
+                if track_range > 0.0 {
+                    let dy = logical_pos.y - sb_state.drag_start_mouse.y;
+                    let max_scroll_y = scroll_size.height - visible_size.height;
+
+                    if max_scroll_y > 0.0 {
+                        let ratio = max_scroll_y / track_range;
+                        let target_scroll_y = sb_state.drag_start_offset.y + dy * ratio;
+
+                        let current_x = self
+                            .outputs
+                            .scroll_offsets
+                            .get(current_id)
+                            .map(|o| o.x)
+                            .unwrap_or(0.0);
+                        self.scroll_to(current_id, current_x, target_scroll_y);
+                    }
+                }
+            } else if is_horiazon {
+                let track_id = sb_state.h_track_id.unwrap();
+                let thumb_id = sb_state.h_thumb_id.unwrap();
+                let track_rect = self.outputs.rects[track_id];
+                let thumb_rect = self.outputs.rects[thumb_id];
+
+                let mut margin_left = 0.0;
+                let mut margin_right = 0.0;
+                if let Some(ref thumb_style) = sb_state.style.h_thumb {
+                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.left {
+                        margin_left = val;
+                    }
+                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.right {
+                        margin_right = val;
+                    }
+                }
+
+                let track_range = track_rect.width - thumb_rect.width - margin_left - margin_right;
+                if track_range > 0.0 {
+                    let dx = logical_pos.x - sb_state.drag_start_mouse.x;
+                    let max_scroll_x = scroll_size.width - visible_size.width;
+
+                    if max_scroll_x > 0.0 {
+                        let ratio = max_scroll_x / track_range;
+                        let target_scroll_x = sb_state.drag_start_offset.x + dx * ratio;
+
+                        let current_y = self
+                            .outputs
+                            .scroll_offsets
+                            .get(current_id)
+                            .map(|o| o.y)
+                            .unwrap_or(0.0);
+                        self.scroll_to(current_id, target_scroll_x, current_y);
+                    }
+                }
+            }
+
+            self.mark_render_dirty(current_id);
+            scrollbar_dragged = true;
+        }
+    }
+
+    /// 指定された要素の子要素全体のスクロール領域を親ローカル座標系で算出します。
+    pub fn get_scroll_size(&self, id: EntityId) -> LayoutSize {
+        let mut max_x = 0.0f32;
+        let mut max_y = 0.0f32;
+
+        // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
+        if self.topology.active_masks[id].has(COMP_INPUT_CONTENT)
+            && let Some(contents) = self.contents.input_contents.get(id)
+            && let Some(layout_rect) = contents.last_layout
+        {
+            max_x = layout_rect.width + contents.caret_width.unwrap_or(1.5);
+            max_y = layout_rect.height;
+        } else if self.topology.active_masks[id].has(COMP_TEXT_CONTENT)
+            && let Some(layout) = self.get_or_create_layout(id)
+        {
+            let size = self.system.text_engine.get_layout_size(&layout);
+            max_x = size.width;
+            max_y = size.height;
+        }
+
+        // 親要素自体のボーダー・パディング厚を取得
+        let (basic, _, _) = self.resolve_active_layouts(id);
+        let border = self.get_physical_border(id, &basic);
+        let padding = self.get_physical_padding(id, &basic);
+
+        let offset_x = border.left + padding.left;
+        let offset_y = border.top + padding.top;
+
+        // スクロールバー要素のIDを取得して除外対象にする
+        let (v_track_opt, h_track_opt) =
+            if let Some(sb_state) = self.layouts.scrollbar_styles.get(id) {
+                (sb_state.v_track_id, sb_state.h_track_id)
+            } else {
+                (None, None)
+            };
+
+        if let Some(children_list) = self.topology.children.get(id) {
+            for &child_id in children_list {
+                // スクロールバーのトラックはサイズ計算から除外
+                if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
+                    continue;
+                }
+
+                // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
+                let is_absolute = self
+                    .layouts
+                    .basic_layouts
+                    .get(child_id)
+                    .map(|l| l.position == Position::Absolute)
+                    .unwrap_or(false);
+                if is_absolute {
+                    continue;
+                }
+
+                if let Some(&rect) = self.outputs.rects.get(child_id) {
+                    let parent_rect = self
+                        .outputs
+                        .rects
+                        .get(id)
+                        .copied()
+                        .unwrap_or(LayoutRect::ZERO);
+                    let scroll_offset = self
+                        .outputs
+                        .scroll_offsets
+                        .get(id)
+                        .copied()
+                        .unwrap_or(LayoutPoint::ZERO);
+
+                    // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
+                    let local_right =
+                        rect.x - parent_rect.x + scroll_offset.x + rect.width - offset_x;
+                    let local_bottom =
+                        rect.y - parent_rect.y + scroll_offset.y + rect.height - offset_y;
+
+                    max_x = max_x.max(local_right);
+                    max_y = max_y.max(local_bottom);
+                }
+            }
+        }
+
+        LayoutSize::new(max_x, max_y)
+    }
+
+    /// スクロールオフセットを目標位置へクランプした上で代入。
+    /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
+    pub fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
+        let rect = match self.outputs.rects.get(id).copied() {
+            Some(r) => r,
+            None => return false,
+        };
+
+        let scroll_size = self.get_scroll_size(id);
+
+        // 親コンテナのボーダーおよびパディング厚を取得
+        let (basic, _, _) = self.resolve_active_layouts(id);
+        let border = self.get_physical_border(id, &basic);
+        let padding = self.get_physical_padding(id, &basic);
+
+        let visible_size = self.calculate_visible_size(rect);
+        let content_size = self.calculate_inner_content_size(visible_size, border, padding);
+
+        // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
+        let max_scroll_x = (scroll_size.width - content_size.width).max(0.0);
+        let max_scroll_y = (scroll_size.height - content_size.height).max(0.0);
+
+        x = x.clamp(0.0, max_scroll_x);
+        y = y.clamp(0.0, max_scroll_y);
+
+        // スロットが存在しない場合はあらかじめ挿入して初期化
+        if !self.outputs.scroll_offsets.contains_key(id) {
+            self.outputs.scroll_offsets.insert(id, LayoutPoint::ZERO);
+        }
+
+        let current = self.outputs.scroll_offsets.get_mut(id).unwrap();
+        if (current.x - x).abs() > 0.01 || (current.y - y).abs() > 0.01 {
+            current.x = x;
+            current.y = y;
+
+            // スクロールバー状態の最終スクロール時刻を更新
+            if let Some(sb_state) = self.layouts.scrollbar_styles.get_mut(id) {
+                sb_state.last_scroll_time = Some(Instant::now());
+            }
+
+            // オフセット変化に伴い、子孫全体の絶対座標を再同期させる
+            self.mark_layout_dirty(id);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
+    /// 階層的な早期枝刈りヒットテスト
+    pub fn hit_test(&self, point: LayoutPoint) -> Option<EntityId> {
+        // 各要素の実効 z_index を、親から子へカスケードして算出
+        let mut effective_z_indices =
+            SecondaryMap::with_capacity(self.topology.active_entities.len());
+        for &id in &self.layouts.flat_dfs_sequence {
+            let self_z = self
+                .renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.z_index);
+
+            let parent_z = self
+                .topology
+                .parents
+                .get(id)
+                .copied()
+                .flatten()
+                .and_then(|pid| effective_z_indices.get(pid).copied());
+
+            let eff_z = self_z.or(parent_z).unwrap_or(0);
+            effective_z_indices.insert(id, eff_z);
+        }
+
+        // 実効 z_index に基づいて active_entities を安定ソート
+        let mut sorted_entities = self.topology.active_entities.clone();
+        sorted_entities.sort_by_key(|&id| effective_z_indices.get(id).copied().unwrap_or(0));
+
+        for &id in sorted_entities.iter().rev() {
+            // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
+            if Some(id) == self.events.interaction_states.dragged
+                || self.topology.active_masks[id].has(STATE_DRAG_OVER)
+            {
+                continue;
+            }
+
+            // 親などの overflow 等でクリップされている表示範囲外ならスキップ
+            if let Some(clip) = self.outputs.clip_rects.get(id)
+                && !clip.contains(point)
+            {
+                continue;
+            }
+
+            // pointer-events 設定の解決
+            let pointer_events = self
+                .renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.pointer_events)
+                .or_else(|| {
+                    self.renders
+                        .base_visual_properties
+                        .get(id)
+                        .and_then(|v| v.pointer_events)
+                })
+                .unwrap_or(PointerEvents::Auto);
+
+            if pointer_events == PointerEvents::None {
+                continue; // 透過設定
+            }
+
+            // 物理範囲にヒットしたかを検証
+            if let Some(rect) = self.outputs.rects.get(id)
+                && rect.contains(point)
+            {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    /// 階層的な境界判定ヘルパー（非対象のブランチをまるごとスキップ）
+    pub(crate) fn hit_test_recursive(&self, id: EntityId, point: LayoutPoint) -> Option<EntityId> {
+        // 1. 親などの overflow: hidden 等でクリップされている表示範囲をチェック
+        // クリップ領域外であれば、この要素もそのすべての子孫要素も画面上に見えていないため、走査を即座にスキップ（枝刈り）
+        if let Some(clip) = self.outputs.clip_rects.get(id)
+            && !clip.contains(point)
+        {
+            return None;
+        }
+
+        // 2. 子要素を逆順（前面優先）で再帰降下
+        if let Some(children) = self.topology.children.get(id) {
+            let child_len = children.len();
+            for i in (0..child_len).rev() {
+                let child_id = children[i];
+                if let Some(hit) = self.hit_test_recursive(child_id, point) {
+                    return Some(hit);
+                }
+            }
+        }
+
+        // pointer_events: none の場合は、自分自身の矩形判定のみをスルーする (子要素は上を辿れるため除外しない)
+        // visual_properties (動的) に無ければ base_visual_properties (静的) を見に行く
+        let pointer_events = self
+            .renders
+            .visual_properties
+            .get(id)
+            .and_then(|v| v.pointer_events)
+            .or_else(|| {
+                self.renders
+                    .base_visual_properties
+                    .get(id)
+                    .and_then(|v| v.pointer_events)
+            })
+            .unwrap_or(PointerEvents::Auto);
+
+        if pointer_events != PointerEvents::None
+            && let Some(rect) = self.outputs.rects.get(id)
+            && rect.contains(point)
+        {
+            return Some(id);
+        }
+
+        None
     }
 }

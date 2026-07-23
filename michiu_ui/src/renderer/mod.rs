@@ -48,6 +48,33 @@ pub struct QuadInstance {
     pub(crate) outline_offset_and_flags: [f32; 4], // 16B. offset: 288 (flags: [offset, flags, 0.0, 0.0])
 }
 
+impl Default for QuadInstance {
+    fn default() -> Self {
+        Self {
+            rect: LayoutRect::ZERO,
+            transform: [[0.0; 4]; 3],
+            transform_origin: [0.5, 0.5],
+            color: Color::TRANSPARENT,
+            corner_radius: CornerRadius::ZERO,
+            border_width: EdgeInsets::ZERO,
+            border_color: Color::TRANSPARENT,
+            opacity_mode_sizing: [1.0, 0.0, 0.0, 0.0],
+            uv_min: [0.0; 2],
+            uv_max: [0.0; 2],
+            gradient_end_color: Color::TRANSPARENT,
+            gradient_angle: 0.0,
+            _padding: 0.0,
+            shadow_color: Color::TRANSPARENT,
+            shadow_params: [0.0; 4],
+            border_lengths: EdgeInsets::ZERO,
+            outline_width: EdgeInsets::ZERO,
+            outline_color: Color::TRANSPARENT,
+            outline_lengths: EdgeInsets::ZERO,
+            outline_offset_and_flags: [0.0; 4],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BatchType {
     Normal,

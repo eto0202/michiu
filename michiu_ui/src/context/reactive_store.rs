@@ -275,3 +275,86 @@ impl ReactiveStore {
         )
     }
 }
+
+impl Context {
+    /// Context インスタンスから直接シグナルを生成します。
+    /// これにより build_ui の外側（メインスレッド上）でもシグナルを定義できます。
+    #[inline]
+    pub fn create_signal<T: Send + 'static>(
+        &mut self,
+        initial_value: T,
+    ) -> (ReadSignal<T>, WriteSignal<T>) {
+        ReactiveStore::create_signal(initial_value, &mut self.reactive)
+    }
+
+    /// 要素の階層トポロジーを親（Ancestor）に向かって遡り、最初に見つかった型 T の ReadSignal を解決して返します
+    #[inline]
+    pub(crate) fn use_provided_from<T: Clone + 'static>(
+        &self,
+        id: EntityId,
+    ) -> Option<ReadSignal<T>> {
+        ReactiveStore::use_provided_from(id, &self.reactive, &self.topology)
+    }
+
+    /// 現在のスレッドローカルコンテキスト（アクティブなエフェクト、またはイベントハンドラ）から、
+    /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の ReadSignal を解決します。
+    #[inline]
+    pub fn use_provided<T: Clone + 'static>(&self) -> ReadSignal<T> {
+        // ACTIVE_EFFECT（エフェクト実行中）から解決を試みる
+        let element_id = ReactiveStore::resolve_element_effect(&self.reactive);
+
+        // 親ツリーを遡って解決
+        ReactiveStore::use_provided_from::<T>(element_id, &self.reactive, &self.topology)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
+                        std::any::type_name::<T>()
+                    )
+                })
+    }
+
+    /// 現在のスレッドローカルコンテキストから、
+    /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+    #[inline]
+    pub fn use_provided_setter<T: Send + 'static>(&self) -> WriteSignal<T> {
+        ReactiveStore::use_provided_setter(&self.reactive, &self.topology)
+    }
+
+    /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録します。
+    /// 同一カテゴリのエフェクトが既に存在する場合、自動的に古いエフェクトを破棄してから上書きします。
+    #[inline]
+    pub(crate) fn register_element_effect(
+        &mut self,
+        element_id: EntityId,
+        category: EffectCategory,
+        effect_id: EffectId,
+    ) {
+        ReactiveStore::register_element_effect(element_id, &mut self.reactive, category, effect_id);
+    }
+
+    /// 要素に動的エフェクト（Style、Text等のリアクティブクロージャ）を安全に登録し、初期評価を実行します。
+    #[inline]
+    pub(crate) fn create_element_effect<F>(
+        &mut self,
+        element_id: EntityId,
+        category: EffectCategory,
+        f: F,
+    ) -> EffectId
+    where
+        F: FnMut(&mut Context) + 'static,
+    {
+        ReactiveStore::create_element_effect(element_id, &mut self.reactive, category, f)
+    }
+
+    /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に安全実行します
+    #[inline]
+    pub(crate) fn evaluate_pending_element_effects(&mut self) {
+        ReactiveStore::evaluate_pending_element_effects(&mut self.reactive);
+    }
+
+    /// 指定された要素に対してシグナルコンテキストを提供します
+    #[inline]
+    pub(crate) fn provide_context<T: Send + 'static>(&mut self, id: EntityId, signal_id: SignalId) {
+        ReactiveStore::provide_context::<T>(id, &mut self.reactive, signal_id);
+    }
+}

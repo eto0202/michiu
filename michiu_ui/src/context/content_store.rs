@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
@@ -51,6 +53,30 @@ impl ContentStore {
 }
 
 impl ContentStore {
+    /// キャレットの点滅と描画を行うかを判定します
+    pub(crate) fn should_show_caret(contents: &InputContents) -> bool {
+        let now_instant = Instant::now();
+        if let Some(last) = contents.last_interacted_time
+            && now_instant.duration_since(last) < Duration::from_millis(300)
+        {
+            return true; // キー入力や移動の操作から 300ms 未満のときは常時表示
+        }
+
+        if contents.is_blink {
+            let freq = contents
+                .blink_frequency
+                .unwrap_or(Duration::from_millis(530))
+                .as_millis();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            (now / freq).is_multiple_of(2)
+        } else {
+            contents.has_caret
+        }
+    }
+
     /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
     pub(crate) fn measure_content(
         id: EntityId,
@@ -130,5 +156,30 @@ impl ContentStore {
             width: known_dims.width.unwrap_or(0.0),
             height: known_dims.height.unwrap_or(0.0),
         }
+    }
+}
+
+impl Context {
+    #[inline]
+    pub(crate) fn should_show_caret(&self, contents: &InputContents) -> bool {
+        ContentStore::should_show_caret(contents)
+    }
+    
+    /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
+    #[inline]
+    pub(crate) fn measure_content(
+        &mut self,
+        id: EntityId,
+        visual_properties: &SecondaryMap<EntityId, VisualProperty>,
+        known_dims: taffy::Size<Option<f32>>,
+    ) -> taffy::Size<f32> {
+        ContentStore::measure_content(
+            id,
+            &mut self.contents,
+            &self.topology.active_masks,
+            visual_properties,
+            &self.system.text_engine,
+            known_dims,
+        )
     }
 }
