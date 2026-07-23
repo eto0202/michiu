@@ -78,6 +78,43 @@ impl SystemStore {
 }
 
 impl SystemStore {
+    /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
+    pub(crate) fn create_text_layout(
+        id: EntityId,
+        system: &SystemStore,
+        contents: &ContentStore,
+        renders: &RenderStore,
+    ) -> Option<IDWriteTextLayout> {
+        let text = contents.text_contents.get(id)?;
+        let default_visual = VisualProperty::default();
+        let visual = renders.visual_properties.get(id).unwrap_or(&default_visual);
+        let font_size = visual.font_size.unwrap_or(16.0);
+        let font_family = visual.font_family.as_deref();
+        let font_weight = visual.font_weight;
+        let font_style = visual.font_style;
+
+        let spans = contents
+            .text_spans
+            .get(id)
+            .map(|s| s.as_slice())
+            .unwrap_or(&[]);
+
+        let layout = system.text_engine.create_layout(
+            text,
+            font_size,
+            font_family,
+            font_weight,
+            font_style,
+            None,
+            spans,
+        );
+
+        system
+            .dwrite_layouts
+            .borrow_mut()
+            .insert(id, layout.clone());
+        Some(layout)
+    }
     // クリップボード API による UTF-16 読み書きヘルパー
     fn win32_set_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> {
         let text_u16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();

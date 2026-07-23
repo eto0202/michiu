@@ -1,6 +1,10 @@
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
-use std::{collections::HashSet, sync::Arc, time::{Duration, Instant}};
+use std::{
+    collections::HashSet,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 /// CPU 側で現在再生中の動的なキーフレームアニメーションの状態
 #[derive(Debug, Clone)]
@@ -77,6 +81,16 @@ impl RenderStore {
 }
 
 impl RenderStore {
+    /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
+    pub fn clear_render_dirty(renders: &mut RenderStore, topology: &mut TopologyStore) {
+        for id in renders.dirty_render_entities.drain(..) {
+            if let Some(mask) = topology.active_masks.get_mut(id) {
+                mask.unset(STATE_QUEUED_RENDER);
+            }
+        }
+        renders.dirty_render_entities.clear();
+    }
+
     pub(crate) fn get_basic_layout_mut(
         id: EntityId,
         renders: &mut RenderStore,
@@ -204,6 +218,52 @@ impl RenderStore {
         }
     }
 
+    /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
+    pub fn has_active_animations(
+        renders: &RenderStore,
+        events: &EventStore,
+        layouts: &LayoutStore,
+        contents: &ContentStore,
+        has_drag_autoscroll: bool,
+    ) -> bool {
+        // トランジション（CSS transition）のアクティブ判定
+        let has_transitions = !renders.active_transitions.is_empty()
+            && renders
+                .active_transitions
+                .values()
+                .any(|list| !list.is_empty());
+
+        // キーフレームアニメーション（CSS animation）のアクティブ判定
+        let has_keyframes = !renders.active_animations.is_empty()
+            && renders
+                .active_animations
+                .values()
+                .any(|list| !list.is_empty());
+
+        // 3フォーカスされたインプットがあり、キャレット点滅が有効な間は描画ループを駆動
+        let has_blinking_input = events
+            .interaction_states
+            .focused
+            .and_then(|id| contents.input_contents.get(id))
+            .map(|c| c.has_caret && c.is_blink)
+            .unwrap_or(false);
+
+        // 一時的表示スクロールバーのフェード進行中は描画更新ループを継続
+        let has_active_transient_scrollbar = layouts.scrollbar_styles.values().any(|sb_state| {
+            sb_state.style.display == ScrollbarDisplay::Transient
+                && sb_state
+                    .last_scroll_time
+                    .map(|t| t.elapsed() < Duration::from_millis(1500))
+                    .unwrap_or(false)
+        });
+
+        has_transitions
+            || has_keyframes
+            || has_blinking_input
+            || has_active_transient_scrollbar
+            || has_drag_autoscroll
+    }
+
     /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
     /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
     pub(crate) fn does_state_require_layout(
@@ -279,275 +339,40 @@ impl RenderStore {
         }
     }
 
-    pub(crate) fn cascade_interaction(
+    pub(crate) fn cascade_interaction_flag<'a>(
         id: EntityId,
         renders: &RenderStore,
-        active_mask: ComponentMask,
-        target: &mut TargetStyle,
-        focus_style_resolved: Option<ThisStyle>,
-    ) {
-        if let Some(interaction) = renders.interaction_properties.get(id) {
-            let cascade = [
-                (STATE_FOCUSED, &focus_style_resolved),
-                (STATE_SELECTED, &interaction.selected),
-                (STATE_ACTIVED, &interaction.actived),
-                (STATE_HOVERED, &interaction.hovered),
-                (STATE_PRESSED, &interaction.pressed),
-                (STATE_DISABLED, &interaction.disabled),
-                (STATE_DRAGGED, &interaction.dragged),
-                (STATE_DRAGGING, &interaction.dragging),
-                (STATE_DRAG_IN, &interaction.drag_in),
-                (STATE_DRAG_OVER, &interaction.drag_over),
-            ];
-
-            for (state, style_opt) in cascade {
-                if active_mask.has(state)
-                    && let Some(style) = style_opt
-                {
-                    let inner_vis = &style.inner.visual_property;
-                    let inner_mask = style.inner.mask;
-
-                    if inner_mask.has(STYLE_BG_COLOR) {
-                        target.bg_color = inner_vis.bg_color;
-                    }
-                    if inner_mask.has(STYLE_BORDER_COLOR) {
-                        target.border_color = inner_vis.border_color;
-                    }
-                    if inner_mask.has(STYLE_OPACITY) {
-                        target.opacity = inner_vis.opacity;
-                    }
-                    if inner_mask.has(STYLE_TRANSFORM) {
-                        target.transform = inner_vis.transform;
-                    }
-                    if inner_mask.has(STYLE_CORNER_RADIUS) {
-                        target.corner_radius = inner_vis.corner_radius;
-                    }
-                    if inner_mask.has(STYLE_POINTER_EVENTS) {
-                        target.pointer_events = inner_vis.pointer_events;
-                    }
-                    if inner_mask.has(STYLE_BOX_SHADOW) {
-                        if inner_vis.shadow_params.is_some() {
-                            target.shadow_params = inner_vis.shadow_params;
-                        }
-                        if inner_vis.shadow_color.is_some() {
-                            target.shadow_color = inner_vis.shadow_color;
-                        }
-                    }
-                    if inner_mask.has(STYLE_TEXT_COLOR) {
-                        target.text_color = inner_vis.text_color;
-                    }
-                    if inner_mask.has(STYLE_USER_SELECT) {
-                        if inner_vis.select_bg_color.is_some() {
-                            target.select_bg_color = inner_vis.select_bg_color;
-                        }
-                        if inner_vis.select_text_color.is_some() {
-                            target.select_text_color = inner_vis.select_text_color;
-                        }
-                    }
-                    if inner_mask.has(STYLE_BORDER) {
-                        if inner_vis.border_lengths.is_some() {
-                            target.border_lengths = inner_vis.border_lengths;
-                        }
-                        if inner_vis.border_styles.is_some() {
-                            target.border_styles = inner_vis.border_styles;
-                        }
-                        if inner_vis.border_alignments.is_some() {
-                            target.border_alignments = inner_vis.border_alignments;
-                        }
-                    }
-                    if inner_mask.has(STYLE_OUTLINE) {
-                        if inner_vis.outline_width.is_some() {
-                            target.outline_width = inner_vis.outline_width;
-                        }
-                        if inner_vis.outline_color.is_some() {
-                            target.outline_color = inner_vis.outline_color;
-                        }
-                        if inner_vis.outline_lengths.is_some() {
-                            target.outline_lengths = inner_vis.outline_lengths;
-                        }
-                        if inner_vis.outline_styles.is_some() {
-                            target.outline_styles = inner_vis.outline_styles;
-                        }
-                        if inner_vis.outline_alignments.is_some() {
-                            target.outline_alignments = inner_vis.outline_alignments;
-                        }
-                        if inner_vis.outline_offset.is_some() {
-                            target.outline_offset = inner_vis.outline_offset;
-                        }
-                    }
-                    if inner_mask.has(STYLE_CURSOR) {
-                        target.cursor = inner_vis.cursor;
-                    }
-                    if inner_mask.has(STYLE_RESIZABLE) {
-                        target.resizable_cursor = inner_vis.resizable_cursor;
-                    }
-                }
-            }
-        }
+        interaction: &'a InteractionStyles,
+        focus_style_resolved: &'a Option<ThisStyle>,
+    ) -> [(u128, &'a Option<ThisStyle>); 10] {
+        [
+            (STATE_FOCUSED, focus_style_resolved),
+            (STATE_SELECTED, &interaction.selected),
+            (STATE_ACTIVED, &interaction.actived),
+            (STATE_HOVERED, &interaction.hovered),
+            (STATE_PRESSED, &interaction.pressed),
+            (STATE_DISABLED, &interaction.disabled),
+            (STATE_DRAGGED, &interaction.dragged),
+            (STATE_DRAGGING, &interaction.dragging),
+            (STATE_DRAG_IN, &interaction.drag_in),
+            (STATE_DRAG_OVER, &interaction.drag_over),
+        ]
     }
 
-    pub(crate) fn cascade_within_interaction(
+    pub(crate) fn cascade_within_interaction_flag(
         id: EntityId,
-        topology: &TopologyStore,
-        renders: &RenderStore,
-        active_mask: ComponentMask,
-        target: &mut TargetStyle,
-    ) {
-        if active_mask.has(STYLE_INTERACTION_WITHIN)
-            && let Some(interaction) = renders.interaction_properties.get(id)
-        {
-            // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
-            let cascade_within = [
-                (STATE_FOCUSED, &interaction.focused_within),
-                (STATE_SELECTED, &interaction.selected_within),
-                (STATE_ACTIVED, &interaction.actived_within),
-                (STATE_HOVERED, &interaction.hovered_within),
-                (STATE_PRESSED, &interaction.pressed_within),
-                (STATE_DISABLED, &interaction.disabled_within),
-                (STATE_DRAGGING, &interaction.dragged_within),
-                (STATE_DRAG_IN, &interaction.hovered_within),
-            ];
-
-            for (state, style_opt) in cascade_within {
-                // 子孫要素のいずれかがこの state_flag を満たしているか
-                if TopologyStore::has_descendant_with_state(id, topology, state)
-                    && let Some(style) = style_opt
-                {
-                    let inner_vis = &style.inner.visual_property;
-                    let inner_mask = style.inner.mask;
-
-                    if inner_mask.has(STYLE_BG_COLOR) {
-                        target.bg_color = inner_vis.bg_color;
-                    }
-                    if inner_mask.has(STYLE_BORDER_COLOR) {
-                        target.border_color = inner_vis.border_color;
-                    }
-                    if inner_mask.has(STYLE_OPACITY) {
-                        target.opacity = inner_vis.opacity;
-                    }
-                    if inner_mask.has(STYLE_TRANSFORM) {
-                        target.transform = inner_vis.transform;
-                    }
-                    if inner_mask.has(STYLE_CORNER_RADIUS) {
-                        target.corner_radius = inner_vis.corner_radius;
-                    }
-                    if inner_mask.has(STYLE_POINTER_EVENTS) {
-                        target.pointer_events = inner_vis.pointer_events;
-                    }
-                    if inner_mask.has(STYLE_BOX_SHADOW) {
-                        if inner_vis.shadow_params.is_some() {
-                            target.shadow_params = inner_vis.shadow_params;
-                        }
-                        if inner_vis.shadow_color.is_some() {
-                            target.shadow_color = inner_vis.shadow_color;
-                        }
-                    }
-                    if inner_mask.has(STYLE_TEXT_COLOR) {
-                        target.text_color = inner_vis.text_color;
-                    }
-                    if inner_mask.has(STYLE_BORDER) {
-                        if inner_vis.border_lengths.is_some() {
-                            target.border_lengths = inner_vis.border_lengths;
-                        }
-                        if inner_vis.border_styles.is_some() {
-                            target.border_styles = inner_vis.border_styles;
-                        }
-                        if inner_vis.border_alignments.is_some() {
-                            target.border_alignments = inner_vis.border_alignments;
-                        }
-                    }
-                    if inner_mask.has(STYLE_OUTLINE) {
-                        if inner_vis.outline_width.is_some() {
-                            target.outline_width = inner_vis.outline_width;
-                        }
-                        if inner_vis.outline_color.is_some() {
-                            target.outline_color = inner_vis.outline_color;
-                        }
-                        if inner_vis.outline_lengths.is_some() {
-                            target.outline_lengths = inner_vis.outline_lengths;
-                        }
-                        if inner_vis.outline_styles.is_some() {
-                            target.outline_styles = inner_vis.outline_styles;
-                        }
-                        if inner_vis.outline_alignments.is_some() {
-                            target.outline_alignments = inner_vis.outline_alignments;
-                        }
-                        if inner_vis.outline_offset.is_some() {
-                            target.outline_offset = inner_vis.outline_offset;
-                        }
-                    }
-                }
-            }
-
-            // All（いずれかのインタラクションがあればON）の解決
-            if let Some(ref style) = interaction.any_within
-                && TopologyStore::has_descendant_with_any_active_state(id, topology)
-            {
-                let inner_vis = &style.inner.visual_property;
-                let inner_mask = style.inner.mask;
-
-                if inner_mask.has(STYLE_BG_COLOR) {
-                    target.bg_color = inner_vis.bg_color;
-                }
-                if inner_mask.has(STYLE_BORDER_COLOR) {
-                    target.border_color = inner_vis.border_color;
-                }
-                if inner_mask.has(STYLE_OPACITY) {
-                    target.opacity = inner_vis.opacity;
-                }
-                if inner_mask.has(STYLE_TRANSFORM) {
-                    target.transform = inner_vis.transform;
-                }
-                if inner_mask.has(STYLE_CORNER_RADIUS) {
-                    target.corner_radius = inner_vis.corner_radius;
-                }
-                if inner_mask.has(STYLE_POINTER_EVENTS) {
-                    target.pointer_events = inner_vis.pointer_events;
-                }
-                if inner_mask.has(STYLE_BOX_SHADOW) {
-                    if inner_vis.shadow_params.is_some() {
-                        target.shadow_params = inner_vis.shadow_params;
-                    }
-                    if inner_vis.shadow_color.is_some() {
-                        target.shadow_color = inner_vis.shadow_color;
-                    }
-                }
-                if inner_mask.has(STYLE_TEXT_COLOR) {
-                    target.text_color = inner_vis.text_color;
-                }
-                if inner_mask.has(STYLE_BORDER) {
-                    if inner_vis.border_lengths.is_some() {
-                        target.border_lengths = inner_vis.border_lengths;
-                    }
-                    if inner_vis.border_styles.is_some() {
-                        target.border_styles = inner_vis.border_styles;
-                    }
-                    if inner_vis.border_alignments.is_some() {
-                        target.border_alignments = inner_vis.border_alignments;
-                    }
-                }
-                if inner_mask.has(STYLE_OUTLINE) {
-                    if inner_vis.outline_width.is_some() {
-                        target.outline_width = inner_vis.outline_width;
-                    }
-                    if inner_vis.outline_color.is_some() {
-                        target.outline_color = inner_vis.outline_color;
-                    }
-                    if inner_vis.outline_lengths.is_some() {
-                        target.outline_lengths = inner_vis.outline_lengths;
-                    }
-                    if inner_vis.outline_styles.is_some() {
-                        target.outline_styles = inner_vis.outline_styles;
-                    }
-                    if inner_vis.outline_alignments.is_some() {
-                        target.outline_alignments = inner_vis.outline_alignments;
-                    }
-                    if inner_vis.outline_offset.is_some() {
-                        target.outline_offset = inner_vis.outline_offset;
-                    }
-                }
-            }
-        }
+        interaction: &InteractionStyles,
+    ) -> [(u128, &Option<ThisStyle>); 8] {
+        [
+            (STATE_FOCUSED, &interaction.focused_within),
+            (STATE_SELECTED, &interaction.selected_within),
+            (STATE_ACTIVED, &interaction.actived_within),
+            (STATE_HOVERED, &interaction.hovered_within),
+            (STATE_PRESSED, &interaction.pressed_within),
+            (STATE_DISABLED, &interaction.disabled_within),
+            (STATE_DRAGGING, &interaction.dragged_within),
+            (STATE_DRAG_IN, &interaction.hovered_within),
+        ]
     }
 
     pub(crate) fn cascade_basic_layout(
@@ -862,6 +687,90 @@ impl RenderStore {
             outline_styles,
             outline_alignments,
             outline_offset,
+        }
+    }
+}
+
+impl TargetStyle {
+    /// 指定された VisualProperty と ComponentMask を基に自身のスタイルをマージ。
+    pub(crate) fn apply_visual_property(
+        target: &mut TargetStyle,
+        inner_vis: &VisualProperty,
+        inner_mask: ComponentMask,
+    ) {
+        if inner_mask.has(STYLE_BG_COLOR) {
+            target.bg_color = inner_vis.bg_color;
+        }
+        if inner_mask.has(STYLE_BORDER_COLOR) {
+            target.border_color = inner_vis.border_color;
+        }
+        if inner_mask.has(STYLE_OPACITY) {
+            target.opacity = inner_vis.opacity;
+        }
+        if inner_mask.has(STYLE_TRANSFORM) {
+            target.transform = inner_vis.transform;
+        }
+        if inner_mask.has(STYLE_CORNER_RADIUS) {
+            target.corner_radius = inner_vis.corner_radius;
+        }
+        if inner_mask.has(STYLE_POINTER_EVENTS) {
+            target.pointer_events = inner_vis.pointer_events;
+        }
+        if inner_mask.has(STYLE_BOX_SHADOW) {
+            if inner_vis.shadow_params.is_some() {
+                target.shadow_params = inner_vis.shadow_params;
+            }
+            if inner_vis.shadow_color.is_some() {
+                target.shadow_color = inner_vis.shadow_color;
+            }
+        }
+        if inner_mask.has(STYLE_TEXT_COLOR) {
+            target.text_color = inner_vis.text_color;
+        }
+        if inner_mask.has(STYLE_USER_SELECT) {
+            if inner_vis.select_bg_color.is_some() {
+                target.select_bg_color = inner_vis.select_bg_color;
+            }
+            if inner_vis.select_text_color.is_some() {
+                target.select_text_color = inner_vis.select_text_color;
+            }
+        }
+        if inner_mask.has(STYLE_BORDER) {
+            if inner_vis.border_lengths.is_some() {
+                target.border_lengths = inner_vis.border_lengths;
+            }
+            if inner_vis.border_styles.is_some() {
+                target.border_styles = inner_vis.border_styles;
+            }
+            if inner_vis.border_alignments.is_some() {
+                target.border_alignments = inner_vis.border_alignments;
+            }
+        }
+        if inner_mask.has(STYLE_OUTLINE) {
+            if inner_vis.outline_width.is_some() {
+                target.outline_width = inner_vis.outline_width;
+            }
+            if inner_vis.outline_color.is_some() {
+                target.outline_color = inner_vis.outline_color;
+            }
+            if inner_vis.outline_lengths.is_some() {
+                target.outline_lengths = inner_vis.outline_lengths;
+            }
+            if inner_vis.outline_styles.is_some() {
+                target.outline_styles = inner_vis.outline_styles;
+            }
+            if inner_vis.outline_alignments.is_some() {
+                target.outline_alignments = inner_vis.outline_alignments;
+            }
+            if inner_vis.outline_offset.is_some() {
+                target.outline_offset = inner_vis.outline_offset;
+            }
+        }
+        if inner_mask.has(STYLE_CURSOR) {
+            target.cursor = inner_vis.cursor;
+        }
+        if inner_mask.has(STYLE_RESIZABLE) {
+            target.resizable_cursor = inner_vis.resizable_cursor;
         }
     }
 }

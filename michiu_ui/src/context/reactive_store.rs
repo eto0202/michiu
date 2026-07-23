@@ -1,7 +1,7 @@
 use crate::*;
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use smallvec::SmallVec;
-use std::collections::HashMap;
+use std::{collections::HashMap, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EffectCategory {
@@ -100,16 +100,9 @@ impl ReactiveStore {
         None
     }
 
-    /// 現在のスレッドローカルコンテキスト（アクティブなエフェクト、またはイベントハンドラ）から、
-    /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の ReadSignal を解決します。
-    pub fn use_provided<T: Clone + 'static>(
-        reactive: &ReactiveStore,
-        topology: &TopologyStore,
-    ) -> ReadSignal<T> {
+    pub(crate) fn resolve_element_effect(reactive: &ReactiveStore) -> EntityId {
         // 1. ACTIVE_EFFECT（エフェクト実行中）から解決を試みる
-        let element_id = if let Some(active_effect_id) =
-            crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
-        {
+        if let Some(active_effect_id) = crate::signal::ACTIVE_EFFECT.with(|cell| cell.get()) {
             reactive
                 .effect_to_element
                 .get(active_effect_id)
@@ -124,16 +117,7 @@ impl ReactiveStore {
             panic!(
                 "use_provided must be called inside a dynamic style, text, content closure, or an active event handler context"
             );
-        };
-
-        // 3. 親ツリーを遡って解決
-        ReactiveStore::use_provided_from::<T>(element_id, reactive, topology)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
-                        std::any::type_name::<T>()
-                    )
-                })
+        }
     }
 
     /// 現在のスレッドローカルコンテキストから、
@@ -268,5 +252,26 @@ impl ReactiveStore {
         }
         let map = reactive.providers.get_mut(id).unwrap();
         map.insert(std::any::TypeId::of::<T>(), signal_id);
+    }
+
+    /// Context インスタンスから直接シグナルを生成します。
+    /// これにより build_ui の外側（メインスレッド上）でもシグナルを定義できます。
+    #[inline]
+    pub fn create_signal<T: Send + 'static>(
+        initial_value: T,
+        reactive: &mut ReactiveStore,
+    ) -> (ReadSignal<T>, WriteSignal<T>) {
+        let id = reactive.signals.insert(Box::new(initial_value));
+        reactive.subscribers.insert(id, SmallVec::new());
+        (
+            ReadSignal {
+                id,
+                _marker: PhantomData,
+            },
+            WriteSignal {
+                id,
+                _marker: PhantomData,
+            },
+        )
     }
 }

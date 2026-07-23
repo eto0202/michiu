@@ -289,6 +289,23 @@ impl LayoutStore {
         }
     }
 
+    /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出します。
+    #[inline]
+    pub(crate) fn calculate_inner_content_size(
+        visible_size: LayoutSize,
+        border: EdgeInsets,
+        padding: EdgeInsets,
+    ) -> LayoutSize {
+        let content_w =
+            (visible_size.width - border.left - border.right - padding.left - padding.right)
+                .max(0.0);
+        let content_h =
+            (visible_size.height - border.top - border.bottom - padding.top - padding.bottom)
+                .max(0.0);
+
+        LayoutSize::new(content_w, content_h)
+    }
+
     #[inline]
     fn resolve_length_to_px(length: Length, reference: f32) -> f32 {
         match length {
@@ -455,5 +472,14 @@ impl LayoutStore {
                 }
             }
         }
+    }
+
+    pub fn clear_layout_dirty(layouts: &mut LayoutStore, topology: &mut TopologyStore) {
+        for id in layouts.dirty_layout_entities.drain(..) {
+            if let Some(mask) = topology.active_masks.get_mut(id) {
+                mask.unset(STATE_QUEUED_LAYOUT);
+            }
+        }
+        layouts.dirty_layout_entities.clear();
     }
 }

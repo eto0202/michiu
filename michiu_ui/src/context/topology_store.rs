@@ -242,33 +242,22 @@ impl TopologyStore {
         parent: EntityId,
         old_child: EntityId,
         new_child: EntityId,
-        cx: &mut Context,
+        layouts: &mut LayoutStore,
+        topology: &mut TopologyStore,
     ) {
         // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
-        // 修正: 古いノードの削除は、直後の despawn_internal が一貫して安全に行うため、
-        // ここでの手動 remove_child を撤廃し、Taffy 側への新規アタッチ（add_child）のみを行います。
-        if let Some(&parent_node) = cx.layouts.taffy_nodes.get(parent)
-            && let Some(&new_node) = cx.layouts.taffy_nodes.get(new_child)
+        if let Some(&parent_node) = layouts.taffy_nodes.get(parent)
+            && let Some(&new_node) = layouts.taffy_nodes.get(new_child)
         {
-            let _ = cx.layouts.taffy.add_child(parent_node, new_node);
+            let _ = layouts.taffy.add_child(parent_node, new_node);
         }
 
         // children リスト内のインデックス位置を特定して直接置換
-        if let Some(children_list) = cx.topology.children.get_mut(parent)
+        if let Some(children_list) = topology.children.get_mut(parent)
             && let Some(pos) = children_list.iter().position(|&x| x == old_child)
         {
             children_list[pos] = new_child;
         }
-
-        // 親子参照の更新
-        cx.topology.parents.insert(new_child, Some(parent));
-
-        // 古い子要素（およびその子孫）を完全に安全デスポーン
-        // この中で Taffy からの remove_child も安全に実行されます
-        TopologyStore::despawn_internal(old_child, cx);
-
-        TopologyStore::mark_layout_dirty(parent, &mut cx.topology, &mut cx.layouts);
-        cx.layouts.is_structure_dirty = true;
     }
 
     /// デスポーン済みの無効な EntityId を各走査・Dirty配列から一括して排除。
@@ -290,25 +279,13 @@ impl TopologyStore {
     }
 
     // セッションのクリーンアップを実行
-    pub(crate) fn end_session(cx: &mut Context, start_marker: usize) {
-        // start_marker 以降に生成された要素をスキャン
-        let spawned_in_session: Vec<EntityId> =
-            cx.topology.session_spawned.drain(start_marker..).collect();
+    pub(crate) fn no_root_no_parent(id: EntityId, topology: &TopologyStore) -> bool {
+        // 親が存在しない
+        let has_no_parent = topology.parents.get(id).copied().flatten().is_none();
+        // ルート要素としても登録されていない
+        let is_not_root = !topology.session_roots.contains(&id);
 
-        for id in spawned_in_session {
-            // 親が存在しない
-            let has_no_parent = cx.topology.parents.get(id).copied().flatten().is_none();
-            // ルート要素としても登録されていない
-            let is_not_root = !cx.topology.session_roots.contains(&id);
-
-            // 上記を満たす完全な孤児を自動で一掃
-            if has_no_parent && is_not_root {
-                TopologyStore::despawn_internal(id, cx);
-            }
-        }
-
-        // ルートリストをクリア
-        cx.topology.session_roots.clear();
+        has_no_parent && is_not_root
     }
 
     /// 子孫要素のインタラクション状態（state_flag）を走査します
@@ -414,5 +391,24 @@ impl TopologyStore {
         }
 
         insert_idx
+    }
+
+    /// 指定された要素（target）が、ある親要素（parent）自身、またはその子孫であるかを判定します。
+    pub(crate) fn is_descendant_of(
+        target: EntityId,
+        parent: EntityId,
+        topology: &TopologyStore,
+    ) -> bool {
+        if target == parent {
+            return true;
+        }
+        let mut curr = target;
+        while let Some(Some(p)) = topology.parents.get(curr) {
+            if *p == parent {
+                return true;
+            }
+            curr = *p;
+        }
+        false
     }
 }

@@ -131,7 +131,20 @@ impl Context {
     // セッションのクリーンアップを実行
     #[inline]
     pub(crate) fn end_session(&mut self, start_marker: usize) {
-        TopologyStore::end_session(self, start_marker);
+        // start_marker 以降に生成された要素をスキャン
+        let spawned_in_session: Vec<EntityId> = self
+            .topology
+            .session_spawned
+            .drain(start_marker..)
+            .collect();
+
+        for id in spawned_in_session {
+            if TopologyStore::no_root_no_parent(id, &self.topology) {
+                TopologyStore::despawn_internal(id, self);
+            }
+        }
+        // ルートリストをクリア
+        self.topology.session_roots.clear();
     }
 
     /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
@@ -156,18 +169,7 @@ impl Context {
         &mut self,
         initial_value: T,
     ) -> (ReadSignal<T>, WriteSignal<T>) {
-        let id = self.reactive.signals.insert(Box::new(initial_value));
-        self.reactive.subscribers.insert(id, SmallVec::new());
-        (
-            ReadSignal {
-                id,
-                _marker: PhantomData,
-            },
-            WriteSignal {
-                id,
-                _marker: PhantomData,
-            },
-        )
+        ReactiveStore::create_signal(initial_value, &mut self.reactive)
     }
 
     /// メインスレッドの毎フレーム開始時（またはイベントハンドラの先頭など）に呼び出され、
@@ -194,7 +196,17 @@ impl Context {
     /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の ReadSignal を解決します。
     #[inline]
     pub fn use_provided<T: Clone + 'static>(&self) -> ReadSignal<T> {
-        ReactiveStore::use_provided(&self.reactive, &self.topology)
+        // ACTIVE_EFFECT（エフェクト実行中）から解決を試みる
+        let element_id = ReactiveStore::resolve_element_effect(&self.reactive);
+
+        // 親ツリーを遡って解決
+        ReactiveStore::use_provided_from::<T>(element_id, &self.reactive, &self.topology)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
+                        std::any::type_name::<T>()
+                    )
+                })
     }
 
     /// 現在のスレッドローカルコンテキストから、
@@ -278,7 +290,23 @@ impl Context {
         old_child: EntityId,
         new_child: EntityId,
     ) {
-        TopologyStore::replace_child(parent, old_child, new_child, self);
+        TopologyStore::replace_child(
+            parent,
+            old_child,
+            new_child,
+            &mut self.layouts,
+            &mut self.topology,
+        );
+
+        // 親子参照の更新
+        self.topology.parents.insert(new_child, Some(parent));
+
+        // 古い子要素（およびその子孫）を完全に安全デスポーン
+        // この中で Taffy からの remove_child も安全に実行されます
+        TopologyStore::despawn_internal(old_child, self);
+
+        TopologyStore::mark_layout_dirty(parent, &mut self.topology, &mut self.layouts);
+        self.layouts.is_structure_dirty = true;
     }
 
     /// デスポーン済みの無効な EntityId を各走査・Dirty配列から一括して排除。
@@ -308,14 +336,7 @@ impl Context {
         border: EdgeInsets,
         padding: EdgeInsets,
     ) -> LayoutSize {
-        let content_w =
-            (visible_size.width - border.left - border.right - padding.left - padding.right)
-                .max(0.0);
-        let content_h =
-            (visible_size.height - border.top - border.bottom - padding.top - padding.bottom)
-                .max(0.0);
-
-        LayoutSize::new(content_w, content_h)
+        LayoutStore::calculate_inner_content_size(visible_size, border, padding)
     }
 
     #[inline]
@@ -422,13 +443,14 @@ impl Context {
         LayoutStore::scrollbar_el_ids(&self.layouts.scrollbar_styles)
     }
 
-    /// スクロールバー用要素（TrackやThumb）のレイアウト情報（解決値と静的ベース値）をアトミックに同時同期して更新します。
+    /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
     #[inline]
-    pub(crate) fn update_scrollbar_element_layout(
+    pub(crate) fn update_scrollbar_element(
         &mut self,
         id: EntityId,
         size: Size<Val>,
         inset: Rect<Val>,
+        opacity: f32,
     ) {
         LayoutStore::update_scrollbar_element_layout(
             id,
@@ -437,6 +459,12 @@ impl Context {
             size,
             inset,
         );
+        RenderStore::update_scrollbar_element_opacity(id, &mut self.renders, opacity);
+
+        let (basic, flex, grid) =
+            LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders);
+
+        LayoutStore::set_taffy_style(id, &mut self.layouts, &basic, &flex, grid.as_ref());
     }
 
     /// 解決済みの基本スタイルを TaffyTree のノードへ即時同期して適用します。
@@ -473,6 +501,11 @@ impl Context {
     #[inline]
     pub(crate) fn resync_taffy_children_order(&mut self, parent_id: EntityId) {
         LayoutStore::resync_taffy_children_order(parent_id, &mut self.layouts, &self.topology);
+    }
+
+    #[inline]
+    pub fn clear_layout_dirty(&mut self) {
+        LayoutStore::clear_layout_dirty(&mut self.layouts, &mut self.topology);
     }
 
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
@@ -512,10 +545,23 @@ impl Context {
         )
     }
 
-    /// スクロールバー用要素の不透明度（解決値と静的ベース値）を同時同期して更新します。
+    /// 単位（Px, Percent, Auto）を親要素のサイズまたはウィンドウ基準をベースに f32 (物理ピクセル) へ解決します。
     #[inline]
-    pub(crate) fn update_scrollbar_element_opacity(&mut self, id: EntityId, opacity: f32) {
-        RenderStore::update_scrollbar_element_opacity(id, &mut self.renders, opacity);
+    pub(crate) fn resolve_val_to_px(&self, id: EntityId, val: Val, is_width: bool) -> Option<f32> {
+        OutputStore::resolve_val_to_px(
+            id,
+            val,
+            is_width,
+            &self.topology,
+            &self.outputs,
+            &self.window,
+        )
+    }
+
+    /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
+    #[inline]
+    pub(crate) fn is_drag_autoscroll_active(&self) -> bool {
+        OutputStore::is_drag_autoscroll_active(&self.events, &self.outputs, &self.renders)
     }
 
     #[inline]
@@ -547,13 +593,26 @@ impl Context {
         target: &mut TargetStyle,
         focus_style_resolved: Option<ThisStyle>,
     ) {
-        RenderStore::cascade_interaction(
-            id,
-            &self.renders,
-            active_mask,
-            target,
-            focus_style_resolved,
-        );
+        if let Some(interaction) = self.renders.interaction_properties.get(id) {
+            let cascade = RenderStore::cascade_interaction_flag(
+                id,
+                &self.renders,
+                interaction,
+                &focus_style_resolved,
+            );
+
+            for (state, style_opt) in cascade {
+                if active_mask.has(state)
+                    && let Some(style) = style_opt
+                {
+                    TargetStyle::apply_visual_property(
+                        target,
+                        &style.inner.visual_property,
+                        style.inner.mask,
+                    );
+                }
+            }
+        }
     }
 
     #[inline]
@@ -563,13 +622,36 @@ impl Context {
         active_mask: ComponentMask,
         target: &mut TargetStyle,
     ) {
-        RenderStore::cascade_within_interaction(
-            id,
-            &self.topology,
-            &self.renders,
-            active_mask,
-            target,
-        );
+        if active_mask.has(STYLE_INTERACTION_WITHIN)
+            && let Some(interaction) = self.renders.interaction_properties.get(id)
+        {
+            // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
+            let cascade_within = RenderStore::cascade_within_interaction_flag(id, interaction);
+
+            for (state, style_opt) in cascade_within {
+                // 子孫要素のいずれかがこの state_flag を満たしているか
+                if TopologyStore::has_descendant_with_state(id, &self.topology, state)
+                    && let Some(style) = style_opt
+                {
+                    TargetStyle::apply_visual_property(
+                        target,
+                        &style.inner.visual_property,
+                        style.inner.mask,
+                    );
+                }
+            }
+
+            // All（いずれかのインタラクションがあればON）の解決
+            if let Some(ref style) = interaction.any_within
+                && TopologyStore::has_descendant_with_any_active_state(id, &self.topology)
+            {
+                TargetStyle::apply_visual_property(
+                    target,
+                    &style.inner.visual_property,
+                    style.inner.mask,
+                );
+            }
+        }
     }
 
     #[inline]
@@ -595,8 +677,15 @@ impl Context {
     }
 
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
+    #[inline]
     pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
         RenderStore::resolve_cursor(hovered_id, &self.events, &self.renders, &self.topology)
+    }
+
+    /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
+    #[inline]
+    pub fn clear_render_dirty(&mut self) {
+        RenderStore::clear_render_dirty(&mut self.renders, &mut self.topology);
     }
 
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
@@ -628,6 +717,12 @@ impl Context {
             &self.layouts,
             &self.outputs,
         )
+    }
+
+    /// 指定された要素（target）が、ある親要素（parent）自身、またはその子孫であるかを判定します。
+    #[inline]
+    pub(crate) fn is_descendant_of(&self, target: EntityId, parent: EntityId) -> bool {
+        TopologyStore::is_descendant_of(target, parent, &self.topology)
     }
 
     /// ウィンドウサイズの変更検知
@@ -893,42 +988,6 @@ impl Context {
         // 全ての座標確定と絶対クリップ範囲の同期が完了した最末尾で、
         // 一括して Dirty フラグの完全クリアおよびキューリストのリセットを実行
         self.clear_layout_dirty();
-    }
-
-    pub fn clear_layout_dirty(&mut self) {
-        for id in self.layouts.dirty_layout_entities.drain(..) {
-            if let Some(mask) = self.topology.active_masks.get_mut(id) {
-                mask.unset(STATE_QUEUED_LAYOUT);
-            }
-        }
-        self.layouts.dirty_layout_entities.clear();
-    }
-
-    /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
-    pub fn clear_render_dirty(&mut self) {
-        for id in self.renders.dirty_render_entities.drain(..) {
-            if let Some(mask) = self.topology.active_masks.get_mut(id) {
-                mask.unset(STATE_QUEUED_RENDER);
-            }
-        }
-        self.renders.dirty_render_entities.clear();
-    }
-
-    /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
-    pub(crate) fn update_scrollbar_element(
-        &mut self,
-        id: EntityId,
-        size: Size<Val>,
-        inset: Rect<Val>,
-        opacity: f32,
-    ) {
-        self.update_scrollbar_element_layout(id, size, inset);
-
-        self.update_scrollbar_element_opacity(id, opacity);
-
-        let (basic, flex, grid) = self.resolve_active_layouts(id);
-
-        self.set_taffy_style(id, &basic, &flex, grid.as_ref());
     }
 
     fn sync_scrollbar_styles(&mut self) {
@@ -1997,72 +2056,17 @@ impl Context {
 
     /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
     pub fn has_active_animations(&self) -> bool {
-        // トランジション（CSS transition）のアクティブ判定
-        let has_transitions = !self.renders.active_transitions.is_empty()
-            && self
-                .renders
-                .active_transitions
-                .values()
-                .any(|list| !list.is_empty());
-
-        // キーフレームアニメーション（CSS animation）のアクティブ判定
-        let has_keyframes = !self.renders.active_animations.is_empty()
-            && self
-                .renders
-                .active_animations
-                .values()
-                .any(|list| !list.is_empty());
-
-        // 3フォーカスされたインプットがあり、キャレット点滅が有効な間は描画ループを駆動
-        let has_blinking_input = self
-            .events
-            .interaction_states
-            .focused
-            .and_then(|id| self.contents.input_contents.get(id))
-            .map(|c| c.has_caret && c.is_blink)
-            .unwrap_or(false);
-
-        // 一時的表示スクロールバーのフェード進行中は描画更新ループを継続
-        let has_active_transient_scrollbar =
-            self.layouts.scrollbar_styles.values().any(|sb_state| {
-                sb_state.style.display == ScrollbarDisplay::Transient
-                    && sb_state
-                        .last_scroll_time
-                        .map(|t| t.elapsed() < Duration::from_millis(1500))
-                        .unwrap_or(false)
-            });
-
         // ドラッグ選択中でポインタが可視境界外にある場合も継続
-        let has_drag_autoscroll = self.is_drag_autoscroll_active();
+        let has_drag_autoscroll =
+            OutputStore::is_drag_autoscroll_active(&self.events, &self.outputs, &self.renders);
 
-        has_transitions
-            || has_keyframes
-            || has_blinking_input
-            || has_active_transient_scrollbar
-            || has_drag_autoscroll
-    }
-
-    /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
-    fn is_drag_autoscroll_active(&self) -> bool {
-        if let Some(pressed_id) = self.events.interaction_states.pressed
-            && let Some(pointer_pos) = self.events.current_pointer_position
-            && let Some(clip) = self.outputs.clip_rects.get(pressed_id)
-        {
-            let user_select = self
-                .renders
-                .visual_properties
-                .get(pressed_id)
-                .and_then(|v| v.user_select)
-                .unwrap_or(UserSelect::None);
-
-            if user_select == UserSelect::Text {
-                // ポインタが可視クリップ範囲の上下左右からはみ出しているか検証
-                let is_out_x = pointer_pos.x < clip.x || pointer_pos.x > clip.x + clip.width;
-                let is_out_y = pointer_pos.y < clip.y || pointer_pos.y > clip.y + clip.height;
-                return is_out_x || is_out_y;
-            }
-        }
-        false
+        RenderStore::has_active_animations(
+            &self.renders,
+            &self.events,
+            &self.layouts,
+            &self.contents,
+            has_drag_autoscroll,
+        )
     }
 
     /// 毎フレーム呼び出され、ドラッグ選択中の要素に対するオートスクロールを自律駆動します。
@@ -2692,41 +2696,6 @@ impl Context {
         }
     }
 
-    /// 単位（Px, Percent, Auto）を親要素のサイズまたはウィンドウ基準をベースに f32 (物理ピクセル) へ解決します。
-    pub(crate) fn resolve_val_to_px(&self, id: EntityId, val: Val, is_width: bool) -> Option<f32> {
-        match val {
-            Val::Px(v) => Some(v),
-            Val::Percent(p) => {
-                // 親要素の確定サイズを優先取得
-                let parent_size = if let Some(Some(parent_id)) = self.topology.parents.get(id) {
-                    self.outputs
-                        .rects
-                        .get(*parent_id)
-                        .map(|r| LayoutSize::new(r.width, r.height))
-                } else {
-                    None
-                };
-
-                // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
-                let ref_size = parent_size.or(self.window.last_window_size)?;
-                let ref_val = if is_width {
-                    ref_size.width
-                } else {
-                    ref_size.height
-                };
-
-                Some(ref_val * (p / 100.0))
-            }
-            Val::Auto => {
-                // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
-                self.outputs
-                    .rects
-                    .get(id)
-                    .map(|r| if is_width { r.width } else { r.height })
-            }
-        }
-    }
-
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
     pub fn tick_animations(&mut self) {
         let now = Instant::now();
@@ -2958,21 +2927,6 @@ impl Context {
         }
 
         None
-    }
-
-    /// 指定された要素（target）が、ある親要素（parent）自身、またはその子孫であるかを判定します。
-    pub fn is_descendant_of(&self, target: EntityId, parent: EntityId) -> bool {
-        if target == parent {
-            return true;
-        }
-        let mut curr = target;
-        while let Some(Some(p)) = self.topology.parents.get(curr) {
-            if *p == parent {
-                return true;
-            }
-            curr = *p;
-        }
-        false
     }
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
@@ -5080,7 +5034,7 @@ impl Context {
 
                 // WebView2 要素だった場合はシステム側にフォーカスをプログラム駆動で移譲
                 if self.topology.active_masks[candidate_id].has(COMP_WEBVIEW_CONTENT) {
-                    // 通常のレンダラーから focus_webview を呼び出すため
+                    // 通常のレンダラーから focus_webview を呼び出すためここでは何もしない
                 }
 
                 self.mark_render_dirty(candidate_id);
@@ -5187,48 +5141,13 @@ impl Context {
 
     /// 現在の選択範囲（text_selections）に基づき、
     /// 描画用の物理選択矩形（selected_rects）を自動再計算して SoA キャッシュを更新します。
+    #[inline]
     pub(crate) fn update_selection_rects(&mut self, id: EntityId) {
         if let Some(range) = self.outputs.text_selections.get(id).cloned()
             && range.start < range.end
             && let Some(layout) = self.get_or_create_layout(id)
         {
-            let mut hit_test_metrics = vec![DWRITE_HIT_TEST_METRICS::default(); 16];
-            let mut actual_count: u32 = 0;
-            let res = unsafe {
-                layout.HitTestTextRange(
-                    range.start as u32,
-                    (range.end - range.start) as u32,
-                    0.0,
-                    0.0,
-                    Some(&mut hit_test_metrics),
-                    &mut actual_count,
-                )
-            };
-
-            if res.is_ok() && actual_count as usize > hit_test_metrics.len() {
-                hit_test_metrics.resize(actual_count as usize, DWRITE_HIT_TEST_METRICS::default());
-                let _ = unsafe {
-                    layout.HitTestTextRange(
-                        range.start as u32,
-                        (range.end - range.start) as u32,
-                        0.0,
-                        0.0,
-                        Some(&mut hit_test_metrics),
-                        &mut actual_count,
-                    )
-                };
-            }
-
-            let mut rects = Vec::with_capacity(actual_count as usize);
-            (0..actual_count as usize).for_each(|m_idx| {
-                let metric = &hit_test_metrics[m_idx];
-                rects.push(LayoutRect::new(
-                    metric.left,
-                    metric.top,
-                    metric.width,
-                    metric.height,
-                ));
-            });
+            let rects = OutputStore::calc_selection_rects(id, layout, range, &mut self.outputs);
             self.outputs.selected_rects.insert(id, rects);
             return;
         }
@@ -5237,127 +5156,30 @@ impl Context {
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
+    #[inline]
     pub(crate) fn get_or_create_layout(&self, id: EntityId) -> Option<IDWriteTextLayout> {
         if let Some(layout) = self.system.dwrite_layouts.borrow().get(id) {
             return Some(layout.clone());
         }
 
-        let text = self.contents.text_contents.get(id)?;
-        let default_visual = VisualProperty::default();
-        let visual = self
-            .renders
-            .visual_properties
-            .get(id)
-            .unwrap_or(&default_visual);
-        let font_size = visual.font_size.unwrap_or(16.0);
-        let font_family = visual.font_family.as_deref();
-        let font_weight = visual.font_weight;
-        let font_style = visual.font_style;
-
-        let spans = self
-            .contents
-            .text_spans
-            .get(id)
-            .map(|s| s.as_slice())
-            .unwrap_or(&[]);
-
-        let layout = self.system.text_engine.create_layout(
-            text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
-            None,
-            spans,
-        );
-
-        self.system
-            .dwrite_layouts
-            .borrow_mut()
-            .insert(id, layout.clone());
-        Some(layout)
+        SystemStore::create_text_layout(id, &self.system, &self.contents, &self.renders)
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
+    #[inline]
     pub fn get_selected_text(&self) -> Option<String> {
-        let focused_id = self.events.interaction_states.focused?;
-        let user_select = self
-            .renders
-            .visual_properties
-            .get(focused_id)
-            .and_then(|v| v.user_select)
-            .unwrap_or(UserSelect::None);
-
-        if user_select == UserSelect::Text {
-            let range = self.outputs.text_selections.get(focused_id)?;
-            if range.start < range.end {
-                let text = self.contents.text_contents.get(focused_id)?;
-                let u16_text: Vec<u16> = text.encode_utf16().collect();
-                let slice =
-                    &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
-                return String::from_utf16(slice).ok();
-            }
-        }
-        None
+        OutputStore::get_selected_text(&self.events, &self.renders, &self.outputs, &self.contents)
     }
 
     /// 外部から提供されたテキストを、現在フォーカスされている入力要素にペーストします。
+    #[inline]
     pub fn inject_paste(&mut self, text: &str) {
         let _context_guard = bind_context(self);
         if let Some(focused_id) = self.events.interaction_states.focused
             && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
             && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
         {
-            let text_val = contents.text.0.get();
-            let range = contents.selected_range.clone();
-
-            let u16_text: Vec<u16> = text_val.encode_utf16().collect();
-            let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
-            let right = u16_text[range.end.min(u16_text.len())..].to_vec();
-
-            let mut pasted_u16: Vec<u16> = text.encode_utf16().collect();
-
-            // ペーストテキストに対する数値制限フィルターの適用
-            if contents.numeric_only {
-                pasted_u16.retain(|&ch_u16| {
-                    if let Ok(ch_char) = String::from_utf16(&[ch_u16])
-                        && let Some(c) = ch_char.chars().next()
-                    {
-                        return c.is_numeric() || c == '.' || c == '-';
-                    }
-
-                    false
-                });
-            }
-
-            // ペーストテキストに対する文字数制限の適用（制限限界位置で自動カット）
-            if let Some(max) = contents.max_length {
-                let current_after_range_deleted = u16_text.len()
-                    - (range.end.min(u16_text.len()) - range.start.min(u16_text.len()));
-                if current_after_range_deleted >= max {
-                    return; // すでに限界文字数に達しているため無視
-                }
-                let allowed_len = max - current_after_range_deleted;
-                if pasted_u16.len() > allowed_len {
-                    pasted_u16.truncate(allowed_len); // 限界位置で足し合わせをカット
-                }
-            }
-
-            left.extend_from_slice(&pasted_u16);
-            left.extend_from_slice(&right);
-
-            let new_text = String::from_utf16_lossy(&left);
-            let new_caret = range.start + pasted_u16.len();
-
-            // 変更履歴（Undo）をセーブ
-            contents.record_undo(text_val.clone(), range.clone());
-
-            contents.selected_range = new_caret..new_caret;
-            self.outputs
-                .text_selections
-                .insert(focused_id, new_caret..new_caret);
-            self.outputs.selected_rects.remove(focused_id);
-            contents.text.1.set(new_text);
+            OutputStore::inject_paste_internal(focused_id, text, &mut self.outputs, contents);
 
             crate::update_input_caret_position(self, focused_id);
             self.mark_render_dirty(focused_id);
@@ -5365,6 +5187,7 @@ impl Context {
     }
 
     /// Undo (元に戻す) のインジェクション
+    #[inline]
     pub fn inject_undo(&mut self) {
         let _context_guard = bind_context(self);
         if let Some(focused_id) = self.events.interaction_states.focused
@@ -5372,14 +5195,13 @@ impl Context {
             && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             && let Some((prev_text, prev_sel)) = contents.undo_stack.pop()
         {
-            let current_text = contents.text.0.get();
-            let current_sel = contents.selected_range.clone();
-            contents.redo_stack.push((current_text, current_sel)); // 現在の状態を Redo 用にセーブ
-
-            contents.selected_range = prev_sel.clone();
-            self.outputs.text_selections.insert(focused_id, prev_sel);
-            self.outputs.selected_rects.remove(focused_id);
-            contents.text.1.set(prev_text);
+            OutputStore::inject_undo_internal(
+                focused_id,
+                prev_sel,
+                prev_text,
+                &mut self.outputs,
+                contents,
+            );
 
             crate::update_input_caret_position(self, focused_id);
             self.mark_render_dirty(focused_id);
@@ -5387,6 +5209,7 @@ impl Context {
     }
 
     /// Redo (やり直し) のインジェクション
+    #[inline]
     pub fn inject_redo(&mut self) {
         let _context_guard = bind_context(self);
         if let Some(focused_id) = self.events.interaction_states.focused
@@ -5394,14 +5217,13 @@ impl Context {
             && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             && let Some((next_text, next_sel)) = contents.redo_stack.pop()
         {
-            let current_text = contents.text.0.get();
-            let current_sel = contents.selected_range.clone();
-            contents.undo_stack.push((current_text, current_sel)); // 現在の状態を Undo 用に退避
-
-            contents.selected_range = next_sel.clone();
-            self.outputs.text_selections.insert(focused_id, next_sel);
-            self.outputs.selected_rects.remove(focused_id);
-            contents.text.1.set(next_text);
+            OutputStore::inject_redo_internal(
+                focused_id,
+                next_sel,
+                next_text,
+                &mut self.outputs,
+                contents,
+            );
 
             crate::update_input_caret_position(self, focused_id);
             self.mark_render_dirty(focused_id);
@@ -5409,6 +5231,7 @@ impl Context {
     }
 
     /// 切り取り (Ctrl+X) の実行と削除後のテキスト取得
+    #[inline]
     pub fn inject_cut(&mut self) -> Option<String> {
         let _context_guard = bind_context(self);
         let focused_id = self.events.interaction_states.focused?;
@@ -5432,23 +5255,7 @@ impl Context {
             if self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
                 && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             {
-                // 削除前の履歴セーブ
-                let current_text = contents.text.0.get();
-                let current_range = contents.selected_range.clone();
-                contents.record_undo(current_text, current_range);
-
-                let u16_input: Vec<u16> = contents.text.0.get().encode_utf16().collect();
-                let mut left = u16_input[..range.start.min(u16_input.len())].to_vec();
-                let right = u16_input[range.end.min(u16_input.len())..].to_vec();
-                left.extend_from_slice(&right);
-
-                let new_text = String::from_utf16_lossy(&left);
-                contents.selected_range = range.start..range.start;
-                self.outputs
-                    .text_selections
-                    .insert(focused_id, range.start..range.start);
-                self.outputs.selected_rects.remove(focused_id);
-                contents.text.1.set(new_text);
+                OutputStore::inject_cut_internal(focused_id, range, &mut self.outputs, contents);
 
                 crate::update_input_caret_position(self, focused_id);
                 self.mark_render_dirty(focused_id);
@@ -5543,8 +5350,8 @@ impl Context {
         LayoutSize::new(max_x, max_y)
     }
 
-    /// スクロールオフセットを目標位置へクランプした上で代入します。
-    /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打ちます。
+    /// スクロールオフセットを目標位置へクランプした上で代入。
+    /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
     pub fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
         let rect = match self.outputs.rects.get(id).copied() {
             Some(r) => r,
