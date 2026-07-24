@@ -970,10 +970,26 @@ fn parse_border_side_width(
     }
 }
 
+// モノモルファイズの削減
+#[inline]
 fn map_style_prop<F>(style: ThisStyle, target: crate::StyleTarget, f: F) -> ThisStyle
 where
     F: FnOnce(ThisStyle) -> ThisStyle,
 {
+    // Option で包むことで FnMut としてトレイトオブジェクト化
+    let mut f = Some(f);
+
+    map_style_prop_impl(style, target, &mut |s| {
+        f.take().expect("f called more than once")(s)
+    })
+}
+
+// map_style_prop_impl は1度しかコンパイルされない
+fn map_style_prop_impl(
+    style: ThisStyle,
+    target: crate::StyleTarget,
+    f: &mut dyn FnMut(ThisStyle) -> ThisStyle,
+) -> ThisStyle {
     match target {
         crate::StyleTarget::Base => f(style),
         crate::StyleTarget::Hovered => style.hovered(f(ThisStyle::new())),

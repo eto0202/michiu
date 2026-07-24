@@ -520,71 +520,45 @@ pub(crate) struct CurrentStyle {
     pub(crate) corner_radius: CornerRadius,
     pub(crate) shadow_params: BoxShadow,
 }
+
+impl Default for CurrentStyle {
+    fn default() -> Self {
+        CurrentStyle {
+            bg_color: Color::TRANSPARENT,
+            border_color: Color::TRANSPARENT,
+            outline_width: EdgeInsets::ZERO,
+            outline_color: Color::TRANSPARENT,
+            outline_offset: 0.0,
+            opacity: 1.0,
+            transform: IDENTITY_MATRIX,
+            corner_radius: CornerRadius::ZERO,
+            shadow_params: BoxShadow::none(),
+        }
+    }
+}
 impl RenderStore {
     /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
     #[inline]
     pub(crate) fn get_current_style(id: EntityId, renders: &RenderStore) -> CurrentStyle {
-        let bg_color = renders
+        renders
             .visual_properties
             .get(id)
-            .and_then(|v| v.bg_color)
-            .unwrap_or(Color::TRANSPARENT);
-        let border_color = renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.border_color)
-            .unwrap_or(Color::TRANSPARENT);
-        let outline_width = renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.outline_width)
-            .unwrap_or(EdgeInsets::ZERO);
-        let outline_color = renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.outline_color)
-            .unwrap_or(Color::TRANSPARENT);
-        let outline_offset = renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.outline_offset)
-            .unwrap_or(0.0);
-        let opacity = renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.opacity)
-            .unwrap_or(1.0);
-        let transform = renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.transform)
-            .unwrap_or(IDENTITY_MATRIX);
-        let corner_radius = renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.corner_radius)
-            .unwrap_or(CornerRadius::ZERO);
-        let shadow_params = renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.shadow_params)
-            .unwrap_or(BoxShadow::none());
-
-        CurrentStyle {
-            bg_color,
-            border_color,
-            outline_width,
-            outline_color,
-            outline_offset,
-            opacity,
-            transform,
-            corner_radius,
-            shadow_params,
-        }
+            .map(|v| CurrentStyle {
+                bg_color: v.bg_color.unwrap_or(Color::TRANSPARENT),
+                border_color: v.border_color.unwrap_or(Color::TRANSPARENT),
+                outline_width: v.outline_width.unwrap_or(EdgeInsets::ZERO),
+                outline_color: v.outline_color.unwrap_or(Color::TRANSPARENT),
+                outline_offset: v.outline_offset.unwrap_or(0.0),
+                opacity: v.opacity.unwrap_or(1.0),
+                transform: v.transform.unwrap_or(IDENTITY_MATRIX),
+                corner_radius: v.corner_radius.unwrap_or(CornerRadius::ZERO),
+                shadow_params: v.shadow_params.unwrap_or(BoxShadow::none()),
+            })
+            .unwrap_or_default()
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct TargetStyle {
     pub(crate) pointer_events: Option<PointerEvents>,
     pub(crate) cursor: Option<CursorIcon>,
@@ -614,119 +588,34 @@ impl RenderStore {
     /// 目標値を参照経由で構築
     #[inline]
     pub(crate) fn get_target_style(id: EntityId, renders: &RenderStore) -> TargetStyle {
-        let pointer_events = renders
+        renders
             .base_visual_properties
             .get(id)
-            .and_then(|v| v.pointer_events);
-        let cursor = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.cursor);
-        let resizable_cursor = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.resizable_cursor);
-        let bg_color = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.bg_color);
-        let border_color = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.border_color);
-        let opacity = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.opacity);
-        let transform = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.transform);
-        let corner_radius = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.corner_radius);
-        let shadow_params = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.shadow_params);
-        let shadow_color = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.shadow_color);
-        let text_color = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.text_color);
-        let select_bg_color = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.select_bg_color);
-        let select_text_color = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.select_text_color);
-        let border_lengths = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.border_lengths);
-        let border_styles = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.border_styles);
-        let border_alignments = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.border_alignments);
-        let outline_width = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.outline_width);
-        let outline_color = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.outline_color);
-        let outline_lengths = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.outline_lengths);
-        let outline_styles = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.outline_styles);
-        let outline_alignments = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.outline_alignments);
-        let outline_offset = renders
-            .base_visual_properties
-            .get(id)
-            .and_then(|v| v.outline_offset);
-
-        TargetStyle {
-            pointer_events,
-            cursor,
-            resizable_cursor,
-            bg_color,
-            border_color,
-            opacity,
-            transform,
-            corner_radius,
-            shadow_params,
-            shadow_color,
-            text_color,
-            select_bg_color,
-            select_text_color,
-            border_lengths,
-            border_styles,
-            border_alignments,
-            outline_width,
-            outline_color,
-            outline_lengths,
-            outline_styles,
-            outline_alignments,
-            outline_offset,
-        }
+            .map(|v| TargetStyle {
+                pointer_events: v.pointer_events,
+                cursor: v.cursor,
+                resizable_cursor: v.resizable_cursor,
+                bg_color: v.bg_color,
+                border_color: v.border_color,
+                opacity: v.opacity,
+                transform: v.transform,
+                corner_radius: v.corner_radius,
+                shadow_params: v.shadow_params,
+                shadow_color: v.shadow_color,
+                text_color: v.text_color,
+                select_bg_color: v.select_bg_color,
+                select_text_color: v.select_text_color,
+                border_lengths: v.border_lengths,
+                border_styles: v.border_styles,
+                border_alignments: v.border_alignments,
+                outline_width: v.outline_width,
+                outline_color: v.outline_color,
+                outline_lengths: v.outline_lengths,
+                outline_styles: v.outline_styles,
+                outline_alignments: v.outline_alignments,
+                outline_offset: v.outline_offset,
+            })
+            .unwrap_or_default()
     }
 }
 

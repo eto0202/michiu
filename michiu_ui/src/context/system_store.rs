@@ -13,6 +13,13 @@ use windows::Win32::{
         },
         Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
     },
+    UI::Input::{
+        Ime::{
+            CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, ImmGetContext,
+            ImmReleaseContext, ImmSetCandidateWindow, ImmSetCompositionWindow,
+        },
+        KeyboardAndMouse::GetFocus,
+    },
 };
 
 pub(crate) type TaskSenderType =
@@ -117,6 +124,62 @@ impl SystemStore {
             .borrow_mut()
             .insert(id, layout.clone());
         Some(layout)
+    }
+
+    #[inline]
+    pub(crate) fn sync_imm_window_position(
+        rect: LayoutRect,
+        scale: f32,
+        border: EdgeInsets,
+        padding: EdgeInsets,
+        caret: LayoutRect,
+        caret_offset: f32,
+        scroll: LayoutPoint,
+    ) {
+        unsafe {
+            let hwnd = GetFocus();
+            let himc = ImmGetContext(hwnd);
+            if !himc.is_invalid() {
+                // スクロールオフセット（scroll.x / scroll.y）を正確に引いた実座標で同期
+                let caret_phys_x = (((rect.x + border.left + padding.left + caret.x) - scroll.x)
+                    * scale)
+                    .round() as i32;
+                let caret_phys_y = (((rect.y + border.top + padding.top + caret.y + caret_offset)
+                    - scroll.y)
+                    * scale)
+                    .round() as i32;
+                let caret_phys_h = (caret.height * scale).round() as i32;
+
+                // コンポジションウィンドウ位置の指定 (CFS_POINT)
+                let comp_form = COMPOSITIONFORM {
+                    dwStyle: CFS_POINT,
+                    ptCurrentPos: windows::Win32::Foundation::POINT {
+                        x: caret_phys_x,
+                        y: caret_phys_y,
+                    },
+                    rcArea: windows::Win32::Foundation::RECT::default(),
+                };
+                let _ = ImmSetCompositionWindow(himc, &comp_form);
+
+                // 候補ウィンドウ位置の指定 (CFS_EXCLUDE)
+                let candidate_form = CANDIDATEFORM {
+                    dwIndex: 0,
+                    dwStyle: CFS_EXCLUDE,
+                    ptCurrentPos: windows::Win32::Foundation::POINT {
+                        x: caret_phys_x,
+                        y: caret_phys_y,
+                    },
+                    rcArea: windows::Win32::Foundation::RECT {
+                        left: caret_phys_x,
+                        top: caret_phys_y,
+                        right: caret_phys_x + 1,
+                        bottom: caret_phys_y + caret_phys_h,
+                    },
+                };
+                let _ = ImmSetCandidateWindow(himc, &candidate_form);
+                let _ = ImmReleaseContext(hwnd, himc);
+            }
+        }
     }
     // クリップボード API による UTF-16 読み書きヘルパー
     fn win32_set_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> {

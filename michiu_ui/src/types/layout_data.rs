@@ -479,4 +479,19 @@ impl InteractionStates {
     pub fn new() -> Self {
         Self::default()
     }
+
+    pub(crate) fn clear_entity(&mut self, id: EntityId) {
+        if self.hovered == Some(id) {
+            self.hovered = None;
+        }
+        if self.focused == Some(id) {
+            self.focused = None;
+        }
+        if self.pressed == Some(id) {
+            self.pressed = None;
+        }
+        if self.dragged == Some(id) {
+            self.dragged = None;
+        }
+    }
 }

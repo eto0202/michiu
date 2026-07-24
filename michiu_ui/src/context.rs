@@ -591,7 +591,7 @@ impl Context {
     }
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
-    pub fn collect_render_data(&self) -> RenderData {
+    pub(crate) fn collect_render_data(&self) -> RenderData {
         let mut batches = Vec::new();
         let mut current_instances = Vec::new();
         let mut current_ids = Vec::new();
@@ -1027,141 +1027,7 @@ impl Context {
         RenderData { batches }
     }
 
-    /// スクロールコンテナのスタイル設定に連動し、
-    /// トラック・サムに相当する要素（Element）を遅延生成して親子関係にアタッチします。
-    pub(crate) fn ensure_scrollbar_elements(
-        &mut self,
-        id: EntityId,
-        sb: &ScrollbarStyle,
-        merge: bool,
-    ) {
-        if !self.layouts.scrollbar_styles.contains_key(id) {
-            self.layouts.scrollbar_styles.insert(
-                id,
-                ScrollBarState {
-                    style: sb.clone(),
-                    ..Default::default()
-                },
-            );
-        }
-
-        let mut state = self.layouts.scrollbar_styles.get(id).cloned().unwrap();
-        state.style = sb.clone();
-        let mut changed = false;
-
-        if sb.display != ScrollbarDisplay::None {
-            // A. 縦スクロールバー (V-Track)
-            let v_track = if let Some(v_track) = state.v_track_id {
-                v_track
-            } else {
-                let v_track = self.spawn(Some(id));
-                self.add_child(id, v_track);
-                state.v_track_id = Some(v_track);
-                changed = true;
-                v_track
-            };
-
-            // トラックは常に絶対配置（コンテナの右端に固定）
-            let track_style = sb
-                .v_track
-                .clone()
-                .unwrap_or_default()
-                .absolute()
-                .z(9999)
-                .w(sb.width)
-                .inset((0.0, 0.0, 0.0, crate::auto()))
-                .pointer_events_auto(); // イベントを透過させない
-
-            Element::from(v_track).style_internal(self, track_style, merge);
-
-            // A-1. 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
-            let v_thumb = if let Some(v_thumb) = state.v_thumb_id {
-                v_thumb
-            } else {
-                let v_thumb = self.spawn(Some(v_track));
-                self.add_child(v_track, v_thumb);
-                state.v_thumb_id = Some(v_thumb);
-                changed = true;
-                v_thumb
-            };
-
-            let mut thumb_width = sb.width;
-            if let Some(ref thumb_style) = sb.v_thumb
-                && let Val::Px(w) = thumb_style.inner.basic_layout.size.width
-            {
-                thumb_width = w.min(sb.width);
-            }
-
-            // サムは V-Track の絶対座標を原点とし、Y方向のみ absolute スライド
-            let thumb_style = sb
-                .v_thumb
-                .clone()
-                .unwrap_or_default()
-                .absolute()
-                .w(thumb_width)
-                .inset((0.0, crate::auto(), crate::auto(), crate::auto()))
-                .pointer_events_auto();
-
-            Element::from(v_thumb).style_internal(self, thumb_style, merge);
-
-            // B. 横スクロールバー (H-Track)
-            let h_track = if let Some(h_track) = state.h_track_id {
-                h_track
-            } else {
-                let h_track = self.spawn(Some(id));
-                self.add_child(id, h_track);
-                state.h_track_id = Some(h_track);
-                changed = true;
-                h_track
-            };
-
-            let track_style = sb
-                .h_track
-                .clone()
-                .unwrap_or_default()
-                .absolute()
-                .z(9999)
-                .h(sb.width)
-                .inset((crate::auto(), 0.0, 0.0, 0.0))
-                .pointer_events_auto();
-
-            Element::from(h_track).style_internal(self, track_style, merge);
-
-            // B-1. 横つまみ (H-Thumb、H-Track の子要素としてアタッチ)
-            let h_thumb = if let Some(h_thumb) = state.h_thumb_id {
-                h_thumb
-            } else {
-                let h_thumb = self.spawn(Some(h_track));
-                self.add_child(h_track, h_thumb);
-                state.h_thumb_id = Some(h_thumb);
-                changed = true;
-                h_thumb
-            };
-
-            let mut thumb_height = sb.width;
-            if let Some(ref thumb_style) = sb.h_thumb
-                && let Val::Px(h) = thumb_style.inner.basic_layout.size.height
-            {
-                thumb_height = h.min(sb.width);
-            }
-
-            let thumb_style = sb
-                .h_thumb
-                .clone()
-                .unwrap_or_default()
-                .absolute()
-                .h(thumb_height)
-                .inset((crate::auto(), crate::auto(), crate::auto(), 0.0))
-                .pointer_events_auto();
-
-            Element::from(h_thumb).style_internal(self, thumb_style, merge);
-        }
-
-        if changed {
-            *self.layouts.scrollbar_styles.get_mut(id).unwrap() = state;
-            self.layouts.is_structure_dirty = true; // flat_dfs_sequence の更新契機
-        }
-    }
+    
 }
 
 #[cfg(test)]

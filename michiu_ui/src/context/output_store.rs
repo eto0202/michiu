@@ -445,6 +445,181 @@ impl OutputStore {
         outputs.selected_rects.remove(focused_id);
         contents.text.1.set(new_text);
     }
+
+    #[inline]
+    pub(crate) fn scroll_ime_info(
+        id: EntityId,
+        outputs: &mut OutputStore,
+        contents: &mut ContentStore,
+        renders: &mut RenderStore,
+        system: &SystemStore,
+    ) -> Option<(LayoutRect, f32, bool)> {
+        // (caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)
+        let mut scroll_ime_info: Option<(LayoutRect, f32, bool)> = None;
+
+        if let Some(input_contents) = contents.input_contents.get_mut(id) {
+            // 入力エンジン側の最新カーソル位置を描画SoA側に同期
+            outputs
+                .text_selections
+                .insert(id, input_contents.selected_range.clone());
+
+            let text_val = input_contents.text.0.get();
+            input_contents.total_len = text_val.chars().count();
+
+            // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
+            let display_text = if let Some(ref ime) = input_contents.ime_state
+                && !ime.composition_text.is_empty()
+            {
+                crate::input_get_display_text(
+                    &text_val,
+                    input_contents.selected_range.start,
+                    &ime.composition_text,
+                )
+            } else if text_val.is_empty() {
+                input_contents
+                    .placeholder
+                    .as_ref()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default()
+            } else if input_contents.is_password {
+                let mask = input_contents.mask_text.as_deref().unwrap_or("●");
+                mask.repeat(text_val.chars().count())
+            } else {
+                text_val.clone()
+            };
+
+            let caret_text = if let Some(ref ime) = input_contents.ime_state
+                && !ime.composition_text.is_empty()
+            {
+                crate::input_get_display_text(
+                    &text_val,
+                    input_contents.selected_range.start,
+                    &ime.composition_text,
+                )
+            } else if text_val.is_empty() {
+                String::new()
+            } else if input_contents.is_password {
+                let mask = input_contents.mask_text.as_deref().unwrap_or("●");
+                mask.repeat(text_val.chars().count())
+            } else {
+                text_val.clone()
+            };
+
+            let font_size = renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.font_size)
+                .unwrap_or(16.0);
+            let font_family = renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.font_family.as_deref());
+            let font_weight = renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.font_weight);
+            let font_style = renders.visual_properties.get(id).and_then(|v| v.font_style);
+
+            let spans = contents
+                .text_spans
+                .get(id)
+                .map(|s| s.as_slice())
+                .unwrap_or(&[]);
+
+            // 描画テキスト全体のレイアウトサイズを Taffy 測定用に設定
+            let display_layout = system.text_engine.create_layout(
+                &display_text,
+                font_size,
+                font_family,
+                font_weight,
+                font_style,
+                None,
+                spans,
+            );
+            let text_size = system.text_engine.get_layout_size(&display_layout);
+            input_contents.last_layout =
+                Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
+
+            // キャレット位置測定用のレイアウトをプレースホルダー抜きで作成
+            let caret_layout = system.text_engine.create_layout(
+                &caret_text,
+                font_size,
+                font_family,
+                font_weight,
+                font_style,
+                None,
+                spans,
+            );
+
+            let composition_offset = if let Some(ref ime) = input_contents.ime_state
+                && !ime.composition_text.is_empty()
+            {
+                // 組成文字全体の文字数をオフセットとして適用
+                ime.composition_text.encode_utf16().count()
+            } else {
+                0
+            };
+
+            // ドラッグの方向を判定しマウス位置にキャレットを固定
+            let current_caret_relative = if input_contents.selection_reversed {
+                input_contents.selected_range.start // 逆方向（左ドラッグ）時は左端がマウス位置
+            } else {
+                input_contents.selected_range.end // 順方向（右ドラッグ）時は右端がマウス位置
+            };
+
+            let caret_index = current_caret_relative + composition_offset;
+            let u16_len_caret = caret_text.encode_utf16().count();
+
+            // プレースホルダーに干渉されない純粋なキャレット位置を算出
+            let (cx_offset, cy_offset, ch_height) =
+                system
+                    .text_engine
+                    .get_caret_position(&caret_layout, caret_index, u16_len_caret);
+
+            input_contents.measured_caret_x = cx_offset;
+            input_contents.measured_caret_y = cy_offset;
+            input_contents.caret_line_height = ch_height;
+
+            let (curr_line, tot_lines) = crate::calculate_line_indices(&display_text, caret_index);
+            input_contents.current_line_index = curr_line;
+            input_contents.total_lines = tot_lines;
+
+            // 最終表示用テキストを Context 側に反映
+            contents.text_contents.insert(id, display_text.into());
+
+            if let Some(visual) = renders.visual_properties.get_mut(id) {
+                let is_ime_active = input_contents
+                    .ime_state
+                    .as_ref()
+                    .map(|ime| !ime.composition_text.is_empty())
+                    .unwrap_or(false);
+
+                if text_val.is_empty() && !is_ime_active {
+                    // 確定文字列が空で、かつ未確定文字列も存在しない状態のみグレー表示
+                    visual.text_color = input_contents.placeholder_color;
+                } else {
+                    let base_color = renders
+                        .base_visual_properties
+                        .get(id)
+                        .and_then(|v| v.text_color)
+                        .unwrap_or(Color::WHITE);
+                    visual.text_color = Some(base_color);
+                }
+            }
+
+            scroll_ime_info = Some((
+                LayoutRect {
+                    x: cx_offset,
+                    y: cy_offset,
+                    width: input_contents.caret_width.unwrap_or(1.5),
+                    height: ch_height,
+                },
+                input_contents.caret_offset,
+                input_contents.is_multiline,
+            ));
+        }
+        scroll_ime_info
+    }
 }
 
 impl Context {
@@ -911,5 +1086,81 @@ impl Context {
         }
 
         None
+    }
+
+    /// 現在のテキスト・IME状態・フォントサイズから、
+    /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して SoA を更新。
+    pub(crate) fn update_input_caret_position(&mut self, id: EntityId) {
+        self.clear_layout_cache(id); // IMEやタイピング中の古いキャッシュを破棄
+
+        let scroll_ime_info = OutputStore::scroll_ime_info(
+            id,
+            &mut self.outputs,
+            &mut self.contents,
+            &mut self.renders,
+            &self.system,
+        );
+
+        let Some((caret, caret_offset, is_multiline)) = scroll_ime_info else {
+            return;
+        };
+        let (basic, _, _) = self.resolve_active_layouts(id);
+        let border = self.get_physical_border(id, &basic);
+        let padding = self.get_physical_padding(id, &basic);
+        let rect = self
+            .outputs
+            .rects
+            .get(id)
+            .copied()
+            .unwrap_or(LayoutRect::ZERO);
+        let mut scroll = self
+            .outputs
+            .scroll_offsets
+            .get(id)
+            .copied()
+            .unwrap_or(LayoutPoint::ZERO);
+        let scale = self.window.scale_factor;
+
+        if rect.width > 0.0 && rect.height > 0.0 {
+            let viewport_w =
+                (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
+            let viewport_h =
+                (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
+
+            // マージンを設定するとキー移動時にキャレット位置がずれるため削除
+            // let margin_x = 0.0; // 左右端のあそび（マージン）
+
+            // 1. 横方向スクロール (X軸)
+            if caret.x < scroll.x {
+                scroll.x = caret.x.max(0.0);
+            } else if caret.x + caret.width > scroll.x + viewport_w {
+                scroll.x = (caret.x + caret.width - viewport_w).max(0.0);
+            }
+
+            // 2. 縦方向スクロール (Y軸 - マルチラインのみ)
+            if is_multiline {
+                // let margin_y = 4.0; // 上下端のあそび
+                if caret.y < scroll.y {
+                    scroll.y = caret.y.max(0.0);
+                } else if caret.y + caret.height > scroll.y + viewport_h {
+                    scroll.y = (caret.y + caret.height - viewport_h).max(0.0);
+                }
+            } else {
+                scroll.y = 0.0;
+            }
+
+            self.scroll_to(id, scroll.x, scroll.y);
+        }
+
+        // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
+        SystemStore::sync_imm_window_position(
+            rect,
+            scale,
+            border,
+            padding,
+            caret,
+            caret_offset,
+            scroll,
+        );
     }
 }

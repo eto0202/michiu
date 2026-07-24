@@ -1,11 +1,3 @@
-use windows::Win32::UI::Input::{
-    Ime::{
-        CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, ImmGetContext, ImmReleaseContext,
-        ImmSetCandidateWindow, ImmSetCompositionWindow,
-    },
-    KeyboardAndMouse::GetFocus,
-};
-
 use crate::*;
 use std::{borrow::Cow, cell::Cell, path::PathBuf, rc::Rc};
 
@@ -166,7 +158,7 @@ impl Element {
                 with_context(|cx| {
                     // 静的なスタイルプロパティを通常通りインラインマウント
                     // 静的チェーンはマージ（merge = true）
-                    with_context(|cx| self.style_internal(cx, s.clone(), true));
+                    with_context(|cx| Element::style_internal(cx, id, s.clone(), true));
 
                     // 動的なセッターが存在する場合、それらを単一のエフェクトとして登録
                     if !s.inner.dynamic_setters.is_empty() {
@@ -187,11 +179,10 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Style, move |cx| {
                         let s = f();
-                        let element = Element { id };
                         // 動的評価された最新スタイルは、蓄積を避けるため置換（merge = false）
                         // 修正: 動的評価されたスタイルもマージ（true）としてマウントします。
                         // これにより、v_flex_c 等のColumn構造が破壊されるのを完全に防ぎます。
-                        element.style_internal(cx, s.clone(), true);
+                        Element::style_internal(cx, id, s.clone(), true);
 
                         // 動的スタイルが自身の中で動的なプロバイダーを含む場合も評価
                         for setter in &s.inner.dynamic_setters {
@@ -224,7 +215,7 @@ impl Element {
     }
 
     /// スタイルの適用（一括インライン展開）
-    pub(crate) fn style_internal(self, cx: &mut Context, style: ThisStyle, merge: bool) {
+    pub(crate) fn style_internal(cx: &mut Context, id: EntityId, style: ThisStyle, merge: bool) {
         let inner = &style.inner;
         let mask = inner.mask;
 
@@ -232,84 +223,82 @@ impl Element {
         // 動的なインタラクション状態フラグ（STYLE_INTERACTION_PROPERTY）は
         // 実行時にのみ制御されるべきなので、ここでは除外（マスクアウト）する
         let property_only_mask = mask.0 & !STYLE_INTERACTION_PROPERTY;
-        cx.topology.active_masks[self.id].0 |= property_only_mask;
+        cx.topology.active_masks[id].0 |= property_only_mask;
 
         // ベースの基本レイアウトをマージ
         if mask.has_basic_layout() {
-            if merge && let Some(base) = cx.renders.base_basic_layouts.get_mut(self.id) {
+            if merge && let Some(base) = cx.renders.base_basic_layouts.get_mut(id) {
                 base.override_with(&inner.basic_layout, mask);
             } else {
                 // 置換モード：前回の設定蓄積をクリアして完全置換
-                cx.renders
-                    .base_basic_layouts
-                    .insert(self.id, inner.basic_layout);
+                cx.renders.base_basic_layouts.insert(id, inner.basic_layout);
             }
-            cx.mark_layout_dirty(self.id);
+            cx.mark_layout_dirty(id);
         }
 
         // ベースのビジュアルプロパティをマージ
         let has_visual =
             mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
         if has_visual {
-            if merge && let Some(vis) = cx.renders.base_visual_properties.get_mut(self.id) {
+            if merge && let Some(vis) = cx.renders.base_visual_properties.get_mut(id) {
                 vis.override_with(&inner.visual_property, mask);
             } else {
                 cx.renders
                     .base_visual_properties
-                    .insert(self.id, inner.visual_property.clone());
+                    .insert(id, inner.visual_property.clone());
             }
         }
 
         // 疑似クラス（インタラクションスタイル）をマージ
         if mask.has_interaction_property() || mask.has(STYLE_INTERACTION_WITHIN) {
-            if merge && let Some(interaction) = cx.renders.interaction_properties.get_mut(self.id) {
+            if merge && let Some(interaction) = cx.renders.interaction_properties.get_mut(id) {
                 interaction.override_with(&inner.interaction_styles, mask);
             } else {
                 cx.renders
                     .interaction_properties
-                    .insert(self.id, inner.interaction_styles.clone());
+                    .insert(id, inner.interaction_styles.clone());
             }
         }
 
         // 4. Flexレイアウト
         if mask.has_flex_layout() {
-            if merge && let Some(flex) = cx.layouts.flex_layouts.get_mut(self.id) {
+            if merge && let Some(flex) = cx.layouts.flex_layouts.get_mut(id) {
                 flex.override_with(&inner.flex_layout, mask);
             } else {
-                cx.layouts.flex_layouts.insert(self.id, inner.flex_layout);
+                cx.layouts.flex_layouts.insert(id, inner.flex_layout);
             }
-            cx.mark_layout_dirty(self.id);
+            cx.mark_layout_dirty(id);
         }
 
         // 5. Gridレイアウト
         if mask.has_grid_layout()
             && let Some(ref grid) = inner.grid_layout
         {
-            cx.layouts.grid_layouts.insert(self.id, grid.clone());
-            cx.mark_layout_dirty(self.id);
+            cx.layouts.grid_layouts.insert(id, grid.clone());
+            cx.mark_layout_dirty(id);
         }
 
         // 6. スクロールバー
         if mask.has(STYLE_SCROLLBAR)
             && let Some(ref sb) = inner.scrollbar_style
         {
-            cx.ensure_scrollbar_elements(self.id, sb, merge);
-            cx.mark_layout_dirty(self.id);
+            cx.ensure_scrollbar_elements(id, sb, merge);
+            cx.mark_layout_dirty(id);
         }
 
         // D&D のコールド SoA スロットへのマウント同期
         if mask.has(STYLE_DRAGGABLE)
             && let Some(dp) = inner.drag_property
         {
-            cx.events.drag_properties.insert(self.id, dp);
+            cx.events.drag_properties.insert(id, dp);
         }
         if mask.has(STYLE_DROPPABLE)
             && let Some(dp) = inner.drop_property
         {
-            cx.events.drop_properties.insert(self.id, dp);
+            cx.events.drop_properties.insert(id, dp);
         }
 
-        cx.resolve_element_style_state(self.id, false);
+        cx.resolve_element_style_state(id, false);
     }
 
     /// 子要素を追加します（Element単体、Signal、またはクロージャ）。
@@ -817,7 +806,7 @@ impl Element {
             existing.selected_range.end = existing.selected_range.end.min(u16_len);
 
             // 早期リターンを抜ける前に、最新の文字列状態を SoA / DWrite 側へ即座に同期・反映
-            update_input_caret_position(cx, id);
+            cx.update_input_caret_position(id);
             cx.mark_dirty(id);
 
             // これ以降の初期化を完全にスキップして早期リターン
@@ -980,7 +969,7 @@ impl Element {
                         contents.last_interacted_time = Some(std::time::Instant::now());
 
                         // キャレットの絶対座標と表示情報を一括更新
-                        update_input_caret_position(cx, id);
+                        cx.update_input_caret_position(id);
                     }
 
                     if update_rects_needed {
@@ -1409,7 +1398,7 @@ impl Element {
 
                     if changed {
                         cx.update_selection_rects(id);
-                        update_input_caret_position(cx, id);
+                        cx.update_input_caret_position(id);
                         cx.mark_render_dirty(id);
                     }
                 }
@@ -1512,7 +1501,7 @@ impl Element {
                     }
 
                     // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
-                    update_input_caret_position(cx, id);
+                    cx.update_input_caret_position(id);
 
                     cx.mark_render_dirty(id);
                 }
@@ -1523,7 +1512,7 @@ impl Element {
             if let Some(contents) = cx.contents.input_contents.get(id) {
                 let _base_text_val = contents.text.0.get();
             }
-            update_input_caret_position(cx, id);
+            cx.update_input_caret_position(id);
             cx.mark_dirty(id);
         });
     }
@@ -2453,300 +2442,6 @@ impl Element {
     #[inline]
     pub fn uia_control_type(self, control_type_id: i32) -> Self {
         self.uia_property(30003, control_type_id)
-    }
-}
-
-/// 現在のテキスト・IME状態・フォントサイズから、
-/// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して SoA を更新。
-pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
-    cx.clear_layout_cache(id); // IMEやタイピング中の古いキャッシュを破棄
-
-    // (caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)
-    let mut scroll_ime_info: Option<(f32, f32, f32, f32, f32, bool)> = None;
-
-    if let Some(contents) = cx.contents.input_contents.get_mut(id) {
-        // 入力エンジン側の最新カーソル位置を描画SoA側に同期
-        cx.outputs
-            .text_selections
-            .insert(id, contents.selected_range.clone());
-
-        let text_val = contents.text.0.get();
-        contents.total_len = text_val.chars().count();
-
-        // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
-        let display_text = if let Some(ref ime) = contents.ime_state
-            && !ime.composition_text.is_empty()
-        {
-            crate::input_get_display_text(
-                &text_val,
-                contents.selected_range.start,
-                &ime.composition_text,
-            )
-        } else if text_val.is_empty() {
-            contents
-                .placeholder
-                .as_ref()
-                .map(|s| s.to_string())
-                .unwrap_or_default()
-        } else if contents.is_password {
-            let mask = contents.mask_text.as_deref().unwrap_or("●");
-            mask.repeat(text_val.chars().count())
-        } else {
-            text_val.clone()
-        };
-
-        let caret_text = if let Some(ref ime) = contents.ime_state
-            && !ime.composition_text.is_empty()
-        {
-            crate::input_get_display_text(
-                &text_val,
-                contents.selected_range.start,
-                &ime.composition_text,
-            )
-        } else if text_val.is_empty() {
-            String::new()
-        } else if contents.is_password {
-            let mask = contents.mask_text.as_deref().unwrap_or("●");
-            mask.repeat(text_val.chars().count())
-        } else {
-            text_val.clone()
-        };
-
-        let font_size = cx
-            .renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.font_size)
-            .unwrap_or(16.0);
-        let font_family = cx
-            .renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.font_family.as_deref());
-        let font_weight = cx
-            .renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.font_weight);
-        let font_style = cx
-            .renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.font_style);
-
-        let spans = cx
-            .contents
-            .text_spans
-            .get(id)
-            .map(|s| s.as_slice())
-            .unwrap_or(&[]);
-
-        // 描画テキスト全体のレイアウトサイズを Taffy 測定用に設定
-        let display_layout = cx.system.text_engine.create_layout(
-            &display_text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
-            None,
-            spans,
-        );
-        let text_size = cx.system.text_engine.get_layout_size(&display_layout);
-        contents.last_layout = Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
-
-        // キャレット位置測定用のレイアウトをプレースホルダー抜きで作成
-        let caret_layout = cx.system.text_engine.create_layout(
-            &caret_text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
-            None,
-            spans,
-        );
-
-        let composition_offset = if let Some(ref ime) = contents.ime_state
-            && !ime.composition_text.is_empty()
-        {
-            // 組成文字全体の文字数をオフセットとして適用
-            ime.composition_text.encode_utf16().count()
-        } else {
-            0
-        };
-
-        // ドラッグの方向を判定しマウス位置にキャレットを固定
-        let current_caret_relative = if contents.selection_reversed {
-            contents.selected_range.start // 逆方向（左ドラッグ）時は左端がマウス位置
-        } else {
-            contents.selected_range.end // 順方向（右ドラッグ）時は右端がマウス位置
-        };
-
-        let caret_index = current_caret_relative + composition_offset;
-        let u16_len_caret = caret_text.encode_utf16().count();
-
-        // プレースホルダーに干渉されない純粋なキャレット位置を算出
-        let (cx_offset, cy_offset, ch_height) =
-            cx.system
-                .text_engine
-                .get_caret_position(&caret_layout, caret_index, u16_len_caret);
-
-        contents.measured_caret_x = cx_offset;
-        contents.measured_caret_y = cy_offset;
-        contents.caret_line_height = ch_height;
-
-        let (curr_line, tot_lines) = crate::calculate_line_indices(&display_text, caret_index);
-        contents.current_line_index = curr_line;
-        contents.total_lines = tot_lines;
-
-        // 最終表示用テキストを Context 側に反映
-        cx.contents.text_contents.insert(id, display_text.into());
-
-        if let Some(visual) = cx.renders.visual_properties.get_mut(id) {
-            let is_ime_active = contents
-                .ime_state
-                .as_ref()
-                .map(|ime| !ime.composition_text.is_empty())
-                .unwrap_or(false);
-
-            if text_val.is_empty() && !is_ime_active {
-                // 確定文字列が空で、かつ未確定文字列も存在しない状態のみグレー表示
-                visual.text_color = contents.placeholder_color;
-            } else {
-                let base_color = cx
-                    .renders
-                    .base_visual_properties
-                    .get(id)
-                    .and_then(|v| v.text_color)
-                    .unwrap_or(Color::WHITE);
-                visual.text_color = Some(base_color);
-            }
-        }
-
-        scroll_ime_info = Some((
-            cx_offset,
-            cy_offset,
-            ch_height,
-            contents.caret_width.unwrap_or(1.5),
-            contents.caret_offset,
-            contents.is_multiline,
-        ));
-    }
-
-    if let Some((caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)) = scroll_ime_info
-    {
-        let rect = cx
-            .outputs
-            .rects
-            .get(id)
-            .copied()
-            .unwrap_or(LayoutRect::ZERO);
-        let mut scroll = cx
-            .outputs
-            .scroll_offsets
-            .get(id)
-            .copied()
-            .unwrap_or(LayoutPoint::ZERO);
-
-        if rect.width > 0.0 && rect.height > 0.0 {
-            let (basic, _, _) = cx.resolve_active_layouts(id);
-            let border = cx.get_physical_border(id, &basic);
-            let padding = cx.get_physical_padding(id, &basic);
-
-            let viewport_w =
-                (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
-            let viewport_h =
-                (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
-
-            // マージンを設定するとキー移動時にキャレット位置がずれるため削除
-            // let margin_x = 0.0; // 左右端のあそび（マージン）
-
-            // 1. 横方向スクロール (X軸)
-            if caret_x < scroll.x {
-                scroll.x = caret_x.max(0.0);
-            } else if caret_x + caret_w > scroll.x + viewport_w {
-                scroll.x = (caret_x + caret_w - viewport_w).max(0.0);
-            }
-
-            // 2. 縦方向スクロール (Y軸 - マルチラインのみ)
-            if is_multiline {
-                // let margin_y = 4.0; // 上下端のあそび
-                if caret_y < scroll.y {
-                    scroll.y = caret_y.max(0.0);
-                } else if caret_y + caret_h > scroll.y + viewport_h {
-                    scroll.y = (caret_y + caret_h - viewport_h).max(0.0);
-                }
-            } else {
-                scroll.y = 0.0;
-            }
-
-            cx.scroll_to(id, scroll.x, scroll.y);
-        }
-
-        // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
-        unsafe {
-            let hwnd = GetFocus();
-            let himc = ImmGetContext(hwnd);
-            if !himc.is_invalid() {
-                let rect = cx.outputs.rects[id];
-                let (basic, _, _) = cx.resolve_active_layouts(id);
-                let border_top = match basic.border.top {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let border_left = match basic.border.left {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let padding_top = match basic.padding.top {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-                let padding_left = match basic.padding.left {
-                    Length::Px(v) => v,
-                    _ => 0.0,
-                };
-
-                let scale = cx.window.scale_factor;
-                // スクロールオフセット（scroll.x / scroll.y）を正確に引いた実座標で同期
-                let caret_phys_x = (((rect.x + border_left + padding_left + caret_x) - scroll.x)
-                    * scale)
-                    .round() as i32;
-                let caret_phys_y = (((rect.y + border_top + padding_top + caret_y + caret_offset)
-                    - scroll.y)
-                    * scale)
-                    .round() as i32;
-                let caret_phys_h = (caret_h * scale).round() as i32;
-
-                // コンポジションウィンドウ位置の指定 (CFS_POINT)
-                let comp_form = COMPOSITIONFORM {
-                    dwStyle: CFS_POINT,
-                    ptCurrentPos: windows::Win32::Foundation::POINT {
-                        x: caret_phys_x,
-                        y: caret_phys_y,
-                    },
-                    rcArea: windows::Win32::Foundation::RECT::default(),
-                };
-                let _ = ImmSetCompositionWindow(himc, &comp_form);
-
-                // 候補ウィンドウ位置の指定 (CFS_EXCLUDE)
-                let candidate_form = CANDIDATEFORM {
-                    dwIndex: 0,
-                    dwStyle: CFS_EXCLUDE,
-                    ptCurrentPos: windows::Win32::Foundation::POINT {
-                        x: caret_phys_x,
-                        y: caret_phys_y,
-                    },
-                    rcArea: windows::Win32::Foundation::RECT {
-                        left: caret_phys_x,
-                        top: caret_phys_y,
-                        right: caret_phys_x + 1,
-                        bottom: caret_phys_y + caret_phys_h,
-                    },
-                };
-                let _ = ImmSetCandidateWindow(himc, &candidate_form);
-                let _ = ImmReleaseContext(hwnd, himc);
-            }
-        }
     }
 }
 
