@@ -426,8 +426,7 @@ impl Element {
                 }
 
                 // 親コンテナのレイアウト再計算と描画をダーティマーク
-                cx.mark_layout_dirty(parent_id);
-                cx.mark_render_dirty(parent_id);
+                cx.mark_dirty(parent_id);
             });
         });
 
@@ -542,8 +541,7 @@ impl Element {
         cx.add_child(id, new_child.id);
 
         // レイアウトと描画の再計算を要求
-        cx.mark_layout_dirty(id);
-        cx.mark_render_dirty(id);
+        cx.mark_dirty(id);
     }
 
     /// テキストを設定します。
@@ -554,12 +552,12 @@ impl Element {
         match content.into() {
             Prop::None => {}
             Prop::Static(val) => {
+                let id = self.id;
                 with_context(|cx| {
-                    cx.contents.text_contents.insert(self.id, val);
-                    cx.topology.active_masks[self.id].set(COMP_TEXT_CONTENT);
-                    cx.clear_layout_cache(self.id);
-                    cx.mark_layout_dirty(self.id);
-                    cx.mark_render_dirty(self.id);
+                    cx.contents.text_contents.insert(id, val);
+                    cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
+                    cx.clear_layout_cache(id);
+                    cx.mark_dirty(id);
                 });
             }
             Prop::Dynamic(f) => {
@@ -569,9 +567,8 @@ impl Element {
                         let new_text = f();
                         cx.contents.text_contents.insert(id, new_text);
                         cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
-                        cx.clear_layout_cache(self.id);
-                        cx.mark_layout_dirty(id);
-                        cx.mark_render_dirty(id);
+                        cx.clear_layout_cache(id);
+                        cx.mark_dirty(id);
                     });
                 });
             }
@@ -614,8 +611,7 @@ impl Element {
                         let src = f();
                         cx.contents.image_sources.insert(id, src);
                         cx.topology.active_masks[id].set(COMP_IMAGE_CONTENT);
-                        cx.mark_layout_dirty(id);
-                        cx.mark_render_dirty(id);
+                        cx.mark_dirty(id);
                     });
                 });
             }
@@ -646,8 +642,7 @@ impl Element {
                 with_context(|cx| {
                     cx.contents.movie_properties.insert(self.id, p);
                     cx.topology.active_masks[self.id].set(COMP_MOVIE_CONTENT);
-                    cx.mark_layout_dirty(self.id);
-                    cx.mark_render_dirty(self.id);
+                    cx.mark_dirty(self.id);
                 });
             }
             Prop::Dynamic(f) => {
@@ -657,8 +652,7 @@ impl Element {
                         let p = f();
                         cx.contents.movie_properties.insert(id, p);
                         cx.topology.active_masks[id].set(COMP_MOVIE_CONTENT);
-                        cx.mark_layout_dirty(id);
-                        cx.mark_render_dirty(id);
+                        cx.mark_dirty(id);
                     });
                 });
             }
@@ -689,8 +683,7 @@ impl Element {
                 with_context(|cx| {
                     cx.contents.webview_contents.insert(self.id, contents);
                     cx.topology.active_masks[self.id].set(COMP_WEBVIEW_CONTENT);
-                    cx.mark_layout_dirty(self.id);
-                    cx.mark_render_dirty(self.id);
+                    cx.mark_dirty(self.id);
                 });
             }
             Prop::Dynamic(f) => {
@@ -700,8 +693,7 @@ impl Element {
                         let contents = f();
                         cx.contents.webview_contents.insert(id, contents);
                         cx.topology.active_masks[id].set(COMP_WEBVIEW_CONTENT);
-                        cx.mark_layout_dirty(id);
-                        cx.mark_render_dirty(id);
+                        cx.mark_dirty(id);
                     });
                 });
             }
@@ -826,8 +818,7 @@ impl Element {
 
             // 早期リターンを抜ける前に、最新の文字列状態を SoA / DWrite 側へ即座に同期・反映
             update_input_caret_position(cx, id);
-            cx.mark_layout_dirty(id);
-            cx.mark_render_dirty(id);
+            cx.mark_dirty(id);
 
             // これ以降の初期化を完全にスキップして早期リターン
             return;
@@ -1533,8 +1524,7 @@ impl Element {
                 let _base_text_val = contents.text.0.get();
             }
             update_input_caret_position(cx, id);
-            cx.mark_layout_dirty(id);
-            cx.mark_render_dirty(id);
+            cx.mark_dirty(id);
         });
     }
 

@@ -108,6 +108,106 @@ impl EventStore {
 }
 
 impl EventStore {
+    pub(crate) fn to_attach_placeholder(
+        root: EntityId,
+        drag_prop: DragProperty,
+        outputs: &OutputStore,
+        layouts: &LayoutStore,
+    ) -> (Option<EntityId>, LayoutRect, f32, f32) {
+        let (parent_id_opt, parent_rect, parent_border_left, parent_border_top) =
+            match drag_prop.placeholder_parent {
+                DragPlaceholderParent::Root => (
+                    Some(root),
+                    outputs.rects.get(root).copied().unwrap_or(LayoutRect::ZERO),
+                    0.0,
+                    0.0,
+                ),
+                DragPlaceholderParent::Custom(p_id) => {
+                    let p_rect = outputs.rects.get(p_id).copied().unwrap_or(LayoutRect::ZERO);
+                    let b_l = if let Some(l) = layouts.basic_layouts.get(p_id) {
+                        match l.border.left {
+                            Length::Px(v) => v,
+                            _ => 0.0,
+                        }
+                    } else {
+                        0.0
+                    };
+                    let b_t = if let Some(l) = layouts.basic_layouts.get(p_id) {
+                        match l.border.top {
+                            Length::Px(v) => v,
+                            _ => 0.0,
+                        }
+                    } else {
+                        0.0
+                    };
+                    (Some(p_id), p_rect, b_l, b_t)
+                }
+            };
+        (
+            parent_id_opt,
+            parent_rect,
+            parent_border_left,
+            parent_border_top,
+        )
+    }
+
+    pub(crate) fn get_resizable_cursor_icon(
+        id: EntityId,
+        dir: ResizeDirection,
+        vis: &mut VisualProperty,
+    ) -> Option<CursorIcon> {
+        // 要素に resizable_cursor の個別指定があれば、方向に応じて該当カーソルを抽出
+        let custom_cursor = if let Some(arr) = vis.resizable_cursor {
+            let idx = match dir {
+                ResizeDirection::Top | ResizeDirection::Bottom => 0, // Ns
+                ResizeDirection::Left | ResizeDirection::Right => 1, // Ew
+                ResizeDirection::TopRight | ResizeDirection::BottomLeft => 2, // Nesw
+                ResizeDirection::TopLeft | ResizeDirection::BottomRight => 3, // Nwse
+            };
+            arr[idx]
+        } else {
+            None
+        };
+
+        // 独自指定があればそれを使い、無ければライブラリの自動マッピングを使用
+        Some(custom_cursor.unwrap_or_else(|| Context::resize_direction_to_cursor(dir)))
+    }
+
+    pub(crate) fn found_resize_hover(
+        target_id: Option<EntityId>,
+        logical_pos: LayoutPoint,
+        topology: &mut TopologyStore,
+        layouts: &LayoutStore,
+        outputs: &OutputStore,
+    ) -> (Option<EntityId>, Option<(EntityId, ResizeDirection)>) {
+        let mut current_id = target_id;
+        let mut found_resize_hover = None;
+        while let Some(id) = current_id {
+            if topology.active_masks[id].has(STYLE_RESIZABLE) {
+                let rect = outputs.rects[id];
+                let resizable_flags = layouts
+                    .basic_layouts
+                    .get(id)
+                    .map(|l| l.resizable)
+                    .unwrap_or([false; 4]);
+
+                // 境界外周に 6.0px のあそびを持たせてヒット判定
+                let detect_border = 6.0f32;
+                if let Some(dir) = Context::detect_resize_direction(
+                    rect,
+                    resizable_flags,
+                    logical_pos,
+                    detect_border,
+                ) {
+                    found_resize_hover = Some((id, dir));
+                    break; // 最も前面寄りのリサイズ親要素を優先採用
+                }
+            }
+            current_id = topology.parents.get(id).copied().flatten();
+        }
+        (current_id, found_resize_hover)
+    }
+
     /// リサイズ方向から対応するカーソル種別へ変換するヘルパー
     pub(crate) fn resize_direction_to_cursor(dir: ResizeDirection) -> CursorIcon {
         match dir {
@@ -159,6 +259,30 @@ impl EventStore {
             _ => None,
         }
     }
+
+    #[inline]
+    pub(crate) fn drag_overhang_distance(
+        pointer_pos: LayoutPoint,
+        clip: LayoutRect,
+    ) -> LayoutPoint {
+        let mut dx = 0.0f32;
+        let mut dy = 0.0f32;
+
+        // はみ出し距離
+        if pointer_pos.x < clip.x {
+            dx = pointer_pos.x - clip.x; // 左はみ出し：負値
+        } else if pointer_pos.x > clip.x + clip.width {
+            dx = pointer_pos.x - (clip.x + clip.width); // 右はみ出し：正値
+        }
+
+        if pointer_pos.y < clip.y {
+            dy = pointer_pos.y - clip.y;
+        } else if pointer_pos.y > clip.y + clip.height {
+            dy = pointer_pos.y - (clip.y + clip.height);
+        }
+
+        LayoutPoint { x: dx, y: dy }
+    }
 }
 
 impl Context {
@@ -179,45 +303,7 @@ impl Context {
         EventStore::detect_resize_direction(rect, resizable, pos, border)
     }
 
-    #[inline]
-    pub fn entity_id_focused(&self) -> Option<EntityId> {
-        self.events.interaction_states.focused
-    }
-
-    #[inline]
-    pub fn entity_id_dragged(&self) -> Option<EntityId> {
-        self.events.interaction_states.dragged
-    }
-
-    #[inline]
-    pub fn entity_id_hovered(&self) -> Option<EntityId> {
-        self.events.interaction_states.hovered
-    }
-
-    #[inline]
-    pub fn entity_id_pressed(&self) -> Option<EntityId> {
-        self.events.interaction_states.pressed
-    }
-
-    /// 指定された要素をプログラム駆動でクリックさせます
-    pub fn trigger_element_click(&mut self, id: EntityId) {
-        if !self.topology.entities.contains_key(id) || self.is_disabled(id) {
-            return;
-        }
-        if let Some(mut listeners) = self.events.event_listeners.get_mut(id)
-            && let Some(mut handler) = listeners.on_click.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(id);
-            handler(self);
-            if let Some(l) = self.events.event_listeners.get_mut(id) {
-                l.on_click = Some(handler);
-            }
-        }
-    }
-
-    /// 毎フレーム呼び出され、ドラッグ選択中の要素に対するオートスクロールを自律駆動します。
-    /// ウィンドウメッセージループ等、 tick_transitions() を呼び出している箇所と同じ周期で実行する。
-    pub fn tick_drag_autoscroll(&mut self) {
+    pub(crate) fn autoscroll_occurred(&mut self) -> (bool, Option<LayoutPoint>) {
         let mut autoscroll_occurred = false;
         let mut active_pos = None;
 
@@ -230,31 +316,17 @@ impl Context {
                 .visual_properties
                 .get(id)
                 .and_then(|v| v.user_select)
-                .unwrap_or(UserSelect::None);
+                .unwrap_or_default();
 
             if user_select == UserSelect::Text {
-                let mut dx = 0.0f32;
-                let mut dy = 0.0f32;
-
-                // はみ出し距離
-                if pointer_pos.x < clip.x {
-                    dx = pointer_pos.x - clip.x; // 左はみ出し：負値
-                } else if pointer_pos.x > clip.x + clip.width {
-                    dx = pointer_pos.x - (clip.x + clip.width); // 右はみ出し：正値
-                }
-
-                if pointer_pos.y < clip.y {
-                    dy = pointer_pos.y - clip.y;
-                } else if pointer_pos.y > clip.y + clip.height {
-                    dy = pointer_pos.y - (clip.y + clip.height);
-                }
+                let distace = EventStore::drag_overhang_distance(pointer_pos, clip);
 
                 // はみ出しがある場合、距離に比例したオートスクロールを実行
-                if dx.abs() > 1.0 || dy.abs() > 1.0 {
+                if distace.x.abs() > 1.0 || distace.y.abs() > 1.0 {
                     // TODO: スクロール感度調整用メソッドを実装。
                     let speed_factor = 0.15f32;
-                    let scroll_dx = dx * speed_factor;
-                    let scroll_dy = dy * speed_factor;
+                    let scroll_dx = distace.x * speed_factor;
+                    let scroll_dy = distace.y * speed_factor;
 
                     if self.scroll_by(id, scroll_dx, scroll_dy) {
                         autoscroll_occurred = true;
@@ -264,261 +336,137 @@ impl Context {
             }
         }
 
-        if autoscroll_occurred && let Some(pos) = active_pos {
-            // スクロールによりテキストが流れたため、
-            // 現在のポインタ座標で仮想的にポインタ移動を再トリガーし、
-            // 選択文字インデックスおよびキャレット位置を同期
-            self.inject_pointer_move(pos);
+        (autoscroll_occurred, active_pos)
+    }
 
-            if let Some(pressed_id) = self.events.interaction_states.pressed {
-                self.mark_render_dirty(pressed_id);
+    #[inline]
+    pub(crate) fn to_attach_placeholder(
+        &self,
+        root: EntityId,
+        drag_prop: DragProperty,
+    ) -> (Option<EntityId>, LayoutRect, f32, f32) {
+        EventStore::to_attach_placeholder(root, drag_prop, &self.outputs, &self.layouts)
+    }
+
+    #[inline]
+    pub(crate) fn apply_resizable_cursor_style(&mut self, id: EntityId, dir: ResizeDirection) {
+        if let Some(vis) = self.renders.visual_properties.get_mut(id) {
+            vis.cursor = EventStore::get_resizable_cursor_icon(id, dir, vis);
+        }
+    }
+
+    #[inline]
+    pub(crate) fn found_resize_hover(
+        &mut self,
+        target_id: Option<EntityId>,
+        logical_pos: LayoutPoint,
+    ) -> (Option<EntityId>, Option<(EntityId, ResizeDirection)>) {
+        EventStore::found_resize_hover(
+            target_id,
+            logical_pos,
+            &mut self.topology,
+            &self.layouts,
+            &self.outputs,
+        )
+    }
+
+    #[inline]
+    pub(crate) fn pressed_local_point(
+        &self,
+        pressed_id: EntityId,
+        logical_pos: LayoutPoint,
+    ) -> LayoutPoint {
+        let rect = self.outputs.rects[pressed_id];
+        let (basic, _, _) = self.resolve_active_layouts(pressed_id);
+        let border = self.get_physical_border(pressed_id, &basic);
+        let padding = self.get_physical_padding(pressed_id, &basic);
+
+        let scroll = self
+            .outputs
+            .scroll_offsets
+            .get(pressed_id)
+            .copied()
+            .unwrap_or(LayoutPoint::ZERO);
+
+        let local_x = logical_pos.x - (rect.x + border.left + padding.left) + scroll.x;
+        let local_y = logical_pos.y - (rect.y + border.top + padding.top) + scroll.y;
+        LayoutPoint {
+            x: local_x,
+            y: local_y,
+        }
+    }
+
+    pub(crate) fn resolve_hover_state(&mut self, target_id: Option<EntityId>) {
+        // 旧ホバー要素からマウスが去った
+        if let Some(old_id) = self.events.interaction_states.hovered {
+            self.set_hovered(old_id, false);
+
+            if let Some(mut listeners) = self.events.event_listeners.get_mut(old_id)
+                && let Some(mut handler) = listeners.on_mouse_leave.take()
+            {
+                let _guard = crate::ActiveElementGuard::new(old_id);
+                handler(self);
+                if let Some(l) = self.events.event_listeners.get_mut(old_id) {
+                    l.on_mouse_leave = Some(handler);
+                }
+            };
+        }
+
+        // 新ホバー要素にマウスが入った
+        if let Some(new_id) = target_id {
+            self.set_hovered(new_id, true);
+
+            if let Some(mut listeners) = self.events.event_listeners.get_mut(new_id)
+                && let Some(mut handler) = listeners.on_mouse_enter.take()
+            {
+                let _guard = crate::ActiveElementGuard::new(new_id);
+                handler(self);
+                if let Some(l) = self.events.event_listeners.get_mut(new_id) {
+                    l.on_mouse_enter = Some(handler);
+                }
+            };
+
+            if let Some(mut listeners) = self.events.event_listeners.get_mut(new_id)
+                && let Some(mut handler) = listeners.on_hover.take()
+            {
+                let _guard = crate::ActiveElementGuard::new(new_id);
+                handler(self);
+                if let Some(l) = self.events.event_listeners.get_mut(new_id) {
+                    l.on_hover = Some(handler);
+                }
+            };
+        }
+
+        self.events.interaction_states.hovered = target_id;
+    }
+
+    #[inline]
+    pub(crate) fn propagate_cursor_move_events(
+        &mut self,
+        target_id: EntityId,
+        logical_pos: LayoutPoint,
+    ) {
+        if let Some(mut listeners) = self.events.event_listeners.get_mut(target_id)
+            && let Some(mut handler) = listeners.on_cursor_moved.take()
+        {
+            let rect = self.outputs.rects[target_id];
+            let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
+            let _guard = crate::ActiveElementGuard::new(target_id);
+            handler(self, relative_pos);
+            if let Some(l) = self.events.event_listeners.get_mut(target_id) {
+                l.on_cursor_moved = Some(handler);
             }
         }
     }
 
-    pub fn inject_pointer_move(&mut self, logical_pos: LayoutPoint) {
-        let _context_guard = bind_context(self);
-
-        let prev_pos = self.events.current_pointer_position;
-        self.events.current_pointer_position = Some(logical_pos);
-
-        // リサイズ中のドラッグ同期処理
-        if let Some(state) = self.events.resizing_state.clone() {
-            self.sync_resizing_drag(logical_pos, state);
-            return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
-        }
-
-        self.sync_scrollbar_drag(logical_pos);
-
-        // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
-        let target_id = if let Some(pressed_id) = self.events.interaction_states.pressed {
-            Some(pressed_id)
-        } else {
-            self.hit_test(logical_pos)
-        };
-
-        // 直前のリサイズホバー対象を退避
-        let prev_resize_hover = self.events.active_resize_hover;
-        // リサイズホバー情報を一旦リセット
-        self.events.active_resize_hover = None;
-
-        // ヒットした要素、およびその親先祖に向かってツリーを遡上
-        let mut current_id = target_id;
-        let mut found_resize_hover = None;
-
-        while let Some(id) = current_id {
-            if self.topology.active_masks[id].has(STYLE_RESIZABLE) {
-                let rect = self.outputs.rects[id];
-                let resizable_flags = self
-                    .layouts
-                    .basic_layouts
-                    .get(id)
-                    .map(|l| l.resizable)
-                    .unwrap_or([false; 4]);
-
-                // 境界外周に 6.0px のあそびを持たせてヒット判定
-                let detect_border = 6.0f32;
-                if let Some(dir) = Context::detect_resize_direction(
-                    rect,
-                    resizable_flags,
-                    logical_pos,
-                    detect_border,
-                ) {
-                    found_resize_hover = Some((id, dir));
-                    break; // 最も前面寄りのリサイズ親要素を優先採用
-                }
-            }
-            current_id = self.topology.parents.get(id).copied().flatten();
-        }
-
-        if let Some((id, dir)) = found_resize_hover {
-            self.events.active_resize_hover = Some((id, dir));
-
-            if let Some(vis) = self.renders.visual_properties.get_mut(id) {
-                // 要素に resizable_cursor の個別指定があれば、方向に応じて該当カーソルを抽出
-                let custom_cursor = if let Some(arr) = vis.resizable_cursor {
-                    let idx = match dir {
-                        ResizeDirection::Top | ResizeDirection::Bottom => 0, // Ns
-                        ResizeDirection::Left | ResizeDirection::Right => 1, // Ew
-                        ResizeDirection::TopRight | ResizeDirection::BottomLeft => 2, // Nesw
-                        ResizeDirection::TopLeft | ResizeDirection::BottomRight => 3, // Nwse
-                    };
-                    arr[idx]
-                } else {
-                    None
-                };
-
-                // 独自指定があればそれを使い、無ければライブラリの自動マッピングを使用
-                vis.cursor =
-                    Some(custom_cursor.unwrap_or_else(|| Context::resize_direction_to_cursor(dir)));
-            }
-            self.mark_render_dirty(id);
-        }
-
-        // 枠線から外れた、または異なる要素に変わった場合
-        if let Some((prev_id, _)) = prev_resize_hover {
-            let now_id = self.events.active_resize_hover.map(|(id, _)| id);
-
-            // 異なるホバー状態になった場合、旧要素のカーソル上書きを破棄し本来のスタイルに即時強制リセット
-            if Some(prev_id) != now_id {
-                // スタイルの再解決を叩き、上書きされていた vis.cursor を本来のカーソル（通常ホバー/ベース等）へ復旧
-                self.resolve_element_style_state(prev_id, false);
-                self.mark_render_dirty(prev_id);
-            }
-        }
-
-        if let Some(pressed_id) = self.events.interaction_states.pressed {
-            let user_select = self
-                .renders
-                .visual_properties
-                .get(pressed_id)
-                .and_then(|v| v.user_select)
-                .unwrap_or(UserSelect::None);
-
-            if user_select == UserSelect::Text
-                && let Some(start_pos) = self.outputs.selection_start_index.get(pressed_id).copied()
-            {
-                // プレースホルダー選択のドラッグ遮断
-                if let Some(contents) = self.contents.input_contents.get(pressed_id) {
-                    let text_val = contents.text.0.get();
-                    let is_placeholder = text_val.is_empty()
-                        && contents
-                            .ime_state
-                            .as_ref()
-                            .map(|s| s.composition_text.is_empty())
-                            .unwrap_or(true);
-
-                    if is_placeholder && !contents.placeholder_select {
-                        return;
-                    }
-                }
-
-                let rect = self.outputs.rects[pressed_id];
-                let (basic, _, _) = self.resolve_active_layouts(pressed_id);
-                let border = self.get_physical_border(pressed_id, &basic);
-                let padding = self.get_physical_padding(pressed_id, &basic);
-
-                let scroll = self
-                    .outputs
-                    .scroll_offsets
-                    .get(pressed_id)
-                    .copied()
-                    .unwrap_or(LayoutPoint::ZERO);
-
-                let local_x = logical_pos.x - (rect.x + border.left + padding.left) + scroll.x;
-                let local_y = logical_pos.y - (rect.y + border.top + padding.top) + scroll.y;
-
-                if let Some(layout) = self.get_or_create_layout(pressed_id) {
-                    let (current_index, is_trailing) = self
-                        .system
-                        .text_engine
-                        .hit_test_point(&layout, local_x, local_y);
-                    let final_index = if is_trailing {
-                        current_index + 1
-                    } else {
-                        current_index
-                    };
-
-                    let range = if start_pos <= final_index {
-                        // 順選択（右方向ドラッグ）
-                        if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
-                            contents.selection_reversed = false;
-                        }
-                        start_pos..final_index
-                    } else {
-                        // 逆選択（左方向ドラッグ）
-                        if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
-                            contents.selection_reversed = true;
-                        }
-                        final_index..start_pos
-                    };
-
-                    self.outputs
-                        .text_selections
-                        .insert(pressed_id, range.clone());
-
-                    self.update_selection_rects(pressed_id);
-
-                    if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
-                        contents.selected_range = range;
-                        crate::update_input_caret_position(self, pressed_id);
-                    }
-                    self.mark_render_dirty(pressed_id);
-                }
-            }
-        }
-
-        // ヒットテスト
-        let target_id = self.hit_test(logical_pos);
-
-        // ホバー（Enter/Leave）状態の解決
-        if target_id != self.events.interaction_states.hovered {
-            // 旧ホバー要素からマウスが去った
-            if let Some(old_id) = self.events.interaction_states.hovered {
-                self.set_hovered(old_id, false);
-
-                if let Some(mut listeners) = self.events.event_listeners.get_mut(old_id)
-                    && let Some(mut handler) = listeners.on_mouse_leave.take()
-                {
-                    let _guard = crate::ActiveElementGuard::new(old_id);
-                    handler(self);
-                    if let Some(l) = self.events.event_listeners.get_mut(old_id) {
-                        l.on_mouse_leave = Some(handler);
-                    }
-                };
-            }
-
-            // 新ホバー要素にマウスが入った
-            if let Some(new_id) = target_id {
-                self.set_hovered(new_id, true);
-
-                if let Some(mut listeners) = self.events.event_listeners.get_mut(new_id)
-                    && let Some(mut handler) = listeners.on_mouse_enter.take()
-                {
-                    let _guard = crate::ActiveElementGuard::new(new_id);
-                    handler(self);
-                    if let Some(l) = self.events.event_listeners.get_mut(new_id) {
-                        l.on_mouse_enter = Some(handler);
-                    }
-                };
-
-                if let Some(mut listeners) = self.events.event_listeners.get_mut(new_id)
-                    && let Some(mut handler) = listeners.on_hover.take()
-                {
-                    let _guard = crate::ActiveElementGuard::new(new_id);
-                    handler(self);
-                    if let Some(l) = self.events.event_listeners.get_mut(new_id) {
-                        l.on_hover = Some(handler);
-                    }
-                };
-            }
-
-            self.events.interaction_states.hovered = target_id;
-        }
-
-        // カーソル移動イベントの伝播
-        if let Some(target_id) = target_id {
-            // on_cursor_moved
-            let mut on_move = self
-                .events
-                .event_listeners
-                .get_mut(target_id)
-                .and_then(|l| l.on_cursor_moved.take());
-            if let Some(mut handler) = on_move {
-                let rect = self.outputs.rects[target_id];
-                let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
-                let _guard = crate::ActiveElementGuard::new(target_id);
-                handler(self, relative_pos);
-                if let Some(l) = self.events.event_listeners.get_mut(target_id) {
-                    l.on_cursor_moved = Some(handler);
-                }
-            }
-        }
-
-        // ドラッグイベントの伝播
-        if let Some(pressed_id) = self.events.interaction_states.pressed
-            && let Some(prev) = prev_pos
-        {
+    #[inline]
+    pub(crate) fn propagate_drag_events(
+        &mut self,
+        pressed_id: EntityId,
+        prev_pos: Option<LayoutPoint>,
+        logical_pos: LayoutPoint,
+    ) {
+        if let Some(prev) = prev_pos {
             let delta = LayoutPoint::new(logical_pos.x - prev.x, logical_pos.y - prev.y);
             if delta.x != 0.0 || delta.y != 0.0 {
                 self.set_dragged(pressed_id, true);
@@ -543,49 +491,13 @@ impl Context {
                     );
 
                     // ウィンドウの真のルート要素をライブラリ側で自己解決
-                    let root_entity = self
+                    let root = self
                         .find_root_entity()
                         .expect("Root EntityId not found in Context");
 
                     // プレースホルダーアタッチ先親要素の決定
                     let (parent_id_opt, parent_rect, parent_border_left, parent_border_top) =
-                        match drag_prop.placeholder_parent {
-                            DragPlaceholderParent::Root => (
-                                Some(root_entity),
-                                self.outputs
-                                    .rects
-                                    .get(root_entity)
-                                    .copied()
-                                    .unwrap_or(LayoutRect::ZERO),
-                                0.0,
-                                0.0,
-                            ),
-                            DragPlaceholderParent::Custom(p_id) => {
-                                let p_rect = self
-                                    .outputs
-                                    .rects
-                                    .get(p_id)
-                                    .copied()
-                                    .unwrap_or(LayoutRect::ZERO);
-                                let b_l = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
-                                    match l.border.left {
-                                        Length::Px(v) => v,
-                                        _ => 0.0,
-                                    }
-                                } else {
-                                    0.0
-                                };
-                                let b_t = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
-                                    match l.border.top {
-                                        Length::Px(v) => v,
-                                        _ => 0.0,
-                                    }
-                                } else {
-                                    0.0
-                                };
-                                (Some(p_id), p_rect, b_l, b_t)
-                            }
-                        };
+                        self.to_attach_placeholder(root, drag_prop);
 
                     // プレースホルダー（クローン）をアタッチ先親の直下へ spawn して生成
                     let placeholder_id = self.spawn(parent_id_opt);
@@ -726,147 +638,309 @@ impl Context {
                 }
             }
         }
+    }
+
+    pub(crate) fn calculate_relative_local(
+        &self,
+        root: EntityId,
+        drag_prop: DragProperty,
+    ) -> (LayoutRect, f32, f32) {
+        match drag_prop.placeholder_parent {
+            DragPlaceholderParent::Root => (
+                self.outputs
+                    .rects
+                    .get(root)
+                    .copied()
+                    .unwrap_or(LayoutRect::ZERO),
+                0.0,
+                0.0,
+            ),
+            DragPlaceholderParent::Custom(p_id) => {
+                let p_rect = self
+                    .outputs
+                    .rects
+                    .get(p_id)
+                    .copied()
+                    .unwrap_or(LayoutRect::ZERO);
+                let b_l = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
+                    match l.border.left {
+                        Length::Px(v) => v,
+                        _ => 0.0,
+                    }
+                } else {
+                    0.0
+                };
+                let b_t = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
+                    match l.border.top {
+                        Length::Px(v) => v,
+                        _ => 0.0,
+                    }
+                } else {
+                    0.0
+                };
+                (p_rect, b_l, b_t)
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn update_inset_based_relative_local(
+        &mut self,
+        root: EntityId,
+        placeholder: EntityId,
+        logical_pos: LayoutPoint,
+        drag_prop: DragProperty,
+        drag_state: &ActiveDragState,
+    ) {
+        // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
+        let (parent_rect, b_l, b_t) = self.calculate_relative_local(root, drag_prop);
+
+        // マウスのドラッグ開始時クリックオフセットを用いて、ローカル Top-Left 座標を算出
+        let local_x = logical_pos.x - (parent_rect.x + b_l) - drag_state.click_offset.x;
+        let local_y = logical_pos.y - (parent_rect.y + b_t) - drag_state.click_offset.y;
+
+        if let Some(layout) = self.layouts.basic_layouts.get_mut(placeholder) {
+            layout.inset.left = Val::Px(local_x);
+            layout.inset.top = Val::Px(local_y);
+            layout.inset.right = Val::Auto;
+            layout.inset.bottom = Val::Auto;
+        }
+        if let Some(layout) = self.renders.base_basic_layouts.get_mut(placeholder) {
+            layout.inset.left = Val::Px(local_x);
+            layout.inset.top = Val::Px(local_y);
+            layout.inset.right = Val::Auto;
+            layout.inset.bottom = Val::Auto;
+        }
+
+        self.mark_layout_dirty(placeholder);
+        self.mark_render_dirty(placeholder);
+    }
+
+    pub fn inject_pointer_move(&mut self, logical_pos: LayoutPoint) {
+        let _context_guard = bind_context(self);
+
+        let prev_pos = self.events.current_pointer_position;
+        self.events.current_pointer_position = Some(logical_pos);
+
+        // リサイズ中のドラッグ同期処理
+        if let Some(state) = self.events.resizing_state.clone() {
+            self.sync_resizing_drag(logical_pos, state);
+            return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
+        }
+
+        self.sync_scrollbar_drag(logical_pos);
+
+        // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
+        let target_id = if let Some(pressed_id) = self.events.interaction_states.pressed {
+            Some(pressed_id)
+        } else {
+            self.hit_test(logical_pos)
+        };
+
+        // 直前のリサイズホバー対象を退避
+        let prev_resize_hover = self.events.active_resize_hover;
+        // リサイズホバー情報を一旦リセット
+        self.events.active_resize_hover = None;
+
+        // ヒットした要素、およびその親先祖に向かってツリーを遡上
+        let (current_id, found_resize_hover) = self.found_resize_hover(target_id, logical_pos);
+
+        if let Some((id, dir)) = found_resize_hover {
+            self.events.active_resize_hover = Some((id, dir));
+            self.apply_resizable_cursor_style(id, dir);
+            self.mark_render_dirty(id);
+        }
+
+        // 枠線から外れた、または異なる要素に変わった場合
+        if let Some((prev_id, _)) = prev_resize_hover {
+            let now_id = self.events.active_resize_hover.map(|(id, _)| id);
+
+            // 異なるホバー状態になった場合、旧要素のカーソル上書きを破棄し本来のスタイルに即時強制リセット
+            if Some(prev_id) != now_id {
+                // スタイルの再解決を叩き、上書きされていた vis.cursor を本来のカーソル（通常ホバー/ベース等）へ復旧
+                self.resolve_element_style_state(prev_id, false);
+                self.mark_render_dirty(prev_id);
+            }
+        }
+
+        if let Some(pressed_id) = self.events.interaction_states.pressed {
+            let user_select = self
+                .renders
+                .visual_properties
+                .get(pressed_id)
+                .and_then(|v| v.user_select)
+                .unwrap_or_default();
+
+            if user_select == UserSelect::Text
+                && let Some(start_pos) = self.outputs.selection_start_index.get(pressed_id).copied()
+            {
+                // プレースホルダー選択のドラッグ遮断
+                if let Some(contents) = self.contents.input_contents.get(pressed_id) {
+                    let is_placeholder = contents.text.0.get().is_empty();
+                    let is_ime = contents
+                        .ime_state
+                        .as_ref()
+                        .map(|s| s.composition_text.is_empty())
+                        .unwrap_or(true);
+
+                    if is_placeholder && is_ime && !contents.placeholder_select {
+                        return;
+                    }
+                }
+
+                let local = self.pressed_local_point(pressed_id, logical_pos);
+
+                if let Some(layout) = self.get_or_create_layout(pressed_id) {
+                    let (current_index, is_trailing) = self
+                        .system
+                        .text_engine
+                        .hit_test_point(&layout, local.x, local.y);
+                    let final_index = if is_trailing {
+                        current_index + 1
+                    } else {
+                        current_index
+                    };
+
+                    let range = if start_pos <= final_index {
+                        // 順選択（右方向ドラッグ）
+                        if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
+                            contents.selection_reversed = false;
+                        }
+                        start_pos..final_index
+                    } else {
+                        // 逆選択（左方向ドラッグ）
+                        if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
+                            contents.selection_reversed = true;
+                        }
+                        final_index..start_pos
+                    };
+
+                    self.outputs
+                        .text_selections
+                        .insert(pressed_id, range.clone());
+
+                    self.update_selection_rects(pressed_id);
+
+                    if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
+                        contents.selected_range = range;
+                        crate::update_input_caret_position(self, pressed_id);
+                    }
+                    self.mark_render_dirty(pressed_id);
+                }
+            }
+        }
+
+        // ヒットテスト
+        let target_id = self.hit_test(logical_pos);
+
+        // ホバー（Enter/Leave）状態の解決
+        if target_id != self.events.interaction_states.hovered {
+            self.resolve_hover_state(target_id);
+        }
+
+        // カーソル移動イベントの伝播
+        if let Some(target_id) = target_id {
+            self.propagate_cursor_move_events(target_id, logical_pos);
+        }
+
+        // ドラッグイベントの伝播
+        if let Some(pressed_id) = self.events.interaction_states.pressed {
+            self.propagate_drag_events(pressed_id, prev_pos, logical_pos);
+        }
 
         // D&D プレースホルダーの移動とドロップ先ホバー検知
-        if let Some(mut drag_state) = self.events.active_drag_state.clone() {
-            let src_id = drag_state.source_entity;
-            let placeholder_id = drag_state.placeholder_entity;
-            let drag_prop = self.events.drag_properties.get(src_id).copied().unwrap();
+        let Some(mut drag_state) = self.events.active_drag_state.clone() else {
+            return;
+        };
 
-            // ウィンドウの真のルート要素をライブラリ側で自己解決
-            let root_entity = self
-                .find_root_entity()
-                .expect("Root EntityId not found in Context");
+        // ウィンドウの真のルート要素を解決
+        let root = self
+            .find_root_entity()
+            .expect("Root EntityId not found in Context");
 
-            // 5-1. アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
-            let (parent_rect, b_l, b_t) = match drag_prop.placeholder_parent {
-                DragPlaceholderParent::Root => (
-                    self.outputs
-                        .rects
-                        .get(root_entity)
-                        .copied()
-                        .unwrap_or(LayoutRect::ZERO),
-                    0.0,
-                    0.0,
-                ),
-                DragPlaceholderParent::Custom(p_id) => {
-                    let p_rect = self
-                        .outputs
-                        .rects
-                        .get(p_id)
-                        .copied()
-                        .unwrap_or(LayoutRect::ZERO);
-                    let b_l = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
-                        match l.border.left {
-                            Length::Px(v) => v,
-                            _ => 0.0,
-                        }
-                    } else {
-                        0.0
-                    };
-                    let b_t = if let Some(l) = self.layouts.basic_layouts.get(p_id) {
-                        match l.border.top {
-                            Length::Px(v) => v,
-                            _ => 0.0,
-                        }
-                    } else {
-                        0.0
-                    };
-                    (p_rect, b_l, b_t)
-                }
-            };
+        let src_id = drag_state.source_entity;
+        let placeholder_id = drag_state.placeholder_entity;
+        let drag_prop = self.events.drag_properties.get(src_id).copied().unwrap();
 
-            // マウスのドラッグ開始時クリックオフセットを用いて、ローカル Top-Left 座標を算出
-            let local_x = logical_pos.x - (parent_rect.x + b_l) - drag_state.click_offset.x;
-            let local_y = logical_pos.y - (parent_rect.y + b_t) - drag_state.click_offset.y;
+        // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
+        self.update_inset_based_relative_local(
+            root,
+            placeholder_id,
+            logical_pos,
+            drag_prop,
+            &drag_state,
+        );
 
-            if let Some(layout) = self.layouts.basic_layouts.get_mut(placeholder_id) {
-                layout.inset.left = Val::Px(local_x);
-                layout.inset.top = Val::Px(local_y);
-                layout.inset.right = Val::Auto;
-                layout.inset.bottom = Val::Auto;
-            }
-            if let Some(layout) = self.renders.base_basic_layouts.get_mut(placeholder_id) {
-                layout.inset.left = Val::Px(local_x);
-                layout.inset.top = Val::Px(local_y);
-                layout.inset.right = Val::Auto;
-                layout.inset.bottom = Val::Auto;
-            }
+        // 現在ホバー侵入中のドロップターゲット要素を検知
+        let hit_id_opt = self.hit_test(logical_pos);
+        let mut found_drop_target = None;
 
-            self.mark_layout_dirty(placeholder_id);
-            self.mark_render_dirty(placeholder_id);
-
-            // 5-2. 現在ホバー侵入中のドロップターゲット要素を検知
-            let hit_id_opt = self.hit_test(logical_pos);
-            let mut found_drop_target = None;
-
-            if let Some(hit_id) = hit_id_opt {
-                let mut current_id = Some(hit_id);
-                while let Some(id) = current_id {
-                    // ヒットした要素がドラッグ元（src_id）自身、またはその子孫である場合は
-                    // ドロップ先として誤認されるのを完全に防ぐため、スルーしてさらに上の親を辿る
-                    if id == src_id || self.is_descendant_of(id, src_id) {
-                        current_id = self.topology.parents.get(id).copied().flatten();
-                        continue;
-                    }
-
-                    if id != placeholder_id && self.topology.active_masks[id].has(STYLE_DROPPABLE) {
-                        found_drop_target = Some(id);
-                        break;
-                    }
+        if let Some(hit_id) = hit_id_opt {
+            let mut current_id = Some(hit_id);
+            while let Some(id) = current_id {
+                // ヒットした要素がドラッグ元（src_id）自身、またはその子孫である場合は
+                // ドロップ先として誤認されるのを完全に防ぐため、スルーしてさらに上の親を辿る
+                if id == src_id || self.is_descendant_of(id, src_id) {
                     current_id = self.topology.parents.get(id).copied().flatten();
+                    continue;
                 }
-            }
 
-            // ドロップ先のホバー切り替えイベントを解決（STATE_DRAG_IN の同期）
-            if found_drop_target != drag_state.current_drop_target {
-                if let Some(old_target) = drag_state.current_drop_target {
-                    self.set_drag_state(old_target, STATE_DRAG_IN, false);
+                if id != placeholder_id && self.topology.active_masks[id].has(STYLE_DROPPABLE) {
+                    found_drop_target = Some(id);
+                    break;
                 }
-                if let Some(new_target) = found_drop_target {
-                    self.set_drag_state(new_target, STATE_DRAG_IN, true);
-                }
-                drag_state.current_drop_target = found_drop_target;
-                self.events.active_drag_state = Some(drag_state.clone());
+                current_id = self.topology.parents.get(id).copied().flatten();
             }
+        }
 
-            // コールバックを一時的に take して借用を分離した後に実行
-            match drag_prop.drag_mode {
-                DragPayload::Element => {
-                    let mut listener_opt = self
-                        .events
-                        .event_listeners
-                        .get_mut(src_id)
-                        .and_then(|l| l.on_entity_drag.take());
-                    if let Some(mut listener) = listener_opt {
-                        {
-                            let _guard = crate::ActiveElementGuard::new(src_id);
-                            listener(
-                                self,
-                                Element::from(src_id),
-                                found_drop_target.map(Element::from),
-                            );
-                        }
-                        // 再度元の場所へ戻す
-                        if let Some(l) = self.events.event_listeners.get_mut(src_id) {
-                            l.on_entity_drag = Some(listener);
-                        }
+        // ドロップ先のホバー切り替えイベントを解決（STATE_DRAG_IN の同期）
+        if found_drop_target != drag_state.current_drop_target {
+            if let Some(old_target) = drag_state.current_drop_target {
+                self.set_drag_state(old_target, STATE_DRAG_IN, false);
+            }
+            if let Some(new_target) = found_drop_target {
+                self.set_drag_state(new_target, STATE_DRAG_IN, true);
+            }
+            drag_state.current_drop_target = found_drop_target;
+            self.events.active_drag_state = Some(drag_state.clone());
+        }
+
+        // コールバックを一時的に take して借用を分離した後に実行
+        match drag_prop.drag_mode {
+            DragPayload::Element => {
+                let mut listener_opt = self
+                    .events
+                    .event_listeners
+                    .get_mut(src_id)
+                    .and_then(|l| l.on_entity_drag.take());
+                if let Some(mut listener) = listener_opt {
+                    {
+                        let _guard = crate::ActiveElementGuard::new(src_id);
+                        listener(
+                            self,
+                            Element::from(src_id),
+                            found_drop_target.map(Element::from),
+                        );
+                    }
+                    // 再度元の場所へ戻す
+                    if let Some(l) = self.events.event_listeners.get_mut(src_id) {
+                        l.on_entity_drag = Some(listener);
                     }
                 }
-                DragPayload::EntityId => {
-                    let mut listener_opt = self
-                        .events
-                        .event_listeners
-                        .get_mut(src_id)
-                        .and_then(|l| l.on_id_drag.take());
-                    if let Some(mut listener) = listener_opt {
-                        {
-                            let _guard = crate::ActiveElementGuard::new(src_id);
-                            listener(self, src_id, found_drop_target);
-                        }
-                        if let Some(l) = self.events.event_listeners.get_mut(src_id) {
-                            l.on_id_drag = Some(listener);
-                        }
+            }
+            DragPayload::EntityId => {
+                let mut listener_opt = self
+                    .events
+                    .event_listeners
+                    .get_mut(src_id)
+                    .and_then(|l| l.on_id_drag.take());
+                if let Some(mut listener) = listener_opt {
+                    {
+                        let _guard = crate::ActiveElementGuard::new(src_id);
+                        listener(self, src_id, found_drop_target);
+                    }
+                    if let Some(l) = self.events.event_listeners.get_mut(src_id) {
+                        l.on_id_drag = Some(listener);
                     }
                 }
             }

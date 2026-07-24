@@ -134,6 +134,66 @@ impl Context {
         }
     }
 
+    #[inline]
+    pub(crate) fn mark_dirty(&mut self, id: EntityId) {
+        self.mark_layout_dirty(id);
+        self.mark_render_dirty(id);
+    }
+
+    #[inline]
+    pub fn entity_id_focused(&self) -> Option<EntityId> {
+        self.events.interaction_states.focused
+    }
+
+    #[inline]
+    pub fn entity_id_dragged(&self) -> Option<EntityId> {
+        self.events.interaction_states.dragged
+    }
+
+    #[inline]
+    pub fn entity_id_hovered(&self) -> Option<EntityId> {
+        self.events.interaction_states.hovered
+    }
+
+    #[inline]
+    pub fn entity_id_pressed(&self) -> Option<EntityId> {
+        self.events.interaction_states.pressed
+    }
+
+    /// 指定された要素をプログラム駆動でクリックさせます
+    pub fn trigger_element_click(&mut self, id: EntityId) {
+        if !self.topology.entities.contains_key(id) || self.is_disabled(id) {
+            return;
+        }
+        if let Some(mut listeners) = self.events.event_listeners.get_mut(id)
+            && let Some(mut handler) = listeners.on_click.take()
+        {
+            let _guard = crate::ActiveElementGuard::new(id);
+            handler(self);
+            if let Some(l) = self.events.event_listeners.get_mut(id) {
+                l.on_click = Some(handler);
+            }
+        }
+    }
+
+    /// 毎フレーム呼び出され、ドラッグ選択中の要素に対するオートスクロールを自律駆動します。
+    /// ウィンドウメッセージループ等、 tick_transitions() を呼び出している箇所と同じ周期で実行する。
+    #[inline]
+    pub fn tick_drag_autoscroll(&mut self) {
+        let (autoscroll_occurred, active_pos) = self.autoscroll_occurred();
+
+        if autoscroll_occurred && let Some(pos) = active_pos {
+            // スクロールによりテキストが流れたため、
+            // 現在のポインタ座標で仮想的にポインタ移動を再トリガーし、
+            // 選択文字インデックスおよびキャレット位置を同期
+            self.inject_pointer_move(pos);
+
+            if let Some(pressed_id) = self.events.interaction_states.pressed {
+                self.mark_render_dirty(pressed_id);
+            }
+        }
+    }
+
     /// ホバー（Hovered：マウスホバー）状態を更新します。
     ///
     /// ホバースタイル内にレイアウト変更プロパティ（幅やマージン等）が含まれていれば自動的にレイアウト再計算が要求され、
