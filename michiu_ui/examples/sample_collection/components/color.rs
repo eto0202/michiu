@@ -26,7 +26,7 @@ fn item(label: &'static str, style: ThisStyle) -> Element {
     div(style
         .p(10.0)
         .r(4.0)
-        .size((64.0, 64.0))
+        .size((70.0, 70.0))
         .justify_center()
         .items_center())
     .on_mouse_enter(move || set_show_popup.set(true))

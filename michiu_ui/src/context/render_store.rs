@@ -82,7 +82,7 @@ impl RenderStore {
 
 impl RenderStore {
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
-    pub fn clear_render_dirty(renders: &mut RenderStore, topology: &mut TopologyStore) {
+    pub(crate) fn clear_render_dirty(renders: &mut RenderStore, topology: &mut TopologyStore) {
         for id in renders.dirty_render_entities.drain(..) {
             if let Some(mask) = topology.active_masks.get_mut(id) {
                 mask.unset(STATE_QUEUED_RENDER);
@@ -219,7 +219,7 @@ impl RenderStore {
     }
 
     /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
-    pub fn has_active_animations(
+    pub(crate) fn has_active_animations(
         renders: &RenderStore,
         events: &EventStore,
         layouts: &LayoutStore,
@@ -406,7 +406,7 @@ impl RenderStore {
     }
 
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
-    pub fn resolve_cursor(
+    pub(crate) fn resolve_cursor(
         hovered_id: EntityId,
         events: &EventStore,
         renders: &RenderStore,
@@ -469,7 +469,7 @@ impl RenderStore {
     }
 
     #[inline]
-    pub fn get_transform_and_origin(visual: &VisualProperty) -> ([[f32; 4]; 3], [f32; 2]) {
+    pub(crate) fn get_transform_and_origin(visual: &VisualProperty) -> ([[f32; 4]; 3], [f32; 2]) {
         let origin = visual
             .transform_origin
             .map(|p| [p.x, p.y])
@@ -861,33 +861,6 @@ impl Context {
         RenderStore::get_target_style(id, &self.renders)
     }
 
-    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
-    #[inline]
-    pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
-        RenderStore::resolve_cursor(hovered_id, &self.events, &self.renders, &self.topology)
-    }
-
-    /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
-    #[inline]
-    pub fn clear_render_dirty(&mut self) {
-        RenderStore::clear_render_dirty(&mut self.renders, &mut self.topology);
-    }
-
-    /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
-    pub fn has_active_animations(&self) -> bool {
-        // ドラッグ選択中でポインタが可視境界外にある場合も継続
-        let has_drag_autoscroll =
-            OutputStore::is_drag_autoscroll_active(&self.events, &self.outputs, &self.renders);
-
-        RenderStore::has_active_animations(
-            &self.renders,
-            &self.events,
-            &self.layouts,
-            &self.contents,
-            has_drag_autoscroll,
-        )
-    }
-
     /// 対象の要素がキーボードフォーカス可能であるかを総合検証します
     pub(crate) fn is_keyboard_focusable(&self, id: EntityId) -> bool {
         // 生存確認、および無効化（Disabled）状態でないか検証
@@ -978,71 +951,6 @@ impl Context {
                 v.shadow_color = Some(shadow.color);
             }
         }
-    }
-
-    /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
-    pub fn tick_animations(&mut self) {
-        let now = Instant::now();
-
-        // 借用チェッカーを回避するため、一時的にマップを take して更新
-        let mut active_map = std::mem::take(&mut self.renders.active_animations);
-        let mut to_remove = Vec::new();
-
-        for (id, animations) in active_map.iter_mut() {
-            let mut i = 0;
-            while i < animations.len() {
-                let anim = &mut animations[i];
-                let elapsed = now.duration_since(anim.start_time);
-                let elapsed_secs = elapsed.as_secs_f32();
-                let duration_secs = anim.duration.as_secs_f32();
-
-                // 1. 現在の周回回数（ループインデックス）の算出
-                let current_iteration = (elapsed_secs / duration_secs).floor() as u32;
-
-                // ループ制限に達しているかチェック
-                let is_finished = match anim.iteration_count {
-                    PlaybackCount::Count(max_count) => current_iteration >= max_count,
-                    PlaybackCount::Infinite => false,
-                };
-
-                if is_finished {
-                    // ループ終了：目標の最終値（end_value）で固定してアニメーションを破棄
-                    self.apply_animation_value(id, anim.property, &anim.end_value);
-                    animations.remove(i);
-                    continue;
-                }
-
-                // 2. 現在のループ内での正規化進行度 (0.0 ～ 1.0) の計算
-                let local_time = elapsed_secs % duration_secs;
-                let progress = if duration_secs > 0.0 {
-                    (local_time / duration_secs).min(1.0)
-                } else {
-                    1.0
-                };
-                let eased_t = anim.curve.evaluate(progress);
-
-                // 3. 値の補間
-                let current_val = anim.start_value.lerp(&anim.end_value, eased_t);
-
-                // 4. SoA へ補間された動的スタイル値を上書き書き戻し
-                self.apply_animation_value(id, anim.property, &current_val);
-
-                // レンダラーへ再描画要求（ファストパス）
-                self.mark_render_dirty(id);
-
-                i += 1;
-            }
-
-            if animations.is_empty() {
-                to_remove.push(id);
-            }
-        }
-
-        // 空になったエントリをクリーンアップ
-        for id in to_remove {
-            active_map.remove(id);
-        }
-        self.renders.active_animations = active_map;
     }
 
     /// 状態の変更を検知し、アニメーション（トランジション）が必要な箇所を自動的に開始・制御します。
@@ -1394,127 +1302,6 @@ impl Context {
                 crate::execute_effect(eff_id);
             }
         }
-    }
-
-    /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
-    pub fn tick_transitions(&mut self) {
-        let now = Instant::now();
-
-        // (1.0 / 120.0 秒 = 約 8,333,333 ナノ秒)
-        const FRAME_TIME_120FPS: Duration = Duration::from_nanos(8_333_333);
-        if let Some(last) = self.renders.last_tick_time
-            && now.duration_since(last) < FRAME_TIME_120FPS
-        {
-            return;
-        }
-
-        // 実行制限を通過したため、基準時刻を更新して処理を継続
-        self.renders.last_tick_time = Some(now);
-
-        // 借用チェッカーを回避するため、一時的にマップを take して更新する
-        let mut active_map = std::mem::take(&mut self.renders.active_transitions);
-
-        // 完了して空になった要素のIDを記録する一時配列
-        let mut to_remove = Vec::new();
-
-        for (id, transitions) in active_map.iter_mut() {
-            let mut i = 0;
-            while i < transitions.len() {
-                let t_state = &mut transitions[i];
-
-                // start_time が None なら、このフレームの時刻 now を格納しその値を取り出す。
-                let start_time = *t_state.start_time.get_or_insert(now);
-                let elapsed = now.duration_since(start_time);
-
-                // 進行度 (0.0 ～ 1.0)
-                let progress = (elapsed.as_secs_f32() / t_state.duration.as_secs_f32()).min(1.0);
-                let eased_t = t_state.curve.evaluate(progress);
-
-                // Lerpによる新しい値の決定
-                let current_val = t_state.start_value.lerp(&t_state.end_value, eased_t);
-
-                // SoA（Context のアクティブなプロパティ）に補間された値を書き戻す
-                match current_val {
-                    TransitionValue::Color(c) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            if t_state.property_list == PropertyList::BackgroundColor {
-                                v.bg_color = Some(c);
-                            } else if t_state.property_list == PropertyList::BorderColor {
-                                v.border_color = Some(c);
-                            }
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                    TransitionValue::Opacity(o) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            v.opacity = Some(o);
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                    TransitionValue::Transform(m) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            v.transform = Some(m);
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                    TransitionValue::CornerRadius(cr) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            v.corner_radius = Some(cr);
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                    TransitionValue::Width(w) => {
-                        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
-                            layout.size.width = Val::Px(w); // ピクセル値で上書き
-                        }
-                        self.mark_layout_dirty(id); // レイアウト再計算をマーク
-
-                        // キャッシュを毎フレーム強制バイパスさせるためにマスクを再セット
-                        if let Some(mask) = self.topology.active_masks.get_mut(id) {
-                            mask.set(STATE_QUEUED_LAYOUT);
-                        }
-                    }
-                    // 縦幅（Height）の毎フレームアニメーション補間
-                    TransitionValue::Height(h) => {
-                        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
-                            layout.size.height = Val::Px(h);
-                        }
-                        self.mark_layout_dirty(id);
-
-                        if let Some(mask) = self.topology.active_masks.get_mut(id) {
-                            mask.set(STATE_QUEUED_LAYOUT);
-                        }
-                    }
-                    // 影（BoxShadow）の毎フレームの書き戻し処理
-                    TransitionValue::BoxShadow(shadow) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            v.shadow_params = Some(shadow);
-                            v.shadow_color = Some(shadow.color);
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                }
-
-                // アニメーション完了判定
-                if progress >= 1.0 {
-                    transitions.remove(i);
-                } else {
-                    i += 1;
-                }
-
-                // トランジションが空になった要素をマーク
-                if transitions.is_empty() {
-                    to_remove.push(id);
-                }
-            }
-        }
-
-        // 空になったエントリをマップから完全削除（クリーンアップ）
-        for id in to_remove {
-            active_map.remove(id);
-        }
-
-        self.renders.active_transitions = active_map;
     }
 
     /// 必要に応じてトランジションを起動、または上書き（逆再生含む）します

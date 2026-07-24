@@ -655,15 +655,6 @@ impl Context {
         self.topology.session_roots.clear();
     }
 
-    /// 外部公開用API: ハンドルを指定して要素を安全に破棄します。
-    ///
-    /// 親を持たないルート要素の破棄（手動での寿命管理）に使用します。
-    /// 子要素が存在する場合は、自動的に再帰破棄されます。
-    #[inline]
-    pub fn despawn(&mut self, handle: Element) {
-        self.despawn_internal(handle.id);
-    }
-
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
     #[inline]
     pub(crate) fn despawn_internal(&mut self, id: EntityId) {
@@ -745,89 +736,6 @@ impl Context {
     #[inline]
     pub(crate) fn is_descendant_of(&self, target: EntityId, parent: EntityId) -> bool {
         TopologyStore::is_descendant_of(target, parent, &self.topology)
-    }
-
-    /// 指定した要素の子要素一覧を取得します。
-    pub fn children_list(&self, handle: Element) -> Option<Vec<Element>> {
-        self.topology
-            .children
-            .get(handle.id)
-            .map(|c| c.iter().map(|&id| Element { id }).collect())
-    }
-
-    /// 画面上でアクティブ（有効）になっている要素の総数を取得します。
-    pub fn active_entities_count(&self) -> usize {
-        self.topology.active_entities.len()
-    }
-
-    /// 指定された要素が現在マウスホバーされているか判定します
-    #[inline]
-    pub fn is_hovered(&self, id: EntityId) -> bool {
-        self.topology
-            .active_masks
-            .get(id)
-            .map(|m| m.has(STATE_HOVERED))
-            .unwrap_or(false)
-    }
-
-    /// 指定された要素が現在キーボードフォーカスを得ているか判定します
-    #[inline]
-    pub fn is_focused(&self, id: EntityId) -> bool {
-        self.topology
-            .active_masks
-            .get(id)
-            .map(|m| m.has(STATE_FOCUSED))
-            .unwrap_or(false)
-    }
-
-    /// 指定された要素が現在マウスやタップで押し下げられているか判定します
-    #[inline]
-    pub fn is_pressed(&self, id: EntityId) -> bool {
-        self.topology
-            .active_masks
-            .get(id)
-            .map(|m| m.has(STATE_PRESSED))
-            .unwrap_or(false)
-    }
-
-    /// 指定された要素が無効化（操作不可）状態にあるか判定します
-    #[inline]
-    pub fn is_disabled(&self, id: EntityId) -> bool {
-        self.topology
-            .active_masks
-            .get(id)
-            .map(|m| m.has(STATE_DISABLED))
-            .unwrap_or(false)
-    }
-
-    /// 指定された要素が現在アクティブ（有効選択など）状態にあるか判定します
-    #[inline]
-    pub fn is_actived(&self, id: EntityId) -> bool {
-        self.topology
-            .active_masks
-            .get(id)
-            .map(|m| m.has(STATE_ACTIVED))
-            .unwrap_or(false)
-    }
-
-    /// 指定された要素が現在テキストまたはトグル選択されているか判定します
-    #[inline]
-    pub fn is_selected(&self, id: EntityId) -> bool {
-        self.topology
-            .active_masks
-            .get(id)
-            .map(|m| m.has(STATE_SELECTED))
-            .unwrap_or(false)
-    }
-
-    /// 指定された要素が現在ドラッグ操作中にあるか判定します
-    #[inline]
-    pub fn is_dragged(&self, id: EntityId) -> bool {
-        self.topology
-            .active_masks
-            .get(id)
-            .map(|m| m.has(STATE_DRAGGED))
-            .unwrap_or(false)
     }
 
     /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。

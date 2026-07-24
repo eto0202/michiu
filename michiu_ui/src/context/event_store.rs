@@ -933,125 +933,6 @@ impl Context {
         self.mark_render_dirty(id);
     }
 
-    pub fn inject_pointer_move(&mut self, logical_pos: LayoutPoint) {
-        let _context_guard = bind_context(self);
-
-        let prev_pos = self.events.current_pointer_position;
-        self.events.current_pointer_position = Some(logical_pos);
-
-        // リサイズ中のドラッグ同期処理
-        if let Some(state) = self.events.resizing_state.clone() {
-            self.sync_resizing_drag(logical_pos, state);
-            return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
-        }
-
-        self.sync_scrollbar_drag(logical_pos);
-
-        // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
-        let target_id = if let Some(pressed_id) = self.events.interaction_states.pressed {
-            Some(pressed_id)
-        } else {
-            self.hit_test(logical_pos)
-        };
-
-        // 直前のリサイズホバー対象を退避
-        let prev_resize_hover = self.events.active_resize_hover;
-        // リサイズホバー情報を一旦リセット
-        self.events.active_resize_hover = None;
-
-        // ヒットした要素、およびその親先祖に向かってツリーを遡上
-        let (current_id, found_resize_hover) = self.found_resize_hover(target_id, logical_pos);
-
-        if let Some((id, dir)) = found_resize_hover {
-            self.events.active_resize_hover = Some((id, dir));
-            self.apply_resizable_cursor_style(id, dir);
-            self.mark_render_dirty(id);
-        }
-
-        // 枠線から外れた、または異なる要素に変わった場合
-        if let Some((prev_id, _)) = prev_resize_hover {
-            let now_id = self.events.active_resize_hover.map(|(id, _)| id);
-
-            // 異なるホバー状態になった場合、旧要素のカーソル上書きを破棄し本来のスタイルに即時強制リセット
-            if Some(prev_id) != now_id {
-                // スタイルの再解決を叩き、上書きされていた vis.cursor を本来のカーソル（通常ホバー/ベース等）へ復旧
-                self.resolve_element_style_state(prev_id, false);
-                self.mark_render_dirty(prev_id);
-            }
-        }
-
-        if let Some(pressed_id) = self.events.interaction_states.pressed {
-            let user_select = self.get_user_select(pressed_id);
-
-            if user_select == UserSelect::Text
-                && let Some(start_pos) = self.outputs.selection_start_index.get(pressed_id).copied()
-            {
-                // プレースホルダー選択のドラッグ遮断
-                if let Some(contents) = self.contents.input_contents.get(pressed_id) {
-                    let is_placeholder = contents.text.0.get().is_empty();
-                    let is_ime = contents
-                        .ime_state
-                        .as_ref()
-                        .map(|s| s.composition_text.is_empty())
-                        .unwrap_or(true);
-
-                    if is_placeholder && is_ime && !contents.placeholder_select {
-                        return;
-                    }
-                }
-
-                let local = self.pressed_local_point(pressed_id, logical_pos);
-                self.handle_text_selection_click(pressed_id, start_pos, local);
-            }
-        }
-
-        // ヒットテスト
-        let target_id = self.hit_test(logical_pos);
-
-        // ホバー（Enter/Leave）状態の解決
-        if target_id != self.events.interaction_states.hovered {
-            self.resolve_hover_state(target_id);
-        }
-
-        // カーソル移動イベントの伝播
-        self.propagate_cursor_move_events(target_id, logical_pos);
-
-        // ドラッグイベントの伝播
-        self.propagate_drag_events(prev_pos, logical_pos);
-
-        // D&D プレースホルダーの移動とドロップ先ホバー検知
-        let Some(mut drag_state) = self.events.active_drag_state.clone() else {
-            return;
-        };
-
-        // ウィンドウの真のルート要素を解決
-        let root = self
-            .find_root_entity()
-            .expect("Root EntityId not found in Context");
-
-        let src_id = drag_state.source_entity;
-        let placeholder_id = drag_state.placeholder_entity;
-        let drag_prop = self.events.drag_properties.get(src_id).copied().unwrap();
-
-        // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
-        self.update_inset_based_relative_local(
-            root,
-            placeholder_id,
-            logical_pos,
-            drag_prop,
-            &drag_state,
-        );
-
-        // 現在ホバー侵入中のドロップターゲット要素を検知
-        let found_drop_target =
-            self.detect_drop_target_during_intrusion(src_id, placeholder_id, logical_pos);
-
-        // ドロップ先のホバー切り替えイベントを解決（STATE_DRAG_IN の同期）
-        self.sync_state_drag_in(&mut drag_state, found_drop_target);
-
-        self.callback_drag_prop(src_id, found_drop_target, drag_prop);
-    }
-
     #[inline]
     pub(crate) fn state_pressed_resize_drag(&mut self, id: EntityId, dir: ResizeDirection) {
         EventStore::state_pressed_resize_drag(
@@ -1541,319 +1422,6 @@ impl Context {
         EventStore::get_user_select(id, &self.renders)
     }
 
-    pub fn inject_pointer_button(
-        &mut self,
-        button: MouseButton,
-        state: ElementState,
-        modifiers: Modifiers,
-    ) {
-        let _context_guard = bind_context(self);
-        let current_hovered = self.events.interaction_states.hovered;
-
-        match state {
-            ElementState::Pressed => {
-                if button == MouseButton::Left {
-                    // リサイズドラッグの開始判定
-                    if let Some((id, dir)) = self.events.active_resize_hover {
-                        self.state_pressed_resize_drag(id, dir);
-                        self.mark_render_dirty(id);
-                        return; // リサイズドラッグが開始されたため、通常のクリック・フォーカス処理を完全にバイパス
-                    }
-                }
-
-                if let Some(pointer_pos) = self.events.current_pointer_position
-                    && let Some(target_id) = current_hovered
-                {
-                    // ヒットした要素がサム、またはトラックであるかを判定
-                    let clicked_scrollbar =
-                        self.hit_decision_element_scrollbar(target_id, pointer_pos);
-                    if clicked_scrollbar {
-                        return; // 背後の一般子要素へのイベント透過を防止
-                    }
-                }
-
-                if let Some(target_id) = current_hovered {
-                    self.events.interaction_states.pressed = Some(target_id);
-                    self.set_pressed(target_id, true);
-
-                    let user_select = self.get_user_select(target_id);
-
-                    let is_input = self.topology.active_masks[target_id].has(COMP_INPUT_CONTENT);
-
-                    if user_select == UserSelect::Text
-                        && !is_input
-                        && let Some(pointer_pos) = self.events.current_pointer_position
-                    {
-                        self.handle_user_select_text(target_id, pointer_pos, modifiers.shift);
-                    }
-
-                    // フォーカス可能要素のみにフォーカスを制限
-                    let is_focusable = self.restrict_focusable_element(target_id);
-                    if is_focusable {
-                        // フォーカスの自動切り替え
-                        self.auto_focus_switch(target_id);
-                    } else {
-                        // フォーカス不可能な要素をクリックした場合は、
-                        // 現在フォーカスされているインプットからフォーカスを完全に外し状態をクリアする
-                        self.handle_remove_focus();
-                    }
-
-                    self.handle_on_mouse_input(target_id, button, modifiers, state);
-                }
-            }
-            ElementState::Released => {
-                // リサイズドラッグの終了処理
-                if let Some(state) = self.events.resizing_state.take() {
-                    let id = state.entity_id;
-                    self.events.interaction_states.pressed = None;
-
-                    // 元のリサイズホバーカーソル表示を維持するために再検出をマーク
-                    // リサイズ状態が解除された「この瞬間」に現在の座標で move を再キックし、
-                    // すり抜けていた通常のホバー・離脱判定（Leave）を正確に評価させる
-                    if let Some(pos) = self.events.current_pointer_position {
-                        self.inject_pointer_move(pos);
-                    }
-                    self.mark_render_dirty(id);
-                    return;
-                }
-
-                // D&D ドラッグ終了・ドロップ確定処理
-                if let Some(drag_state) = self.events.active_drag_state.take() {
-                    let src_id = drag_state.source_entity;
-                    let holder = drag_state.placeholder_entity;
-                    let drag_prop = self.events.drag_properties.get(src_id).copied().unwrap();
-
-                    // 疑似クラス（STATE_DRAGGING, STATE_DRAG_IN）を解除
-                    self.set_drag_state(src_id, STATE_DRAGGING, false);
-                    if let Some(target_id) = drag_state.current_drop_target {
-                        self.set_drag_state(target_id, STATE_DRAG_IN, false);
-                    }
-
-                    // プレースホルダー要素を親および Taffy から安全にデスポーン
-                    // このタイミングでは despawn_internal せず最後に移動
-                    self.events.interaction_states.pressed = None;
-                    self.events.interaction_states.dragged = None;
-
-                    let drop_success = drag_state.current_drop_target;
-
-                    // 実体移動（DragMode::Entity）の場合のツリートポロジー書き換え
-                    if let Some(target_id) = drop_success
-                        && drag_prop.drag_mode == DragPayload::Element
-                        && let Some(prop) = self.events.drop_properties.get(target_id).copied()
-                    {
-                        // ドラッグ元要素を現在の親の children リストから安全に引き抜いて削除
-                        self.remove_dragged_elemet(src_id, &drag_state);
-
-                        self.rewrite_tree_topology(
-                            src_id,
-                            target_id,
-                            holder,
-                            drag_prop,
-                            &drag_state,
-                        );
-                        self.layouts.is_structure_dirty = true;
-                    }
-
-                    if let Some(ph_children) = self.topology.children.get(holder).cloned() {
-                        // 避難していた本物の子要素トポロジーを、元の要素（src_id）の配下へ自動復元
-                        self.restore_child(src_id, holder, ph_children);
-                        // プレースホルダー側は空にして破棄に備える
-                        if let Some(ph_children_mut) = self.topology.children.get_mut(holder) {
-                            ph_children_mut.clear();
-                        }
-                        self.mark_layout_dirty(src_id);
-                        self.mark_layout_dirty(holder);
-                    }
-
-                    match drag_prop.drag_mode {
-                        DragPayload::Element => {
-                            self.callback_on_entity_drop(src_id, drop_success);
-                        }
-                        DragPayload::EntityId => {
-                            self.callback_on_id_drop(src_id, drop_success);
-                        }
-                    }
-
-                    // 位置情報の安全な回収がすべて完了した、この最末尾で初めてプレースホルダーを破棄
-                    self.despawn_internal(holder);
-
-                    // 離脱直後に位置を再移動評価して、通常のホバーを正しく復元
-                    if let Some(pos) = self.events.current_pointer_position {
-                        self.inject_pointer_move(pos);
-                    }
-
-                    self.mark_render_dirty(src_id);
-                    return;
-                }
-
-                let dirty_ids = self.get_scrollbar_dirty_ids();
-                for id in dirty_ids {
-                    self.mark_render_dirty(id);
-                }
-
-                if let Some(pressed_id) = self.events.interaction_states.pressed {
-                    self.set_pressed(pressed_id, false);
-                    self.set_dragged(pressed_id, false);
-                    self.events.interaction_states.dragged = None;
-
-                    if let Some(contents) = self.contents.input_contents.get_mut(pressed_id) {
-                        contents.is_selecting = false;
-                    }
-
-                    // on_mouse_input の発火（ボタンの種類を問わず常に呼ぶ）
-                    self.callback_on_mouse_input(pressed_id, button, modifiers, state);
-
-                    // 同一要素上で離された場合の各種クリック解決
-                    if self.events.interaction_states.hovered == Some(pressed_id) {
-                        match button {
-                            // 左クリックの解決
-                            MouseButton::Left => {
-                                self.callback_on_click(pressed_id);
-                            }
-                            MouseButton::Right => {
-                                self.callback_on_right_click(pressed_id);
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    self.events.interaction_states.pressed = None;
-                }
-            }
-        }
-    }
-
-    // ダブルクリック
-    pub fn inject_pointer_double_click(&mut self, modifiers: Modifiers) {
-        let _context_guard = bind_context(self);
-        let current_hovered = self.events.interaction_states.hovered;
-
-        if let Some(target_id) = current_hovered {
-            let user_select = self.get_user_select(target_id);
-
-            if user_select == UserSelect::Text
-                && let Some(pointer_pos) = self.events.current_pointer_position
-            {
-                if let Some(contents) = self.contents.input_contents.get(target_id) {
-                    let text_val = contents.text.0.get();
-                    let is_placeholder = text_val.is_empty()
-                        && contents
-                            .ime_state
-                            .as_ref()
-                            .map(|s| s.composition_text.is_empty())
-                            .unwrap_or(true);
-
-                    if is_placeholder && !contents.placeholder_select {
-                        return;
-                    }
-                }
-
-                let rect = self.outputs.rects[target_id];
-                let (basic, _, _) = self.resolve_active_layouts(target_id);
-                let border = self.get_physical_border(target_id, &basic);
-                let padding = self.get_physical_padding(target_id, &basic);
-
-                let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
-                let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
-
-                if let Some(layout) = self.get_or_create_layout(target_id) {
-                    let (clicked_index, is_trailing) = self
-                        .system
-                        .text_engine
-                        .hit_test_point(&layout, local_x, local_y);
-                    let final_index = if is_trailing {
-                        clicked_index + 1
-                    } else {
-                        clicked_index
-                    };
-
-                    if let Some(text) = self.contents.text_contents.get(target_id) {
-                        let text_u16: Vec<u16> = text.encode_utf16().collect();
-
-                        // 高精度な文節境界を抽出
-                        let range = crate::find_word_boundaries(&text_u16, final_index);
-
-                        self.outputs
-                            .text_selections
-                            .insert(target_id, range.clone());
-                        // アンカー開始を文節左端にセット
-                        self.outputs
-                            .selection_start_index
-                            .insert(target_id, range.start);
-                        self.update_selection_rects(target_id); // 選択矩形を更新
-
-                        if let Some(contents) = self.contents.input_contents.get_mut(target_id) {
-                            contents.selected_range = range;
-                            contents.selection_reversed = false; // キャレットは右端に配置
-                            self.update_input_caret_position(target_id);
-                        }
-
-                        self.mark_render_dirty(target_id);
-                    }
-                }
-            }
-        }
-    }
-
-    /// 外部で計算された論理ピクセルスクロール移動量 (scroll_x, scroll_y) を注入し、
-    /// バブリングによる自動スクロール処理、またはユーザーイベントハンドラへの配送を行います。
-    pub fn inject_mouse_wheel(&mut self, scroll_x: f32, scroll_y: f32) {
-        let _context_guard = bind_context(self);
-
-        let mut curr = self.events.interaction_states.hovered;
-        let mut handled = false;
-
-        // イベントバブリング: ホバー要素から親へ辿る
-        while let Some(curr_id) = curr {
-            // 個別に定義された `on_mouse_wheel` ハンドラがあれば最優先実行
-            if let Some(l) = self.events.event_listeners.get_mut(curr_id)
-                && let Some(mut handler) = l.on_mouse_wheel.take()
-            {
-                let _guard = crate::ActiveElementGuard::new(curr_id);
-                handler(self, scroll_x, scroll_y);
-                if let Some(l) = self.events.event_listeners.get_mut(curr_id) {
-                    l.on_mouse_wheel = Some(handler);
-                }
-                handled = true; // イベントが消費されたため、これ以降のコンテナスクロールは行わない
-                break;
-            }
-
-            // ユーザーハンドラがない場合、要素がスクロールコンテナであるか判定
-            let mask = self.topology.active_masks[curr_id];
-            if mask.has(STYLE_OVERFLOW) {
-                let (basic, _, _) = self.resolve_active_layouts(curr_id);
-
-                let mut scrolled = false;
-
-                // 縦方向スクロール
-                if scroll_y != 0.0
-                    && (basic.overflow.y == Overflow::Scroll
-                        || basic.overflow.y == Overflow::Hidden)
-                    && self.scroll_by(curr_id, 0.0, scroll_y)
-                {
-                    scrolled = true;
-                }
-
-                // 横方向スクロール
-                if scroll_x != 0.0
-                    && (basic.overflow.x == Overflow::Scroll
-                        || basic.overflow.x == Overflow::Hidden)
-                    && self.scroll_by(curr_id, scroll_x, 0.0)
-                {
-                    scrolled = true;
-                }
-
-                if scrolled {
-                    handled = true;
-                    break; // スクロールを実行したためバブリングを終了
-                }
-            }
-
-            // 先祖へ伝播
-            curr = self.topology.parents.get(curr_id).copied().flatten();
-        }
-    }
-
     #[inline]
     pub(crate) fn callback_on_keyboard_input(
         &mut self,
@@ -1873,239 +1441,98 @@ impl Context {
         }
     }
 
-    pub fn inject_keyboard_key(
-        &mut self,
-        key: VirtualKey,
-        state: ElementState,
-        modifiers: Modifiers,
-    ) {
-        let _context_guard = bind_context(self);
+    /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
+    #[inline(always)]
+    pub(crate) fn update_state(&mut self, id: EntityId, state_flag: u128, active: bool) {
+        let Some(mask) = self.topology.active_masks.get_mut(id) else {
+            return;
+        };
 
-        // Tabキー押下時は個別のフォーカス対象へのイベント配信前に巡回処理を実行
-        if state == ElementState::Pressed && key == VirtualKey::TAB {
-            self.cycle_keyboard_focus(modifiers.shift);
+        let was_active = mask.has(state_flag);
+        if (was_active == active) {
             return;
         }
 
-        if let Some(focused_id) = self.events.interaction_states.focused {
-            // フォーカス中に Enter または Space が押されたら自動的にクリックをエミュレートする
-            if state == ElementState::Pressed
-                && (key == VirtualKey::RETURN || key == VirtualKey::SPACE)
-            {
-                self.callback_on_click(focused_id);
-                return;
-            }
-            // 内部で完結する全選択（Ctrl+A）のみを自動処理
-            if state == ElementState::Pressed && modifiers.ctrl {
-                let user_select = self.get_user_select(focused_id);
+        if active {
+            mask.set(state_flag);
+        } else {
+            mask.unset(state_flag);
+        }
 
-                if key == VirtualKey::A && user_select == UserSelect::Text {
-                    if let Some(layout) = self.get_or_create_layout(focused_id)
-                        && let Some(text) = self.contents.text_contents.get(focused_id)
-                    {
-                        let u16_len = text.encode_utf16().count();
-                        let full_range = 0..u16_len;
+        // 状態変化の発生時に、即座に動的なスタイルを解決する
+        self.resolve_element_style_state(id, true);
 
-                        self.outputs
-                            .text_selections
-                            .insert(focused_id, full_range.clone());
+        // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
+        let mut curr = id;
+        while let Some(Some(parent_id)) = self.topology.parents.get(curr).copied() {
+            if self.topology.entities.contains_key(parent_id) {
+                let parent_mask = self.topology.active_masks[parent_id];
 
-                        self.update_selection_rects(focused_id);
-
-                        if let Some(contents) = self.contents.input_contents.get_mut(focused_id) {
-                            contents.selected_range = full_range;
-                            contents.selection_reversed = false;
-                            self.update_input_caret_position(focused_id);
-                        }
-                        self.mark_render_dirty(focused_id);
-                    }
+                // 先祖要素が within スタイルを1つでも持っている場合のみ深く入る
+                if !parent_mask.has(STYLE_INTERACTION_WITHIN) {
                     return;
                 }
-            }
 
-            self.callback_on_keyboard_input(focused_id, key, modifiers, state);
-        }
-    }
+                self.resolve_element_style_state(parent_id, true);
 
-    /// キーボードフォーカスを次の適格な要素へ巡回させます
-    pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
-        if self.layouts.flat_dfs_sequence.is_empty() {
-            return;
-        }
-
-        let len = self.layouts.flat_dfs_sequence.len();
-
-        // 現在フォーカスされている要素のインデックスを特定（無ければ探索方向の末端から開始）
-        let current_focused = self.events.interaction_states.focused;
-        let start_idx = current_focused
-            .and_then(|id| self.layouts.flat_dfs_sequence.iter().position(|&x| x == id))
-            .unwrap_or(if reverse { len - 1 } else { 0 });
-
-        let mut idx = start_idx;
-        loop {
-            // インデックスの増減と循環
-            if reverse {
-                idx = if idx == 0 { len - 1 } else { idx - 1 };
-            } else {
-                idx = if idx == len - 1 { 0 } else { idx + 1 };
-            }
-
-            // 1周して元の位置に戻ってきた場合は、他にフォーカス可能な要素がないため終了
-            if idx == start_idx {
-                break;
-            }
-
-            let candidate_id = self.layouts.flat_dfs_sequence[idx];
-
-            if self.is_keyboard_focusable(candidate_id) {
-                // 古い要素のフォーカスを外し、新しい要素へフォーカスを設定
-                if let Some(old_id) = self.events.interaction_states.focused {
-                    self.set_focused(old_id, false);
+                if self.does_state_require_layout(parent_id, state_flag) {
+                    self.mark_layout_dirty(parent_id);
+                    self.mark_render_dirty(id);
+                } else {
+                    self.mark_render_dirty(parent_id);
                 }
-                self.set_focused(candidate_id, true);
-                self.events.interaction_states.focused = Some(candidate_id);
+            }
+            curr = parent_id;
+        }
 
-                // WebView2 要素だった場合はシステム側にフォーカスをプログラム駆動で移譲
-                if self.topology.active_masks[candidate_id].has(COMP_WEBVIEW_CONTENT) {
-                    // 通常のレンダラーから focus_webview を呼び出すためここでは何もしない
+        // 残りの状態遷移イベントの解決
+        if active {
+            match state_flag {
+                // Disabledになった瞬間
+                STATE_DISABLED => {
+                    if let Some(mut listeners) = self.events.event_listeners.get_mut(id)
+                        && let Some(mut handler) = listeners.on_disable.take()
+                    {
+                        let _guard = crate::ActiveElementGuard::new(id);
+                        handler(self);
+                        if let Some(l) = self.events.event_listeners.get_mut(id) {
+                            l.on_disable = Some(handler);
+                        }
+                    };
                 }
-
-                self.mark_render_dirty(candidate_id);
-                break;
+                // アクティブになった瞬間
+                STATE_ACTIVED => {
+                    if let Some(mut listeners) = self.events.event_listeners.get_mut(id)
+                        && let Some(mut handler) = listeners.on_active.take()
+                    {
+                        let _guard = crate::ActiveElementGuard::new(id);
+                        handler(self);
+                        if let Some(l) = self.events.event_listeners.get_mut(id) {
+                            l.on_active = Some(handler);
+                        }
+                    };
+                }
+                // セレクトになった瞬間
+                STATE_SELECTED => {
+                    if let Some(mut listeners) = self.events.event_listeners.get_mut(id)
+                        && let Some(mut handler) = listeners.on_select.take()
+                    {
+                        let _guard = crate::ActiveElementGuard::new(id);
+                        handler(self);
+                        if let Some(l) = self.events.event_listeners.get_mut(id) {
+                            l.on_select = Some(handler);
+                        }
+                    };
+                }
+                _ => {}
             }
         }
-    }
 
-    pub fn inject_character(&mut self, c: char) {
-        let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && let Some(l) = self.events.event_listeners.get_mut(focused_id)
-            && let Some(mut handler) = l.on_char_input.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(focused_id);
-            handler(self, c);
-            if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
-                l.on_char_input = Some(handler);
-            }
+        if self.does_state_require_layout(id, state_flag) {
+            self.mark_layout_dirty(id);
+            self.mark_render_dirty(id);
+        } else {
+            self.mark_render_dirty(id);
         }
-    }
-
-    pub fn inject_ime(&mut self, ime_state: ImeState) {
-        let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && let Some(l) = self.events.event_listeners.get_mut(focused_id)
-            && let Some(mut handler) = l.on_ime.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(focused_id);
-            handler(self, ime_state);
-            if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
-                l.on_ime = Some(handler);
-            }
-        }
-    }
-
-    pub fn inject_file_dropped(&mut self, paths: Vec<PathBuf>) {
-        let _context_guard = bind_context(self);
-        if let Some(target_id) = self.events.interaction_states.hovered
-            && let Some(l) = self.events.event_listeners.get_mut(target_id)
-            && let Some(mut handler) = l.on_file_dropped.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(target_id);
-            handler(self, paths);
-            if let Some(l) = self.events.event_listeners.get_mut(target_id) {
-                l.on_file_dropped = Some(handler);
-            }
-        }
-    }
-
-    /// 外部から提供されたテキストを、現在フォーカスされている入力要素にペーストします。
-    #[inline]
-    pub fn inject_paste(&mut self, text: &str) {
-        let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
-            && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
-        {
-            OutputStore::inject_paste_internal(focused_id, text, &mut self.outputs, contents);
-
-            self.update_input_caret_position(focused_id);
-            self.mark_render_dirty(focused_id);
-        }
-    }
-
-    /// Undo (元に戻す) のインジェクション
-    #[inline]
-    pub fn inject_undo(&mut self) {
-        let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
-            && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
-            && let Some((prev_text, prev_sel)) = contents.undo_stack.pop()
-        {
-            OutputStore::inject_undo_internal(
-                focused_id,
-                prev_sel,
-                prev_text,
-                &mut self.outputs,
-                contents,
-            );
-
-            self.update_input_caret_position(focused_id);
-            self.mark_render_dirty(focused_id);
-        }
-    }
-
-    /// Redo (やり直し) のインジェクション
-    #[inline]
-    pub fn inject_redo(&mut self) {
-        let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
-            && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
-            && let Some((next_text, next_sel)) = contents.redo_stack.pop()
-        {
-            OutputStore::inject_redo_internal(
-                focused_id,
-                next_sel,
-                next_text,
-                &mut self.outputs,
-                contents,
-            );
-
-            self.update_input_caret_position(focused_id);
-            self.mark_render_dirty(focused_id);
-        }
-    }
-
-    /// 切り取り (Ctrl+X) の実行と削除後のテキスト取得
-    #[inline]
-    pub fn inject_cut(&mut self) -> Option<String> {
-        let _context_guard = bind_context(self);
-        let focused_id = self.events.interaction_states.focused?;
-        let user_select = self.get_user_select(focused_id);
-
-        if user_select == UserSelect::Text
-            && let Some(range) = self.outputs.text_selections.get(focused_id).cloned()
-            && range.start < range.end
-            && let Some(text) = self.contents.text_contents.get(focused_id)
-        {
-            let u16_text: Vec<u16> = text.encode_utf16().collect();
-            let slice = &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
-            let cut_text = String::from_utf16(slice).ok()?;
-
-            // 対象が Input コントロールである場合のみ、切り取り削除上書きを実行
-            if self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
-                && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
-            {
-                OutputStore::inject_cut_internal(focused_id, range, &mut self.outputs, contents);
-
-                self.update_input_caret_position(focused_id);
-                self.mark_render_dirty(focused_id);
-            }
-
-            return Some(cut_text);
-        }
-
-        None
     }
 }

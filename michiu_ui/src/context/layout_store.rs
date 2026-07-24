@@ -593,11 +593,6 @@ impl Context {
         LayoutStore::resync_taffy_children_order(parent_id, &mut self.layouts, &self.topology);
     }
 
-    #[inline]
-    pub fn clear_layout_dirty(&mut self) {
-        LayoutStore::clear_layout_dirty(&mut self.layouts, &mut self.topology);
-    }
-
     pub(crate) fn sync_resizing_drag(&mut self, logical_pos: LayoutPoint, state: ResizingState) {
         let id = state.entity_id;
         let delta_x = logical_pos.x - state.start_mouse_pos.x;

@@ -223,36 +223,10 @@ impl SystemStore {
 }
 
 impl Context {
-    /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
-    #[inline]
-    pub fn task_sender(&self) -> TaskSender {
-        self.system.task_sender.clone()
-    }
-
-    /// ウィンドウ生成後に起床用コールバックを登録します。
-    #[inline]
-    pub fn set_waker<F>(&mut self, f: F)
-    where
-        F: Fn() + Send + Sync + 'static,
-    {
-        self.system.task_sender.waker = Some(Arc::new(f));
-    }
-
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
     pub(crate) fn clear_layout_cache(&self, id: EntityId) {
         self.system.dwrite_layouts.borrow_mut().remove(id);
-    }
-
-    /// メインスレッドの毎フレーム開始時（またはイベントハンドラの先頭など）に呼び出され、
-    /// バックグラウンドから届いたシグナル更新タスクなどの処理を安全に一括実行します。
-    #[inline]
-    pub fn process_main_thread_tasks(&mut self) {
-        let _context_guard = bind_context(self);
-        // キューに溜まっているクロージャをすべてメインスレッドのコンテキスト上で実行
-        while let Ok(task) = self.system.task_receiver.try_recv() {
-            task(self);
-        }
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
