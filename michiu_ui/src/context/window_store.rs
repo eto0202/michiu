@@ -1,9 +1,11 @@
 use crate::*;
+use windows::Win32::UI::Input::Ime::HIMC;
 
 pub struct WindowStore {
     pub scale_factor: f32,
     pub is_window_resizing: bool,
     pub(crate) last_window_size: Option<LayoutSize>,
+    pub(crate) default_himc: Option<HIMC>,
 }
 
 impl Default for WindowStore {
@@ -19,6 +21,7 @@ impl WindowStore {
             scale_factor: 1.0,
             is_window_resizing: false,
             last_window_size: None,
+            default_himc: None,
         }
     }
 
@@ -27,6 +30,7 @@ impl WindowStore {
         self.scale_factor = 1.0;
         self.is_window_resizing = false;
         self.last_window_size = None;
+        self.default_himc = None;
     }
 
     #[inline]

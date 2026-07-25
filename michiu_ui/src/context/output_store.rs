@@ -447,6 +447,41 @@ impl OutputStore {
     }
 
     #[inline]
+    pub(crate) fn truncate_unconfirmed_text(
+        text_val: &str,
+        input_contents: &InputContents,
+        max: usize,
+        filtered_comp_text: String,
+    ) -> String {
+        let text_u16: Vec<u16> = text_val.encode_utf16().collect();
+        let range = &input_contents.selected_range;
+        let range_start = range.start.min(text_u16.len());
+        let range_end = range.end.min(text_u16.len());
+        let deleted_len = range_end - range_start;
+        let current_len_after_delete = text_u16.len() - deleted_len;
+
+        if current_len_after_delete >= max {
+            // すでに確定文字数が制限に達している場合は未確定文字を一切受け入れない
+            String::new()
+        } else {
+            let allowed_comp_len = max - current_len_after_delete;
+            let comp_u16: Vec<u16> = filtered_comp_text.encode_utf16().collect();
+            if comp_u16.len() > allowed_comp_len {
+                // サロゲートペア文字の途中でぶつ切りになるのを防ぐ
+                let mut limit = allowed_comp_len;
+                if limit > 0 && (0xD800..=0xDBFF).contains(&comp_u16[limit - 1]) {
+                    limit -= 1;
+                }
+
+                // 許容文字数に収まるようUTF-16単位で正確に切り詰め
+                String::from_utf16_lossy(&comp_u16[..allowed_comp_len])
+            } else {
+                filtered_comp_text
+            }
+        }
+    }
+
+    #[inline]
     pub(crate) fn scroll_ime_info(
         id: EntityId,
         outputs: &mut OutputStore,
@@ -466,14 +501,59 @@ impl OutputStore {
             let text_val = input_contents.text.0.get();
             input_contents.total_len = text_val.chars().count();
 
-            // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
-            let display_text = if let Some(ref ime) = input_contents.ime_state
+            // IME未確定文字列が入力されている際、numeric_only が有効であれば数値を事前にフィルタリング
+            // is_password が有効であればマスク処理を適用した中間文字列を生成
+            let mut filtered_comp_text = if let Some(ref ime) = input_contents.ime_state
                 && !ime.composition_text.is_empty()
             {
-                crate::input_get_display_text(
+                if input_contents.numeric_only {
+                    let mut s = String::new();
+                    for c in ime.composition_text.chars() {
+                        if c.is_numeric() || c == '.' || c == '-' {
+                            s.push(c);
+                        }
+                    }
+                    s
+                } else {
+                    ime.composition_text.clone()
+                }
+            } else {
+                String::new()
+            };
+
+            // 文字数制限（max_length）による未確定文字列の事前切り詰め
+            if let Some(max) = input_contents.max_length
+                && !filtered_comp_text.is_empty()
+            {
+                filtered_comp_text = OutputStore::truncate_unconfirmed_text(
                     &text_val,
+                    input_contents,
+                    max,
+                    filtered_comp_text,
+                )
+            }
+
+            if input_contents.is_password && !filtered_comp_text.is_empty() {
+                let mask = input_contents.mask_text.as_deref().unwrap_or("●");
+                filtered_comp_text = mask.repeat(filtered_comp_text.chars().count());
+            }
+
+            // is_password が true の場合、未確定中であっても
+            // すでに確定されている文字列部分が一時的に生テキストとして露出してしまわないよう
+            // マスクを維持した一時文字列を生成してベースとして使用
+            let text_val_for_display = if input_contents.is_password {
+                let mask = input_contents.mask_text.as_deref().unwrap_or("●");
+                mask.repeat(text_val.chars().count())
+            } else {
+                text_val.clone()
+            };
+
+            // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
+            let display_text = if !filtered_comp_text.is_empty() {
+                crate::input_get_display_text(
+                    &text_val_for_display,
                     input_contents.selected_range.start,
-                    &ime.composition_text,
+                    &filtered_comp_text,
                 )
             } else if text_val.is_empty() {
                 input_contents
@@ -488,13 +568,11 @@ impl OutputStore {
                 text_val.clone()
             };
 
-            let caret_text = if let Some(ref ime) = input_contents.ime_state
-                && !ime.composition_text.is_empty()
-            {
+            let caret_text = if !filtered_comp_text.is_empty() {
                 crate::input_get_display_text(
-                    &text_val,
+                    &text_val_for_display,
                     input_contents.selected_range.start,
-                    &ime.composition_text,
+                    &filtered_comp_text,
                 )
             } else if text_val.is_empty() {
                 String::new()
@@ -619,6 +697,25 @@ impl OutputStore {
             ));
         }
         scroll_ime_info
+    }
+
+    #[inline]
+    pub(crate) fn clear_selection_highlight_rect(
+        id: EntityId,
+        outputs: &mut OutputStore,
+        contents: &mut ContentStore,
+        topology: &mut TopologyStore,
+    ) {
+        outputs.text_selections.remove(id);
+        outputs.selected_rects.remove(id);
+        if let Some(contents) = contents.input_contents.get_mut(id) {
+            contents.selected_range = 0..0;
+            // 進行中の IME コンポジションをリセットして波線を消去
+            contents.ime_state = None;
+            contents.marked_range = None;
+        }
+        contents.text_spans.remove(id);
+        topology.active_masks[id].unset(STYLE_TEXT_SPANS);
     }
 }
 
@@ -1063,6 +1160,16 @@ impl Context {
         );
     }
 
+    #[inline]
+    pub(crate) fn clear_selection_highlight_rect(&mut self, id: EntityId) {
+        OutputStore::clear_selection_highlight_rect(
+            id,
+            &mut self.outputs,
+            &mut self.contents,
+            &mut self.topology,
+        );
+    }
+
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
     pub(crate) fn collect_render_data(&self) -> RenderData {
         let mut batches = Vec::new();
@@ -1472,6 +1579,11 @@ impl Context {
                     self.calculate_caret_rect(rect, border, padding, contents, scale, scroll);
                 let c_color = contents
                     .caret_color
+                    .or(self
+                        .renders
+                        .base_visual_properties
+                        .get(id)
+                        .and_then(|v| v.text_color))
                     .or(visual.text_color)
                     .unwrap_or(Color::WHITE);
 

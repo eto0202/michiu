@@ -15,8 +15,9 @@ use windows::Win32::{
     },
     UI::Input::{
         Ime::{
-            CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, ImmGetContext,
-            ImmReleaseContext, ImmSetCandidateWindow, ImmSetCompositionWindow,
+            CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, CPS_COMPLETE, HIMC,
+            ImmAssociateContext, ImmGetContext, ImmNotifyIME, ImmReleaseContext,
+            ImmSetCandidateWindow, ImmSetCompositionWindow, NI_COMPOSITIONSTR,
         },
         KeyboardAndMouse::GetFocus,
     },
@@ -181,6 +182,50 @@ impl SystemStore {
             }
         }
     }
+
+    #[inline]
+    pub(crate) fn force_complete_ime_composition() {
+        unsafe {
+            let hwnd = GetFocus();
+            if !hwnd.is_invalid() {
+                let himc = ImmGetContext(hwnd);
+                if !himc.is_invalid() {
+                    let _ = ImmNotifyIME(himc, NI_COMPOSITIONSTR, CPS_COMPLETE, 0);
+                    let _ = ImmReleaseContext(hwnd, himc);
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn unassociate_ime(contents: &InputContents, window: &mut WindowStore) {
+        unsafe {
+            let hwnd = GetFocus();
+            if !hwnd.is_invalid() {
+                if !contents.is_ime {
+                    let old_himc = ImmAssociateContext(hwnd, HIMC::default());
+                    if !old_himc.is_invalid() && window.default_himc.is_none() {
+                        window.default_himc = Some(old_himc);
+                    }
+                } else if let Some(default_himc) = window.default_himc {
+                    let _ = ImmAssociateContext(hwnd, default_himc);
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn reset_ime_default_state(window: &WindowStore) {
+        unsafe {
+            let hwnd = GetFocus();
+            if !hwnd.is_invalid()
+                && let Some(default_himc) = window.default_himc
+            {
+                let _ = ImmAssociateContext(hwnd, default_himc);
+            }
+        }
+    }
+
     // クリップボード API による UTF-16 読み書きヘルパー
     fn win32_set_clipboard(text: &str) -> Result<(), Box<dyn std::error::Error>> {
         let text_u16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
@@ -237,5 +282,20 @@ impl Context {
         }
 
         SystemStore::create_text_layout(id, &self.system, &self.contents, &self.renders)
+    }
+
+    #[inline]
+    pub(crate) fn force_complete_ime_composition(&self) {
+        SystemStore::force_complete_ime_composition();
+    }
+
+    #[inline]
+    pub(crate) fn unassociate_ime(&mut self, contents: &InputContents) {
+        SystemStore::unassociate_ime(contents, &mut self.window);
+    }
+
+    #[inline]
+    pub(crate) fn reset_ime_default_state(&self) {
+        SystemStore::reset_ime_default_state(&self.window);
     }
 }

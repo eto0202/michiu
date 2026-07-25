@@ -1140,12 +1140,17 @@ impl Context {
             if let Some(old_focus_id) = self.events.interaction_states.focused {
                 self.set_focused(old_focus_id, false);
 
-                if let Some(l) = self.events.event_listeners.get_mut(id)
+                // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
+                self.clear_selection_highlight_rect(old_focus_id);
+                // 進行中の IME コンポジションを強制的に確定させ候補窓を閉じる
+                self.force_complete_ime_composition();
+
+                if let Some(l) = self.events.event_listeners.get_mut(old_focus_id)
                     && let Some(mut handler) = l.on_blur.take()
                 {
-                    let _guard = crate::ActiveElementGuard::new(id);
+                    let _guard = crate::ActiveElementGuard::new(old_focus_id);
                     handler(self);
-                    if let Some(l) = self.events.event_listeners.get_mut(id) {
+                    if let Some(l) = self.events.event_listeners.get_mut(old_focus_id) {
                         l.on_blur = Some(handler);
                     }
                 }
@@ -1153,6 +1158,15 @@ impl Context {
 
             // 新しいフォーカス可能要素にフォーカスを設定
             self.set_focused(id, true);
+
+            // 新しいフォーカス先が is_ime(false) の場合は IME 関連付けを解除
+            let is_input = self.topology.active_masks[id].has(COMP_INPUT_CONTENT);
+            if is_input && let Some(contents) = self.contents.input_contents.get(id) {
+                SystemStore::unassociate_ime(contents, &mut self.window);
+            } else {
+                // インプット以外の場合は IME をデフォルト状態に戻す
+                self.reset_ime_default_state();
+            }
 
             if let Some(l) = self.events.event_listeners.get_mut(id)
                 && let Some(mut handler) = l.on_focus.take()
@@ -1172,6 +1186,14 @@ impl Context {
     pub(crate) fn handle_remove_focus(&mut self) {
         if let Some(old_focus_id) = self.events.interaction_states.focused {
             self.set_focused(old_focus_id, false);
+
+            // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
+            self.clear_selection_highlight_rect(old_focus_id);
+            // 進行中の IME コンポジションを強制的に確定させ候補窓を閉じる
+            self.force_complete_ime_composition();
+
+            // IME をデフォルトの有効化状態に戻す
+            self.reset_ime_default_state();
 
             if let Some(l) = self.events.event_listeners.get_mut(old_focus_id)
                 && let Some(mut handler) = l.on_blur.take()

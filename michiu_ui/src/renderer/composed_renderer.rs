@@ -993,7 +993,7 @@ unsafe extern "system" {
 }
 
 // apply_system_backdrop を拡張してダークモードとフレーム拡張を統合
-pub fn apply_system_backdrop(hwnd: HWND, backdrop: Backdrop) {
+pub(crate) fn apply_system_backdrop(hwnd: HWND, backdrop: Backdrop) {
     unsafe {
         // DWMWA_USE_HOSTBACKDROPBRUSH (17) を TRUE に設定
         // DComp（NOREDIRECTIONBITMAP）ウィンドウでアクリル・Micaを透かすため

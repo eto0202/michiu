@@ -38,7 +38,7 @@ pub struct TextSpan {
 
     /// 部分的なフォントサイズの上書き
     pub font_size: Option<f32>,
-    /// 部分的なフォントファミリーの上書き (例: コード部のみ等幅フォント "Consolas" 等に変更)
+    /// 部分的なフォントファミリーの上書き
     pub font_family: Option<Cow<'static, str>>,
     /// 部分的な太さ (Bold = 700等) の上書き (DWRITE_FONT_WEIGHT 相当)
     pub font_weight: Option<u32>,

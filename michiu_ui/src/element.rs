@@ -47,7 +47,7 @@ pub(crate) struct ContextGuard {
 #[inline(always)]
 pub(crate) fn bind_context(cx: &Context) -> ContextGuard {
     let old = ACTIVE_CONTEXT.get();
-    // 借用チェッカーと衝突しないよう、生ポインタキャストを行ってスレッドローカルに格納
+    // 借用チェッカーと衝突しないよう生ポインタキャストを行ってスレッドローカルに格納
     ACTIVE_CONTEXT.set(Some(cx as *const Context as *mut Context));
     ContextGuard { old }
 }
