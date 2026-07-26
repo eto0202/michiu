@@ -717,6 +717,19 @@ impl OutputStore {
         contents.text_spans.remove(id);
         topology.active_masks[id].unset(STYLE_TEXT_SPANS);
     }
+
+    // 累積計算用の行列乗算
+    #[inline]
+    pub(crate) fn mul_4x4(a: &[[f32; 4]; 4], b: &[[f32; 4]; 4]) -> [[f32; 4]; 4] {
+        let mut out = [[0.0; 4]; 4];
+        for i in 0..4 {
+            for j in 0..4 {
+                out[i][j] =
+                    a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j] + a[i][3] * b[3][j];
+            }
+        }
+        out
+    }
 }
 
 impl Context {
@@ -1183,6 +1196,9 @@ impl Context {
         // 静的なデフォルト値（一度だけ確保して使い回す）
         let default_visual = VisualProperty::default();
 
+        // 各要素の実効トランスフォーム行列を DFS 順にカスケード累積
+        let mut effective_transforms = self.accumulate_transform_matrix();
+
         // 各要素の実効 z_index を親から子へカスケード（伝播）して計算
         let effective_z_indices = self.compute_effective_z_indices();
 
@@ -1228,13 +1244,14 @@ impl Context {
                 .unwrap_or(&default_visual);
 
             // 共通パラメータの展開
-            let (packed_transform, origin) = self.get_transform_and_origin(visual);
+            let (packed_transform, origin) =
+                self.get_transform_and_origin(id, visual, &effective_transforms);
             let (o_width, o_color, o_lengths, outline_offset_and_flags) =
                 self.get_outline_params(visual);
 
-            // --- 1. WebView (アクティブ) の個別処理 ---
+            // WebView (アクティブ) の個別処理
             if is_webview_ready {
-                // 溜まっている「通常（Normal）」のバッチがあれば一旦フラッシュ
+                // 溜まっている通常（Normal）のバッチがあれば一旦フラッシュ
                 flush_batch(
                     &mut batches,
                     &mut current_instances,

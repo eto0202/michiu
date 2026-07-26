@@ -487,19 +487,56 @@ impl RenderStore {
         }
     }
 
-    #[inline]
-    pub(crate) fn get_transform_and_origin(visual: &VisualProperty) -> ([[f32; 4]; 3], [f32; 2]) {
-        let origin = visual
-            .transform_origin
-            .map(|p| [p.x, p.y])
-            .unwrap_or([0.5, 0.5]);
+    pub(crate) fn accumulate_transform_matrix(
+        topology: &TopologyStore,
+        layouts: &LayoutStore,
+        renders: &RenderStore,
+    ) -> SecondaryMap<EntityId, [[f32; 4]; 4]> {
+        let mut effective_transforms = SecondaryMap::with_capacity(topology.active_entities.len());
+        for &id in &layouts.flat_dfs_sequence {
+            let self_transform = renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.transform)
+                .unwrap_or(IDENTITY_MATRIX);
 
-        let full_transform = visual.transform.unwrap_or(IDENTITY_MATRIX);
+            let transform_inherit = renders
+                .visual_properties
+                .get(id)
+                .and_then(|v| v.transform_inherit)
+                .unwrap_or(false);
+
+            let eff_transform = if transform_inherit
+                && let Some(Some(parent_id)) = topology.parents.get(id)
+                && let Some(parent_eff) = effective_transforms.get(*parent_id).copied()
+            {
+                // 親の累積トランスフォーム行列 * 自身のトランスフォーム行列 (Column-Major 順)
+                OutputStore::mul_4x4(&parent_eff, &self_transform)
+            } else {
+                self_transform
+            };
+
+            effective_transforms.insert(id, eff_transform);
+        }
+        effective_transforms
+    }
+
+    #[inline]
+    pub(crate) fn get_transform_and_origin(
+        id: EntityId,
+        visual: &VisualProperty,
+        transforms: &SecondaryMap<EntityId, [[f32; 4]; 4]>,
+    ) -> ([[f32; 4]; 3], [f32; 2]) {
+        let full_transform = transforms.get(id).copied().unwrap_or(IDENTITY_MATRIX);
         let packed_transform = [
             full_transform[0], // X軸基底
             full_transform[1], // Y軸基底
             full_transform[3], // 平行移動部
         ];
+        let origin = visual
+            .transform_origin
+            .map(|p| [p.x, p.y])
+            .unwrap_or([0.5, 0.5]);
         (packed_transform, origin)
     }
 
@@ -536,6 +573,7 @@ pub(crate) struct CurrentStyle {
     pub(crate) outline_offset: f32,
     pub(crate) opacity: f32,
     pub(crate) transform: [[f32; 4]; 4],
+    pub(crate) transform_origin: Point<f32>,
     pub(crate) corner_radius: CornerRadius,
     pub(crate) shadow_params: BoxShadow,
 }
@@ -550,6 +588,7 @@ impl Default for CurrentStyle {
             outline_offset: 0.0,
             opacity: 1.0,
             transform: IDENTITY_MATRIX,
+            transform_origin: Point::ORIGIN,
             corner_radius: CornerRadius::ZERO,
             shadow_params: BoxShadow::none(),
         }
@@ -570,6 +609,7 @@ impl RenderStore {
                 outline_offset: v.outline_offset.unwrap_or(0.0),
                 opacity: v.opacity.unwrap_or(1.0),
                 transform: v.transform.unwrap_or(IDENTITY_MATRIX),
+                transform_origin: v.transform_origin.unwrap_or(Point::ORIGIN),
                 corner_radius: v.corner_radius.unwrap_or(CornerRadius::ZERO),
                 shadow_params: v.shadow_params.unwrap_or(BoxShadow::none()),
             })
@@ -586,6 +626,8 @@ pub(crate) struct TargetStyle {
     pub(crate) border_color: Option<Color>,
     pub(crate) opacity: Option<f32>,
     pub(crate) transform: Option<[[f32; 4]; 4]>,
+    pub(crate) transform_origin: Option<Point<f32>>,
+    pub(crate) transform_inherit: Option<bool>,
     pub(crate) corner_radius: Option<CornerRadius>,
     pub(crate) shadow_params: Option<BoxShadow>,
     pub(crate) shadow_color: Option<Color>,
@@ -622,6 +664,8 @@ impl RenderStore {
                 border_color: v.border_color,
                 opacity: v.opacity,
                 transform: v.transform,
+                transform_origin: v.transform_origin,
+                transform_inherit: v.transform_inherit,
                 corner_radius: v.corner_radius,
                 shadow_params: v.shadow_params,
                 shadow_color: v.shadow_color,
@@ -664,6 +708,11 @@ impl TargetStyle {
         }
         if inner_mask.has(STYLE_TRANSFORM) {
             target.transform = inner_vis.transform;
+            target.transform_origin = inner_vis.transform_origin;
+        }
+
+        if inner_mask.has(STYLE_TRANSFORM_INHERIT) {
+            target.transform_inherit = inner_vis.transform_inherit;
         }
         if inner_mask.has(STYLE_CORNER_RADIUS) {
             target.corner_radius = inner_vis.corner_radius;
@@ -778,8 +827,18 @@ impl Context {
     }
 
     #[inline]
-    pub fn get_transform_and_origin(&self, visual: &VisualProperty) -> ([[f32; 4]; 3], [f32; 2]) {
-        RenderStore::get_transform_and_origin(visual)
+    pub(crate) fn accumulate_transform_matrix(&self) -> SecondaryMap<EntityId, [[f32; 4]; 4]> {
+        RenderStore::accumulate_transform_matrix(&self.topology, &self.layouts, &self.renders)
+    }
+
+    #[inline]
+    pub fn get_transform_and_origin(
+        &self,
+        id: EntityId,
+        visual: &VisualProperty,
+        transforms: &SecondaryMap<EntityId, [[f32; 4]; 4]>,
+    ) -> ([[f32; 4]; 3], [f32; 2]) {
+        RenderStore::get_transform_and_origin(id, visual, transforms)
     }
 
     #[inline]
@@ -1093,6 +1152,9 @@ impl Context {
             let target_transform_val = target.transform.unwrap_or(IDENTITY_MATRIX);
             let transform_changed = current.transform != target_transform_val;
 
+            let target_transform_origin_val = target.transform_origin.unwrap_or(Point::ORIGIN);
+            let transform_origin_changed = current.transform_origin != target_transform_origin_val;
+
             let target_radius_val = target.corner_radius.unwrap_or(CornerRadius::ZERO);
             let radius_changed = current.corner_radius != target_radius_val;
 
@@ -1197,6 +1259,7 @@ impl Context {
                 }
                 if !transform_triggered {
                     active_vis.transform = target.transform;
+                    active_vis.transform_origin = target.transform_origin;
                 }
                 if !radius_triggered {
                     active_vis.corner_radius = target.corner_radius;
@@ -1254,6 +1317,7 @@ impl Context {
                     active_vis.transitions = target_vis.transitions.clone();
                     active_vis.keyframe_animations = target_vis.keyframe_animations.clone();
                     active_vis.focusable = target_vis.focusable;
+                    active_vis.transform_inherit = target.transform_inherit;
                 }
 
                 // 即時変更があったため、レンダラーへの転送 Dirty をマーク

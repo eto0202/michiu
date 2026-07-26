@@ -1,5 +1,5 @@
 use michiu_ui::{
-    ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, Point, prelude::*,
+    ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, prelude::*,
 };
 use std::time::Duration;
 use windows::{
@@ -208,8 +208,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .p(10.0)
             .r(3.0)
             .bg_color(hsl(0.0, 0.0, 20.0))
-            .pressed(ts().transform_scale(1.05, 1.05))
-            .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad))
+            .pressed(ts().transform_scale(0.9, 0.9))
+            .trans_transform(Duration::from_millis(500), AnimationCurve::EaseInOutQuad))
         .label(
             menu_open.get_else("Close", "Open"),
             menu_open.get_else(ts().text_color(Color::RED), ts().text_color(Color::WHITE)),
@@ -231,9 +231,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .z_1()
                 .bg_color(hsl(0.0, 0.0, 20.0))
                 .r(3.0)
-                .transform_origin(Point::new(0.5, 0.0))
-                .trans_transform(Duration::from_millis(100), AnimationCurve::EaseInOutQuad)
-                .trans_opacity(Duration::from_millis(200), AnimationCurve::EaseOutQuad);
+                .transform_origin((0.5, 0.0))
+                .trans_transform(Duration::from_millis(500), AnimationCurve::EaseInOutQuad);
 
             if menu_open.get() {
                 base_style
@@ -251,11 +250,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .children([
-            div(menu_item.clone().r_top(3.0)).label("Item 1", None),
-            div(None).style(&menu_item).label("Item 2", None),
-            div_n().text("Item 3").style(&menu_item),
-            text("Item 4").style(&menu_item),
-            text("Item 5").style(menu_item.clone().r_bottom(3.0)),
+            text("Item 1").style(menu_item.clone().r_top(3.0)),
+            text("Item 1").style(menu_item.clone().r_bottom(3.0)),
+            text("Item 1").style(menu_item.clone().r_bottom(3.0)),
+            text("Item 1").style(menu_item.clone().r_bottom(3.0)),
+            text("Item 1").style(menu_item.clone().r_bottom(3.0)),
         ]);
 
         v_flex(

@@ -1157,6 +1157,77 @@ where
     }
 }
 
+pub trait IntoStylePoint<T> {
+    fn into_style_point(self) -> StyleValue<Point<T>>;
+}
+
+impl<T: Send + Sync + 'static> IntoStylePoint<T> for StyleValue<Point<T>> {
+    fn into_style_point(self) -> StyleValue<Point<T>> {
+        self
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Point<T> {
+    fn into_style_point(self) -> StyleValue<Point<T>> {
+        StyleValue::Static(self)
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for f32
+where
+    f32: IntoPoint<T>,
+{
+    fn into_style_point(self) -> StyleValue<Point<T>> {
+        StyleValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for i32
+where
+    i32: IntoPoint<T>,
+{
+    fn into_style_point(self) -> StyleValue<Point<T>> {
+        StyleValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Pixel
+where
+    Pixel: IntoPoint<T>,
+{
+    fn into_style_point(self) -> StyleValue<Point<T>> {
+        StyleValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Percent
+where
+    Percent: IntoPoint<T>,
+{
+    fn into_style_point(self) -> StyleValue<Point<T>> {
+        StyleValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Auto
+where
+    Auto: IntoPoint<T>,
+{
+    fn into_style_point(self) -> StyleValue<Point<T>> {
+        StyleValue::Static(self.into_point())
+    }
+}
+
+impl<W, H, T> IntoStylePoint<T> for (W, H)
+where
+    (W, H): IntoPoint<T> + Send + Sync + 'static,
+    T: Send + Sync + 'static,
+{
+    fn into_style_point(self) -> StyleValue<Point<T>> {
+        StyleValue::Static(self.into_point())
+    }
+}
+
 pub trait IntoStyleCornerRadius {
     fn into_style_corner_radius(self) -> StyleValue<CornerRadius>;
 }

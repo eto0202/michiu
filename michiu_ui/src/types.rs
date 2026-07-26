@@ -228,6 +228,8 @@ pub struct LayoutPoint {
 impl LayoutPoint {
     pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
 
+    pub const ORIGIN: Self = Self { x: 0.5, y: 0.5 };
+
     #[inline]
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
@@ -585,6 +587,10 @@ impl<T: Clone> Rect<T> {
 pub struct Point<T> {
     pub x: T,
     pub y: T,
+}
+
+impl Point<f32> {
+    pub const ORIGIN: Self = Self { x: 0.5, y: 0.5 };
 }
 
 impl<T> Point<T> {

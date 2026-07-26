@@ -954,12 +954,8 @@ impl WgpuRenderer {
             final_color = resolved_color;
         }
 
-        let full_transform = visual.transform.unwrap_or(IDENTITY_MATRIX);
-        let packed_transform = [
-            full_transform[0], // X軸基底
-            full_transform[1], // Y軸基底
-            full_transform[3], // 平行移動部
-        ];
+        // 解決済みの累積トランスフォーム行列
+        let packed_transform = instance.transform;
 
         // 完全に 16B 境界にアラインされたインスタンス構造体をビルド
         QuadInstance {

@@ -244,6 +244,7 @@ pub struct VisualProperty {
     pub shadow_color: Option<Color>,
     pub transform: Option<[[f32; 4]; 4]>,
     pub transform_origin: Option<Point<f32>>,
+    pub transform_inherit: Option<bool>,
     pub z_index: Option<i32>,
     pub cursor: Option<CursorIcon>,
     /// 各方向 [Ns, Ew, Nesw, Nwse] のカスタムカーソル指定
@@ -297,6 +298,9 @@ impl VisualProperty {
         if mask.has(STYLE_TRANSFORM) {
             self.transform = other.transform;
             self.transform_origin = other.transform_origin;
+        }
+        if mask.has(STYLE_TRANSFORM_INHERIT) {
+            self.transform_inherit = other.transform_inherit;
         }
         if mask.has(STYLE_Z_INDEX) {
             self.z_index = other.z_index;

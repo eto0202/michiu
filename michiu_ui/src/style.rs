@@ -4429,8 +4429,8 @@ impl ThisStyle {
     }
 
     #[inline]
-    pub fn transform_origin(mut self, point: impl IntoStyleValue<Point<f32>>) -> Self {
-        match point.into_style_value() {
+    pub fn transform_origin(mut self, point: impl IntoStylePoint<f32>) -> Self {
+        match point.into_style_point() {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.transform_origin = Some(v);
@@ -4483,6 +4483,29 @@ impl ThisStyle {
             .unwrap_or_default();
         self.transform(current.rotate(radians))
     }
+
+    #[inline]
+        pub fn transform_inherit(mut self, value: impl IntoStyleValue<bool>) -> Self {
+            match value.into_style_value() {
+                StyleValue::Static(v) => {
+                    let inner = Arc::make_mut(&mut self.inner);
+                    inner.visual_property.transform_inherit = Some(v);
+                    inner.mask.set(STYLE_TRANSFORM_INHERIT);
+                }
+                StyleValue::Dynamic(getter) => {
+                    let inner = Arc::make_mut(&mut self.inner);
+                    inner.mask.set(STYLE_TRANSFORM_INHERIT);
+                    inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                        let val = getter();
+                        if let Some(v) = cx.get_visual_property_mut(id, target) {
+                            v.transform_inherit = Some(val);
+                        }
+                        cx.mark_render_dirty(id);
+                    }));
+                }
+            }
+            self
+        }
 
     /// 状態遷移時のトランジション（CSS transition）を設定します。
     #[inline]

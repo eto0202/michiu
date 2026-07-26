@@ -87,7 +87,8 @@ fn event_btn() -> Element {
         .on_click_with(move |cx| {
             count += 1;
 
-            cx.current().set_contents(div_n().label(move || format!("Event: {}", count), &style));
+            cx.current()
+                .set_contents(div_n().label(move || format!("Event: {}", count), &style));
         })
 }
 
@@ -133,7 +134,7 @@ fn pressed_btn() -> Element {
             .border_color(dynamic(|t: &Theme| t.primary))
             .pressed(ts().transform_scale(0.96, 0.96)),
     )
-    .label("Pressed", label_style())
+    .label("Pressed", label_style().transform_inherit(true))
 }
 
 fn dragged_btn() -> Element {

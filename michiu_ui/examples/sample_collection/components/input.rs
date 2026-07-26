@@ -136,11 +136,11 @@ fn restrict_container() -> Element {
 fn btn_container() -> Element {
     v_flex(section_style()).children([
         section_title("Input with button"),
-        h_flex(wrapper_style()).children([input_counter()]),
+        h_flex(wrapper_style()).children([spin_box()]),
     ])
 }
 
-fn input_counter() -> Element {
+fn spin_box() -> Element {
     let btn = ts()
         .justify_center()
         .items_center()
@@ -148,8 +148,9 @@ fn input_counter() -> Element {
         .hovered(ts().bg_color(dynamic(|t: &Theme| t.border)));
     let label = ts()
         .text_color(dynamic(|t: &Theme| t.secondary))
-        .font_size(22.0)
-        .font_weight(400);
+        .font_size(25.0)
+        .font_weight(400)
+        .press_parent(ts().transform_scale(0.9, 0.9));
 
     let (read_1, write_1) = create_signal(String::new());
 
@@ -198,7 +199,7 @@ fn input_counter() -> Element {
                 .placeholder("-99~99")
                 .placeholder_color(t.text_muted)
         })
-        .style(input_style("Segoe UI").w_auto().focusable_self_keyboard()),
+        .style(input_style("Segoe UI").w_auto()),
     );
 
     h_flex(
