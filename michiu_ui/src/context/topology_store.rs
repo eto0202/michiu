@@ -353,6 +353,34 @@ impl TopologyStore {
         false
     }
 
+    /// 直近の親要素（1世代上）が特定のインタラクション状態（state_flag）を持っているか安全に検証します
+    pub(crate) fn has_parent_with_state(
+        id: EntityId,
+        topology: &TopologyStore,
+        state_flag: u128,
+    ) -> bool {
+        if let Some(Some(parent_id)) = topology.parents.get(id).copied()
+            && topology.entities.contains_key(parent_id)
+            && let Some(mask) = topology.active_masks.get(parent_id)
+            && mask.has(state_flag)
+        {
+            return true;
+        }
+        false
+    }
+
+    /// 直近の親要素（1世代上）がいずれか一つのアクティブなユーザーインタラクション状態を満たしているか安全に検証します
+    pub(crate) fn has_parent_with_any_active_state(id: EntityId, topology: &TopologyStore) -> bool {
+        if let Some(Some(parent_id)) = topology.parents.get(id).copied()
+            && topology.entities.contains_key(parent_id)
+            && let Some(mask) = topology.active_masks.get(parent_id)
+            && mask.has_active_interaction_property()
+        {
+            return true;
+        }
+        false
+    }
+
     /// ドロップ先コンテナのフレックス方向（Row / Column）に基づいて、
     /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出します。
     pub(crate) fn calculate_insert_index(

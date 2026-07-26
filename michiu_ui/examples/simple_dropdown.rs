@@ -251,11 +251,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
         .children([
-            div(menu_item.clone().rounded_top(3.0)).label("Item 1", None),
+            div(menu_item.clone().r_top(3.0)).label("Item 1", None),
             div(None).style(&menu_item).label("Item 2", None),
             div_n().text("Item 3").style(&menu_item),
             text("Item 4").style(&menu_item),
-            text("Item 5").style(menu_item.clone().rounded_bottom(3.0)),
+            text("Item 5").style(menu_item.clone().r_bottom(3.0)),
         ]);
 
         v_flex(

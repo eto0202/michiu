@@ -250,7 +250,10 @@ impl Element {
         }
 
         // 疑似クラス（インタラクションスタイル）をマージ
-        if mask.has_interaction_property() || mask.has(STYLE_INTERACTION_WITHIN) {
+        if mask.has_interaction_property()
+            || mask.has(STYLE_INTERACTION_WITHIN)
+            || mask.has(STYLE_INTERACTION_PARENT)
+        {
             if merge && let Some(interaction) = cx.renders.interaction_properties.get_mut(id) {
                 interaction.override_with(&inner.interaction_styles, mask);
             } else {

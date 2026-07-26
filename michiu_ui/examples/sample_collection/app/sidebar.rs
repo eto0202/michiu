@@ -154,7 +154,7 @@ pub fn scrollbar(t: &Theme) -> ThisStyle {
                     ts().m_y(4.0)
                         .p_r(5.0)
                         .width(7.0)
-                        .rounded_full()
+                        .r_full()
                         .bg_color(t.border)
                         .hovered(ts().bg_color(t.border_hover)),
                 )
@@ -162,7 +162,7 @@ pub fn scrollbar(t: &Theme) -> ThisStyle {
                     ts().m_x(4.0)
                         .p_b(5.0)
                         .height(7.0)
-                        .rounded_full()
+                        .r_full()
                         .bg_color(t.border)
                         .hovered(ts().bg_color(t.border_hover)),
                 ),

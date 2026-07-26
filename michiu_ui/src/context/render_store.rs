@@ -1,6 +1,7 @@
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
+    borrow::Cow,
     collections::HashSet,
     sync::Arc,
     time::{Duration, Instant},
@@ -362,7 +363,7 @@ impl RenderStore {
     pub(crate) fn cascade_within_interaction_flag(
         id: EntityId,
         interaction: &InteractionStyles,
-    ) -> [(u128, &Option<ThisStyle>); 8] {
+    ) -> [(u128, &Option<ThisStyle>); 9] {
         [
             (STATE_FOCUSED, &interaction.focused_within),
             (STATE_SELECTED, &interaction.selected_within),
@@ -370,8 +371,26 @@ impl RenderStore {
             (STATE_HOVERED, &interaction.hovered_within),
             (STATE_PRESSED, &interaction.pressed_within),
             (STATE_DISABLED, &interaction.disabled_within),
+            (STATE_DRAGGED, &interaction.dragged_within),
             (STATE_DRAGGING, &interaction.dragged_within),
             (STATE_DRAG_IN, &interaction.hovered_within),
+        ]
+    }
+
+    pub(crate) fn cascade_parent_interaction_flag(
+        id: EntityId,
+        interaction: &InteractionStyles,
+    ) -> [(u128, &Option<ThisStyle>); 9] {
+        [
+            (STATE_FOCUSED, &interaction.focused_parent),
+            (STATE_SELECTED, &interaction.selected_parent),
+            (STATE_ACTIVED, &interaction.actived_parent),
+            (STATE_HOVERED, &interaction.hovered_parent),
+            (STATE_PRESSED, &interaction.pressed_parent),
+            (STATE_DISABLED, &interaction.disabled_parent),
+            (STATE_DRAGGED, &interaction.dragged_parent),
+            (STATE_DRAGGING, &interaction.dragged_parent),
+            (STATE_DRAG_IN, &interaction.hovered_parent),
         ]
     }
 
@@ -582,6 +601,10 @@ pub(crate) struct TargetStyle {
     pub(crate) outline_styles: Option<[BorderStyle; 4]>,
     pub(crate) outline_alignments: Option<[BorderAlignment; 4]>,
     pub(crate) outline_offset: Option<f32>,
+    pub(crate) font_size: Option<f32>,
+    pub(crate) font_family: Option<Cow<'static, str>>,
+    pub(crate) font_weight: Option<u32>,
+    pub(crate) font_style: Option<u32>,
 }
 
 impl RenderStore {
@@ -614,6 +637,10 @@ impl RenderStore {
                 outline_styles: v.outline_styles,
                 outline_alignments: v.outline_alignments,
                 outline_offset: v.outline_offset,
+                font_size: v.font_size,
+                font_family: v.font_family.clone(),
+                font_weight: v.font_weight,
+                font_style: v.font_style,
             })
             .unwrap_or_default()
     }
@@ -699,6 +726,20 @@ impl TargetStyle {
         }
         if inner_mask.has(STYLE_RESIZABLE) {
             target.resizable_cursor = inner_vis.resizable_cursor;
+        }
+        if inner_mask.has(STYLE_FONT_SIZE) {
+            target.font_size = inner_vis.font_size;
+        }
+        if inner_mask.has(STYLE_EXT_PROPERTIES) {
+            if inner_vis.font_family.is_some() {
+                target.font_family = inner_vis.font_family.clone();
+            }
+            if inner_vis.font_weight.is_some() {
+                target.font_weight = inner_vis.font_weight;
+            }
+            if inner_vis.font_style.is_some() {
+                target.font_style = inner_vis.font_style;
+            }
         }
     }
 }
@@ -829,6 +870,43 @@ impl Context {
             // All（いずれかのインタラクションがあればON）の解決
             if let Some(ref style) = interaction.any_within
                 && TopologyStore::has_descendant_with_any_active_state(id, &self.topology)
+            {
+                TargetStyle::apply_visual_property(
+                    target,
+                    &style.inner.visual_property,
+                    style.inner.mask,
+                );
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn cascade_parent_interaction(
+        &self,
+        id: EntityId,
+        active_mask: ComponentMask,
+        target: &mut TargetStyle,
+    ) {
+        if active_mask.has(STYLE_INTERACTION_PARENT)
+            && let Some(interaction) = self.renders.interaction_properties.get(id)
+        {
+            let cascade_parent = RenderStore::cascade_parent_interaction_flag(id, interaction);
+
+            for (state, style_opt) in cascade_parent {
+                // 直近の親要素がこの state_flag を満たしているか
+                if TopologyStore::has_parent_with_state(id, &self.topology, state)
+                    && let Some(style) = style_opt
+                {
+                    TargetStyle::apply_visual_property(
+                        target,
+                        &style.inner.visual_property,
+                        style.inner.mask,
+                    );
+                }
+            }
+
+            if let Some(ref style) = interaction.any_parent
+                && TopologyStore::has_parent_with_any_active_state(id, &self.topology)
             {
                 TargetStyle::apply_visual_property(
                     target,
@@ -975,6 +1053,7 @@ impl Context {
 
             // 疑似クラス（Hovered等）のマージ
             self.cascade_interaction(id, active_mask, &mut target, focus_style_resolved);
+            self.cascade_parent_interaction(id, active_mask, &mut target);
             self.cascade_within_interaction(id, active_mask, &mut target);
 
             // プレースホルダー表示状態
@@ -1160,16 +1239,18 @@ impl Context {
                 active_vis.cursor = target.cursor;
                 active_vis.resizable_cursor = target.resizable_cursor;
 
+                active_vis.font_size = target.font_size;
+                active_vis.font_family = target.font_family.clone();
+                active_vis.font_weight = target.font_weight;
+                active_vis.font_style = target.font_style;
+
+                active_vis.pointer_events = target.pointer_events;
+
                 // コールドプロパティの即時代入
                 if let Some(target_vis) = self.renders.base_visual_properties.get(id) {
                     active_vis.z_index = target_vis.z_index;
                     active_vis.backdrop = target_vis.backdrop;
-                    active_vis.font_size = target_vis.font_size;
-                    active_vis.font_family = target_vis.font_family.clone();
-                    active_vis.font_weight = target_vis.font_weight;
-                    active_vis.font_style = target_vis.font_style;
                     active_vis.bg_gradient = target_vis.bg_gradient;
-                    active_vis.pointer_events = target_vis.pointer_events;
                     active_vis.transitions = target_vis.transitions.clone();
                     active_vis.keyframe_animations = target_vis.keyframe_animations.clone();
                     active_vis.focusable = target_vis.focusable;

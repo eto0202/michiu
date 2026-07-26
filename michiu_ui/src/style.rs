@@ -55,6 +55,15 @@ pub enum StyleTarget {
     SelectedWithin,
     DraggedWithin,
     AnyWithin,
+
+    HoveredParent,
+    FocusedParent,
+    PressedParent,
+    DisabledParent,
+    ActivedParent,
+    SelectedParent,
+    DraggedParent,
+    AnyParent,
 }
 
 // Debug トレイトの手動実装 (クロージャを含むため)
@@ -3168,13 +3177,13 @@ impl ThisStyle {
 
     /// 要素を完全なサークル（またはカプセル型、Tailwind CSS の rounded-full 相当）にします。
     #[inline]
-    pub fn rounded_full(self) -> Self {
+    pub fn r_full(self) -> Self {
         self.corner_radius(9999.0)
     }
 
     /// 上半分の角（top-left, top-right）にのみ角丸を設定します。
     #[inline]
-    pub fn rounded_top(self, value: impl Convert<f32>) -> Self {
+    pub fn r_top(self, value: impl Convert<f32>) -> Self {
         let val = value.convert();
         let current = self
             .inner
@@ -3186,7 +3195,7 @@ impl ThisStyle {
 
     /// 下半分の角（bottom-left, bottom-right）にのみ角丸を設定します。
     #[inline]
-    pub fn rounded_bottom(self, value: impl Convert<f32>) -> Self {
+    pub fn r_bottom(self, value: impl Convert<f32>) -> Self {
         let val = value.convert();
         let current = self
             .inner
@@ -3198,7 +3207,7 @@ impl ThisStyle {
 
     /// 左半分の角（top-left, bottom-left）にのみ角丸を設定します。
     #[inline]
-    pub fn rounded_left(self, value: impl Convert<f32>) -> Self {
+    pub fn r_left(self, value: impl Convert<f32>) -> Self {
         let val = value.convert();
         let current = self
             .inner
@@ -3210,7 +3219,7 @@ impl ThisStyle {
 
     /// 右半分の角（top-right, bottom-right）にのみ角丸を設定します。
     #[inline]
-    pub fn rounded_right(self, value: impl Convert<f32>) -> Self {
+    pub fn r_right(self, value: impl Convert<f32>) -> Self {
         let val = value.convert();
         let current = self
             .inner
@@ -3871,7 +3880,7 @@ impl ThisStyle {
         self.apply_interaction_style(style, STATE_DRAGGED, StyleTarget::Dragged)
     }
 
-    /// 子孫要素のインタラクション状態に連動して親のスタイルを変化させる伝播設定
+    /// 子孫要素のインタラクション状態に連動して自身のスタイルを変化させる伝播設定
     #[inline]
     pub fn interaction_within(
         self,
@@ -3929,6 +3938,66 @@ impl ThisStyle {
     #[inline]
     pub fn all_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::All, style)
+    }
+
+    /// 直近の親要素のインタラクション状態に連動して自身のスタイルを変化させる
+    #[inline]
+    pub fn interaction_parent(
+        self,
+        name: InteractionName,
+        style: impl IntoStyleValue<ThisStyle>,
+    ) -> Self {
+        let (state_flag, target) = match name {
+            InteractionName::Hover => (STYLE_INTERACTION_PARENT, StyleTarget::HoveredParent),
+            InteractionName::Focus => (STYLE_INTERACTION_PARENT, StyleTarget::FocusedParent),
+            InteractionName::Press => (STYLE_INTERACTION_PARENT, StyleTarget::PressedParent),
+            InteractionName::Disable => (STYLE_INTERACTION_PARENT, StyleTarget::DisabledParent),
+            InteractionName::Active => (STYLE_INTERACTION_PARENT, StyleTarget::ActivedParent),
+            InteractionName::Select => (STYLE_INTERACTION_PARENT, StyleTarget::SelectedParent),
+            InteractionName::Drag => (STYLE_INTERACTION_PARENT, StyleTarget::DraggedParent),
+            InteractionName::All => (STYLE_INTERACTION_PARENT, StyleTarget::AnyParent),
+        };
+        self.apply_interaction_style(style, state_flag, target)
+    }
+
+    #[inline]
+    pub fn hover_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_parent(InteractionName::Hover, style)
+    }
+
+    #[inline]
+    pub fn focus_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_parent(InteractionName::Focus, style)
+    }
+
+    #[inline]
+    pub fn press_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_parent(InteractionName::Press, style)
+    }
+
+    #[inline]
+    pub fn disable_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_parent(InteractionName::Disable, style)
+    }
+
+    #[inline]
+    pub fn active_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_parent(InteractionName::Active, style)
+    }
+
+    #[inline]
+    pub fn select_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_parent(InteractionName::Select, style)
+    }
+
+    #[inline]
+    pub fn drag_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_parent(InteractionName::Drag, style)
+    }
+
+    #[inline]
+    pub fn all_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_parent(InteractionName::All, style)
     }
 
     /// 要素の上下左右のリサイズ許可を設定します。
@@ -4595,11 +4664,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font_size = Some(v);
-                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.mask.set(STYLE_FONT_SIZE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.mask.set(STYLE_FONT_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -4842,6 +4911,15 @@ impl ThisStyle {
                     StyleTarget::DraggedWithin => interaction.dragged_within = Some(v),
                     StyleTarget::AnyWithin => interaction.any_within = Some(v),
                     StyleTarget::Base => unreachable!(),
+
+                    StyleTarget::HoveredParent => interaction.hovered_parent = Some(v),
+                    StyleTarget::FocusedParent => interaction.focused_parent = Some(v),
+                    StyleTarget::PressedParent => interaction.pressed_parent = Some(v),
+                    StyleTarget::DisabledParent => interaction.disabled_parent = Some(v),
+                    StyleTarget::ActivedParent => interaction.actived_parent = Some(v),
+                    StyleTarget::SelectedParent => interaction.selected_parent = Some(v),
+                    StyleTarget::DraggedParent => interaction.dragged_parent = Some(v),
+                    StyleTarget::AnyParent => interaction.any_parent = Some(v),
                 }
                 inner.mask.set(state_flag);
             }
@@ -4888,6 +4966,19 @@ impl ThisStyle {
                             StyleTarget::DraggedWithin => styles.dragged_within = Some(val.clone()),
                             StyleTarget::AnyWithin => styles.any_within = Some(val.clone()),
                             StyleTarget::Base => unreachable!(),
+
+                            StyleTarget::HoveredParent => styles.hovered_parent = Some(val.clone()),
+                            StyleTarget::FocusedParent => styles.focused_parent = Some(val.clone()),
+                            StyleTarget::PressedParent => styles.pressed_parent = Some(val.clone()),
+                            StyleTarget::DisabledParent => {
+                                styles.disabled_parent = Some(val.clone())
+                            }
+                            StyleTarget::ActivedParent => styles.actived_parent = Some(val.clone()),
+                            StyleTarget::SelectedParent => {
+                                styles.selected_parent = Some(val.clone())
+                            }
+                            StyleTarget::DraggedParent => styles.dragged_parent = Some(val.clone()),
+                            StyleTarget::AnyParent => styles.any_parent = Some(val.clone()),
                         }
 
                         // 動的スタイルの内部に存在するセッターも、その場で即時にターゲット解決を実行
@@ -4935,6 +5026,7 @@ impl ThisStyle {
         // 5. 疑似クラス（インタラクションプロパティ）のオーバーライド
         if other_inner.mask.has_interaction_property()
             || other_inner.mask.has(STYLE_INTERACTION_WITHIN)
+            || other_inner.mask.has(STYLE_INTERACTION_PARENT)
         {
             inner_mut
                 .interaction_styles

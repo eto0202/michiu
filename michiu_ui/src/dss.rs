@@ -538,22 +538,22 @@ fn apply_declarations_to_style(
             }
             Property::BorderTopLeftRadius(radius, _) => {
                 if let Some(val) = parse_css_length_f32(&radius.0) {
-                    style = map_style_prop(style, target, |s| s.rounded_top(val));
+                    style = map_style_prop(style, target, |s| s.r_top(val));
                 }
             }
             Property::BorderTopRightRadius(radius, _) => {
                 if let Some(val) = parse_css_length_f32(&radius.0) {
-                    style = map_style_prop(style, target, |s| s.rounded_right(val));
+                    style = map_style_prop(style, target, |s| s.r_right(val));
                 }
             }
             Property::BorderBottomRightRadius(radius, _) => {
                 if let Some(val) = parse_css_length_f32(&radius.0) {
-                    style = map_style_prop(style, target, |s| s.rounded_bottom(val));
+                    style = map_style_prop(style, target, |s| s.r_bottom(val));
                 }
             }
             Property::BorderBottomLeftRadius(radius, _) => {
                 if let Some(val) = parse_css_length_f32(&radius.0) {
-                    style = map_style_prop(style, target, |s| s.rounded_left(val));
+                    style = map_style_prop(style, target, |s| s.r_left(val));
                 }
             }
 

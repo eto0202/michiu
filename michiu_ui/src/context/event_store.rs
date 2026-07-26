@@ -1481,8 +1481,24 @@ impl Context {
             mask.unset(state_flag);
         }
 
-        // 状態変化の発生時に、即座に動的なスタイルを解決する
+        // 状態変化の発生時に即座に動的なスタイルを解決する
         self.resolve_element_style_state(id, true);
+
+        // 親から子方向へのスタイル解決の伝播
+        if let Some(children) = self.topology.children.get(id).cloned() {
+            for child_id in children {
+                if self.topology.active_masks[child_id].has(STYLE_INTERACTION_PARENT) {
+                    self.resolve_element_style_state(child_id, true);
+
+                    if self.does_state_require_layout(child_id, state_flag) {
+                        self.mark_layout_dirty(child_id);
+                        self.mark_render_dirty(id);
+                    } else {
+                        self.mark_render_dirty(child_id);
+                    }
+                }
+            }
+        }
 
         // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
         let mut curr = id;

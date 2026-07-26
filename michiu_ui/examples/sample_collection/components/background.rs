@@ -13,7 +13,7 @@ pub fn container() -> Element {
                 .width(pct(61.8))
                 .h_full()
                 .bg_color(Color::BLUE)
-                .rounded_left(4.0)),
+                .r_left(4.0)),
             step_1().style(ts().width(pct(38.2)).h_full()),
         ]),
     )

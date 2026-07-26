@@ -382,6 +382,15 @@ pub(crate) struct InteractionStyles {
     pub(crate) selected_within: Option<ThisStyle>,
     pub(crate) dragged_within: Option<ThisStyle>,
     pub(crate) any_within: Option<ThisStyle>, // All（いずれかのインタラクションがあればON）
+
+    pub(crate) hovered_parent: Option<ThisStyle>,
+    pub(crate) focused_parent: Option<ThisStyle>,
+    pub(crate) pressed_parent: Option<ThisStyle>,
+    pub(crate) disabled_parent: Option<ThisStyle>,
+    pub(crate) actived_parent: Option<ThisStyle>,
+    pub(crate) selected_parent: Option<ThisStyle>,
+    pub(crate) dragged_parent: Option<ThisStyle>,
+    pub(crate) any_parent: Option<ThisStyle>,
 }
 
 impl InteractionStyles {
@@ -409,6 +418,15 @@ impl InteractionStyles {
             StyleTarget::DraggedWithin => self.dragged_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::AnyWithin => self.any_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::Base => unreachable!("Base target must be handled individually"),
+
+            StyleTarget::HoveredParent => self.hovered_parent.get_or_insert_with(ThisStyle::new),
+            StyleTarget::FocusedParent => self.focused_parent.get_or_insert_with(ThisStyle::new),
+            StyleTarget::PressedParent => self.pressed_parent.get_or_insert_with(ThisStyle::new),
+            StyleTarget::DisabledParent => self.disabled_parent.get_or_insert_with(ThisStyle::new),
+            StyleTarget::ActivedParent => self.actived_parent.get_or_insert_with(ThisStyle::new),
+            StyleTarget::SelectedParent => self.selected_parent.get_or_insert_with(ThisStyle::new),
+            StyleTarget::DraggedParent => self.dragged_parent.get_or_insert_with(ThisStyle::new),
+            StyleTarget::AnyParent => self.any_parent.get_or_insert_with(ThisStyle::new),
         }
     }
 
@@ -463,6 +481,15 @@ impl InteractionStyles {
         merge(&mut self.selected_within, &other.selected_within);
         merge(&mut self.dragged_within, &other.dragged_within);
         merge(&mut self.any_within, &other.any_within);
+
+        merge(&mut self.hovered_parent, &other.hovered_parent);
+        merge(&mut self.focused_parent, &other.focused_parent);
+        merge(&mut self.pressed_parent, &other.pressed_parent);
+        merge(&mut self.disabled_parent, &other.disabled_parent);
+        merge(&mut self.actived_parent, &other.actived_parent);
+        merge(&mut self.selected_parent, &other.selected_parent);
+        merge(&mut self.dragged_parent, &other.dragged_parent);
+        merge(&mut self.any_parent, &other.any_parent);
     }
 }
 
