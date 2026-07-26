@@ -199,7 +199,18 @@ fn spin_box() -> Element {
                 .placeholder("-99~99")
                 .placeholder_color(t.text_muted)
         })
-        .style(input_style("Segoe UI").w_auto()),
+        .style(
+            ts().flex()
+                .size_full()
+                .font_size(16.0)
+                .font_family("Segoe UI")
+                .text_color(dynamic(|t: &Theme| t.text))
+                .select_text()
+                .cursor_text()
+                .overflow_hidden()
+                .border_solid(1.0)
+                .border_color(Color::RED),
+        ),
     );
 
     h_flex(

@@ -129,12 +129,22 @@ fn hovered_btn() -> Element {
 
 fn pressed_btn() -> Element {
     h_flex(
-        item_style()
+        ts().p(12.0)
+            .r(4.0)
+            .size((120.0, 70.0))
+            .justify_center()
+            .items_center()
             .border_dashed(2.0)
             .border_color(dynamic(|t: &Theme| t.primary))
             .pressed(ts().transform_scale(0.96, 0.96)),
     )
-    .label("Pressed", label_style().transform_inherit(true))
+    .label(
+        "Pressed",
+        ts().text_color(dynamic(|t: &Theme| t.text_muted))
+            .font_size(16.0)
+            .font_weight(400)
+            .transform_inherit(true),
+    )
 }
 
 fn dragged_btn() -> Element {
