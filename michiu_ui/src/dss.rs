@@ -257,7 +257,7 @@ pub fn parse_css_to_stylesheet(css_content: &str) -> Dss {
                                 PseudoClass::Active => crate::StyleTarget::Pressed,
                                 PseudoClass::Disabled => crate::StyleTarget::Disabled,
                                 PseudoClass::Checked => crate::StyleTarget::Selected,
-                                PseudoClass::FocusVisible => crate::StyleTarget::Focused,
+                                PseudoClass::FocusVisible => crate::StyleTarget::FocusedVisible,
                                 PseudoClass::FocusWithin => crate::StyleTarget::FocusedWithin,
                                 _ => crate::StyleTarget::Base,
                             };
@@ -996,7 +996,7 @@ fn map_style_prop_impl(
         crate::StyleTarget::Focused => style.focused(f(ThisStyle::new())),
         crate::StyleTarget::Pressed => style.pressed(f(ThisStyle::new())),
         crate::StyleTarget::Disabled => style.disabled(f(ThisStyle::new())),
-        crate::StyleTarget::FocusedWithin => style.focus_within(f(ThisStyle::new())),
+        crate::StyleTarget::FocusedWithin => style.focused_within(f(ThisStyle::new())),
         _ => style,
     }
 }

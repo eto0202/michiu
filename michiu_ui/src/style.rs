@@ -38,6 +38,7 @@ pub enum StyleTarget {
     Base,
     Hovered,
     Focused,
+    FocusedVisible,
     Pressed,
     Disabled,
     Actived,
@@ -49,6 +50,7 @@ pub enum StyleTarget {
 
     HoveredWithin,
     FocusedWithin,
+    FocusedVisibleWithin,
     PressedWithin,
     DisabledWithin,
     ActivedWithin,
@@ -58,6 +60,7 @@ pub enum StyleTarget {
 
     HoveredParent,
     FocusedParent,
+    FocusedVisibleParent,
     PressedParent,
     DisabledParent,
     ActivedParent,
@@ -3850,6 +3853,12 @@ impl ThisStyle {
         self.apply_interaction_style(style, STATE_FOCUSED, StyleTarget::Focused)
     }
 
+    /// キーボード経由のフォーカス時のみ（focus-visible相当）適用するスタイルを設定します。
+    #[inline]
+    pub fn focused_visible(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_FOCUSED_VISIBLE, StyleTarget::FocusedVisible)
+    }
+
     /// マウスの左ボタンが要素の上で押し下げられた際、またはタップ中に適用するスタイルを設定します。
     #[inline]
     pub fn pressed(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
@@ -3890,6 +3899,9 @@ impl ThisStyle {
         let (state_flag, target) = match name {
             InteractionName::Hover => (STYLE_INTERACTION_WITHIN, StyleTarget::HoveredWithin),
             InteractionName::Focus => (STYLE_INTERACTION_WITHIN, StyleTarget::FocusedWithin),
+            InteractionName::FocusVisible => {
+                (STYLE_INTERACTION_WITHIN, StyleTarget::FocusedVisibleWithin)
+            }
             InteractionName::Press => (STYLE_INTERACTION_WITHIN, StyleTarget::PressedWithin),
             InteractionName::Disable => (STYLE_INTERACTION_WITHIN, StyleTarget::DisabledWithin),
             InteractionName::Active => (STYLE_INTERACTION_WITHIN, StyleTarget::ActivedWithin),
@@ -3901,37 +3913,43 @@ impl ThisStyle {
     }
 
     #[inline]
-    pub fn hover_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn hovered_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Hover, style)
     }
 
     #[inline]
-    pub fn focus_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn focused_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Focus, style)
     }
 
+    /// 子孫要素がキーボードフォーカスされている場合のみ適用するスタイルを設定します。
     #[inline]
-    pub fn press_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn focused_visible_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_within(InteractionName::FocusVisible, style)
+    }
+
+    #[inline]
+    pub fn pressed_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Press, style)
     }
 
     #[inline]
-    pub fn disable_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn disabled_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Disable, style)
     }
 
     #[inline]
-    pub fn active_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn actived_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Active, style)
     }
 
     #[inline]
-    pub fn select_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn selected_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Select, style)
     }
 
     #[inline]
-    pub fn drag_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn dragged_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Drag, style)
     }
 
@@ -3950,6 +3968,9 @@ impl ThisStyle {
         let (state_flag, target) = match name {
             InteractionName::Hover => (STYLE_INTERACTION_PARENT, StyleTarget::HoveredParent),
             InteractionName::Focus => (STYLE_INTERACTION_PARENT, StyleTarget::FocusedParent),
+            InteractionName::FocusVisible => {
+                (STYLE_INTERACTION_PARENT, StyleTarget::FocusedVisibleParent)
+            }
             InteractionName::Press => (STYLE_INTERACTION_PARENT, StyleTarget::PressedParent),
             InteractionName::Disable => (STYLE_INTERACTION_PARENT, StyleTarget::DisabledParent),
             InteractionName::Active => (STYLE_INTERACTION_PARENT, StyleTarget::ActivedParent),
@@ -3961,37 +3982,42 @@ impl ThisStyle {
     }
 
     #[inline]
-    pub fn hover_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn hovered_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Hover, style)
     }
 
     #[inline]
-    pub fn focus_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn focused_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Focus, style)
     }
 
     #[inline]
-    pub fn press_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn focused_visible_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.interaction_parent(InteractionName::FocusVisible, style)
+    }
+
+    #[inline]
+    pub fn pressed_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Press, style)
     }
 
     #[inline]
-    pub fn disable_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn disabled_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Disable, style)
     }
 
     #[inline]
-    pub fn active_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn actived_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Active, style)
     }
 
     #[inline]
-    pub fn select_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn selected_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Select, style)
     }
 
     #[inline]
-    pub fn drag_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+    pub fn dragged_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Drag, style)
     }
 
@@ -4485,27 +4511,27 @@ impl ThisStyle {
     }
 
     #[inline]
-        pub fn transform_inherit(mut self, value: impl IntoStyleValue<bool>) -> Self {
-            match value.into_style_value() {
-                StyleValue::Static(v) => {
-                    let inner = Arc::make_mut(&mut self.inner);
-                    inner.visual_property.transform_inherit = Some(v);
-                    inner.mask.set(STYLE_TRANSFORM_INHERIT);
-                }
-                StyleValue::Dynamic(getter) => {
-                    let inner = Arc::make_mut(&mut self.inner);
-                    inner.mask.set(STYLE_TRANSFORM_INHERIT);
-                    inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                        let val = getter();
-                        if let Some(v) = cx.get_visual_property_mut(id, target) {
-                            v.transform_inherit = Some(val);
-                        }
-                        cx.mark_render_dirty(id);
-                    }));
-                }
+    pub fn transform_inherit(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.transform_inherit = Some(v);
+                inner.mask.set(STYLE_TRANSFORM_INHERIT);
             }
-            self
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_TRANSFORM_INHERIT);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                        v.transform_inherit = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
         }
+        self
+    }
 
     /// 状態遷移時のトランジション（CSS transition）を設定します。
     #[inline]
@@ -4916,6 +4942,7 @@ impl ThisStyle {
                 match target {
                     StyleTarget::Hovered => interaction.hovered = Some(v),
                     StyleTarget::Focused => interaction.focused = Some(v),
+                    StyleTarget::FocusedVisible => interaction.focused_visible = Some(v),
                     StyleTarget::Pressed => interaction.pressed = Some(v),
                     StyleTarget::Disabled => interaction.disabled = Some(v),
                     StyleTarget::Actived => interaction.actived = Some(v),
@@ -4927,6 +4954,9 @@ impl ThisStyle {
 
                     StyleTarget::HoveredWithin => interaction.hovered_within = Some(v),
                     StyleTarget::FocusedWithin => interaction.focused_within = Some(v),
+                    StyleTarget::FocusedVisibleWithin => {
+                        interaction.focused_visible_within = Some(v)
+                    }
                     StyleTarget::PressedWithin => interaction.pressed_within = Some(v),
                     StyleTarget::DisabledWithin => interaction.disabled_within = Some(v),
                     StyleTarget::ActivedWithin => interaction.actived_within = Some(v),
@@ -4937,6 +4967,9 @@ impl ThisStyle {
 
                     StyleTarget::HoveredParent => interaction.hovered_parent = Some(v),
                     StyleTarget::FocusedParent => interaction.focused_parent = Some(v),
+                    StyleTarget::FocusedVisibleParent => {
+                        interaction.focused_visible_parent = Some(v)
+                    }
                     StyleTarget::PressedParent => interaction.pressed_parent = Some(v),
                     StyleTarget::DisabledParent => interaction.disabled_parent = Some(v),
                     StyleTarget::ActivedParent => interaction.actived_parent = Some(v),
@@ -4967,6 +5000,9 @@ impl ThisStyle {
                         match target {
                             StyleTarget::Hovered => styles.hovered = Some(val.clone()),
                             StyleTarget::Focused => styles.focused = Some(val.clone()),
+                            StyleTarget::FocusedVisible => {
+                                styles.focused_visible = Some(val.clone())
+                            }
                             StyleTarget::Pressed => styles.pressed = Some(val.clone()),
                             StyleTarget::Disabled => styles.disabled = Some(val.clone()),
                             StyleTarget::Actived => styles.actived = Some(val.clone()),
@@ -4978,6 +5014,9 @@ impl ThisStyle {
 
                             StyleTarget::HoveredWithin => styles.hovered_within = Some(val.clone()),
                             StyleTarget::FocusedWithin => styles.focused_within = Some(val.clone()),
+                            StyleTarget::FocusedVisibleWithin => {
+                                styles.focused_visible_within = Some(val.clone())
+                            }
                             StyleTarget::PressedWithin => styles.pressed_within = Some(val.clone()),
                             StyleTarget::DisabledWithin => {
                                 styles.disabled_within = Some(val.clone())
@@ -4992,6 +5031,9 @@ impl ThisStyle {
 
                             StyleTarget::HoveredParent => styles.hovered_parent = Some(val.clone()),
                             StyleTarget::FocusedParent => styles.focused_parent = Some(val.clone()),
+                            StyleTarget::FocusedVisibleParent => {
+                                styles.focused_visible_parent = Some(val.clone())
+                            }
                             StyleTarget::PressedParent => styles.pressed_parent = Some(val.clone()),
                             StyleTarget::DisabledParent => {
                                 styles.disabled_parent = Some(val.clone())

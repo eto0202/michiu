@@ -277,6 +277,7 @@ impl RenderStore {
             let target_style = match state_flag {
                 STATE_HOVERED => &interaction.hovered,
                 STATE_FOCUSED => &interaction.focused,
+                STATE_FOCUSED_VISIBLE => &interaction.focused_visible,
                 STATE_PRESSED => &interaction.pressed,
                 STATE_DISABLED => &interaction.disabled,
                 STATE_ACTIVED => &interaction.actived,
@@ -303,12 +304,22 @@ impl RenderStore {
         renders: &RenderStore,
         active_mask: &ComponentMask,
         parents: &SecondaryMap<EntityId, Option<EntityId>>,
+        state_flag: u128,
     ) -> Option<ThisStyle> {
-        if active_mask.has(STATE_FOCUSED) {
-            if let Some(interaction) = renders.interaction_properties.get(id)
-                && let Some(ref self_f_style) = interaction.focused
-            {
-                Some(self_f_style.clone()) // 自身に明確な focused 指定があれば最優先
+        if active_mask.has(state_flag) {
+            let self_style = renders
+                .interaction_properties
+                .get(id)
+                .and_then(|interaction| {
+                    if state_flag == STATE_FOCUSED_VISIBLE {
+                        interaction.focused_visible.clone()
+                    } else {
+                        interaction.focused.clone()
+                    }
+                });
+
+            if let Some(style) = self_style {
+                Some(style)
             } else {
                 let focus_mode = renders
                     .visual_properties
@@ -316,21 +327,35 @@ impl RenderStore {
                     .and_then(|v| v.focusable)
                     .unwrap_or(Focusable::None);
 
-                if matches!(focus_mode, Focusable::Inherit(_)) {
+                let is_trigger_match = match (state_flag, focus_mode) {
+                    (STATE_FOCUSED, Focusable::Inherit(_)) => true,
+                    (STATE_FOCUSED_VISIBLE, Focusable::Inherit(trigger)) => {
+                        trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
+                    }
+                    _ => false,
+                };
+
+                if is_trigger_match {
                     // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
                     let mut curr = parents.get(id).copied().flatten();
-                    let mut found_parent_focused_style = None;
+                    let mut found_parent_style = None;
                     while let Some(curr_id) = curr {
                         if let Some(parent_interaction) =
                             renders.interaction_properties.get(curr_id)
-                            && let Some(ref parent_f_style) = parent_interaction.focused
                         {
-                            found_parent_focused_style = Some(parent_f_style.clone());
-                            break;
+                            let parent_style = if state_flag == STATE_FOCUSED_VISIBLE {
+                                &parent_interaction.focused_visible
+                            } else {
+                                &parent_interaction.focused
+                            };
+                            if let Some(p_style) = parent_style {
+                                found_parent_style = Some(p_style.clone());
+                                break;
+                            }
                         }
                         curr = parents.get(curr_id).copied().flatten();
                     }
-                    found_parent_focused_style
+                    found_parent_style
                 } else {
                     None
                 }
@@ -344,10 +369,12 @@ impl RenderStore {
         id: EntityId,
         renders: &RenderStore,
         interaction: &'a InteractionStyles,
-        focus_style_resolved: &'a Option<ThisStyle>,
-    ) -> [(u128, &'a Option<ThisStyle>); 10] {
+        focused_style_resolved: &'a Option<ThisStyle>,
+        focused_visible_style_resolved: &'a Option<ThisStyle>,
+    ) -> [(u128, &'a Option<ThisStyle>); 11] {
         [
-            (STATE_FOCUSED, focus_style_resolved),
+            (STATE_FOCUSED, focused_style_resolved),
+            (STATE_FOCUSED_VISIBLE, focused_visible_style_resolved),
             (STATE_SELECTED, &interaction.selected),
             (STATE_ACTIVED, &interaction.actived),
             (STATE_HOVERED, &interaction.hovered),
@@ -363,9 +390,10 @@ impl RenderStore {
     pub(crate) fn cascade_within_interaction_flag(
         id: EntityId,
         interaction: &InteractionStyles,
-    ) -> [(u128, &Option<ThisStyle>); 9] {
+    ) -> [(u128, &Option<ThisStyle>); 10] {
         [
             (STATE_FOCUSED, &interaction.focused_within),
+            (STATE_FOCUSED_VISIBLE, &interaction.focused_visible_within),
             (STATE_SELECTED, &interaction.selected_within),
             (STATE_ACTIVED, &interaction.actived_within),
             (STATE_HOVERED, &interaction.hovered_within),
@@ -380,9 +408,10 @@ impl RenderStore {
     pub(crate) fn cascade_parent_interaction_flag(
         id: EntityId,
         interaction: &InteractionStyles,
-    ) -> [(u128, &Option<ThisStyle>); 9] {
+    ) -> [(u128, &Option<ThisStyle>); 10] {
         [
             (STATE_FOCUSED, &interaction.focused_parent),
+            (STATE_FOCUSED_VISIBLE, &interaction.focused_visible_parent),
             (STATE_SELECTED, &interaction.selected_parent),
             (STATE_ACTIVED, &interaction.actived_parent),
             (STATE_HOVERED, &interaction.hovered_parent),
@@ -403,6 +432,7 @@ impl RenderStore {
         if let Some(interaction) = renders.interaction_properties.get(id) {
             let cascade = [
                 (STATE_FOCUSED, &interaction.focused),
+                (STATE_FOCUSED_VISIBLE, &interaction.focused_visible),
                 (STATE_SELECTED, &interaction.selected),
                 (STATE_ACTIVED, &interaction.actived),
                 (STATE_HOVERED, &interaction.hovered),
@@ -866,8 +896,15 @@ impl Context {
         &self,
         id: EntityId,
         active_mask: &ComponentMask,
+        state_flag: u128,
     ) -> Option<ThisStyle> {
-        RenderStore::resolv_focus_style(id, &self.renders, active_mask, &self.topology.parents)
+        RenderStore::resolv_focus_style(
+            id,
+            &self.renders,
+            active_mask,
+            &self.topology.parents,
+            state_flag,
+        )
     }
 
     #[inline]
@@ -876,14 +913,16 @@ impl Context {
         id: EntityId,
         active_mask: ComponentMask,
         target: &mut TargetStyle,
-        focus_style_resolved: Option<ThisStyle>,
+        focused_style_resolved: Option<ThisStyle>,
+        focused_visible_style_resolved: Option<ThisStyle>,
     ) {
         if let Some(interaction) = self.renders.interaction_properties.get(id) {
             let cascade = RenderStore::cascade_interaction_flag(
                 id,
                 &self.renders,
                 interaction,
-                &focus_style_resolved,
+                &focused_style_resolved,
+                &focused_visible_style_resolved,
             );
 
             for (state, style_opt) in cascade {
@@ -1006,21 +1045,33 @@ impl Context {
         }
 
         // 暗黙的または明示的にキーボードフォーカスを要求しているか
-        let is_target = self.topology.active_masks[id].has(COMP_INPUT_CONTENT)
-            || self.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT)
-            || (self.topology.active_masks[id].has(STYLE_FOCUSABLE)
-                && self
-                    .renders
-                    .visual_properties
+        let focusable = self
+            .renders
+            .visual_properties
+            .get(id)
+            .and_then(|v| v.focusable)
+            .or_else(|| {
+                let mask = self
+                    .topology
+                    .active_masks
                     .get(id)
-                    .and_then(|v| v.focusable)
-                    .map(|f| match f {
-                        Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
-                            trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
-                        }
-                        Focusable::None => false,
-                    })
-                    .unwrap_or(false));
+                    .copied()
+                    .unwrap_or_default();
+                if mask.has(COMP_INPUT_CONTENT) || mask.has(COMP_WEBVIEW_CONTENT) {
+                    Some(Focusable::Inherit(FocusTrigger::Both))
+                } else {
+                    None
+                }
+            });
+
+        let is_target = focusable
+            .map(|f| match f {
+                Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
+                    trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
+                }
+                Focusable::None => false,
+            })
+            .unwrap_or(false);
 
         if !is_target {
             return false;
@@ -1108,10 +1159,18 @@ impl Context {
             let mut target = self.get_target_style(id);
 
             // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
-            let focus_style_resolved = self.resolv_focus_style(id, &active_mask);
+            let focused_style_resolved = self.resolv_focus_style(id, &active_mask, STATE_FOCUSED);
+            let focused_visible_style_resolved =
+                self.resolv_focus_style(id, &active_mask, STATE_FOCUSED_VISIBLE);
 
             // 疑似クラス（Hovered等）のマージ
-            self.cascade_interaction(id, active_mask, &mut target, focus_style_resolved);
+            self.cascade_interaction(
+                id,
+                active_mask,
+                &mut target,
+                focused_style_resolved,
+                focused_visible_style_resolved,
+            );
             self.cascade_parent_interaction(id, active_mask, &mut target);
             self.cascade_within_interaction(id, active_mask, &mut target);
 

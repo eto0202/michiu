@@ -801,6 +801,8 @@ impl Element {
             existing.has_caret = c.has_caret;
             existing.placeholder_select = c.placeholder_select;
             existing.is_multiline = c.is_multiline;
+            existing.is_password = c.is_password;
+            existing.mask_text = c.mask_text;
 
             // 動的なテキスト長の変更に伴い、既存の選択範囲が枠外へ飛び出さないようクランプ
             let current_text = existing.text.0.get();

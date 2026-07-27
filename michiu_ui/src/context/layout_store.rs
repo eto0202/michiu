@@ -121,46 +121,27 @@ impl LayoutStore {
             })
             .unwrap_or(false);
 
-        // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
-        let focus_style_resolved = if active_mask.has(STATE_FOCUSED) {
-            if let Some(interaction) = renders.interaction_properties.get(id)
-                && let Some(ref self_f_style) = interaction.focused
-            {
-                Some(self_f_style.clone()) // 自身に明確な focused 指定があれば最優先
-            } else {
-                let focus_mode = renders
-                    .visual_properties
-                    .get(id)
-                    .and_then(|v| v.focusable)
-                    .unwrap_or(Focusable::None);
-
-                if matches!(focus_mode, Focusable::Inherit(_)) {
-                    // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
-                    let mut curr = topology.parents.get(id).copied().flatten();
-                    let mut found_parent_focused_style = None;
-                    while let Some(curr_id) = curr {
-                        if let Some(parent_interaction) =
-                            renders.interaction_properties.get(curr_id)
-                            && let Some(ref parent_f_style) = parent_interaction.focused
-                        {
-                            found_parent_focused_style = Some(parent_f_style.clone());
-                            break;
-                        }
-                        curr = topology.parents.get(curr_id).copied().flatten();
-                    }
-                    found_parent_focused_style
-                } else {
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        // 自身、または親先祖から focused / focus_visible のフォーカス関連スタイルを正確に解決
+        let focused_style_resolved = RenderStore::resolv_focus_style(
+            id,
+            renders,
+            &active_mask,
+            &topology.parents,
+            STATE_FOCUSED,
+        );
+        let focused_visible_style_resolved = RenderStore::resolv_focus_style(
+            id,
+            renders,
+            &active_mask,
+            &topology.parents,
+            STATE_FOCUSED_VISIBLE,
+        );
 
         // 状態マッピング解決のルックアップとループを1回に集約
         if let Some(interaction) = renders.interaction_properties.get(id) {
             let cascade = [
-                (STATE_FOCUSED, &focus_style_resolved),
+                (STATE_FOCUSED, &focused_style_resolved),
+                (STATE_FOCUSED_VISIBLE, &focused_visible_style_resolved),
                 (STATE_SELECTED, &interaction.selected),
                 (STATE_ACTIVED, &interaction.actived),
                 (STATE_HOVERED, &interaction.hovered),

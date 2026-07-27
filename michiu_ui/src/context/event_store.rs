@@ -374,20 +374,27 @@ impl EventStore {
         topology: &TopologyStore,
         renders: &RenderStore,
     ) -> bool {
-        topology.active_masks[id].has(COMP_INPUT_CONTENT)
-            || topology.active_masks[id].has(COMP_WEBVIEW_CONTENT)
-            || (topology.active_masks[id].has(STYLE_FOCUSABLE)
-                && renders
-                    .visual_properties
-                    .get(id)
-                    .and_then(|v| v.focusable)
-                    .map(|f| match f {
-                        Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
-                            trigger == FocusTrigger::Mouse || trigger == FocusTrigger::Both
-                        }
-                        Focusable::None => false,
-                    })
-                    .unwrap_or(false))
+        let focusable = renders
+            .visual_properties
+            .get(id)
+            .and_then(|v| v.focusable)
+            .or_else(|| {
+                let mask = topology.active_masks.get(id).copied().unwrap_or_default();
+                if mask.has(COMP_INPUT_CONTENT) || mask.has(COMP_WEBVIEW_CONTENT) {
+                    Some(Focusable::Inherit(FocusTrigger::Both)) // 未指定時はキーボードフォーカス
+                } else {
+                    None
+                }
+            });
+
+        focusable
+            .map(|f| match f {
+                Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
+                    trigger == FocusTrigger::Mouse || trigger == FocusTrigger::Both
+                }
+                Focusable::None => false,
+            })
+            .unwrap_or(false)
     }
 
     #[inline]
@@ -1158,9 +1165,18 @@ impl Context {
 
     #[inline]
     pub(crate) fn auto_focus_switch(&mut self, id: EntityId) {
+        self.auto_focus_switch_by_trigger(id, ActiveFocusTrigger::Mouse);
+    }
+
+    #[inline]
+    pub(crate) fn auto_focus_switch_by_trigger(
+        &mut self,
+        id: EntityId,
+        trigger: ActiveFocusTrigger,
+    ) {
         if self.events.interaction_states.focused != Some(id) {
             if let Some(old_focus_id) = self.events.interaction_states.focused {
-                self.set_focused(old_focus_id, false);
+                self.set_focused_by_trigger(old_focus_id, false, trigger);
 
                 // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
                 self.clear_selection_highlight_rect(old_focus_id);
@@ -1179,7 +1195,7 @@ impl Context {
             }
 
             // 新しいフォーカス可能要素にフォーカスを設定
-            self.set_focused(id, true);
+            self.set_focused_by_trigger(id, true, trigger);
 
             // 新しいフォーカス先が is_ime(false) の場合は IME 関連付けを解除
             let is_input = self.topology.active_masks[id].has(COMP_INPUT_CONTENT);
@@ -1201,13 +1217,16 @@ impl Context {
             }
 
             self.events.interaction_states.focused = Some(id);
+        } else {
+            // 同一要素をクリックした際にもマウス操作によるフォーカス可視化の消去を同期反映
+            self.set_focused_by_trigger(id, true, trigger);
         }
     }
 
     #[inline]
     pub(crate) fn handle_remove_focus(&mut self) {
         if let Some(old_focus_id) = self.events.interaction_states.focused {
-            self.set_focused(old_focus_id, false);
+            self.set_focused_by_trigger(old_focus_id, false, ActiveFocusTrigger::Mouse);
 
             // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
             self.clear_selection_highlight_rect(old_focus_id);
@@ -1528,18 +1547,16 @@ impl Context {
             if self.topology.entities.contains_key(parent_id) {
                 let parent_mask = self.topology.active_masks[parent_id];
 
-                // 先祖要素が within スタイルを1つでも持っている場合のみ深く入る
-                if !parent_mask.has(STYLE_INTERACTION_WITHIN) {
-                    return;
-                }
+                // 先祖要素が within スタイルを持っている場合のみそのスタイル評価を実行
+                if parent_mask.has(STYLE_INTERACTION_WITHIN) {
+                    self.resolve_element_style_state(parent_id, true);
 
-                self.resolve_element_style_state(parent_id, true);
-
-                if self.does_state_require_layout(parent_id, state_flag) {
-                    self.mark_layout_dirty(parent_id);
-                    self.mark_render_dirty(id);
-                } else {
-                    self.mark_render_dirty(parent_id);
+                    if self.does_state_require_layout(parent_id, state_flag) {
+                        self.mark_layout_dirty(parent_id);
+                        self.mark_render_dirty(id);
+                    } else {
+                        self.mark_render_dirty(parent_id);
+                    }
                 }
             }
             curr = parent_id;

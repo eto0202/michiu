@@ -136,7 +136,7 @@ fn restrict_container() -> Element {
 fn btn_container() -> Element {
     v_flex(section_style()).children([
         section_title("Input with button"),
-        h_flex(wrapper_style()).children([spin_box()]),
+        h_flex(wrapper_style()).children([spin_box(), password_box()]),
     ])
 }
 
@@ -150,7 +150,7 @@ fn spin_box() -> Element {
         .text_color(dynamic(|t: &Theme| t.secondary))
         .font_size(25.0)
         .font_weight(400)
-        .press_parent(ts().transform_scale(0.9, 0.9));
+        .pressed_parent(ts().transform_scale(0.9, 0.9));
 
     let (read_1, write_1) = create_signal(String::new());
 
@@ -185,7 +185,7 @@ fn spin_box() -> Element {
             .size((80.0, 40.0))
             .border_solid((0.0, 1.0))
             .border_color(dynamic(|t: &Theme| t.border))
-            .focus_within(
+            .focused_visible_within(
                 ts().outline_solid(1.0)
                     .outline_color(dynamic(|t: &Theme| t.text)),
             ),
@@ -204,7 +204,6 @@ fn spin_box() -> Element {
                 .text_center()
                 .size_full()
                 .font_size(16.0)
-                .font_family("Segoe UI")
                 .text_color(dynamic(|t: &Theme| t.text))
                 .select_text()
                 .cursor_text()
@@ -221,17 +220,63 @@ fn spin_box() -> Element {
     .children([btn_left, input_center, btn_right])
 }
 
-fn prefix_suffix() {
-    let input_center = h_flex(
-        ts().items_center()
-            .justify_center()
-            .p((6.0, 4.0))
-            .size((80.0, 40.0))
-            .border_solid((0.0, 1.0))
-            .border_color(dynamic(|t: &Theme| t.border))
-            .focus_within(
-                ts().outline_solid(1.0)
-                    .outline_color(dynamic(|t: &Theme| t.text)),
+fn password_box() -> Element {
+    let (read_text, write_text) = create_signal(String::new());
+    let (is_mask, set_is_mask) = create_signal(true);
+
+    let suffix_element = text("👁")
+        .style_d(move |t: &Theme| {
+            let has_text = !read_text.get().is_empty();
+            let base_style = ts()
+                .text_color(t.text_muted)
+                .font_size(12.0)
+                .pointer_events_auto()
+                .hovered(ts().text_color(t.text));
+
+            if has_text {
+                base_style.opacity(1.0)
+            } else {
+                base_style.opacity(0.0).pointer_events_none()
+            }
+        })
+        .on_click(move || {
+            set_is_mask.set(!is_mask.get());
+        });
+
+    h_flex(
+        ts().r(4.0)
+            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .border_solid(1.0)
+            .border_color(dynamic(|t: &Theme| t.border)),
+    )
+    .child(
+        h_flex(
+            ts().items_center()
+                .justify_center()
+                .gap(2.0)
+                .p((6.0, 4.0))
+                .size((160.0, 40.0)),
+        )
+        .children([
+            input_d(move |t: &Theme| {
+                InputContents::new((read_text, write_text))
+                    .is_ime(false)
+                    .password(is_mask.get())
+                    .max_length(8)
+                    .placeholder("Password")
+                    .placeholder_color(t.text_muted)
+            })
+            .style(
+                ts().flex()
+                    .text_center()
+                    .size_full()
+                    .font_size(16.0)
+                    .text_color(dynamic(|t: &Theme| t.text))
+                    .select_text()
+                    .cursor_text()
+                    .overflow_hidden(),
             ),
-    );
+            suffix_element,
+        ]),
+    )
 }

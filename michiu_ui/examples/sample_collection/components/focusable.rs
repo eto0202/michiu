@@ -1,9 +1,9 @@
-use std::time::Duration;
 use crate::{
     app::theme::Theme,
     components::{label_style, section_title},
 };
 use michiu_ui::prelude::*;
+use std::time::Duration;
 
 pub fn container() -> Element {
     v_flex(ts().gap(28.0).p(16.0)).children([section_inherit(), section_self(), section_within()])
@@ -103,7 +103,7 @@ fn section_within() -> Element {
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border))
             .focused(ts().bg_color(dynamic(|t: &Theme| t.primary)))
-            .focus_within(
+            .focused_within(
                 ts().outline_solid(1.0)
                     .outline_offset(2.0)
                     .outline_color(dynamic(|t: &Theme| t.text)),

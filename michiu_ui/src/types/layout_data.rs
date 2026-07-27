@@ -368,6 +368,7 @@ impl VisualProperty {
 pub(crate) struct InteractionStyles {
     pub(crate) hovered: Option<ThisStyle>,
     pub(crate) focused: Option<ThisStyle>,
+    pub(crate) focused_visible: Option<ThisStyle>,
     pub(crate) pressed: Option<ThisStyle>,
     pub(crate) disabled: Option<ThisStyle>,
     pub(crate) actived: Option<ThisStyle>,
@@ -380,6 +381,7 @@ pub(crate) struct InteractionStyles {
 
     pub(crate) hovered_within: Option<ThisStyle>,
     pub(crate) focused_within: Option<ThisStyle>,
+    pub(crate) focused_visible_within: Option<ThisStyle>,
     pub(crate) pressed_within: Option<ThisStyle>,
     pub(crate) disabled_within: Option<ThisStyle>,
     pub(crate) actived_within: Option<ThisStyle>,
@@ -389,6 +391,7 @@ pub(crate) struct InteractionStyles {
 
     pub(crate) hovered_parent: Option<ThisStyle>,
     pub(crate) focused_parent: Option<ThisStyle>,
+    pub(crate) focused_visible_parent: Option<ThisStyle>,
     pub(crate) pressed_parent: Option<ThisStyle>,
     pub(crate) disabled_parent: Option<ThisStyle>,
     pub(crate) actived_parent: Option<ThisStyle>,
@@ -404,6 +407,7 @@ impl InteractionStyles {
         match target {
             StyleTarget::Hovered => self.hovered.get_or_insert_with(ThisStyle::new),
             StyleTarget::Focused => self.focused.get_or_insert_with(ThisStyle::new),
+            StyleTarget::FocusedVisible => self.focused_visible.get_or_insert_with(ThisStyle::new),
             StyleTarget::Pressed => self.pressed.get_or_insert_with(ThisStyle::new),
             StyleTarget::Disabled => self.disabled.get_or_insert_with(ThisStyle::new),
             StyleTarget::Actived => self.actived.get_or_insert_with(ThisStyle::new),
@@ -415,6 +419,9 @@ impl InteractionStyles {
 
             StyleTarget::HoveredWithin => self.hovered_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::FocusedWithin => self.focused_within.get_or_insert_with(ThisStyle::new),
+            StyleTarget::FocusedVisibleWithin => self
+                .focused_visible_within
+                .get_or_insert_with(ThisStyle::new),
             StyleTarget::PressedWithin => self.pressed_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::DisabledWithin => self.disabled_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::ActivedWithin => self.actived_within.get_or_insert_with(ThisStyle::new),
@@ -425,6 +432,9 @@ impl InteractionStyles {
 
             StyleTarget::HoveredParent => self.hovered_parent.get_or_insert_with(ThisStyle::new),
             StyleTarget::FocusedParent => self.focused_parent.get_or_insert_with(ThisStyle::new),
+            StyleTarget::FocusedVisibleParent => self
+                .focused_visible_parent
+                .get_or_insert_with(ThisStyle::new),
             StyleTarget::PressedParent => self.pressed_parent.get_or_insert_with(ThisStyle::new),
             StyleTarget::DisabledParent => self.disabled_parent.get_or_insert_with(ThisStyle::new),
             StyleTarget::ActivedParent => self.actived_parent.get_or_insert_with(ThisStyle::new),
@@ -468,6 +478,7 @@ impl InteractionStyles {
 
         merge(&mut self.hovered, &other.hovered);
         merge(&mut self.focused, &other.focused);
+        merge(&mut self.focused_visible, &other.focused_visible);
         merge(&mut self.pressed, &other.pressed);
         merge(&mut self.disabled, &other.disabled);
         merge(&mut self.actived, &other.actived);
@@ -479,6 +490,10 @@ impl InteractionStyles {
 
         merge(&mut self.hovered_within, &other.hovered_within);
         merge(&mut self.focused_within, &other.focused_within);
+        merge(
+            &mut self.focused_visible_within,
+            &other.focused_visible_within,
+        );
         merge(&mut self.pressed_within, &other.pressed_within);
         merge(&mut self.disabled_within, &other.disabled_within);
         merge(&mut self.actived_within, &other.actived_within);
@@ -488,6 +503,10 @@ impl InteractionStyles {
 
         merge(&mut self.hovered_parent, &other.hovered_parent);
         merge(&mut self.focused_parent, &other.focused_parent);
+        merge(
+            &mut self.focused_visible_parent,
+            &other.focused_visible_parent,
+        );
         merge(&mut self.pressed_parent, &other.pressed_parent);
         merge(&mut self.disabled_parent, &other.disabled_parent);
         merge(&mut self.actived_parent, &other.actived_parent);

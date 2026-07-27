@@ -610,7 +610,20 @@ impl Context {
     /// フォーカス（Focused：キーボードタブフォーカス等）状態を更新します。
     #[inline]
     pub fn set_focused(&mut self, id: EntityId, focused: bool) {
+        self.set_focused_by_trigger(id, focused, ActiveFocusTrigger::Mouse);
+    }
+
+    /// 入力トリガー源を考慮してフォーカス状態を更新します。
+    #[inline]
+    pub fn set_focused_by_trigger(
+        &mut self,
+        id: EntityId,
+        focused: bool,
+        trigger: ActiveFocusTrigger,
+    ) {
         self.update_state(id, STATE_FOCUSED, focused);
+        let show_visible = focused && (trigger == ActiveFocusTrigger::Keyboard);
+        self.update_state(id, STATE_FOCUSED_VISIBLE, show_visible);
     }
 
     /// プレス（Pressed：クリック押し下げ、タップ中）状態を更新します。
@@ -818,7 +831,7 @@ impl Context {
                     let is_focusable = self.restrict_focusable_element(target_id);
                     if is_focusable {
                         // フォーカスの自動切り替え
-                        self.auto_focus_switch(target_id);
+                        self.auto_focus_switch_by_trigger(target_id, ActiveFocusTrigger::Mouse);
                     } else {
                         // フォーカス不可能な要素をクリックした場合は、
                         // 現在フォーカスされているインプットからフォーカスを完全に外し状態をクリアする
@@ -1168,9 +1181,9 @@ impl Context {
             if self.is_keyboard_focusable(candidate_id) {
                 // 古い要素のフォーカスを外し、新しい要素へフォーカスを設定
                 if let Some(old_id) = self.events.interaction_states.focused {
-                    self.set_focused(old_id, false);
+                    self.set_focused_by_trigger(old_id, false, ActiveFocusTrigger::Keyboard);
                 }
-                self.set_focused(candidate_id, true);
+                self.set_focused_by_trigger(candidate_id, true, ActiveFocusTrigger::Keyboard);
                 self.events.interaction_states.focused = Some(candidate_id);
 
                 // WebView2 要素だった場合はシステム側にフォーカスをプログラム駆動で移譲

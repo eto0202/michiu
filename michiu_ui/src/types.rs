@@ -1056,6 +1056,7 @@ pub enum PointerEvents {
 pub enum InteractionName {
     Hover,
     Focus,
+    FocusVisible,
     Press,
     Disable,
     Active,
@@ -1759,6 +1760,13 @@ pub enum FocusTrigger {
     Keyboard,
     #[default]
     Both,
+}
+
+/// 実際に発生したフォーカスイベントの物理入力ソース
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ActiveFocusTrigger {
+    Mouse,
+    Keyboard,
 }
 
 /// フォーカスを受け入れる際の挙動およびスタイルの継承ポリシー
