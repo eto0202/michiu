@@ -500,7 +500,7 @@ impl Context {
         logical_pos: LayoutPoint,
     ) -> LayoutPoint {
         let rect = self.outputs.rects[pressed_id];
-        let (basic, _, _) = self.resolve_active_layouts(pressed_id);
+        let (basic, flex, _) = self.resolve_active_layouts(pressed_id);
         let border = self.get_physical_border(pressed_id, &basic);
         let padding = self.get_physical_padding(pressed_id, &basic);
 
@@ -511,8 +511,30 @@ impl Context {
             .copied()
             .unwrap_or(LayoutPoint::ZERO);
 
-        let local_x = logical_pos.x - (rect.x + border.left + padding.left) + scroll.x;
-        let local_y = logical_pos.y - (rect.y + border.top + padding.top) + scroll.y;
+        let text_size = if let Some(contents) = self.contents.input_contents.get(pressed_id)
+            && let Some(layout_rect) = contents.last_layout
+        {
+            LayoutSize::new(layout_rect.width, layout_rect.height)
+        } else {
+            LayoutSize::ZERO
+        };
+
+        let content_w =
+            (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
+        let align_offset_x = match flex.text_align {
+            TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
+            TextAlign::Right => (content_w - text_size.width).max(0.0),
+            _ => 0.0,
+        };
+
+        let content_h =
+            (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
+        let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+
+        let local_x =
+            logical_pos.x - (rect.x + border.left + padding.left + align_offset_x) + scroll.x;
+        let local_y =
+            logical_pos.y - (rect.y + border.top + padding.top + align_offset_y) + scroll.y;
         LayoutPoint {
             x: local_x,
             y: local_y,

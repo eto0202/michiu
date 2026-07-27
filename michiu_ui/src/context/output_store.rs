@@ -202,8 +202,11 @@ impl OutputStore {
         contents: &InputContents,
         scale: f32,
         scroll: LayoutPoint,
+        align_offset: LayoutPoint,
     ) -> LayoutRect {
-        let logical_x = rect.x + border.left + padding.left + contents.measured_caret_x - scroll.x;
+        let logical_x =
+            rect.x + border.left + padding.left + align_offset.x + contents.measured_caret_x
+                - scroll.x;
         let aligned_x = (logical_x * scale).round() / scale;
 
         let line_height = contents.caret_line_height;
@@ -216,9 +219,13 @@ impl OutputStore {
             0.0
         };
 
-        let logical_y =
-            rect.y + border.top + padding.top + contents.measured_caret_y + contents.caret_offset
-                - scroll.y;
+        let logical_y = rect.y
+            + border.top
+            + padding.top
+            + align_offset.y
+            + contents.measured_caret_y
+            + contents.caret_offset
+            - scroll.y;
 
         let aligned_y = ((logical_y + vertical_center_offset) * scale).round() / scale;
         let aligned_width = (caret_width * scale).round().max(1.0) / scale;
@@ -771,6 +778,7 @@ impl Context {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn calculate_caret_rect(
         &self,
@@ -780,8 +788,17 @@ impl Context {
         contents: &InputContents,
         scale: f32,
         scroll: LayoutPoint,
+        align_offset: LayoutPoint,
     ) -> LayoutRect {
-        OutputStore::calculate_caret_rect(rect, border, padding, contents, scale, scroll)
+        OutputStore::calculate_caret_rect(
+            rect,
+            border,
+            padding,
+            contents,
+            scale,
+            scroll,
+            align_offset,
+        )
     }
 
     /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
@@ -1136,23 +1153,44 @@ impl Context {
             let viewport_h =
                 (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
 
+            let text_size = if let Some(contents) = self.contents.input_contents.get(id)
+                && let Some(layout_rect) = contents.last_layout
+            {
+                LayoutSize::new(layout_rect.width, layout_rect.height)
+            } else {
+                LayoutSize::ZERO
+            };
+            let (_, flex, _) = self.resolve_active_layouts(id);
+            let content_w =
+                (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
+            let align_offset_x = match flex.text_align {
+                TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
+                TextAlign::Right => (content_w - text_size.width).max(0.0),
+                _ => 0.0,
+            };
+            let content_h =
+                (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
+            let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+
+            let aligned_caret_x = caret.x + align_offset_x;
+            let aligned_caret_y = caret.y + align_offset_y;
+
             // マージンを設定するとキー移動時にキャレット位置がずれるため削除
             // let margin_x = 0.0; // 左右端のあそび（マージン）
 
             // 1. 横方向スクロール (X軸)
-            if caret.x < scroll.x {
-                scroll.x = caret.x.max(0.0);
-            } else if caret.x + caret.width > scroll.x + viewport_w {
-                scroll.x = (caret.x + caret.width - viewport_w).max(0.0);
+            if aligned_caret_x < scroll.x {
+                scroll.x = aligned_caret_x.max(0.0);
+            } else if aligned_caret_x + caret.width > scroll.x + viewport_w {
+                scroll.x = (aligned_caret_x + caret.width - viewport_w).max(0.0);
             }
 
             // 2. 縦方向スクロール (Y軸 - マルチラインのみ)
             if is_multiline {
-                // let margin_y = 4.0; // 上下端のあそび
-                if caret.y < scroll.y {
-                    scroll.y = caret.y.max(0.0);
-                } else if caret.y + caret.height > scroll.y + viewport_h {
-                    scroll.y = (caret.y + caret.height - viewport_h).max(0.0);
+                if aligned_caret_y < scroll.y {
+                    scroll.y = aligned_caret_y.max(0.0);
+                } else if aligned_caret_y + caret.height > scroll.y + viewport_h {
+                    scroll.y = (aligned_caret_y + caret.height - viewport_h).max(0.0);
                 }
             } else {
                 scroll.y = 0.0;
@@ -1417,10 +1455,33 @@ impl Context {
                     .copied()
                     .unwrap_or(LayoutPoint::ZERO);
 
+                let text_size = if let Some(contents) = self.contents.input_contents.get(id)
+                    && let Some(layout_rect) = contents.last_layout
+                {
+                    LayoutSize::new(layout_rect.width, layout_rect.height)
+                } else {
+                    LayoutSize::ZERO
+                };
+                let (_, flex, _) = self.resolve_active_layouts(id);
+                let content_w =
+                    (rect.width - border.left - border.right - padding.left - padding.right)
+                        .max(0.0);
+                let align_offset_x = match flex.text_align {
+                    TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
+                    TextAlign::Right => (content_w - text_size.width).max(0.0),
+                    _ => 0.0,
+                };
+                let content_h =
+                    (rect.height - border.top - border.bottom - padding.top - padding.bottom)
+                        .max(0.0);
+                let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
-                        rect.x + border.left + padding.left + metric_rect.x - scroll.x,
-                        rect.y + border.top + padding.top + metric_rect.y - scroll.y,
+                        rect.x + border.left + padding.left + align_offset_x + metric_rect.x
+                            - scroll.x,
+                        rect.y + border.top + padding.top + align_offset_y + metric_rect.y
+                            - scroll.y,
                         metric_rect.width,
                         metric_rect.height,
                     );
@@ -1497,10 +1558,14 @@ impl Context {
                 visual.bg_color.unwrap_or(Color::TRANSPARENT)
             };
 
-            let (gradient_end_color, gradient_angle, mode) = match visual.bg_gradient {
+            let (gradient_end_color, gradient_angle, mut mode) = match visual.bg_gradient {
                 Some(g) => (g.end_color, g.angle, 1.0f32),
                 None => (color, 0.0, 0.0f32),
             };
+
+            if is_text {
+                mode = 2.0;
+            }
 
             // テキスト要素で背景を分離描画した場合、テキストレイヤー側の装飾をクリア
             let bypass_decorations = is_text && has_bg;
@@ -1592,8 +1657,38 @@ impl Context {
                     .copied()
                     .unwrap_or(LayoutPoint::ZERO);
 
-                let caret_rect =
-                    self.calculate_caret_rect(rect, border, padding, contents, scale, scroll);
+                let text_size = if let Some(layout_rect) = contents.last_layout {
+                    LayoutSize::new(layout_rect.width, layout_rect.height)
+                } else {
+                    LayoutSize::ZERO
+                };
+                let (_, flex, _) = self.resolve_active_layouts(id);
+                let content_w =
+                    (rect.width - border.left - border.right - padding.left - padding.right)
+                        .max(0.0);
+                let align_offset_x = match flex.text_align {
+                    TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
+                    TextAlign::Right => (content_w - text_size.width).max(0.0),
+                    _ => 0.0,
+                };
+                let content_h =
+                    (rect.height - border.top - border.bottom - padding.top - padding.bottom)
+                        .max(0.0);
+                let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+                let align_offset = LayoutPoint {
+                    x: align_offset_x,
+                    y: align_offset_y,
+                };
+
+                let caret_rect = self.calculate_caret_rect(
+                    rect,
+                    border,
+                    padding,
+                    contents,
+                    scale,
+                    scroll,
+                    align_offset,
+                );
                 let c_color = contents
                     .caret_color
                     .or(self

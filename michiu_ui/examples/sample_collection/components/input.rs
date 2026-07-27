@@ -201,15 +201,14 @@ fn spin_box() -> Element {
         })
         .style(
             ts().flex()
+                .text_center()
                 .size_full()
                 .font_size(16.0)
                 .font_family("Segoe UI")
                 .text_color(dynamic(|t: &Theme| t.text))
                 .select_text()
                 .cursor_text()
-                .overflow_hidden()
-                .border_solid(1.0)
-                .border_color(Color::RED),
+                .overflow_hidden(),
         ),
     );
 
@@ -220,4 +219,19 @@ fn spin_box() -> Element {
             .border_color(dynamic(|t: &Theme| t.border)),
     )
     .children([btn_left, input_center, btn_right])
+}
+
+fn prefix_suffix() {
+    let input_center = h_flex(
+        ts().items_center()
+            .justify_center()
+            .p((6.0, 4.0))
+            .size((80.0, 40.0))
+            .border_solid((0.0, 1.0))
+            .border_color(dynamic(|t: &Theme| t.border))
+            .focus_within(
+                ts().outline_solid(1.0)
+                    .outline_color(dynamic(|t: &Theme| t.text)),
+            ),
+    );
 }

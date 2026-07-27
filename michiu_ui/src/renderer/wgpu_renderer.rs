@@ -576,7 +576,7 @@ impl WgpuRenderer {
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> QuadInstance {
-        let (basic, _, _) = cx.resolve_active_layouts(entity_id);
+        let (basic, flex, _) = cx.resolve_active_layouts(entity_id);
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders
@@ -671,9 +671,12 @@ impl WgpuRenderer {
         };
 
         let is_decorator = instance.opacity_mode_sizing[1] < -0.5; // mode == -1.0 なら true
+        let is_text_body = (instance.opacity_mode_sizing[1] - 2.0).abs() < 0.01; // mode == 2.0 なら true
 
         let mut current_mode = if is_decorator {
-            -1.0f32 // 0.0f32 から -1.0f32 に修正。装飾/キャレット用にそのまま -1.0 をシェーダーへ伝える
+            -1.0f32
+        } else if is_text_body {
+            2.0f32
         } else if visual.bg_gradient.is_some() {
             1.0f32
         } else {
@@ -685,7 +688,7 @@ impl WgpuRenderer {
         let mut final_rect = instance.rect;
         let mut final_color = instance.color;
 
-        if !is_decorator && cx.topology.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
+        if is_text_body && cx.topology.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
             let spans = cx
                 .contents
                 .text_spans
@@ -721,7 +724,15 @@ impl WgpuRenderer {
                 Length::Px(v) => v,
                 _ => 0.0,
             };
+            let border_right = match basic.border.right {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
             let padding_left = match basic.padding.left {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_right = match basic.padding.right {
                 Length::Px(v) => v,
                 _ => 0.0,
             };
@@ -729,7 +740,15 @@ impl WgpuRenderer {
                 Length::Px(v) => v,
                 _ => 0.0,
             };
+            let border_bottom = match basic.border.bottom {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
             let padding_top = match basic.padding.top {
+                Length::Px(v) => v,
+                _ => 0.0,
+            };
+            let padding_bottom = match basic.padding.bottom {
                 Length::Px(v) => v,
                 _ => 0.0,
             };
@@ -742,10 +761,24 @@ impl WgpuRenderer {
                 .copied()
                 .unwrap_or(LayoutPoint::ZERO);
 
+            let content_w =
+                (instance.rect.width - border_left - border_right - padding_left - padding_right)
+                    .max(0.0);
+            let align_offset_x = match flex.text_align {
+                TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
+                TextAlign::Right => (content_w - text_size.width).max(0.0),
+                _ => 0.0,
+            };
+
+            let content_h =
+                (instance.rect.height - border_top - border_bottom - padding_top - padding_bottom)
+                    .max(0.0);
+            let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+
             // 完全に整数ピクセルサイズにスナップし、にじみとピクピク揺れを完全に阻止
             final_rect = LayoutRect::new(
-                instance.rect.x + border_left + padding_left - scroll.x,
-                instance.rect.y + border_top + padding_top - scroll.y,
+                instance.rect.x + border_left + padding_left + align_offset_x - scroll.x,
+                instance.rect.y + border_top + padding_top + align_offset_y - scroll.y,
                 text_size.width.ceil(),
                 text_size.height.ceil(),
             );
@@ -757,7 +790,7 @@ impl WgpuRenderer {
             current_mode = 3.0;
             uv_min = [0.0, 0.0];
             uv_max = [1.0, 1.0];
-        } else if !is_decorator && cx.topology.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
+        } else if is_text_body  && cx.topology.active_masks[entity_id].has(COMP_TEXT_CONTENT) {
             // テキスト要素である場合
             let text = cx
                 .contents

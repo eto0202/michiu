@@ -834,7 +834,7 @@ impl Element {
                     let rect = cx.outputs.rects[id];
 
                     // 要素の境界枠（border + padding）を取得してローカル座標を算出
-                    let (basic, _, _) = cx.resolve_active_layouts(id);
+                    let (basic, flex, _) = cx.resolve_active_layouts(id);
                     let border = cx.get_physical_border(id, &basic);
                     let padding = cx.get_physical_padding(id, &basic);
 
@@ -845,9 +845,35 @@ impl Element {
                         .copied()
                         .unwrap_or(LayoutPoint::ZERO);
 
+                    let text_size = if let Some(contents) = cx.contents.input_contents.get(id)
+                        && let Some(layout_rect) = contents.last_layout
+                    {
+                        LayoutSize::new(layout_rect.width, layout_rect.height)
+                    } else {
+                        LayoutSize::ZERO
+                    };
+
+                    let content_w =
+                        (rect.width - border.left - border.right - padding.left - padding.right)
+                            .max(0.0);
+                    let align_offset_x = match flex.text_align {
+                        TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
+                        TextAlign::Right => (content_w - text_size.width).max(0.0),
+                        _ => 0.0,
+                    };
+
+                    let content_h =
+                        (rect.height - border.top - border.bottom - padding.top - padding.bottom)
+                            .max(0.0);
+                    let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+
                     // テキスト本来の描画領域に対する相対マウス座標
-                    let local_x = pointer_pos.x - (rect.x + border.left + padding.left) + scroll.x;
-                    let local_y = pointer_pos.y - (rect.y + border.top + padding.top) + scroll.y;
+                    let local_x = pointer_pos.x
+                        - (rect.x + border.left + padding.left + align_offset_x)
+                        + scroll.x;
+                    let local_y = pointer_pos.y
+                        - (rect.y + border.top + padding.top + align_offset_y)
+                        + scroll.y;
 
                     let mut update_rects_needed = false;
 
