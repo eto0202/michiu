@@ -828,6 +828,7 @@ impl Element {
         cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
 
         self.get_or_create_listeners(|l| {
+            let mut existing_mouse = l.on_mouse_input.take();
             l.on_mouse_input = Some(Box::new(move |cx, button, modifiers, state| {
                 if button == MouseButton::Left
                     && state == ElementState::Pressed
@@ -1009,8 +1010,12 @@ impl Element {
 
                     cx.mark_render_dirty(id);
                 }
+                if let Some(ref mut ext) = existing_mouse {
+                    ext(cx, button, modifiers, state);
+                }
             }));
 
+            let mut existing_focus = l.on_focus.take();
             // フォーカス取得（点滅カーソルの有効化等）
             l.on_focus = Some(Box::new(move |cx| {
                 if let Some(contents) = cx.contents.input_contents.get_mut(id) {
@@ -1019,8 +1024,13 @@ impl Element {
                     contents.last_interacted_time = Some(std::time::Instant::now());
                 }
                 cx.mark_render_dirty(id);
+
+                if let Some(ref mut ext) = existing_focus {
+                    ext(cx);
+                }
             }));
 
+            let mut existing_char = l.on_char_input.take();
             // 確定した1文字の文字入力 (WM_CHAR)
             l.on_char_input = Some(Box::new(move |cx, mut ch| {
                 // IME未変換の入力中 (composition_textがある間) は文字入力を無視
@@ -1098,8 +1108,12 @@ impl Element {
                         cx.mark_render_dirty(id);
                     }
                 }
+                if let Some(ref mut ext) = existing_char {
+                    ext(cx, ch);
+                }
             }));
 
+            let mut existing_keyboard = l.on_keyboard_input.take();
             // 物理キーボード操作 (Backspace, Delete, 矢印キー)
             l.on_keyboard_input = Some(Box::new(move |cx, key, modifiers, state| {
                 if state == ElementState::Pressed
@@ -1433,8 +1447,12 @@ impl Element {
                         cx.mark_render_dirty(id);
                     }
                 }
+                if let Some(ref mut ext) = existing_keyboard {
+                    ext(cx, key, modifiers, state);
+                }
             }));
 
+            let mut existing_ime = l.on_ime.take();
             // IME連動
             l.on_ime = Some(Box::new(move |cx, ime| {
                 if let Some(contents) = cx.contents.input_contents.get_mut(id) {
@@ -1535,6 +1553,9 @@ impl Element {
                     cx.update_input_caret_position(id);
 
                     cx.mark_render_dirty(id);
+                }
+                if let Some(ref mut ext) = existing_ime {
+                    ext(cx, ime);
                 }
             }));
         });

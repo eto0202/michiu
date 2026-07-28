@@ -580,6 +580,103 @@ impl Context {
         }
     }
 
+    /// 現在のテキスト・IME状態・フォントサイズから、
+    /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して SoA を更新。
+    pub fn update_input_caret_position(&mut self, id: EntityId) {
+        self.clear_layout_cache(id); // IMEやタイピング中の古いキャッシュを破棄
+
+        let scroll_ime_info = OutputStore::scroll_ime_info(
+            id,
+            &mut self.outputs,
+            &mut self.contents,
+            &mut self.renders,
+            &self.system,
+        );
+
+        let Some((caret, caret_offset, is_multiline)) = scroll_ime_info else {
+            return;
+        };
+        let (basic, _, _) = self.resolve_active_layouts(id);
+        let border = self.get_physical_border(id, &basic);
+        let padding = self.get_physical_padding(id, &basic);
+        let rect = self
+            .outputs
+            .rects
+            .get(id)
+            .copied()
+            .unwrap_or(LayoutRect::ZERO);
+        let mut scroll = self
+            .outputs
+            .scroll_offsets
+            .get(id)
+            .copied()
+            .unwrap_or(LayoutPoint::ZERO);
+        let scale = self.window.scale_factor;
+
+        if rect.width > 0.0 && rect.height > 0.0 {
+            let viewport_w =
+                (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
+            let viewport_h =
+                (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
+
+            let text_size = if let Some(contents) = self.contents.input_contents.get(id)
+                && let Some(layout_rect) = contents.last_layout
+            {
+                LayoutSize::new(layout_rect.width, layout_rect.height)
+            } else {
+                LayoutSize::ZERO
+            };
+            let (_, flex, _) = self.resolve_active_layouts(id);
+            let content_w =
+                (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
+            let align_offset_x = match flex.text_align {
+                TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
+                TextAlign::Right => (content_w - text_size.width).max(0.0),
+                _ => 0.0,
+            };
+            let content_h =
+                (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
+            let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+
+            let aligned_caret_x = caret.x + align_offset_x;
+            let aligned_caret_y = caret.y + align_offset_y;
+
+            // マージンを設定するとキー移動時にキャレット位置がずれるため削除
+            // let margin_x = 0.0; // 左右端のあそび（マージン）
+
+            // 1. 横方向スクロール (X軸)
+            if aligned_caret_x < scroll.x {
+                scroll.x = aligned_caret_x.max(0.0);
+            } else if aligned_caret_x + caret.width > scroll.x + viewport_w {
+                scroll.x = (aligned_caret_x + caret.width - viewport_w).max(0.0);
+            }
+
+            // 2. 縦方向スクロール (Y軸 - マルチラインのみ)
+            if is_multiline {
+                if aligned_caret_y < scroll.y {
+                    scroll.y = aligned_caret_y.max(0.0);
+                } else if aligned_caret_y + caret.height > scroll.y + viewport_h {
+                    scroll.y = (aligned_caret_y + caret.height - viewport_h).max(0.0);
+                }
+            } else {
+                scroll.y = 0.0;
+            }
+
+            self.scroll_to(id, scroll.x, scroll.y);
+        }
+
+        // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
+        SystemStore::sync_imm_window_position(
+            rect,
+            scale,
+            border,
+            padding,
+            caret,
+            caret_offset,
+            scroll,
+        );
+    }
+
     /// 毎フレーム呼び出され、ドラッグ選択中の要素に対するオートスクロールを自律駆動します。
     /// ウィンドウメッセージループ等、 tick_transitions() を呼び出している箇所と同じ周期で実行する。
     #[inline]
@@ -1112,6 +1209,7 @@ impl Context {
             // フォーカス中に Enter または Space が押されたら自動的にクリックをエミュレートする
             if state == ElementState::Pressed
                 && (key == VirtualKey::RETURN || key == VirtualKey::SPACE)
+                && !self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
             {
                 self.callback_on_click(focused_id);
                 return;

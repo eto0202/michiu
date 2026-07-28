@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::{app::theme::Theme, components::section_title};
 pub use michiu_ui::prelude::*;
+use michiu_ui::{ActiveFocusTrigger, VirtualKey};
 
 pub fn container() -> Element {
     v_flex(ts().gap(16.0).p(16.0)).children([
@@ -136,7 +137,7 @@ fn restrict_container() -> Element {
 fn btn_container() -> Element {
     v_flex(section_style()).children([
         section_title("Input with button"),
-        h_flex(wrapper_style()).children([spin_box(), password_box()]),
+        h_flex(wrapper_style()).children([spin_box(), password_box(), search_box()]),
     ])
 }
 
@@ -226,29 +227,29 @@ fn password_box() -> Element {
 
     let suffix_element = text("👁")
         .style_d(move |t: &Theme| {
-            let has_text = !read_text.get().is_empty();
             let base_style = ts()
                 .text_color(t.text_muted)
                 .font_size(12.0)
-                .pointer_events_auto()
+                .p_r(6.0)
+                .h_full()
                 .hovered(ts().text_color(t.text));
 
-            if has_text {
-                base_style.opacity(1.0)
+            if !read_text.get().is_empty() {
+                base_style.block()
             } else {
-                base_style.opacity(0.0).pointer_events_none()
+                base_style.hidden()
             }
         })
         .on_click(move || {
             set_is_mask.set(!is_mask.get());
         });
 
-    h_flex(
+    h_flex_d(|t: &Theme| {
         ts().r(4.0)
-            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .bg_color(t.background_hover)
             .border_solid(1.0)
-            .border_color(dynamic(|t: &Theme| t.border)),
-    )
+            .border_color(t.border)
+    })
     .child(
         h_flex(
             ts().items_center()
@@ -279,4 +280,192 @@ fn password_box() -> Element {
             suffix_element,
         ]),
     )
+}
+
+fn search_box() -> Element {
+    let (read_text, write_text) = create_signal(String::new());
+    let (menu_open, set_menu_open) = create_signal(false);
+    let (read_history, write_history) = create_signal::<Vec<String>>(vec![]);
+
+    let wrote_history = move || {
+        let input_val = read_text.get();
+        if !input_val.trim().is_empty() {
+            let mut current = read_history.get();
+            if let Some(pos) = current.iter().position(|x| x == &input_val) {
+                current.remove(pos);
+            }
+            current.insert(0, input_val);
+            write_history.set(current);
+        }
+    };
+
+    let input_left = h_flex(
+        ts().items_center()
+            .justify_center()
+            .p((4.0, 6.0, 4.0, 10.0))
+            .size((160.0, 40.0))
+            .outline_solid((0.0, 1.0, 0.0, 0.0))
+            .outline_align(BorderAlignment::Center)
+            .outline_lengths(0.6)
+            .outline_color(dynamic(|t: &Theme| t.border)),
+    )
+    .child(input_d(move |t: &Theme| {
+        InputContents::new((read_text, write_text))
+            .placeholder("Searching...")
+            .placeholder_color(t.text_muted)
+    })
+    .style(
+        ts().flex()
+            .size_full()
+            .font_size(16.0)
+            .text_color(dynamic(|t: &Theme| t.text))
+            .select_text()
+            .cursor_text()
+            .overflow_hidden(),
+    )
+    .on_char_input(move |_| {
+        if !menu_open.get() && !read_history.get().is_empty() {
+            set_menu_open.set(true);
+        }
+        if read_text.get().is_empty() && read_history.get().is_empty() {
+            set_menu_open.set(false);
+        }
+    })
+    .on_keyboard_input(move |key, _mods, state| {
+        if key == VirtualKey::RETURN && state == ElementState::Pressed {
+            wrote_history()
+        }
+    })
+    .on_focus(move || {
+        if !read_history.get().is_empty() {
+            set_menu_open.set(true);
+        }
+    })
+    .on_blur(move || set_menu_open.set(false)));
+
+    let btn_right = h_flex(
+        ts().justify_center()
+            .items_center()
+            .r_right(3.0)
+            .size(40.0)
+            .hovered(ts().bg_color(dynamic(|t: &Theme| t.border))),
+    )
+    .label(
+        "🔎",
+        ts().text_color(dynamic(|t: &Theme| t.text_muted))
+            .font_size(12.0)
+            .font_weight(200),
+    )
+    .on_click(wrote_history);
+
+    let candidate = v_flex_d(move |t: &Theme| {
+        let base = ts()
+            .absolute()
+            .r_bottom(4.0)
+            .z_1()
+            .w(202.0)
+            .top(41.0)
+            .left(-1.0)
+            .border_solid((0.0, 1.0, 1.0, 1.0))
+            .border_color(t.primary)
+            .bg_color(t.background_hover);
+
+        if menu_open.get() {
+            base.block()
+        } else {
+            base.hidden()
+        }
+    })
+    .child(move || {
+        let mut list = Vec::new();
+        let history = read_history.get();
+        let len = history.len();
+
+        for (idx, h) in history.iter().enumerate() {
+            let (hovered, set_hovered) = create_signal(false);
+            let h_val = h.clone();
+            let h_to_delete = h.clone();
+            let is_last = idx == len - 1;
+
+            let mut item_style = ts()
+                .w_full()
+                .hovered_within(ts().bg_color(dynamic(|t: &Theme| t.border_hover)));
+            if is_last {
+                item_style = item_style.r_bottom(4.0);
+            }
+
+            let item = h_flex(item_style)
+                .children([
+                    text(h.clone())
+                        .style_d(move |t: &Theme| {
+                            let mut s = ts()
+                                .w_full()
+                                .p_y(6.0)
+                                .p_l(10.0)
+                                .font_size(14.0)
+                                .text_color(t.text)
+                                .hovered(ts().bg_color(t.border_hover))
+                                .overflow_hidden();
+                            if is_last {
+                                s = s.r((0.0, 0.0, 0.0, 4.0));
+                            }
+                            s
+                        })
+                        .on_mouse_enter(move || set_hovered.set(true))
+                        .on_mouse_leave(move || set_hovered.set(false))
+                        .on_click(move || write_text.set(h_val.clone())),
+                    text("✕")
+                        .style_d(move |t: &Theme| {
+                            let mut base_style = ts()
+                                .p((6.0, 14.0))
+                                .text_center()
+                                .text_color(t.text_muted)
+                                .font_size(12.0)
+                                .pointer_events_auto()
+                                .hovered(ts().text_color(t.primary).bg_color(t.border_hover));
+
+                            if is_last {
+                                base_style = base_style.r((0.0, 0.0, 4.0, 0.0));
+                            }
+
+                            if hovered.get() {
+                                base_style.opacity_100()
+                            } else {
+                                base_style.opacity_0().pointer_events_none()
+                            }
+                        })
+                        .on_mouse_enter(move || set_hovered.set(true))
+                        .on_mouse_leave(move || set_hovered.set(false))
+                        .on_click(move || {
+                            let h_del = h_to_delete.clone();
+                            let mut current = read_history.get();
+                            if let Some(pos) = current.iter().position(|x| x == &h_del) {
+                                current.remove(pos);
+                                write_history.set(current);
+                            }
+                        }),
+                ])
+                .on_mouse_enter(move || set_hovered.set(true))
+                .on_mouse_leave(move || set_hovered.set(false));
+
+            list.push(item);
+        }
+        v_flex(ts().w_full()).children(list)
+    });
+
+    h_flex_d(move |t: &Theme| {
+        let base = ts()
+            .r(4.0)
+            .bg_color(t.background_hover)
+            .border_solid(1.0)
+            .border_color(t.border)
+            .focused_within(ts().border_color(dynamic(|t: &Theme| t.primary)));
+
+        if menu_open.get() {
+            base.r_bottom(0.0).border_bottom(BorderStyle::Solid, 0.0)
+        } else {
+            base
+        }
+    })
+    .children([input_left, btn_right, candidate])
 }

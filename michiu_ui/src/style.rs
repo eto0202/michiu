@@ -95,11 +95,8 @@ impl ThisStyle {
     }
 
     #[inline]
-    pub fn debug_red(self) -> Self {
-        self.border_solid(1.0)
-            .border_color(Color::RED)
-            .bg_color(Color::WHITE)
-            .hovered(ts().opacity_50())
+    pub fn debug_border_red(self) -> Self {
+        self.border_solid(1.0).border_color(Color::RED)
     }
 
     /// 要素の表示形態（Display）を設定します。

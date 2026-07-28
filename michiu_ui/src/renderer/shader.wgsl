@@ -346,17 +346,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (has_outline) {
         // ピクセルが属している辺を判定 (o_edge_idx)
         // 太さが0.0の辺を距離判定から除外
-        let dist_to_top = select(10000.0, local_center.y - (-b.y), o_width.x > 0.0);
-        let dist_to_right = select(10000.0, b.x - local_center.x, o_width.y > 0.0);
-        let dist_to_bottom = select(10000.0, b.y - local_center.y, o_width.z > 0.0);
-        let dist_to_left = select(10000.0, local_center.x - (-b.x), o_width.w > 0.0);
+        // 修正: 判定時は太さに関わらず純粋な物理距離で最も近い辺を特定
+        let dist_to_top_raw = local_center.y - (-b.y);
+        let dist_to_right_raw = b.x - local_center.x;
+        let dist_to_bottom_raw = b.y - local_center.y;
+        let dist_to_left_raw = local_center.x - (-b.x);
 
-        let min_dist = min(min(dist_to_top, dist_to_bottom), min(dist_to_left, dist_to_right));
+        let min_dist_raw = min(min(dist_to_top_raw, dist_to_bottom_raw), min(dist_to_left_raw, dist_to_right_raw));
 
         var o_edge_idx = 0u; // 0: top, 1: right, 2: bottom, 3: left
-        if (min_dist == dist_to_right) { o_edge_idx = 1u; }
-        else if (min_dist == dist_to_bottom) { o_edge_idx = 2u; }
-        else if (min_dist == dist_to_left) { o_edge_idx = 3u; }
+
+        if (min_dist_raw == dist_to_right_raw) { o_edge_idx = 1u; }
+        else if (min_dist_raw == dist_to_bottom_raw) { o_edge_idx = 2u; }
+        else if (min_dist_raw == dist_to_left_raw) { o_edge_idx = 3u; }
 
         let o_w = o_width[o_edge_idx]; // この辺の個別のアウトライン太さ
 
@@ -436,6 +438,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // すべてのアンチエイリアスマスクを結合
         outline_alpha = base_o_alpha * o_length_alpha * o_style_alpha;
+
+        // 選択された辺のアウトライン幅が 0.0 ならアルファを完全に消去
+        outline_alpha = outline_alpha * clamp(o_w, 0.0, 1.0);
     }
 
     // 背景色・グラデーション・サンプリングの取得
