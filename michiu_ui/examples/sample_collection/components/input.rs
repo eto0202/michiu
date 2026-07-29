@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use crate::{app::theme::Theme, components::section_title};
+use michiu_ui::VirtualKey;
 pub use michiu_ui::prelude::*;
-use michiu_ui::{ActiveFocusTrigger, VirtualKey};
 
 pub fn container() -> Element {
     v_flex(ts().gap(16.0).p(16.0)).children([
@@ -303,51 +303,54 @@ fn search_box() -> Element {
         ts().items_center()
             .justify_center()
             .p((4.0, 6.0, 4.0, 10.0))
-            .size((160.0, 40.0))
+            .size((200.0, 40.0))
             .outline_solid((0.0, 1.0, 0.0, 0.0))
             .outline_align(BorderAlignment::Center)
             .outline_lengths(0.6)
             .outline_color(dynamic(|t: &Theme| t.border)),
     )
-    .child(input_d(move |t: &Theme| {
-        InputContents::new((read_text, write_text))
-            .placeholder("Searching...")
-            .placeholder_color(t.text_muted)
-    })
-    .style(
-        ts().flex()
-            .size_full()
-            .font_size(16.0)
-            .text_color(dynamic(|t: &Theme| t.text))
-            .select_text()
-            .cursor_text()
-            .overflow_hidden(),
-    )
-    .on_char_input(move |_| {
-        if !menu_open.get() && !read_history.get().is_empty() {
-            set_menu_open.set(true);
-        }
-        if read_text.get().is_empty() && read_history.get().is_empty() {
-            set_menu_open.set(false);
-        }
-    })
-    .on_keyboard_input(move |key, _mods, state| {
-        if key == VirtualKey::RETURN && state == ElementState::Pressed {
-            wrote_history()
-        }
-    })
-    .on_focus(move || {
-        if !read_history.get().is_empty() {
-            set_menu_open.set(true);
-        }
-    })
-    .on_blur(move || set_menu_open.set(false)));
+    .child(
+        input_d(move |t: &Theme| {
+            InputContents::new((read_text, write_text))
+                .placeholder("Search")
+                .placeholder_color(t.text_muted)
+        })
+        .style(
+            ts().flex()
+                .size_full()
+                .font_size(16.0)
+                .text_color(dynamic(|t: &Theme| t.text))
+                .select_text()
+                .cursor_text()
+                .overflow_hidden(),
+        )
+        .on_char_input(move |_| {
+            if !menu_open.get() && !read_history.get().is_empty() {
+                set_menu_open.set(true);
+            }
+            if read_text.get().is_empty() && read_history.get().is_empty() {
+                set_menu_open.set(false);
+            }
+        })
+        .on_keyboard_input(move |key, _mods, state| {
+            if key == VirtualKey::RETURN && state == ElementState::Pressed {
+                wrote_history()
+            }
+        })
+        .on_focus(move || {
+            if !read_history.get().is_empty() {
+                set_menu_open.set(true);
+            }
+        })
+        .on_blur(move || set_menu_open.set(false)),
+    );
 
     let btn_right = h_flex(
         ts().justify_center()
             .items_center()
             .r_right(3.0)
             .size(40.0)
+            .prevent_focus_steal(true)
             .hovered(ts().bg_color(dynamic(|t: &Theme| t.border))),
     )
     .label(
@@ -363,7 +366,7 @@ fn search_box() -> Element {
             .absolute()
             .r_bottom(4.0)
             .z_1()
-            .w(202.0)
+            .w(242.0)
             .top(41.0)
             .left(-1.0)
             .border_solid((0.0, 1.0, 1.0, 1.0))
@@ -383,6 +386,8 @@ fn search_box() -> Element {
 
         for (idx, h) in history.iter().enumerate() {
             let (hovered, set_hovered) = create_signal(false);
+            let (steal_focus, set_steal_focus) = create_signal(true);
+
             let h_val = h.clone();
             let h_to_delete = h.clone();
             let is_last = idx == len - 1;
@@ -394,59 +399,66 @@ fn search_box() -> Element {
                 item_style = item_style.r_bottom(4.0);
             }
 
-            let item = h_flex(item_style)
-                .children([
-                    text(h.clone())
-                        .style_d(move |t: &Theme| {
-                            let mut s = ts()
-                                .w_full()
-                                .p_y(6.0)
-                                .p_l(10.0)
-                                .font_size(14.0)
-                                .text_color(t.text)
-                                .hovered(ts().bg_color(t.border_hover))
-                                .overflow_hidden();
-                            if is_last {
-                                s = s.r((0.0, 0.0, 0.0, 4.0));
-                            }
-                            s
-                        })
-                        .on_mouse_enter(move || set_hovered.set(true))
-                        .on_mouse_leave(move || set_hovered.set(false))
-                        .on_click(move || write_text.set(h_val.clone())),
-                    text("✕")
-                        .style_d(move |t: &Theme| {
-                            let mut base_style = ts()
-                                .p((6.0, 14.0))
-                                .text_center()
-                                .text_color(t.text_muted)
-                                .font_size(12.0)
-                                .pointer_events_auto()
-                                .hovered(ts().text_color(t.primary).bg_color(t.border_hover));
+            let item = h_flex(item_style).children([
+                text(h.clone())
+                    .style_d(move |t: &Theme| {
+                        let mut s = ts()
+                            .w_full()
+                            .p_y(6.0)
+                            .p_l(10.0)
+                            .font_size(14.0)
+                            .text_color(t.text)
+                            .prevent_focus_steal(true)
+                            .overflow_hidden();
+                        if is_last {
+                            s = s.r((0.0, 0.0, 0.0, 4.0));
+                        }
+                        s
+                    })
+                    .on_mouse_enter(move || set_hovered.set(true))
+                    .on_mouse_leave(move || set_hovered.set(false))
+                    .on_click(move || write_text.set(h_val.clone())),
+                text("✕")
+                    .style_d(move |t: &Theme| {
+                        let mut base_style = ts()
+                            .h_full()
+                            .w(40.0)
+                            .p((6.0, 14.0))
+                            .text_center()
+                            .text_color(t.text_muted)
+                            .font_size(12.0)
+                            .prevent_focus_steal(steal_focus.get())
+                            .hovered(ts().text_color(t.primary));
 
-                            if is_last {
-                                base_style = base_style.r((0.0, 0.0, 4.0, 0.0));
-                            }
+                        if is_last {
+                            base_style = base_style.r((0.0, 0.0, 4.0, 0.0));
+                        }
 
-                            if hovered.get() {
-                                base_style.opacity_100()
-                            } else {
-                                base_style.opacity_0().pointer_events_none()
-                            }
-                        })
-                        .on_mouse_enter(move || set_hovered.set(true))
-                        .on_mouse_leave(move || set_hovered.set(false))
-                        .on_click(move || {
+                        if hovered.get() {
+                            base_style.opacity_100()
+                        } else {
+                            base_style.opacity_0()
+                        }
+                    })
+                    .on_mouse_enter(move || {
+                        set_hovered.set(true);
+
+                        if len == 1 {
+                            set_steal_focus.set(false);
+                        }
+                    })
+                    .on_mouse_leave(move || set_hovered.set(false))
+                    .on_click(move || {
+                        if hovered.get() {
                             let h_del = h_to_delete.clone();
                             let mut current = read_history.get();
                             if let Some(pos) = current.iter().position(|x| x == &h_del) {
                                 current.remove(pos);
                                 write_history.set(current);
                             }
-                        }),
-                ])
-                .on_mouse_enter(move || set_hovered.set(true))
-                .on_mouse_leave(move || set_hovered.set(false));
+                        }
+                    }),
+            ]);
 
             list.push(item);
         }

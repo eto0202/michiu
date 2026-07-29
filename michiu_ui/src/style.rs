@@ -4909,6 +4909,54 @@ impl ThisStyle {
         self.focusable(Focusable::None)
     }
 
+    /// 自身がクリックされた際に、現在アクティブなフォーカス要素からフォーカスを奪わないように設定します。
+    #[inline]
+    pub fn prevent_focus_steal(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.prevent_focus_steal = Some(v);
+                inner.mask.set(STYLE_PREVENT_FOCUS_STEAL);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_PREVENT_FOCUS_STEAL);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                        v.prevent_focus_steal = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 子孫要素がクリックされた際に、現在アクティブなフォーカス要素からフォーカスを奪わないように設定します。
+    #[inline]
+    pub fn prevent_focus_steal_within(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.prevent_focus_steal_within = Some(v);
+                inner.mask.set(STYLE_PREVENT_FOCUS_STEAL_WITHIN);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_PREVENT_FOCUS_STEAL_WITHIN);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(v) = cx.get_visual_property_mut(id, target) {
+                        v.prevent_focus_steal_within = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
     /// すべての疑似クラスおよび within 伝播系のスタイルと動的セッターを統合する共通コアヘルパー
     fn apply_interaction_style(
         mut self,

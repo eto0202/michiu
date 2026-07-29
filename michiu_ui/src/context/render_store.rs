@@ -1376,6 +1376,8 @@ impl Context {
                     active_vis.transitions = target_vis.transitions.clone();
                     active_vis.keyframe_animations = target_vis.keyframe_animations.clone();
                     active_vis.focusable = target_vis.focusable;
+                    active_vis.prevent_focus_steal = target_vis.prevent_focus_steal;
+                    active_vis.prevent_focus_steal_within = target_vis.prevent_focus_steal_within;
                     active_vis.transform_inherit = target.transform_inherit;
                 }
 

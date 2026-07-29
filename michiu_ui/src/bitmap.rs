@@ -207,6 +207,9 @@ pub(crate) const STYLE_TRANSFORM_INHERIT: u128 = 1 << 73;
 
 pub(crate) const STATE_FOCUSED_VISIBLE: u128 = 1 << 74;
 
+pub(crate) const STYLE_PREVENT_FOCUS_STEAL: u128 = 1 << 75;
+pub(crate) const STYLE_PREVENT_FOCUS_STEAL_WITHIN: u128 = 1 << 76;
+
 // 基本レイアウト一括判定マスク (STYLE_DISPLAY から STYLE_BORDER まで：ビット0..17)
 /// 基本レイアウトの個別プロパティの「どれか1つでも有効化されているか」を判定するマスク。
 /// (16進数表現：0x3FFFF)
@@ -264,7 +267,9 @@ pub(crate) const STYLE_VISUAL_PROPERTY: u128 = STYLE_BG_COLOR
     | STYLE_DROPPABLE
     | STYLE_FOCUSABLE
     | STYLE_OUTLINE
-    | STYLE_TRANSFORM_INHERIT;
+    | STYLE_TRANSFORM_INHERIT
+    | STYLE_PREVENT_FOCUS_STEAL
+    | STYLE_PREVENT_FOCUS_STEAL_WITHIN;
 
 // インタラクションプロパティの一括判定用マスク（ビット43..49の論理和：16進数表現 0x3F80000000000）
 pub(crate) const STYLE_INTERACTION_PROPERTY: u128 = STATE_HOVERED

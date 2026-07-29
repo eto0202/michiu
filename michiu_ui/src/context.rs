@@ -924,15 +924,52 @@ impl Context {
                         self.handle_user_select_text(target_id, pointer_pos, modifiers.shift);
                     }
 
-                    // フォーカス可能要素のみにフォーカスを制限
-                    let is_focusable = self.restrict_focusable_element(target_id);
-                    if is_focusable {
-                        // フォーカスの自動切り替え
-                        self.auto_focus_switch_by_trigger(target_id, ActiveFocusTrigger::Mouse);
-                    } else {
-                        // フォーカス不可能な要素をクリックした場合は、
-                        // 現在フォーカスされているインプットからフォーカスを完全に外し状態をクリアする
-                        self.handle_remove_focus();
+                    // prevent_focus_steal の解決
+                    let mut prevent_steal = false;
+                    let mut curr = Some(target_id);
+                    while let Some(curr_id) = curr {
+                        let mask = self
+                            .topology
+                            .active_masks
+                            .get(curr_id)
+                            .copied()
+                            .unwrap_or_default();
+                        if mask.has(STYLE_PREVENT_FOCUS_STEAL)
+                            && curr_id == target_id
+                            && self
+                                .renders
+                                .visual_properties
+                                .get(curr_id)
+                                .and_then(|v| v.prevent_focus_steal)
+                                .unwrap_or(false)
+                        {
+                            prevent_steal = true;
+                            break;
+                        }
+                        if mask.has(STYLE_PREVENT_FOCUS_STEAL_WITHIN)
+                            && self
+                                .renders
+                                .visual_properties
+                                .get(curr_id)
+                                .and_then(|v| v.prevent_focus_steal_within)
+                                .unwrap_or(false)
+                        {
+                            prevent_steal = true;
+                            break;
+                        }
+                        curr = self.topology.parents.get(curr_id).copied().flatten();
+                    }
+                    if !prevent_steal {
+                        // フォーカス可能要素のみにフォーカスを制限
+                        let is_focusable = self.restrict_focusable_element(target_id);
+                        if is_focusable {
+                            // フォーカスの自動切り替え
+                            self.auto_focus_switch_by_trigger(target_id, ActiveFocusTrigger::Mouse);
+                        } else {
+                            // フォーカス不可能な要素をクリックした場合は、
+                            // 現在フォーカスされているインプットからフォーカスを完全に外し状態をクリアする
+                            self.handle_remove_focus();
+                        }
                     }
 
                     self.handle_on_mouse_input(target_id, button, modifiers, state);

@@ -263,7 +263,9 @@ pub struct VisualProperty {
     pub select_bg_color: Option<Color>,
     pub select_text_color: Option<Color>,
     pub focusable: Option<Focusable>,
-    pub outline_width: Option<EdgeInsets>, // アウトラインはレイアウトに影響を与えないため
+    pub prevent_focus_steal: Option<bool>,
+    pub prevent_focus_steal_within: Option<bool>,
+    pub outline_width: Option<EdgeInsets>,
     pub outline_color: Option<Color>,
     pub outline_lengths: Option<EdgeInsets>,
     pub outline_styles: Option<[BorderStyle; 4]>,
@@ -341,6 +343,12 @@ impl VisualProperty {
         }
         if mask.has(STYLE_FOCUSABLE) {
             self.focusable = other.focusable;
+        }
+        if mask.has(STYLE_PREVENT_FOCUS_STEAL) {
+            self.prevent_focus_steal = other.prevent_focus_steal;
+        }
+        if mask.has(STYLE_PREVENT_FOCUS_STEAL_WITHIN) {
+            self.prevent_focus_steal_within = other.prevent_focus_steal_within;
         }
         if mask.has(STYLE_OUTLINE) {
             self.outline_width = other.outline_width;
