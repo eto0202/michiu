@@ -30,13 +30,12 @@ pub(crate) struct ScrollBarState {
 
 pub struct LayoutStore {
     pub(crate) basic_layouts: SecondaryMap<EntityId, BasicLayout>,
+    pub(crate) base_basic_layouts: SecondaryMap<EntityId, BasicLayout>,
     pub(crate) flex_layouts: SecondaryMap<EntityId, FlexLayout>,
     pub(crate) grid_layouts: SparseSecondaryMap<EntityId, GridLayout>,
     pub(crate) scrollbar_styles: SparseSecondaryMap<EntityId, ScrollBarState>,
     pub(crate) taffy_nodes: SecondaryMap<EntityId, taffy::NodeId>,
     pub(crate) taffy: taffy::TaffyTree<EntityId>,
-    pub(crate) flat_dfs_sequence: Vec<EntityId>,
-    pub(crate) is_structure_dirty: bool,
     pub(crate) dirty_layout_entities: Vec<EntityId>,
 }
 
@@ -51,13 +50,12 @@ impl LayoutStore {
     pub fn new() -> Self {
         Self {
             basic_layouts: SecondaryMap::new(),
+            base_basic_layouts: SecondaryMap::new(),
             flex_layouts: SecondaryMap::new(),
             grid_layouts: SparseSecondaryMap::new(),
             scrollbar_styles: SparseSecondaryMap::new(),
             taffy_nodes: SecondaryMap::new(),
             taffy: TaffyTree::new(),
-            flat_dfs_sequence: Vec::new(),
-            is_structure_dirty: true,
             dirty_layout_entities: Vec::new(),
         }
     }
@@ -65,25 +63,24 @@ impl LayoutStore {
     #[inline]
     pub fn clear(&mut self) {
         self.basic_layouts.clear();
+        self.base_basic_layouts.clear();
         self.flex_layouts.clear();
         self.grid_layouts.clear();
         self.scrollbar_styles.clear();
         self.taffy_nodes.clear();
         self.taffy = TaffyTree::new();
-        self.flat_dfs_sequence.clear();
-        self.is_structure_dirty = true;
         self.dirty_layout_entities.clear();
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
         self.basic_layouts.remove(id);
+        self.base_basic_layouts.remove(id);
         self.flex_layouts.remove(id);
         self.grid_layouts.remove(id);
         self.scrollbar_styles.remove(id);
         self.taffy_nodes.remove(id);
         self.dirty_layout_entities.retain(|&x| x != id);
-        self.flat_dfs_sequence.retain(|&x| x != id);
     }
 }
 
@@ -339,7 +336,7 @@ impl LayoutStore {
             apply(layout);
         }
         // 2. RenderStore 側のベース静的値（base_basic_layouts）を同時更新
-        if let Some(layout) = renders.base_basic_layouts.get_mut(id) {
+        if let Some(layout) = layouts.base_basic_layouts.get_mut(id) {
             apply(layout);
         }
 
@@ -381,25 +378,21 @@ impl LayoutStore {
         if let Some(layout) = layouts.basic_layouts.get_mut(id) {
             hide(layout);
         }
-        if let Some(layout) = renders.base_basic_layouts.get_mut(id) {
+        if let Some(layout) = layouts.base_basic_layouts.get_mut(id) {
             hide(layout);
         }
     }
 
     /// 非再帰スタックによるフラットDFS配列の高速構築
-    pub(crate) fn rebuild_flat_dfs_sequence(
-        root: EntityId,
-        layouts: &mut LayoutStore,
-        topology: &TopologyStore,
-    ) {
-        layouts.flat_dfs_sequence.clear();
+    pub(crate) fn rebuild_flat_dfs_sequence(root: EntityId, topology: &mut TopologyStore) {
+        topology.flat_dfs_sequence.clear();
 
         // あらかじめ実用的なスタック深度を確保しておきメモリ再確保を削減
         let mut stack = Vec::with_capacity(32);
         stack.push(root);
 
         while let Some(id) = stack.pop() {
-            layouts.flat_dfs_sequence.push(id);
+            topology.flat_dfs_sequence.push(id);
 
             // 左側の子が先にポップされるように、右側（末尾）の子から逆順にスタックへプッシュ
             if let Some(children) = topology.children.get(id) {
@@ -410,7 +403,7 @@ impl LayoutStore {
             }
         }
 
-        layouts.is_structure_dirty = false;
+        topology.is_structure_dirty = false;
     }
 
     pub(crate) fn local_rect_from_taffy(id: EntityId, layouts: &LayoutStore) -> LayoutRect {
@@ -559,7 +552,7 @@ impl Context {
     /// 非再帰スタックによるフラットDFS配列の高速構築
     #[inline]
     pub(crate) fn rebuild_flat_dfs_sequence(&mut self, root: EntityId) {
-        LayoutStore::rebuild_flat_dfs_sequence(root, &mut self.layouts, &self.topology);
+        LayoutStore::rebuild_flat_dfs_sequence(root, &mut self.topology);
     }
 
     #[inline]
@@ -758,7 +751,7 @@ impl Context {
         }
 
         // base_basic_layouts にも同時に書き込み、解決処理（resolve）によるリセットを完全に防ぐ
-        if let Some(layout) = self.renders.base_basic_layouts.get_mut(id) {
+        if let Some(layout) = self.layouts.base_basic_layouts.get_mut(id) {
             layout.size.width = Val::Px(new_w);
             layout.size.height = Val::Px(new_h);
 

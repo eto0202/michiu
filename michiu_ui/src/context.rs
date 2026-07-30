@@ -50,14 +50,35 @@ new_key_type! {
 // RawContext 側で全てのAPIを公開
 // Facade化するのもあり
 pub struct Context {
+    /// ツリー構造の構築、親子関係の管理、DFS走査順序。
+    /// despawn 連鎖、DFS配列の構築、子孫/親の状態バブリング走査など。
     pub topology: TopologyStore,
+    /// 解決済み基本/Flex/Gridスタイルデータの保持。
+    /// TaffyTreeの同期、およびスクロールバー用要素のレイアウト。
+    /// taffy_style への同期、物理ボーダー/パディング、コンテナ内径サイズの算出など。
     pub layouts: LayoutStore,
+    /// 解決済みビジュアルスタイルの保持。
+    /// DComp/wgpu用アニメーション・トランジションの時間軸Tick駆動、疑似スタイルのカスケード解決。
+    /// does_state_require_layout 判定、フォーカス/ホバー等のカスケードマージなど。
     pub renders: RenderStore,
+    /// 計算完了後の物理絶対座標、クリップ範囲の保持。
+    /// キャレット・テキスト選択範囲の物理領域キャッシュ。
+    /// resolve_val_to_px (単位の解決)、キャレット矩形の算出など。
     pub outputs: OutputStore,
+    /// ユーザーコンテンツの保持。
+    /// キャレット点滅判定、コンテンツサイズ計測など。
     pub contents: ContentStore,
+    /// ユーザー入力リスナー、およびリサイズ/ドラッグセッション状態の保持。
+    /// リサイズ方向検知、オートスクロールはみ出し距離など。
     pub events: EventStore,
+    /// シグナル・エフェクト実体、プロバイダー依存関係の保持。
+    /// プロバイダー引き当て、エフェクトの初回評価遅延処理など。
     pub reactive: ReactiveStore,
+    /// ウィンドウ全体の基本状態（DPI、最終境界）の保持。
+    /// ウィンドウリサイズ検知、可視矩形の算出など。
     pub window: WindowStore,
+    /// OS機能（DWriteレイアウトキャッシュ、IMM32位置、UIAプロパティ）および非同期STAキューの保持。
+    /// IMM32候補窓の物理位置同期、DWriteレイアウト生成など。
     pub system: SystemStore,
 }
 
@@ -203,7 +224,7 @@ impl Context {
         // dirty_render_entities に何か登録されている、またはレイアウトに Dirty がある場合
         !self.renders.dirty_render_entities.is_empty()
             || !self.layouts.dirty_layout_entities.is_empty()
-            || self.layouts.is_structure_dirty
+            || self.topology.is_structure_dirty
     }
 
     /// 現在イベントハンドラを実行している要素（自分自身）の EntityId を取得します
@@ -1025,7 +1046,7 @@ impl Context {
                             drag_prop,
                             &drag_state,
                         );
-                        self.layouts.is_structure_dirty = true;
+                        self.topology.is_structure_dirty = true;
                     }
 
                     if let Some(ph_children) = self.topology.children.get(holder).cloned() {
@@ -1285,16 +1306,16 @@ impl Context {
 
     /// キーボードフォーカスを次の適格な要素へ巡回させます
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
-        if self.layouts.flat_dfs_sequence.is_empty() {
+        if self.topology.flat_dfs_sequence.is_empty() {
             return;
         }
 
-        let len = self.layouts.flat_dfs_sequence.len();
+        let len = self.topology.flat_dfs_sequence.len();
 
         // 現在フォーカスされている要素のインデックスを特定（無ければ探索方向の末端から開始）
         let current_focused = self.events.interaction_states.focused;
         let start_idx = current_focused
-            .and_then(|id| self.layouts.flat_dfs_sequence.iter().position(|&x| x == id))
+            .and_then(|id| self.topology.flat_dfs_sequence.iter().position(|&x| x == id))
             .unwrap_or(if reverse { len - 1 } else { 0 });
 
         let mut idx = start_idx;
@@ -1311,7 +1332,7 @@ impl Context {
                 break;
             }
 
-            let candidate_id = self.layouts.flat_dfs_sequence[idx];
+            let candidate_id = self.topology.flat_dfs_sequence[idx];
 
             if self.is_keyboard_focusable(candidate_id) {
                 // 古い要素のフォーカスを外し、新しい要素へフォーカスを設定
@@ -1474,7 +1495,7 @@ impl Context {
         // 各要素の実効 z_index を、親から子へカスケードして算出
         let mut effective_z_indices =
             SecondaryMap::with_capacity(self.topology.active_entities.len());
-        for &id in &self.layouts.flat_dfs_sequence {
+        for &id in &self.topology.flat_dfs_sequence {
             let self_z = self
                 .renders
                 .visual_properties
@@ -1553,14 +1574,14 @@ impl Context {
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // すべてスキップして早期リターン。
         if self.layouts.dirty_layout_entities.is_empty()
-            && !self.layouts.is_structure_dirty
+            && !self.topology.is_structure_dirty
             && !window_resized
             && !self.outputs.rects.is_empty()
         {
             return;
         }
 
-        if self.layouts.is_structure_dirty {
+        if self.topology.is_structure_dirty {
             self.rebuild_flat_dfs_sequence(root);
         }
 
@@ -1646,11 +1667,11 @@ impl Context {
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの rects のみを確定
         self.swap_output_rect();
 
-        let flat_len = self.layouts.flat_dfs_sequence.len();
+        let flat_len = self.topology.flat_dfs_sequence.len();
 
         // 1次元非再帰・静的キャッシュバイパスループ
         for i in 0..flat_len {
-            let id = self.layouts.flat_dfs_sequence[i];
+            let id = self.topology.flat_dfs_sequence[i];
 
             // スクロールバー専用子要素は手動で物理座標を強制更新するため、この走査ループから完全にスルー
             if scrollbar_el_ids.contains(&id) {
@@ -1752,7 +1773,7 @@ impl Context {
         self.topology.active_entities.clear();
 
         for i in 0..flat_len {
-            let id = self.layouts.flat_dfs_sequence[i];
+            let id = self.topology.flat_dfs_sequence[i];
 
             let (abs_rect, parent_clip) = self.calc_local_rect(id, window_size);
 
@@ -1777,7 +1798,7 @@ impl Context {
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
         for i in 0..flat_len {
-            let id = self.layouts.flat_dfs_sequence[i];
+            let id = self.topology.flat_dfs_sequence[i];
             if self.outputs.scroll_offsets.contains_key(id) {
                 let current = self.outputs.scroll_offsets[id];
                 // 枠サイズの変更があった場合など、現在の位置からはみ出していれば自動クランプ調整

@@ -24,7 +24,6 @@ pub(crate) struct ActiveAnimation {
 pub struct RenderStore {
     pub(crate) visual_properties: SecondaryMap<EntityId, VisualProperty>,
     pub(crate) interaction_properties: SecondaryMap<EntityId, InteractionStyles>,
-    pub(crate) base_basic_layouts: SecondaryMap<EntityId, BasicLayout>,
     pub(crate) base_visual_properties: SecondaryMap<EntityId, VisualProperty>,
     pub(crate) dirty_render_entities: Vec<EntityId>,
     pub(crate) active_transitions: SparseSecondaryMap<EntityId, Vec<ActiveTransition>>,
@@ -45,7 +44,7 @@ impl RenderStore {
         Self {
             visual_properties: SecondaryMap::new(),
             interaction_properties: SecondaryMap::new(),
-            base_basic_layouts: SecondaryMap::new(),
+
             base_visual_properties: SecondaryMap::new(),
             dirty_render_entities: Vec::new(),
             active_transitions: SparseSecondaryMap::new(),
@@ -59,7 +58,6 @@ impl RenderStore {
     pub fn clear(&mut self) {
         self.visual_properties.clear();
         self.interaction_properties.clear();
-        self.base_basic_layouts.clear();
         self.base_visual_properties.clear();
         self.dirty_render_entities.clear();
         self.active_transitions.clear();
@@ -72,7 +70,6 @@ impl RenderStore {
     pub fn despawn(&mut self, id: EntityId) {
         self.visual_properties.remove(id);
         self.interaction_properties.remove(id);
-        self.base_basic_layouts.remove(id);
         self.base_visual_properties.remove(id);
         self.dirty_render_entities.retain(|&x| x != id);
         self.active_transitions.remove(id);
@@ -92,13 +89,14 @@ impl RenderStore {
         renders.dirty_render_entities.clear();
     }
 
-    pub(crate) fn get_basic_layout_mut(
+    pub(crate) fn get_basic_layout_mut<'a>(
         id: EntityId,
-        renders: &mut RenderStore,
+        renders: &'a mut RenderStore,
         target: StyleTarget,
-    ) -> Option<&mut BasicLayout> {
+        layouts: &'a mut LayoutStore,
+    ) -> Option<&'a mut BasicLayout> {
         match target {
-            StyleTarget::Base => renders.base_basic_layouts.get_mut(id),
+            StyleTarget::Base => layouts.base_basic_layouts.get_mut(id),
             _ => {
                 if !renders.interaction_properties.contains_key(id) {
                     renders
@@ -523,7 +521,7 @@ impl RenderStore {
         renders: &RenderStore,
     ) -> SecondaryMap<EntityId, [[f32; 4]; 4]> {
         let mut effective_transforms = SecondaryMap::with_capacity(topology.active_entities.len());
-        for &id in &layouts.flat_dfs_sequence {
+        for &id in &topology.flat_dfs_sequence {
             let self_transform = renders
                 .visual_properties
                 .get(id)
@@ -830,7 +828,7 @@ impl Context {
         id: EntityId,
         target: StyleTarget,
     ) -> Option<&mut BasicLayout> {
-        RenderStore::get_basic_layout_mut(id, &mut self.renders, target)
+        RenderStore::get_basic_layout_mut(id, &mut self.renders, target, &mut self.layouts)
     }
 
     #[inline]
@@ -1387,7 +1385,7 @@ impl Context {
         }
 
         //  (Width, Height) の解決
-        let has_base_layout = self.renders.base_basic_layouts.contains_key(id);
+        let has_base_layout = self.layouts.base_basic_layouts.contains_key(id);
         let has_active_layout = self.layouts.basic_layouts.contains_key(id);
 
         // レイアウト変更のない要素は完全にスキップ
@@ -1402,7 +1400,7 @@ impl Context {
             // BasicLayout は heap allocation を持たないフラットな構造（Copy同等）なので
             // cloned() によるクローンは極めて低コスト
             let base_layout = self
-                .renders
+                .layouts
                 .base_basic_layouts
                 .get(id)
                 .cloned()

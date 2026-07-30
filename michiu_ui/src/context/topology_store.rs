@@ -18,6 +18,8 @@ pub struct TopologyStore {
     pub(crate) session_spawned: Vec<EntityId>,
     /// セッション終了時に、親がいなくても破棄してはならないルート要素のリスト
     pub(crate) session_roots: Vec<EntityId>,
+    pub(crate) flat_dfs_sequence: Vec<EntityId>,
+    pub(crate) is_structure_dirty: bool,
 }
 
 impl Default for TopologyStore {
@@ -37,6 +39,8 @@ impl TopologyStore {
             active_entities: Vec::new(),
             session_spawned: Vec::new(),
             session_roots: Vec::new(),
+            flat_dfs_sequence: Vec::new(),
+            is_structure_dirty: true,
         }
     }
 
@@ -47,6 +51,8 @@ impl TopologyStore {
         self.children.clear();
         self.active_masks.clear();
         self.active_entities.clear();
+        self.flat_dfs_sequence.clear();
+        self.is_structure_dirty = true;
     }
 
     #[inline]
@@ -59,6 +65,7 @@ impl TopologyStore {
         self.active_entities.retain(|&x| x != id);
         self.session_spawned.retain(|&x| x != id);
         self.session_roots.retain(|&x| x != id);
+        self.flat_dfs_sequence.retain(|&x| x != id);
     }
 }
 
@@ -89,7 +96,7 @@ impl TopologyStore {
         // カスタムスタイルが当てられるまではデフォルト（Style::default）を再利用するため
         // mark_layout_dirty(id) の呼び出しを完全にスキップして、Taffyへの無駄な伝播をカット
         TopologyStore::mark_render_dirty(id, topology, renders);
-        layouts.is_structure_dirty = true; // 構造変化をマーク
+        topology.is_structure_dirty = true; // 構造変化をマーク
 
         topology.session_spawned.push(id);
 
@@ -142,7 +149,7 @@ impl TopologyStore {
         }
 
         TopologyStore::mark_layout_dirty(parent, topology, layouts);
-        layouts.is_structure_dirty = true;
+        topology.is_structure_dirty = true;
     }
 
     /// レイアウト変更フラグを立てる（Taffy同期要求）
@@ -449,7 +456,7 @@ impl TopologyStore {
         let mut effective_z_indices = SecondaryMap::with_capacity(topology.active_entities.len());
 
         // flat_dfs_sequence は必ず親から子への順でフラットに並んでいるため、前方1方向の走査で完結
-        for &id in &layouts.flat_dfs_sequence {
+        for &id in &topology.flat_dfs_sequence {
             let self_z = renders.visual_properties.get(id).and_then(|v| v.z_index);
 
             let parent_z = topology
@@ -620,7 +627,7 @@ impl TopologyStore {
 
         if changed {
             *cx.layouts.scrollbar_styles.get_mut(id).unwrap() = state;
-            cx.layouts.is_structure_dirty = true; // flat_dfs_sequence の更新契機
+            cx.topology.is_structure_dirty = true; // flat_dfs_sequence の更新契機
         }
     }
 }
@@ -713,7 +720,7 @@ impl Context {
         TopologyStore::despawn_internal(old_child, self);
 
         TopologyStore::mark_layout_dirty(parent, &mut self.topology, &mut self.layouts);
-        self.layouts.is_structure_dirty = true;
+        self.topology.is_structure_dirty = true;
     }
 
     /// デスポーン済みの無効な EntityId を各走査・Dirty配列から一括して排除。
@@ -770,7 +777,7 @@ impl Context {
     pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
         // すでにフラットシーケンスが構築されていればその先頭、
         // 無ければ parents マップをスキャンして親が None の生存要素をフォールバック解決します
-        self.layouts.flat_dfs_sequence.first().copied().or_else(|| {
+        self.topology.flat_dfs_sequence.first().copied().or_else(|| {
             self.topology
                 .parents
                 .iter()

@@ -227,11 +227,11 @@ impl Element {
 
         // ベースの基本レイアウトをマージ
         if mask.has_basic_layout() {
-            if merge && let Some(base) = cx.renders.base_basic_layouts.get_mut(id) {
+            if merge && let Some(base) = cx.layouts.base_basic_layouts.get_mut(id) {
                 base.override_with(&inner.basic_layout, mask);
             } else {
                 // 置換モード：前回の設定蓄積をクリアして完全置換
-                cx.renders.base_basic_layouts.insert(id, inner.basic_layout);
+                cx.layouts.base_basic_layouts.insert(id, inner.basic_layout);
             }
             cx.mark_layout_dirty(id);
         }

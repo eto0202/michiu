@@ -343,7 +343,7 @@ impl EventStore {
             if let Some(layout) = layouts.basic_layouts.get_mut(id) {
                 layout.inset = start_inset;
             }
-            if let Some(layout) = renders.base_basic_layouts.get_mut(id) {
+            if let Some(layout) = layouts.base_basic_layouts.get_mut(id) {
                 layout.inset = start_inset;
             }
         } else {
@@ -660,8 +660,8 @@ impl Context {
                     }
 
                     // 元要素のレイアウトおよびビジュアル情報をコピーして初期マウント
-                    if let Some(basic) = self.renders.base_basic_layouts.get(pressed_id).copied() {
-                        self.renders
+                    if let Some(basic) = self.layouts.base_basic_layouts.get(pressed_id).copied() {
+                        self.layouts
                             .base_basic_layouts
                             .insert(placeholder_id, basic);
                         self.layouts.basic_layouts.insert(placeholder_id, basic);
@@ -694,7 +694,7 @@ impl Context {
                         layout.size.width = Val::Px(start_rect.width);
                         layout.size.height = Val::Px(start_rect.height);
                     }
-                    if let Some(layout) = self.renders.base_basic_layouts.get_mut(placeholder_id) {
+                    if let Some(layout) = self.layouts.base_basic_layouts.get_mut(placeholder_id) {
                         layout.position = Position::Absolute;
                         layout.size.width = Val::Px(start_rect.width);
                         layout.size.height = Val::Px(start_rect.height);
@@ -820,7 +820,7 @@ impl Context {
             layout.inset.right = Val::Auto;
             layout.inset.bottom = Val::Auto;
         }
-        if let Some(layout) = self.renders.base_basic_layouts.get_mut(placeholder) {
+        if let Some(layout) = self.layouts.base_basic_layouts.get_mut(placeholder) {
             layout.inset.left = Val::Px(local_x);
             layout.inset.top = Val::Px(local_y);
             layout.inset.right = Val::Auto;
@@ -1325,7 +1325,7 @@ impl Context {
                 if let Some(layout) = self.layouts.basic_layouts.get_mut(src_id) {
                     layout.inset = new_inset;
                 }
-                if let Some(layout) = self.renders.base_basic_layouts.get_mut(src_id) {
+                if let Some(layout) = self.layouts.base_basic_layouts.get_mut(src_id) {
                     layout.inset = new_inset;
                 }
             }
