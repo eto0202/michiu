@@ -9,6 +9,7 @@ pub fn container() -> Element {
         basic_container(),
         restrict_container(),
         btn_container(),
+        multiline_container(),
     ])
 }
 
@@ -480,4 +481,35 @@ fn search_box() -> Element {
         }
     })
     .children([input_left, btn_right, candidate])
+}
+
+fn multiline_container() -> Element {
+    let (read, write) = create_signal(String::new());
+    let area = div(ts()
+        .flex()
+        .p((6.0, 6.0))
+        .r(4.0)
+        .size((400.0, 100.0))
+        .min_size((200.0, 40.0))
+        .resizable_right(true)
+        .resizable_bottom(true)
+        .bg_color(dynamic(|t: &Theme| t.background_hover))
+        .border_solid(1.0)
+        .border_color(dynamic(|t: &Theme| t.border)))
+    .child(
+        input_area(InputContents::new((read, write))).style(
+            ts().size_full()
+                .font_size(16.0)
+                .text_color(dynamic(|t: &Theme| t.text))
+                .select_text()
+                .cursor_text()
+                .overflow_hidden()
+                .debug_border_red(),
+        ),
+    );
+
+    v_flex(section_style()).children([
+        section_title("Multiline"),
+        h_flex(wrapper_style()).children([area]),
+    ])
 }
