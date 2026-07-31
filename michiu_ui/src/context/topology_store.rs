@@ -79,6 +79,103 @@ impl TopologyStore {
 }
 
 impl TopologyStore {
+    /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで一掃
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn despawn_internal(
+        id: EntityId,
+        topology: &mut TopologyStore,
+        layouts: &mut LayoutStore,
+        renders: &mut RenderStore,
+        outputs: &mut OutputStore,
+        contents: &mut ContentStore,
+        events: &mut EventStore,
+        reactive: &mut ReactiveStore,
+        window: &mut WindowStore,
+        system: &mut SystemStore,
+    ) {
+        if !topology.entities.contains_key(id) {
+            return;
+        }
+
+        // 親トポロジーおよび Taffy ツリーからのデタッチ
+        if let Some(Some(parent_id)) = topology.parents.get(id) {
+            if let Some(&parent_node) = layouts.taffy_nodes.get(*parent_id)
+                && let Some(&child_node) = layouts.taffy_nodes.get(id)
+                && let Ok(taffy_children) = layouts.taffy.children(parent_node)
+                && taffy_children.contains(&child_node)
+            {
+                let _ = layouts.taffy.remove_child(parent_node, child_node);
+            }
+
+            if let Some(parent_children) = topology.children.get_mut(*parent_id) {
+                parent_children.retain(|x| *x != id);
+            }
+        }
+
+        // Taffy ノード自体の削除
+        if let Some(node) = layouts.taffy_nodes.remove(id) {
+            let _ = layouts.taffy.remove(node);
+        }
+
+        // 子要素を再帰的に削除
+        if let Some(children_list) = topology.children.remove(id) {
+            for child_id in children_list {
+                TopologyStore::despawn_internal(
+                    child_id, topology, layouts, renders, outputs, contents, events, reactive,
+                    window, system,
+                );
+            }
+        }
+
+        // 各ストアの SoA 配列から自分自身を一掃
+        topology.despawn(id);
+        layouts.despawn(id);
+        renders.despawn(id);
+        outputs.despawn(id);
+        contents.despawn(id);
+        events.despawn(id);
+        reactive.despawn(id);
+        window.despawn(id);
+        system.despawn(id);
+    }
+
+    /// セッションのクリーンアップを実行
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn end_session(
+        start_marker: usize,
+        topology: &mut TopologyStore,
+        layouts: &mut LayoutStore,
+        renders: &mut RenderStore,
+        outputs: &mut OutputStore,
+        contents: &mut ContentStore,
+        events: &mut EventStore,
+        reactive: &mut ReactiveStore,
+        window: &mut WindowStore,
+        system: &mut SystemStore,
+    ) {
+        // start_marker 以降に生成された要素をスキャン
+        let spawned_in_session: Vec<EntityId> =
+            topology.session_spawned.drain(start_marker..).collect();
+
+        for id in spawned_in_session {
+            // 親が存在しない
+            let has_no_parent = topology.parents.get(id).copied().flatten().is_none();
+            // ルート要素としても登録されていない
+            let is_not_root = !topology.session_roots.contains(&id);
+
+            if has_no_parent && is_not_root {
+                TopologyStore::despawn_internal(
+                    id, topology, layouts, renders, outputs, contents, events, reactive, window,
+                    system,
+                );
+            }
+        }
+        // ルートリストをクリア
+        topology.session_roots.clear();
+    }
+
     /// 親トポロジーから子要素をデタッチする
     #[inline]
     pub fn detach_from_parent(
@@ -392,7 +489,7 @@ impl Context {
         LayoutStore::mark_layout_dirty(layouts, topology, parent);
     }
 
-    /// 3. 親要素の特定の古い子要素を新しい子要素へ直接差し替える
+    /// 親要素の特定の古い子要素を新しい子要素へ直接差し替える
     #[inline]
     pub(crate) fn replace_child(
         &mut self,
@@ -429,23 +526,30 @@ impl Context {
     /// 非再帰スタックによるフラットDFS配列の構築
     #[inline]
     pub(crate) fn rebuild_flat_dfs_sequence(&mut self, root: EntityId) {
-        let Context { topology, .. } = self;
-        TopologyStore::rebuild_dfs_sequence(
-            &topology.children,
-            &mut topology.flat_dfs_sequence,
-            &mut topology.is_structure_dirty,
-            root,
-        );
+        let TopologyStore {
+            children,
+            flat_dfs_sequence,
+            is_structure_dirty,
+            ..
+        } = &mut self.topology;
+
+        TopologyStore::rebuild_dfs_sequence(children, flat_dfs_sequence, is_structure_dirty, root);
     }
 
     /// 子孫のインタラクション状態走査
     #[inline]
     pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u128) -> bool {
-        let Context { topology, .. } = self;
+        let TopologyStore {
+            entities,
+            children,
+            active_masks,
+            ..
+        } = &self.topology;
+
         TopologyStore::has_descendant_with_state(
-            &topology.entities,
-            &topology.children,
-            &topology.active_masks,
+            entities,
+            children,
+            active_masks,
             parent,
             state_flag,
         )
@@ -460,14 +564,13 @@ impl Context {
     /// 直近の親要素（1世代上）が特定のインタラクション状態を持っているか
     #[inline]
     pub(crate) fn has_parent_with_state(&self, id: EntityId, state_flag: u128) -> bool {
-        let Context { topology, .. } = self;
         let TopologyStore {
             entities,
             parents,
             children,
             active_masks,
             ..
-        } = topology;
+        } = &self.topology;
         TopologyStore::has_parent_with_state(id, parents, entities, active_masks, state_flag)
     }
 
@@ -484,132 +587,104 @@ impl Context {
         parent: EntityId,
         logical_pos: LayoutPoint,
     ) -> usize {
-        let Context {
-            topology,
-            layouts,
-            outputs,
-            ..
-        } = self;
+        let TopologyStore { children, .. } = &self.topology;
+        let LayoutStore { flex_layouts, .. } = &self.layouts;
+        let OutputStore { rects, .. } = &self.outputs;
 
-        TopologyStore::calculate_insert_index(
-            parent,
-            logical_pos,
-            &self.topology.children,
-            &self.layouts.flex_layouts,
-            &self.outputs.rects,
-        )
+        TopologyStore::calculate_insert_index(parent, logical_pos, children, flex_layouts, rects)
     }
 
     // セッションの開始マーカーを取得
     #[inline]
     pub(crate) fn start_session(&mut self) -> usize {
-        self.topology.session_spawned.len()
+        let TopologyStore {
+            session_spawned, ..
+        } = &self.topology;
+
+        session_spawned.len()
     }
 
     // ルート要素として保護するIDを登録
     #[inline]
     pub(crate) fn register_root(&mut self, id: EntityId) {
-        self.topology.session_roots.push(id);
+        let TopologyStore { session_roots, .. } = &mut self.topology;
+
+        session_roots.push(id);
     }
 
     // セッションのクリーンアップを実行
     #[inline]
     pub(crate) fn end_session(&mut self, start_marker: usize) {
-        // start_marker 以降に生成された要素をスキャン
-        let spawned_in_session: Vec<EntityId> = self
-            .topology
-            .session_spawned
-            .drain(start_marker..)
-            .collect();
+        let Context {
+            topology,
+            layouts,
+            renders,
+            outputs,
+            contents,
+            events,
+            reactive,
+            window,
+            system,
+        } = self;
 
-        for id in spawned_in_session {
-            // 親が存在しない
-            let has_no_parent = self.topology.parents.get(id).copied().flatten().is_none();
-            // ルート要素としても登録されていない
-            let is_not_root = !self.topology.session_roots.contains(&id);
-
-            if has_no_parent && is_not_root {
-                self.despawn_internal(id);
-            }
-        }
-        // ルートリストをクリア
-        self.topology.session_roots.clear();
+        TopologyStore::end_session(
+            start_marker,
+            topology,
+            layouts,
+            renders,
+            outputs,
+            contents,
+            events,
+            reactive,
+            window,
+            system,
+        );
     }
 
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
     #[inline]
     pub(crate) fn despawn_internal(&mut self, id: EntityId) {
-        if !self.topology.entities.contains_key(id) {
-            return;
-        }
+        let Context {
+            topology,
+            layouts,
+            renders,
+            outputs,
+            contents,
+            events,
+            reactive,
+            window,
+            system,
+        } = self;
 
-        // 親トポロジーおよび Taffy ツリーからのデタッチ
-        if let Some(Some(parent_id)) = self.topology.parents.get(id) {
-            if let Some(&parent_node) = self.layouts.taffy_nodes.get(*parent_id)
-                && let Some(&child_node) = self.layouts.taffy_nodes.get(id)
-                && let Ok(taffy_children) = self.layouts.taffy.children(parent_node)
-                && taffy_children.contains(&child_node)
-            {
-                let _ = self.layouts.taffy.remove_child(parent_node, child_node);
-            }
-
-            if let Some(parent_children) = self.topology.children.get_mut(*parent_id) {
-                parent_children.retain(|x| *x != id);
-            }
-        }
-
-        // Taffy ノード自体の削除
-        if let Some(node) = self.layouts.taffy_nodes.remove(id) {
-            let _ = self.layouts.taffy.remove(node);
-        }
-
-        // 子要素を再帰的に削除
-        if let Some(children_list) = self.topology.children.remove(id) {
-            for child_id in children_list {
-                self.despawn_internal(child_id);
-            }
-        }
-
-        // 各ストアの SoA 配列から自分自身を一掃
-        self.topology.despawn(id);
-        self.layouts.despawn(id);
-        self.renders.despawn(id);
-        self.outputs.despawn(id);
-        self.contents.despawn(id);
-        self.events.despawn(id);
-        self.reactive.despawn(id);
-        self.window.despawn(id);
-        self.system.despawn(id);
+        TopologyStore::despawn_internal(
+            id, topology, layouts, renders, outputs, contents, events, reactive, window, system,
+        );
     }
 
     /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。
     #[inline]
     pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
-        let Context { topology, .. } = self;
         let TopologyStore {
             entities,
             parents,
             flat_dfs_sequence,
             ..
-        } = topology;
+        } = &self.topology;
 
         TopologyStore::find_root_entity(entities, parents, flat_dfs_sequence)
     }
 
     #[inline]
     pub(crate) fn compute_effective_z_indices(&self) -> SecondaryMap<EntityId, i32> {
-        let Context {
-            topology, renders, ..
-        } = self;
         let TopologyStore {
             parents,
             active_entities,
             flat_dfs_sequence,
             ..
-        } = topology;
+        } = &self.topology;
         let RenderStore {
             visual_properties, ..
-        } = renders;
+        } = &self.renders;
 
         TopologyStore::compute_effective_z_indices(
             active_entities,
