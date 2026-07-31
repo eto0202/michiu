@@ -21,15 +21,26 @@ pub(crate) struct ActiveAnimation {
     pub(crate) end_value: TransitionValue,
 }
 
+pub(crate) type VisualPropertiesSecondary = SecondaryMap<EntityId, VisualProperty>;
+pub(crate) type InteractionPropertiesSecondary = SecondaryMap<EntityId, InteractionStyles>;
+pub(crate) type BaseVisualPropertiesSecondary = SecondaryMap<EntityId, VisualProperty>;
+pub(crate) type DirtyRenderEntitiesVec = Vec<EntityId>;
+pub(crate) type ActiveTransitionsSparseSecondary =
+    SparseSecondaryMap<EntityId, Vec<ActiveTransition>>;
+pub(crate) type ActiveAnimationsSparseSecondary =
+    SparseSecondaryMap<EntityId, Vec<ActiveAnimation>>;
+pub(crate) type ActiveWebviewsHashSet = HashSet<EntityId>;
+pub(crate) type LastTickTimeOption = Option<Instant>;
+
 pub struct RenderStore {
-    pub(crate) visual_properties: SecondaryMap<EntityId, VisualProperty>,
-    pub(crate) interaction_properties: SecondaryMap<EntityId, InteractionStyles>,
-    pub(crate) base_visual_properties: SecondaryMap<EntityId, VisualProperty>,
-    pub(crate) dirty_render_entities: Vec<EntityId>,
-    pub(crate) active_transitions: SparseSecondaryMap<EntityId, Vec<ActiveTransition>>,
-    pub(crate) active_animations: SparseSecondaryMap<EntityId, Vec<ActiveAnimation>>,
-    pub(crate) active_webviews: HashSet<EntityId>,
-    pub(crate) last_tick_time: Option<std::time::Instant>,
+    pub(crate) visual_properties: VisualPropertiesSecondary,
+    pub(crate) interaction_properties: InteractionPropertiesSecondary,
+    pub(crate) base_visual_properties: BaseVisualPropertiesSecondary,
+    pub(crate) dirty_render_entities: DirtyRenderEntitiesVec,
+    pub(crate) active_transitions: ActiveTransitionsSparseSecondary,
+    pub(crate) active_animations: ActiveAnimationsSparseSecondary,
+    pub(crate) active_webviews: ActiveWebviewsHashSet,
+    pub(crate) last_tick_time: LastTickTimeOption,
 }
 
 impl Default for RenderStore {

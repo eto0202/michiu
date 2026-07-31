@@ -618,14 +618,10 @@ impl Context {
             return;
         };
         let (basic, _, _) = self.resolve_active_layouts(id);
-        let border = self.get_physical_border(id, &basic);
-        let padding = self.get_physical_padding(id, &basic);
-        let rect = self
-            .outputs
-            .rects
-            .get(id)
-            .copied()
-            .unwrap_or(LayoutRect::ZERO);
+        let rect = self.rect(id).unwrap_or_default();
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
         let mut scroll = self
             .outputs
             .scroll_offsets
@@ -1143,10 +1139,10 @@ impl Context {
                     }
                 }
 
-                let rect = self.outputs.rects[target_id];
+                let rect = self.rect(target_id).unwrap_or_default();
                 let (basic, _, _) = self.resolve_active_layouts(target_id);
-                let border = self.get_physical_border(target_id, &basic);
-                let padding = self.get_physical_padding(target_id, &basic);
+                let (border, padding) =
+                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
                 let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
                 let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
@@ -1315,7 +1311,12 @@ impl Context {
         // 現在フォーカスされている要素のインデックスを特定（無ければ探索方向の末端から開始）
         let current_focused = self.events.interaction_states.focused;
         let start_idx = current_focused
-            .and_then(|id| self.topology.flat_dfs_sequence.iter().position(|&x| x == id))
+            .and_then(|id| {
+                self.topology
+                    .flat_dfs_sequence
+                    .iter()
+                    .position(|&x| x == id)
+            })
             .unwrap_or(if reverse { len - 1 } else { 0 });
 
         let mut idx = start_idx;
@@ -1552,7 +1553,7 @@ impl Context {
             }
 
             // 物理範囲にヒットしたかを検証
-            if let Some(rect) = self.outputs.rects.get(id)
+            if let Some(rect) = self.rect(id)
                 && rect.contains(point)
             {
                 return Some(id);

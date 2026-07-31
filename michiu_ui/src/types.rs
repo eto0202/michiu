@@ -219,10 +219,16 @@ fn parse_u32_to_color(num: u32, is_8digit: bool) -> Color {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct LayoutPoint {
     pub x: f32,
     pub y: f32,
+}
+
+impl Default for LayoutPoint {
+    fn default() -> Self {
+        LayoutPoint::ZERO
+    }
 }
 
 impl LayoutPoint {
@@ -256,12 +262,18 @@ impl LayoutSize {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct LayoutRect {
     pub x: f32,
     pub y: f32,
     pub width: f32,
     pub height: f32,
+}
+
+impl Default for LayoutRect {
+    fn default() -> Self {
+        LayoutRect::ZERO
+    }
 }
 
 impl LayoutRect {

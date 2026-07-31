@@ -21,7 +21,8 @@ fn all_section_relative() -> Element {
         .resizable_left(true)
         // resizable_cursor_default() と同じ
         .resizable_cursor(None, None, None, None)
-        .border_solid(1.0);
+        .border_solid(1.0)
+        .overflow_hidden();
 
     h_flex(layout)
         .style_d(|t: &Theme| {
@@ -41,9 +42,10 @@ fn all_section_absolute() -> Element {
         .size(200.0)
         .p(16.0)
         .r(4.0)
-        .border_solid(1.0);
+        .border_solid(1.0)
+        .overflow_hidden();
 
-    div(layout)
+    h_flex(layout)
         .style_d(|t: &Theme| {
             ts().bg_color(t.background)
                 .border_color(t.border)
@@ -55,4 +57,5 @@ fn all_section_absolute() -> Element {
 fn label_style() -> ThisStyle {
     ts().text_color(dynamic(|t: &Theme| t.text_muted))
         .font_size(16.0)
+        .self_start()
 }

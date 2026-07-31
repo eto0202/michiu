@@ -2,10 +2,10 @@ use crate::*;
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
 
-pub(crate) type EntitiesSlotMap = SlotMap<EntityId, ()>;
-pub(crate) type ParentsSecondaryMap = SecondaryMap<EntityId, Option<EntityId>>;
-pub(crate) type ChildrenSecondaryMap = SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>;
-pub(crate) type ActiveMasksSecondaryMap = SecondaryMap<EntityId, ComponentMask>;
+pub(crate) type EntitiesSlot = SlotMap<EntityId, ()>;
+pub(crate) type ParentsSecondary = SecondaryMap<EntityId, Option<EntityId>>;
+pub(crate) type ChildrenSecondary = SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>;
+pub(crate) type ActiveMasksSecondary = SecondaryMap<EntityId, ComponentMask>;
 pub(crate) type ActiveEntitiesVec = Vec<EntityId>;
 pub(crate) type SessionSpawnedVec = Vec<EntityId>;
 pub(crate) type SessionRootsVec = Vec<EntityId>;
@@ -13,13 +13,13 @@ pub(crate) type FlatDfsSequenceVec = Vec<EntityId>;
 
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
-    pub(crate) entities: EntitiesSlotMap,
+    pub(crate) entities: EntitiesSlot,
     /// 単方向の親ID参照。親子ポインタを排除した木構造の表現
-    pub(crate) parents: ParentsSecondaryMap,
+    pub(crate) parents: ParentsSecondary,
     /// 子要素のIDリスト。ヒープ割り当てを防ぐため SmallVec を採用
-    pub(crate) children: ChildrenSecondaryMap,
+    pub(crate) children: ChildrenSecondary,
     /// 各要素がどのSoAプロパティ（コンポーネント）を有効化しているかを示すビットマスク
-    pub(crate) active_masks: ActiveMasksSecondaryMap,
+    pub(crate) active_masks: ActiveMasksSecondary,
     /// 画面に表示されているアクティブな全要素のIDを詰め込んだ1次元配列。
     /// 描画やイベント走査はこの1つの配列のみを回す。
     pub(crate) active_entities: ActiveEntitiesVec,
@@ -82,8 +82,8 @@ impl TopologyStore {
     /// 親トポロジーから子要素をデタッチする
     #[inline]
     pub fn detach_from_parent(
-        parents: &mut ParentsSecondaryMap,
-        children: &mut ChildrenSecondaryMap,
+        parents: &mut ParentsSecondary,
+        children: &mut ChildrenSecondary,
         is_structure_dirty: &mut bool,
         child: EntityId,
     ) -> Option<EntityId> {
@@ -101,8 +101,8 @@ impl TopologyStore {
     /// 新しい親子関係を結合する
     #[inline]
     pub fn attach_to_parent(
-        parents: &mut ParentsSecondaryMap,
-        children: &mut ChildrenSecondaryMap,
+        parents: &mut ParentsSecondary,
+        children: &mut ChildrenSecondary,
         is_structure_dirty: &mut bool,
         parent: EntityId,
         child: EntityId,
@@ -119,8 +119,8 @@ impl TopologyStore {
     /// 親要素の特定の古い子要素を、順序を維持したまま新しい子要素へ直接差し替える
     #[inline]
     pub fn replace_child_node(
-        parents: &mut ParentsSecondaryMap,
-        children: &mut ChildrenSecondaryMap,
+        parents: &mut ParentsSecondary,
+        children: &mut ChildrenSecondary,
         is_structure_dirty: &mut bool,
         parent: EntityId,
         old_child: EntityId,
@@ -137,7 +137,7 @@ impl TopologyStore {
 
     /// DFS配列の高速再構築
     pub fn rebuild_dfs_sequence(
-        children: &ChildrenSecondaryMap,
+        children: &ChildrenSecondary,
         flat_dfs_sequence: &mut FlatDfsSequenceVec,
         is_structure_dirty: &mut bool,
         root: EntityId,
@@ -160,9 +160,9 @@ impl TopologyStore {
 
     /// 子孫要素のインタラクション状態（state_flag）を走査する純粋関連関数
     pub fn has_descendant_with_state(
-        entities: &EntitiesSlotMap,
-        children: &ChildrenSecondaryMap,
-        active_masks: &ActiveMasksSecondaryMap,
+        entities: &EntitiesSlot,
+        children: &ChildrenSecondary,
+        active_masks: &ActiveMasksSecondary,
         parent: EntityId,
         state_flag: u128,
     ) -> bool {
@@ -194,8 +194,8 @@ impl TopologyStore {
     /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。
     #[inline]
     pub(crate) fn find_root_entity(
-        entities: &EntitiesSlotMap,
-        parents: &ParentsSecondaryMap,
+        entities: &EntitiesSlot,
+        parents: &ParentsSecondary,
         flat_dfs_sequence: &FlatDfsSequenceVec,
     ) -> Option<EntityId> {
         // すでにフラットシーケンスが構築されていればその先頭、
@@ -215,9 +215,9 @@ impl TopologyStore {
     #[inline]
     pub(crate) fn has_parent_with_state(
         id: EntityId,
-        parents: &ParentsSecondaryMap,
-        entities: &EntitiesSlotMap,
-        active_masks: &ActiveMasksSecondaryMap,
+        parents: &ParentsSecondary,
+        entities: &EntitiesSlot,
+        active_masks: &ActiveMasksSecondary,
         state_flag: u128,
     ) -> bool {
         if let Some(Some(parent_id)) = parents.get(id).copied()
@@ -235,8 +235,8 @@ impl TopologyStore {
     pub(crate) fn calculate_insert_index(
         parent: EntityId,
         logical_pos: LayoutPoint,
-        children: &ChildrenSecondaryMap,
-        flex_layouts: &FlexLayoutsSecondaryMap,
+        children: &ChildrenSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
         rects: &RectsSecondaryMap,
     ) -> usize {
         let mut insert_idx = 0;
@@ -270,13 +270,13 @@ impl TopologyStore {
     pub(crate) fn is_descendant_of(
         target: EntityId,
         parent: EntityId,
-        topology: &TopologyStore,
+        parents: &ParentsSecondary,
     ) -> bool {
         if target == parent {
             return true;
         }
         let mut curr = target;
-        while let Some(Some(p)) = topology.parents.get(curr) {
+        while let Some(Some(p)) = parents.get(curr) {
             if *p == parent {
                 return true;
             }
@@ -286,19 +286,19 @@ impl TopologyStore {
     }
 
     pub(crate) fn compute_effective_z_indices(
-        topology: &TopologyStore,
-        layouts: &LayoutStore,
-        renders: &RenderStore,
+        active_entities: &ActiveEntitiesVec,
+        flat_dfs_sequence: &FlatDfsSequenceVec,
+        visual_properties: &VisualPropertiesSecondary,
+        parents: &ParentsSecondary,
     ) -> SecondaryMap<EntityId, i32> {
-        // 各要素の実効 z_index を親から子へカスケード（伝播）して計算
-        let mut effective_z_indices = SecondaryMap::with_capacity(topology.active_entities.len());
+        // 各要素の実効 z_index を親から子へカスケードして計算
+        let mut effective_z_indices = SecondaryMap::with_capacity(active_entities.len());
 
         // flat_dfs_sequence は必ず親から子への順でフラットに並んでいるため、前方1方向の走査で完結
-        for &id in &topology.flat_dfs_sequence {
-            let self_z = renders.visual_properties.get(id).and_then(|v| v.z_index);
+        for &id in flat_dfs_sequence {
+            let self_z = visual_properties.get(id).and_then(|v| v.z_index);
 
-            let parent_z = topology
-                .parents
+            let parent_z = parents
                 .get(id)
                 .copied()
                 .flatten()
@@ -594,5 +594,28 @@ impl Context {
         } = topology;
 
         TopologyStore::find_root_entity(entities, parents, flat_dfs_sequence)
+    }
+
+    #[inline]
+    pub(crate) fn compute_effective_z_indices(&self) -> SecondaryMap<EntityId, i32> {
+        let Context {
+            topology, renders, ..
+        } = self;
+        let TopologyStore {
+            parents,
+            active_entities,
+            flat_dfs_sequence,
+            ..
+        } = topology;
+        let RenderStore {
+            visual_properties, ..
+        } = renders;
+
+        TopologyStore::compute_effective_z_indices(
+            active_entities,
+            flat_dfs_sequence,
+            visual_properties,
+            parents,
+        )
     }
 }

@@ -834,12 +834,11 @@ impl Element {
                     && state == ElementState::Pressed
                     && let Some(pointer_pos) = cx.events.current_pointer_position
                 {
-                    let rect = cx.outputs.rects[id];
-
+                    let rect = cx.rect(id).unwrap_or_default();
                     // 要素の境界枠（border + padding）を取得してローカル座標を算出
                     let (basic, flex, _) = cx.resolve_active_layouts(id);
-                    let border = cx.get_physical_border(id, &basic);
-                    let padding = cx.get_physical_padding(id, &basic);
+                    let (border, padding) =
+                        LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
                     let scroll = cx
                         .outputs

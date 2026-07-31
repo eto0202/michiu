@@ -79,4 +79,5 @@ fn div_container() -> Element {
 fn label_style() -> ThisStyle {
     ts().text_color(dynamic(|t: &Theme| t.text_muted))
         .font_size(30.0)
+        .self_start()
 }

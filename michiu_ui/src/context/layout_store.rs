@@ -28,22 +28,22 @@ pub(crate) struct ScrollBarState {
     pub(crate) last_scroll_time: Option<std::time::Instant>,
 }
 
-pub(crate) type BasicLayoutsSecondaryMap = SecondaryMap<EntityId, BasicLayout>;
-pub(crate) type BaseBasicLayoutsSecondaryMap = SecondaryMap<EntityId, BasicLayout>;
-pub(crate) type FlexLayoutsSecondaryMap = SecondaryMap<EntityId, FlexLayout>;
-pub(crate) type GridLayoutsSecondaryMap = SparseSecondaryMap<EntityId, GridLayout>;
-pub(crate) type ScrollbarStylesSecondaryMap = SparseSecondaryMap<EntityId, ScrollBarState>;
-pub(crate) type TaffyNodesSecondaryMap = SecondaryMap<EntityId, taffy::NodeId>;
+pub(crate) type BasicLayoutsSecondary = SecondaryMap<EntityId, BasicLayout>;
+pub(crate) type BaseBasicLayoutsSecondary = SecondaryMap<EntityId, BasicLayout>;
+pub(crate) type FlexLayoutsSecondary = SecondaryMap<EntityId, FlexLayout>;
+pub(crate) type GridLayoutsSecondary = SparseSecondaryMap<EntityId, GridLayout>;
+pub(crate) type ScrollbarStylesSecondary = SparseSecondaryMap<EntityId, ScrollBarState>;
+pub(crate) type TaffyNodesSecondary = SecondaryMap<EntityId, taffy::NodeId>;
 pub(crate) type TaffyTreeEntityId = taffy::TaffyTree<EntityId>;
 pub(crate) type DirtyLayoutEntitiesVec = Vec<EntityId>;
 
 pub struct LayoutStore {
-    pub(crate) basic_layouts: BasicLayoutsSecondaryMap,
-    pub(crate) base_basic_layouts: BaseBasicLayoutsSecondaryMap,
-    pub(crate) flex_layouts: FlexLayoutsSecondaryMap,
-    pub(crate) grid_layouts: GridLayoutsSecondaryMap,
-    pub(crate) scrollbar_styles: ScrollbarStylesSecondaryMap,
-    pub(crate) taffy_nodes: TaffyNodesSecondaryMap,
+    pub(crate) basic_layouts: BasicLayoutsSecondary,
+    pub(crate) base_basic_layouts: BaseBasicLayoutsSecondary,
+    pub(crate) flex_layouts: FlexLayoutsSecondary,
+    pub(crate) grid_layouts: GridLayoutsSecondary,
+    pub(crate) scrollbar_styles: ScrollbarStylesSecondary,
+    pub(crate) taffy_nodes: TaffyNodesSecondary,
     pub(crate) taffy: TaffyTreeEntityId,
     pub(crate) dirty_layout_entities: DirtyLayoutEntitiesVec,
 }
@@ -245,35 +245,37 @@ impl LayoutStore {
     }
 
     /// 指定された要素の現在解決されている物理ボーダー（EdgeInsets）を取得します。
-    pub(crate) fn get_physical_border(
-        id: EntityId,
-        basic: &BasicLayout,
-        outputs: &OutputStore,
-    ) -> EdgeInsets {
-        let rect = outputs.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
-
+    #[inline]
+    pub(crate) fn get_physical_border(rect: LayoutRect, border: Rect<Length>) -> EdgeInsets {
         EdgeInsets {
-            top: LayoutStore::resolve_length_to_px(basic.border.top, rect.height),
-            right: LayoutStore::resolve_length_to_px(basic.border.right, rect.width),
-            bottom: LayoutStore::resolve_length_to_px(basic.border.bottom, rect.height),
-            left: LayoutStore::resolve_length_to_px(basic.border.left, rect.width),
+            top: LayoutStore::length_to_px(border.top, rect.height),
+            right: LayoutStore::length_to_px(border.right, rect.width),
+            bottom: LayoutStore::length_to_px(border.bottom, rect.height),
+            left: LayoutStore::length_to_px(border.left, rect.width),
         }
     }
 
     /// 指定された要素の現在解決されている物理パディング（EdgeInsets）を取得します。
-    pub(crate) fn get_physical_padding(
-        id: EntityId,
-        basic: &BasicLayout,
-        outputs: &OutputStore,
-    ) -> EdgeInsets {
-        let rect = outputs.rects.get(id).copied().unwrap_or(LayoutRect::ZERO);
-
+    #[inline]
+    pub(crate) fn get_physical_padding(rect: LayoutRect, padding: Rect<Length>) -> EdgeInsets {
         EdgeInsets {
-            top: LayoutStore::resolve_length_to_px(basic.padding.top, rect.height),
-            right: LayoutStore::resolve_length_to_px(basic.padding.right, rect.width),
-            bottom: LayoutStore::resolve_length_to_px(basic.padding.bottom, rect.height),
-            left: LayoutStore::resolve_length_to_px(basic.padding.left, rect.width),
+            top: LayoutStore::length_to_px(padding.top, rect.height),
+            right: LayoutStore::length_to_px(padding.right, rect.width),
+            bottom: LayoutStore::length_to_px(padding.bottom, rect.height),
+            left: LayoutStore::length_to_px(padding.left, rect.width),
         }
+    }
+
+    #[inline]
+    pub(crate) fn get_physical_border_padding(
+        rect: LayoutRect,
+        border: Rect<Length>,
+        padding: Rect<Length>,
+    ) -> (EdgeInsets, EdgeInsets) {
+        let border = LayoutStore::get_physical_border(rect, border);
+        let padding = LayoutStore::get_physical_padding(rect, padding);
+
+        (border, padding)
     }
 
     /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出します。
@@ -294,7 +296,7 @@ impl LayoutStore {
     }
 
     #[inline]
-    fn resolve_length_to_px(length: Length, reference: f32) -> f32 {
+    fn length_to_px(length: Length, reference: f32) -> f32 {
         match length {
             Length::Px(v) => v,
             Length::Percent(p) => reference * (p / 100.0),
@@ -517,17 +519,6 @@ impl Context {
     ) -> taffy::Style {
         LayoutStore::resolve_taffy_style(id, &self.layouts, basic, flex, grid)
     }
-
-    /// 指定された要素の現在解決されている物理ボーダー（EdgeInsets）を取得します。
-    pub(crate) fn get_physical_border(&self, id: EntityId, basic: &BasicLayout) -> EdgeInsets {
-        LayoutStore::get_physical_border(id, basic, &self.outputs)
-    }
-
-    /// 指定された要素の現在解決されている物理パディング（EdgeInsets）を取得します。
-    pub(crate) fn get_physical_padding(&self, id: EntityId, basic: &BasicLayout) -> EdgeInsets {
-        LayoutStore::get_physical_padding(id, basic, &self.outputs)
-    }
-
     // 全スクロールバー関連IDを一括抽出
     #[inline]
     pub(crate) fn scrollbar_el_ids(&self) -> HashSet<EntityId> {
@@ -613,12 +604,13 @@ impl Context {
             let ref_w = start_rect.width;
             let ref_h = start_rect.height;
 
-            let b = self.get_physical_border(id, &basic);
-            let p = self.get_physical_padding(id, &basic);
+            let rect = self.rect(id).unwrap_or_default();
+            let (border, padding) =
+                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
             // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
-            let abs_min_w = b.left + b.right + p.left + p.right;
-            let abs_min_h = b.top + b.bottom + p.top + p.bottom;
+            let abs_min_w = border.left + border.right + padding.left + padding.right;
+            let abs_min_h = border.top + border.bottom + padding.top + padding.bottom;
 
             // ユーザー指定の min_size / max_size を物理ピクセルに解決
             let user_min_w = match basic.min_size.width {
@@ -807,9 +799,9 @@ impl Context {
 
             // 親コンテナのボーダーおよびパディング厚を取得
             let (basic, _, _) = self.resolve_active_layouts(id);
-
-            let border = self.get_physical_border(id, &basic);
-            let padding = self.get_physical_padding(id, &basic);
+            let rect = self.rect(id).unwrap_or_default();
+            let (border, padding) =
+                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
             // ウィンドウ境界によるクランプ可視サイズの算出
             let visible_size = self.calculate_visible_size(container_rect);

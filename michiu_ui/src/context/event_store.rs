@@ -172,7 +172,7 @@ impl EventStore {
         let mut found_resize_hover = None;
         while let Some(id) = current_id {
             if topology.active_masks[id].has(STYLE_RESIZABLE) {
-                let rect = outputs.rects[id];
+                let rect = outputs.rects.get(id).copied().unwrap_or_default();
                 let resizable_flags = layouts
                     .basic_layouts
                     .get(id)
@@ -281,7 +281,7 @@ impl EventStore {
         renders: &mut RenderStore,
         events: &mut EventStore,
     ) {
-        let rect = outputs.rects[id];
+        let rect = outputs.rects.get(id).copied().unwrap_or_default();
         let position = layouts
             .basic_layouts
             .get(id)
@@ -292,11 +292,7 @@ impl EventStore {
         // 親要素の矩形と、その「左・上ボーダーの厚み」を正確に取得する
         let (parent_rect, parent_border_left, parent_border_top) =
             if let Some(Some(parent_id)) = topology.parents.get(id) {
-                let p_rect = outputs
-                    .rects
-                    .get(*parent_id)
-                    .copied()
-                    .unwrap_or(LayoutRect::ZERO);
+                let p_rect = outputs.rects.get(*parent_id).copied().unwrap_or_default();
 
                 let border_l = if let Some(layout) = layouts.basic_layouts.get(*parent_id) {
                     match layout.border.left {
@@ -506,10 +502,10 @@ impl Context {
         pressed_id: EntityId,
         logical_pos: LayoutPoint,
     ) -> LayoutPoint {
-        let rect = self.outputs.rects[pressed_id];
+        let rect = self.rect(pressed_id).unwrap_or_default();
         let (basic, flex, _) = self.resolve_active_layouts(pressed_id);
-        let border = self.get_physical_border(pressed_id, &basic);
-        let padding = self.get_physical_padding(pressed_id, &basic);
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
         let scroll = self
             .outputs
@@ -602,7 +598,12 @@ impl Context {
             && let Some(mut listeners) = self.events.event_listeners.get_mut(target_id)
             && let Some(mut handler) = listeners.on_cursor_moved.take()
         {
-            let rect = self.outputs.rects[target_id];
+            let rect = self
+                .outputs
+                .rects
+                .get(target_id)
+                .copied()
+                .unwrap_or_default();
             let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
             let _guard = crate::ActiveElementGuard::new(target_id);
             handler(self, relative_pos);
@@ -845,7 +846,9 @@ impl Context {
             while let Some(id) = current_id {
                 // ヒットした要素がドラッグ元（src_id）自身、またはその子孫である場合は
                 // ドロップ先として誤認されるのを完全に防ぐため、スルーしてさらに上の親を辿る
-                if id == src_id || TopologyStore::is_descendant_of(id, src_id, &self.topology) {
+                if id == src_id
+                    || TopologyStore::is_descendant_of(id, src_id, &self.topology.parents)
+                {
                     current_id = self.topology.parents.get(id).copied().flatten();
                     continue;
                 }
@@ -1289,12 +1292,7 @@ impl Context {
             // 絶対配置: 位置移動（補正）を伴うアタッチ
             if drag_prop.update_position {
                 // プレースホルダーの最終的な絶対画面座標を取得
-                let ph_abs_rect = self
-                    .outputs
-                    .rects
-                    .get(holder)
-                    .copied()
-                    .unwrap_or(LayoutRect::ZERO);
+                let ph_abs_rect = self.outputs.rects.get(holder).copied().unwrap_or_default();
 
                 // 新しい親（target_id）の絶対画面座標とボーダー厚みを取得
                 let target_rect = self
@@ -1302,10 +1300,10 @@ impl Context {
                     .rects
                     .get(target_id)
                     .copied()
-                    .unwrap_or(LayoutRect::ZERO);
+                    .unwrap_or_default();
                 let (border_l, border_t) =
-                    if let Some(layout) = self.layouts.basic_layouts.get(target_id) {
-                        let border = self.get_physical_border(target_id, layout);
+                    if let Some(basic) = self.layouts.basic_layouts.get(target_id) {
+                        let border = LayoutStore::get_physical_border(target_rect, basic.border);
                         (border.left, border.top)
                     } else {
                         (0.0, 0.0)
@@ -1322,11 +1320,11 @@ impl Context {
                     left: Val::Px(new_inset_left),
                 };
 
-                if let Some(layout) = self.layouts.basic_layouts.get_mut(src_id) {
-                    layout.inset = new_inset;
+                if let Some(basic) = self.layouts.basic_layouts.get_mut(src_id) {
+                    basic.inset = new_inset;
                 }
-                if let Some(layout) = self.layouts.base_basic_layouts.get_mut(src_id) {
-                    layout.inset = new_inset;
+                if let Some(base_basic) = self.layouts.base_basic_layouts.get_mut(src_id) {
+                    base_basic.inset = new_inset;
                 }
             }
 

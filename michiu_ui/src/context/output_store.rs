@@ -114,8 +114,12 @@ impl OutputStore {
 
         let parent_id_opt = topology.parents.get(id).copied().flatten();
         let (abs_rect, parent_clip) = if let Some(parent_id) = parent_id_opt {
-            let parent_rect = outputs.rects[parent_id];
-            let parent_clip = outputs.clip_rects[parent_id];
+            let parent_rect = outputs.rects.get(parent_id).copied().unwrap_or_default();
+            let parent_clip = outputs
+                .clip_rects
+                .get(parent_id)
+                .copied()
+                .unwrap_or_default();
 
             let is_absolute = layouts
                 .basic_layouts
@@ -961,8 +965,9 @@ impl Context {
 
         // 親要素自体のボーダー・パディング厚を取得
         let (basic, _, _) = self.resolve_active_layouts(id);
-        let border = self.get_physical_border(id, &basic);
-        let padding = self.get_physical_padding(id, &basic);
+        let rect = self.rect(id).unwrap_or_default();
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
         let offset_x = border.left + padding.left;
         let offset_y = border.top + padding.top;
@@ -994,18 +999,13 @@ impl Context {
                 }
 
                 if let Some(&rect) = self.outputs.rects.get(child_id) {
-                    let parent_rect = self
-                        .outputs
-                        .rects
-                        .get(id)
-                        .copied()
-                        .unwrap_or(LayoutRect::ZERO);
+                    let parent_rect = self.outputs.rects.get(id).copied().unwrap_or_default();
                     let scroll_offset = self
                         .outputs
                         .scroll_offsets
                         .get(id)
                         .copied()
-                        .unwrap_or(LayoutPoint::ZERO);
+                        .unwrap_or_default();
 
                     // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
                     let local_right =
@@ -1025,17 +1025,16 @@ impl Context {
     /// スクロールオフセットを目標位置へクランプした上で代入。
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
     pub(crate) fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
-        let rect = match self.outputs.rects.get(id).copied() {
-            Some(r) => r,
-            None => return false,
+        let Some(rect) = self.rect(id) else {
+            return false;
         };
 
         let scroll_size = self.get_scroll_size(id);
 
         // 親コンテナのボーダーおよびパディング厚を取得
         let (basic, _, _) = self.resolve_active_layouts(id);
-        let border = self.get_physical_border(id, &basic);
-        let padding = self.get_physical_padding(id, &basic);
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
         let visible_size = self.calculate_visible_size(rect);
         let content_size = self.calculate_inner_content_size(visible_size, border, padding);
@@ -1074,7 +1073,7 @@ impl Context {
     pub(crate) fn hit_test_recursive(&self, id: EntityId, point: LayoutPoint) -> Option<EntityId> {
         // 1. 親などの overflow: hidden 等でクリップされている表示範囲をチェック
         // クリップ領域外であれば、この要素もそのすべての子孫要素も画面上に見えていないため、走査を即座にスキップ（枝刈り）
-        if let Some(clip) = self.outputs.clip_rects.get(id)
+        if let Some(clip) = self.clip_rect(id)
             && !clip.contains(point)
         {
             return None;
@@ -1143,11 +1142,7 @@ impl Context {
         let mut effective_transforms = self.accumulate_transform_matrix();
 
         // 各要素の実効 z_index を親から子へカスケード（伝播）して計算
-        let effective_z_indices = TopologyStore::compute_effective_z_indices(
-            &self.topology,
-            &self.layouts,
-            &self.renders,
-        );
+        let effective_z_indices = self.compute_effective_z_indices();
 
         // 実効 z_index で active_entities を安定ソート
         let mut sorted_entities = self.topology.active_entities.clone();
@@ -1172,12 +1167,12 @@ impl Context {
         }
 
         for &id in &sorted_entities {
-            let rect = self.outputs.rects[id];
+            let rect = self.rect(id).unwrap_or_default();
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
 
-            let clip = self.outputs.clip_rects[id];
+            let clip = self.clip_rect(id).unwrap_or_default();
             let is_webview = self.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT);
 
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
@@ -1351,8 +1346,9 @@ impl Context {
 
             // 選択ハイライト背景のwgpu側への差し込み
             if let Some(rects) = self.outputs.selected_rects.get(id) {
-                let border = self.get_physical_border(id, &basic);
-                let padding = self.get_physical_padding(id, &basic);
+                let (border, padding) =
+                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
                 let sel_bg = visual
                     .select_bg_color
                     .unwrap_or(Color::rgba_f32(0.0, 0.47, 0.84, 0.35));
@@ -1556,8 +1552,8 @@ impl Context {
                 && let Some(contents) = self.contents.input_contents.get(id)
                 && self.should_show_caret(contents)
             {
-                let border = self.get_physical_border(id, &basic);
-                let padding = self.get_physical_padding(id, &basic);
+                let (border, padding) =
+                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
                 let scale = self.window.scale_factor;
                 let scroll = self
                     .outputs
