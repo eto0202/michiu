@@ -845,7 +845,7 @@ impl Context {
             while let Some(id) = current_id {
                 // ヒットした要素がドラッグ元（src_id）自身、またはその子孫である場合は
                 // ドロップ先として誤認されるのを完全に防ぐため、スルーしてさらに上の親を辿る
-                if id == src_id || self.is_descendant_of(id, src_id) {
+                if id == src_id || TopologyStore::is_descendant_of(id, src_id, &self.topology) {
                     current_id = self.topology.parents.get(id).copied().flatten();
                     continue;
                 }
@@ -1339,7 +1339,7 @@ impl Context {
                     .events
                     .current_pointer_position
                     .unwrap_or(LayoutPoint::ZERO);
-                let insert_idx = self.calculate_insert_index(target_id, mouse_pos);
+                let insert_idx = self.mouse_drop_insert_element_index(target_id, mouse_pos);
 
                 if let Some(parent_children) = self.topology.children.get_mut(target_id) {
                     // 算出されたインデックス位置へ挿入

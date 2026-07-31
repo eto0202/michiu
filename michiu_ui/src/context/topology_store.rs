@@ -2,23 +2,32 @@ use crate::*;
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
 
+pub(crate) type EntitiesSlotMap = SlotMap<EntityId, ()>;
+pub(crate) type ParentsSecondaryMap = SecondaryMap<EntityId, Option<EntityId>>;
+pub(crate) type ChildrenSecondaryMap = SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>;
+pub(crate) type ActiveMasksSecondaryMap = SecondaryMap<EntityId, ComponentMask>;
+pub(crate) type ActiveEntitiesVec = Vec<EntityId>;
+pub(crate) type SessionSpawnedVec = Vec<EntityId>;
+pub(crate) type SessionRootsVec = Vec<EntityId>;
+pub(crate) type FlatDfsSequenceVec = Vec<EntityId>;
+
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
-    pub(crate) entities: SlotMap<EntityId, ()>,
+    pub(crate) entities: EntitiesSlotMap,
     /// 単方向の親ID参照。親子ポインタを排除した木構造の表現
-    pub(crate) parents: SecondaryMap<EntityId, Option<EntityId>>,
+    pub(crate) parents: ParentsSecondaryMap,
     /// 子要素のIDリスト。ヒープ割り当てを防ぐため SmallVec を採用
-    pub(crate) children: SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>,
+    pub(crate) children: ChildrenSecondaryMap,
     /// 各要素がどのSoAプロパティ（コンポーネント）を有効化しているかを示すビットマスク
-    pub(crate) active_masks: SecondaryMap<EntityId, ComponentMask>,
+    pub(crate) active_masks: ActiveMasksSecondaryMap,
     /// 画面に表示されているアクティブな全要素のIDを詰め込んだ1次元配列。
     /// 描画やイベント走査はこの1つの配列のみを回す。
-    pub(crate) active_entities: Vec<EntityId>,
+    pub(crate) active_entities: ActiveEntitiesVec,
     /// 現在のビルドセッションで新しく生成（Spawn）された要素のリスト
-    pub(crate) session_spawned: Vec<EntityId>,
+    pub(crate) session_spawned: SessionSpawnedVec,
     /// セッション終了時に、親がいなくても破棄してはならないルート要素のリスト
-    pub(crate) session_roots: Vec<EntityId>,
-    pub(crate) flat_dfs_sequence: Vec<EntityId>,
+    pub(crate) session_roots: SessionRootsVec,
+    pub(crate) flat_dfs_sequence: FlatDfsSequenceVec,
     pub(crate) is_structure_dirty: bool,
 }
 
@@ -70,305 +79,215 @@ impl TopologyStore {
 }
 
 impl TopologyStore {
-    /// 要素を新規に生成（Spawn）
-    pub(crate) fn spawn(
-        parent_id: Option<EntityId>,
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub fn despawn_store(
+        id: EntityId,
         topology: &mut TopologyStore,
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
-    ) -> EntityId {
-        let id = topology.entities.insert(());
-
-        topology.parents.insert(id, parent_id);
-        topology.children.insert(id, SmallVec::new());
-        topology.active_masks.insert(id, ComponentMask::new(0)); // 初期状態はどのプロパティも無効
-
-        // Leaf ノード作成時に、Context として自分自身の ID を登録する
-        let node = layouts
-            .taffy
-            .new_leaf_with_context(taffy::Style::default(), id)
-            .unwrap();
-        layouts.taffy_nodes.insert(id, node);
-
-        topology.active_entities.push(id);
-
-        // 新規作成された要素は、当然レイアウトと描画の対象となる
-        // カスタムスタイルが当てられるまではデフォルト（Style::default）を再利用するため
-        // mark_layout_dirty(id) の呼び出しを完全にスキップして、Taffyへの無駄な伝播をカット
-        TopologyStore::mark_render_dirty(id, topology, renders);
-        topology.is_structure_dirty = true; // 構造変化をマーク
-
-        topology.session_spawned.push(id);
-
-        id
-    }
-    /// 親子関係の追加と、永続Taffy構造のリアルタイム同期。
-    /// 子がすでに別の親に属している場合は古い親からデタッチします。
-    pub(crate) fn add_child(
-        parent: EntityId,
-        child: EntityId,
-        topology: &mut TopologyStore,
-        layouts: &mut LayoutStore,
+        outputs: &mut OutputStore,
+        contents: &mut ContentStore,
+        events: &mut EventStore,
+        reactive: &mut ReactiveStore,
+        window: &mut WindowStore,
+        system: &mut SystemStore,
     ) {
-        // 子がすでに別の親に属しているか検証
-        if let Some(Some(old_parent)) = topology.parents.get(child).copied()
-            && old_parent != parent
-        {
-            // 1. 古い親の children SoA リストから自分自身を安全に削除
-            if let Some(old_children) = topology.children.get_mut(old_parent) {
-                old_children.retain(|x| *x != child);
-            }
+        topology.despawn(id);
+        layouts.despawn(id);
+        renders.despawn(id);
+        outputs.despawn(id);
+        contents.despawn(id);
+        events.despawn(id);
+        reactive.despawn(id);
+        window.despawn(id);
+        system.despawn(id);
+    }
 
-            // 2. 古い親の Taffy ノードから安全にデタッチ
-            if let Some(&old_parent_node) = layouts.taffy_nodes.get(old_parent)
-                && let Some(&child_node) = layouts.taffy_nodes.get(child)
-                && let Ok(taffy_children) = layouts.taffy.children(old_parent_node)
+    /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn despawn_internal(
+        id: EntityId,
+        parents: &ParentsSecondaryMap,
+        children: &mut ChildrenSecondaryMap,
+        taffy_nodes: &mut TaffyNodesSecondaryMap,
+        taffy: &mut TaffyTreeEntityId,
+    ) {
+        // トポロジーと Taffy ツリーのデタッチ処理
+        if let Some(Some(parent_id)) = parents.get(id) {
+            // Taffy からノードをデタッチ
+            if let Some(&parent_node) = taffy_nodes.get(*parent_id)
+                && let Some(&child_node) = taffy_nodes.get(id)
+                && let Ok(taffy_children) = taffy.children(parent_node)
                 && taffy_children.contains(&child_node)
             {
-                let _ = layouts.taffy.remove_child(old_parent_node, child_node);
+                let _ = taffy.remove_child(parent_node, child_node);
             }
 
-            // 3. 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
-            LayoutStore::resync_taffy_children_order(old_parent, layouts, topology);
-            TopologyStore::mark_layout_dirty(old_parent, topology, layouts);
+            // 親の children リストから自身を除外
+            if let Some(parent_children) = children.get_mut(*parent_id) {
+                parent_children.retain(|x| *x != id);
+            }
         }
 
-        // 新しい親の親子関係を更新
-        topology.parents.insert(child, Some(parent));
-        if let Some(children_list) = topology.children.get_mut(parent)
+        // Taffy ノード自体の削除
+        if let Some(node) = taffy_nodes.remove(id) {
+            let _ = taffy.remove(node);
+        }
+
+        // 子要素を再帰的に despawn
+        if let Some(children_list) = children.remove(id) {
+            for child_id in children_list {
+                TopologyStore::despawn_internal(child_id, parents, children, taffy_nodes, taffy);
+            }
+        }
+    }
+
+    /// 親トポロジーから子要素をデタッチする
+    #[inline]
+    pub fn detach_from_parent(
+        parents: &mut ParentsSecondaryMap,
+        children: &mut ChildrenSecondaryMap,
+        is_structure_dirty: &mut bool,
+        child: EntityId,
+    ) -> Option<EntityId> {
+        if let Some(Some(parent_id)) = parents.get(child).copied() {
+            if let Some(children_list) = children.get_mut(parent_id) {
+                children_list.retain(|x| *x != child);
+            }
+            parents.insert(child, None);
+            *is_structure_dirty = true;
+            return Some(parent_id);
+        }
+        None
+    }
+
+    /// 新しい親子関係を結合する
+    #[inline]
+    pub fn attach_to_parent(
+        parents: &mut ParentsSecondaryMap,
+        children: &mut ChildrenSecondaryMap,
+        is_structure_dirty: &mut bool,
+        parent: EntityId,
+        child: EntityId,
+    ) {
+        parents.insert(child, Some(parent));
+        if let Some(children_list) = children.get_mut(parent)
             && !children_list.contains(&child)
         {
             children_list.push(child);
         }
-
-        // 新しい親の Taffy ツリーの親子関係を永続的に更新
-        if let Some(&parent_node) = layouts.taffy_nodes.get(parent)
-            && let Some(&child_node) = layouts.taffy_nodes.get(child)
-        {
-            let _ = layouts.taffy.add_child(parent_node, child_node);
-        }
-
-        TopologyStore::mark_layout_dirty(parent, topology, layouts);
-        topology.is_structure_dirty = true;
+        *is_structure_dirty = true;
     }
 
-    /// レイアウト変更フラグを立てる（Taffy同期要求）
-    pub(crate) fn mark_layout_dirty(
-        id: EntityId,
-        topology: &mut TopologyStore,
-        layouts: &mut LayoutStore,
-    ) {
-        let mut curr = id;
-        // Taffy 側の該当ノードのレイアウトキャッシュを無効化
-        if let Some(&taffy_node) = layouts.taffy_nodes.get(curr) {
-            let _ = layouts.taffy.mark_dirty(taffy_node);
-        }
-
-        loop {
-            if let Some(mask) = topology.active_masks.get_mut(curr) {
-                // すでにレイアウトキューに登録済み（STATE_QUEUED_LAYOUT がオン）なら
-                // 多重登録を防ぎつつ、それより上の親はすでに Dirty 化されているため探索を早期ブレイク
-                if !mask.has(STATE_QUEUED_LAYOUT) {
-                    mask.set(STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
-                    layouts.dirty_layout_entities.push(curr);
-                } else {
-                    break;
-                }
-            }
-
-            // 親要素（先祖）をルートまで辿って Dirty フラグを連鎖伝播させる
-            if let Some(Some(parent_id)) = topology.parents.get(curr).copied() {
-                curr = parent_id;
-            } else {
-                break;
-            }
-        }
-    }
-
-    /// 描画変更フラグを立てる（wgpu転送要求）
-    pub(crate) fn mark_render_dirty(
-        id: EntityId,
-        topology: &mut TopologyStore,
-        renders: &mut RenderStore,
-    ) {
-        if let Some(mask) = topology.active_masks.get_mut(id) {
-            // すでにレンダーキューに登録済み（STATE_QUEUED_RENDER がオン）なら早期リターン
-            if !mask.has(STATE_QUEUED_RENDER) {
-                mask.set(STATE_QUEUED_RENDER); // フラグをオンにして多重登録を防ぐ
-                renders.dirty_render_entities.push(id);
-            }
-        }
-    }
-
-    /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
-    pub(crate) fn despawn_internal(id: EntityId, cx: &mut Context) {
-        if cx.topology.entities.contains_key(id) {
-            // トポロジーと Taffy ツリーのデタッチ処理
-            if let Some(Some(parent_id)) = cx.topology.parents.get(id) {
-                // Taffy からノードをデタッチ
-                if let Some(&parent_node) = cx.layouts.taffy_nodes.get(*parent_id)
-                    && let Some(&child_node) = cx.layouts.taffy_nodes.get(id)
-                    && let Ok(taffy_children) = cx.layouts.taffy.children(parent_node)
-                    && taffy_children.contains(&child_node)
-                {
-                    let _ = cx.layouts.taffy.remove_child(parent_node, child_node);
-                }
-
-                // 親の children リストから自身を除外
-                if let Some(parent_children) = cx.topology.children.get_mut(*parent_id) {
-                    parent_children.retain(|x| *x != id);
-                }
-            }
-
-            // Taffy ノード自体の削除
-            if let Some(node) = cx.layouts.taffy_nodes.remove(id) {
-                let _ = cx.layouts.taffy.remove(node);
-            }
-
-            // 子要素を再帰的に despawn
-            if let Some(children_list) = cx.topology.children.remove(id) {
-                for child_id in children_list {
-                    TopologyStore::despawn_internal(child_id, cx);
-                }
-            }
-
-            cx.topology.despawn(id);
-            cx.layouts.despawn(id);
-            cx.renders.despawn(id);
-            cx.outputs.despawn(id);
-            cx.contents.despawn(id);
-            cx.events.despawn(id);
-            cx.reactive.despawn(id);
-            cx.window.despawn(id);
-            cx.system.despawn(id);
-        }
-    }
-
-    /// 親要素の特定の古い子要素を、順序（インデックス）を維持したまま新しい子要素へ直接差し替えます。
-    pub(crate) fn replace_child(
+    /// 親要素の特定の古い子要素を、順序を維持したまま新しい子要素へ直接差し替える
+    #[inline]
+    pub fn replace_child_node(
+        parents: &mut ParentsSecondaryMap,
+        children: &mut ChildrenSecondaryMap,
+        is_structure_dirty: &mut bool,
         parent: EntityId,
         old_child: EntityId,
         new_child: EntityId,
-        layouts: &mut LayoutStore,
-        topology: &mut TopologyStore,
     ) {
-        // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
-        if let Some(&parent_node) = layouts.taffy_nodes.get(parent)
-            && let Some(&new_node) = layouts.taffy_nodes.get(new_child)
-        {
-            let _ = layouts.taffy.add_child(parent_node, new_node);
-        }
-
-        // children リスト内のインデックス位置を特定して直接置換
-        if let Some(children_list) = topology.children.get_mut(parent)
+        if let Some(children_list) = children.get_mut(parent)
             && let Some(pos) = children_list.iter().position(|&x| x == old_child)
         {
             children_list[pos] = new_child;
         }
+        parents.insert(new_child, Some(parent));
+        *is_structure_dirty = true;
     }
 
-    /// デスポーン済みの無効な EntityId を各走査・Dirty配列から一括して排除。
-    pub(crate) fn gc_inactive_entities(
-        topology: &mut TopologyStore,
-        layouts: &mut LayoutStore,
-        renders: &mut RenderStore,
+    /// DFS配列の高速再構築
+    pub fn rebuild_dfs_sequence(
+        children: &ChildrenSecondaryMap,
+        flat_dfs_sequence: &mut FlatDfsSequenceVec,
+        is_structure_dirty: &mut bool,
+        root: EntityId,
     ) {
-        // SlotMap (entities) にキーが存在するもの（生存している要素）だけを保持する
-        topology
-            .active_entities
-            .retain(|&id| topology.entities.contains_key(id));
-        layouts
-            .dirty_layout_entities
-            .retain(|&id| topology.entities.contains_key(id));
-        renders
-            .dirty_render_entities
-            .retain(|&id| topology.entities.contains_key(id));
-    }
+        flat_dfs_sequence.clear();
+        let mut stack = Vec::with_capacity(32);
+        stack.push(root);
 
-    // セッションのクリーンアップを実行
-    pub(crate) fn no_root_no_parent(id: EntityId, topology: &TopologyStore) -> bool {
-        // 親が存在しない
-        let has_no_parent = topology.parents.get(id).copied().flatten().is_none();
-        // ルート要素としても登録されていない
-        let is_not_root = !topology.session_roots.contains(&id);
-
-        has_no_parent && is_not_root
-    }
-
-    /// 子孫要素のインタラクション状態（state_flag）を走査します
-    pub(crate) fn has_descendant_with_state(
-        parent: EntityId,
-        topology: &TopologyStore,
-        state_flag: u128,
-    ) -> bool {
-        // ヒープアロケーションを防ぐため、スタック領域に16要素まで確保可能な SmallVec を用意
-        let mut stack = SmallVec::<[EntityId; 16]>::new();
-
-        if let Some(children) = topology.children.get(parent) {
-            for &child_id in children {
-                stack.push(child_id);
-            }
-        }
-
-        while let Some(child_id) = stack.pop() {
-            if topology.entities.contains_key(child_id)
-                && let Some(mask) = topology.active_masks.get(child_id)
-                && mask.has(state_flag)
-            {
-                return true; // 状態が見つかれば、関数呼び出しを重ねることなく即時早期リターン
-            }
-
-            // 子要素があれば、非再帰スタックにプッシュして探索を継続
-            if let Some(children) = topology.children.get(child_id) {
-                for &next_child in children {
-                    stack.push(next_child);
+        while let Some(id) = stack.pop() {
+            flat_dfs_sequence.push(id);
+            if let Some(children_list) = children.get(id) {
+                let len = children_list.len();
+                for i in (0..len).rev() {
+                    stack.push(children_list[i]);
                 }
             }
         }
-
-        false
+        *is_structure_dirty = false;
     }
 
-    /// いずれか一つのアクティブなユーザーインタラクションが子孫要素でONになっているか非再帰で走査します
-    pub(crate) fn has_descendant_with_any_active_state(
+    /// 子孫要素のインタラクション状態（state_flag）を走査する純粋関連関数
+    pub fn has_descendant_with_state(
+        entities: &EntitiesSlotMap,
+        children: &ChildrenSecondaryMap,
+        active_masks: &ActiveMasksSecondaryMap,
         parent: EntityId,
-        topology: &TopologyStore,
+        state_flag: u128,
     ) -> bool {
         let mut stack = SmallVec::<[EntityId; 16]>::new();
 
-        if let Some(children) = topology.children.get(parent) {
-            for &child_id in children {
+        if let Some(children_list) = children.get(parent) {
+            for &child_id in children_list {
                 stack.push(child_id);
             }
         }
 
         while let Some(child_id) = stack.pop() {
-            if topology.entities.contains_key(child_id)
-                && let Some(mask) = topology.active_masks.get(child_id)
-                && mask.has_active_interaction_property()
+            if entities.contains_key(child_id)
+                && let Some(mask) = active_masks.get(child_id)
+                && mask.has(state_flag)
             {
                 return true;
             }
 
-            if let Some(children) = topology.children.get(child_id) {
-                for &next_child in children {
+            if let Some(children_list) = children.get(child_id) {
+                for &next_child in children_list {
                     stack.push(next_child);
                 }
             }
         }
-
         false
     }
 
-    /// 直近の親要素（1世代上）が特定のインタラクション状態（state_flag）を持っているか安全に検証します
+    /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。
+    #[inline]
+    pub(crate) fn find_root_entity(
+        entities: &EntitiesSlotMap,
+        parents: &ParentsSecondaryMap,
+        flat_dfs_sequence: &FlatDfsSequenceVec,
+    ) -> Option<EntityId> {
+        // すでにフラットシーケンスが構築されていればその先頭、
+        // 無ければ parents マップをスキャンして親が None の生存要素をフォールバック解決します
+        flat_dfs_sequence.first().copied().or_else(|| {
+            parents
+                .iter()
+                .find(|&(id, &parent_id_opt)| {
+                    // 親が None かつ、要素 id 自体が slotmap (entities) に生存しているか
+                    parent_id_opt.is_none() && entities.contains_key(id)
+                })
+                .map(|(id, _)| id)
+        })
+    }
+
+    /// 直近の親要素（1世代上）が特定のインタラクション状態を持っているか検証
+    #[inline]
     pub(crate) fn has_parent_with_state(
         id: EntityId,
-        topology: &TopologyStore,
+        parents: &ParentsSecondaryMap,
+        entities: &EntitiesSlotMap,
+        active_masks: &ActiveMasksSecondaryMap,
         state_flag: u128,
     ) -> bool {
-        if let Some(Some(parent_id)) = topology.parents.get(id).copied()
-            && topology.entities.contains_key(parent_id)
-            && let Some(mask) = topology.active_masks.get(parent_id)
+        if let Some(Some(parent_id)) = parents.get(id).copied()
+            && entities.contains_key(parent_id)
+            && let Some(mask) = active_masks.get(parent_id)
             && mask.has(state_flag)
         {
             return true;
@@ -376,40 +295,24 @@ impl TopologyStore {
         false
     }
 
-    /// 直近の親要素（1世代上）がいずれか一つのアクティブなユーザーインタラクション状態を満たしているか安全に検証します
-    pub(crate) fn has_parent_with_any_active_state(id: EntityId, topology: &TopologyStore) -> bool {
-        if let Some(Some(parent_id)) = topology.parents.get(id).copied()
-            && topology.entities.contains_key(parent_id)
-            && let Some(mask) = topology.active_masks.get(parent_id)
-            && mask.has_active_interaction_property()
-        {
-            return true;
-        }
-        false
-    }
-
-    /// ドロップ先コンテナのフレックス方向（Row / Column）に基づいて、
-    /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出します。
+    /// ドロップ先コンテナのフレックス方向に基づいて、
+    /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出。
     pub(crate) fn calculate_insert_index(
-        parent_id: EntityId,
+        parent: EntityId,
         logical_pos: LayoutPoint,
-        topology: &TopologyStore,
-        layouts: &LayoutStore,
-        outputs: &OutputStore,
+        children: &ChildrenSecondaryMap,
+        flex_layouts: &FlexLayoutsSecondaryMap,
+        rects: &RectsSecondaryMap,
     ) -> usize {
         let mut insert_idx = 0;
 
-        if let Some(children) = topology.children.get(parent_id) {
-            let parent_flex = layouts
-                .flex_layouts
-                .get(parent_id)
-                .copied()
-                .unwrap_or_default();
+        if let Some(children) = children.get(parent) {
+            let parent_flex = flex_layouts.get(parent).copied().unwrap_or_default();
             let is_row = parent_flex.flex_direction == FlexDirection::Row
                 || parent_flex.flex_direction == FlexDirection::RowReverse;
 
-            for (idx, &child_id) in children.iter().enumerate() {
-                if let Some(rect) = outputs.rects.get(child_id) {
+            for (idx, &child) in children.iter().enumerate() {
+                if let Some(rect) = rects.get(child) {
                     if is_row {
                         let center_x = rect.x + rect.width * 0.5;
                         if logical_pos.x > center_x {
@@ -474,189 +377,192 @@ impl TopologyStore {
 
         effective_z_indices
     }
-
-    /// スクロールコンテナのスタイル設定に連動し、
-    /// トラック・サムに相当する要素（Element）を遅延生成して親子関係にアタッチします。
-    pub(crate) fn ensure_scrollbar_elements(
-        id: EntityId,
-        sb: &ScrollbarStyle,
-        merge: bool,
-        cx: &mut Context,
-    ) {
-        if !cx.layouts.scrollbar_styles.contains_key(id) {
-            cx.layouts.scrollbar_styles.insert(
-                id,
-                ScrollBarState {
-                    style: sb.clone(),
-                    ..Default::default()
-                },
-            );
-        }
-
-        let mut state = cx.layouts.scrollbar_styles.get(id).cloned().unwrap();
-        state.style = sb.clone();
-        let mut changed = false;
-
-        if sb.display != ScrollbarDisplay::None {
-            // A. 縦スクロールバー (V-Track)
-            let v_track = if let Some(v_track) = state.v_track_id {
-                v_track
-            } else {
-                let v_track = TopologyStore::spawn(
-                    Some(id),
-                    &mut cx.topology,
-                    &mut cx.layouts,
-                    &mut cx.renders,
-                );
-                TopologyStore::add_child(id, v_track, &mut cx.topology, &mut cx.layouts);
-                state.v_track_id = Some(v_track);
-                changed = true;
-                v_track
-            };
-
-            // トラックは常に絶対配置（コンテナの右端に固定）
-            let track_style = sb
-                .v_track
-                .clone()
-                .unwrap_or_default()
-                .absolute()
-                .z(9999)
-                .w(sb.width)
-                .inset((0.0, 0.0, 0.0, crate::auto()))
-                .pointer_events_auto(); // イベントを透過させない
-
-            Element::style_internal(cx, v_track, track_style, merge);
-
-            // A-1. 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
-            let v_thumb = if let Some(v_thumb) = state.v_thumb_id {
-                v_thumb
-            } else {
-                let v_thumb = TopologyStore::spawn(
-                    Some(v_track),
-                    &mut cx.topology,
-                    &mut cx.layouts,
-                    &mut cx.renders,
-                );
-                TopologyStore::add_child(v_track, v_thumb, &mut cx.topology, &mut cx.layouts);
-                state.v_thumb_id = Some(v_thumb);
-                changed = true;
-                v_thumb
-            };
-
-            let mut thumb_width = sb.width;
-            if let Some(ref thumb_style) = sb.v_thumb
-                && let Val::Px(w) = thumb_style.inner.basic_layout.size.width
-            {
-                thumb_width = w.min(sb.width);
-            }
-
-            // サムは V-Track の絶対座標を原点とし、Y方向のみ absolute スライド
-            let thumb_style = sb
-                .v_thumb
-                .clone()
-                .unwrap_or_default()
-                .absolute()
-                .w(thumb_width)
-                .inset((0.0, crate::auto(), crate::auto(), crate::auto()))
-                .pointer_events_auto();
-
-            Element::style_internal(cx, v_thumb, thumb_style, merge);
-
-            // B. 横スクロールバー (H-Track)
-            let h_track = if let Some(h_track) = state.h_track_id {
-                h_track
-            } else {
-                let h_track = TopologyStore::spawn(
-                    Some(id),
-                    &mut cx.topology,
-                    &mut cx.layouts,
-                    &mut cx.renders,
-                );
-                TopologyStore::add_child(id, h_track, &mut cx.topology, &mut cx.layouts);
-                state.h_track_id = Some(h_track);
-                changed = true;
-                h_track
-            };
-
-            let track_style = sb
-                .h_track
-                .clone()
-                .unwrap_or_default()
-                .absolute()
-                .z(9999)
-                .h(sb.width)
-                .inset((crate::auto(), 0.0, 0.0, 0.0))
-                .pointer_events_auto();
-
-            Element::style_internal(cx, h_track, track_style, merge);
-
-            // B-1. 横つまみ (H-Thumb、H-Track の子要素としてアタッチ)
-            let h_thumb = if let Some(h_thumb) = state.h_thumb_id {
-                h_thumb
-            } else {
-                let h_thumb = TopologyStore::spawn(
-                    Some(h_track),
-                    &mut cx.topology,
-                    &mut cx.layouts,
-                    &mut cx.renders,
-                );
-                TopologyStore::add_child(h_track, h_thumb, &mut cx.topology, &mut cx.layouts);
-                state.h_thumb_id = Some(h_thumb);
-                changed = true;
-                h_thumb
-            };
-
-            let mut thumb_height = sb.width;
-            if let Some(ref thumb_style) = sb.h_thumb
-                && let Val::Px(h) = thumb_style.inner.basic_layout.size.height
-            {
-                thumb_height = h.min(sb.width);
-            }
-
-            let thumb_style = sb
-                .h_thumb
-                .clone()
-                .unwrap_or_default()
-                .absolute()
-                .h(thumb_height)
-                .inset((crate::auto(), crate::auto(), crate::auto(), 0.0))
-                .pointer_events_auto();
-
-            Element::style_internal(cx, h_thumb, thumb_style, merge);
-        }
-
-        if changed {
-            *cx.layouts.scrollbar_styles.get_mut(id).unwrap() = state;
-            cx.topology.is_structure_dirty = true; // flat_dfs_sequence の更新契機
-        }
-    }
 }
 
 impl Context {
-    /// 要素を新規に生成（Spawn）
+    /// 要素を新規に生成
     #[inline]
     pub(crate) fn spawn(&mut self, parent_id: Option<EntityId>) -> EntityId {
-        TopologyStore::spawn(
-            parent_id,
-            &mut self.topology,
-            &mut self.layouts,
-            &mut self.renders,
+        let Context {
+            topology, layouts, ..
+        } = self;
+
+        let id = topology.entities.insert(());
+        topology.parents.insert(id, parent_id);
+        topology.children.insert(id, SmallVec::new());
+        topology.active_masks.insert(id, ComponentMask::new(0));
+        topology.active_entities.push(id);
+        topology.session_spawned.push(id);
+        topology.is_structure_dirty = true;
+
+        // Taffyノードとの同期
+        let node = layouts
+            .taffy
+            .new_leaf_with_context(taffy::Style::default(), id)
+            .unwrap();
+        layouts.taffy_nodes.insert(id, node);
+
+        self.mark_render_dirty(id);
+        id
+    }
+
+    /// 親子関係の追加
+    #[inline]
+    pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
+        let Context {
+            topology, layouts, ..
+        } = self;
+
+        // 子がすでに別の親に属している場合は、古い親からデタッチ
+        if let Some(old_parent) = topology.parents.get(child).copied().flatten()
+            && old_parent != parent
+        {
+            TopologyStore::detach_from_parent(
+                &mut topology.parents,
+                &mut topology.children,
+                &mut topology.is_structure_dirty,
+                child,
+            );
+
+            // 古い親の Taffy ノードから安全にデタッチ
+            if let Some(&old_parent_node) = layouts.taffy_nodes.get(old_parent)
+                && let Some(&child_node) = layouts.taffy_nodes.get(child)
+                && let Ok(taffy_children) = layouts.taffy.children(old_parent_node)
+                && taffy_children.contains(&child_node)
+            {
+                let _ = layouts.taffy.remove_child(old_parent_node, child_node);
+            }
+
+            // 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
+            LayoutStore::resync_taffy_children_order(old_parent, layouts, topology);
+            LayoutStore::mark_layout_dirty(layouts, topology, old_parent);
+        }
+
+        // 新しい親へのトポロジーアタッチ
+        TopologyStore::attach_to_parent(
+            &mut topology.parents,
+            &mut topology.children,
+            &mut topology.is_structure_dirty,
+            parent,
+            child,
+        );
+
+        // 新しい親の Taffy ツリーの親子関係を永続的に更新
+        if let Some(&parent_node) = layouts.taffy_nodes.get(parent)
+            && let Some(&child_node) = layouts.taffy_nodes.get(child)
+        {
+            let _ = layouts.taffy.add_child(parent_node, child_node);
+        }
+
+        LayoutStore::mark_layout_dirty(layouts, topology, parent);
+    }
+
+    /// 3. 親要素の特定の古い子要素を新しい子要素へ直接差し替える
+    #[inline]
+    pub(crate) fn replace_child(
+        &mut self,
+        parent: EntityId,
+        old_child: EntityId,
+        new_child: EntityId,
+    ) {
+        let Context {
+            topology, layouts, ..
+        } = self;
+
+        // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
+        if let Some(&parent_node) = layouts.taffy_nodes.get(parent)
+            && let Some(&new_node) = layouts.taffy_nodes.get(new_child)
+        {
+            let _ = layouts.taffy.add_child(parent_node, new_node);
+        }
+
+        TopologyStore::replace_child_node(
+            &mut topology.parents,
+            &mut topology.children,
+            &mut topology.is_structure_dirty,
+            parent,
+            old_child,
+            new_child,
+        );
+
+        // 古い子要素（およびその子孫）を完全に安全デスポーン
+        self.despawn_internal(old_child);
+
+        self.mark_layout_dirty(parent);
+    }
+
+    /// 非再帰スタックによるフラットDFS配列の構築
+    #[inline]
+    pub(crate) fn rebuild_flat_dfs_sequence(&mut self, root: EntityId) {
+        let Context { topology, .. } = self;
+        TopologyStore::rebuild_dfs_sequence(
+            &topology.children,
+            &mut topology.flat_dfs_sequence,
+            &mut topology.is_structure_dirty,
+            root,
+        );
+    }
+
+    /// 子孫のインタラクション状態走査
+    #[inline]
+    pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u128) -> bool {
+        let Context { topology, .. } = self;
+        TopologyStore::has_descendant_with_state(
+            &topology.entities,
+            &topology.children,
+            &topology.active_masks,
+            parent,
+            state_flag,
         )
     }
 
+    /// いずれか一つのアクティブなユーザーインタラクションが子孫要素でONになっているか
     #[inline]
-    pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
-        TopologyStore::add_child(parent, child, &mut self.topology, &mut self.layouts);
+    pub(crate) fn has_descendant_with_any_active_state(&self, parent: EntityId) -> bool {
+        self.has_descendant_with_state(parent, STYLE_ACTIVE_INTERACTION_PROPERTY)
     }
 
+    /// 直近の親要素（1世代上）が特定のインタラクション状態を持っているか
     #[inline]
-    pub(crate) fn mark_layout_dirty(&mut self, id: EntityId) {
-        TopologyStore::mark_layout_dirty(id, &mut self.topology, &mut self.layouts);
+    pub(crate) fn has_parent_with_state(&self, id: EntityId, state_flag: u128) -> bool {
+        let Context { topology, .. } = self;
+        let TopologyStore {
+            entities,
+            parents,
+            children,
+            active_masks,
+            ..
+        } = topology;
+        TopologyStore::has_parent_with_state(id, parents, entities, active_masks, state_flag)
     }
 
+    /// 直近の親要素（1世代上）がいずれか一つのアクティブなユーザーインタラクション状態を満たしているか
     #[inline]
-    pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
-        TopologyStore::mark_render_dirty(id, &mut self.topology, &mut self.renders);
+    pub(crate) fn has_parent_with_any_active_state(&self, id: EntityId) -> bool {
+        self.has_parent_with_state(id, STYLE_ACTIVE_INTERACTION_PROPERTY)
+    }
+
+    /// ドロップ先コンテナのフレックス方向に基づいて、
+    /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出。
+    pub(crate) fn mouse_drop_insert_element_index(
+        &self,
+        parent: EntityId,
+        logical_pos: LayoutPoint,
+    ) -> usize {
+        let Context {
+            topology,
+            layouts,
+            outputs,
+            ..
+        } = self;
+
+        TopologyStore::calculate_insert_index(
+            parent,
+            logical_pos,
+            &self.topology.children,
+            &self.layouts.flex_layouts,
+            &self.outputs.rects,
+        )
     }
 
     // セッションの開始マーカーを取得
@@ -682,8 +588,13 @@ impl Context {
             .collect();
 
         for id in spawned_in_session {
-            if TopologyStore::no_root_no_parent(id, &self.topology) {
-                TopologyStore::despawn_internal(id, self);
+            // 親が存在しない
+            let has_no_parent = self.topology.parents.get(id).copied().flatten().is_none();
+            // ルート要素としても登録されていない
+            let is_not_root = !self.topology.session_roots.contains(&id);
+
+            if has_no_parent && is_not_root {
+                self.despawn_internal(id);
             }
         }
         // ルートリストをクリア
@@ -693,111 +604,51 @@ impl Context {
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
     #[inline]
     pub(crate) fn despawn_internal(&mut self, id: EntityId) {
-        TopologyStore::despawn_internal(id, self);
-    }
+        let Context {
+            topology,
+            layouts,
+            renders,
+            outputs,
+            contents,
+            events,
+            reactive,
+            window,
+            system,
+        } = self;
 
-    /// 親要素の特定の古い子要素を、順序（インデックス）を維持したまま新しい子要素へ直接差し替えます。
-    #[inline]
-    pub(crate) fn replace_child(
-        &mut self,
-        parent: EntityId,
-        old_child: EntityId,
-        new_child: EntityId,
-    ) {
-        TopologyStore::replace_child(
-            parent,
-            old_child,
-            new_child,
-            &mut self.layouts,
-            &mut self.topology,
+        let LayoutStore {
+            taffy_nodes, taffy, ..
+        } = layouts;
+
+        let TopologyStore {
+            entities,
+            parents,
+            children,
+            ..
+        } = topology;
+
+        if topology.entities.contains_key(id) {
+            return;
+        }
+
+        TopologyStore::despawn_internal(id, parents, children, taffy_nodes, taffy);
+
+        TopologyStore::despawn_store(
+            id, topology, layouts, renders, outputs, contents, events, reactive, window, system,
         );
-
-        // 親子参照の更新
-        self.topology.parents.insert(new_child, Some(parent));
-
-        // 古い子要素（およびその子孫）を完全に安全デスポーン
-        // この中で Taffy からの remove_child も安全に実行されます
-        TopologyStore::despawn_internal(old_child, self);
-
-        TopologyStore::mark_layout_dirty(parent, &mut self.topology, &mut self.layouts);
-        self.topology.is_structure_dirty = true;
-    }
-
-    /// デスポーン済みの無効な EntityId を各走査・Dirty配列から一括して排除。
-    #[inline]
-    pub(crate) fn gc_inactive_entities(&mut self) {
-        TopologyStore::gc_inactive_entities(
-            &mut self.topology,
-            &mut self.layouts,
-            &mut self.renders,
-        );
-    }
-
-    /// 子孫要素のインタラクション状態（state_flag）を走査します
-    #[inline]
-    pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u128) -> bool {
-        TopologyStore::has_descendant_with_state(parent, &self.topology, state_flag)
-    }
-
-    /// いずれか一つのアクティブなユーザーインタラクションが子孫要素でONになっているか非再帰で走査します
-    #[inline]
-    pub(crate) fn has_descendant_with_any_active_state(&self, parent: EntityId) -> bool {
-        TopologyStore::has_descendant_with_any_active_state(parent, &self.topology)
-    }
-
-    /// ドロップ先コンテナのフレックス方向（Row / Column）に基づいて、
-    /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出します。
-    #[inline]
-    pub(crate) fn calculate_insert_index(
-        &self,
-        parent_id: EntityId,
-        logical_pos: LayoutPoint,
-    ) -> usize {
-        TopologyStore::calculate_insert_index(
-            parent_id,
-            logical_pos,
-            &self.topology,
-            &self.layouts,
-            &self.outputs,
-        )
-    }
-
-    #[inline]
-    pub(crate) fn compute_effective_z_indices(&self) -> SecondaryMap<EntityId, i32> {
-        TopologyStore::compute_effective_z_indices(&self.topology, &self.layouts, &self.renders)
-    }
-
-    /// 指定された要素（target）が、ある親要素（parent）自身、またはその子孫であるかを判定します。
-    #[inline]
-    pub(crate) fn is_descendant_of(&self, target: EntityId, parent: EntityId) -> bool {
-        TopologyStore::is_descendant_of(target, parent, &self.topology)
     }
 
     /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。
-    pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
-        // すでにフラットシーケンスが構築されていればその先頭、
-        // 無ければ parents マップをスキャンして親が None の生存要素をフォールバック解決します
-        self.topology.flat_dfs_sequence.first().copied().or_else(|| {
-            self.topology
-                .parents
-                .iter()
-                .find(|&(id, &parent_id_opt)| {
-                    // 親が None かつ、要素 id 自体が slotmap (entities) に生存しているか
-                    parent_id_opt.is_none() && self.topology.entities.contains_key(id)
-                })
-                .map(|(id, _)| id)
-        })
-    }
-
-    /// スクロールコンテナのスタイル設定に連動し、
-    /// トラック・サムに相当する要素（Element）を遅延生成して親子関係にアタッチします。
     #[inline]
-    pub(crate) fn ensure_scrollbar_elements(
-        &mut self,
-        id: EntityId,
-        sb: &ScrollbarStyle,
-        merge: bool,
-    ) {
-        TopologyStore::ensure_scrollbar_elements(id, sb, merge, self);
+    pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
+        let Context { topology, .. } = self;
+        let TopologyStore {
+            entities,
+            parents,
+            flat_dfs_sequence,
+            ..
+        } = topology;
+
+        TopologyStore::find_root_entity(entities, parents, flat_dfs_sequence)
     }
 }

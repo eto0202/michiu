@@ -4,8 +4,10 @@ use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
+pub(crate) type RectsSecondaryMap = SecondaryMap<EntityId, LayoutRect>;
+
 pub struct OutputStore {
-    pub(crate) rects: SecondaryMap<EntityId, LayoutRect>,
+    pub(crate) rects: RectsSecondaryMap,
     pub(crate) clip_rects: SecondaryMap<EntityId, LayoutRect>,
     pub(crate) scroll_offsets: SecondaryMap<EntityId, LayoutPoint>,
     pub(crate) prev_rects: SecondaryMap<EntityId, LayoutRect>,
@@ -1114,8 +1116,6 @@ impl Context {
         None
     }
 
-    
-
     #[inline]
     pub(crate) fn clear_selection_highlight_rect(&mut self, id: EntityId) {
         OutputStore::clear_selection_highlight_rect(
@@ -1143,7 +1143,11 @@ impl Context {
         let mut effective_transforms = self.accumulate_transform_matrix();
 
         // 各要素の実効 z_index を親から子へカスケード（伝播）して計算
-        let effective_z_indices = self.compute_effective_z_indices();
+        let effective_z_indices = TopologyStore::compute_effective_z_indices(
+            &self.topology,
+            &self.layouts,
+            &self.renders,
+        );
 
         // 実効 z_index で active_entities を安定ソート
         let mut sorted_entities = self.topology.active_entities.clone();

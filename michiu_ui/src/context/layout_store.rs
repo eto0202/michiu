@@ -28,15 +28,24 @@ pub(crate) struct ScrollBarState {
     pub(crate) last_scroll_time: Option<std::time::Instant>,
 }
 
+pub(crate) type BasicLayoutsSecondaryMap = SecondaryMap<EntityId, BasicLayout>;
+pub(crate) type BaseBasicLayoutsSecondaryMap = SecondaryMap<EntityId, BasicLayout>;
+pub(crate) type FlexLayoutsSecondaryMap = SecondaryMap<EntityId, FlexLayout>;
+pub(crate) type GridLayoutsSecondaryMap = SparseSecondaryMap<EntityId, GridLayout>;
+pub(crate) type ScrollbarStylesSecondaryMap = SparseSecondaryMap<EntityId, ScrollBarState>;
+pub(crate) type TaffyNodesSecondaryMap = SecondaryMap<EntityId, taffy::NodeId>;
+pub(crate) type TaffyTreeEntityId = taffy::TaffyTree<EntityId>;
+pub(crate) type DirtyLayoutEntitiesVec = Vec<EntityId>;
+
 pub struct LayoutStore {
-    pub(crate) basic_layouts: SecondaryMap<EntityId, BasicLayout>,
-    pub(crate) base_basic_layouts: SecondaryMap<EntityId, BasicLayout>,
-    pub(crate) flex_layouts: SecondaryMap<EntityId, FlexLayout>,
-    pub(crate) grid_layouts: SparseSecondaryMap<EntityId, GridLayout>,
-    pub(crate) scrollbar_styles: SparseSecondaryMap<EntityId, ScrollBarState>,
-    pub(crate) taffy_nodes: SecondaryMap<EntityId, taffy::NodeId>,
-    pub(crate) taffy: taffy::TaffyTree<EntityId>,
-    pub(crate) dirty_layout_entities: Vec<EntityId>,
+    pub(crate) basic_layouts: BasicLayoutsSecondaryMap,
+    pub(crate) base_basic_layouts: BaseBasicLayoutsSecondaryMap,
+    pub(crate) flex_layouts: FlexLayoutsSecondaryMap,
+    pub(crate) grid_layouts: GridLayoutsSecondaryMap,
+    pub(crate) scrollbar_styles: ScrollbarStylesSecondaryMap,
+    pub(crate) taffy_nodes: TaffyNodesSecondaryMap,
+    pub(crate) taffy: TaffyTreeEntityId,
+    pub(crate) dirty_layout_entities: DirtyLayoutEntitiesVec,
 }
 
 impl Default for LayoutStore {
@@ -383,29 +392,6 @@ impl LayoutStore {
         }
     }
 
-    /// 非再帰スタックによるフラットDFS配列の高速構築
-    pub(crate) fn rebuild_flat_dfs_sequence(root: EntityId, topology: &mut TopologyStore) {
-        topology.flat_dfs_sequence.clear();
-
-        // あらかじめ実用的なスタック深度を確保しておきメモリ再確保を削減
-        let mut stack = Vec::with_capacity(32);
-        stack.push(root);
-
-        while let Some(id) = stack.pop() {
-            topology.flat_dfs_sequence.push(id);
-
-            // 左側の子が先にポップされるように、右側（末尾）の子から逆順にスタックへプッシュ
-            if let Some(children) = topology.children.get(id) {
-                let len = children.len();
-                for i in (0..len).rev() {
-                    stack.push(children[i]);
-                }
-            }
-        }
-
-        topology.is_structure_dirty = false;
-    }
-
     pub(crate) fn local_rect_from_taffy(id: EntityId, layouts: &LayoutStore) -> LayoutRect {
         if let Some(&taffy_node) = layouts.taffy_nodes.get(id) {
             if let Ok(layout) = layouts.taffy.layout(taffy_node) {
@@ -456,9 +442,50 @@ impl LayoutStore {
         }
         layouts.dirty_layout_entities.clear();
     }
+
+    #[inline]
+    pub(crate) fn mark_layout_dirty(
+        layouts: &mut LayoutStore,
+        topology: &mut TopologyStore,
+        id: EntityId,
+    ) {
+        let mut curr = id;
+        // Taffy 側の該当ノードのレイアウトキャッシュを無効化
+        if let Some(&taffy_node) = layouts.taffy_nodes.get(curr) {
+            let _ = layouts.taffy.mark_dirty(taffy_node);
+        }
+
+        loop {
+            if let Some(mask) = topology.active_masks.get_mut(curr) {
+                // すでにレイアウトキューに登録済み（STATE_QUEUED_LAYOUT がオン）なら
+                // 多重登録を防ぎつつ、それより上の親はすでに Dirty 化されているため探索を早期ブレイク
+                if !mask.has(STATE_QUEUED_LAYOUT) {
+                    mask.set(STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
+                    layouts.dirty_layout_entities.push(curr);
+                } else {
+                    break;
+                }
+            }
+
+            // 親要素（先祖）をルートまで辿って Dirty フラグを連鎖伝播させる
+            if let Some(Some(parent_id)) = topology.parents.get(curr).copied() {
+                curr = parent_id;
+            } else {
+                break;
+            }
+        }
+    }
 }
 
 impl Context {
+    #[inline]
+    pub(crate) fn mark_layout_dirty(&mut self, id: EntityId) {
+        let Context {
+            layouts, topology, ..
+        } = self;
+
+        LayoutStore::mark_layout_dirty(layouts, topology, id);
+    }
     /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出します。
     #[inline]
     pub(crate) fn calculate_inner_content_size(
@@ -547,12 +574,6 @@ impl Context {
     #[inline]
     pub(crate) fn hide_scrollbar_element(&mut self, id: EntityId) {
         LayoutStore::hide_scrollbar_element(id, &mut self.layouts, &mut self.renders);
-    }
-
-    /// 非再帰スタックによるフラットDFS配列の高速構築
-    #[inline]
-    pub(crate) fn rebuild_flat_dfs_sequence(&mut self, root: EntityId) {
-        LayoutStore::rebuild_flat_dfs_sequence(root, &mut self.topology);
     }
 
     #[inline]

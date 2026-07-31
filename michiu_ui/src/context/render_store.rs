@@ -823,6 +823,17 @@ impl TargetStyle {
 
 impl Context {
     #[inline]
+    pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
+        if let Some(mask) = self.topology.active_masks.get_mut(id) {
+            // すでにレンダーキューに登録済み（STATE_QUEUED_RENDER がオン）なら早期リターン
+            if !mask.has(STATE_QUEUED_RENDER) {
+                mask.set(STATE_QUEUED_RENDER); // フラグをオンにして多重登録を防ぐ
+                self.renders.dirty_render_entities.push(id);
+            }
+        }
+    }
+
+    #[inline]
     pub(crate) fn get_basic_layout_mut(
         &mut self,
         id: EntityId,
@@ -952,7 +963,7 @@ impl Context {
 
             for (state, style_opt) in cascade_within {
                 // 子孫要素のいずれかがこの state_flag を満たしているか
-                if TopologyStore::has_descendant_with_state(id, &self.topology, state)
+                if self.has_descendant_with_state(id, state)
                     && let Some(style) = style_opt
                 {
                     TargetStyle::apply_visual_property(
@@ -965,7 +976,7 @@ impl Context {
 
             // All（いずれかのインタラクションがあればON）の解決
             if let Some(ref style) = interaction.any_within
-                && TopologyStore::has_descendant_with_any_active_state(id, &self.topology)
+                && self.has_descendant_with_any_active_state(id)
             {
                 TargetStyle::apply_visual_property(
                     target,
@@ -990,7 +1001,7 @@ impl Context {
 
             for (state, style_opt) in cascade_parent {
                 // 直近の親要素がこの state_flag を満たしているか
-                if TopologyStore::has_parent_with_state(id, &self.topology, state)
+                if self.has_parent_with_state(id, state)
                     && let Some(style) = style_opt
                 {
                     TargetStyle::apply_visual_property(
@@ -1002,7 +1013,7 @@ impl Context {
             }
 
             if let Some(ref style) = interaction.any_parent
-                && TopologyStore::has_parent_with_any_active_state(id, &self.topology)
+                && self.has_parent_with_any_active_state(id)
             {
                 TargetStyle::apply_visual_property(
                     target,
