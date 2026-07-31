@@ -79,71 +79,6 @@ impl TopologyStore {
 }
 
 impl TopologyStore {
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub fn despawn_store(
-        id: EntityId,
-        topology: &mut TopologyStore,
-        layouts: &mut LayoutStore,
-        renders: &mut RenderStore,
-        outputs: &mut OutputStore,
-        contents: &mut ContentStore,
-        events: &mut EventStore,
-        reactive: &mut ReactiveStore,
-        window: &mut WindowStore,
-        system: &mut SystemStore,
-    ) {
-        topology.despawn(id);
-        layouts.despawn(id);
-        renders.despawn(id);
-        outputs.despawn(id);
-        contents.despawn(id);
-        events.despawn(id);
-        reactive.despawn(id);
-        window.despawn(id);
-        system.despawn(id);
-    }
-
-    /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub(crate) fn despawn_internal(
-        id: EntityId,
-        parents: &ParentsSecondaryMap,
-        children: &mut ChildrenSecondaryMap,
-        taffy_nodes: &mut TaffyNodesSecondaryMap,
-        taffy: &mut TaffyTreeEntityId,
-    ) {
-        // トポロジーと Taffy ツリーのデタッチ処理
-        if let Some(Some(parent_id)) = parents.get(id) {
-            // Taffy からノードをデタッチ
-            if let Some(&parent_node) = taffy_nodes.get(*parent_id)
-                && let Some(&child_node) = taffy_nodes.get(id)
-                && let Ok(taffy_children) = taffy.children(parent_node)
-                && taffy_children.contains(&child_node)
-            {
-                let _ = taffy.remove_child(parent_node, child_node);
-            }
-
-            // 親の children リストから自身を除外
-            if let Some(parent_children) = children.get_mut(*parent_id) {
-                parent_children.retain(|x| *x != id);
-            }
-        }
-
-        // Taffy ノード自体の削除
-        if let Some(node) = taffy_nodes.remove(id) {
-            let _ = taffy.remove(node);
-        }
-
-        // 子要素を再帰的に despawn
-        if let Some(children_list) = children.remove(id) {
-            for child_id in children_list {
-                TopologyStore::despawn_internal(child_id, parents, children, taffy_nodes, taffy);
-            }
-        }
-    }
-
     /// 親トポロジーから子要素をデタッチする
     #[inline]
     pub fn detach_from_parent(
@@ -604,38 +539,47 @@ impl Context {
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
     #[inline]
     pub(crate) fn despawn_internal(&mut self, id: EntityId) {
-        let Context {
-            topology,
-            layouts,
-            renders,
-            outputs,
-            contents,
-            events,
-            reactive,
-            window,
-            system,
-        } = self;
-
-        let LayoutStore {
-            taffy_nodes, taffy, ..
-        } = layouts;
-
-        let TopologyStore {
-            entities,
-            parents,
-            children,
-            ..
-        } = topology;
-
-        if topology.entities.contains_key(id) {
+        if !self.topology.entities.contains_key(id) {
             return;
         }
 
-        TopologyStore::despawn_internal(id, parents, children, taffy_nodes, taffy);
+        // 親トポロジーおよび Taffy ツリーからのデタッチ
+        if let Some(Some(parent_id)) = self.topology.parents.get(id) {
+            if let Some(&parent_node) = self.layouts.taffy_nodes.get(*parent_id)
+                && let Some(&child_node) = self.layouts.taffy_nodes.get(id)
+                && let Ok(taffy_children) = self.layouts.taffy.children(parent_node)
+                && taffy_children.contains(&child_node)
+            {
+                let _ = self.layouts.taffy.remove_child(parent_node, child_node);
+            }
 
-        TopologyStore::despawn_store(
-            id, topology, layouts, renders, outputs, contents, events, reactive, window, system,
-        );
+            if let Some(parent_children) = self.topology.children.get_mut(*parent_id) {
+                parent_children.retain(|x| *x != id);
+            }
+        }
+
+        // Taffy ノード自体の削除
+        if let Some(node) = self.layouts.taffy_nodes.remove(id) {
+            let _ = self.layouts.taffy.remove(node);
+        }
+
+        // 子要素を再帰的に削除
+        if let Some(children_list) = self.topology.children.remove(id) {
+            for child_id in children_list {
+                self.despawn_internal(child_id);
+            }
+        }
+
+        // 各ストアの SoA 配列から自分自身を一掃
+        self.topology.despawn(id);
+        self.layouts.despawn(id);
+        self.renders.despawn(id);
+        self.outputs.despawn(id);
+        self.contents.despawn(id);
+        self.events.despawn(id);
+        self.reactive.despawn(id);
+        self.window.despawn(id);
+        self.system.despawn(id);
     }
 
     /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。
