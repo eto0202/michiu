@@ -335,7 +335,23 @@ impl Context {
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
     #[inline]
     pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
-        RenderStore::resolve_cursor(hovered_id, &self.events, &self.renders, &self.topology)
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            ..
+        } = &self.renders;
+        let EventStore {
+            interaction_states, ..
+        } = &self.events;
+        let TopologyStore { parents, .. } = &self.topology;
+
+        RenderStore::resolve_cursor(
+            hovered_id,
+            interaction_states,
+            visual_properties,
+            base_visual_properties,
+            parents,
+        )
     }
 
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。

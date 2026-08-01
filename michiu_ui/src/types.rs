@@ -17,12 +17,18 @@ use windows::Win32::{
 use crate::*;
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct Color {
     pub r: f32,
     pub g: f32,
     pub b: f32,
     pub a: f32,
+}
+
+impl Default for Color {
+    fn default() -> Self {
+        Color::TRANSPARENT
+    }
 }
 
 impl Color {
@@ -342,12 +348,18 @@ impl LayoutRect {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct EdgeInsets {
     pub top: f32,
     pub right: f32,
     pub bottom: f32,
     pub left: f32,
+}
+
+impl Default for EdgeInsets {
+    fn default() -> Self {
+        EdgeInsets::ZERO
+    }
 }
 
 impl EdgeInsets {

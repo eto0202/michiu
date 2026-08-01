@@ -447,30 +447,184 @@ impl RenderStore {
         }
     }
 
+    #[inline]
+    pub(crate) fn cascade_interaction(
+        id: EntityId,
+        active_mask: ComponentMask,
+        target: &mut TargetStyle,
+        interaction_properties: &InteractionPropertiesSecondary,
+        focused_style_resolved: Option<ThisStyle>,
+        focused_visible_style_resolved: Option<ThisStyle>,
+    ) {
+        let Some(interaction) = interaction_properties.get(id) else {
+            return;
+        };
+
+        let cascade = RenderStore::cascade_interaction_flag(
+            id,
+            interaction,
+            &focused_style_resolved,
+            &focused_visible_style_resolved,
+        );
+
+        for (state, style_opt) in cascade {
+            if active_mask.has(state)
+                && let Some(style) = style_opt
+            {
+                TargetStyle::apply_visual_property(
+                    target,
+                    &style.inner.visual_property,
+                    style.inner.mask,
+                );
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn cascade_within_interaction(
+        id: EntityId,
+        active_mask: ComponentMask,
+        target: &mut TargetStyle,
+        interaction_properties: &InteractionPropertiesSecondary,
+        entities: &EntitiesSlot,
+        children: &ChildrenSecondary,
+        active_masks: &ActiveMasksSecondary,
+    ) {
+        if !active_mask.has(STYLE_INTERACTION_WITHIN) {
+            return;
+        }
+
+        let Some(interaction) = interaction_properties.get(id) else {
+            return;
+        };
+
+        // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
+        let cascade_within = RenderStore::cascade_within_interaction_flag(id, interaction);
+
+        for (state, style_opt) in cascade_within {
+            let Some(style) = style_opt else {
+                continue;
+            };
+
+            // 子孫要素のいずれかがこの state_flag を満たしているか
+            let with_state = TopologyStore::has_descendant_with_state(
+                entities,
+                children,
+                active_masks,
+                id,
+                state,
+            );
+
+            if !with_state {
+                continue;
+            }
+
+            TargetStyle::apply_visual_property(
+                target,
+                &style.inner.visual_property,
+                style.inner.mask,
+            );
+        }
+
+        // All（いずれかのインタラクションがあればON）の解決
+        let Some(ref style) = interaction.any_within else {
+            return;
+        };
+
+        let any_state = TopologyStore::has_descendant_with_state(
+            entities,
+            children,
+            active_masks,
+            id,
+            STYLE_ACTIVE_INTERACTION_PROPERTY,
+        );
+
+        if !any_state {
+            return;
+        }
+
+        TargetStyle::apply_visual_property(target, &style.inner.visual_property, style.inner.mask);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn cascade_parent_interaction(
+        id: EntityId,
+        active_mask: ComponentMask,
+        target: &mut TargetStyle,
+        interaction_properties: &InteractionPropertiesSecondary,
+        entities: &EntitiesSlot,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        active_masks: &ActiveMasksSecondary,
+    ) {
+        if active_mask.has(STYLE_INTERACTION_PARENT) {
+            return;
+        }
+        let Some(interaction) = interaction_properties.get(id) else {
+            return;
+        };
+
+        let cascade_parent = RenderStore::cascade_parent_interaction_flag(id, interaction);
+
+        for (state, style_opt) in cascade_parent {
+            let Some(style) = style_opt else {
+                continue;
+            };
+
+            // 直近の親要素がこの state_flag を満たしているか
+            let with_state =
+                TopologyStore::has_parent_with_state(id, parents, entities, active_masks, state);
+
+            if !with_state {
+                continue;
+            }
+
+            TargetStyle::apply_visual_property(
+                target,
+                &style.inner.visual_property,
+                style.inner.mask,
+            );
+        }
+
+        let Some(ref style) = interaction.any_parent else {
+            return;
+        };
+        let any_state = TopologyStore::has_parent_with_state(
+            id,
+            parents,
+            entities,
+            active_masks,
+            STYLE_ACTIVE_INTERACTION_PROPERTY,
+        );
+
+        if !any_state {
+            return;
+        }
+
+        TargetStyle::apply_visual_property(target, &style.inner.visual_property, style.inner.mask);
+    }
+
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
     pub(crate) fn resolve_cursor(
         hovered_id: EntityId,
-        events: &EventStore,
-        renders: &RenderStore,
-        topology: &TopologyStore,
+        interaction_states: &InteractionStates,
+        visual_properties: &VisualPropertiesSecondary,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+        parents: &ParentsSecondary,
     ) -> CursorIcon {
         // 現在プレス中の要素（pressed）があればそれを最優先で探索の基点にする
-        let start_id = events.interaction_states.pressed.unwrap_or(hovered_id);
+        let start_id = interaction_states.pressed.unwrap_or(hovered_id);
 
         let mut curr = Some(start_id);
         let mut global_cursor = None;
 
         while let Some(id) = curr {
-            let cursor_opt = renders
-                .visual_properties
+            let cursor_opt = visual_properties
                 .get(id)
                 .and_then(|v| v.cursor)
-                .or_else(|| {
-                    renders
-                        .base_visual_properties
-                        .get(id)
-                        .and_then(|v| v.cursor)
-                });
+                .or_else(|| base_visual_properties.get(id).and_then(|v| v.cursor));
 
             if let Some(cursor) = cursor_opt {
                 match cursor {
@@ -487,7 +641,7 @@ impl RenderStore {
                     }
                 }
             }
-            curr = topology.parents.get(id).copied().flatten();
+            curr = parents.get(id).copied().flatten();
         }
 
         // 個別指定がなく、親のいずれかに Global カーソルが定義されていた場合はそれを採用
@@ -510,34 +664,31 @@ impl RenderStore {
     }
 
     pub(crate) fn accumulate_transform_matrix(
-        topology: &TopologyStore,
-        layouts: &LayoutStore,
-        renders: &RenderStore,
+        flat_dfs_sequence: &FlatDfsSequenceVec,
+        visual_properties: &VisualPropertiesSecondary,
+        parents: &ParentsSecondary,
+        active_entities: &ActiveEntitiesVec,
     ) -> SecondaryMap<EntityId, [[f32; 4]; 4]> {
-        let mut effective_transforms = SecondaryMap::with_capacity(topology.active_entities.len());
-        for &id in &topology.flat_dfs_sequence {
-            let self_transform = renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.transform)
-                .unwrap_or(IDENTITY_MATRIX);
+        let mut effective_transforms = SecondaryMap::with_capacity(active_entities.len());
 
-            let transform_inherit = renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.transform_inherit)
-                .unwrap_or(false);
-
-            let eff_transform = if transform_inherit
-                && let Some(Some(parent_id)) = topology.parents.get(id)
-                && let Some(parent_eff) = effective_transforms.get(*parent_id).copied()
-            {
-                // 親の累積トランスフォーム行列 * 自身のトランスフォーム行列 (Column-Major 順)
-                OutputStore::mul_4x4(&parent_eff, &self_transform)
-            } else {
-                self_transform
+        for &id in flat_dfs_sequence {
+            let (self_transform, transform_inherit) = match visual_properties.get(id) {
+                Some(v) => (
+                    v.transform.unwrap_or(IDENTITY_MATRIX),
+                    v.transform_inherit.unwrap_or(false),
+                ),
+                None => (IDENTITY_MATRIX, false),
             };
 
+            let mut eff_transform = self_transform;
+
+            if transform_inherit
+                && let Some(parent_id) = parents.get(id).copied().flatten()
+                && let Some(&parent_eff) = effective_transforms.get(parent_id)
+            {
+                // 親の累積トランスフォーム行列 * 自身のトランスフォーム行列 (Column-Major 順)
+                eff_transform = OutputStore::mul_4x4(&parent_eff, &self_transform);
+            }
             effective_transforms.insert(id, eff_transform);
         }
         effective_transforms
@@ -566,20 +717,35 @@ impl RenderStore {
     pub(crate) fn get_outline_params(
         visual: &VisualProperty,
     ) -> (EdgeInsets, Color, EdgeInsets, [f32; 4]) {
-        let o_width = visual.outline_width.unwrap_or(EdgeInsets::ZERO);
-        let o_color = visual.outline_color.unwrap_or(Color::TRANSPARENT);
+        let o_width = visual.outline_width.unwrap_or_default();
+        let o_color = visual.outline_color.unwrap_or_default();
         let o_lengths = visual.outline_lengths.unwrap_or(EdgeInsets::px_all(1.0));
         let o_offset = visual.outline_offset.unwrap_or(0.0);
-        let o_styles = visual.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+        let o_styles = visual.outline_styles.unwrap_or([BorderStyle::default(); 4]);
         let o_aligns = visual
             .outline_alignments
-            .unwrap_or([BorderAlignment::Start; 4]);
+            .unwrap_or([BorderAlignment::default(); 4]);
 
         let mut o_flags = 0u32;
-        for idx in 0..4 {
-            o_flags |= (o_styles[idx] as u32) << (idx * 4);
-            o_flags |= (o_aligns[idx] as u32) << (idx * 4 + 2);
+        // 1つの辺あたり4ビットを割り当て各辺の位置（idx * 4）へ配置
+        // ビットレイアウト (u32, 下位16ビットを使用)
+        //  15      12 11       8 7       4 3        0
+        // +---------+---------+---------+---------+
+        // |  Left   | Bottom  |  Right  |   Top   |  <-- 各4ビット (Edge)
+        // +---------+---------+---------+---------+
+        //   |_ Align (2bit)      |_ Align (2bit)
+        //   |_ Style (2bit)      |_ Style (2bit)
+        // う～ん、分からんｗ
+        for (idx, (&style, &align)) in o_styles.iter().zip(o_aligns.iter()).enumerate() {
+            // 将来列挙型が増えた際、隣のビットを汚染しないよう 2ビット（0b11）でマスク
+            let style_bits = (style as u32) & 0b11; // 下位2ビット (0〜3)
+            let align_bits = (align as u32) & 0b11; // 上位2ビット (0〜3)
+
+            let edge_flags = style_bits | (align_bits << 2); // 4ビット分のデータ
+
+            o_flags |= edge_flags << (idx * 4); // 対象の辺の位置（0, 4, 8, 12ビット目）
         }
+
         let outline_offset_and_flags = [o_offset, o_flags as f32, 0.0, 0.0];
 
         (o_width, o_color, o_lengths, outline_offset_and_flags)
@@ -849,7 +1015,22 @@ impl Context {
 
     #[inline]
     pub(crate) fn accumulate_transform_matrix(&self) -> SecondaryMap<EntityId, [[f32; 4]; 4]> {
-        RenderStore::accumulate_transform_matrix(&self.topology, &self.layouts, &self.renders)
+        let TopologyStore {
+            flat_dfs_sequence,
+            parents,
+            active_entities,
+            ..
+        } = &self.topology;
+        let RenderStore {
+            visual_properties, ..
+        } = &self.renders;
+
+        RenderStore::accumulate_transform_matrix(
+            flat_dfs_sequence,
+            visual_properties,
+            parents,
+            active_entities,
+        )
     }
 
     #[inline]
@@ -934,26 +1115,19 @@ impl Context {
         focused_style_resolved: Option<ThisStyle>,
         focused_visible_style_resolved: Option<ThisStyle>,
     ) {
-        if let Some(interaction) = self.renders.interaction_properties.get(id) {
-            let cascade = RenderStore::cascade_interaction_flag(
-                id,
-                interaction,
-                &focused_style_resolved,
-                &focused_visible_style_resolved,
-            );
+        let RenderStore {
+            interaction_properties,
+            ..
+        } = &self.renders;
 
-            for (state, style_opt) in cascade {
-                if active_mask.has(state)
-                    && let Some(style) = style_opt
-                {
-                    TargetStyle::apply_visual_property(
-                        target,
-                        &style.inner.visual_property,
-                        style.inner.mask,
-                    );
-                }
-            }
-        }
+        RenderStore::cascade_interaction(
+            id,
+            active_mask,
+            target,
+            interaction_properties,
+            focused_style_resolved,
+            focused_visible_style_resolved,
+        );
     }
 
     #[inline]
@@ -963,36 +1137,26 @@ impl Context {
         active_mask: ComponentMask,
         target: &mut TargetStyle,
     ) {
-        if active_mask.has(STYLE_INTERACTION_WITHIN)
-            && let Some(interaction) = self.renders.interaction_properties.get(id)
-        {
-            // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
-            let cascade_within = RenderStore::cascade_within_interaction_flag(id, interaction);
+        let TopologyStore {
+            entities,
+            children,
+            active_masks,
+            ..
+        } = &self.topology;
+        let RenderStore {
+            interaction_properties,
+            ..
+        } = &self.renders;
 
-            for (state, style_opt) in cascade_within {
-                // 子孫要素のいずれかがこの state_flag を満たしているか
-                if self.has_descendant_with_state(id, state)
-                    && let Some(style) = style_opt
-                {
-                    TargetStyle::apply_visual_property(
-                        target,
-                        &style.inner.visual_property,
-                        style.inner.mask,
-                    );
-                }
-            }
-
-            // All（いずれかのインタラクションがあればON）の解決
-            if let Some(ref style) = interaction.any_within
-                && self.has_descendant_with_state(id, STYLE_ACTIVE_INTERACTION_PROPERTY)
-            {
-                TargetStyle::apply_visual_property(
-                    target,
-                    &style.inner.visual_property,
-                    style.inner.mask,
-                );
-            }
-        }
+        RenderStore::cascade_within_interaction(
+            id,
+            active_mask,
+            target,
+            interaction_properties,
+            entities,
+            children,
+            active_masks,
+        );
     }
 
     #[inline]
@@ -1002,34 +1166,28 @@ impl Context {
         active_mask: ComponentMask,
         target: &mut TargetStyle,
     ) {
-        if active_mask.has(STYLE_INTERACTION_PARENT)
-            && let Some(interaction) = self.renders.interaction_properties.get(id)
-        {
-            let cascade_parent = RenderStore::cascade_parent_interaction_flag(id, interaction);
+        let TopologyStore {
+            entities,
+            parents,
+            children,
+            active_masks,
+            ..
+        } = &self.topology;
+        let RenderStore {
+            interaction_properties,
+            ..
+        } = &self.renders;
 
-            for (state, style_opt) in cascade_parent {
-                // 直近の親要素がこの state_flag を満たしているか
-                if self.has_parent_with_state(id, state)
-                    && let Some(style) = style_opt
-                {
-                    TargetStyle::apply_visual_property(
-                        target,
-                        &style.inner.visual_property,
-                        style.inner.mask,
-                    );
-                }
-            }
-
-            if let Some(ref style) = interaction.any_parent
-                && self.has_parent_with_state(id, STYLE_ACTIVE_INTERACTION_PROPERTY)
-            {
-                TargetStyle::apply_visual_property(
-                    target,
-                    &style.inner.visual_property,
-                    style.inner.mask,
-                );
-            }
-        }
+        RenderStore::cascade_parent_interaction(
+            id,
+            active_mask,
+            target,
+            interaction_properties,
+            entities,
+            parents,
+            children,
+            active_masks,
+        );
     }
 
     #[inline]
