@@ -79,6 +79,151 @@ impl TopologyStore {
 }
 
 impl TopologyStore {
+    /// 要素を新規に生成
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn spawn(
+        parent_id: Option<EntityId>,
+        entities: &mut EntitiesSlot,
+        parents: &mut ParentsSecondary,
+        children: &mut ChildrenSecondary,
+        active_masks: &mut ActiveMasksSecondary,
+        active_entities: &mut ActiveEntitiesVec,
+        session_spawned: &mut SessionSpawnedVec,
+        is_structure_dirty: &mut bool,
+        taffy: &mut TaffyTreeEntityId,
+        taffy_nodes: &mut TaffyNodesSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+    ) -> EntityId {
+        let id = entities.insert(());
+        parents.insert(id, parent_id);
+        children.insert(id, SmallVec::new());
+        active_masks.insert(id, ComponentMask::new(0));
+        active_entities.push(id);
+        session_spawned.push(id);
+        *is_structure_dirty = true;
+
+        // Taffyノードとの同期
+        let node = taffy
+            .new_leaf_with_context(taffy::Style::default(), id)
+            .unwrap();
+        taffy_nodes.insert(id, node);
+
+        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+
+        id
+    }
+
+    /// 親子関係の追加
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn add_child(
+        parent: EntityId,
+        child: EntityId,
+        parents: &mut ParentsSecondary,
+        children: &mut ChildrenSecondary,
+        is_structure_dirty: &mut bool,
+        active_masks: &mut ActiveMasksSecondary,
+        taffy_nodes: &mut TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+    ) {
+        // 子がすでに別の親に属している場合は、古い親からデタッチ
+        if let Some(old_parent) = parents.get(child).copied().flatten()
+            && old_parent != parent
+        {
+            TopologyStore::detach_from_parent(parents, children, is_structure_dirty, child);
+
+            // 古い親の Taffy ノードから安全にデタッチ
+            if let Some(&old_parent_node) = taffy_nodes.get(old_parent)
+                && let Some(&child_node) = taffy_nodes.get(child)
+                && let Ok(taffy_children) = taffy.children(old_parent_node)
+                && taffy_children.contains(&child_node)
+            {
+                let _ = taffy.remove_child(old_parent_node, child_node);
+            }
+
+            // 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
+            LayoutStore::resync_taffy_children_order(old_parent, taffy_nodes, taffy, children);
+            LayoutStore::mark_layout_dirty(
+                old_parent,
+                taffy_nodes,
+                taffy,
+                active_masks,
+                dirty_layout_entities,
+                parents,
+            );
+        }
+
+        // 新しい親へのトポロジーアタッチ
+        TopologyStore::attach_to_parent(parents, children, is_structure_dirty, parent, child);
+
+        // 新しい親の Taffy ツリーの親子関係を永続的に更新
+        if let Some(&parent_node) = taffy_nodes.get(parent)
+            && let Some(&child_node) = taffy_nodes.get(child)
+        {
+            let _ = taffy.add_child(parent_node, child_node);
+        }
+
+        LayoutStore::mark_layout_dirty(
+            parent,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+        );
+    }
+
+    /// 親要素の特定の古い子要素を新しい子要素へ直接差し替える
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn replace_child(
+        parent: EntityId,
+        old_child: EntityId,
+        new_child: EntityId,
+        topology: &mut TopologyStore,
+        layouts: &mut LayoutStore,
+        renders: &mut RenderStore,
+        outputs: &mut OutputStore,
+        contents: &mut ContentStore,
+        events: &mut EventStore,
+        reactive: &mut ReactiveStore,
+        window: &mut WindowStore,
+        system: &mut SystemStore,
+    ) {
+        // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
+        if let Some(&parent_node) = layouts.taffy_nodes.get(parent)
+            && let Some(&new_node) = layouts.taffy_nodes.get(new_child)
+        {
+            let _ = layouts.taffy.add_child(parent_node, new_node);
+        }
+
+        TopologyStore::replace_child_node(
+            &mut topology.parents,
+            &mut topology.children,
+            &mut topology.is_structure_dirty,
+            parent,
+            old_child,
+            new_child,
+        );
+
+        // 古い子要素（およびその子孫）を完全に安全デスポーン
+        TopologyStore::despawn_internal(
+            old_child, topology, layouts, renders, outputs, contents, events, reactive, window,
+            system,
+        );
+
+        LayoutStore::mark_layout_dirty(
+            parent,
+            &layouts.taffy_nodes,
+            &mut layouts.taffy,
+            &mut topology.active_masks,
+            &mut layouts.dirty_layout_entities,
+            &topology.parents,
+        );
+    }
+
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで一掃
     #[allow(clippy::too_many_arguments)]
     #[inline]
@@ -184,15 +329,15 @@ impl TopologyStore {
         is_structure_dirty: &mut bool,
         child: EntityId,
     ) -> Option<EntityId> {
-        if let Some(Some(parent_id)) = parents.get(child).copied() {
-            if let Some(children_list) = children.get_mut(parent_id) {
-                children_list.retain(|x| *x != child);
-            }
-            parents.insert(child, None);
-            *is_structure_dirty = true;
-            return Some(parent_id);
+        let Some(Some(parent_id)) = parents.get(child).copied() else {
+            return None;
+        };
+        if let Some(children_list) = children.get_mut(parent_id) {
+            children_list.retain(|x| *x != child);
         }
-        None
+        parents.insert(child, None);
+        *is_structure_dirty = true;
+        Some(parent_id)
     }
 
     /// 新しい親子関係を結合する
@@ -317,14 +462,16 @@ impl TopologyStore {
         active_masks: &ActiveMasksSecondary,
         state_flag: u128,
     ) -> bool {
-        if let Some(Some(parent_id)) = parents.get(id).copied()
-            && entities.contains_key(parent_id)
-            && let Some(mask) = active_masks.get(parent_id)
-            && mask.has(state_flag)
-        {
-            return true;
+        let Some(Some(parent_id)) = parents.get(id).copied() else {
+            return false;
+        };
+        if !entities.contains_key(parent_id) {
+            return false;
         }
-        false
+        let Some(mask) = active_masks.get(parent_id) else {
+            return false;
+        };
+        mask.has(state_flag)
     }
 
     /// ドロップ先コンテナのフレックス方向に基づいて、
@@ -415,78 +562,70 @@ impl Context {
     /// 要素を新規に生成
     #[inline]
     pub(crate) fn spawn(&mut self, parent_id: Option<EntityId>) -> EntityId {
-        let Context {
-            topology, layouts, ..
-        } = self;
+        let TopologyStore {
+            entities,
+            active_entities,
+            parents,
+            children,
+            active_masks,
+            session_spawned,
+            is_structure_dirty,
+            ..
+        } = &mut self.topology;
 
-        let id = topology.entities.insert(());
-        topology.parents.insert(id, parent_id);
-        topology.children.insert(id, SmallVec::new());
-        topology.active_masks.insert(id, ComponentMask::new(0));
-        topology.active_entities.push(id);
-        topology.session_spawned.push(id);
-        topology.is_structure_dirty = true;
+        let LayoutStore {
+            taffy, taffy_nodes, ..
+        } = &mut self.layouts;
 
-        // Taffyノードとの同期
-        let node = layouts
-            .taffy
-            .new_leaf_with_context(taffy::Style::default(), id)
-            .unwrap();
-        layouts.taffy_nodes.insert(id, node);
+        let RenderStore {
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
 
-        self.mark_render_dirty(id);
-        id
+        TopologyStore::spawn(
+            parent_id,
+            entities,
+            parents,
+            children,
+            active_masks,
+            active_entities,
+            session_spawned,
+            is_structure_dirty,
+            taffy,
+            taffy_nodes,
+            dirty_render_entities,
+        )
     }
 
     /// 親子関係の追加
     #[inline]
     pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
-        let Context {
-            topology, layouts, ..
-        } = self;
+        let TopologyStore {
+            parents,
+            children,
+            is_structure_dirty,
+            active_masks,
+            ..
+        } = &mut self.topology;
 
-        // 子がすでに別の親に属している場合は、古い親からデタッチ
-        if let Some(old_parent) = topology.parents.get(child).copied().flatten()
-            && old_parent != parent
-        {
-            TopologyStore::detach_from_parent(
-                &mut topology.parents,
-                &mut topology.children,
-                &mut topology.is_structure_dirty,
-                child,
-            );
+        let LayoutStore {
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
 
-            // 古い親の Taffy ノードから安全にデタッチ
-            if let Some(&old_parent_node) = layouts.taffy_nodes.get(old_parent)
-                && let Some(&child_node) = layouts.taffy_nodes.get(child)
-                && let Ok(taffy_children) = layouts.taffy.children(old_parent_node)
-                && taffy_children.contains(&child_node)
-            {
-                let _ = layouts.taffy.remove_child(old_parent_node, child_node);
-            }
-
-            // 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
-            LayoutStore::resync_taffy_children_order(old_parent, layouts, topology);
-            LayoutStore::mark_layout_dirty(layouts, topology, old_parent);
-        }
-
-        // 新しい親へのトポロジーアタッチ
-        TopologyStore::attach_to_parent(
-            &mut topology.parents,
-            &mut topology.children,
-            &mut topology.is_structure_dirty,
+        TopologyStore::add_child(
             parent,
             child,
+            parents,
+            children,
+            is_structure_dirty,
+            active_masks,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
         );
-
-        // 新しい親の Taffy ツリーの親子関係を永続的に更新
-        if let Some(&parent_node) = layouts.taffy_nodes.get(parent)
-            && let Some(&child_node) = layouts.taffy_nodes.get(child)
-        {
-            let _ = layouts.taffy.add_child(parent_node, child_node);
-        }
-
-        LayoutStore::mark_layout_dirty(layouts, topology, parent);
     }
 
     /// 親要素の特定の古い子要素を新しい子要素へ直接差し替える
@@ -498,29 +637,21 @@ impl Context {
         new_child: EntityId,
     ) {
         let Context {
-            topology, layouts, ..
+            topology,
+            layouts,
+            renders,
+            outputs,
+            contents,
+            events,
+            reactive,
+            window,
+            system,
         } = self;
 
-        // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
-        if let Some(&parent_node) = layouts.taffy_nodes.get(parent)
-            && let Some(&new_node) = layouts.taffy_nodes.get(new_child)
-        {
-            let _ = layouts.taffy.add_child(parent_node, new_node);
-        }
-
-        TopologyStore::replace_child_node(
-            &mut topology.parents,
-            &mut topology.children,
-            &mut topology.is_structure_dirty,
-            parent,
-            old_child,
-            new_child,
+        TopologyStore::replace_child(
+            parent, old_child, new_child, topology, layouts, renders, outputs, contents, events,
+            reactive, window, system,
         );
-
-        // 古い子要素（およびその子孫）を完全に安全デスポーン
-        self.despawn_internal(old_child);
-
-        self.mark_layout_dirty(parent);
     }
 
     /// 非再帰スタックによるフラットDFS配列の構築
@@ -555,12 +686,6 @@ impl Context {
         )
     }
 
-    /// いずれか一つのアクティブなユーザーインタラクションが子孫要素でONになっているか
-    #[inline]
-    pub(crate) fn has_descendant_with_any_active_state(&self, parent: EntityId) -> bool {
-        self.has_descendant_with_state(parent, STYLE_ACTIVE_INTERACTION_PROPERTY)
-    }
-
     /// 直近の親要素（1世代上）が特定のインタラクション状態を持っているか
     #[inline]
     pub(crate) fn has_parent_with_state(&self, id: EntityId, state_flag: u128) -> bool {
@@ -572,12 +697,6 @@ impl Context {
             ..
         } = &self.topology;
         TopologyStore::has_parent_with_state(id, parents, entities, active_masks, state_flag)
-    }
-
-    /// 直近の親要素（1世代上）がいずれか一つのアクティブなユーザーインタラクション状態を満たしているか
-    #[inline]
-    pub(crate) fn has_parent_with_any_active_state(&self, id: EntityId) -> bool {
-        self.has_parent_with_state(id, STYLE_ACTIVE_INTERACTION_PROPERTY)
     }
 
     /// ドロップ先コンテナのフレックス方向に基づいて、

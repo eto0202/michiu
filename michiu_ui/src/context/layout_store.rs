@@ -95,102 +95,141 @@ impl LayoutStore {
 
 impl LayoutStore {
     /// 各スタイルの解決を1回のルックアップと1回のカスケード解決ループに統合
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn resolve_active_layouts(
         id: EntityId,
-        topology: &TopologyStore,
-        layouts: &LayoutStore,
-        renders: &RenderStore,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_masks: &ActiveMasksSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        visual_properties: &VisualPropertiesSecondary,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
-        let mut basic = layouts.basic_layouts.get(id).copied().unwrap_or_default();
-        let mut flex = layouts.flex_layouts.get(id).copied().unwrap_or_default();
-        let mut grid = layouts.grid_layouts.get(id).cloned();
+        let mut basic = basic_layouts.get(id).copied().unwrap_or_default();
+        let mut flex = flex_layouts.get(id).copied().unwrap_or_default();
+        let mut grid = grid_layouts.get(id).cloned();
 
-        let active_mask = topology.active_masks[id];
+        let active_mask = active_masks[id];
 
         // 幅・高さ・一括サイズに対して、現在トランジションアニメーションが駆動中であるかを走査
-        let is_width_transitioning = renders
-            .active_transitions
-            .get(id)
-            .map(|list| {
-                list.iter().any(|t| {
-                    t.property_list == PropertyList::Width || t.property_list == PropertyList::Size
-                })
-            })
-            .unwrap_or(false);
-        let is_height_transitioning = renders
-            .active_transitions
-            .get(id)
-            .map(|list| {
-                list.iter().any(|t| {
-                    t.property_list == PropertyList::Height || t.property_list == PropertyList::Size
-                })
-            })
-            .unwrap_or(false);
+        let (is_width_transitioning, is_height_transitioning) =
+            LayoutStore::is_transition_currently_running(id, active_transitions);
 
-        // 自身、または親先祖から focused / focus_visible のフォーカス関連スタイルを正確に解決
-        let focused_style_resolved = RenderStore::resolv_focus_style(
-            id,
-            renders,
-            &active_mask,
-            &topology.parents,
-            STATE_FOCUSED,
-        );
-        let focused_visible_style_resolved = RenderStore::resolv_focus_style(
-            id,
-            renders,
-            &active_mask,
-            &topology.parents,
-            STATE_FOCUSED_VISIBLE,
-        );
+        // 自身、または親先祖から focused / focus_visible のフォーカス関連スタイルを解決
+        let [focused_style_resolved, focused_visible_style_resolved] =
+            [STATE_FOCUSED, STATE_FOCUSED_VISIBLE].map(|state| {
+                RenderStore::resolv_focus_style(
+                    id,
+                    interaction_properties,
+                    visual_properties,
+                    &active_mask,
+                    parents,
+                    state,
+                )
+            });
 
         // 状態マッピング解決のルックアップとループを1回に集約
-        if let Some(interaction) = renders.interaction_properties.get(id) {
-            let cascade = [
-                (STATE_FOCUSED, &focused_style_resolved),
-                (STATE_FOCUSED_VISIBLE, &focused_visible_style_resolved),
-                (STATE_SELECTED, &interaction.selected),
-                (STATE_ACTIVED, &interaction.actived),
-                (STATE_HOVERED, &interaction.hovered),
-                (STATE_PRESSED, &interaction.pressed),
-                (STATE_DISABLED, &interaction.disabled),
-                (STATE_DRAGGING, &interaction.dragging),
-                (STATE_DRAG_IN, &interaction.drag_in),
-                (STATE_DRAG_OVER, &interaction.drag_over),
-            ];
+        LayoutStore::apply_interaction_styles(
+            id,
+            interaction_properties,
+            [focused_style_resolved, focused_visible_style_resolved],
+            &active_mask,
+            (is_width_transitioning, is_height_transitioning),
+            &mut basic,
+            &mut flex,
+            &mut grid,
+        );
 
-            for (state, style_opt) in cascade {
-                if active_mask.has(state)
-                    && let Some(style) = style_opt
+        (basic, flex, grid)
+    }
+
+    pub(crate) fn is_transition_currently_running(
+        id: EntityId,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+    ) -> (bool, bool) {
+        let Some(list) = active_transitions.get(id) else {
+            return (false, false);
+        };
+
+        let mut w = false;
+        let mut h = false;
+        for t in list {
+            match t.property_list {
+                PropertyList::Width => w = true,
+                PropertyList::Height => h = true,
+                PropertyList::Size => {
+                    w = true;
+                    h = true;
+                }
+                _ => {}
+            }
+            if w && h {
+                break;
+            }
+        }
+        (w, h)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn apply_interaction_styles(
+        id: EntityId,
+        interaction_properties: &InteractionPropertiesSecondary,
+        focused_resolved: [Option<ThisStyle>; 2],
+        active_mask: &ComponentMask,
+        is_transitioning: (bool, bool),
+        basic: &mut BasicLayout,
+        flex: &mut FlexLayout,
+        grid: &mut Option<GridLayout>,
+    ) {
+        let Some(interaction) = interaction_properties.get(id) else {
+            return;
+        };
+
+        let cascade = [
+            (STATE_FOCUSED, &focused_resolved[0]),
+            (STATE_FOCUSED_VISIBLE, &focused_resolved[1]),
+            (STATE_SELECTED, &interaction.selected),
+            (STATE_ACTIVED, &interaction.actived),
+            (STATE_HOVERED, &interaction.hovered),
+            (STATE_PRESSED, &interaction.pressed),
+            (STATE_DISABLED, &interaction.disabled),
+            (STATE_DRAGGING, &interaction.dragging),
+            (STATE_DRAG_IN, &interaction.drag_in),
+            (STATE_DRAG_OVER, &interaction.drag_over),
+        ];
+
+        for (state, style_opt) in cascade {
+            if active_mask.has(state)
+                && let Some(style) = style_opt
+            {
+                let mut mask = style.inner.mask;
+                if is_transitioning.0 || is_transitioning.1 {
+                    mask.unset(STYLE_SIZE);
+                }
+
+                basic.override_with(&style.inner.basic_layout, style.inner.mask);
+                flex.override_with(&style.inner.flex_layout, style.inner.mask);
+
+                if style.inner.mask.has_grid_layout()
+                    && let Some(ref hover_grid) = style.inner.grid_layout
                 {
-                    let mut mask = style.inner.mask;
-                    if is_width_transitioning || is_height_transitioning {
-                        mask.unset(STYLE_SIZE);
-                    }
-
-                    basic.override_with(&style.inner.basic_layout, style.inner.mask);
-                    flex.override_with(&style.inner.flex_layout, style.inner.mask);
-
-                    if style.inner.mask.has_grid_layout()
-                        && let Some(ref hover_grid) = style.inner.grid_layout
-                    {
-                        grid = Some(hover_grid.clone());
-                    }
+                    *grid = Some(hover_grid.clone());
                 }
             }
         }
-
-        (basic, flex, grid)
     }
 
     // Taffyスタイルを一括解決するヘルパー
     pub(crate) fn resolve_taffy_style(
         id: EntityId,
-        layouts: &LayoutStore,
+        scrollbar_styles: &ScrollbarStylesSecondary,
         basic: &BasicLayout,
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
     ) -> taffy::Style {
-        let sb_style = layouts.scrollbar_styles.get(id).map(|s| &s.style);
+        let sb_style = scrollbar_styles.get(id).map(|s| &s.style);
 
         let mut style: taffy::Style = taffy::Style {
             display: basic.display.into(),
@@ -308,53 +347,42 @@ impl LayoutStore {
     pub(crate) fn scrollbar_el_ids(
         scrollbar_styles: &SparseSecondaryMap<EntityId, ScrollBarState>,
     ) -> HashSet<EntityId> {
-        let mut scrollbar_el_ids = HashSet::new();
-        for sb_state in scrollbar_styles.values() {
-            if let Some(track_id) = sb_state.v_track_id {
-                scrollbar_el_ids.insert(track_id);
-            }
-            if let Some(thumb_id) = sb_state.v_thumb_id {
-                scrollbar_el_ids.insert(thumb_id);
-            }
-            if let Some(track_id) = sb_state.h_track_id {
-                scrollbar_el_ids.insert(track_id);
-            }
-            if let Some(thumb_id) = sb_state.h_thumb_id {
-                scrollbar_el_ids.insert(thumb_id);
-            }
-        }
-        scrollbar_el_ids
+        scrollbar_styles
+            .values()
+            .flat_map(|sb_state| {
+                [
+                    sb_state.v_track_id,
+                    sb_state.v_thumb_id,
+                    sb_state.h_track_id,
+                    sb_state.h_thumb_id,
+                ]
+                .into_iter()
+                .flatten()
+            })
+            .collect()
     }
 
-    /// スクロールバー用要素（TrackやThumb）のレイアウト情報（解決値と静的ベース値）をアトミックに同時同期して更新します。
+    /// スクロールバー用要素のレイアウト情報を同期して更新。
     pub(crate) fn update_scrollbar_element_layout(
         id: EntityId,
-        layouts: &mut LayoutStore,
-        renders: &mut RenderStore,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
         size: Size<Val>,
         inset: Rect<Val>,
     ) {
-        let display = Display::Flex;
+        let layouts = [basic_layouts.get_mut(id), base_basic_layouts.get_mut(id)];
 
-        let apply = |layout: &mut BasicLayout| {
-            layout.display = display;
+        for layout in layouts.into_iter().flatten() {
+            layout.display = Display::Flex;
             layout.size = size;
             layout.inset = inset;
-        };
-
-        // 1. LayoutStore 側の解決値（basic_layouts）を更新
-        if let Some(layout) = layouts.basic_layouts.get_mut(id) {
-            apply(layout);
-        }
-        // 2. RenderStore 側のベース静的値（base_basic_layouts）を同時更新
-        if let Some(layout) = layouts.base_basic_layouts.get_mut(id) {
-            apply(layout);
         }
 
-        // affy 側のノードスタイルも Display::None にして即時同期
-        let node = layouts.taffy_nodes[id];
-        let _ = layouts.taffy.set_style(
-            node,
+        // affy 側のノードスタイルも Display::None にして同期
+        let _ = taffy.set_style(
+            taffy_nodes[id],
             taffy::Style {
                 display: taffy::Display::None,
                 ..Default::default()
@@ -362,75 +390,74 @@ impl LayoutStore {
         );
     }
 
-    /// 解決済みの基本スタイルを TaffyTree のノードへ即時同期して適用します。
+    /// 解決済みの基本スタイルを TaffyTree のノードへ同期して適用。
     #[inline]
     pub(crate) fn set_taffy_style(
         id: EntityId,
-        layouts: &mut LayoutStore,
+        scrollbar_styles: &ScrollbarStylesSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
         basic: &BasicLayout,
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
     ) {
-        let taffy_style = LayoutStore::resolve_taffy_style(id, layouts, basic, flex, grid);
-        let node = layouts.taffy_nodes[id];
-        let _ = layouts.taffy.set_style(node, taffy_style);
+        let taffy_style = LayoutStore::resolve_taffy_style(id, scrollbar_styles, basic, flex, grid);
+        let _ = taffy.set_style(taffy_nodes[id], taffy_style);
     }
 
     /// スクロールバー用要素をレイアウト上から安全に隠します。
     #[inline]
     pub(crate) fn hide_scrollbar_element(
         id: EntityId,
-        layouts: &mut LayoutStore,
-        renders: &mut RenderStore,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
     ) {
-        let hide = |layout: &mut BasicLayout| {
+        let layouts = [basic_layouts.get_mut(id), base_basic_layouts.get_mut(id)];
+
+        for layout in layouts.into_iter().flatten() {
             layout.display = Display::None;
-        };
-        if let Some(layout) = layouts.basic_layouts.get_mut(id) {
-            hide(layout);
-        }
-        if let Some(layout) = layouts.base_basic_layouts.get_mut(id) {
-            hide(layout);
         }
     }
 
     pub(crate) fn local_rect_from_taffy(id: EntityId, layouts: &LayoutStore) -> LayoutRect {
-        if let Some(&taffy_node) = layouts.taffy_nodes.get(id) {
-            if let Ok(layout) = layouts.taffy.layout(taffy_node) {
-                LayoutRect::new(
-                    layout.location.x,
-                    layout.location.y,
-                    layout.size.width,
-                    layout.size.height,
-                )
-            } else {
-                LayoutRect::ZERO
-            }
+        let Some(&taffy_node) = layouts.taffy_nodes.get(id) else {
+            return LayoutRect::ZERO;
+        };
+
+        if let Ok(layout) = layouts.taffy.layout(taffy_node) {
+            LayoutRect::new(
+                layout.location.x,
+                layout.location.y,
+                layout.size.width,
+                layout.size.height,
+            )
         } else {
             LayoutRect::ZERO
         }
     }
 
     /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
-    /// 内部 SoA リスト（self.children）の順序に沿って一括して再同期）します。
+    /// 内部 SoA リスト（self.children）の順序に沿って再同期。
     pub(crate) fn resync_taffy_children_order(
         parent_id: EntityId,
-        layouts: &mut LayoutStore,
-        topology: &TopologyStore,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        children: &ChildrenSecondary,
     ) {
-        if let Some(&parent_node) = layouts.taffy_nodes.get(parent_id) {
-            // 一旦現在登録されているすべての子ノードを Taffy 側から安全にデタッチ
-            if let Ok(taffy_children) = layouts.taffy.children(parent_node) {
-                for child_node in taffy_children {
-                    let _ = layouts.taffy.remove_child(parent_node, child_node);
-                }
+        let Some(&parent_node) = taffy_nodes.get(parent_id) else {
+            return;
+        };
+        // 一旦現在登録されているすべての子ノードを Taffy 側から安全にデタッチ
+        if let Ok(taffy_children) = taffy.children(parent_node) {
+            for child_node in taffy_children {
+                let _ = taffy.remove_child(parent_node, child_node);
             }
-            // 最新の並び替え順序リストの順に従って、Taffy 側に再アタッチ
-            if let Some(children_list) = topology.children.get(parent_id).cloned() {
-                for child_id in children_list {
-                    if let Some(&child_node) = layouts.taffy_nodes.get(child_id) {
-                        let _ = layouts.taffy.add_child(parent_node, child_node);
-                    }
+        }
+        // 最新の並び替え順序リストの順に従って、Taffy 側に再アタッチ
+        if let Some(children_list) = children.get(parent_id).cloned() {
+            for child_id in children_list {
+                if let Some(&child_node) = taffy_nodes.get(child_id) {
+                    let _ = taffy.add_child(parent_node, child_node);
                 }
             }
         }
@@ -447,30 +474,33 @@ impl LayoutStore {
 
     #[inline]
     pub(crate) fn mark_layout_dirty(
-        layouts: &mut LayoutStore,
-        topology: &mut TopologyStore,
         id: EntityId,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        parents: &ParentsSecondary,
     ) {
         let mut curr = id;
         // Taffy 側の該当ノードのレイアウトキャッシュを無効化
-        if let Some(&taffy_node) = layouts.taffy_nodes.get(curr) {
-            let _ = layouts.taffy.mark_dirty(taffy_node);
+        if let Some(&taffy_node) = taffy_nodes.get(curr) {
+            let _ = taffy.mark_dirty(taffy_node);
         }
 
         loop {
-            if let Some(mask) = topology.active_masks.get_mut(curr) {
+            if let Some(mask) = active_masks.get_mut(curr) {
                 // すでにレイアウトキューに登録済み（STATE_QUEUED_LAYOUT がオン）なら
                 // 多重登録を防ぎつつ、それより上の親はすでに Dirty 化されているため探索を早期ブレイク
                 if !mask.has(STATE_QUEUED_LAYOUT) {
                     mask.set(STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
-                    layouts.dirty_layout_entities.push(curr);
+                    dirty_layout_entities.push(curr);
                 } else {
                     break;
                 }
             }
 
             // 親要素（先祖）をルートまで辿って Dirty フラグを連鎖伝播させる
-            if let Some(Some(parent_id)) = topology.parents.get(curr).copied() {
+            if let Some(Some(parent_id)) = parents.get(curr).copied() {
                 curr = parent_id;
             } else {
                 break;
@@ -482,11 +512,26 @@ impl LayoutStore {
 impl Context {
     #[inline]
     pub(crate) fn mark_layout_dirty(&mut self, id: EntityId) {
-        let Context {
-            layouts, topology, ..
-        } = self;
+        let LayoutStore {
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
+        let TopologyStore {
+            active_masks,
+            parents,
+            ..
+        } = &mut self.topology;
 
-        LayoutStore::mark_layout_dirty(layouts, topology, id);
+        LayoutStore::mark_layout_dirty(
+            id,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+        );
     }
     /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出します。
     #[inline]
@@ -505,7 +550,35 @@ impl Context {
         &self,
         id: EntityId,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
-        LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders)
+        let LayoutStore {
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            ..
+        } = &self.layouts;
+        let TopologyStore {
+            active_masks,
+            parents,
+            ..
+        } = &self.topology;
+        let RenderStore {
+            active_transitions,
+            interaction_properties,
+            visual_properties,
+            ..
+        } = &self.renders;
+
+        LayoutStore::resolve_active_layouts(
+            id,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            interaction_properties,
+            visual_properties,
+        )
     }
 
     // Taffyスタイルを一括解決するヘルパー
@@ -517,7 +590,11 @@ impl Context {
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
     ) -> taffy::Style {
-        LayoutStore::resolve_taffy_style(id, &self.layouts, basic, flex, grid)
+        let LayoutStore {
+            scrollbar_styles, ..
+        } = &self.layouts;
+
+        LayoutStore::resolve_taffy_style(id, scrollbar_styles, basic, flex, grid)
     }
     // 全スクロールバー関連IDを一括抽出
     #[inline]
@@ -534,37 +611,68 @@ impl Context {
         inset: Rect<Val>,
         opacity: f32,
     ) {
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            scrollbar_styles,
+            taffy_nodes,
+            taffy,
+            ..
+        } = &mut self.layouts;
+
+        let TopologyStore {
+            parents,
+            active_masks,
+            ..
+        } = &self.topology;
+
+        let RenderStore {
+            active_transitions,
+            interaction_properties,
+            visual_properties,
+            base_visual_properties,
+            ..
+        } = &mut self.renders;
+
         LayoutStore::update_scrollbar_element_layout(
             id,
-            &mut self.layouts,
-            &mut self.renders,
+            basic_layouts,
+            base_basic_layouts,
+            taffy_nodes,
+            taffy,
             size,
             inset,
         );
-        RenderStore::update_scrollbar_element_opacity(id, &mut self.renders, opacity);
+        RenderStore::update_scrollbar_element_opacity(
+            id,
+            visual_properties,
+            base_visual_properties,
+            opacity,
+        );
 
-        let (basic, flex, grid) =
-            LayoutStore::resolve_active_layouts(id, &self.topology, &self.layouts, &self.renders);
+        let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
+            id,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            interaction_properties,
+            visual_properties,
+        );
 
-        LayoutStore::set_taffy_style(id, &mut self.layouts, &basic, &flex, grid.as_ref());
-    }
-
-    /// 解決済みの基本スタイルを TaffyTree のノードへ即時同期して適用します。
-    #[inline]
-    pub(crate) fn set_taffy_style(
-        &mut self,
-        id: EntityId,
-        basic: &BasicLayout,
-        flex: &FlexLayout,
-        grid: Option<&GridLayout>,
-    ) {
-        LayoutStore::set_taffy_style(id, &mut self.layouts, basic, flex, grid);
-    }
-
-    /// スクロールバー用要素をレイアウト上から安全に隠します。
-    #[inline]
-    pub(crate) fn hide_scrollbar_element(&mut self, id: EntityId) {
-        LayoutStore::hide_scrollbar_element(id, &mut self.layouts, &mut self.renders);
+        LayoutStore::set_taffy_style(
+            id,
+            scrollbar_styles,
+            taffy_nodes,
+            taffy,
+            &basic,
+            &flex,
+            grid.as_ref(),
+        );
     }
 
     #[inline]
@@ -576,7 +684,12 @@ impl Context {
     /// 内部 SoA リスト（self.children）の順序に沿って一括して再同期）します。
     #[inline]
     pub(crate) fn resync_taffy_children_order(&mut self, parent_id: EntityId) {
-        LayoutStore::resync_taffy_children_order(parent_id, &mut self.layouts, &self.topology);
+        let LayoutStore {
+            taffy_nodes, taffy, ..
+        } = &mut self.layouts;
+        let TopologyStore { children, .. } = &mut self.topology;
+
+        LayoutStore::resync_taffy_children_order(parent_id, taffy_nodes, taffy, children);
     }
 
     pub(crate) fn sync_resizing_drag(&mut self, logical_pos: LayoutPoint, state: ResizingState) {
@@ -782,6 +895,18 @@ impl Context {
         // Taffy 測定キャッシュをバイパスし再計算をマーク
         self.mark_layout_dirty(id);
         self.mark_render_dirty(id);
+    }
+
+    /// スクロールバー用要素をレイアウト上から安全に隠します。
+    #[inline]
+    pub(crate) fn hide_scrollbar_element(&mut self, id: EntityId) {
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            ..
+        } = &mut self.layouts;
+
+        LayoutStore::hide_scrollbar_element(id, basic_layouts, base_basic_layouts);
     }
 
     pub(crate) fn sync_scrollbar_styles(&mut self) {

@@ -90,6 +90,21 @@ impl RenderStore {
 }
 
 impl RenderStore {
+    #[inline]
+    pub(crate) fn mark_render_dirty(
+        id: EntityId,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+    ) {
+        let Some(mask) = active_masks.get_mut(id) else {
+            return;
+        };
+        if !mask.has(STATE_QUEUED_RENDER) {
+            mask.set(STATE_QUEUED_RENDER);
+            dirty_render_entities.push(id);
+        }
+    }
+
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
     pub(crate) fn clear_render_dirty(renders: &mut RenderStore, topology: &mut TopologyStore) {
         for id in renders.dirty_render_entities.drain(..) {
@@ -166,13 +181,16 @@ impl RenderStore {
     #[inline]
     pub(crate) fn update_scrollbar_element_opacity(
         id: EntityId,
-        renders: &mut RenderStore,
+        visual_properties: &mut VisualPropertiesSecondary,
+        base_visual_properties: &mut BaseVisualPropertiesSecondary,
         opacity: f32,
     ) {
-        if let Some(vis) = renders.visual_properties.get_mut(id) {
-            vis.opacity = Some(opacity);
-        }
-        if let Some(vis) = renders.base_visual_properties.get_mut(id) {
+        let visuals = [
+            visual_properties.get_mut(id),
+            base_visual_properties.get_mut(id),
+        ];
+
+        for vis in visuals.into_iter().flatten() {
             vis.opacity = Some(opacity);
         }
     }
@@ -310,28 +328,25 @@ impl RenderStore {
 
     pub(crate) fn resolv_focus_style(
         id: EntityId,
-        renders: &RenderStore,
+        interaction_properties: &InteractionPropertiesSecondary,
+        visual_properties: &VisualPropertiesSecondary,
         active_mask: &ComponentMask,
         parents: &SecondaryMap<EntityId, Option<EntityId>>,
         state_flag: u128,
     ) -> Option<ThisStyle> {
         if active_mask.has(state_flag) {
-            let self_style = renders
-                .interaction_properties
-                .get(id)
-                .and_then(|interaction| {
-                    if state_flag == STATE_FOCUSED_VISIBLE {
-                        interaction.focused_visible.clone()
-                    } else {
-                        interaction.focused.clone()
-                    }
-                });
+            let self_style = interaction_properties.get(id).and_then(|interaction| {
+                if state_flag == STATE_FOCUSED_VISIBLE {
+                    interaction.focused_visible.clone()
+                } else {
+                    interaction.focused.clone()
+                }
+            });
 
             if let Some(style) = self_style {
                 Some(style)
             } else {
-                let focus_mode = renders
-                    .visual_properties
+                let focus_mode = visual_properties
                     .get(id)
                     .and_then(|v| v.focusable)
                     .unwrap_or(Focusable::None);
@@ -349,9 +364,7 @@ impl RenderStore {
                     let mut curr = parents.get(id).copied().flatten();
                     let mut found_parent_style = None;
                     while let Some(curr_id) = curr {
-                        if let Some(parent_interaction) =
-                            renders.interaction_properties.get(curr_id)
-                        {
+                        if let Some(parent_interaction) = interaction_properties.get(curr_id) {
                             let parent_style = if state_flag == STATE_FOCUSED_VISIBLE {
                                 &parent_interaction.focused_visible
                             } else {
@@ -835,13 +848,13 @@ impl TargetStyle {
 impl Context {
     #[inline]
     pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
-        if let Some(mask) = self.topology.active_masks.get_mut(id) {
-            // すでにレンダーキューに登録済み（STATE_QUEUED_RENDER がオン）なら早期リターン
-            if !mask.has(STATE_QUEUED_RENDER) {
-                mask.set(STATE_QUEUED_RENDER); // フラグをオンにして多重登録を防ぐ
-                self.renders.dirty_render_entities.push(id);
-            }
-        }
+        let TopologyStore { active_masks, .. } = &mut self.topology;
+        let RenderStore {
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+
+        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
     }
 
     #[inline]
@@ -918,11 +931,23 @@ impl Context {
         active_mask: &ComponentMask,
         state_flag: u128,
     ) -> Option<ThisStyle> {
+        let RenderStore {
+            interaction_properties,
+            visual_properties,
+            ..
+        } = &self.renders;
+        let TopologyStore {
+            active_masks,
+            parents,
+            ..
+        } = &self.topology;
+
         RenderStore::resolv_focus_style(
             id,
-            &self.renders,
+            interaction_properties,
+            visual_properties,
             active_mask,
-            &self.topology.parents,
+            parents,
             state_flag,
         )
     }
@@ -987,7 +1012,7 @@ impl Context {
 
             // All（いずれかのインタラクションがあればON）の解決
             if let Some(ref style) = interaction.any_within
-                && self.has_descendant_with_any_active_state(id)
+                && self.has_descendant_with_state(id, STYLE_ACTIVE_INTERACTION_PROPERTY)
             {
                 TargetStyle::apply_visual_property(
                     target,
@@ -1024,7 +1049,7 @@ impl Context {
             }
 
             if let Some(ref style) = interaction.any_parent
-                && self.has_parent_with_any_active_state(id)
+                && self.has_parent_with_state(id, STYLE_ACTIVE_INTERACTION_PROPERTY)
             {
                 TargetStyle::apply_visual_property(
                     target,
