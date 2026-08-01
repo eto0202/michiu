@@ -341,22 +341,44 @@ impl Context {
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
     #[inline]
     pub fn clear_render_dirty(&mut self) {
-        RenderStore::clear_render_dirty(&mut self.renders, &mut self.topology);
+        let RenderStore {
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+        let TopologyStore { active_masks, .. } = &mut self.topology;
+
+        RenderStore::clear_render_dirty(dirty_render_entities, active_masks);
     }
 
     /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
     #[inline]
     pub fn has_active_animations(&self) -> bool {
-        // ドラッグ選択中でポインタが可視境界外にある場合も継続
-        let has_drag_autoscroll =
-            OutputStore::is_drag_autoscroll_active(&self.events, &self.outputs, &self.renders);
+        let RenderStore {
+            active_animations,
+            active_transitions,
+            visual_properties,
+            ..
+        } = &self.renders;
+        let EventStore {
+            interaction_states,
+            current_pointer_position,
+            ..
+        } = &self.events;
+        let OutputStore { clip_rects, .. } = &self.outputs;
+        let LayoutStore {
+            scrollbar_styles, ..
+        } = &self.layouts;
+        let ContentStore { input_contents, .. } = &self.contents;
 
         RenderStore::has_active_animations(
-            &self.renders,
-            &self.events,
-            &self.layouts,
-            &self.contents,
-            has_drag_autoscroll,
+            interaction_states,
+            current_pointer_position,
+            clip_rects,
+            visual_properties,
+            active_transitions,
+            active_animations,
+            input_contents,
+            scrollbar_styles,
         )
     }
 

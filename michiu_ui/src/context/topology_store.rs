@@ -390,11 +390,14 @@ impl TopologyStore {
 
         while let Some(id) = stack.pop() {
             flat_dfs_sequence.push(id);
-            if let Some(children_list) = children.get(id) {
-                let len = children_list.len();
-                for i in (0..len).rev() {
-                    stack.push(children_list[i]);
-                }
+
+            let Some(children_list) = children.get(id) else {
+                continue;
+            };
+
+            let len = children_list.len();
+            for i in (0..len).rev() {
+                stack.push(children_list[i]);
             }
         }
         *is_structure_dirty = false;
@@ -410,24 +413,21 @@ impl TopologyStore {
     ) -> bool {
         let mut stack = SmallVec::<[EntityId; 16]>::new();
 
-        if let Some(children_list) = children.get(parent) {
-            for &child_id in children_list {
-                stack.push(child_id);
-            }
+        if let Some(list) = children.get(parent) {
+            stack.extend(list.iter().copied());
         }
 
         while let Some(child_id) = stack.pop() {
             if entities.contains_key(child_id)
-                && let Some(mask) = active_masks.get(child_id)
-                && mask.has(state_flag)
+                && active_masks
+                    .get(child_id)
+                    .is_some_and(|m| m.has(state_flag))
             {
                 return true;
             }
 
-            if let Some(children_list) = children.get(child_id) {
-                for &next_child in children_list {
-                    stack.push(next_child);
-                }
+            if let Some(list) = children.get(child_id) {
+                stack.extend(list.iter().copied());
             }
         }
         false
@@ -445,9 +445,9 @@ impl TopologyStore {
         flat_dfs_sequence.first().copied().or_else(|| {
             parents
                 .iter()
-                .find(|&(id, &parent_id_opt)| {
-                    // 親が None かつ、要素 id 自体が slotmap (entities) に生存しているか
-                    parent_id_opt.is_none() && entities.contains_key(id)
+                .find(|&(id, &parent_id)| {
+                    // 親が None かつ、要素 id 自体が entities に生存しているか
+                    parent_id.is_none() && entities.contains_key(id)
                 })
                 .map(|(id, _)| id)
         })
@@ -483,27 +483,31 @@ impl TopologyStore {
         flex_layouts: &FlexLayoutsSecondary,
         rects: &RectsSecondary,
     ) -> usize {
+        // 親に子要素が存在しない場合は 0
+        let Some(children) = children.get(parent) else {
+            return 0;
+        };
+
+        let parent_flex = flex_layouts.get(parent).copied().unwrap_or_default();
+        let is_row = parent_flex.flex_direction == FlexDirection::Row
+            || parent_flex.flex_direction == FlexDirection::RowReverse;
+
         let mut insert_idx = 0;
 
-        if let Some(children) = children.get(parent) {
-            let parent_flex = flex_layouts.get(parent).copied().unwrap_or_default();
-            let is_row = parent_flex.flex_direction == FlexDirection::Row
-                || parent_flex.flex_direction == FlexDirection::RowReverse;
+        for (idx, &child) in children.iter().enumerate() {
+            let Some(rect) = rects.get(child) else {
+                continue;
+            };
 
-            for (idx, &child) in children.iter().enumerate() {
-                if let Some(rect) = rects.get(child) {
-                    if is_row {
-                        let center_x = rect.x + rect.width * 0.5;
-                        if logical_pos.x > center_x {
-                            insert_idx = idx + 1;
-                        }
-                    } else {
-                        let center_y = rect.y + rect.height * 0.5;
-                        if logical_pos.y > center_y {
-                            insert_idx = idx + 1;
-                        }
-                    }
-                }
+            // 縦・横の判定
+            let (mouse_pos, center_pos) = if is_row {
+                (logical_pos.x, rect.x + rect.width * 0.5)
+            } else {
+                (logical_pos.y, rect.y + rect.height * 0.5)
+            };
+
+            if mouse_pos > center_pos {
+                insert_idx = idx + 1;
             }
         }
 
@@ -536,7 +540,7 @@ impl TopologyStore {
         parents: &ParentsSecondary,
     ) -> SecondaryMap<EntityId, i32> {
         // 各要素の実効 z_index を親から子へカスケードして計算
-        let mut effective_z_indices = SecondaryMap::with_capacity(active_entities.len());
+        let mut eff_z_indices = SecondaryMap::with_capacity(active_entities.len());
 
         // flat_dfs_sequence は必ず親から子への順でフラットに並んでいるため、前方1方向の走査で完結
         for &id in flat_dfs_sequence {
@@ -546,15 +550,15 @@ impl TopologyStore {
                 .get(id)
                 .copied()
                 .flatten()
-                .and_then(|pid| effective_z_indices.get(pid).copied());
+                .and_then(|pid| eff_z_indices.get(pid).copied());
 
             // 自身に z_index 指定があればそれを最優先し、
             // なければ親の実効 z_index を継承する（双方になければデフォルト 0）
             let eff_z = self_z.or(parent_z).unwrap_or(0);
-            effective_z_indices.insert(id, eff_z);
+            eff_z_indices.insert(id, eff_z);
         }
 
-        effective_z_indices
+        eff_z_indices
     }
 }
 

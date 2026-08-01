@@ -252,28 +252,36 @@ impl OutputStore {
 
     /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
     pub(crate) fn is_drag_autoscroll_active(
-        events: &EventStore,
-        outputs: &OutputStore,
-        renders: &RenderStore,
+        interaction_states: &InteractionStates,
+        current_pointer_position: &Option<LayoutPoint>,
+        clip_rects: &ClipRectsSecondary,
+        visual_properties: &VisualPropertiesSecondary,
     ) -> bool {
-        if let Some(pressed_id) = events.interaction_states.pressed
-            && let Some(pointer_pos) = events.current_pointer_position
-            && let Some(clip) = outputs.clip_rects.get(pressed_id)
-        {
-            let user_select = renders
-                .visual_properties
-                .get(pressed_id)
-                .and_then(|v| v.user_select)
-                .unwrap_or(UserSelect::None);
+        let Some(id) = interaction_states.pressed else {
+            return false;
+        };
 
-            if user_select == UserSelect::Text {
-                // ポインタが可視クリップ範囲の上下左右からはみ出しているか検証
-                let is_out_x = pointer_pos.x < clip.x || pointer_pos.x > clip.x + clip.width;
-                let is_out_y = pointer_pos.y < clip.y || pointer_pos.y > clip.y + clip.height;
-                return is_out_x || is_out_y;
-            }
+        let Some(pointer_pos) = current_pointer_position else {
+            return false;
+        };
+
+        let Some(clip) = clip_rects.get(id) else {
+            return false;
+        };
+
+        let user_select = visual_properties
+            .get(id)
+            .and_then(|v| v.user_select)
+            .unwrap_or_default();
+
+        if user_select != UserSelect::Text {
+            return false;
         }
-        false
+
+        // ポインタが可視クリップ範囲の上下左右からはみ出しているか検証
+        let is_out_x = pointer_pos.x < clip.x || pointer_pos.x > clip.x + clip.width;
+        let is_out_y = pointer_pos.y < clip.y || pointer_pos.y > clip.y + clip.height;
+        is_out_x || is_out_y
     }
 
     /// 現在の選択範囲（text_selections）に基づき、
@@ -975,7 +983,22 @@ impl Context {
     /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
     #[inline]
     pub(crate) fn is_drag_autoscroll_active(&self) -> bool {
-        OutputStore::is_drag_autoscroll_active(&self.events, &self.outputs, &self.renders)
+        let RenderStore {
+            visual_properties, ..
+        } = &self.renders;
+        let OutputStore { clip_rects, .. } = &self.outputs;
+        let EventStore {
+            current_pointer_position,
+            interaction_states,
+            ..
+        } = &self.events;
+
+        OutputStore::is_drag_autoscroll_active(
+            interaction_states,
+            current_pointer_position,
+            clip_rects,
+            visual_properties,
+        )
     }
 
     /// 現在の選択範囲（text_selections）に基づき、

@@ -36,14 +36,19 @@ pub(crate) struct ResizingState {
     pub(crate) start_inset: Rect<Val>,
 }
 
+pub(crate) type EventListenersSparseSecondary = SparseSecondaryMap<EntityId, EventListeners>;
+pub(crate) type ActiveResizeHoverOption = Option<(EntityId, ResizeDirection)>;
+pub(crate) type DragPropertiesSparseSecondary = SparseSecondaryMap<EntityId, DragProperty>;
+pub(crate) type DropPropertiesSparseSecondary = SparseSecondaryMap<EntityId, DropProperty>;
+
 pub struct EventStore {
-    pub(crate) event_listeners: SparseSecondaryMap<EntityId, EventListeners>,
+    pub(crate) event_listeners: EventListenersSparseSecondary,
     pub interaction_states: InteractionStates,
     pub(crate) current_pointer_position: Option<LayoutPoint>,
     pub(crate) resizing_state: Option<ResizingState>,
-    pub(crate) active_resize_hover: Option<(EntityId, ResizeDirection)>,
-    pub(crate) drag_properties: SparseSecondaryMap<EntityId, DragProperty>,
-    pub(crate) drop_properties: SparseSecondaryMap<EntityId, DropProperty>,
+    pub(crate) active_resize_hover: ActiveResizeHoverOption,
+    pub(crate) drag_properties: DragPropertiesSparseSecondary,
+    pub(crate) drop_properties: DropPropertiesSparseSecondary,
     pub(crate) active_drag_state: Option<ActiveDragState>,
 }
 

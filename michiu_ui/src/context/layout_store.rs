@@ -167,6 +167,25 @@ impl LayoutStore {
         }
     }
 
+    pub(crate) fn get_flex_layout_mut<'a>(
+        id: EntityId,
+        target: StyleTarget,
+        flex_layouts: &'a mut SecondaryMap<EntityId, FlexLayout>,
+        interaction_properties: &'a mut InteractionPropertiesSecondary,
+    ) -> Option<&'a mut FlexLayout> {
+        match target {
+            StyleTarget::Base => flex_layouts.get_mut(id),
+            _ => {
+                if !interaction_properties.contains_key(id) {
+                    interaction_properties.insert(id, InteractionStyles::default());
+                }
+                let styles = interaction_properties.get_mut(id).unwrap();
+                let style_ref = styles.get_style_target_mut(target);
+                Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
+            }
+        }
+    }
+
     pub(crate) fn is_transition_currently_running(
         id: EntityId,
         active_transitions: &ActiveTransitionsSparseSecondary,
@@ -223,22 +242,25 @@ impl LayoutStore {
         ];
 
         for (state, style_opt) in cascade {
-            if active_mask.has(state)
-                && let Some(style) = style_opt
+            if !active_mask.has(state) {
+                continue;
+            }
+            let Some(style) = style_opt else {
+                continue;
+            };
+
+            let mut mask = style.inner.mask;
+            if is_transitioning.0 || is_transitioning.1 {
+                mask.unset(STYLE_SIZE);
+            }
+
+            basic.override_with(&style.inner.basic_layout, mask);
+            flex.override_with(&style.inner.flex_layout, mask);
+
+            if mask.has_grid_layout()
+                && let Some(ref hover_grid) = style.inner.grid_layout
             {
-                let mut mask = style.inner.mask;
-                if is_transitioning.0 || is_transitioning.1 {
-                    mask.unset(STYLE_SIZE);
-                }
-
-                basic.override_with(&style.inner.basic_layout, style.inner.mask);
-                flex.override_with(&style.inner.flex_layout, style.inner.mask);
-
-                if style.inner.mask.has_grid_layout()
-                    && let Some(ref hover_grid) = style.inner.grid_layout
-                {
-                    *grid = Some(hover_grid.clone());
-                }
+                *grid = Some(hover_grid.clone());
             }
         }
     }
@@ -511,16 +533,16 @@ impl LayoutStore {
             return LayoutRect::ZERO;
         };
 
-        if let Ok(layout) = taffy.layout(taffy_node) {
-            LayoutRect::new(
-                layout.location.x,
-                layout.location.y,
-                layout.size.width,
-                layout.size.height,
-            )
-        } else {
-            LayoutRect::ZERO
-        }
+        let Ok(layout) = taffy.layout(taffy_node) else {
+            return LayoutRect::ZERO;
+        };
+
+        LayoutRect::new(
+            layout.location.x,
+            layout.location.y,
+            layout.size.width,
+            layout.size.height,
+        )
     }
 
     /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
@@ -540,13 +562,17 @@ impl LayoutStore {
                 let _ = taffy.remove_child(parent_node, child_node);
             }
         }
-        // 最新の並び替え順序リストの順に従って、Taffy 側に再アタッチ
-        if let Some(children_list) = children.get(parent_id).cloned() {
-            for child_id in children_list {
-                if let Some(&child_node) = taffy_nodes.get(child_id) {
-                    let _ = taffy.add_child(parent_node, child_node);
-                }
-            }
+        // 最新の並び替え順序リストの存在チェック
+        let Some(children_list) = children.get(parent_id) else {
+            return;
+        };
+
+        // 最新の順序に従って、Taffy 側に再アタッチ
+        for &child_id in children_list {
+            let Some(&child_node) = taffy_nodes.get(child_id) else {
+                continue;
+            };
+            let _ = taffy.add_child(parent_node, child_node);
         }
     }
 
@@ -578,23 +604,21 @@ impl LayoutStore {
         }
 
         loop {
+            // マスクが存在する場合のみDirtyマーク
             if let Some(mask) = active_masks.get_mut(curr) {
-                // すでにレイアウトキューに登録済み（STATE_QUEUED_LAYOUT がオン）なら
-                // 多重登録を防ぎつつ、それより上の親はすでに Dirty 化されているため探索を早期ブレイク
-                if !mask.has(STATE_QUEUED_LAYOUT) {
-                    mask.set(STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
-                    dirty_layout_entities.push(curr);
-                } else {
+                // すでに登録済みなら多重登録を防ぐため探索を早期ブレイク
+                if mask.has(STATE_QUEUED_LAYOUT) {
                     break;
                 }
+                mask.set(STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
+                dirty_layout_entities.push(curr);
             }
 
             // 親要素（先祖）をルートまで辿って Dirty フラグを連鎖伝播させる
-            if let Some(Some(parent_id)) = parents.get(curr).copied() {
-                curr = parent_id;
-            } else {
+            let Some(Some(parent_id)) = parents.get(curr).copied() else {
                 break;
-            }
+            };
+            curr = parent_id;
         }
     }
 
@@ -698,16 +722,18 @@ impl LayoutStore {
             layout.size.width = Val::Px(new_w);
             layout.size.height = Val::Px(new_h);
 
-            if position == Position::Absolute {
-                if let Val::Px(start_top) = state.start_inset.top {
-                    layout.inset.top = Val::Px(start_top + delta_inset_top);
-                }
-                if let Val::Px(start_left) = state.start_inset.left {
-                    layout.inset.left = Val::Px(start_left + delta_inset_left);
-                }
-                layout.inset.right = Val::Auto;
-                layout.inset.bottom = Val::Auto;
+            if position != Position::Absolute {
+                continue;
             }
+
+            if let Val::Px(start_top) = state.start_inset.top {
+                layout.inset.top = Val::Px(start_top + delta_inset_top);
+            }
+            if let Val::Px(start_left) = state.start_inset.left {
+                layout.inset.left = Val::Px(start_left + delta_inset_left);
+            }
+            layout.inset.right = Val::Auto;
+            layout.inset.bottom = Val::Auto;
         }
 
         LayoutStore::mark_layout_dirty(
@@ -1068,6 +1094,7 @@ impl LayoutStore {
     }
 
     // 表示状態と不透明度の計算
+    #[inline]
     fn calculate_visibility_opacity(
         display: ScrollbarDisplay,
         last_scroll_time: Option<Instant>,
@@ -1079,16 +1106,16 @@ impl LayoutStore {
         match display {
             ScrollbarDisplay::Always | ScrollbarDisplay::Auto => (true, 1.0),
             ScrollbarDisplay::Transient => {
-                if let Some(last) = last_scroll_time {
-                    let elapsed = last.elapsed();
-                    if elapsed < Duration::from_millis(1000) {
-                        (true, 1.0)
-                    } else if elapsed < Duration::from_millis(1500) {
-                        let opacity = 1.0 - (elapsed.as_secs_f32() - 1.0) / 0.5;
-                        (true, opacity)
-                    } else {
-                        (false, 1.0)
-                    }
+                let Some(last) = last_scroll_time else {
+                    return (false, 1.0);
+                };
+
+                let elapsed = last.elapsed();
+                if elapsed < Duration::from_millis(1000) {
+                    (true, 1.0)
+                } else if elapsed < Duration::from_millis(1500) {
+                    let opacity = 1.0 - (elapsed.as_secs_f32() - 1.0) / 0.5;
+                    (true, opacity)
                 } else {
                     (false, 1.0)
                 }
@@ -1111,6 +1138,7 @@ impl LayoutStore {
     }
 
     // つまみの物理サイズと位置の計算
+    #[inline]
     fn calculate_thumb_geometry(
         track_len: f32,
         visible_len: f32,
@@ -1245,6 +1273,21 @@ impl Context {
         } = &mut self.renders;
 
         LayoutStore::get_basic_layout_mut(id, base_basic_layouts, interaction_properties, target)
+    }
+
+    #[inline]
+    pub(crate) fn get_flex_layout_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut FlexLayout> {
+        let LayoutStore { flex_layouts, .. } = &mut self.layouts;
+        let RenderStore {
+            interaction_properties,
+            ..
+        } = &mut self.renders;
+
+        LayoutStore::get_flex_layout_mut(id, target, flex_layouts, interaction_properties)
     }
 
     // Taffyスタイルを一括解決するヘルパー

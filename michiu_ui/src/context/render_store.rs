@@ -105,52 +105,33 @@ impl RenderStore {
     }
 
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
-    pub(crate) fn clear_render_dirty(renders: &mut RenderStore, topology: &mut TopologyStore) {
-        for id in renders.dirty_render_entities.drain(..) {
-            if let Some(mask) = topology.active_masks.get_mut(id) {
+    pub(crate) fn clear_render_dirty(
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+        active_masks: &mut ActiveMasksSecondary,
+    ) {
+        for id in dirty_render_entities.drain(..) {
+            if let Some(mask) = active_masks.get_mut(id) {
                 mask.unset(STATE_QUEUED_RENDER);
             }
         }
-        renders.dirty_render_entities.clear();
+        dirty_render_entities.clear();
     }
 
-    pub(crate) fn get_visual_property_mut(
+    pub(crate) fn get_visual_property_mut<'a>(
         id: EntityId,
-        renders: &mut RenderStore,
         target: StyleTarget,
-    ) -> Option<&mut VisualProperty> {
+        base_visual_properties: &'a mut BaseVisualPropertiesSecondary,
+        interaction_properties: &'a mut InteractionPropertiesSecondary,
+    ) -> Option<&'a mut VisualProperty> {
         match target {
-            StyleTarget::Base => renders.base_visual_properties.get_mut(id),
+            StyleTarget::Base => base_visual_properties.get_mut(id),
             _ => {
-                if !renders.interaction_properties.contains_key(id) {
-                    renders
-                        .interaction_properties
-                        .insert(id, InteractionStyles::default());
+                if !interaction_properties.contains_key(id) {
+                    interaction_properties.insert(id, InteractionStyles::default());
                 }
-                let styles = renders.interaction_properties.get_mut(id).unwrap();
+                let styles = interaction_properties.get_mut(id).unwrap();
                 let style_ref = styles.get_style_target_mut(target);
                 Some(&mut Arc::make_mut(&mut style_ref.inner).visual_property)
-            }
-        }
-    }
-
-    pub(crate) fn get_flex_layout_mut<'a>(
-        id: EntityId,
-        renders: &'a mut RenderStore,
-        target: StyleTarget,
-        flex_layouts: &'a mut SecondaryMap<EntityId, FlexLayout>,
-    ) -> Option<&'a mut FlexLayout> {
-        match target {
-            StyleTarget::Base => flex_layouts.get_mut(id),
-            _ => {
-                if !renders.interaction_properties.contains_key(id) {
-                    renders
-                        .interaction_properties
-                        .insert(id, InteractionStyles::default());
-                }
-                let styles = renders.interaction_properties.get_mut(id).unwrap();
-                let style_ref = styles.get_style_target_mut(target);
-                Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
             }
         }
     }
@@ -173,89 +154,96 @@ impl RenderStore {
         }
     }
 
-    pub(crate) fn trigger_keyframe_animations_if_needed(id: EntityId, renders: &mut RenderStore) {
-        if let Some(visual) = renders.visual_properties.get(id) {
-            if visual.keyframe_animations.is_empty() {
-                return;
+    pub(crate) fn trigger_keyframe_animations_if_needed(
+        id: EntityId,
+        visual_properties: &VisualPropertiesSecondary,
+        active_animations: &mut ActiveAnimationsSparseSecondary,
+    ) {
+        let Some(visual) = visual_properties.get(id) else {
+            return;
+        };
+        if visual.keyframe_animations.is_empty() {
+            return;
+        }
+
+        let now = Instant::now();
+
+        if !active_animations.contains_key(id) {
+            active_animations.insert(id, Vec::new());
+        }
+        let active_list = active_animations.get_mut(id).unwrap();
+
+        for anim in &visual.keyframe_animations {
+            // すでに同じプロパティのアニメーションが駆動中なら重複起動をスルー
+            if active_list.iter().any(|a| a.property == anim.property) {
+                continue;
             }
 
-            let now = Instant::now();
-
-            // 借用回避のため定義を一度クローン
-            let anims = visual.keyframe_animations.clone();
-
-            if !renders.active_animations.contains_key(id) {
-                renders.active_animations.insert(id, Vec::new());
-            }
-            let active_list = renders.active_animations.get_mut(id).unwrap();
-
-            for anim in anims {
-                // すでに同じプロパティのアニメーションが駆動中なら重複起動をスルー
-                if active_list.iter().any(|a| a.property == anim.property) {
-                    continue;
+            // 初期値（開始値）と目標値（100%キーフレームに相当する値）を設定
+            let (start_val, end_val) = match anim.property {
+                PropertyList::Transform => {
+                    let start = TransitionValue::Transform(IDENTITY_MATRIX);
+                    // Z軸を1周（2PI）回転させる行列を終点にする
+                    let mut end_transform =
+                        crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
+                    let end = TransitionValue::Transform(end_transform.matrix);
+                    (start, end)
                 }
+                PropertyList::Opacity => {
+                    (TransitionValue::Opacity(1.0), TransitionValue::Opacity(0.0)) // フェードアウト等
+                }
+                _ => continue, // TODO: 他プロパティも定義
+            };
 
-                // 初期値（開始値）と目標値（100%キーフレームに相当する値）を設定
-                let (start_val, end_val) = match anim.property {
-                    PropertyList::Transform => {
-                        let start = TransitionValue::Transform(IDENTITY_MATRIX);
-                        // Z軸を1周（2PI）回転させる行列を終点にする
-                        let mut end_transform =
-                            crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
-                        let end = TransitionValue::Transform(end_transform.matrix);
-                        (start, end)
-                    }
-                    PropertyList::Opacity => {
-                        (TransitionValue::Opacity(1.0), TransitionValue::Opacity(0.0)) // フェードアウト等
-                    }
-                    _ => continue, // TODO: 他プロパティも定義
-                };
-
-                active_list.push(ActiveAnimation {
-                    property: anim.property,
-                    start_time: now,
-                    duration: anim.duration,
-                    iteration_count: anim.iteration_count,
-                    curve: anim.curve,
-                    start_value: start_val,
-                    end_value: end_val,
-                });
-            }
+            active_list.push(ActiveAnimation {
+                property: anim.property,
+                start_time: now,
+                duration: anim.duration,
+                iteration_count: anim.iteration_count,
+                curve: anim.curve,
+                start_value: start_val,
+                end_value: end_val,
+            });
         }
     }
 
-    /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
+    /// 現在、アクティブに動いているトランジションがあるか判定します
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn has_active_animations(
-        renders: &RenderStore,
-        events: &EventStore,
-        layouts: &LayoutStore,
-        contents: &ContentStore,
-        has_drag_autoscroll: bool,
+        interaction_states: &InteractionStates,
+        current_pointer_position: &Option<LayoutPoint>,
+        clip_rects: &ClipRectsSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        active_animations: &ActiveAnimationsSparseSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        scrollbar_styles: &ScrollbarStylesSecondary,
     ) -> bool {
-        // トランジション（CSS transition）のアクティブ判定
-        let has_transitions = !renders.active_transitions.is_empty()
-            && renders
-                .active_transitions
-                .values()
-                .any(|list| !list.is_empty());
+        // ドラッグ選択中でポインタが可視境界外にある場合も継続
+        let has_drag_autoscroll = OutputStore::is_drag_autoscroll_active(
+            interaction_states,
+            current_pointer_position,
+            clip_rects,
+            visual_properties,
+        );
 
-        // キーフレームアニメーション（CSS animation）のアクティブ判定
-        let has_keyframes = !renders.active_animations.is_empty()
-            && renders
-                .active_animations
-                .values()
-                .any(|list| !list.is_empty());
+        // トランジションのアクティブ判定
+        let has_transitions = !active_transitions.is_empty()
+            && active_transitions.values().any(|list| !list.is_empty());
 
-        // 3フォーカスされたインプットがあり、キャレット点滅が有効な間は描画ループを駆動
-        let has_blinking_input = events
-            .interaction_states
+        // キーフレームアニメーションのアクティブ判定
+        let has_keyframes = !active_animations.is_empty()
+            && active_animations.values().any(|list| !list.is_empty());
+
+        // フォーカスされたインプットがあり、キャレット点滅が有効な間は描画ループを駆動
+        let has_blinking_input = interaction_states
             .focused
-            .and_then(|id| contents.input_contents.get(id))
+            .and_then(|id| input_contents.get(id))
             .map(|c| c.has_caret && c.is_blink)
             .unwrap_or(false);
 
         // 一時的表示スクロールバーのフェード進行中は描画更新ループを継続
-        let has_active_transient_scrollbar = layouts.scrollbar_styles.values().any(|sb_state| {
+        let has_active_transient_scrollbar = scrollbar_styles.values().any(|sb_state| {
             sb_state.style.display == ScrollbarDisplay::Transient
                 && sb_state
                     .last_scroll_time
@@ -270,8 +258,8 @@ impl RenderStore {
             || has_drag_autoscroll
     }
 
-    /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
-    /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
+    /// 指定された動的状態に切り替わる際、
+    /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定。
     pub(crate) fn does_state_require_layout(
         id: EntityId,
         renders: &RenderStore,
@@ -841,20 +829,17 @@ impl Context {
         id: EntityId,
         target: StyleTarget,
     ) -> Option<&mut VisualProperty> {
-        RenderStore::get_visual_property_mut(id, &mut self.renders, target)
-    }
+        let RenderStore {
+            base_visual_properties,
+            interaction_properties,
+            ..
+        } = &mut self.renders;
 
-    #[inline]
-    pub(crate) fn get_flex_layout_mut(
-        &mut self,
-        id: EntityId,
-        target: StyleTarget,
-    ) -> Option<&mut FlexLayout> {
-        RenderStore::get_flex_layout_mut(
+        RenderStore::get_visual_property_mut(
             id,
-            &mut self.renders,
             target,
-            &mut self.layouts.flex_layouts,
+            base_visual_properties,
+            interaction_properties,
         )
     }
 
@@ -883,7 +868,17 @@ impl Context {
 
     #[inline]
     pub(crate) fn trigger_keyframe_animations_if_needed(&mut self, id: EntityId) {
-        RenderStore::trigger_keyframe_animations_if_needed(id, &mut self.renders);
+        let RenderStore {
+            visual_properties,
+            active_animations,
+            ..
+        } = &mut self.renders;
+
+        RenderStore::trigger_keyframe_animations_if_needed(
+            id,
+            visual_properties,
+            active_animations,
+        );
     }
 
     /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
