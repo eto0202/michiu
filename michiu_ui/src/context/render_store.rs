@@ -98,10 +98,12 @@ impl RenderStore {
         let Some(mask) = active_masks.get_mut(id) else {
             return;
         };
-        if !mask.has(STATE_QUEUED_RENDER) {
-            mask.set(STATE_QUEUED_RENDER);
-            dirty_render_entities.push(id);
+        if mask.has(STATE_QUEUED_RENDER) {
+            return;
         }
+
+        mask.set(STATE_QUEUED_RENDER);
+        dirty_render_entities.push(id);
     }
 
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
@@ -110,9 +112,10 @@ impl RenderStore {
         active_masks: &mut ActiveMasksSecondary,
     ) {
         for id in dirty_render_entities.drain(..) {
-            if let Some(mask) = active_masks.get_mut(id) {
-                mask.unset(STATE_QUEUED_RENDER);
-            }
+            let Some(mask) = active_masks.get_mut(id) else {
+                continue;
+            };
+            mask.unset(STATE_QUEUED_RENDER);
         }
         dirty_render_entities.clear();
     }
@@ -262,34 +265,37 @@ impl RenderStore {
     /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定。
     pub(crate) fn does_state_require_layout(
         id: EntityId,
-        renders: &RenderStore,
+        interaction_properties: &InteractionPropertiesSecondary,
         state_flag: u128,
     ) -> bool {
-        if let Some(interaction) = renders.interaction_properties.get(id) {
-            // 対象となる状態スタイルを取得
-            let target_style = match state_flag {
-                STATE_HOVERED => &interaction.hovered,
-                STATE_FOCUSED => &interaction.focused,
-                STATE_FOCUSED_VISIBLE => &interaction.focused_visible,
-                STATE_PRESSED => &interaction.pressed,
-                STATE_DISABLED => &interaction.disabled,
-                STATE_ACTIVED => &interaction.actived,
-                STATE_SELECTED => &interaction.selected,
-                STATE_DRAGGED => &interaction.dragged,
-                STATE_DRAGGING => &interaction.dragging,
-                STATE_DRAG_IN => &interaction.drag_in,
-                STATE_DRAG_OVER => &interaction.drag_over,
-                _ => &None,
-            };
+        let Some(interaction) = interaction_properties.get(id) else {
+            return false;
+        };
 
-            // 指定された状態スタイルが存在する場合のみ、内部マスクを検証
-            if let Some(style) = target_style {
-                let mask = style.inner.mask;
-                // 基本レイアウト、Flexレイアウト、またはGridレイアウト変更が含まれていれば true
-                return mask.has_basic_layout() || mask.has_flex_layout() || mask.has_grid_layout();
-            }
-        }
-        false
+        // 対象となる状態スタイルを取得
+        let target_style = match state_flag {
+            STATE_HOVERED => &interaction.hovered,
+            STATE_FOCUSED => &interaction.focused,
+            STATE_FOCUSED_VISIBLE => &interaction.focused_visible,
+            STATE_PRESSED => &interaction.pressed,
+            STATE_DISABLED => &interaction.disabled,
+            STATE_ACTIVED => &interaction.actived,
+            STATE_SELECTED => &interaction.selected,
+            STATE_DRAGGED => &interaction.dragged,
+            STATE_DRAGGING => &interaction.dragging,
+            STATE_DRAG_IN => &interaction.drag_in,
+            STATE_DRAG_OVER => &interaction.drag_over,
+            _ => &None,
+        };
+
+        // 指定された状態スタイルが存在する場合のみ、内部マスクを検証
+        let Some(style) = target_style else {
+            return false;
+        };
+
+        let mask = style.inner.mask;
+        // 基本レイアウト、Flexレイアウト、またはGridレイアウト変更が含まれていれば true
+        mask.has_basic_layout() || mask.has_flex_layout() || mask.has_grid_layout()
     }
 
     pub(crate) fn resolv_focus_style(
@@ -300,62 +306,59 @@ impl RenderStore {
         parents: &SecondaryMap<EntityId, Option<EntityId>>,
         state_flag: u128,
     ) -> Option<ThisStyle> {
-        if active_mask.has(state_flag) {
-            let self_style = interaction_properties.get(id).and_then(|interaction| {
-                if state_flag == STATE_FOCUSED_VISIBLE {
-                    interaction.focused_visible.clone()
-                } else {
-                    interaction.focused.clone()
-                }
-            });
-
-            if let Some(style) = self_style {
-                Some(style)
+        if !active_mask.has(state_flag) {
+            return None;
+        }
+        let self_style = interaction_properties.get(id).and_then(|interaction| {
+            if state_flag == STATE_FOCUSED_VISIBLE {
+                interaction.focused_visible.clone()
             } else {
-                let focus_mode = visual_properties
-                    .get(id)
-                    .and_then(|v| v.focusable)
-                    .unwrap_or(Focusable::None);
+                interaction.focused.clone()
+            }
+        });
 
-                let is_trigger_match = match (state_flag, focus_mode) {
-                    (STATE_FOCUSED, Focusable::Inherit(_)) => true,
-                    (STATE_FOCUSED_VISIBLE, Focusable::Inherit(trigger)) => {
-                        trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
-                    }
-                    _ => false,
+        if let Some(style) = self_style {
+            return Some(style);
+        }
+
+        let focus_mode = visual_properties
+            .get(id)
+            .and_then(|v| v.focusable)
+            .unwrap_or_default();
+
+        let is_trigger_match = match (state_flag, focus_mode) {
+            (STATE_FOCUSED, Focusable::Inherit(_)) => true,
+            (STATE_FOCUSED_VISIBLE, Focusable::Inherit(trigger)) => {
+                trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
+            }
+            _ => false,
+        };
+
+        if !is_trigger_match {
+            return None;
+        }
+
+        // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素の設定をそのまま借用する
+        let mut curr = parents.get(id).copied().flatten();
+        while let Some(curr_id) = curr {
+            if let Some(parent_interaction) = interaction_properties.get(curr_id) {
+                let parent_style = if state_flag == STATE_FOCUSED_VISIBLE {
+                    &parent_interaction.focused_visible
+                } else {
+                    &parent_interaction.focused
                 };
 
-                if is_trigger_match {
-                    // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素のその設定をそのまま借用する
-                    let mut curr = parents.get(id).copied().flatten();
-                    let mut found_parent_style = None;
-                    while let Some(curr_id) = curr {
-                        if let Some(parent_interaction) = interaction_properties.get(curr_id) {
-                            let parent_style = if state_flag == STATE_FOCUSED_VISIBLE {
-                                &parent_interaction.focused_visible
-                            } else {
-                                &parent_interaction.focused
-                            };
-                            if let Some(p_style) = parent_style {
-                                found_parent_style = Some(p_style.clone());
-                                break;
-                            }
-                        }
-                        curr = parents.get(curr_id).copied().flatten();
-                    }
-                    found_parent_style
-                } else {
-                    None
+                if let Some(p_style) = parent_style {
+                    return Some(p_style.clone());
                 }
             }
-        } else {
-            None
+            curr = parents.get(curr_id).copied().flatten();
         }
+        None
     }
 
     pub(crate) fn cascade_interaction_flag<'a>(
         id: EntityId,
-        renders: &RenderStore,
         interaction: &'a InteractionStyles,
         focused_style_resolved: &'a Option<ThisStyle>,
         focused_visible_style_resolved: &'a Option<ThisStyle>,
@@ -413,31 +416,33 @@ impl RenderStore {
 
     pub(crate) fn cascade_basic_layout(
         id: EntityId,
-        renders: &RenderStore,
+        interaction_properties: &InteractionPropertiesSecondary,
         active_mask: ComponentMask,
         target_layout: &mut BasicLayout,
     ) {
-        if let Some(interaction) = renders.interaction_properties.get(id) {
-            let cascade = [
-                (STATE_FOCUSED, &interaction.focused),
-                (STATE_FOCUSED_VISIBLE, &interaction.focused_visible),
-                (STATE_SELECTED, &interaction.selected),
-                (STATE_ACTIVED, &interaction.actived),
-                (STATE_HOVERED, &interaction.hovered),
-                (STATE_PRESSED, &interaction.pressed),
-                (STATE_DISABLED, &interaction.disabled),
-                (STATE_DRAGGED, &interaction.dragged),
-                (STATE_DRAGGING, &interaction.dragging),
-                (STATE_DRAG_IN, &interaction.drag_in),
-                (STATE_DRAG_OVER, &interaction.drag_over),
-            ];
+        let Some(interaction) = interaction_properties.get(id) else {
+            return;
+        };
 
-            for (state, style_opt) in cascade {
-                if active_mask.has(state)
-                    && let Some(style) = style_opt
-                {
-                    target_layout.override_with(&style.inner.basic_layout, style.inner.mask);
-                }
+        let cascade = [
+            (STATE_FOCUSED, &interaction.focused),
+            (STATE_FOCUSED_VISIBLE, &interaction.focused_visible),
+            (STATE_SELECTED, &interaction.selected),
+            (STATE_ACTIVED, &interaction.actived),
+            (STATE_HOVERED, &interaction.hovered),
+            (STATE_PRESSED, &interaction.pressed),
+            (STATE_DISABLED, &interaction.disabled),
+            (STATE_DRAGGED, &interaction.dragged),
+            (STATE_DRAGGING, &interaction.dragging),
+            (STATE_DRAG_IN, &interaction.drag_in),
+            (STATE_DRAG_OVER, &interaction.drag_over),
+        ];
+
+        for (state, style_opt) in cascade {
+            if active_mask.has(state)
+                && let Some(style) = style_opt
+            {
+                target_layout.override_with(&style.inner.basic_layout, style.inner.mask);
             }
         }
     }
@@ -486,22 +491,21 @@ impl RenderStore {
         }
 
         // 個別指定がなく、親のいずれかに Global カーソルが定義されていた場合はそれを採用
-        if let Some(global) = global_cursor {
-            match global {
-                GlobalCursorIcon::Default(opt) => CursorIcon::Default(opt),
-                GlobalCursorIcon::Pointer(opt) => CursorIcon::Pointer(opt),
-                GlobalCursorIcon::Text(opt) => CursorIcon::Text(opt),
-                GlobalCursorIcon::Grab(opt) => CursorIcon::Grab(opt),
-                GlobalCursorIcon::Grabbing(opt) => CursorIcon::Grabbing(opt),
-                GlobalCursorIcon::NotAllowed(opt) => CursorIcon::NotAllowed(opt),
-                GlobalCursorIcon::ResizeNs(opt) => CursorIcon::ResizeNs(opt),
-                GlobalCursorIcon::ResizeEw(opt) => CursorIcon::ResizeEw(opt),
-                GlobalCursorIcon::ResizeNesw(opt) => CursorIcon::ResizeNesw(opt),
-                GlobalCursorIcon::ResizeNwse(opt) => CursorIcon::ResizeNwse(opt),
-            }
-        } else {
+        let Some(global) = global_cursor else {
             // 先祖に何の設定もない場合はデフォルトの矢印
-            CursorIcon::Default(None)
+            return CursorIcon::Default(None);
+        };
+        match global {
+            GlobalCursorIcon::Default(opt) => CursorIcon::Default(opt),
+            GlobalCursorIcon::Pointer(opt) => CursorIcon::Pointer(opt),
+            GlobalCursorIcon::Text(opt) => CursorIcon::Text(opt),
+            GlobalCursorIcon::Grab(opt) => CursorIcon::Grab(opt),
+            GlobalCursorIcon::Grabbing(opt) => CursorIcon::Grabbing(opt),
+            GlobalCursorIcon::NotAllowed(opt) => CursorIcon::NotAllowed(opt),
+            GlobalCursorIcon::ResizeNs(opt) => CursorIcon::ResizeNs(opt),
+            GlobalCursorIcon::ResizeEw(opt) => CursorIcon::ResizeEw(opt),
+            GlobalCursorIcon::ResizeNesw(opt) => CursorIcon::ResizeNesw(opt),
+            GlobalCursorIcon::ResizeNwse(opt) => CursorIcon::ResizeNwse(opt),
         }
     }
 
@@ -885,7 +889,12 @@ impl Context {
     /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
     #[inline]
     pub(crate) fn does_state_require_layout(&self, id: EntityId, state_flag: u128) -> bool {
-        RenderStore::does_state_require_layout(id, &self.renders, state_flag)
+        let RenderStore {
+            interaction_properties,
+            ..
+        } = &self.renders;
+
+        RenderStore::does_state_require_layout(id, interaction_properties, state_flag)
     }
 
     #[inline]
@@ -928,7 +937,6 @@ impl Context {
         if let Some(interaction) = self.renders.interaction_properties.get(id) {
             let cascade = RenderStore::cascade_interaction_flag(
                 id,
-                &self.renders,
                 interaction,
                 &focused_style_resolved,
                 &focused_visible_style_resolved,
@@ -1031,7 +1039,12 @@ impl Context {
         active_mask: ComponentMask,
         target_layout: &mut BasicLayout,
     ) {
-        RenderStore::cascade_basic_layout(id, &self.renders, active_mask, target_layout);
+        let RenderStore {
+            interaction_properties,
+            ..
+        } = &self.renders;
+
+        RenderStore::cascade_basic_layout(id, interaction_properties, active_mask, target_layout);
     }
 
     /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
