@@ -4,17 +4,24 @@ use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
-pub(crate) type RectsSecondaryMap = SecondaryMap<EntityId, LayoutRect>;
+pub(crate) type RectsSecondary = SecondaryMap<EntityId, LayoutRect>;
+pub(crate) type ClipRectsSecondary = SecondaryMap<EntityId, LayoutRect>;
+pub(crate) type ScrollOffsetsSecondary = SecondaryMap<EntityId, LayoutPoint>;
+pub(crate) type PrevRectsSecondary = SecondaryMap<EntityId, LayoutRect>;
+pub(crate) type PrevClipRectsSecondary = SecondaryMap<EntityId, LayoutRect>;
+pub(crate) type SelectedRectsSparseSecondary = SparseSecondaryMap<EntityId, Vec<LayoutRect>>;
+pub(crate) type TextSelectionsSparseSecondary = SparseSecondaryMap<EntityId, Range<usize>>;
+pub(crate) type SelectionStartIndexSparseSecondary = SparseSecondaryMap<EntityId, usize>;
 
 pub struct OutputStore {
-    pub(crate) rects: RectsSecondaryMap,
-    pub(crate) clip_rects: SecondaryMap<EntityId, LayoutRect>,
-    pub(crate) scroll_offsets: SecondaryMap<EntityId, LayoutPoint>,
-    pub(crate) prev_rects: SecondaryMap<EntityId, LayoutRect>,
-    pub(crate) prev_clip_rects: SecondaryMap<EntityId, LayoutRect>,
-    pub(crate) selected_rects: SparseSecondaryMap<EntityId, Vec<LayoutRect>>,
-    pub(crate) text_selections: SparseSecondaryMap<EntityId, std::ops::Range<usize>>,
-    pub(crate) selection_start_index: SparseSecondaryMap<EntityId, usize>,
+    pub(crate) rects: RectsSecondary,
+    pub(crate) clip_rects: ClipRectsSecondary,
+    pub(crate) scroll_offsets: ScrollOffsetsSecondary,
+    pub(crate) prev_rects: PrevRectsSecondary,
+    pub(crate) prev_clip_rects: PrevClipRectsSecondary,
+    pub(crate) selected_rects: SelectedRectsSparseSecondary,
+    pub(crate) text_selections: TextSelectionsSparseSecondary,
+    pub(crate) selection_start_index: SelectionStartIndexSparseSecondary,
 }
 
 impl Default for OutputStore {
@@ -64,29 +71,38 @@ impl OutputStore {
 }
 
 impl OutputStore {
-    pub(crate) fn swap_output_rect(outputs: &mut OutputStore) {
-        std::mem::swap(&mut outputs.rects, &mut outputs.prev_rects);
-        std::mem::swap(&mut outputs.clip_rects, &mut outputs.prev_clip_rects);
+    pub(crate) fn swap_output_rect(
+        rects: &mut RectsSecondary,
+        prev_rects: &mut PrevRectsSecondary,
+        clip_rects: &mut ClipRectsSecondary,
+        prev_clip_rects: &mut PrevClipRectsSecondary,
+    ) {
+        std::mem::swap(rects, prev_rects);
+        std::mem::swap(clip_rects, prev_clip_rects);
 
-        outputs.rects.clear();
-        outputs.clip_rects.clear();
+        rects.clear();
+        clip_rects.clear();
     }
 
-    pub(crate) fn parent_changed(
+    pub(crate) fn has_parent_changed(
         id: EntityId,
-        outputs: &OutputStore,
-        topology: &TopologyStore,
+        parents: &ParentsSecondary,
+        active_masks: &ActiveMasksSecondary,
+        rects: &RectsSecondary,
+        prev_rects: &PrevRectsSecondary,
+        clip_rects: &ClipRectsSecondary,
+        prev_clip_rects: &PrevClipRectsSecondary,
     ) -> bool {
-        let parent_id_opt = topology.parents.get(id).copied().flatten();
+        let parent_id_opt = parents.get(id).copied().flatten();
 
         let mut parent_changed = false;
 
         if let Some(parent_id) = parent_id_opt {
-            let prev_parent_rect = outputs.prev_rects.get(parent_id);
-            let curr_parent_rect = outputs.rects.get(parent_id);
-            let prev_parent_clip = outputs.prev_clip_rects.get(parent_id);
-            let curr_parent_clip = outputs.clip_rects.get(parent_id);
-            let is_parent_dirty = topology.active_masks[parent_id].has(STATE_QUEUED_LAYOUT);
+            let prev_parent_rect = prev_rects.get(parent_id);
+            let curr_parent_rect = rects.get(parent_id);
+            let prev_parent_clip = prev_clip_rects.get(parent_id);
+            let curr_parent_clip = clip_rects.get(parent_id);
+            let is_parent_dirty = active_masks[parent_id].has(STATE_QUEUED_LAYOUT);
 
             // 親が動いた、サイズが変わった、クリップが変わった、または親にレイアウト変更がある
             if prev_parent_rect != curr_parent_rect
@@ -100,52 +116,23 @@ impl OutputStore {
         parent_changed
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn calc_local_rect(
         id: EntityId,
-        outputs: &OutputStore,
-        layouts: &LayoutStore,
-        topology: &TopologyStore,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &TaffyTreeEntityId,
+        parents: &ParentsSecondary,
+        rects: &RectsSecondary,
+        clip_rects: &ClipRectsSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        scroll_offsets: &ScrollOffsetsSecondary,
         window_size: LayoutSize,
     ) -> (LayoutRect, LayoutRect) {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
+        let local_rect = LayoutStore::local_rect_from_taffy(id, taffy_nodes, taffy);
 
-        // Taffyから実データを引き出す
-        let local_rect = LayoutStore::local_rect_from_taffy(id, layouts);
-
-        let parent_id_opt = topology.parents.get(id).copied().flatten();
-        let (abs_rect, parent_clip) = if let Some(parent_id) = parent_id_opt {
-            let parent_rect = outputs.rects.get(parent_id).copied().unwrap_or_default();
-            let parent_clip = outputs
-                .clip_rects
-                .get(parent_id)
-                .copied()
-                .unwrap_or_default();
-
-            let is_absolute = layouts
-                .basic_layouts
-                .get(id)
-                .map(|l| l.position == Position::Absolute)
-                .unwrap_or(false);
-
-            let parent_scroll = if is_absolute {
-                LayoutPoint::ZERO
-            } else {
-                outputs
-                    .scroll_offsets
-                    .get(parent_id)
-                    .copied()
-                    .unwrap_or(LayoutPoint::ZERO)
-            };
-
-            let abs_x = parent_rect.x + local_rect.x - parent_scroll.x;
-            let abs_y = parent_rect.y + local_rect.y - parent_scroll.y;
-
-            (
-                LayoutRect::new(abs_x, abs_y, local_rect.width, local_rect.height),
-                parent_clip,
-            )
-        } else {
-            (
+        let Some(parent_id) = parents.get(id).copied().flatten() else {
+            return (
                 LayoutRect::new(
                     local_rect.x,
                     local_rect.y,
@@ -153,28 +140,46 @@ impl OutputStore {
                     local_rect.height,
                 ),
                 initial_clip,
-            )
+            );
         };
+
+        let parent_rect = rects.get(parent_id).copied().unwrap_or_default();
+        let parent_clip = clip_rects.get(parent_id).copied().unwrap_or_default();
+        let s_offsets = scroll_offsets.get(parent_id).copied().unwrap_or_default();
+        let is_absolute = basic_layouts
+            .get(id)
+            .map(|l| l.position == Position::Absolute)
+            .unwrap_or(false);
+
+        let parent_scroll = if is_absolute {
+            LayoutPoint::ZERO
+        } else {
+            s_offsets
+        };
+
+        let abs_x = parent_rect.x + local_rect.x - parent_scroll.x;
+        let abs_y = parent_rect.y + local_rect.y - parent_scroll.y;
+
+        let abs_rect = LayoutRect::new(abs_x, abs_y, local_rect.width, local_rect.height);
 
         (abs_rect, parent_clip)
     }
 
     /// 単位（Px, Percent, Auto）を親要素のサイズまたはウィンドウ基準をベースに物理ピクセルへ解決します。
-    pub(crate) fn resolve_val_to_px(
+    pub(crate) fn val_to_px(
         id: EntityId,
         val: Val,
         is_width: bool,
-        topology: &TopologyStore,
-        outputs: &OutputStore,
-        window: &WindowStore,
+        parents: &ParentsSecondary,
+        rects: &RectsSecondary,
+        last_window_size: &Option<LayoutSize>,
     ) -> Option<f32> {
         match val {
             Val::Px(v) => Some(v),
             Val::Percent(p) => {
                 // 親要素の確定サイズを優先取得
-                let parent_size = if let Some(Some(parent_id)) = topology.parents.get(id) {
-                    outputs
-                        .rects
+                let parent_size = if let Some(Some(parent_id)) = parents.get(id) {
+                    rects
                         .get(*parent_id)
                         .map(|r| LayoutSize::new(r.width, r.height))
                 } else {
@@ -182,7 +187,7 @@ impl OutputStore {
                 };
 
                 // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
-                let ref_size = parent_size.or(window.last_window_size)?;
+                let ref_size = parent_size.or(*last_window_size)?;
                 let ref_val = if is_width {
                     ref_size.width
                 } else {
@@ -193,12 +198,17 @@ impl OutputStore {
             }
             Val::Auto => {
                 // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
-                outputs
-                    .rects
+                rects
                     .get(id)
                     .map(|r| if is_width { r.width } else { r.height })
             }
         }
+    }
+
+    /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
+    #[inline]
+    pub(crate) fn rect(id: EntityId, rects: &RectsSecondary) -> Option<LayoutRect> {
+        rects.get(id).copied()
     }
 
     pub(crate) fn calculate_caret_rect(
@@ -494,6 +504,115 @@ impl OutputStore {
         }
     }
 
+    /// 指定された要素の子要素全体のスクロール領域を親ローカル座標系で算出します。
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn get_scroll_size(
+        id: EntityId,
+        active_masks: &ActiveMasksSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        text_engine: &TextEngine,
+        text_contents: &TextContentsSparseSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        text_spans: &TextSpansSparseSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        rects: &RectsSecondary,
+        scrollbar_styles: &ScrollbarStylesSecondary,
+        scroll_offsets: &ScrollOffsetsSecondary,
+    ) -> LayoutSize {
+        let mut max_x = 0.0f32;
+        let mut max_y = 0.0f32;
+
+        // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
+        if active_masks[id].has(COMP_INPUT_CONTENT)
+            && let Some(contents) = input_contents.get(id)
+            && let Some(layout_rect) = contents.last_layout
+        {
+            max_x = layout_rect.width + contents.caret_width.unwrap_or(1.5);
+            max_y = layout_rect.height;
+        } else if active_masks[id].has(COMP_TEXT_CONTENT)
+            && let Some(layout) = SystemStore::get_or_create_layout(
+                id,
+                text_contents,
+                visual_properties,
+                dwrite_layouts,
+                text_spans,
+                text_engine,
+            )
+        {
+            let size = text_engine.get_layout_size(&layout);
+            max_x = size.width;
+            max_y = size.height;
+        }
+
+        // 親要素自体のボーダー・パディング厚を取得
+        let (basic, _, _) = LayoutStore::resolve_active_layouts(
+            id,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            interaction_properties,
+            visual_properties,
+        );
+
+        let rect = OutputStore::rect(id, rects).unwrap_or_default();
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+        let offset_x = border.left + padding.left;
+        let offset_y = border.top + padding.top;
+
+        // スクロールバー要素のIDを取得して除外対象にする
+        let (v_track_opt, h_track_opt) = if let Some(sb_state) = scrollbar_styles.get(id) {
+            (sb_state.v_track_id, sb_state.h_track_id)
+        } else {
+            (None, None)
+        };
+
+        if let Some(children_list) = children.get(id) {
+            for &child_id in children_list {
+                // スクロールバーのトラックはサイズ計算から除外
+                if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
+                    continue;
+                }
+
+                // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
+                let is_absolute = basic_layouts
+                    .get(child_id)
+                    .map(|l| l.position == Position::Absolute)
+                    .unwrap_or(false);
+                if is_absolute {
+                    continue;
+                }
+
+                if let Some(&rect) = rects.get(child_id) {
+                    let parent_rect = rects.get(id).copied().unwrap_or_default();
+                    let scroll_offset = scroll_offsets.get(id).copied().unwrap_or_default();
+
+                    // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
+                    let local_right =
+                        rect.x - parent_rect.x + scroll_offset.x + rect.width - offset_x;
+                    let local_bottom =
+                        rect.y - parent_rect.y + scroll_offset.y + rect.height - offset_y;
+
+                    max_x = max_x.max(local_right);
+                    max_y = max_y.max(local_bottom);
+                }
+            }
+        }
+
+        LayoutSize::new(max_x, max_y)
+    }
+
     #[inline]
     pub(crate) fn scroll_ime_info(
         id: EntityId,
@@ -748,12 +867,41 @@ impl OutputStore {
 impl Context {
     #[inline]
     pub(crate) fn swap_output_rect(&mut self) {
-        OutputStore::swap_output_rect(&mut self.outputs);
+        let OutputStore {
+            rects,
+            clip_rects,
+            prev_rects,
+            prev_clip_rects,
+            ..
+        } = &mut self.outputs;
+
+        OutputStore::swap_output_rect(rects, prev_rects, clip_rects, prev_clip_rects);
     }
 
     #[inline]
     pub(crate) fn parent_changed(&self, id: EntityId) -> bool {
-        OutputStore::parent_changed(id, &self.outputs, &self.topology)
+        let TopologyStore {
+            parents,
+            active_masks,
+            ..
+        } = &self.topology;
+        let OutputStore {
+            rects,
+            clip_rects,
+            prev_rects,
+            prev_clip_rects,
+            ..
+        } = &self.outputs;
+
+        OutputStore::has_parent_changed(
+            id,
+            parents,
+            active_masks,
+            rects,
+            prev_rects,
+            clip_rects,
+            prev_clip_rects,
+        )
     }
 
     #[inline]
@@ -762,26 +910,43 @@ impl Context {
         id: EntityId,
         window_size: LayoutSize,
     ) -> (LayoutRect, LayoutRect) {
+        let LayoutStore {
+            taffy_nodes,
+            taffy,
+            basic_layouts,
+            ..
+        } = &self.layouts;
+        let TopologyStore { parents, .. } = &self.topology;
+        let OutputStore {
+            rects,
+            clip_rects,
+            scroll_offsets,
+            ..
+        } = &self.outputs;
+
         OutputStore::calc_local_rect(
             id,
-            &self.outputs,
-            &self.layouts,
-            &self.topology,
+            taffy_nodes,
+            taffy,
+            parents,
+            rects,
+            clip_rects,
+            basic_layouts,
+            scroll_offsets,
             window_size,
         )
     }
 
     /// 単位（Px, Percent, Auto）を親要素のサイズまたはウィンドウ基準をベースに f32 (物理ピクセル) へ解決します。
     #[inline]
-    pub(crate) fn resolve_val_to_px(&self, id: EntityId, val: Val, is_width: bool) -> Option<f32> {
-        OutputStore::resolve_val_to_px(
-            id,
-            val,
-            is_width,
-            &self.topology,
-            &self.outputs,
-            &self.window,
-        )
+    pub(crate) fn val_to_px(&self, id: EntityId, val: Val, is_width: bool) -> Option<f32> {
+        let TopologyStore { parents, .. } = &self.topology;
+        let OutputStore { rects, .. } = &self.outputs;
+        let WindowStore {
+            last_window_size, ..
+        } = &self.window;
+
+        OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size)
     }
 
     #[allow(clippy::too_many_arguments)]

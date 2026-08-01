@@ -1,4 +1,8 @@
-use std::{collections::HashSet, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -143,6 +147,24 @@ impl LayoutStore {
         );
 
         (basic, flex, grid)
+    }
+
+    /// ターゲット状態に応じた BasicLayout の可変参照を引き出す
+    pub(crate) fn get_basic_layout_mut<'a>(
+        id: EntityId,
+        base_basic_layouts: &'a mut BaseBasicLayoutsSecondary,
+        interaction_properties: &'a mut InteractionPropertiesSecondary,
+        target: StyleTarget,
+    ) -> Option<&'a mut BasicLayout> {
+        match target {
+            StyleTarget::Base => base_basic_layouts.get_mut(id),
+            _ => {
+                // interaction_properties から該当疑似クラスを安全に解決
+                let styles = interaction_properties.get_mut(id)?;
+                let style_ref = styles.get_style_target_mut(target);
+                Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
+            }
+        }
     }
 
     pub(crate) fn is_transition_currently_running(
@@ -390,6 +412,67 @@ impl LayoutStore {
         );
     }
 
+    /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn update_scrollbar_element(
+        id: EntityId,
+        size: Size<Val>,
+        inset: Rect<Val>,
+        opacity: f32,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_masks: &ActiveMasksSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        visual_properties: &mut VisualPropertiesSecondary,
+        base_visual_properties: &mut BaseVisualPropertiesSecondary,
+        scrollbar_styles: &ScrollbarStylesSecondary,
+    ) {
+        LayoutStore::update_scrollbar_element_layout(
+            id,
+            basic_layouts,
+            base_basic_layouts,
+            taffy_nodes,
+            taffy,
+            size,
+            inset,
+        );
+        RenderStore::update_scrollbar_element_opacity(
+            id,
+            visual_properties,
+            base_visual_properties,
+            opacity,
+        );
+
+        let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
+            id,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            interaction_properties,
+            visual_properties,
+        );
+
+        LayoutStore::set_taffy_style(
+            id,
+            scrollbar_styles,
+            taffy_nodes,
+            taffy,
+            &basic,
+            &flex,
+            grid.as_ref(),
+        );
+    }
+
     /// 解決済みの基本スタイルを TaffyTree のノードへ同期して適用。
     #[inline]
     pub(crate) fn set_taffy_style(
@@ -419,12 +502,16 @@ impl LayoutStore {
         }
     }
 
-    pub(crate) fn local_rect_from_taffy(id: EntityId, layouts: &LayoutStore) -> LayoutRect {
-        let Some(&taffy_node) = layouts.taffy_nodes.get(id) else {
+    pub(crate) fn local_rect_from_taffy(
+        id: EntityId,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &TaffyTreeEntityId,
+    ) -> LayoutRect {
+        let Some(&taffy_node) = taffy_nodes.get(id) else {
             return LayoutRect::ZERO;
         };
 
-        if let Ok(layout) = layouts.taffy.layout(taffy_node) {
+        if let Ok(layout) = taffy.layout(taffy_node) {
             LayoutRect::new(
                 layout.location.x,
                 layout.location.y,
@@ -463,13 +550,16 @@ impl LayoutStore {
         }
     }
 
-    pub fn clear_layout_dirty(layouts: &mut LayoutStore, topology: &mut TopologyStore) {
-        for id in layouts.dirty_layout_entities.drain(..) {
-            if let Some(mask) = topology.active_masks.get_mut(id) {
+    pub fn clear_layout_dirty(
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        active_masks: &mut ActiveMasksSecondary,
+    ) {
+        for id in dirty_layout_entities.drain(..) {
+            if let Some(mask) = active_masks.get_mut(id) {
                 mask.unset(STATE_QUEUED_LAYOUT);
             }
         }
-        layouts.dirty_layout_entities.clear();
+        dirty_layout_entities.clear();
     }
 
     #[inline]
@@ -506,6 +596,565 @@ impl LayoutStore {
                 break;
             }
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sync_resizing_drag(
+        logical_pos: LayoutPoint,
+        state: ResizingState,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
+        rects: &RectsSecondary,
+        parents: &ParentsSecondary,
+        last_window_size: &Option<LayoutSize>,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+    ) {
+        let id = state.entity_id;
+        let delta_x = logical_pos.x - state.start_mouse_pos.x;
+        let delta_y = logical_pos.y - state.start_mouse_pos.y;
+
+        let start_rect = state.start_rect;
+        let position = basic_layouts
+            .get(id)
+            .map(|l| l.position)
+            .unwrap_or_default();
+
+        // 最小サイズ・最大クランプ値の解決
+        let (min_w, max_w, min_h, max_h) = {
+            let basic = basic_layouts.get(id).copied().unwrap_or_default();
+
+            let rect = OutputStore::rect(id, rects).unwrap_or_default();
+            let (border, padding) =
+                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+            // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
+            let abs_min_w = border.left + border.right + padding.left + padding.right;
+            let abs_min_h = border.top + border.bottom + padding.top + padding.bottom;
+
+            // 指定値を物理ピクセルに解決する
+            let resolve_val = |val: Val, is_width: bool, fallback: f32| match val {
+                Val::Px(v) => v,
+                Val::Percent(_) => {
+                    OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size)
+                        .unwrap_or(fallback)
+                }
+                Val::Auto => fallback,
+            };
+
+            let user_min_w = resolve_val(basic.min_size.width, true, 0.0);
+            let user_min_h = resolve_val(basic.min_size.height, false, 0.0);
+            let user_max_w = resolve_val(basic.max_size.width, true, f32::MAX);
+            let user_max_h = resolve_val(basic.max_size.height, false, f32::MAX);
+
+            (
+                abs_min_w.max(user_min_w).max(10.0), // 最低限 10px は維持
+                user_max_w,
+                abs_min_h.max(user_min_h).max(10.0),
+                user_max_h,
+            )
+        };
+
+        // ドラッグ方向に基づく係数マップ
+        // 1.0 は引っ張り（サイズ増加）、-1.0 は押し込み（サイズ減少）
+        let (h_factor, v_factor) = match state.direction {
+            ResizeDirection::Left => (Some(-1.0), None),
+            ResizeDirection::Right => (Some(1.0), None),
+            ResizeDirection::Top => (None, Some(-1.0)),
+            ResizeDirection::Bottom => (None, Some(1.0)),
+            ResizeDirection::TopLeft => (Some(-1.0), Some(-1.0)),
+            ResizeDirection::TopRight => (Some(1.0), Some(-1.0)),
+            ResizeDirection::BottomLeft => (Some(-1.0), Some(1.0)),
+            ResizeDirection::BottomRight => (Some(1.0), Some(1.0)),
+        };
+
+        let mut new_w = start_rect.width;
+        let mut new_h = start_rect.height;
+        let mut delta_inset_left = 0.0;
+        let mut delta_inset_top = 0.0;
+
+        if let Some(factor) = h_factor {
+            new_w = (start_rect.width + delta_x * factor).clamp(min_w, max_w);
+            // 絶対配置（Absolute）で、左側へサイズを伸ばした（縮めた）場合はインセットを同期補正
+            if position == Position::Absolute && factor < 0.0 {
+                delta_inset_left = start_rect.width - new_w;
+            }
+        }
+
+        if let Some(factor) = v_factor {
+            new_h = (start_rect.height + delta_y * factor).clamp(min_h, max_h);
+            // 絶対配置（Absolute）で、上側へサイズを伸ばした（縮めた）場合はインセットを同期補正
+            if position == Position::Absolute && factor < 0.0 {
+                delta_inset_top = start_rect.height - new_h;
+            }
+        }
+
+        let layouts = [basic_layouts.get_mut(id), base_basic_layouts.get_mut(id)];
+
+        for layout in layouts.into_iter().flatten() {
+            layout.size.width = Val::Px(new_w);
+            layout.size.height = Val::Px(new_h);
+
+            if position == Position::Absolute {
+                if let Val::Px(start_top) = state.start_inset.top {
+                    layout.inset.top = Val::Px(start_top + delta_inset_top);
+                }
+                if let Val::Px(start_left) = state.start_inset.left {
+                    layout.inset.left = Val::Px(start_left + delta_inset_left);
+                }
+                layout.inset.right = Val::Auto;
+                layout.inset.bottom = Val::Auto;
+            }
+        }
+
+        LayoutStore::mark_layout_dirty(
+            id,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+        );
+        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+    }
+}
+
+// つまみ（Thumb）計算用の入力パラメータ
+pub(crate) struct ExtractedThumb {
+    initial_len: f32,
+    min_len: f32,
+    max_len: f32,
+    margin_start: f32,
+    margin_end: f32,
+    pad_start: f32,
+    pad_end: f32,
+    cross_size_override: Option<f32>,
+}
+
+pub(crate) struct ScrollbarSyncContext<'a> {
+    pub taffy_nodes: &'a TaffyNodesSecondary,
+    pub taffy: &'a mut TaffyTreeEntityId,
+    pub basic_layouts: &'a mut BasicLayoutsSecondary,
+    pub base_basic_layouts: &'a mut BaseBasicLayoutsSecondary,
+    pub flex_layouts: &'a FlexLayoutsSecondary,
+    pub grid_layouts: &'a GridLayoutsSecondary,
+    pub active_masks: &'a ActiveMasksSecondary,
+    pub active_transitions: &'a ActiveTransitionsSparseSecondary,
+    pub parents: &'a ParentsSecondary,
+    pub interaction_properties: &'a InteractionPropertiesSecondary,
+    pub visual_properties: &'a mut VisualPropertiesSecondary,
+    pub base_visual_properties: &'a mut BaseVisualPropertiesSecondary,
+    pub scrollbar_styles: &'a ScrollbarStylesSecondary,
+}
+
+impl<'a> ScrollbarSyncContext<'a> {
+    #[inline]
+    pub fn update_el(&mut self, el_id: EntityId, size: Size<Val>, rect: Rect<Val>, opacity: f32) {
+        LayoutStore::update_scrollbar_element(
+            el_id,
+            size,
+            rect,
+            opacity,
+            self.taffy_nodes,
+            self.taffy,
+            self.basic_layouts,
+            self.base_basic_layouts,
+            self.flex_layouts,
+            self.grid_layouts,
+            self.active_masks,
+            self.active_transitions,
+            self.parents,
+            self.interaction_properties,
+            self.visual_properties,
+            self.base_visual_properties,
+            self.scrollbar_styles,
+        );
+    }
+    #[inline]
+    pub fn hide_el(&mut self, el_id: EntityId) {
+        LayoutStore::hide_scrollbar_element(el_id, self.basic_layouts, self.base_basic_layouts);
+    }
+}
+
+impl LayoutStore {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn sync_scrollbar_styles(
+        active_masks: &ActiveMasksSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        text_engine: &TextEngine,
+        text_contents: &TextContentsSparseSecondary,
+        text_spans: &TextSpansSparseSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        visual_properties: &mut VisualPropertiesSecondary,
+        base_visual_properties: &mut BaseVisualPropertiesSecondary,
+        scrollbar_styles: &ScrollbarStylesSecondary,
+        rects: &RectsSecondary,
+        scroll_offsets: &ScrollOffsetsSecondary,
+        last_window_size: Option<LayoutSize>,
+    ) {
+        let scrollbar_ids: Vec<EntityId> = scrollbar_styles.keys().collect();
+
+        for id in scrollbar_ids {
+            let sb_state = scrollbar_styles.get(id).cloned().unwrap();
+            let container_rect = rects[id];
+            let scroll_size = OutputStore::get_scroll_size(
+                id,
+                active_masks,
+                input_contents,
+                text_engine,
+                text_contents,
+                visual_properties,
+                text_spans,
+                dwrite_layouts,
+                basic_layouts,
+                flex_layouts,
+                grid_layouts,
+                active_transitions,
+                parents,
+                children,
+                interaction_properties,
+                rects,
+                scrollbar_styles,
+                scroll_offsets,
+            );
+            let current_scroll = scroll_offsets.get(id).copied().unwrap_or_default();
+
+            let (basic, _, _) = LayoutStore::resolve_active_layouts(
+                id,
+                basic_layouts,
+                flex_layouts,
+                grid_layouts,
+                active_masks,
+                active_transitions,
+                parents,
+                interaction_properties,
+                visual_properties,
+            );
+            let rect = OutputStore::rect(id, rects).unwrap_or_default();
+            let (border, padding) =
+                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+            let visible_size =
+                WindowStore::calculate_visible_size(last_window_size, container_rect);
+            let content_size =
+                LayoutStore::calculate_inner_content_size(visible_size, border, padding);
+
+            let show_v_bar = scroll_size.height > content_size.height;
+            let show_h_bar = scroll_size.width > content_size.width;
+
+            // トラックデフォルト長の計算
+            let track_h_default = LayoutStore::calculate_track_len(
+                visible_size.height,
+                border.top,
+                border.bottom,
+                show_h_bar,
+                sb_state.style.width,
+            );
+            let track_w = LayoutStore::calculate_track_len(
+                visible_size.width,
+                border.left,
+                border.right,
+                show_v_bar,
+                sb_state.style.width,
+            );
+
+            let mut ctx = ScrollbarSyncContext {
+                taffy_nodes,
+                taffy,
+                basic_layouts,
+                base_basic_layouts,
+                flex_layouts,
+                grid_layouts,
+                active_masks,
+                active_transitions,
+                parents,
+                interaction_properties,
+                visual_properties,
+                base_visual_properties,
+                scrollbar_styles,
+            };
+
+            // 縦トラック (V-Track) の同期
+            if let Some(v_track) = sb_state.v_track_id {
+                let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
+                    sb_state.style.display,
+                    sb_state.last_scroll_time,
+                    show_v_bar,
+                );
+                if visible {
+                    let mut track_h = track_h_default;
+                    if let Some(ref track_style) = sb_state.style.v_track
+                        && let Val::Px(val) = track_style.inner.basic_layout.size.height
+                    {
+                        track_h = val;
+                    }
+                    ctx.update_el(
+                        v_track,
+                        Size::new(Val::Px(sb_state.style.width), Val::Px(track_h)),
+                        Rect::new(Val::Px(0.0), Val::Px(0.0), Val::Auto, Val::Auto),
+                        opacity,
+                    );
+                } else {
+                    ctx.hide_el(v_track);
+                }
+            }
+
+            // 縦つまみ (V-Thumb) の同期
+            if let Some(v_thumb) = sb_state.v_thumb_id {
+                let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
+                    sb_state.style.display,
+                    sb_state.last_scroll_time,
+                    show_v_bar,
+                );
+                if visible {
+                    let mut ext = ExtractedThumb {
+                        initial_len: track_h_default,
+                        min_len: 24.0,
+                        max_len: track_h_default,
+                        margin_start: 0.0,
+                        margin_end: 0.0,
+                        pad_start: 0.0,
+                        pad_end: 0.0,
+                        cross_size_override: None,
+                    };
+
+                    if let Some(ref thumb_style) = sb_state.style.v_thumb {
+                        let layout = &thumb_style.inner.basic_layout;
+                        if let Val::Px(val) = layout.size.height {
+                            ext.initial_len = val;
+                        }
+                        if let Val::Px(val) = layout.min_size.height {
+                            ext.min_len = val;
+                        }
+                        if let Val::Px(val) = layout.max_size.height {
+                            ext.max_len = val;
+                        }
+                        if let Val::Px(val) = layout.margin.top {
+                            ext.margin_start = val;
+                        }
+                        if let Val::Px(val) = layout.margin.bottom {
+                            ext.margin_end = val;
+                        }
+                        if let Length::Px(val) = layout.padding.left {
+                            ext.pad_start = val;
+                        }
+                        if let Length::Px(val) = layout.padding.right {
+                            ext.pad_end = val;
+                        }
+                        if let Val::Px(val) = layout.size.width {
+                            ext.cross_size_override = Some(val);
+                        }
+                    }
+
+                    let (h, y, w, x) = LayoutStore::calculate_thumb_geometry(
+                        track_h_default,
+                        visible_size.height,
+                        scroll_size.height,
+                        current_scroll.y,
+                        sb_state.style.width,
+                        ext,
+                    );
+
+                    ctx.update_el(
+                        v_thumb,
+                        Size::new(Val::Px(w), Val::Px(h)),
+                        Rect::new(Val::Px(y), Val::Auto, Val::Auto, Val::Px(x)),
+                        opacity,
+                    );
+                } else {
+                    ctx.hide_el(v_thumb);
+                }
+            }
+
+            // 横トラック (H-Track) の同期
+            if let Some(h_track) = sb_state.h_track_id {
+                let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
+                    sb_state.style.display,
+                    sb_state.last_scroll_time,
+                    show_h_bar,
+                );
+                if visible {
+                    ctx.update_el(
+                        h_track,
+                        Size::new(Val::Px(track_w), Val::Px(sb_state.style.width)),
+                        Rect::new(Val::Auto, Val::Auto, Val::Px(0.0), Val::Px(0.0)),
+                        opacity,
+                    );
+                } else {
+                    ctx.hide_el(h_track);
+                }
+            }
+
+            // 横つまみ (H-Thumb) の同期
+            if let Some(h_thumb) = sb_state.h_thumb_id {
+                let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
+                    sb_state.style.display,
+                    sb_state.last_scroll_time,
+                    show_h_bar,
+                );
+                if visible {
+                    let mut ext = ExtractedThumb {
+                        initial_len: track_w,
+                        min_len: 24.0,
+                        max_len: track_w,
+                        margin_start: 0.0,
+                        margin_end: 0.0,
+                        pad_start: 0.0,
+                        pad_end: 0.0,
+                        cross_size_override: None,
+                    };
+
+                    if let Some(ref thumb_style) = sb_state.style.h_thumb {
+                        let layout = &thumb_style.inner.basic_layout;
+                        if let Val::Px(val) = layout.size.width {
+                            ext.initial_len = val;
+                        }
+                        if let Val::Px(val) = layout.min_size.width {
+                            ext.min_len = val;
+                        }
+                        if let Val::Px(val) = layout.max_size.width {
+                            ext.max_len = val;
+                        }
+                        if let Val::Px(val) = layout.margin.left {
+                            ext.margin_start = val;
+                        }
+                        if let Val::Px(val) = layout.margin.right {
+                            ext.margin_end = val;
+                        }
+                        if let Length::Px(val) = layout.padding.top {
+                            ext.pad_start = val;
+                        }
+                        if let Length::Px(val) = layout.padding.bottom {
+                            ext.pad_end = val;
+                        }
+                        if let Val::Px(val) = layout.size.height {
+                            ext.cross_size_override = Some(val);
+                        }
+                    }
+
+                    let (w, x, h, y) = LayoutStore::calculate_thumb_geometry(
+                        track_w,
+                        visible_size.width,
+                        scroll_size.width,
+                        current_scroll.x,
+                        sb_state.style.width,
+                        ext,
+                    );
+
+                    ctx.update_el(
+                        h_thumb,
+                        Size::new(Val::Px(w), Val::Px(h)),
+                        Rect::new(Val::Px(y), Val::Auto, Val::Auto, Val::Px(x)),
+                        opacity,
+                    );
+                } else {
+                    ctx.hide_el(h_thumb);
+                }
+            }
+        }
+    }
+
+    // 表示状態と不透明度の計算
+    fn calculate_visibility_opacity(
+        display: ScrollbarDisplay,
+        last_scroll_time: Option<Instant>,
+        show_bar: bool,
+    ) -> (bool, f32) {
+        if !show_bar || display == ScrollbarDisplay::None {
+            return (false, 1.0);
+        }
+        match display {
+            ScrollbarDisplay::Always | ScrollbarDisplay::Auto => (true, 1.0),
+            ScrollbarDisplay::Transient => {
+                if let Some(last) = last_scroll_time {
+                    let elapsed = last.elapsed();
+                    if elapsed < Duration::from_millis(1000) {
+                        (true, 1.0)
+                    } else if elapsed < Duration::from_millis(1500) {
+                        let opacity = 1.0 - (elapsed.as_secs_f32() - 1.0) / 0.5;
+                        (true, opacity)
+                    } else {
+                        (false, 1.0)
+                    }
+                } else {
+                    (false, 1.0)
+                }
+            }
+            _ => (false, 1.0),
+        }
+    }
+
+    // トラック有効長の計算
+    #[inline]
+    fn calculate_track_len(
+        visible_dim: f32,
+        border_start: f32,
+        border_end: f32,
+        show_other: bool,
+        scrollbar_width: f32,
+    ) -> f32 {
+        let extra = if show_other { scrollbar_width } else { 0.0 };
+        (visible_dim - border_start - border_end - extra).max(0.0)
+    }
+
+    // つまみの物理サイズと位置の計算
+    fn calculate_thumb_geometry(
+        track_len: f32,
+        visible_len: f32,
+        scroll_len: f32,
+        current_scroll_val: f32,
+        scrollbar_width: f32,
+        ext: ExtractedThumb,
+    ) -> (f32, f32, f32, f32) {
+        let view_ratio = if scroll_len > 0.0 {
+            (visible_len / scroll_len).min(1.0)
+        } else {
+            1.0
+        };
+
+        let calculated_len = ext.initial_len * view_ratio;
+        let thumb_len = calculated_len
+            .max(ext.min_len)
+            .min(ext.max_len)
+            .min(track_len);
+
+        let scroll_ratio = if scroll_len > visible_len {
+            (current_scroll_val / (scroll_len - visible_len)).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let max_thumb_pos = (track_len - thumb_len - ext.margin_start - ext.margin_end).max(0.0);
+        let thumb_main_pos = max_thumb_pos * scroll_ratio;
+
+        let thumb_cross_len = if let Some(w) = ext.cross_size_override {
+            w.min(scrollbar_width)
+        } else {
+            scrollbar_width
+        };
+
+        let thumb_cross_pos = if ext.pad_end > 0.0 {
+            scrollbar_width - thumb_cross_len - ext.pad_end
+        } else if ext.pad_start > 0.0 {
+            ext.pad_start
+        } else {
+            (scrollbar_width - thumb_cross_len) * 0.5
+        };
+
+        (thumb_len, thumb_main_pos, thumb_cross_len, thumb_cross_pos)
     }
 }
 
@@ -581,6 +1230,23 @@ impl Context {
         )
     }
 
+    #[inline]
+    pub(crate) fn get_basic_layout_mut(
+        &mut self,
+        id: EntityId,
+        target: StyleTarget,
+    ) -> Option<&mut BasicLayout> {
+        let LayoutStore {
+            base_basic_layouts, ..
+        } = &mut self.layouts;
+        let RenderStore {
+            interaction_properties,
+            ..
+        } = &mut self.renders;
+
+        LayoutStore::get_basic_layout_mut(id, base_basic_layouts, interaction_properties, target)
+    }
+
     // Taffyスタイルを一括解決するヘルパー
     #[inline]
     pub(crate) fn resolve_taffy_style(
@@ -636,25 +1302,15 @@ impl Context {
             ..
         } = &mut self.renders;
 
-        LayoutStore::update_scrollbar_element_layout(
+        LayoutStore::update_scrollbar_element(
             id,
-            basic_layouts,
-            base_basic_layouts,
-            taffy_nodes,
-            taffy,
             size,
             inset,
-        );
-        RenderStore::update_scrollbar_element_opacity(
-            id,
-            visual_properties,
-            base_visual_properties,
             opacity,
-        );
-
-        let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
-            id,
+            taffy_nodes,
+            taffy,
             basic_layouts,
+            base_basic_layouts,
             flex_layouts,
             grid_layouts,
             active_masks,
@@ -662,22 +1318,18 @@ impl Context {
             parents,
             interaction_properties,
             visual_properties,
-        );
-
-        LayoutStore::set_taffy_style(
-            id,
+            base_visual_properties,
             scrollbar_styles,
-            taffy_nodes,
-            taffy,
-            &basic,
-            &flex,
-            grid.as_ref(),
         );
     }
 
     #[inline]
     pub(crate) fn local_rect_from_taffy(&self, id: EntityId) -> LayoutRect {
-        LayoutStore::local_rect_from_taffy(id, &self.layouts)
+        let LayoutStore {
+            taffy_nodes, taffy, ..
+        } = &self.layouts;
+
+        LayoutStore::local_rect_from_taffy(id, taffy_nodes, taffy)
     }
 
     /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
@@ -692,209 +1344,46 @@ impl Context {
         LayoutStore::resync_taffy_children_order(parent_id, taffy_nodes, taffy, children);
     }
 
+    #[inline]
     pub(crate) fn sync_resizing_drag(&mut self, logical_pos: LayoutPoint, state: ResizingState) {
-        let id = state.entity_id;
-        let delta_x = logical_pos.x - state.start_mouse_pos.x;
-        let delta_y = logical_pos.y - state.start_mouse_pos.y;
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
 
-        let start_rect = state.start_rect;
-        let position = self
-            .layouts
-            .basic_layouts
-            .get(id)
-            .map(|l| l.position)
-            .unwrap_or(Position::Relative);
+        let TopologyStore {
+            parents,
+            active_masks,
+            ..
+        } = &mut self.topology;
 
-        // 1-1. 最小サイズ・最大クランプ値の解決
-        let (min_w, max_w, min_h, max_h) = {
-            let basic = self
-                .layouts
-                .basic_layouts
-                .get(id)
-                .copied()
-                .unwrap_or_default();
+        let OutputStore { rects, .. } = &self.outputs;
+        let RenderStore {
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+        let WindowStore {
+            last_window_size, ..
+        } = &self.window;
 
-            let ref_w = start_rect.width;
-            let ref_h = start_rect.height;
-
-            let rect = self.rect(id).unwrap_or_default();
-            let (border, padding) =
-                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-            // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
-            let abs_min_w = border.left + border.right + padding.left + padding.right;
-            let abs_min_h = border.top + border.bottom + padding.top + padding.bottom;
-
-            // ユーザー指定の min_size / max_size を物理ピクセルに解決
-            let user_min_w = match basic.min_size.width {
-                Val::Px(v) => v,
-                Val::Percent(_) => self
-                    .resolve_val_to_px(id, basic.min_size.width, true)
-                    .unwrap_or(0.0),
-                Val::Auto => 0.0, // Autoのときは最小値制約なし
-            };
-            let user_min_h = match basic.min_size.height {
-                Val::Px(v) => v,
-                Val::Percent(_) => self
-                    .resolve_val_to_px(id, basic.min_size.height, false)
-                    .unwrap_or(0.0),
-                Val::Auto => 0.0,
-            };
-            let user_max_w = match basic.max_size.width {
-                Val::Px(v) => v,
-                Val::Percent(_) => self
-                    .resolve_val_to_px(id, basic.max_size.width, true)
-                    .unwrap_or(f32::MAX),
-                Val::Auto => f32::MAX, // Autoのときは最大値制限なし
-            };
-            let user_max_h = match basic.max_size.height {
-                Val::Px(v) => v,
-                Val::Percent(_) => self
-                    .resolve_val_to_px(id, basic.max_size.height, false)
-                    .unwrap_or(f32::MAX),
-                Val::Auto => f32::MAX,
-            };
-
-            (
-                abs_min_w.max(user_min_w).max(10.0), // 最低限 10px は維持
-                user_max_w,
-                abs_min_h.max(user_min_h).max(10.0),
-                user_max_h,
-            )
-        };
-
-        let mut new_w = start_rect.width;
-        let mut new_h = start_rect.height;
-
-        let mut delta_inset_top = 0.0;
-        let mut delta_inset_left = 0.0;
-
-        // 配置モードによるサイズ変更と位置補正の切り分け
-        if position == Position::Absolute {
-            // 絶対配置（Absolute）物理サイズ変更と、Top / Left 引っ張り時の Inset 同期移動補正を行う
-            match state.direction {
-                ResizeDirection::Right => {
-                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-                }
-                ResizeDirection::Bottom => {
-                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                }
-                ResizeDirection::BottomRight => {
-                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                }
-                ResizeDirection::Left => {
-                    let potential_w = start_rect.width - delta_x;
-                    new_w = potential_w.clamp(min_w, max_w);
-                    // サイズが大きくなった分（start - new_w）だけ、正確に左端（left）を左（マイナス）へ補正
-                    delta_inset_left = start_rect.width - new_w;
-                }
-                ResizeDirection::Top => {
-                    let potential_h = start_rect.height - delta_y;
-                    new_h = potential_h.clamp(min_h, max_h);
-                    // サイズが大きくなった分だけ、正確に上端（top）を上（マイナス）へ補正
-                    delta_inset_top = start_rect.height - new_h;
-                }
-                ResizeDirection::TopLeft => {
-                    let potential_w = start_rect.width - delta_x;
-                    new_w = potential_w.clamp(min_w, max_w);
-                    delta_inset_left = start_rect.width - new_w;
-
-                    let potential_h = start_rect.height - delta_y;
-                    new_h = potential_h.clamp(min_h, max_h);
-                    delta_inset_top = start_rect.height - new_h;
-                }
-                ResizeDirection::TopRight => {
-                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-
-                    let potential_h = start_rect.height - delta_y;
-                    new_h = potential_h.clamp(min_h, max_h);
-                    delta_inset_top = start_rect.height - new_h;
-                }
-                ResizeDirection::BottomLeft => {
-                    let potential_w = start_rect.width - delta_x;
-                    new_w = potential_w.clamp(min_w, max_w);
-                    delta_inset_left = start_rect.width - new_w;
-
-                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                }
-            }
-        } else {
-            // 相対配置（Relative）フローを崩さないため inset は変更せず、
-            // 引っ張る方向（Top/Left時はマイナス乗算）に合わせてサイズ（幅・高さ）のみを増減させる
-            match state.direction {
-                ResizeDirection::Right | ResizeDirection::Left => {
-                    let factor = if state.direction == ResizeDirection::Left {
-                        -1.0
-                    } else {
-                        1.0
-                    };
-                    new_w = (start_rect.width + delta_x * factor).clamp(min_w, max_w);
-                }
-                ResizeDirection::Bottom | ResizeDirection::Top => {
-                    let factor = if state.direction == ResizeDirection::Top {
-                        -1.0
-                    } else {
-                        1.0
-                    };
-                    new_h = (start_rect.height + delta_y * factor).clamp(min_h, max_h);
-                }
-                ResizeDirection::TopLeft => {
-                    new_w = (start_rect.width - delta_x).clamp(min_w, max_w);
-                    new_h = (start_rect.height - delta_y).clamp(min_h, max_h);
-                }
-                ResizeDirection::TopRight => {
-                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-                    new_h = (start_rect.height - delta_y).clamp(min_h, max_h);
-                }
-                ResizeDirection::BottomLeft => {
-                    new_w = (start_rect.width - delta_x).clamp(min_w, max_w);
-                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                }
-                ResizeDirection::BottomRight => {
-                    new_w = (start_rect.width + delta_x).clamp(min_w, max_w);
-                    new_h = (start_rect.height + delta_y).clamp(min_h, max_h);
-                }
-            }
-        }
-
-        // 基本サイズ情報を SoA のアクティブレイアウトへ書き込み
-        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
-            layout.size.width = Val::Px(new_w);
-            layout.size.height = Val::Px(new_h);
-
-            // 絶対配置時のみ位置を動的に補正し、制約衝突を回避するため right / bottom を Auto 化
-            if position == Position::Absolute {
-                if let Val::Px(start_top) = state.start_inset.top {
-                    layout.inset.top = Val::Px(start_top + delta_inset_top);
-                }
-                if let Val::Px(start_left) = state.start_inset.left {
-                    layout.inset.left = Val::Px(start_left + delta_inset_left);
-                }
-                layout.inset.right = Val::Auto;
-                layout.inset.bottom = Val::Auto;
-            }
-        }
-
-        // base_basic_layouts にも同時に書き込み、解決処理（resolve）によるリセットを完全に防ぐ
-        if let Some(layout) = self.layouts.base_basic_layouts.get_mut(id) {
-            layout.size.width = Val::Px(new_w);
-            layout.size.height = Val::Px(new_h);
-
-            if position == Position::Absolute {
-                if let Val::Px(start_top) = state.start_inset.top {
-                    layout.inset.top = Val::Px(start_top + delta_inset_top);
-                }
-                if let Val::Px(start_left) = state.start_inset.left {
-                    layout.inset.left = Val::Px(start_left + delta_inset_left);
-                }
-                layout.inset.right = Val::Auto;
-                layout.inset.bottom = Val::Auto;
-            }
-        }
-        // Taffy 測定キャッシュをバイパスし再計算をマーク
-        self.mark_layout_dirty(id);
-        self.mark_render_dirty(id);
+        LayoutStore::sync_resizing_drag(
+            logical_pos,
+            state,
+            basic_layouts,
+            base_basic_layouts,
+            rects,
+            parents,
+            last_window_size,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            dirty_render_entities,
+        );
     }
 
     /// スクロールバー用要素をレイアウト上から安全に隠します。
@@ -909,394 +1398,86 @@ impl Context {
         LayoutStore::hide_scrollbar_element(id, basic_layouts, base_basic_layouts);
     }
 
+    #[inline]
     pub(crate) fn sync_scrollbar_styles(&mut self) {
-        let scrollbar_ids: Vec<EntityId> = self.layouts.scrollbar_styles.keys().collect();
-        for id in scrollbar_ids {
-            let sb_state = self.layouts.scrollbar_styles.get(id).cloned().unwrap();
-            let container_rect = self.outputs.rects[id];
-            let scroll_size = self.get_scroll_size(id);
-            let current_scroll = self
-                .outputs
-                .scroll_offsets
-                .get(id)
-                .copied()
-                .unwrap_or(LayoutPoint::ZERO);
+        let TopologyStore {
+            parents,
+            children,
+            active_masks,
+            ..
+        } = &mut self.topology;
 
-            // 親コンテナのボーダーおよびパディング厚を取得
-            let (basic, _, _) = self.resolve_active_layouts(id);
-            let rect = self.rect(id).unwrap_or_default();
-            let (border, padding) =
-                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            scrollbar_styles,
+            taffy_nodes,
+            taffy,
+            ..
+        } = &mut self.layouts;
 
-            // ウィンドウ境界によるクランプ可視サイズの算出
-            let visible_size = self.calculate_visible_size(container_rect);
-            // 枠線と余白を引いた内枠コンテンツサイズの算出
-            let content_size = self.calculate_inner_content_size(visible_size, border, padding);
+        let RenderStore {
+            visual_properties,
+            interaction_properties,
+            base_visual_properties,
+            dirty_render_entities,
+            active_transitions,
+            ..
+        } = &mut self.renders;
 
-            // 内枠の有効表示領域と、同じく内枠基準の scroll_size を精密に比較する
-            let show_v_bar = scroll_size.height > content_size.height;
-            let show_h_bar = scroll_size.width > content_size.width;
+        let OutputStore {
+            rects,
+            clip_rects,
+            scroll_offsets,
+            prev_rects,
+            prev_clip_rects,
+            selected_rects,
+            text_selections,
+            selection_start_index,
+        } = &self.outputs;
 
-            // 縦スクロールバーの同期
-            if let Some(v_track) = sb_state.v_track_id {
-                let show = show_v_bar && sb_state.style.display != ScrollbarDisplay::None;
+        let ContentStore {
+            text_contents,
+            text_spans,
+            input_contents,
+            ..
+        } = &self.contents;
 
-                let mut v_track_visible = false;
-                let mut v_track_opacity = 1.0f32;
+        let SystemStore {
+            text_engine,
+            dwrite_layouts,
+            ..
+        } = &self.system;
 
-                if show {
-                    if sb_state.style.display == ScrollbarDisplay::Always
-                        || sb_state.style.display == ScrollbarDisplay::Auto
-                    {
-                        v_track_visible = true;
-                    } else if sb_state.style.display == ScrollbarDisplay::Transient
-                        && let Some(last) = sb_state.last_scroll_time
-                    {
-                        let elapsed = last.elapsed();
-                        if elapsed < Duration::from_millis(1000) {
-                            v_track_visible = true;
-                        } else if elapsed < Duration::from_millis(1500) {
-                            v_track_visible = true;
-                            v_track_opacity = 1.0 - (elapsed.as_secs_f32() - 1.0) / 0.5;
-                        }
-                    }
-                }
+        let WindowStore {
+            last_window_size, ..
+        } = &self.window;
 
-                if v_track_visible {
-                    let mut user_track_h = None;
-                    if let Some(ref track_style) = sb_state.style.v_track
-                        && let Val::Px(val) = track_style.inner.basic_layout.size.height
-                    {
-                        user_track_h = Some(val);
-                    }
-
-                    // 有効可視サイズを起点にすることで画面外突き出しをクランプ
-                    let track_h = if let Some(h) = user_track_h {
-                        h
-                    } else {
-                        (visible_size.height
-                            - border.top
-                            - border.bottom
-                            - (if show_h_bar {
-                                sb_state.style.width
-                            } else {
-                                0.0
-                            }))
-                        .max(0.0)
-                    };
-
-                    let track_right = 0.0;
-
-                    // v_track の幅を Val::Auto に上書きしたため、Taffy 側で known_dims.width が None（Auto）になる
-                    // Taffy 側の measure_func は  outputs.rects から値を取得しようと試みる
-                    // スクロールバー要素は 1 回目のパスで走査スルーされているため、この時点では outputs.rects に座標が登録されていない
-                    // 結果としてサイズ 0.0 が返り、Track の幅が 0.0 に潰れて不可視になっていた
-                    // Val::Auto ではなく Val::Px(sb_state.style.width) に修正して SoA 上に実サイズを維持
-                    self.update_scrollbar_element(
-                        v_track,
-                        Size::new(Val::Px(sb_state.style.width), Val::Px(track_h)),
-                        Rect::new(Val::Px(0.0), Val::Px(track_right), Val::Auto, Val::Auto),
-                        v_track_opacity,
-                    );
-                } else {
-                    self.hide_scrollbar_element(v_track);
-                }
-            }
-
-            // A-1. 縦つまみ (V-Thumb) の同期
-            if let Some(v_thumb) = sb_state.v_thumb_id {
-                let show = show_v_bar && sb_state.style.display != ScrollbarDisplay::None;
-
-                let mut v_thumb_visible = false;
-                let mut v_thumb_opacity = 1.0f32;
-
-                if show {
-                    if sb_state.style.display == ScrollbarDisplay::Always
-                        || sb_state.style.display == ScrollbarDisplay::Auto
-                    {
-                        v_thumb_visible = true;
-                    } else if sb_state.style.display == ScrollbarDisplay::Transient
-                        && let Some(last) = sb_state.last_scroll_time
-                    {
-                        let elapsed = last.elapsed();
-                        if elapsed < Duration::from_millis(1000) {
-                            v_thumb_visible = true;
-                        } else if elapsed < Duration::from_millis(1500) {
-                            v_thumb_visible = true;
-                            v_thumb_opacity = 1.0 - (elapsed.as_secs_f32() - 1.0) / 0.5;
-                        }
-                    }
-                }
-
-                if v_thumb_visible {
-                    let track_h = (visible_size.height
-                        - border.top
-                        - border.bottom
-                        - (if show_h_bar {
-                            sb_state.style.width
-                        } else {
-                            0.0
-                        }))
-                    .max(0.0);
-
-                    let mut initial_thumb_h = track_h;
-                    if let Some(ref thumb_style) = sb_state.style.v_thumb
-                        && let Val::Px(val) = thumb_style.inner.basic_layout.size.height
-                    {
-                        initial_thumb_h = val;
-                    }
-
-                    // コンテンツ比率 (分母・分子に一貫してクランプ済み表示領域を採用)
-                    let view_ratio = if scroll_size.height > 0.0 {
-                        (visible_size.height / scroll_size.height).min(1.0)
-                    } else {
-                        1.0
-                    };
-
-                    let calculated_h = initial_thumb_h * view_ratio;
-
-                    // ユーザー指定の min_size と max_size で正確にクランプ
-                    let mut min_h = 24.0;
-                    if let Some(ref thumb_style) = sb_state.style.v_thumb
-                        && let Val::Px(val) = thumb_style.inner.basic_layout.min_size.height
-                    {
-                        min_h = val;
-                    }
-                    let mut max_h = track_h;
-                    if let Some(ref thumb_style) = sb_state.style.v_thumb
-                        && let Val::Px(val) = thumb_style.inner.basic_layout.max_size.height
-                    {
-                        max_h = val;
-                    }
-
-                    let thumb_height = calculated_h.max(min_h).min(max_h).min(track_h);
-
-                    let mut margin_top = 0.0;
-                    let mut margin_bottom = 0.0;
-                    if let Some(ref thumb_style) = sb_state.style.v_thumb {
-                        if let Val::Px(val) = thumb_style.inner.basic_layout.margin.top {
-                            margin_top = val;
-                        }
-                        if let Val::Px(val) = thumb_style.inner.basic_layout.margin.bottom {
-                            margin_bottom = val;
-                        }
-                    }
-
-                    let scroll_ratio = if scroll_size.height > visible_size.height {
-                        (current_scroll.y / (scroll_size.height - visible_size.height))
-                            .clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
-
-                    let max_thumb_y =
-                        (track_h - thumb_height - margin_top - margin_bottom).max(0.0);
-                    let thumb_y = max_thumb_y * scroll_ratio;
-
-                    let mut thumb_width = sb_state.style.width;
-
-                    let mut pad_right = 0.0;
-                    let mut pad_left = 0.0;
-                    if let Some(ref thumb_style) = sb_state.style.v_thumb {
-                        if let Val::Px(w) = thumb_style.inner.basic_layout.size.width {
-                            thumb_width = w.min(sb_state.style.width);
-                        }
-                        if let Length::Px(val) = thumb_style.inner.basic_layout.padding.right {
-                            pad_right = val;
-                        }
-                        if let Length::Px(val) = thumb_style.inner.basic_layout.padding.left {
-                            pad_left = val;
-                        }
-                    }
-
-                    let thumb_x = if pad_right > 0.0 {
-                        sb_state.style.width - thumb_width - pad_right
-                    } else if pad_left > 0.0 {
-                        pad_left
-                    } else {
-                        (sb_state.style.width - thumb_width) * 0.5
-                    };
-
-                    self.update_scrollbar_element(
-                        v_thumb,
-                        Size::new(Val::Px(thumb_width), Val::Px(thumb_height)),
-                        Rect::new(Val::Px(thumb_y), Val::Auto, Val::Auto, Val::Px(thumb_x)),
-                        v_thumb_opacity,
-                    );
-                } else {
-                    self.hide_scrollbar_element(v_thumb);
-                }
-            }
-
-            // 2. 横スクロールバー (H-Track) の同期
-            if let Some(h_track) = sb_state.h_track_id {
-                let show = show_h_bar && sb_state.style.display != ScrollbarDisplay::None;
-
-                let mut h_track_visible = false;
-                let mut h_track_opacity = 1.0f32;
-
-                if show {
-                    if sb_state.style.display == ScrollbarDisplay::Always
-                        || sb_state.style.display == ScrollbarDisplay::Auto
-                    {
-                        h_track_visible = true;
-                    } else if sb_state.style.display == ScrollbarDisplay::Transient
-                        && let Some(last) = sb_state.last_scroll_time
-                    {
-                        let elapsed = last.elapsed();
-                        if elapsed < Duration::from_millis(1000) {
-                            h_track_visible = true;
-                        } else if elapsed < Duration::from_millis(1500) {
-                            h_track_visible = true;
-                            h_track_opacity = 1.0 - (elapsed.as_secs_f32() - 1.0) / 0.5;
-                        }
-                    }
-                }
-
-                if h_track_visible {
-                    let track_w = (visible_size.width
-                        - border.left
-                        - border.right
-                        - (if show_v_bar {
-                            sb_state.style.width
-                        } else {
-                            0.0
-                        }))
-                    .max(0.0);
-
-                    let track_bottom = 0.0;
-
-                    self.update_scrollbar_element(
-                        h_track,
-                        Size::new(Val::Px(track_w), Val::Px(sb_state.style.width)),
-                        Rect::new(Val::Auto, Val::Auto, Val::Px(track_bottom), Val::Px(0.0)),
-                        h_track_opacity,
-                    );
-                } else {
-                    self.hide_scrollbar_element(h_track);
-                }
-            }
-
-            // B-1. 横つまみ (H-Thumb) の同期
-            if let Some(h_thumb) = sb_state.h_thumb_id {
-                let show = show_h_bar && sb_state.style.display != ScrollbarDisplay::None;
-
-                let mut h_thumb_visible = false;
-                let mut h_thumb_opacity = 1.0f32;
-
-                if show {
-                    if sb_state.style.display == ScrollbarDisplay::Always
-                        || sb_state.style.display == ScrollbarDisplay::Auto
-                    {
-                        h_thumb_visible = true;
-                    } else if sb_state.style.display == ScrollbarDisplay::Transient
-                        && let Some(last) = sb_state.last_scroll_time
-                    {
-                        let elapsed = last.elapsed();
-                        if elapsed < Duration::from_millis(1000) {
-                            h_thumb_visible = true;
-                        } else if elapsed < Duration::from_millis(1500) {
-                            h_thumb_visible = true;
-                            h_thumb_opacity = 1.0 - (elapsed.as_secs_f32() - 1.0) / 0.5;
-                        }
-                    }
-                }
-
-                if h_thumb_visible {
-                    let track_w = (visible_size.width
-                        - border.left
-                        - border.right
-                        - (if show_v_bar {
-                            sb_state.style.width
-                        } else {
-                            0.0
-                        }))
-                    .max(0.0);
-
-                    let mut initial_thumb_w = track_w;
-                    if let Some(ref thumb_style) = sb_state.style.h_thumb
-                        && let Val::Px(w) = thumb_style.inner.basic_layout.size.width
-                    {
-                        initial_thumb_w = w;
-                    }
-
-                    let view_ratio = if scroll_size.width > 0.0 {
-                        (visible_size.width / scroll_size.width).min(1.0)
-                    } else {
-                        1.0
-                    };
-
-                    let calculated_w = initial_thumb_w * view_ratio;
-
-                    let mut min_w = 24.0;
-                    if let Some(ref thumb_style) = sb_state.style.h_thumb
-                        && let Val::Px(val) = thumb_style.inner.basic_layout.min_size.width
-                    {
-                        min_w = val;
-                    }
-                    let mut max_w = track_w;
-                    if let Some(ref thumb_style) = sb_state.style.h_thumb
-                        && let Val::Px(val) = thumb_style.inner.basic_layout.max_size.width
-                    {
-                        max_w = val;
-                    }
-
-                    let thumb_width = calculated_w.max(min_w).min(max_w).min(track_w);
-
-                    let mut margin_left = 0.0;
-                    let mut margin_right = 0.0;
-                    if let Some(ref thumb_style) = sb_state.style.h_thumb {
-                        if let Val::Px(val) = thumb_style.inner.basic_layout.margin.left {
-                            margin_left = val;
-                        }
-                        if let Val::Px(val) = thumb_style.inner.basic_layout.margin.right {
-                            margin_right = val;
-                        }
-                    }
-
-                    let scroll_ratio = if scroll_size.width > visible_size.width {
-                        (current_scroll.x / (scroll_size.width - visible_size.width))
-                            .clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
-
-                    let max_thumb_x = (track_w - thumb_width - margin_left - margin_right).max(0.0);
-                    let thumb_x = max_thumb_x * scroll_ratio;
-
-                    let mut thumb_height = sb_state.style.width;
-                    let mut pad_top = 0.0;
-                    let mut pad_bottom = 0.0;
-                    if let Some(ref thumb_style) = sb_state.style.h_thumb {
-                        if let Val::Px(val) = thumb_style.inner.basic_layout.size.height {
-                            thumb_height = val.min(sb_state.style.width);
-                        }
-                        if let Length::Px(val) = thumb_style.inner.basic_layout.padding.top {
-                            pad_top = val;
-                        }
-                        if let Length::Px(val) = thumb_style.inner.basic_layout.padding.bottom {
-                            pad_bottom = val;
-                        }
-                    }
-
-                    let thumb_y = if pad_bottom > 0.0 {
-                        sb_state.style.width - thumb_height - pad_bottom
-                    } else if pad_top > 0.0 {
-                        pad_top
-                    } else {
-                        (sb_state.style.width - thumb_height) * 0.5
-                    };
-
-                    self.update_scrollbar_element(
-                        h_thumb,
-                        Size::new(Val::Px(thumb_width), Val::Px(thumb_height)),
-                        Rect::new(Val::Px(thumb_y), Val::Auto, Val::Auto, Val::Px(thumb_x)),
-                        h_thumb_opacity,
-                    );
-                } else {
-                    self.hide_scrollbar_element(h_thumb);
-                }
-            }
-        }
+        LayoutStore::sync_scrollbar_styles(
+            active_masks,
+            input_contents,
+            text_engine,
+            text_contents,
+            text_spans,
+            dwrite_layouts,
+            taffy_nodes,
+            taffy,
+            basic_layouts,
+            base_basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            interaction_properties,
+            visual_properties,
+            base_visual_properties,
+            scrollbar_styles,
+            rects,
+            scroll_offsets,
+            *last_window_size,
+        );
     }
 }

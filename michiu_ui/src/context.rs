@@ -257,13 +257,21 @@ impl Context {
 
     #[inline]
     pub fn clear_layout_dirty(&mut self) {
-        LayoutStore::clear_layout_dirty(&mut self.layouts, &mut self.topology);
+        let TopologyStore { active_masks, .. } = &mut self.topology;
+        let LayoutStore {
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
+
+        LayoutStore::clear_layout_dirty(dirty_layout_entities, active_masks);
     }
 
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
     #[inline]
     pub fn rect(&self, id: EntityId) -> Option<LayoutRect> {
-        self.outputs.rects.get(id).copied()
+        let OutputStore { rects, .. } = &self.outputs;
+
+        OutputStore::rect(id, rects)
     }
 
     /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。

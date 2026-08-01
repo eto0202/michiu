@@ -55,7 +55,6 @@ impl RenderStore {
         Self {
             visual_properties: SecondaryMap::new(),
             interaction_properties: SecondaryMap::new(),
-
             base_visual_properties: SecondaryMap::new(),
             dirty_render_entities: Vec::new(),
             active_transitions: SparseSecondaryMap::new(),
@@ -113,27 +112,6 @@ impl RenderStore {
             }
         }
         renders.dirty_render_entities.clear();
-    }
-
-    pub(crate) fn get_basic_layout_mut<'a>(
-        id: EntityId,
-        renders: &'a mut RenderStore,
-        target: StyleTarget,
-        layouts: &'a mut LayoutStore,
-    ) -> Option<&'a mut BasicLayout> {
-        match target {
-            StyleTarget::Base => layouts.base_basic_layouts.get_mut(id),
-            _ => {
-                if !renders.interaction_properties.contains_key(id) {
-                    renders
-                        .interaction_properties
-                        .insert(id, InteractionStyles::default());
-                }
-                let styles = renders.interaction_properties.get_mut(id).unwrap();
-                let style_ref = styles.get_style_target_mut(target);
-                Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
-            }
-        }
     }
 
     pub(crate) fn get_visual_property_mut(
@@ -858,15 +836,6 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn get_basic_layout_mut(
-        &mut self,
-        id: EntityId,
-        target: StyleTarget,
-    ) -> Option<&mut BasicLayout> {
-        RenderStore::get_basic_layout_mut(id, &mut self.renders, target, &mut self.layouts)
-    }
-
-    #[inline]
     pub(crate) fn get_visual_property_mut(
         &mut self,
         id: EntityId,
@@ -1457,10 +1426,10 @@ impl Context {
             self.cascade_basic_layout(id, active_mask, &mut target_layout);
 
             // 単位を親/ウィンドウアラインメントを考慮した物理ピクセル(f32)へ解決
-            let target_w_px = self.resolve_val_to_px(id, target_layout.size.width, true);
-            let current_w_px = self.resolve_val_to_px(id, active_layout.size.width, true);
-            let target_h_px = self.resolve_val_to_px(id, target_layout.size.height, false);
-            let current_h_px = self.resolve_val_to_px(id, active_layout.size.height, false);
+            let target_w_px = self.val_to_px(id, target_layout.size.width, true);
+            let current_w_px = self.val_to_px(id, active_layout.size.width, true);
+            let target_h_px = self.val_to_px(id, target_layout.size.height, false);
+            let current_h_px = self.val_to_px(id, active_layout.size.height, false);
 
             let mut width_triggered = false;
             let mut height_triggered = false;

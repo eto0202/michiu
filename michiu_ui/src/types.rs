@@ -243,10 +243,16 @@ impl LayoutPoint {
 }
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct LayoutSize {
     pub width: f32,
     pub height: f32,
+}
+
+impl Default for LayoutSize {
+    fn default() -> Self {
+        LayoutSize::ZERO
+    }
 }
 
 impl LayoutSize {

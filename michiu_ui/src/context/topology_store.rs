@@ -481,7 +481,7 @@ impl TopologyStore {
         logical_pos: LayoutPoint,
         children: &ChildrenSecondary,
         flex_layouts: &FlexLayoutsSecondary,
-        rects: &RectsSecondaryMap,
+        rects: &RectsSecondary,
     ) -> usize {
         let mut insert_idx = 0;
 

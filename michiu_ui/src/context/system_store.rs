@@ -52,10 +52,14 @@ impl TaskSender {
     }
 }
 
+pub(crate) type DwriteLayoutsSparseSecondary =
+    RefCell<SparseSecondaryMap<EntityId, IDWriteTextLayout>>;
+pub(crate) type UiaPropertiesSparseSecondary = SparseSecondaryMap<EntityId, Vec<(i32, UiaValue)>>;
+
 pub struct SystemStore {
     pub(crate) text_engine: TextEngine,
-    pub(crate) dwrite_layouts: RefCell<SparseSecondaryMap<EntityId, IDWriteTextLayout>>,
-    pub(crate) uia_properties: SparseSecondaryMap<EntityId, Vec<(i32, UiaValue)>>,
+    pub(crate) dwrite_layouts: DwriteLayoutsSparseSecondary,
+    pub(crate) uia_properties: UiaPropertiesSparseSecondary,
     pub(crate) task_sender: TaskSender,
     pub(crate) task_receiver: Receiver<TaskRecv>,
 }
@@ -90,27 +94,30 @@ impl SystemStore {
 
 impl SystemStore {
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
-    pub(crate) fn create_text_layout(
+    #[inline]
+    pub(crate) fn get_or_create_layout(
         id: EntityId,
-        system: &SystemStore,
-        contents: &ContentStore,
-        renders: &RenderStore,
+        text_contents: &TextContentsSparseSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        text_spans: &TextSpansSparseSecondary,
+        text_engine: &TextEngine,
     ) -> Option<IDWriteTextLayout> {
-        let text = contents.text_contents.get(id)?;
+        if let Some(layout) = dwrite_layouts.borrow().get(id) {
+            return Some(layout.clone());
+        }
+
+        let text = text_contents.get(id)?;
         let default_visual = VisualProperty::default();
-        let visual = renders.visual_properties.get(id).unwrap_or(&default_visual);
+        let visual = visual_properties.get(id).unwrap_or(&default_visual);
         let font_size = visual.font_size.unwrap_or(16.0);
         let font_family = visual.font_family.as_deref();
         let font_weight = visual.font_weight;
         let font_style = visual.font_style;
 
-        let spans = contents
-            .text_spans
-            .get(id)
-            .map(|s| s.as_slice())
-            .unwrap_or(&[]);
+        let spans = text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
 
-        let layout = system.text_engine.create_layout(
+        let layout = text_engine.create_layout(
             text,
             font_size,
             font_family,
@@ -120,10 +127,7 @@ impl SystemStore {
             spans,
         );
 
-        system
-            .dwrite_layouts
-            .borrow_mut()
-            .insert(id, layout.clone());
+        dwrite_layouts.borrow_mut().insert(id, layout.clone());
         Some(layout)
     }
 
@@ -277,11 +281,28 @@ impl Context {
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
     pub(crate) fn get_or_create_layout(&self, id: EntityId) -> Option<IDWriteTextLayout> {
-        if let Some(layout) = self.system.dwrite_layouts.borrow().get(id) {
-            return Some(layout.clone());
-        }
+        let ContentStore {
+            text_contents,
+            text_spans,
+            ..
+        } = &self.contents;
+        let SystemStore {
+            dwrite_layouts,
+            text_engine,
+            ..
+        } = &self.system;
+        let RenderStore {
+            visual_properties, ..
+        } = &self.renders;
 
-        SystemStore::create_text_layout(id, &self.system, &self.contents, &self.renders)
+        SystemStore::get_or_create_layout(
+            id,
+            text_contents,
+            visual_properties,
+            dwrite_layouts,
+            text_spans,
+            text_engine,
+        )
     }
 
     #[inline]

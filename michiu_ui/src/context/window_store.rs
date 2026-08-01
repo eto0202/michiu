@@ -54,10 +54,10 @@ impl WindowStore {
 
     /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出します。
     pub(crate) fn calculate_visible_size(
-        window: &WindowStore,
+        last_window_size: Option<LayoutSize>,
         container_rect: LayoutRect,
     ) -> LayoutSize {
-        let window_size = window.last_window_size.unwrap_or(LayoutSize::ZERO);
+        let window_size = last_window_size.unwrap_or_default();
 
         let visible_w = if window_size.width > 0.0 {
             let left = container_rect.x.max(0.0);
@@ -89,6 +89,10 @@ impl Context {
     /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出します。
     #[inline]
     pub(crate) fn calculate_visible_size(&self, container_rect: LayoutRect) -> LayoutSize {
-        WindowStore::calculate_visible_size(&self.window, container_rect)
+        let WindowStore {
+            last_window_size, ..
+        } = &self.window;
+
+        WindowStore::calculate_visible_size(*last_window_size, container_rect)
     }
 }

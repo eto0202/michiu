@@ -1,15 +1,25 @@
-use std::time::{Duration, Instant};
+use std::{
+    borrow::Cow,
+    time::{Duration, Instant},
+};
 
 use crate::*;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
+pub(crate) type TextContentsSparseSecondary = SparseSecondaryMap<EntityId, Cow<'static, str>>;
+pub(crate) type TextSpansSparseSecondary = SparseSecondaryMap<EntityId, Vec<TextSpan>>;
+pub(crate) type InputContentsSparseSecondary = SparseSecondaryMap<EntityId, InputContents>;
+pub(crate) type ImageSourcesSparseSecondary = SparseSecondaryMap<EntityId, ImageSource>;
+pub(crate) type MoviePropertiesSparseSecondary = SparseSecondaryMap<EntityId, MovieProperty>;
+pub(crate) type WebviewContentsSparseSecondary = SparseSecondaryMap<EntityId, WebView2Contents>;
+
 pub struct ContentStore {
-    pub(crate) text_contents: SparseSecondaryMap<EntityId, std::borrow::Cow<'static, str>>,
-    pub(crate) text_spans: SparseSecondaryMap<EntityId, Vec<TextSpan>>,
-    pub(crate) input_contents: SparseSecondaryMap<EntityId, InputContents>,
-    pub(crate) image_sources: SparseSecondaryMap<EntityId, ImageSource>,
-    pub(crate) movie_properties: SparseSecondaryMap<EntityId, MovieProperty>,
-    pub(crate) webview_contents: SparseSecondaryMap<EntityId, WebView2Contents>,
+    pub(crate) text_contents: TextContentsSparseSecondary,
+    pub(crate) text_spans: TextSpansSparseSecondary,
+    pub(crate) input_contents: InputContentsSparseSecondary,
+    pub(crate) image_sources: ImageSourcesSparseSecondary,
+    pub(crate) movie_properties: MoviePropertiesSparseSecondary,
+    pub(crate) webview_contents: WebviewContentsSparseSecondary,
 }
 
 impl Default for ContentStore {
@@ -164,7 +174,7 @@ impl Context {
     pub(crate) fn should_show_caret(&self, contents: &InputContents) -> bool {
         ContentStore::should_show_caret(contents)
     }
-    
+
     /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
     #[inline]
     pub(crate) fn measure_content(
