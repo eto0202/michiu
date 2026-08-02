@@ -606,6 +606,726 @@ impl RenderStore {
         TargetStyle::apply_visual_property(target, &style.inner.visual_property, style.inner.mask);
     }
 
+    #[allow(clippy::too_many_arguments)]
+    #[inline]
+    pub(crate) fn apply_interaction_cascades(
+        id: EntityId,
+        active_mask: ComponentMask,
+        target: &mut TargetStyle,
+        interaction_properties: &InteractionPropertiesSecondary,
+        entities: &EntitiesSlot,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        active_masks: &ActiveMasksSecondary,
+        focused_style_resolved: Option<ThisStyle>,
+        focused_visible_style_resolved: Option<ThisStyle>,
+    ) {
+        RenderStore::cascade_interaction(
+            id,
+            active_mask,
+            target,
+            interaction_properties,
+            focused_style_resolved,
+            focused_visible_style_resolved,
+        );
+        RenderStore::cascade_parent_interaction(
+            id,
+            active_mask,
+            target,
+            interaction_properties,
+            entities,
+            parents,
+            children,
+            active_masks,
+        );
+        RenderStore::cascade_within_interaction(
+            id,
+            active_mask,
+            target,
+            interaction_properties,
+            entities,
+            children,
+            active_masks,
+        );
+    }
+
+    /// 対象の要素がキーボードフォーカス可能であるかを検証
+    pub(crate) fn is_keyboard_focusable(
+        id: EntityId,
+        entities: &EntitiesSlot,
+        active_masks: &ActiveMasksSecondary,
+        parents: &ParentsSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+    ) -> bool {
+        if !entities.contains_key(id) {
+            return false;
+        }
+        // 無効化（Disabled）状態でないか検証
+        let mask = active_masks.get(id).copied().unwrap_or_default();
+        if mask.has(STATE_DISABLED) {
+            return false;
+        }
+
+        // 暗黙的または明示的にキーボードフォーカスを要求しているか
+        let focusable = visual_properties.get(id).and_then(|v| v.focusable);
+        let is_target = match focusable {
+            // 明示的にフォーカス設定がある場合
+            Some(Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger)) => {
+                matches!(trigger, FocusTrigger::Keyboard | FocusTrigger::Both)
+            }
+            Some(Focusable::None) => false,
+            // 設定がない場合の暗黙的なフォールバック（Input / Webview はデフォルトでフォーカス対象とする）
+            None => mask.has(COMP_INPUT_CONTENT) || mask.has(COMP_WEBVIEW_CONTENT),
+        };
+
+        if !is_target {
+            return false;
+        }
+
+        // 自分自身、および親先祖ツリーに非表示（Display::None）が1つも含まれていないか検証
+        let mut curr = Some(id);
+        while let Some(curr_id) = curr {
+            if let Some(layout) = basic_layouts.get(curr_id)
+                && layout.display == Display::None
+            {
+                return false;
+            }
+            curr = parents.get(curr_id).copied().flatten();
+        }
+        true
+    }
+
+    /// 補間されたアニメーション値を SoA のアクティブプロパティへ安全に上書きします
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn apply_animation_value(
+        id: EntityId,
+        property: PropertyList,
+        value: &TransitionValue,
+        visual_properties: &mut VisualPropertiesSecondary,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        parents: &ParentsSecondary,
+    ) {
+        if !visual_properties.contains_key(id) {
+            visual_properties.insert(id, Default::default());
+        }
+        let v = visual_properties.get_mut(id).unwrap();
+
+        // レイアウト変更が発生したか
+        let mut is_layout_dirty = false;
+
+        match *value {
+            TransitionValue::Color(c) => {
+                if property == PropertyList::BackgroundColor {
+                    v.bg_color = Some(c);
+                } else if property == PropertyList::BorderColor {
+                    v.border_color = Some(c);
+                }
+            }
+            TransitionValue::Opacity(o) => {
+                v.opacity = Some(o);
+            }
+            TransitionValue::Transform(m) => {
+                v.transform = Some(m);
+            }
+            TransitionValue::CornerRadius(cr) => {
+                v.corner_radius = Some(cr);
+            }
+            TransitionValue::Width(w) => {
+                if let Some(layout) = basic_layouts.get_mut(id) {
+                    layout.size.width = Val::Px(w);
+                }
+                is_layout_dirty = true;
+            }
+            TransitionValue::Height(h) => {
+                if let Some(layout) = basic_layouts.get_mut(id) {
+                    layout.size.height = Val::Px(h);
+                }
+                is_layout_dirty = true;
+            }
+            TransitionValue::BoxShadow(shadow) => {
+                v.shadow_params = Some(shadow);
+                v.shadow_color = Some(shadow.color);
+            }
+        }
+
+        if is_layout_dirty {
+            LayoutStore::mark_layout_dirty(
+                id,
+                taffy_nodes,
+                taffy,
+                active_masks,
+                dirty_layout_entities,
+                parents,
+            );
+        }
+    }
+
+    /// 状態の変更を検知しアニメーションが必要な箇所を自動的に開始・制御
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn resolve_element_style_state(
+        id: EntityId,
+        allow_transition: bool,
+        active_masks: &mut ActiveMasksSecondary,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        visual_properties: &mut VisualPropertiesSecondary,
+        parents: &ParentsSecondary,
+        entities: &EntitiesSlot,
+        children: &ChildrenSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        element_effects: &ElementEffectsSecondary,
+        active_transitions: &mut ActiveTransitionsSparseSecondary,
+        active_animations: &mut ActiveAnimationsSparseSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &BaseBasicLayoutsSecondary,
+        rects: &RectsSecondary,
+        last_window_size: &Option<LayoutSize>,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+    ) {
+        let active_mask = active_masks[id];
+
+        RenderStore::resolve_visual_styles(
+            id,
+            allow_transition,
+            active_mask,
+            base_visual_properties,
+            visual_properties,
+            interaction_properties,
+            entities,
+            parents,
+            children,
+            active_masks,
+            input_contents,
+            element_effects,
+            active_transitions,
+            dirty_render_entities,
+        );
+
+        RenderStore::resolve_layout_styles(
+            id,
+            allow_transition,
+            active_mask,
+            basic_layouts,
+            base_basic_layouts,
+            interaction_properties,
+            parents,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            rects,
+            last_window_size,
+            visual_properties,
+            base_visual_properties,
+            element_effects,
+            active_transitions,
+        );
+
+        // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
+        // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
+        RenderStore::trigger_keyframe_animations_if_needed(
+            id,
+            visual_properties,
+            active_animations,
+        );
+
+        let Some(effects) = element_effects.get(id) else {
+            return;
+        };
+        let text_effects: Vec<EffectId> = effects
+            .iter()
+            .filter(|(cat, _)| *cat == EffectCategory::Text)
+            .map(|(_, eff_id)| *eff_id)
+            .collect();
+        for eff_id in text_effects {
+            crate::execute_effect(eff_id);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_layout_styles(
+        id: EntityId,
+        allow_transition: bool,
+        active_mask: ComponentMask,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &BaseBasicLayoutsSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        parents: &ParentsSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        rects: &RectsSecondary,
+        last_window_size: &Option<LayoutSize>,
+        visual_properties: &VisualPropertiesSecondary,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+        element_effects: &ElementEffectsSecondary,
+        active_transitions: &mut ActiveTransitionsSparseSecondary,
+    ) {
+        let has_base_layout = base_basic_layouts.contains_key(id);
+        let has_active_layout = basic_layouts.contains_key(id);
+
+        if !has_base_layout && !has_active_layout {
+            return;
+        }
+
+        let active_layout = basic_layouts.get(id).cloned().unwrap_or_default();
+        let base_layout = base_basic_layouts.get(id).cloned().unwrap_or_default();
+        let mut target_layout = base_layout;
+
+        RenderStore::cascade_basic_layout(
+            id,
+            interaction_properties,
+            active_mask,
+            &mut target_layout,
+        );
+
+        let to_px = |val, is_width| {
+            OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size)
+        };
+
+        let target_w_px = to_px(target_layout.size.width, true);
+        let current_w_px = to_px(active_layout.size.width, true);
+        let target_h_px = to_px(target_layout.size.height, false);
+        let current_h_px = to_px(active_layout.size.height, false);
+
+        let mut width_triggered = false;
+        let mut height_triggered = false;
+
+        let mut if_needed = |prop, start, end| {
+            RenderStore::trigger_transition_if_needed(
+                id,
+                prop,
+                start,
+                end,
+                element_effects,
+                base_visual_properties,
+                active_transitions,
+            )
+        };
+
+        let can_trigger_width = visual_properties
+            .get(id)
+            .map(|v| {
+                v.transitions.iter().any(|t| {
+                    t.property_list == PropertyList::Width || t.property_list == PropertyList::Size
+                })
+            })
+            .unwrap_or(false);
+
+        if allow_transition
+            && can_trigger_width
+            && has_active_layout
+            && let (Some(cw), Some(tw)) = (current_w_px, target_w_px)
+            && (cw - tw).abs() > 0.01
+        {
+            width_triggered = if_needed(
+                PropertyList::Width,
+                TransitionValue::Width(cw),
+                TransitionValue::Width(tw),
+            );
+        }
+
+        let can_trigger_height = visual_properties
+            .get(id)
+            .map(|v| {
+                v.transitions.iter().any(|t| {
+                    t.property_list == PropertyList::Height || t.property_list == PropertyList::Size
+                })
+            })
+            .unwrap_or(false);
+
+        if allow_transition
+            && can_trigger_height
+            && has_active_layout
+            && let (Some(ch), Some(th)) = (current_h_px, target_h_px)
+            && (ch - th).abs() > 0.01
+        {
+            height_triggered = if_needed(
+                PropertyList::Height,
+                TransitionValue::Height(ch),
+                TransitionValue::Height(th),
+            );
+        }
+
+        if !basic_layouts.contains_key(id) {
+            basic_layouts.insert(id, Default::default());
+        }
+        let active_layout_mut = basic_layouts.get_mut(id).unwrap();
+        *active_layout_mut = target_layout;
+
+        if width_triggered {
+            active_layout_mut.size.width = Val::Px(current_w_px.unwrap());
+        }
+        if height_triggered {
+            active_layout_mut.size.height = Val::Px(current_h_px.unwrap());
+        }
+
+        LayoutStore::mark_layout_dirty(
+            id,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_visual_styles(
+        id: EntityId,
+        allow_transition: bool,
+        active_mask: ComponentMask,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+        visual_properties: &mut VisualPropertiesSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        entities: &EntitiesSlot,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        active_masks: &mut ActiveMasksSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        element_effects: &ElementEffectsSecondary,
+        active_transitions: &mut ActiveTransitionsSparseSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+    ) {
+        let has_base_visual = base_visual_properties.contains_key(id);
+        let has_active_visual = visual_properties.contains_key(id);
+        let has_interaction_styles = interaction_properties.contains_key(id);
+
+        if !has_base_visual && !has_active_visual && !has_interaction_styles {
+            return;
+        }
+
+        let current = RenderStore::get_current_style(id, visual_properties);
+        let mut target = RenderStore::get_target_style(id, base_visual_properties);
+
+        let resolv_focus = |flag| {
+            RenderStore::resolv_focus_style(
+                id,
+                interaction_properties,
+                visual_properties,
+                &active_mask,
+                parents,
+                flag,
+            )
+        };
+
+        let focused_style_resolved = resolv_focus(STATE_FOCUSED);
+        let focused_visible_style_resolved = resolv_focus(STATE_FOCUSED_VISIBLE);
+
+        RenderStore::apply_interaction_cascades(
+            id,
+            active_mask,
+            &mut target,
+            interaction_properties,
+            entities,
+            parents,
+            children,
+            active_masks,
+            focused_style_resolved,
+            focused_visible_style_resolved,
+        );
+
+        let mut is_placeholder_active = false;
+        if let Some(contents) = input_contents.get(id) {
+            let has_no_ime = contents
+                .ime_state
+                .as_ref()
+                .map(|s| s.composition_text.is_empty())
+                .unwrap_or(true);
+            if contents.text.0.get().is_empty() && has_no_ime {
+                is_placeholder_active = true;
+            }
+        }
+
+        // 変更評価の計算
+        let target_bg_val = target.bg_color.unwrap_or(Color::TRANSPARENT);
+        let bg_changed = current.bg_color != target_bg_val;
+
+        let target_border_val = target.border_color.unwrap_or(Color::TRANSPARENT);
+        let border_changed = current.border_color != target_border_val;
+
+        let target_outline_width_val = target.outline_width.unwrap_or(EdgeInsets::ZERO);
+        let outline_width_changed = current.outline_width != target_outline_width_val;
+
+        let target_outline_color_val = target.outline_color.unwrap_or(Color::TRANSPARENT);
+        let outline_color_changed = current.outline_color != target_outline_color_val;
+
+        let target_outline_offset_val = target.outline_offset.unwrap_or(0.0);
+        let outline_offset_changed =
+            (current.outline_offset - target_outline_offset_val).abs() > 0.001;
+
+        let target_opacity_val = target.opacity.unwrap_or(1.0);
+        let opacity_changed = (current.opacity - target_opacity_val).abs() > 0.001;
+
+        let target_transform_val = target.transform.unwrap_or(IDENTITY_MATRIX);
+        let transform_changed = current.transform != target_transform_val;
+
+        let target_transform_origin_val = target.transform_origin.unwrap_or(Point::ORIGIN);
+        let transform_origin_changed = current.transform_origin != target_transform_origin_val;
+
+        let target_radius_val = target.corner_radius.unwrap_or(CornerRadius::ZERO);
+        let radius_changed = current.corner_radius != target_radius_val;
+
+        let target_shadow_val = target.shadow_params.unwrap_or(BoxShadow::none());
+        let shadow_changed = current.shadow_params != target_shadow_val;
+
+        // トランジション判定
+        let mut if_needed = |prop, start, end| {
+            RenderStore::trigger_transition_if_needed(
+                id,
+                prop,
+                start,
+                end,
+                element_effects,
+                base_visual_properties,
+                active_transitions,
+            )
+        };
+
+        let mut bg_triggered = false;
+        if allow_transition && bg_changed && has_active_visual {
+            bg_triggered = if_needed(
+                PropertyList::BackgroundColor,
+                TransitionValue::Color(current.bg_color),
+                TransitionValue::Color(target_bg_val),
+            );
+        }
+
+        let mut border_triggered = false;
+        if border_changed && has_active_visual {
+            border_triggered = if_needed(
+                PropertyList::BorderColor,
+                TransitionValue::Color(current.border_color),
+                TransitionValue::Color(target_border_val),
+            );
+        }
+
+        let mut opacity_triggered = false;
+        if opacity_changed && has_active_visual {
+            opacity_triggered = if_needed(
+                PropertyList::Opacity,
+                TransitionValue::Opacity(current.opacity),
+                TransitionValue::Opacity(target_opacity_val),
+            );
+        }
+
+        let mut transform_triggered = false;
+        if transform_changed {
+            transform_triggered = if_needed(
+                PropertyList::Transform,
+                TransitionValue::Transform(current.transform),
+                TransitionValue::Transform(target_transform_val),
+            );
+        }
+
+        let mut radius_triggered = false;
+        if radius_changed && has_active_visual {
+            radius_triggered = if_needed(
+                PropertyList::CornerRadius,
+                TransitionValue::CornerRadius(current.corner_radius),
+                TransitionValue::CornerRadius(target_radius_val),
+            );
+        }
+
+        let mut shadow_triggered = false;
+        if shadow_changed && has_active_visual {
+            shadow_triggered = if_needed(
+                PropertyList::BoxShadow,
+                TransitionValue::BoxShadow(current.shadow_params),
+                TransitionValue::BoxShadow(target_shadow_val),
+            );
+        }
+
+        // 更新の書き込み
+        if bg_triggered
+            || border_triggered
+            || opacity_triggered
+            || transform_triggered
+            || radius_triggered
+            || shadow_triggered
+            || bg_changed
+            || border_changed
+            || opacity_changed
+            || transform_changed
+            || radius_changed
+            || shadow_changed
+            || outline_width_changed
+            || outline_color_changed
+            || outline_offset_changed
+            || base_visual_properties.contains_key(id)
+        {
+            if !visual_properties.contains_key(id) {
+                visual_properties.insert(id, Default::default());
+            }
+            let active_vis = visual_properties.get_mut(id).unwrap();
+
+            if !bg_triggered {
+                active_vis.bg_color = target.bg_color;
+            }
+            if !border_triggered {
+                active_vis.border_color = target.border_color;
+            }
+            if !opacity_triggered {
+                active_vis.opacity = target.opacity;
+            }
+            if !transform_triggered {
+                active_vis.transform = target.transform;
+                active_vis.transform_origin = target.transform_origin;
+            }
+            if !radius_triggered {
+                active_vis.corner_radius = target.corner_radius;
+            }
+
+            if is_placeholder_active {
+                active_vis.text_color = Some(Color::rgb_f32(0.5, 0.5, 0.5));
+            } else {
+                active_vis.text_color = target.text_color;
+            }
+
+            if !shadow_triggered {
+                active_vis.shadow_params = target.shadow_params;
+                active_vis.shadow_color = target.shadow_color;
+            }
+
+            active_vis.border_lengths = target.border_lengths;
+            active_vis.border_styles = target.border_styles;
+            active_vis.border_alignments = target.border_alignments;
+
+            active_vis.outline_width = target.outline_width;
+            active_vis.outline_color = target.outline_color;
+            active_vis.outline_lengths = target.outline_lengths;
+            active_vis.outline_styles = target.outline_styles;
+            active_vis.outline_alignments = target.outline_alignments;
+            active_vis.outline_offset = target.outline_offset;
+
+            active_vis.select_bg_color = target.select_bg_color;
+            active_vis.select_text_color = target.select_text_color;
+
+            active_vis.cursor = target.cursor;
+            active_vis.resizable_cursor = target.resizable_cursor;
+
+            active_vis.font_size = target.font_size;
+            active_vis.font_family = target.font_family.clone();
+            active_vis.font_weight = target.font_weight;
+            active_vis.font_style = target.font_style;
+
+            active_vis.pointer_events = target.pointer_events;
+
+            if let Some(target_vis) = base_visual_properties.get(id) {
+                active_vis.z_index = target_vis.z_index;
+                active_vis.backdrop = target_vis.backdrop;
+                active_vis.bg_gradient = target_vis.bg_gradient;
+                active_vis.transitions = target_vis.transitions.clone();
+                active_vis.keyframe_animations = target_vis.keyframe_animations.clone();
+                active_vis.focusable = target_vis.focusable;
+                active_vis.prevent_focus_steal = target_vis.prevent_focus_steal;
+                active_vis.prevent_focus_steal_within = target_vis.prevent_focus_steal_within;
+                active_vis.transform_inherit = target.transform_inherit;
+                active_vis.user_select = target_vis.user_select;
+            }
+
+            RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+        }
+    }
+
+    /// 必要に応じてトランジションを起動、または上書き（逆再生含む）します
+    pub(crate) fn trigger_transition_if_needed(
+        id: EntityId,
+        property_list: PropertyList,
+        start_value: TransitionValue,
+        end_value: TransitionValue,
+        element_effects: &ElementEffectsSecondary,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+        active_transitions: &mut ActiveTransitionsSparseSecondary,
+    ) -> bool {
+        // スタイルの再評価エフェクトの実行中であるか
+        let is_style_evaluating = crate::signal::ACTIVE_EFFECT.with(|cell| {
+            if let Some(effect_id) = cell.get() {
+                // 現在走っているエフェクトがいずれかの要素の StyleCategory::Style のものであるか走査
+                element_effects.values().any(|list| {
+                    list.iter()
+                        .any(|(cat, eff_id)| *eff_id == effect_id && *cat == EffectCategory::Style)
+                })
+            } else {
+                false
+            }
+        });
+
+        // スタイルエフェクト評価中であればトランジションの開始を完全拒否して値の即時書き換え
+        if is_style_evaluating {
+            return false;
+        }
+
+        let Some(visual) = base_visual_properties.get(id) else {
+            return false;
+        };
+
+        let Some(t) = visual
+            .transitions
+            .iter()
+            .find(|t| t.property_list == property_list || t.property_list == PropertyList::Size)
+        else {
+            return false;
+        };
+
+        let Some(entry) = active_transitions.entry(id) else {
+            return false;
+        };
+
+        let active_list = entry.or_insert_with(Vec::new);
+        let now = Instant::now();
+
+        // 割り込み処理の解決（すでに同じアニメーションが走っている場合）
+        if let Some(existing) = active_list
+            .iter_mut()
+            .find(|et| et.property_list == property_list)
+        {
+            // 同一目的地なら何もしない
+            if existing.end_value == end_value {
+                return true;
+            }
+
+            // 中間補間位置を計算
+            let elapsed = existing
+                .start_time
+                .map(|st| now.duration_since(st))
+                .unwrap_or(Duration::ZERO);
+            let progress = (elapsed.as_secs_f32() / existing.duration.as_secs_f32()).min(1.0);
+            let eased_t = existing.curve.evaluate(progress);
+            let current_interposed_val = existing.start_value.lerp(&existing.end_value, eased_t);
+
+            // 既存状態を上書きしてリセット
+            existing.start_time = None;
+            existing.start_value = current_interposed_val;
+            existing.end_value = end_value;
+            existing.duration = t.duration;
+            existing.curve = t.curve;
+
+            return true; // 割り込み完了につき早期リターン
+        }
+
+        // 新規トランジション登録（割り込みが無かった場合のみここに到達）
+        active_list.push(ActiveTransition {
+            property_list,
+            start_time: None,
+            duration: t.duration,
+            curve: t.curve,
+            start_value, // 元の start_value
+            end_value,
+        });
+
+        true
+    }
+
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
     pub(crate) fn resolve_cursor(
         hovered_id: EntityId,
@@ -785,9 +1505,11 @@ impl Default for CurrentStyle {
 impl RenderStore {
     /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
     #[inline]
-    pub(crate) fn get_current_style(id: EntityId, renders: &RenderStore) -> CurrentStyle {
-        renders
-            .visual_properties
+    pub(crate) fn get_current_style(
+        id: EntityId,
+        visual_properties: &VisualPropertiesSecondary,
+    ) -> CurrentStyle {
+        visual_properties
             .get(id)
             .map(|v| CurrentStyle {
                 bg_color: v.bg_color.unwrap_or(Color::TRANSPARENT),
@@ -840,9 +1562,11 @@ pub(crate) struct TargetStyle {
 impl RenderStore {
     /// 目標値を参照経由で構築
     #[inline]
-    pub(crate) fn get_target_style(id: EntityId, renders: &RenderStore) -> TargetStyle {
-        renders
-            .base_visual_properties
+    pub(crate) fn get_target_style(
+        id: EntityId,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+    ) -> TargetStyle {
+        base_visual_properties
             .get(id)
             .map(|v| TargetStyle {
                 pointer_events: v.pointer_events,
@@ -1208,489 +1932,155 @@ impl Context {
     /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
     #[inline]
     pub(crate) fn get_current_style(&self, id: EntityId) -> CurrentStyle {
-        RenderStore::get_current_style(id, &self.renders)
+        let RenderStore {
+            visual_properties, ..
+        } = &self.renders;
+
+        RenderStore::get_current_style(id, visual_properties)
     }
 
     /// 目標値を参照経由で構築
     #[inline]
     pub(crate) fn get_target_style(&self, id: EntityId) -> TargetStyle {
-        RenderStore::get_target_style(id, &self.renders)
+        let RenderStore {
+            base_visual_properties,
+            ..
+        } = &self.renders;
+
+        RenderStore::get_target_style(id, base_visual_properties)
     }
 
     /// 対象の要素がキーボードフォーカス可能であるかを総合検証します
+    #[inline]
     pub(crate) fn is_keyboard_focusable(&self, id: EntityId) -> bool {
-        // 生存確認、および無効化（Disabled）状態でないか検証
-        if !self.topology.entities.contains_key(id) || self.is_disabled(id) {
-            return false;
-        }
+        let TopologyStore {
+            entities,
+            active_masks,
+            parents,
+            ..
+        } = &self.topology;
+        let RenderStore {
+            visual_properties, ..
+        } = &self.renders;
+        let LayoutStore { basic_layouts, .. } = &self.layouts;
 
-        // 暗黙的または明示的にキーボードフォーカスを要求しているか
-        let focusable = self
-            .renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.focusable)
-            .or_else(|| {
-                let mask = self
-                    .topology
-                    .active_masks
-                    .get(id)
-                    .copied()
-                    .unwrap_or_default();
-                if mask.has(COMP_INPUT_CONTENT) || mask.has(COMP_WEBVIEW_CONTENT) {
-                    Some(Focusable::Inherit(FocusTrigger::Both))
-                } else {
-                    None
-                }
-            });
-
-        let is_target = focusable
-            .map(|f| match f {
-                Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
-                    trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
-                }
-                Focusable::None => false,
-            })
-            .unwrap_or(false);
-
-        if !is_target {
-            return false;
-        }
-
-        // 自分自身、および親先祖ツリーに非表示（Display::None）が1つも含まれていないか検証
-        let mut curr = Some(id);
-        while let Some(curr_id) = curr {
-            if let Some(layout) = self.layouts.basic_layouts.get(curr_id)
-                && layout.display == Display::None
-            {
-                return false;
-            }
-            curr = self.topology.parents.get(curr_id).copied().flatten();
-        }
-
-        true
+        RenderStore::is_keyboard_focusable(
+            id,
+            entities,
+            active_masks,
+            parents,
+            visual_properties,
+            basic_layouts,
+        )
     }
 
     /// 補間されたアニメーション値を SoA のアクティブプロパティへ安全に上書きします
+    #[inline]
     pub(crate) fn apply_animation_value(
         &mut self,
         id: EntityId,
         property: PropertyList,
         value: &TransitionValue,
     ) {
-        if !self.renders.visual_properties.contains_key(id) {
-            self.renders
-                .visual_properties
-                .insert(id, Default::default());
-        }
-        let v = self.renders.visual_properties.get_mut(id).unwrap();
+        let RenderStore {
+            visual_properties, ..
+        } = &mut self.renders;
+        let TopologyStore {
+            parents,
+            active_masks,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            taffy,
+            taffy_nodes,
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
 
-        match *value {
-            TransitionValue::Color(c) => {
-                if property == PropertyList::BackgroundColor {
-                    v.bg_color = Some(c);
-                } else if property == PropertyList::BorderColor {
-                    v.border_color = Some(c);
-                }
-            }
-            TransitionValue::Opacity(o) => {
-                v.opacity = Some(o);
-            }
-            TransitionValue::Transform(m) => {
-                v.transform = Some(m);
-            }
-            TransitionValue::CornerRadius(cr) => {
-                v.corner_radius = Some(cr);
-            }
-            TransitionValue::Width(w) => {
-                if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
-                    layout.size.width = Val::Px(w);
-                }
-                self.mark_layout_dirty(id); // レイアウト再計算を要求（スローパス）
-            }
-            TransitionValue::Height(h) => {
-                if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
-                    layout.size.height = Val::Px(h);
-                }
-                self.mark_layout_dirty(id);
-            }
-            TransitionValue::BoxShadow(shadow) => {
-                v.shadow_params = Some(shadow);
-                v.shadow_color = Some(shadow.color);
-            }
-        }
+        RenderStore::apply_animation_value(
+            id,
+            property,
+            value,
+            visual_properties,
+            basic_layouts,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+        );
     }
 
     /// 状態の変更を検知し、アニメーション（トランジション）が必要な箇所を自動的に開始・制御します。
+    #[inline]
     pub(crate) fn resolve_element_style_state(&mut self, id: EntityId, allow_transition: bool) {
-        let active_mask = self.topology.active_masks[id];
+        let TopologyStore {
+            entities,
+            parents,
+            children,
+            active_masks,
+            ..
+        } = &mut self.topology;
 
-        // ビジュアルプロパティ (bg_color, opacity等) の解決
-        let has_base_visual = self.renders.base_visual_properties.contains_key(id);
-        let has_active_visual = self.renders.visual_properties.contains_key(id);
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
 
-        // 要素がホバーやプレス時の動的スタイルを登録しているか
-        let has_interaction_styles = self.renders.interaction_properties.contains_key(id);
+        let RenderStore {
+            visual_properties,
+            interaction_properties,
+            base_visual_properties,
+            dirty_render_entities,
+            active_transitions,
+            active_animations,
+            ..
+        } = &mut self.renders;
 
-        // スタイルを一切持たない要素は、ヒープアロケーションを避けるため完全にスキップ
-        // 静的なベース装飾がなくても、ホバースタイル等を持っていれば確実にカスケード解決を通す
-        if has_base_visual || has_active_visual || has_interaction_styles {
-            let current = self.get_current_style(id);
-            let mut target = self.get_target_style(id);
+        let OutputStore { rects, .. } = &self.outputs;
 
-            // 自身のフォーカススタイルが無い場合、親先祖要素が自身のために定義している focused スタイルを抽出
-            let focused_style_resolved = self.resolv_focus_style(id, &active_mask, STATE_FOCUSED);
-            let focused_visible_style_resolved =
-                self.resolv_focus_style(id, &active_mask, STATE_FOCUSED_VISIBLE);
+        let ReactiveStore {
+            element_effects, ..
+        } = &self.reactive;
 
-            // 疑似クラス（Hovered等）のマージ
-            self.cascade_interaction(
-                id,
-                active_mask,
-                &mut target,
-                focused_style_resolved,
-                focused_visible_style_resolved,
-            );
-            self.cascade_parent_interaction(id, active_mask, &mut target);
-            self.cascade_within_interaction(id, active_mask, &mut target);
+        let ContentStore { input_contents, .. } = &self.contents;
 
-            // プレースホルダー表示状態
-            let mut is_placeholder_active = false;
-            if let Some(contents) = self.contents.input_contents.get(id) {
-                // 文字列が空、かつ IME 変換中でない場合はプレースホルダーと判定
-                let has_no_ime = contents
-                    .ime_state
-                    .as_ref()
-                    .map(|s| s.composition_text.is_empty())
-                    .unwrap_or(true);
-                if contents.text.0.get().is_empty() && has_no_ime {
-                    is_placeholder_active = true;
-                }
-            }
+        let WindowStore {
+            last_window_size, ..
+        } = &self.window;
 
-            // 各プロパティの即時適用の変更を評価
-            let target_bg_val = target.bg_color.unwrap_or(Color::TRANSPARENT);
-            let bg_changed = current.bg_color != target_bg_val;
-
-            let target_border_val = target.border_color.unwrap_or(Color::TRANSPARENT);
-            let border_changed = current.border_color != target_border_val;
-
-            let target_outline_width_val = target.outline_width.unwrap_or(EdgeInsets::ZERO);
-            let outline_width_changed = current.outline_width != target_outline_width_val;
-
-            let target_outline_color_val = target.outline_color.unwrap_or(Color::TRANSPARENT);
-            let outline_color_changed = current.outline_color != target_outline_color_val;
-
-            let target_outline_offset_val = target.outline_offset.unwrap_or(0.0);
-            let outline_offset_changed =
-                (current.outline_offset - target_outline_offset_val).abs() > 0.001;
-
-            let target_opacity_val = target.opacity.unwrap_or(1.0);
-            let opacity_changed = (current.opacity - target_opacity_val).abs() > 0.001;
-
-            let target_transform_val = target.transform.unwrap_or(IDENTITY_MATRIX);
-            let transform_changed = current.transform != target_transform_val;
-
-            let target_transform_origin_val = target.transform_origin.unwrap_or(Point::ORIGIN);
-            let transform_origin_changed = current.transform_origin != target_transform_origin_val;
-
-            let target_radius_val = target.corner_radius.unwrap_or(CornerRadius::ZERO);
-            let radius_changed = current.corner_radius != target_radius_val;
-
-            let target_shadow_val = target.shadow_params.unwrap_or(BoxShadow::none());
-            let shadow_changed = current.shadow_params != target_shadow_val;
-
-            // トランジション判定 (変更がある場合のみトリガー)
-            let mut bg_triggered = false;
-            if allow_transition && bg_changed && has_active_visual {
-                bg_triggered = self.trigger_transition_if_needed(
-                    id,
-                    PropertyList::BackgroundColor,
-                    TransitionValue::Color(current.bg_color),
-                    TransitionValue::Color(target_bg_val),
-                );
-            }
-
-            let mut border_triggered = false;
-            if border_changed && has_active_visual {
-                border_triggered = self.trigger_transition_if_needed(
-                    id,
-                    PropertyList::BorderColor,
-                    TransitionValue::Color(current.border_color),
-                    TransitionValue::Color(target_border_val),
-                );
-            }
-
-            let mut opacity_triggered = false;
-            if opacity_changed && has_active_visual {
-                opacity_triggered = self.trigger_transition_if_needed(
-                    id,
-                    PropertyList::Opacity,
-                    TransitionValue::Opacity(current.opacity),
-                    TransitionValue::Opacity(target_opacity_val),
-                );
-            }
-
-            let mut transform_triggered = false;
-            if transform_changed {
-                transform_triggered = self.trigger_transition_if_needed(
-                    id,
-                    PropertyList::Transform,
-                    TransitionValue::Transform(current.transform),
-                    TransitionValue::Transform(target_transform_val),
-                );
-            }
-
-            let mut radius_triggered = false;
-            if radius_changed && has_active_visual {
-                radius_triggered = self.trigger_transition_if_needed(
-                    id,
-                    PropertyList::CornerRadius,
-                    TransitionValue::CornerRadius(current.corner_radius),
-                    TransitionValue::CornerRadius(target_radius_val),
-                );
-            }
-
-            let mut shadow_triggered = false;
-            if shadow_changed && has_active_visual {
-                shadow_triggered = self.trigger_transition_if_needed(
-                    id,
-                    PropertyList::BoxShadow,
-                    TransitionValue::BoxShadow(current.shadow_params),
-                    TransitionValue::BoxShadow(target_shadow_val),
-                );
-            }
-
-            // アニメーションが起動した、または明示的にベースの描画プロパティがある場合のみ
-            // 遅延評価（Lazy）でマップを確保し、書き込みを行う
-            if bg_triggered
-                || border_triggered
-                || opacity_triggered
-                || transform_triggered
-                || radius_triggered
-                || shadow_triggered
-                || bg_changed
-                || border_changed
-                || opacity_changed
-                || transform_changed
-                || radius_changed
-                || shadow_changed
-                || outline_width_changed
-                || outline_color_changed
-                || outline_offset_changed
-                || self.renders.base_visual_properties.contains_key(id)
-            {
-                if !self.renders.visual_properties.contains_key(id) {
-                    self.renders
-                        .visual_properties
-                        .insert(id, Default::default());
-                }
-                let active_vis = self.renders.visual_properties.get_mut(id).unwrap();
-
-                if !bg_triggered {
-                    active_vis.bg_color = target.bg_color;
-                }
-                if !border_triggered {
-                    active_vis.border_color = target.border_color;
-                }
-                if !opacity_triggered {
-                    active_vis.opacity = target.opacity;
-                }
-                if !transform_triggered {
-                    active_vis.transform = target.transform;
-                    active_vis.transform_origin = target.transform_origin;
-                }
-                if !radius_triggered {
-                    active_vis.corner_radius = target.corner_radius;
-                }
-                if is_placeholder_active {
-                    // プレースホルダー時はフォーカスに関わらず、強制的に半透明の薄いグレー
-                    active_vis.text_color = Some(Color::rgb_f32(0.5, 0.5, 0.5));
-                } else {
-                    active_vis.text_color = target.text_color; // 通常時、または疑似状態（Hover等）のテキストカラー
-                }
-
-                // 解決した影（target_shadow）をアクティブプロパティに代入
-                // アニメーション非起動時のみ行うように修正
-                if !shadow_triggered {
-                    active_vis.shadow_params = target.shadow_params;
-                    active_vis.shadow_color = target.shadow_color;
-                }
-
-                active_vis.border_lengths = target.border_lengths;
-                active_vis.border_styles = target.border_styles;
-                active_vis.border_alignments = target.border_alignments;
-
-                active_vis.outline_width = target.outline_width;
-                active_vis.outline_color = target.outline_color;
-                active_vis.outline_lengths = target.outline_lengths;
-                active_vis.outline_styles = target.outline_styles;
-                active_vis.outline_alignments = target.outline_alignments;
-                active_vis.outline_offset = target.outline_offset;
-
-                // 解決された選択色をアクティブビジュアルに代入
-                active_vis.select_bg_color = target.select_bg_color;
-                active_vis.select_text_color = target.select_text_color;
-                // 常に即時解決する静的プロパティ群
-                active_vis.user_select = self
-                    .renders
-                    .base_visual_properties
-                    .get(id)
-                    .and_then(|v| v.user_select);
-
-                active_vis.cursor = target.cursor;
-                active_vis.resizable_cursor = target.resizable_cursor;
-
-                active_vis.font_size = target.font_size;
-                active_vis.font_family = target.font_family.clone();
-                active_vis.font_weight = target.font_weight;
-                active_vis.font_style = target.font_style;
-
-                active_vis.pointer_events = target.pointer_events;
-
-                // コールドプロパティの即時代入
-                if let Some(target_vis) = self.renders.base_visual_properties.get(id) {
-                    active_vis.z_index = target_vis.z_index;
-                    active_vis.backdrop = target_vis.backdrop;
-                    active_vis.bg_gradient = target_vis.bg_gradient;
-                    active_vis.transitions = target_vis.transitions.clone();
-                    active_vis.keyframe_animations = target_vis.keyframe_animations.clone();
-                    active_vis.focusable = target_vis.focusable;
-                    active_vis.prevent_focus_steal = target_vis.prevent_focus_steal;
-                    active_vis.prevent_focus_steal_within = target_vis.prevent_focus_steal_within;
-                    active_vis.transform_inherit = target.transform_inherit;
-                }
-
-                // 即時変更があったため、レンダラーへの転送 Dirty をマーク
-                self.mark_render_dirty(id);
-            }
-        }
-
-        //  (Width, Height) の解決
-        let has_base_layout = self.layouts.base_basic_layouts.contains_key(id);
-        let has_active_layout = self.layouts.basic_layouts.contains_key(id);
-
-        // レイアウト変更のない要素は完全にスキップ
-        if has_base_layout || has_active_layout {
-            let active_layout = self
-                .layouts
-                .basic_layouts
-                .get(id)
-                .cloned()
-                .unwrap_or_default();
-
-            // BasicLayout は heap allocation を持たないフラットな構造（Copy同等）なので
-            // cloned() によるクローンは極めて低コスト
-            let base_layout = self
-                .layouts
-                .base_basic_layouts
-                .get(id)
-                .cloned()
-                .unwrap_or_default();
-            let mut target_layout = base_layout;
-
-            self.cascade_basic_layout(id, active_mask, &mut target_layout);
-
-            // 単位を親/ウィンドウアラインメントを考慮した物理ピクセル(f32)へ解決
-            let target_w_px = self.val_to_px(id, target_layout.size.width, true);
-            let current_w_px = self.val_to_px(id, active_layout.size.width, true);
-            let target_h_px = self.val_to_px(id, target_layout.size.height, false);
-            let current_h_px = self.val_to_px(id, active_layout.size.height, false);
-
-            let mut width_triggered = false;
-            let mut height_triggered = false;
-
-            // Width または 一括 Size トランジション設定が定義されているか検証
-            let can_trigger_width = self
-                .renders
-                .visual_properties
-                .get(id)
-                .map(|v| {
-                    v.transitions.iter().any(|t| {
-                        t.property_list == PropertyList::Width
-                            || t.property_list == PropertyList::Size
-                    })
-                })
-                .unwrap_or(false);
-
-            if allow_transition
-                && can_trigger_width
-                && has_active_layout
-                && let (Some(cw), Some(tw)) = (current_w_px, target_w_px)
-                && (cw - tw).abs() > 0.01
-            // 浮動小数点誤差を無視
-            {
-                width_triggered = self.trigger_transition_if_needed(
-                    id,
-                    PropertyList::Width,
-                    TransitionValue::Width(cw),
-                    TransitionValue::Width(tw),
-                );
-            }
-
-            // Height または 一括 Size トランジション設定が定義されているか検証
-            let can_trigger_height = self
-                .renders
-                .visual_properties
-                .get(id)
-                .map(|v| {
-                    v.transitions.iter().any(|t| {
-                        t.property_list == PropertyList::Height
-                            || t.property_list == PropertyList::Size
-                    })
-                })
-                .unwrap_or(false);
-
-            if allow_transition
-                && can_trigger_height
-                && has_active_layout
-                && let (Some(ch), Some(th)) = (current_h_px, target_h_px)
-                && (ch - th).abs() > 0.01
-            {
-                height_triggered = self.trigger_transition_if_needed(
-                    id,
-                    PropertyList::Height,
-                    TransitionValue::Height(ch),
-                    TransitionValue::Height(th),
-                );
-            }
-
-            // 遅延マウント
-            if !self.layouts.basic_layouts.contains_key(id) {
-                self.layouts.basic_layouts.insert(id, Default::default());
-            }
-            let active_layout_mut = self.layouts.basic_layouts.get_mut(id).unwrap();
-            *active_layout_mut = target_layout;
-
-            if width_triggered {
-                active_layout_mut.size.width = Val::Px(current_w_px.unwrap());
-            }
-            if height_triggered {
-                active_layout_mut.size.height = Val::Px(current_h_px.unwrap());
-            }
-
-            // 最終的に解決されたレイアウトを Taffy ツリーに即時同期させるため、
-            // スタイル解決の末尾でレイアウトの Dirty マークを叩きます
-            self.mark_layout_dirty(id);
-        }
-
-        // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
-        // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
-        self.trigger_keyframe_animations_if_needed(id);
-
-        if let Some(effects) = self.reactive.element_effects.get(id) {
-            let text_effects: Vec<EffectId> = effects
-                .iter()
-                .filter(|(cat, _)| *cat == EffectCategory::Text)
-                .map(|(_, eff_id)| *eff_id)
-                .collect();
-            for eff_id in text_effects {
-                crate::execute_effect(eff_id);
-            }
-        }
+        RenderStore::resolve_element_style_state(
+            id,
+            allow_transition,
+            active_masks,
+            base_visual_properties,
+            interaction_properties,
+            visual_properties,
+            parents,
+            entities,
+            children,
+            input_contents,
+            element_effects,
+            active_transitions,
+            active_animations,
+            dirty_render_entities,
+            basic_layouts,
+            base_basic_layouts,
+            rects,
+            last_window_size,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        );
     }
 
     /// 必要に応じてトランジションを起動、または上書き（逆再生含む）します
+    #[inline]
     pub(crate) fn trigger_transition_if_needed(
         &mut self,
         id: EntityId,
@@ -1698,89 +2088,23 @@ impl Context {
         start_value: TransitionValue,
         end_value: TransitionValue,
     ) -> bool {
-        // スタイルの再評価エフェクトの実行中であるか
-        let is_style_evaluating = crate::signal::ACTIVE_EFFECT.with(|cell| {
-            if let Some(effect_id) = cell.get() {
-                // 現在走っているエフェクトがいずれかの要素の StyleCategory::Style のものであるか走査
-                self.reactive.element_effects.values().any(|list| {
-                    list.iter()
-                        .any(|(cat, eff_id)| *eff_id == effect_id && *cat == EffectCategory::Style)
-                })
-            } else {
-                false
-            }
-        });
+        let RenderStore {
+            base_visual_properties,
+            active_transitions,
+            ..
+        } = &mut self.renders;
+        let ReactiveStore {
+            element_effects, ..
+        } = &self.reactive;
 
-        // スタイルエフェクト評価中であればトランジションの開始を完全拒否して値の即時書き換え
-        if is_style_evaluating {
-            return false;
-        }
-
-        // 1. その要素に、このプロパティに対するトランジション設定が定義されているか検証
-        if let Some(visual) = self.renders.base_visual_properties.get(id) {
-            // transitions ベクタの中から、一致する PropertyList を探す
-            if let Some(t) = visual
-                .transitions
-                .iter()
-                .find(|t| t.property_list == property_list || t.property_list == PropertyList::Size)
-            {
-                let now = Instant::now();
-                if let Some(entry) = self.renders.active_transitions.entry(id) {
-                    let active_list = entry.or_insert_with(Vec::new);
-
-                    // 2. 割り込み処理の解決（すでに同じプロパティのアニメーションが走っているか）
-                    let actual_start = if let Some(existing) = active_list
-                        .iter_mut()
-                        .find(|et| et.property_list == property_list)
-                    {
-                        // すでに同じ目的地に向かってアニメーション中の場合は、
-                        // 割り込みを一切行わず、そのまま既存アニメーションを走らせる
-                        if existing.end_value == end_value {
-                            return true;
-                        }
-
-                        // すでに駆動中の場合は、その現在の補間位置をリアルタイム計算する
-                        // ※ start_time が None の場合（登録されたが一度も tick されていない場合）は
-                        // 経過時間 0 として進捗 progress を 0.0 にする
-                        let elapsed = existing
-                            .start_time
-                            .map(|st| now.duration_since(st))
-                            .unwrap_or(Duration::ZERO);
-                        let progress =
-                            (elapsed.as_secs_f32() / existing.duration.as_secs_f32()).min(1.0);
-                        let eased_t = existing.curve.evaluate(progress);
-
-                        // 中間位置の算出（これが新しいアニメーションの開始点になる）
-                        let current_interposed_val =
-                            existing.start_value.lerp(&existing.end_value, eased_t);
-
-                        // 既存のアニメーション状態をリセットし、現在地点から新しい目標値（end_value）へ向かうように上書き
-                        existing.start_time = None;
-                        existing.start_value = current_interposed_val;
-                        existing.end_value = end_value;
-                        existing.duration = t.duration;
-                        existing.curve = t.curve;
-
-                        return true; // 既存のアニメーションを上書き更新したため即時復帰
-                    } else {
-                        // 新規開始の場合は、渡された現在の開始値をそのまま採用
-                        start_value
-                    };
-
-                    // 3. 新規トランジションをアクティブリストに登録
-                    active_list.push(ActiveTransition {
-                        property_list,
-                        start_time: None,
-                        duration: t.duration,
-                        curve: t.curve,
-                        start_value: actual_start,
-                        end_value,
-                    });
-
-                    return true; // トランジションを正常に起動
-                }
-            }
-        }
-        false // トランジション設定がなかったため、即時適用パスへ
+        RenderStore::trigger_transition_if_needed(
+            id,
+            property_list,
+            start_value,
+            end_value,
+            element_effects,
+            base_visual_properties,
+            active_transitions,
+        )
     }
 }

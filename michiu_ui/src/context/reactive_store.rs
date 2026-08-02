@@ -22,14 +22,24 @@ pub(crate) enum EffectCategory {
     FocusableState,
 }
 
+pub(crate) type SignalsSlotMap = SlotMap<SignalId, Box<dyn std::any::Any>>;
+pub(crate) type EffectsSlotMap = SlotMap<EffectId, Effects>;
+pub(crate) type SubscribersSecondary = SecondaryMap<SignalId, SmallVec<[EffectId; 4]>>;
+pub(crate) type ElementEffectsSecondary =
+    SecondaryMap<EntityId, SmallVec<[(EffectCategory, EffectId); 4]>>;
+pub(crate) type EffectToElementSecondary = SecondaryMap<EffectId, EntityId>;
+pub(crate) type PendingElementEffectsVec = Vec<EffectId>;
+pub(crate) type ProvidersSparseSecondary =
+    SparseSecondaryMap<EntityId, HashMap<std::any::TypeId, SignalId>>;
+
 pub struct ReactiveStore {
-    pub(crate) signals: SlotMap<SignalId, Box<dyn std::any::Any>>,
-    pub(crate) effects: SlotMap<EffectId, Effects>,
-    pub(crate) subscribers: SecondaryMap<SignalId, SmallVec<[EffectId; 4]>>,
-    pub(crate) element_effects: SecondaryMap<EntityId, SmallVec<[(EffectCategory, EffectId); 4]>>,
-    pub(crate) effect_to_element: SecondaryMap<EffectId, EntityId>,
-    pub(crate) pending_element_effects: Vec<EffectId>,
-    pub(crate) providers: SparseSecondaryMap<EntityId, HashMap<std::any::TypeId, SignalId>>,
+    pub(crate) signals: SignalsSlotMap,
+    pub(crate) effects: EffectsSlotMap,
+    pub(crate) subscribers: SubscribersSecondary,
+    pub(crate) element_effects: ElementEffectsSecondary,
+    pub(crate) effect_to_element: EffectToElementSecondary,
+    pub(crate) pending_element_effects: PendingElementEffectsVec,
+    pub(crate) providers: ProvidersSparseSecondary,
 }
 
 pub(crate) type Effects = Box<dyn FnMut(&mut Context)>;
