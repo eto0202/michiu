@@ -57,14 +57,16 @@ impl<T> Clone for ReadSignal<T> {
 }
 impl<T> Copy for ReadSignal<T> {}
 
-impl<T: Clone + 'static> ReadSignal<T> {
-    #[inline]
+impl<T> ReadSignal<T> {
     pub fn new(id: SignalId) -> Self {
         Self {
             id,
             _marker: PhantomData,
         }
     }
+}
+
+impl<T: Clone + 'static> ReadSignal<T> {
     #[inline]
     pub fn id(&self) -> SignalId {
         self.id
@@ -278,14 +280,16 @@ impl<T> Clone for WriteSignal<T> {
 }
 impl<T> Copy for WriteSignal<T> {}
 
-impl<T: Send + 'static> WriteSignal<T> {
-    #[inline]
+impl<T> WriteSignal<T> {
     pub fn new(id: SignalId) -> Self {
         Self {
             id,
             _marker: PhantomData,
         }
     }
+}
+
+impl<T: Send + 'static> WriteSignal<T> {
     #[inline]
     pub fn id(&self) -> SignalId {
         self.id

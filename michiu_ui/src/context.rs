@@ -305,31 +305,79 @@ impl Context {
         &mut self,
         initial_value: T,
     ) -> (ReadSignal<T>, WriteSignal<T>) {
-        ReactiveStore::create_signal(initial_value, &mut self.reactive)
+        let ReactiveStore {
+            signals,
+            subscribers,
+            ..
+        } = &mut self.reactive;
+
+        ReactiveStore::create_signal(initial_value, signals, subscribers)
     }
 
     /// 現在のスレッドローカルコンテキストから、
     /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
     #[inline]
     pub fn use_provided_setter<T: Send + 'static>(&self) -> WriteSignal<T> {
-        ReactiveStore::use_provided_setter(&self.reactive, &self.topology)
+        let ReactiveStore {
+            effect_to_element,
+            providers,
+            ..
+        } = &self.reactive;
+        let TopologyStore { parents, .. } = &self.topology;
+
+        let element_id = ReactiveStore::resolve_element_effect(effect_to_element)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "use_provided_setter must be called inside a dynamic reactive context or an active event handler context"
+                    );
+                });
+
+        ReactiveStore::use_provided_setter_from::<T>(element_id, providers, parents)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Dependency resolution failed: No Provider Setter found in ancestor sub-tree for type: '{}'",
+                        std::any::type_name::<T>()
+                    )
+                })
     }
 
     /// 現在のスレッドローカルコンテキスト（アクティブなエフェクト、またはイベントハンドラ）から、
     /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の ReadSignal を解決します。
     #[inline]
     pub fn use_provided<T: Clone + 'static>(&self) -> ReadSignal<T> {
-        // ACTIVE_EFFECT（エフェクト実行中）から解決を試みる
-        let element_id = ReactiveStore::resolve_element_effect(&self.reactive);
+        let ReactiveStore {
+            providers,
+            effect_to_element,
+            ..
+        } = &self.reactive;
+        let TopologyStore { parents, .. } = &self.topology;
 
-        // 親ツリーを遡って解決
-        ReactiveStore::use_provided_from::<T>(element_id, &self.reactive, &self.topology)
+        let element_id = ReactiveStore::resolve_element_effect(effect_to_element)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "use_provided must be called inside a dynamic style, text, content closure, or an active event handler context"
+                    );
+                });
+
+        ReactiveStore::use_provided_from::<T>(element_id, providers, parents)
                 .unwrap_or_else(|| {
                     panic!(
                         "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
                         std::any::type_name::<T>()
                     )
                 })
+    }
+
+    pub fn try_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
+        let ReactiveStore {
+            providers,
+            effect_to_element,
+            ..
+        } = &self.reactive;
+        let TopologyStore { parents, .. } = &self.topology;
+
+        let element_id = ReactiveStore::resolve_element_effect(effect_to_element)?;
+        ReactiveStore::use_provided_from::<T>(element_id, providers, parents)
     }
 
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。

@@ -89,200 +89,171 @@ impl ReactiveStore {
 }
 
 impl ReactiveStore {
-    /// 要素の階層トポロジーを親（Ancestor）に向かって遡り、最初に見つかった型 T の ReadSignal を解決して返します
+    /// 要素の階層トポロジーを親に向かって遡り、最初に見つかった型 T の ReadSignal を解決して返す
     pub(crate) fn use_provided_from<T: Clone + 'static>(
         id: EntityId,
-        reactive: &ReactiveStore,
-        topology: &TopologyStore,
+        providers: &ProvidersSparseSecondary,
+        parents: &ParentsSecondary,
     ) -> Option<ReadSignal<T>> {
-        let mut curr = Some(id);
         let type_id = std::any::TypeId::of::<T>();
 
-        while let Some(curr_id) = curr {
-            if let Some(map) = reactive.providers.get(curr_id)
-                && let Some(&signal_id) = map.get(&type_id)
-            {
-                return Some(ReadSignal::new(signal_id));
-            }
-            // トポロジー親を安全に探索
-            curr = topology.parents.get(curr_id).copied().flatten();
+        // 親要素へ遡るイテレータを生成
+        std::iter::successors(Some(id), |&curr_id| parents.get(curr_id).copied().flatten())
+            .find_map(|curr_id| {
+                providers
+                    .get(curr_id)
+                    .and_then(|map| map.get(&type_id))
+                    .map(|&signal_id| ReadSignal::new(signal_id))
+            })
+    }
+
+    pub(crate) fn resolve_element_effect(
+        effect_to_element: &EffectToElementSecondary,
+    ) -> Option<EntityId> {
+        // ACTIVE_EFFECT（エフェクト実行中）から解決
+        if let Some(effect_id) = crate::ACTIVE_EFFECT.with(|cell| cell.get()) {
+            return Some(effect_to_element.get(effect_id).copied().expect(
+                "use_provided failed: active effect is not associated with any UI Element",
+            ));
         }
+
+        // ACTIVE_EFFECT が None であれば、ACTIVE_ELEMENT にフォールバック
+        if let Some(element_id) = crate::ACTIVE_ELEMENT.with(|cell| cell.get()) {
+            return Some(element_id);
+        }
+
         None
     }
 
-    pub(crate) fn resolve_element_effect(reactive: &ReactiveStore) -> EntityId {
-        // 1. ACTIVE_EFFECT（エフェクト実行中）から解決を試みる
-        if let Some(active_effect_id) = crate::signal::ACTIVE_EFFECT.with(|cell| cell.get()) {
-            reactive
-                .effect_to_element
-                .get(active_effect_id)
-                .copied()
-                .expect("use_provided failed: active effect is not associated with any UI Element")
-        } else if let Some(active_element_id) =
-            crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
-        {
-            // 2. ACTIVE_EFFECTがNoneであれば、ACTIVE_ELEMENT（イベントハンドラ実行中）にフォールバック
-            active_element_id
-        } else {
-            panic!(
-                "use_provided must be called inside a dynamic style, text, content closure, or an active event handler context"
-            );
-        }
-    }
-
-    /// 現在のスレッドローカルコンテキストから、
-    /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
-    pub(crate) fn use_provided_setter<T: Send + 'static>(
-        reactive: &ReactiveStore,
-        topology: &TopologyStore,
-    ) -> WriteSignal<T> {
-        let element_id = if let Some(active_effect_id) =
-            crate::signal::ACTIVE_EFFECT.with(|cell| cell.get())
-        {
-            reactive
-                .effect_to_element
-                .get(active_effect_id)
-                .copied()
-                .expect("use_provided_setter failed: active effect not associated with an Element")
-        } else if let Some(active_element_id) =
-            crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
-        {
-            active_element_id
-        } else {
-            panic!(
-                "use_provided_setter must be called inside a dynamic reactive context or an active event handler context"
-            );
-        };
-
-        let mut curr = Some(element_id);
+    /// 親ツリーを遡り、最初に見つかった型 T の WriteSignal を解決して返す
+    pub(crate) fn use_provided_setter_from<T: Send + 'static>(
+        id: EntityId,
+        providers: &ProvidersSparseSecondary,
+        parents: &ParentsSecondary,
+    ) -> Option<WriteSignal<T>> {
         let type_id = std::any::TypeId::of::<T>();
 
-        while let Some(curr_id) = curr {
-            if let Some(map) = reactive.providers.get(curr_id)
-                && let Some(&signal_id) = map.get(&type_id)
-            {
-                return WriteSignal {
-                    id: signal_id,
-                    _marker: std::marker::PhantomData,
-                };
-            }
-            curr = topology.parents.get(curr_id).copied().flatten();
-        }
-        panic!(
-            "Dependency resolution failed: No Provider Setter found in ancestor sub-tree for type: '{}'",
-            std::any::type_name::<T>()
-        )
+        // 親要素へ遡るイテレータを生成
+        std::iter::successors(Some(id), |&curr_id| parents.get(curr_id).copied().flatten())
+            .find_map(|curr_id| {
+                providers
+                    .get(curr_id)
+                    .and_then(|map| map.get(&type_id))
+                    .map(|&signal_id| WriteSignal {
+                        id: signal_id,
+                        _marker: std::marker::PhantomData,
+                    })
+            })
     }
 
-    /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録します。
-    /// 同一カテゴリのエフェクトが既に存在する場合、自動的に古いエフェクトを破棄してから上書きします。
+    /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録。
+    /// 同一カテゴリのエフェクトが既に存在する場合、自動的に古いエフェクトを破棄してから上書き。
+    #[inline]
     pub(crate) fn register_element_effect(
         element_id: EntityId,
-        reactive: &mut ReactiveStore,
         category: EffectCategory,
         effect_id: EffectId,
+        effects: &mut EffectsSlotMap,
+        effect_to_element: &mut EffectToElementSecondary,
+        pending_element_effects: &mut PendingElementEffectsVec,
+        element_effects: &mut ElementEffectsSecondary,
     ) {
-        if let Some(effects) = reactive.element_effects.get_mut(element_id) {
-            // 同一カテゴリのエフェクトが既に登録されていれば、古いものを破棄
-            if let Some(pos) = effects.iter().position(|(cat, _)| *cat == category) {
-                let (_, old_effect_id) = effects.remove(pos);
-                reactive.effects.remove(old_effect_id); // SoA から古いエフェクト実体を削除
+        // 既に登録済みの場合は、更新処理を行って早期リターン
+        if let Some(e) = element_effects.get_mut(element_id) {
+            if let Some(pos) = e.iter().position(|(cat, _)| *cat == category) {
+                let (_, old_id) = e.remove(pos);
+                effects.remove(old_id); // エフェクト実体を削除
+                effect_to_element.remove(old_id); // 要素との紐付けを解除
+                pending_element_effects.retain(|&x| x != old_id); // 実行待ちキューから排除
             }
-            effects.push((category, effect_id));
-        } else {
-            reactive
-                .element_effects
-                .insert(element_id, smallvec::smallvec![(category, effect_id)]);
+            e.push((category, effect_id));
+            return;
         }
+        // 未登録の場合
+        element_effects.insert(element_id, smallvec::smallvec![(category, effect_id)]);
     }
 
-    /// 要素に動的エフェクト（Style、Text等のリアクティブクロージャ）を安全に登録し、初期評価を実行します。
+    /// 要素に動的エフェクトを登録し初期評価を実行
     pub(crate) fn create_element_effect<F>(
         element_id: EntityId,
-        reactive: &mut ReactiveStore,
         category: EffectCategory,
+        effects: &mut EffectsSlotMap,
+        effect_to_element: &mut EffectToElementSecondary,
+        element_effects: &mut ElementEffectsSecondary,
+        pending_element_effects: &mut PendingElementEffectsVec,
         f: F,
     ) -> EffectId
     where
         F: FnMut(&mut Context) + 'static,
     {
-        let effect_id = reactive.effects.insert(Box::new(f));
+        let effect_id = effects.insert(Box::new(f));
 
-        // 初回評価が走る前に要素との紐付けを確実に登録
-        reactive.effect_to_element.insert(effect_id, element_id);
+        // 初回評価が走る前に要素との紐付けを登録
+        effect_to_element.insert(effect_id, element_id);
 
-        // 要素のエフェクトリストに登録し、既存の同じカテゴリの古いエフェクトは自動破棄
-        if !reactive.element_effects.contains_key(element_id) {
-            reactive
-                .element_effects
-                .insert(element_id, smallvec::smallvec![]);
-        }
-        let list = reactive.element_effects.get_mut(element_id).unwrap();
-        if let Some(pos) = list.iter().position(|(cat, _)| *cat == category) {
-            let (_, old_id) = list.remove(pos);
-            reactive.effects.remove(old_id);
-            reactive.effect_to_element.remove(old_id);
-            reactive.pending_element_effects.retain(|&x| x != old_id); // キューから古いものを排除
-        }
-        list.push((category, effect_id));
+        // 要素のエフェクトリストに登録し、古い同じカテゴリのエフェクトがあれば破棄
+        ReactiveStore::register_element_effect(
+            element_id,
+            category,
+            effect_id,
+            effects,
+            effect_to_element,
+            pending_element_effects,
+            element_effects,
+        );
 
         // 即時実行を廃止。トポロジーが整うまで初回評価を一時保留
-        reactive.pending_element_effects.push(effect_id);
+        pending_element_effects.push(effect_id);
 
         effect_id
     }
 
-    /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に安全実行します
+    /// ビルド完了後、または同期直前に、溜めてある初回評価を実行
     #[inline]
-    pub(crate) fn evaluate_pending_element_effects(reactive: &mut ReactiveStore) {
-        if reactive.pending_element_effects.is_empty() {
+    pub(crate) fn evaluate_pending_element_effects(
+        pending_element_effects: &mut PendingElementEffectsVec,
+        effects: &mut EffectsSlotMap,
+    ) {
+        if pending_element_effects.is_empty() {
             return;
         }
 
         // 評価中に別のネストしたエフェクトが追加されるケースを許容するため、drain で一度排出して処理
-        let pending: Vec<EffectId> = reactive.pending_element_effects.drain(..).collect();
-        for effect_id in pending {
-            if reactive.effects.contains_key(effect_id) {
-                crate::execute_effect(effect_id);
-            }
+        let pending: Vec<EffectId> = std::mem::take(pending_element_effects);
+
+        for effect_id in pending.into_iter().filter(|&id| effects.contains_key(id)) {
+            crate::execute_effect(effect_id);
         }
     }
 
-    /// 指定された要素に対してシグナルコンテキストを提供します
+    /// 指定された要素に対してシグナルコンテキストを提供
     #[inline]
     pub(crate) fn provide_context<T: Send + 'static>(
         id: EntityId,
-        reactive: &mut ReactiveStore,
         signal_id: SignalId,
+        providers: &mut ProvidersSparseSecondary,
     ) {
-        if !reactive.providers.contains_key(id) {
-            reactive
-                .providers
-                .insert(id, std::collections::HashMap::new());
-        }
-        let map = reactive.providers.get_mut(id).unwrap();
+        let Some(entry) = providers.entry(id) else {
+            return;
+        };
+
+        let map = entry.or_default();
         map.insert(std::any::TypeId::of::<T>(), signal_id);
     }
 
-    /// Context インスタンスから直接シグナルを生成します。
-    /// これにより build_ui の外側（メインスレッド上）でもシグナルを定義できます。
+    /// Context インスタンスから直接シグナルを生成。
+    /// これにより build_ui の外側（メインスレッド上）でもシグナルを定義できる。
     #[inline]
     pub(crate) fn create_signal<T: Send + 'static>(
         initial_value: T,
-        reactive: &mut ReactiveStore,
+        signals: &mut SignalsSlotMap,
+        subscribers: &mut SubscribersSecondary,
     ) -> (ReadSignal<T>, WriteSignal<T>) {
-        let id = reactive.signals.insert(Box::new(initial_value));
-        reactive.subscribers.insert(id, SmallVec::new());
-        (
-            ReadSignal {
-                id,
-                _marker: PhantomData,
-            },
-            WriteSignal {
-                id,
-                _marker: PhantomData,
-            },
-        )
+        let id = signals.insert(Box::new(initial_value));
+
+        subscribers.insert(id, SmallVec::new());
+
+        (ReadSignal::new(id), WriteSignal::new(id))
     }
 }
 
@@ -293,7 +264,10 @@ impl Context {
         &self,
         id: EntityId,
     ) -> Option<ReadSignal<T>> {
-        ReactiveStore::use_provided_from(id, &self.reactive, &self.topology)
+        let ReactiveStore { providers, .. } = &self.reactive;
+        let TopologyStore { parents, .. } = &self.topology;
+
+        ReactiveStore::use_provided_from(id, providers, parents)
     }
 
     /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録します。
@@ -305,7 +279,23 @@ impl Context {
         category: EffectCategory,
         effect_id: EffectId,
     ) {
-        ReactiveStore::register_element_effect(element_id, &mut self.reactive, category, effect_id);
+        let ReactiveStore {
+            effects,
+            element_effects,
+            effect_to_element,
+            pending_element_effects,
+            ..
+        } = &mut self.reactive;
+
+        ReactiveStore::register_element_effect(
+            element_id,
+            category,
+            effect_id,
+            effects,
+            effect_to_element,
+            pending_element_effects,
+            element_effects,
+        );
     }
 
     /// 要素に動的エフェクト（Style、Text等のリアクティブクロージャ）を安全に登録し、初期評価を実行します。
@@ -319,18 +309,42 @@ impl Context {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        ReactiveStore::create_element_effect(element_id, &mut self.reactive, category, f)
+        let ReactiveStore {
+            effects,
+            effect_to_element,
+            element_effects,
+            pending_element_effects,
+            ..
+        } = &mut self.reactive;
+
+        ReactiveStore::create_element_effect(
+            element_id,
+            category,
+            effects,
+            effect_to_element,
+            element_effects,
+            pending_element_effects,
+            f,
+        )
     }
 
     /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に安全実行します
     #[inline]
     pub(crate) fn evaluate_pending_element_effects(&mut self) {
-        ReactiveStore::evaluate_pending_element_effects(&mut self.reactive);
+        let ReactiveStore {
+            pending_element_effects,
+            effects,
+            ..
+        } = &mut self.reactive;
+
+        ReactiveStore::evaluate_pending_element_effects(pending_element_effects, effects);
     }
 
     /// 指定された要素に対してシグナルコンテキストを提供します
     #[inline]
     pub(crate) fn provide_context<T: Send + 'static>(&mut self, id: EntityId, signal_id: SignalId) {
-        ReactiveStore::provide_context::<T>(id, &mut self.reactive, signal_id);
+        let ReactiveStore { providers, .. } = &mut self.reactive;
+
+        ReactiveStore::provide_context::<T>(id, signal_id, providers);
     }
 }
