@@ -41,41 +41,35 @@ impl WindowStore {
     /// ウィンドウサイズの変更検知
     #[inline]
     pub(crate) fn window_resize_detection(
-        window: &mut WindowStore,
         window_size: LayoutSize,
+        last_window_size: &mut Option<LayoutSize>,
     ) -> bool {
-        if window.last_window_size != Some(window_size) {
-            window.last_window_size = Some(window_size);
-            true
-        } else {
-            false
-        }
+        last_window_size.replace(window_size) != Some(window_size)
     }
 
-    /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出します。
+    /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出
+    #[inline]
     pub(crate) fn calculate_visible_size(
         last_window_size: Option<LayoutSize>,
         container_rect: LayoutRect,
     ) -> LayoutSize {
         let window_size = last_window_size.unwrap_or_default();
 
-        let visible_w = if window_size.width > 0.0 {
-            let left = container_rect.x.max(0.0);
-            let right = (container_rect.x + container_rect.width).min(window_size.width);
-            (right - left).max(0.0)
-        } else {
-            container_rect.width
+        // 幅または高さにおける可視領域の長さを計算
+        let calc_visible_len = |pos: f32, size: f32, max_dim: f32| -> f32 {
+            if max_dim > 0.0 {
+                let start = pos.max(0.0);
+                let end = (pos + size).min(max_dim);
+                (end - start).max(0.0)
+            } else {
+                size
+            }
         };
 
-        let visible_h = if window_size.height > 0.0 {
-            let top = container_rect.y.max(0.0);
-            let bottom = (container_rect.y + container_rect.height).min(window_size.height);
-            (bottom - top).max(0.0)
-        } else {
-            container_rect.height
-        };
+        let width = calc_visible_len(container_rect.x, container_rect.width, window_size.width);
+        let height = calc_visible_len(container_rect.y, container_rect.height, window_size.height);
 
-        LayoutSize::new(visible_w, visible_h)
+        LayoutSize::new(width, height)
     }
 }
 
@@ -83,7 +77,11 @@ impl Context {
     /// ウィンドウサイズの変更検知
     #[inline]
     pub(crate) fn window_resize_detection(&mut self, window_size: LayoutSize) -> bool {
-        WindowStore::window_resize_detection(&mut self.window, window_size)
+        let WindowStore {
+            last_window_size, ..
+        } = &mut self.window;
+
+        WindowStore::window_resize_detection(window_size, last_window_size)
     }
 
     /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出します。
