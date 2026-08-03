@@ -978,7 +978,7 @@ impl Context {
 
                     let user_select = self.get_user_select(target_id);
 
-                    let is_input = self.topology.active_masks[target_id].has(COMP_INPUT_CONTENT);
+                    let is_input = self.topology.active_masks[target_id].has_input_content();
 
                     if user_select == UserSelect::Text
                         && !is_input
@@ -1309,7 +1309,7 @@ impl Context {
             // フォーカス中に Enter または Space が押されたら自動的にクリックをエミュレートする
             if state == ElementState::Pressed
                 && (key == VirtualKey::RETURN || key == VirtualKey::SPACE)
-                && !self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
+                && !self.topology.active_masks[focused_id].has_input_content()
             {
                 self.callback_on_click(focused_id);
                 return;
@@ -1390,7 +1390,7 @@ impl Context {
                 self.events.interaction_states.focused = Some(candidate_id);
 
                 // WebView2 要素だった場合はシステム側にフォーカスをプログラム駆動で移譲
-                if self.topology.active_masks[candidate_id].has(COMP_WEBVIEW_CONTENT) {
+                if self.topology.active_masks[candidate_id].has_webveiw2_content() {
                     // 通常のレンダラーから focus_webview を呼び出すためここでは何もしない
                 }
 
@@ -1450,7 +1450,7 @@ impl Context {
     pub fn inject_paste(&mut self, text: &str) {
         let _context_guard = bind_context(self);
         if let Some(focused_id) = self.events.interaction_states.focused
-            && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
+            && self.topology.active_masks[focused_id].has_input_content()
             && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
         {
             OutputStore::inject_paste_internal(focused_id, text, &mut self.outputs, contents);
@@ -1465,7 +1465,7 @@ impl Context {
     pub fn inject_undo(&mut self) {
         let _context_guard = bind_context(self);
         if let Some(focused_id) = self.events.interaction_states.focused
-            && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
+            && self.topology.active_masks[focused_id].has_input_content()
             && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             && let Some((prev_text, prev_sel)) = contents.undo_stack.pop()
         {
@@ -1487,7 +1487,7 @@ impl Context {
     pub fn inject_redo(&mut self) {
         let _context_guard = bind_context(self);
         if let Some(focused_id) = self.events.interaction_states.focused
-            && self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
+            && self.topology.active_masks[focused_id].has_input_content()
             && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             && let Some((next_text, next_sel)) = contents.redo_stack.pop()
         {
@@ -1521,7 +1521,7 @@ impl Context {
             let cut_text = String::from_utf16(slice).ok()?;
 
             // 対象が Input コントロールである場合のみ、切り取り削除上書きを実行
-            if self.topology.active_masks[focused_id].has(COMP_INPUT_CONTENT)
+            if self.topology.active_masks[focused_id].has_input_content()
                 && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
             {
                 OutputStore::inject_cut_internal(focused_id, range, &mut self.outputs, contents);
@@ -1692,9 +1692,7 @@ impl Context {
                     // テキスト内容を持っているかチェック
                     // (クロージャの外側の self (= Context) は直接キャプチャできないため、
                     //  一時的に bind_context されているスレッドローカル経由で取得)
-                    return with_context(|cx| {
-                        cx.measure_content(id, &self.renders.visual_properties, known_dims)
-                    });
+                    return with_context(|cx| cx.measure_content(id, known_dims));
                 }
                 taffy::Size::ZERO
             };
@@ -1753,7 +1751,7 @@ impl Context {
             self.outputs.rects.insert(id, abs_rect);
             let mask = self.topology.active_masks[id];
 
-            if mask.has(COMP_INPUT_CONTENT)
+            if mask.has_input_content()
                 && let Some(contents) = self.contents.input_contents.get_mut(id)
             {
                 contents.last_bounds = Some(abs_rect);
@@ -1790,7 +1788,7 @@ impl Context {
                  -> taffy::Size<f32> {
                     if let Some(&id) = context.as_deref() {
                         return with_context(|cx| {
-                            if cx.topology.active_masks[id].has(COMP_INPUT_CONTENT)
+                            if cx.topology.active_masks[id].has_input_content()
                                 && let Some(contents) = cx.contents.input_contents.get(id)
                                 && let Some(layout_rect) = contents.last_layout
                             {
@@ -1827,7 +1825,7 @@ impl Context {
             self.outputs.rects.insert(id, abs_rect);
             let mask = self.topology.active_masks[id];
 
-            if mask.has(COMP_INPUT_CONTENT)
+            if mask.has_input_content()
                 && let Some(contents) = self.contents.input_contents.get_mut(id)
             {
                 contents.last_bounds = Some(abs_rect);

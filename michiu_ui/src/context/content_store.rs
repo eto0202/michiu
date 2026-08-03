@@ -72,34 +72,47 @@ impl ContentStore {
             return true; // キー入力や移動の操作から 300ms 未満のときは常時表示
         }
 
-        if contents.is_blink {
-            let freq = contents
-                .blink_frequency
-                .unwrap_or(Duration::from_millis(530))
-                .as_millis();
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis();
-            (now / freq).is_multiple_of(2)
-        } else {
-            contents.has_caret
+        // 点滅しない場合はキャレットの有無をそのまま返す
+        if !contents.is_blink {
+            return contents.has_caret;
         }
+
+        let freq = contents
+            .blink_frequency
+            .unwrap_or(Duration::from_millis(530))
+            .as_millis();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        (now / freq).is_multiple_of(2)
+    }
+
+    #[inline]
+    pub(crate) fn get_text_span(
+        id: EntityId,
+        text_spans: &TextSpansSparseSecondary,
+    ) -> &[TextSpan] {
+        text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[])
     }
 
     /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn measure_content(
         id: EntityId,
-        contents: &mut ContentStore,
-        active_masks: &SecondaryMap<EntityId, ComponentMask>,
-        visual_properties: &SecondaryMap<EntityId, VisualProperty>,
+        input_contents: &mut InputContentsSparseSecondary,
+        text_contents: &TextContentsSparseSecondary,
+        text_spans: &TextSpansSparseSecondary,
+        active_masks: &ActiveMasksSecondary,
+        visual_properties: &VisualPropertiesSecondary,
         text_engine: &TextEngine,
         known_dims: taffy::Size<Option<f32>>,
     ) -> taffy::Size<f32> {
         let mask = active_masks.get(id).copied().unwrap_or_default();
 
-        if mask.has(COMP_INPUT_CONTENT)
-            && let Some(contents) = contents.input_contents.get(id)
+        // 入力かつキャッシュが既に存在する場合は即座にそのサイズを早期リターン
+        if mask.has_input_content()
+            && let Some(contents) = input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
             return taffy::Size {
@@ -108,63 +121,42 @@ impl ContentStore {
             };
         }
 
-        if mask.has(COMP_TEXT_CONTENT) {
-            let text = contents
-                .text_contents
-                .get(id)
-                .map(|s| s.as_ref())
-                .unwrap_or("");
-            let (font_size, font_family, font_weight, font_style) = visual_properties
-                .get(id)
-                .map(|v| {
-                    (
-                        v.font_size.unwrap_or(16.0),
-                        v.font_family.as_deref(),
-                        v.font_weight,
-                        v.font_style,
-                    )
-                })
-                // もし該当要素に VisualProperty 自体がなければデフォルト値をあてる
-                .unwrap_or((16.0, None, None, None));
-
-            let max_width = None;
-
-            let spans = contents
-                .text_spans
-                .get(id)
-                .map(|s| s.as_slice())
-                .unwrap_or(&[]);
-
-            // DirectWrite を使用して正確なサイズを計測
-            let size = text_engine.measure_text(
-                text,
-                font_size,
-                font_family,
-                font_weight,
-                font_style,
-                max_width,
-                spans,
-            );
-
-            // 計測した文字自体の正確なサイズをここでインプット要素にキャッシュする
-            if mask.has(COMP_INPUT_CONTENT)
-                && let Some(contents) = contents.input_contents.get_mut(id)
-            {
-                contents.last_layout = Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
-            }
-
-            // 文字のみのサイズ
+        // テキストを持たない場合は、デフォルト値を早期リターン
+        if !mask.has_text_content() {
             return taffy::Size {
-                width: known_dims.width.unwrap_or(size.width),
-                height: known_dims.height.unwrap_or(size.height),
+                width: known_dims.width.unwrap_or(0.0),
+                height: known_dims.height.unwrap_or(0.0),
             };
         }
 
-        // テキストも入力も持たない空の div 等の場合、
-        // スタイルに割り当てられたサイズがあればそれを優先して返し、無ければ ZERO とする
+        let text = text_contents.get(id).map(|s| s.as_ref()).unwrap_or("");
+        let (font_size, font_family, font_weight, font_style) =
+            RenderStore::get_font_propery(id, visual_properties);
+        let max_width = None;
+        let spans = ContentStore::get_text_span(id, text_spans);
+
+        // DirectWrite を使用して正確なサイズを計測
+        let size = text_engine.measure_text(
+            text,
+            font_size,
+            font_family,
+            font_weight,
+            font_style,
+            max_width,
+            spans,
+        );
+
+        // 計測した文字自体の正確なサイズをここでインプット要素にキャッシュする
+        if mask.has_input_content()
+            && let Some(contents) = input_contents.get_mut(id)
+        {
+            contents.last_layout = Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
+        }
+
+        // 文字のみのサイズを返す
         taffy::Size {
-            width: known_dims.width.unwrap_or(0.0),
-            height: known_dims.height.unwrap_or(0.0),
+            width: known_dims.width.unwrap_or(size.width),
+            height: known_dims.height.unwrap_or(size.height),
         }
     }
 }
@@ -180,15 +172,28 @@ impl Context {
     pub(crate) fn measure_content(
         &mut self,
         id: EntityId,
-        visual_properties: &SecondaryMap<EntityId, VisualProperty>,
         known_dims: taffy::Size<Option<f32>>,
     ) -> taffy::Size<f32> {
+        let TopologyStore { active_masks, .. } = &mut self.topology;
+        let RenderStore {
+            visual_properties, ..
+        } = &self.renders;
+        let ContentStore {
+            input_contents,
+            text_contents,
+            text_spans,
+            ..
+        } = &mut self.contents;
+        let SystemStore { text_engine, .. } = &mut self.system;
+
         ContentStore::measure_content(
             id,
-            &mut self.contents,
-            &self.topology.active_masks,
+            input_contents,
+            text_contents,
+            text_spans,
+            active_masks,
             visual_properties,
-            &self.system.text_engine,
+            text_engine,
             known_dims,
         )
     }

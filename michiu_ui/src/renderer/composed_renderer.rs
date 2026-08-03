@@ -271,7 +271,7 @@ impl ComposedRenderer {
 
             for &id in &cx.topology.active_entities {
                 // WebView2 要素を抽出して昇格させる
-                let is_webview = cx.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT);
+                let is_webview = cx.topology.active_masks[id].has_webveiw2_content();
 
                 let is_always_active = cx
                     .contents.webview_contents
@@ -733,7 +733,7 @@ impl ComposedRenderer {
             let webview_controller = Rc::new(RefCell::new(None));
 
             // B. WebView2 設定のバインド (COMP_WEBVIEW_CONTENTフラグ)
-            if cx.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT)
+            if cx.topology.active_masks[id].has_webveiw2_content()
                 && let Some(contents) = cx.contents.webview_contents.get(id)
             {
                 let slot_clone = webview_controller.clone();

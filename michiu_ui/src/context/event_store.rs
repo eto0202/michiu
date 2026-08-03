@@ -381,7 +381,7 @@ impl EventStore {
             .and_then(|v| v.focusable)
             .or_else(|| {
                 let mask = topology.active_masks.get(id).copied().unwrap_or_default();
-                if mask.has(COMP_INPUT_CONTENT) || mask.has(COMP_WEBVIEW_CONTENT) {
+                if mask.has_input_content() || mask.has_webveiw2_content() {
                     Some(Focusable::Inherit(FocusTrigger::Both)) // 未指定時はキーボードフォーカス
                 } else {
                     None
@@ -1206,9 +1206,9 @@ impl Context {
             self.set_focused_by_trigger(id, true, trigger);
 
             // 新しいフォーカス先が is_ime(false) の場合は IME 関連付けを解除
-            let is_input = self.topology.active_masks[id].has(COMP_INPUT_CONTENT);
+            let is_input = self.topology.active_masks[id].has_input_content();
             if is_input && let Some(contents) = self.contents.input_contents.get(id) {
-                SystemStore::unassociate_ime(contents, &mut self.window);
+                SystemStore::unassociate_ime(contents, &mut self.window.default_himc);
             } else {
                 // インプット以外の場合は IME をデフォルト状態に戻す
                 self.reset_ime_default_state();

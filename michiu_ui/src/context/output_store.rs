@@ -538,13 +538,13 @@ impl OutputStore {
         let mut max_y = 0.0f32;
 
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
-        if active_masks[id].has(COMP_INPUT_CONTENT)
+        if active_masks[id].has_input_content()
             && let Some(contents) = input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
             max_x = layout_rect.width + contents.caret_width.unwrap_or(1.5);
             max_y = layout_rect.height;
-        } else if active_masks[id].has(COMP_TEXT_CONTENT)
+        } else if active_masks[id].has_text_content()
             && let Some(layout) = SystemStore::get_or_create_layout(
                 id,
                 text_contents,
@@ -1137,13 +1137,13 @@ impl Context {
         let mut max_y = 0.0f32;
 
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
-        if self.topology.active_masks[id].has(COMP_INPUT_CONTENT)
+        if self.topology.active_masks[id].has_input_content()
             && let Some(contents) = self.contents.input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
             max_x = layout_rect.width + contents.caret_width.unwrap_or(1.5);
             max_y = layout_rect.height;
-        } else if self.topology.active_masks[id].has(COMP_TEXT_CONTENT)
+        } else if self.topology.active_masks[id].has_text_content()
             && let Some(layout) = self.get_or_create_layout(id)
         {
             let size = self.system.text_engine.get_layout_size(&layout);
@@ -1361,7 +1361,7 @@ impl Context {
             }
 
             let clip = self.clip_rect(id).unwrap_or_default();
-            let is_webview = self.topology.active_masks[id].has(COMP_WEBVIEW_CONTENT);
+            let is_webview = self.topology.active_masks[id].has_webveiw2_content();
 
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
             let is_webview_ready = is_webview && self.renders.active_webviews.contains(&id);
@@ -1592,7 +1592,7 @@ impl Context {
             }
 
             // 背景色とテキストの多重描画の解決
-            let is_text = self.topology.active_masks[id].has(COMP_TEXT_CONTENT);
+            let is_text = self.topology.active_masks[id].has_text_content();
             let has_bg = visual.bg_color.is_some()
                 || visual.bg_gradient.is_some()
                 || visual.border_color.is_some()
@@ -1732,7 +1732,7 @@ impl Context {
             current_ids.push(id);
 
             // インプット要素のキャレット描画
-            let is_input = self.topology.active_masks[id].has(COMP_INPUT_CONTENT);
+            let is_input = self.topology.active_masks[id].has_input_content();
             let is_focused = self.events.interaction_states.focused == Some(id);
 
             if is_input

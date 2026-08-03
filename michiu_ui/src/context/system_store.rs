@@ -108,14 +108,10 @@ impl SystemStore {
         }
 
         let text = text_contents.get(id)?;
-        let default_visual = VisualProperty::default();
-        let visual = visual_properties.get(id).unwrap_or(&default_visual);
-        let font_size = visual.font_size.unwrap_or(16.0);
-        let font_family = visual.font_family.as_deref();
-        let font_weight = visual.font_weight;
-        let font_style = visual.font_style;
-
-        let spans = text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[]);
+        let (font_size, font_family, font_weight, font_style) =
+            RenderStore::get_font_propery(id, visual_properties);
+        let max_width = None;
+        let spans = ContentStore::get_text_span(id, text_spans);
 
         let layout = text_engine.create_layout(
             text,
@@ -123,7 +119,7 @@ impl SystemStore {
             font_family,
             font_weight,
             font_style,
-            None,
+            max_width,
             spans,
         );
 
@@ -141,93 +137,109 @@ impl SystemStore {
         caret_offset: f32,
         scroll: LayoutPoint,
     ) {
-        unsafe {
-            let hwnd = GetFocus();
-            let himc = ImmGetContext(hwnd);
-            if !himc.is_invalid() {
-                // スクロールオフセット（scroll.x / scroll.y）を正確に引いた実座標で同期
-                let caret_phys_x = (((rect.x + border.left + padding.left + caret.x) - scroll.x)
-                    * scale)
-                    .round() as i32;
-                let caret_phys_y = (((rect.y + border.top + padding.top + caret.y + caret_offset)
-                    - scroll.y)
-                    * scale)
-                    .round() as i32;
-                let caret_phys_h = (caret.height * scale).round() as i32;
-
-                // コンポジションウィンドウ位置の指定 (CFS_POINT)
-                let comp_form = COMPOSITIONFORM {
-                    dwStyle: CFS_POINT,
-                    ptCurrentPos: windows::Win32::Foundation::POINT {
-                        x: caret_phys_x,
-                        y: caret_phys_y,
-                    },
-                    rcArea: windows::Win32::Foundation::RECT::default(),
-                };
-                let _ = ImmSetCompositionWindow(himc, &comp_form);
-
-                // 候補ウィンドウ位置の指定 (CFS_EXCLUDE)
-                let candidate_form = CANDIDATEFORM {
-                    dwIndex: 0,
-                    dwStyle: CFS_EXCLUDE,
-                    ptCurrentPos: windows::Win32::Foundation::POINT {
-                        x: caret_phys_x,
-                        y: caret_phys_y,
-                    },
-                    rcArea: windows::Win32::Foundation::RECT {
-                        left: caret_phys_x,
-                        top: caret_phys_y,
-                        right: caret_phys_x + 1,
-                        bottom: caret_phys_y + caret_phys_h,
-                    },
-                };
-                let _ = ImmSetCandidateWindow(himc, &candidate_form);
-                let _ = ImmReleaseContext(hwnd, himc);
-            }
+        let hwnd = unsafe { GetFocus() };
+        if hwnd.is_invalid() {
+            return;
         }
+
+        let himc = unsafe { ImmGetContext(hwnd) };
+        if himc.is_invalid() {
+            return;
+        }
+
+        // スクロールオフセット（scroll.x / scroll.y）を正確に引いた実座標で同期
+        let caret_phys_x =
+            (((rect.x + border.left + padding.left + caret.x) - scroll.x) * scale).round() as i32;
+        let caret_phys_y =
+            (((rect.y + border.top + padding.top + caret.y + caret_offset) - scroll.y) * scale)
+                .round() as i32;
+        let caret_phys_h = (caret.height * scale).round() as i32;
+
+        // コンポジションウィンドウ位置の指定 (CFS_POINT)
+        let comp_form = COMPOSITIONFORM {
+            dwStyle: CFS_POINT,
+            ptCurrentPos: windows::Win32::Foundation::POINT {
+                x: caret_phys_x,
+                y: caret_phys_y,
+            },
+            rcArea: windows::Win32::Foundation::RECT::default(),
+        };
+        let _ = unsafe { ImmSetCompositionWindow(himc, &comp_form) };
+
+        // 候補ウィンドウ位置の指定 (CFS_EXCLUDE)
+        let candidate_form = CANDIDATEFORM {
+            dwIndex: 0,
+            dwStyle: CFS_EXCLUDE,
+            ptCurrentPos: windows::Win32::Foundation::POINT {
+                x: caret_phys_x,
+                y: caret_phys_y,
+            },
+            rcArea: windows::Win32::Foundation::RECT {
+                left: caret_phys_x,
+                top: caret_phys_y,
+                right: caret_phys_x + 1,
+                bottom: caret_phys_y + caret_phys_h,
+            },
+        };
+        let _ = unsafe { ImmSetCandidateWindow(himc, &candidate_form) };
+        let _ = unsafe { ImmReleaseContext(hwnd, himc) };
     }
 
     #[inline]
     pub(crate) fn force_complete_ime_composition() {
-        unsafe {
-            let hwnd = GetFocus();
-            if !hwnd.is_invalid() {
-                let himc = ImmGetContext(hwnd);
-                if !himc.is_invalid() {
-                    let _ = ImmNotifyIME(himc, NI_COMPOSITIONSTR, CPS_COMPLETE, 0);
-                    let _ = ImmReleaseContext(hwnd, himc);
-                }
-            }
+        let hwnd = unsafe { GetFocus() };
+        if hwnd.is_invalid() {
+            return;
         }
+
+        let himc = unsafe { ImmGetContext(hwnd) };
+        if himc.is_invalid() {
+            return;
+        }
+
+        let _ = unsafe { ImmNotifyIME(himc, NI_COMPOSITIONSTR, CPS_COMPLETE, 0) };
+        let _ = unsafe { ImmReleaseContext(hwnd, himc) };
     }
 
     #[inline]
-    pub(crate) fn unassociate_ime(contents: &InputContents, window: &mut WindowStore) {
-        unsafe {
-            let hwnd = GetFocus();
-            if !hwnd.is_invalid() {
-                if !contents.is_ime {
-                    let old_himc = ImmAssociateContext(hwnd, HIMC::default());
-                    if !old_himc.is_invalid() && window.default_himc.is_none() {
-                        window.default_himc = Some(old_himc);
-                    }
-                } else if let Some(default_himc) = window.default_himc {
-                    let _ = ImmAssociateContext(hwnd, default_himc);
-                }
-            }
+    pub(crate) fn unassociate_ime(contents: &InputContents, default_himc: &mut Option<HIMC>) {
+        let hwnd = unsafe { GetFocus() };
+        if hwnd.is_invalid() {
+            return;
         }
+
+        // IMEが有効な場合、コンテキストを元に戻して早期リターン
+        if contents.is_ime {
+            if let Some(default_himc) = default_himc {
+                let _ = unsafe { ImmAssociateContext(hwnd, *default_himc) };
+            }
+            return;
+        }
+
+        // IMEが無効な場合、コンテキストを無効（default）に関連付けし直す
+        let old_himc = unsafe { ImmAssociateContext(hwnd, HIMC::default()) };
+
+        // 取得した古いコンテキストが無効、またはすでにデフォルト値が保存済みの場合は早期リターン
+        if old_himc.is_invalid() || default_himc.is_some() {
+            return;
+        }
+
+        // デフォルト値が未保存の場合のみ、ここで新しく保存
+        *default_himc = Some(old_himc);
     }
 
     #[inline]
-    pub(crate) fn reset_ime_default_state(window: &WindowStore) {
-        unsafe {
-            let hwnd = GetFocus();
-            if !hwnd.is_invalid()
-                && let Some(default_himc) = window.default_himc
-            {
-                let _ = ImmAssociateContext(hwnd, default_himc);
-            }
+    pub(crate) fn reset_ime_default_state(default_himc: &Option<HIMC>) {
+        let hwnd = unsafe { GetFocus() };
+        if hwnd.is_invalid() {
+            return;
         }
+
+        let Some(default_himc) = default_himc else {
+            return;
+        };
+
+        let _ = unsafe { ImmAssociateContext(hwnd, *default_himc) };
     }
 
     // クリップボード API による UTF-16 読み書きヘルパー
@@ -312,11 +324,15 @@ impl Context {
 
     #[inline]
     pub(crate) fn unassociate_ime(&mut self, contents: &InputContents) {
-        SystemStore::unassociate_ime(contents, &mut self.window);
+        let WindowStore { default_himc, .. } = &mut self.window;
+
+        SystemStore::unassociate_ime(contents, default_himc);
     }
 
     #[inline]
     pub(crate) fn reset_ime_default_state(&self) {
-        SystemStore::reset_ime_default_state(&self.window);
+        let WindowStore { default_himc, .. } = &self.window;
+
+        SystemStore::reset_ime_default_state(default_himc);
     }
 }

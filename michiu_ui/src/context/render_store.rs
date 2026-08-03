@@ -120,6 +120,24 @@ impl RenderStore {
         dirty_render_entities.clear();
     }
 
+    #[inline]
+    pub(crate) fn get_font_propery(
+        id: EntityId,
+        visual_properties: &VisualPropertiesSecondary,
+    ) -> (f32, Option<&str>, Option<u32>, Option<u32>) {
+        visual_properties
+            .get(id)
+            .map(|v| {
+                (
+                    v.font_size.unwrap_or(16.0),
+                    v.font_family.as_deref(),
+                    v.font_weight,
+                    v.font_style,
+                )
+            })
+            .unwrap_or((16.0, None, None, None))
+    }
+
     pub(crate) fn get_visual_property_mut<'a>(
         id: EntityId,
         target: StyleTarget,
@@ -676,7 +694,7 @@ impl RenderStore {
             }
             Some(Focusable::None) => false,
             // 設定がない場合の暗黙的なフォールバック（Input / Webview はデフォルトでフォーカス対象とする）
-            None => mask.has(COMP_INPUT_CONTENT) || mask.has(COMP_WEBVIEW_CONTENT),
+            None => mask.has_input_content() || mask.has_webveiw2_content(),
         };
 
         if !is_target {

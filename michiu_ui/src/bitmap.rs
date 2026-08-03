@@ -93,6 +93,21 @@ impl ComponentMask {
     }
 
     #[inline]
+    pub fn has_input_content(&self) -> bool {
+        self.has(COMP_INPUT_CONTENT)
+    }
+
+    #[inline]
+    pub fn has_text_content(&self) -> bool {
+        self.has(COMP_TEXT_CONTENT)
+    }
+
+    #[inline]
+    pub fn has_webveiw2_content(&self) -> bool {
+        self.has(COMP_WEBVIEW_CONTENT)
+    }
+
+    #[inline]
     pub fn has_image_content(&self) -> bool {
         self.has(COMP_IMAGE_CONTENT)
     }
