@@ -1,12 +1,17 @@
-use crate::*;
+use crate::{
+    BoxShadow, Color, Convert, Element, FlexDirection, ImageSource, InputContents, IntoHexColor,
+    IntoLayoutPoint, MovieProperty, Prop, ReadSignal, StyleValue, ThisStyle, WebView2Contents,
+    WriteSignal, with_context,
+};
 use std::borrow::Cow;
 
 #[inline]
+#[must_use]
 pub fn ts() -> ThisStyle {
     ThisStyle::new()
 }
 
-/// 新しいシグナルを構築します。必ず build_ui のスコープ内で呼び出す必要があります。
+/// 新しいシグナルを構築します。必ず `build_ui` のスコープ内で呼び出す必要があります。
 pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, WriteSignal<T>) {
     with_context(|cx| cx.create_signal(initial_value))
 }
@@ -14,6 +19,7 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
 /// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
 /// 親ツリー（トポロジー）を遡って自動解決された型 T の Context（ReadSignal）を取得します。
 #[inline]
+#[must_use]
 pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
     with_context(|cx| cx.use_provided::<T>())
 }
@@ -21,6 +27,7 @@ pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
 /// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
 /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
 #[inline]
+#[must_use]
 pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
     with_context(|cx| cx.use_provided_setter::<T>())
 }
@@ -43,22 +50,24 @@ where
 
 /// 0~255 の整数値（u8）で、不透明な RGB カラーを生成します
 #[inline]
+#[must_use]
 pub fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color {
-        r: r as f32 / 255.0,
-        g: g as f32 / 255.0,
-        b: b as f32 / 255.0,
+        r: f32::from(r) / 255.0,
+        g: f32::from(g) / 255.0,
+        b: f32::from(b) / 255.0,
         a: 1.0,
     }
 }
 
 /// 0~255 の整数値（u8）でRGBを、0.0~1.0（f32）で不透明度（Alpha）を指定して RGBA カラーを生成します
 #[inline]
+#[must_use]
 pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
     Color {
-        r: r as f32 / 255.0,
-        g: g as f32 / 255.0,
-        b: b as f32 / 255.0,
+        r: f32::from(r) / 255.0,
+        g: f32::from(g) / 255.0,
+        b: f32::from(b) / 255.0,
         a,
     }
 }
@@ -70,12 +79,14 @@ pub fn hex(value: impl IntoHexColor) -> Color {
 
 /// HSL（Hue: 0..360, Saturation: 0.0..100.0%, Lightness: 0.0..100.0%）カラーを生成するショートハンド
 #[inline]
+#[must_use]
 pub fn hsl(h: f32, s: f32, l: f32) -> Color {
     Color::hsl(h, s, l)
 }
 
 /// HSL にアルファ（0.0..1.0）を付与して HSLA カラーを生成するショートハンド
 #[inline]
+#[must_use]
 pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
     Color::hsla(h, s, l, a)
 }
@@ -92,6 +103,7 @@ pub const NO_STYLE: Option<ThisStyle> = None;
 
 /// 現時点ではスタイルを適用しないことを明示したコンテナ。
 #[inline]
+#[must_use]
 pub fn div_n() -> Element {
     div(NO_STYLE)
 }
@@ -249,7 +261,7 @@ where
     div_n().movie_d(f)
 }
 
-/// プロバイダー `P` から動的に解決されたWebView2要素を生成します。
+/// プロバイダー `P` `から動的に解決されたWebView2要素を生成します`。
 #[inline]
 pub fn webview2_d<P, F>(f: F) -> Element
 where
@@ -260,6 +272,7 @@ where
 }
 
 #[inline]
+#[must_use]
 pub fn shadow() -> BoxShadow {
     BoxShadow::new()
 }
@@ -292,23 +305,27 @@ pub struct Percent(pub f32);
 pub struct Auto;
 
 #[inline]
+#[must_use]
 pub fn px(val: f32) -> Pixel {
     Pixel(val)
 }
 
 /// パーセント値（%）を生成します
 #[inline]
+#[must_use]
 pub fn pct(val: f32) -> Percent {
     Percent(val)
 }
 
 /// 自動計算（Auto）を生成します
 #[inline]
+#[must_use]
 pub fn auto() -> Auto {
     Auto
 }
 
-/// Win32API のクリップボードへテキスト（CF_UNICODETEXT）をコピーします。
+/// `Win32API` `のクリップボードへテキスト（CF_UNICODETEXT）をコピーします`。
+#[must_use]
 pub fn set_win32_clipboard(text: &str) -> bool {
     unsafe {
         use windows::Win32::Foundation::HANDLE;
@@ -321,15 +338,14 @@ pub fn set_win32_clipboard(text: &str) -> bool {
 
         let text_u16: Vec<u16> = text.encode_utf16().chain(Some(0)).collect();
         let size = text_u16.len() * 2;
-        let h_mem = match GlobalAlloc(GMEM_MOVEABLE, size) {
-            Ok(h) => h,
-            _ => return false,
+        let Ok(h_mem) = GlobalAlloc(GMEM_MOVEABLE, size) else {
+            return false;
         };
         let ptr = GlobalLock(h_mem);
         if ptr.is_null() {
             return false;
         }
-        std::ptr::copy_nonoverlapping(text_u16.as_ptr(), ptr as *mut u16, text_u16.len());
+        std::ptr::copy_nonoverlapping(text_u16.as_ptr(), ptr.cast::<u16>(), text_u16.len());
         let _ = GlobalUnlock(h_mem);
 
         let mut success = false;
@@ -345,7 +361,8 @@ pub fn set_win32_clipboard(text: &str) -> bool {
     }
 }
 
-/// Win32API のクリップボードからテキスト（CF_UNICODETEXT）を取得します。
+/// `Win32API` `のクリップボードからテキスト（CF_UNICODETEXT）を取得します`。
+#[must_use]
 pub fn get_win32_clipboard() -> Option<String> {
     unsafe {
         use windows::Win32::Foundation::HGLOBAL;
@@ -381,22 +398,23 @@ pub fn get_win32_clipboard() -> Option<String> {
 /// Windows のマウスホイール生 delta 値（120の倍数）を、
 /// OSのスクロール行数設定に準拠した「論理ピクセル単位」の移動量に変換します。
 ///
-/// * `raw_delta`: WM_MOUSEWHEEL 等から得られる生値 (前: プラス, 後: マイナス)
+/// * `raw_delta`: `WM_MOUSEWHEEL` 等から得られる生値 (前: プラス, 後: マイナス)
 ///
 /// 戻り値はスクロールさせたい論理ピクセル移動量です (手前に引いた際 = 下にスクロール = プラス加算)。
+#[must_use]
 pub fn raw_wheel_delta_to_logical_pixels(raw_delta: f32) -> f32 {
     use windows::Win32::UI::WindowsAndMessaging::{
         SPI_GETWHEELSCROLLLINES, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SystemParametersInfoW,
     };
 
-    const WHEEL_PAGESCROLL: u32 = 0xFFFFFFFF;
+    const WHEEL_PAGESCROLL: u32 = 0xFFFF_FFFF;
 
     let mut scroll_lines: u32 = 3; // OSデフォルト3行をフォールバック値にする
     unsafe {
         let _ = SystemParametersInfoW(
             SPI_GETWHEELSCROLLLINES,
             0,
-            Some(&mut scroll_lines as *mut u32 as *mut _),
+            Some((&raw mut scroll_lines).cast()),
             SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
         );
     }

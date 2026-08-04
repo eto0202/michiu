@@ -1,4 +1,4 @@
-use crate::*;
+use crate::{LayoutSize, EntityId, LayoutRect, Context};
 use windows::Win32::UI::Input::Ime::HIMC;
 
 pub struct WindowStore {
@@ -16,6 +16,7 @@ impl Default for WindowStore {
 
 impl WindowStore {
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             scale_factor: 1.0,

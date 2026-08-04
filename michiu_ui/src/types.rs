@@ -14,7 +14,7 @@ use windows::Win32::{
     UI::WindowsAndMessaging::{CreateIconIndirect, HCURSOR, ICONINFO},
 };
 
-use crate::*;
+use crate::{Context, Element, EntityId, PropertyList, ThisStyle, VirtualKey, rgba};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -120,29 +120,35 @@ impl Color {
 
     /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
+    #[must_use]
     pub const fn rgb_f32(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
 
     /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
+    #[must_use]
     pub const fn rgba_f32(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
     /// 色味を維持したまま、不透明度（アルファ）だけを動的に書き換えます
     #[inline]
+    #[must_use]
     pub const fn with_alpha(self, a: f32) -> Self {
         Self { a, ..self }
     }
 
     /// HSL モデル（Hue: 0..360, Saturation: 0..100%, Lightness: 0..100%）から Color を生成します
     #[inline]
+    #[must_use]
     pub fn hsl(h: f32, s: f32, l: f32) -> Self {
         Self::hsla(h, s, l, 1.0)
     }
 
     /// HSL モデルにアルファ（0.0..1.0）を付与して Color を生成します
+    #[must_use]
+    #[allow(clippy::many_single_char_names)]
     pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Self {
         // 色相（h）を 0..360 の範囲に正規化
         let h_mod = (h % 360.0 + 360.0) % 360.0;
@@ -204,23 +210,23 @@ impl IntoHexColor for String {
 impl IntoHexColor for u32 {
     #[inline]
     fn into_hex_color(self) -> Color {
-        parse_u32_to_color(self, self > 0xFFFFFF)
+        parse_u32_to_color(self, self > 0xFF_FFFF)
     }
 }
 
 #[inline]
 fn parse_u32_to_color(num: u32, is_8digit: bool) -> Color {
-    if !is_8digit {
-        let r = ((num >> 16) & 0xFF) as f32 / 255.0;
-        let g = ((num >> 8) & 0xFF) as f32 / 255.0;
-        let b = (num & 0xFF) as f32 / 255.0;
-        Color { r, g, b, a: 1.0 }
-    } else {
+    if is_8digit {
         let r = ((num >> 24) & 0xFF) as f32 / 255.0;
         let g = ((num >> 16) & 0xFF) as f32 / 255.0;
         let b = ((num >> 8) & 0xFF) as f32 / 255.0;
         let a = (num & 0xFF) as f32 / 255.0;
         Color { r, g, b, a }
+    } else {
+        let r = ((num >> 16) & 0xFF) as f32 / 255.0;
+        let g = ((num >> 8) & 0xFF) as f32 / 255.0;
+        let b = (num & 0xFF) as f32 / 255.0;
+        Color { r, g, b, a: 1.0 }
     }
 }
 
@@ -243,6 +249,7 @@ impl LayoutPoint {
     pub const ORIGIN: Self = Self { x: 0.5, y: 0.5 };
 
     #[inline]
+    #[must_use]
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
@@ -268,6 +275,7 @@ impl LayoutSize {
     };
 
     #[inline]
+    #[must_use]
     pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
     }
@@ -297,6 +305,7 @@ impl LayoutRect {
     };
 
     #[inline]
+    #[must_use]
     pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self {
             x,
@@ -308,6 +317,7 @@ impl LayoutRect {
 
     /// Determine if the mouse coordinates, etc., are included within this rectangle.
     #[inline]
+    #[must_use]
     pub fn contains(&self, point: LayoutPoint) -> bool {
         // 幅または高さが 0 以下の場合は、当たり判定を即座に却下する
         if self.width <= 0.0 || self.height <= 0.0 {
@@ -325,6 +335,7 @@ impl LayoutRect {
     /// 共通部分が存在しない（はみ出している・離れている）場合は、
     /// 幅（width）と高さ（height）が `0.0` の空の `Rect` を返す。
     #[inline]
+    #[must_use]
     pub fn intersect(&self, other: &Self) -> Self {
         // 交差領域の左上座標（最大値をとる）
         let x1 = self.x.max(other.x);
@@ -372,6 +383,7 @@ impl EdgeInsets {
 
     /// 4方向それぞれを物理ピクセルで個別に指定して生成します
     #[inline]
+    #[must_use]
     pub const fn px(top: f32, right: f32, bottom: f32, left: f32) -> Self {
         Self {
             top,
@@ -383,6 +395,7 @@ impl EdgeInsets {
 
     /// 4方向すべてを一括で同じ物理ピクセルに指定します
     #[inline]
+    #[must_use]
     pub const fn px_all(value: f32) -> Self {
         Self {
             top: value,
@@ -394,6 +407,7 @@ impl EdgeInsets {
 
     /// 上下・左右をそれぞれ物理ピクセルで対称指定します
     #[inline]
+    #[must_use]
     pub const fn px_sym(vertical: f32, horizontal: f32) -> Self {
         Self {
             top: vertical,
@@ -422,6 +436,7 @@ impl CornerRadius {
     };
 
     #[inline]
+    #[must_use]
     pub const fn radius(
         top_left: f32,
         top_right: f32,
@@ -439,6 +454,7 @@ impl CornerRadius {
     /// 上下対称、または左右対称に角丸を生成します
     /// (例: symmetric(12.0, 4.0) で上が大きく、下が穏やかな丸みになります)
     #[inline]
+    #[must_use]
     pub const fn symmetric(vertical: f32, horizontal: f32) -> Self {
         Self {
             top_left: vertical,
@@ -450,6 +466,7 @@ impl CornerRadius {
 
     /// All four corners have the same rounded shape.
     #[inline]
+    #[must_use]
     pub const fn all(radius: f32) -> Self {
         Self {
             top_left: radius,
@@ -485,6 +502,7 @@ impl Default for BoxShadow {
 impl BoxShadow {
     /// 新しいデフォルトの影設定を生成します。
     #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             offset: LayoutPoint::ZERO,
@@ -496,6 +514,7 @@ impl BoxShadow {
 
     /// 影のオフセット（x, y）を設定します。単一値（例: 5）やタプル（例: (0, 4)）を受け入れます。
     #[inline]
+    #[must_use]
     pub fn offset(mut self, value: impl IntoLayoutPoint) -> Self {
         self.offset = value.into_layout_point();
         self
@@ -503,6 +522,7 @@ impl BoxShadow {
 
     /// 影のぼかし（blur）幅を設定します。
     #[inline]
+    #[must_use]
     pub fn blur(mut self, value: impl Convert<f32>) -> Self {
         self.blur = value.convert();
         self
@@ -510,6 +530,7 @@ impl BoxShadow {
 
     /// 影の広がり（spread）幅を設定します。
     #[inline]
+    #[must_use]
     pub fn spread(mut self, value: impl Convert<f32>) -> Self {
         self.spread = value.convert();
         self
@@ -517,12 +538,14 @@ impl BoxShadow {
 
     /// 影のカラーを設定します。
     #[inline]
+    #[must_use]
     pub fn color(mut self, value: Color) -> Self {
         self.color = value;
         self
     }
 
     /// 控えめな極小のソフトシャドウ
+    #[must_use]
     pub fn sm() -> Self {
         BoxShadow::new()
             .blur(2)
@@ -531,6 +554,7 @@ impl BoxShadow {
     }
 
     /// 標準的な中程度のソフトシャドウ
+    #[must_use]
     pub fn md() -> Self {
         BoxShadow::new()
             .blur(6)
@@ -540,6 +564,7 @@ impl BoxShadow {
     }
 
     /// やや浮き上がって見える大きめのソフトシャドウ
+    #[must_use]
     pub fn lg() -> Self {
         BoxShadow::new()
             .blur(15)
@@ -548,6 +573,7 @@ impl BoxShadow {
             .offset((0, 10))
     }
 
+    #[must_use]
     pub fn none() -> Self {
         Self {
             offset: LayoutPoint::ZERO,
@@ -648,11 +674,13 @@ pub enum Length {
 
 impl Length {
     #[inline]
+    #[must_use]
     pub fn px(px: f32) -> Self {
         Self::Px(px)
     }
 
     #[inline]
+    #[must_use]
     pub fn pct(percent: f32) -> Self {
         Self::Percent(percent)
     }
@@ -667,16 +695,19 @@ pub enum Val {
 
 impl Val {
     #[inline]
+    #[must_use]
     pub fn auto() -> Self {
         Self::Auto
     }
 
     #[inline]
+    #[must_use]
     pub fn px(px: f32) -> Self {
         Self::Px(px)
     }
 
     #[inline]
+    #[must_use]
     pub fn pct(percent: f32) -> Self {
         Self::Percent(percent)
     }
@@ -867,6 +898,7 @@ impl Default for Transform {
 impl Transform {
     /// 単位行列（初期状態）を生成
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             matrix: [
@@ -880,6 +912,7 @@ impl Transform {
 
     /// 平行移動
     #[inline]
+    #[must_use]
     pub fn translate(self, x: f32, y: f32) -> Self {
         let mut t = Self::new();
         t.matrix[3][0] = x;
@@ -889,6 +922,7 @@ impl Transform {
 
     /// 拡大縮小
     #[inline]
+    #[must_use]
     pub fn scale(self, x: f32, y: f32) -> Self {
         let mut s = Self::new();
         s.matrix[0][0] = x;
@@ -898,6 +932,7 @@ impl Transform {
 
     /// Z軸（2D平面上）の回転（ラジアン）
     #[inline]
+    #[must_use]
     pub fn rotate(self, radians: f32) -> Self {
         let mut r = Self::new();
         let cos = radians.cos();
@@ -928,7 +963,7 @@ impl Transform {
 /// 特定のスタイル変更を滑らかに補間する設定
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transition {
-    /// 状態遷移を設定できる ComponentMask (例: STYLE_BG_COLOR | STYLE_OPACITY)
+    /// 状態遷移を設定できる `ComponentMask` (例: `STYLE_BG_COLOR` | `STYLE_OPACITY`)
     pub property_list: PropertyList,
     /// アニメーションの時間
     pub duration: Duration,
@@ -937,6 +972,7 @@ pub struct Transition {
 }
 
 impl Transition {
+    #[must_use]
     pub fn new(property_list: PropertyList, duration: Duration, curve: AnimationCurve) -> Self {
         Self {
             property_list,
@@ -945,16 +981,19 @@ impl Transition {
         }
     }
 
+    #[must_use]
     pub fn property_list(mut self, property_list: PropertyList) -> Self {
         self.property_list = property_list;
         self
     }
 
+    #[must_use]
     pub fn duration(mut self, duration: Duration) -> Self {
         self.duration = duration;
         self
     }
 
+    #[must_use]
     pub fn curve(mut self, curve: AnimationCurve) -> Self {
         self.curve = curve;
         self
@@ -981,6 +1020,7 @@ pub enum AnimationCurve {
 
 impl AnimationCurve {
     /// 経過割合 t (0.0 <= t <= 1.0) に基づいて、イージングされた値を評価します
+    #[must_use]
     pub fn evaluate(&self, t: f32) -> f32 {
         let t = t.clamp(0.0, 1.0);
         match *self {
@@ -1002,10 +1042,10 @@ impl AnimationCurve {
 impl PartialEq for AnimationCurve {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Linear, Self::Linear) => true,
-            (Self::EaseInOutQuad, Self::EaseInOutQuad) => true,
-            (Self::EaseInQuad, Self::EaseInQuad) => true,
-            (Self::EaseOutQuad, Self::EaseOutQuad) => true,
+            (Self::Linear, Self::Linear)
+            | (Self::EaseInOutQuad, Self::EaseInOutQuad)
+            | (Self::EaseInQuad, Self::EaseInQuad)
+            | (Self::EaseOutQuad, Self::EaseOutQuad) => true,
             (Self::Custom(f1), Self::Custom(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
             _ => false,
         }
@@ -1033,6 +1073,7 @@ pub struct KeyframeAnimation {
 
 impl KeyframeAnimation {
     #[inline]
+    #[must_use]
     pub fn new(
         property: PropertyList,
         duration: Duration,
@@ -1059,6 +1100,7 @@ pub struct LinearGradient {
 
 impl LinearGradient {
     #[inline]
+    #[must_use]
     pub fn new(start_color: Color, end_color: Color, angle_degrees: f32) -> Self {
         Self {
             start_color,
@@ -1122,6 +1164,7 @@ pub type DragStartCallback = Box<dyn FnMut(&mut Context, Element, Element) + 'st
 
 /// 要素ごとにバインドされる、検証済みイベントのハンドラ群。
 #[derive(Default)]
+#[allow(clippy::struct_field_names)]
 pub(crate) struct EventListeners {
     /// 要素がクリックされた（マウスダウン ➔ 同一要素上でマウスアップされた）際のコールバック
     pub(crate) on_click: Option<ClickCallback>,
@@ -1133,7 +1176,7 @@ pub(crate) struct EventListeners {
     /// 引数: (ボタンの種類, 装飾キーの状態, 押し下げ/離し状態)
     pub(crate) on_mouse_input: Option<MouseCallback>,
 
-    /// マウスカーソルがこの要素の可視境界（clip_rects）に入った際のイベント
+    /// `マウスカーソルがこの要素の可視境界（clip_rects）に入った際のイベント`
     pub(crate) on_mouse_enter: Option<SimpleCallback>,
 
     /// マウスカーソルがこの要素の可視境界から外に出た際のイベント
@@ -1143,7 +1186,7 @@ pub(crate) struct EventListeners {
     /// 引数: 要素の左上を (0.0, 0.0) とする、論理スケーリング済みの相対座標 `Point`
     pub(crate) on_cursor_moved: Option<CursorMovedCallback>,
 
-    /// マウスホイールが回された際のイベント（WM_MOUSEWHEEL / WM_MOUSEHWHEEL 互換）
+    /// `マウスホイールが回された際のイベント（WM_MOUSEWHEEL` / `WM_MOUSEHWHEEL` 互換）
     /// 引数: 前方向ならプラス、後方向ならマイナスの移動量（delta）
     pub(crate) on_mouse_wheel: Option<MouseWheelCallback>,
 
@@ -1155,7 +1198,7 @@ pub(crate) struct EventListeners {
     /// 引数: 検証済みの仮想キーコード, 装飾キー, 状態
     pub(crate) on_keyboard_input: Option<KeyCallback>,
 
-    /// IMEなどを介さない、確定した1文字の文字入力イベント（WM_CHAR 互換）
+    /// `IMEなどを介さない、確定した1文字の文字入力イベント（WM_CHAR` 互換）
     pub(crate) on_char_input: Option<CharCallback>,
 
     /// IME（TSF / Input Method）による未確定文字の入力や確定が行われた際のイベント
@@ -1190,6 +1233,7 @@ pub(crate) struct EventListeners {
 }
 
 impl std::fmt::Debug for EventListeners {
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventListeners")
             .field("on_click", &self.on_click.as_ref().map(|_| "FnMut"))
@@ -1230,6 +1274,21 @@ impl std::fmt::Debug for EventListeners {
             .field(
                 "on_file_dropped",
                 &self.on_file_dropped.as_ref().map(|_| "FnMut(Vec<PathBuf>)"),
+            )
+            .field(
+                "on_file_drag_enter",
+                &self.on_file_drag_enter.as_ref().map(|_| "FnMut"),
+            )
+            .field(
+                "on_file_drag_leave",
+                &self.on_file_drag_leave.as_ref().map(|_| "FnMut"),
+            )
+            .field(
+                "()",
+                &self
+                    .on_image_loaded
+                    .as_ref()
+                    .map(|_| "FnMut(ImageLoadedCallback)"),
             )
             .field(
                 "on_media_loaded",
@@ -1328,33 +1387,37 @@ impl Default for CursorIcon {
 impl CursorIcon {
     /// Windows API の HCURSOR 物理ハンドルを安全にロードして返却します。
     /// 独自の HCURSOR が指定されている場合はそれを最優先し、None の場合はOSのシステム標準をロードします。
+    #[must_use]
     pub fn to_hcursor(self) -> HCURSOR {
-        use windows::Win32::UI::WindowsAndMessaging::*;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            IDC_ARROW, IDC_HAND, IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
+            IDC_SIZENWSE, IDC_SIZEWE, LoadCursorW,
+        };
         unsafe {
             let idc = match self {
                 // 独自カーソル指定時は即座にそのハンドルを返却
-                CursorIcon::Default(Some(h)) => return h,
-                CursorIcon::Pointer(Some(h)) => return h,
-                CursorIcon::Text(Some(h)) => return h,
-                CursorIcon::Grab(Some(h)) => return h,
-                CursorIcon::Grabbing(Some(h)) => return h,
-                CursorIcon::NotAllowed(Some(h)) => return h,
-                CursorIcon::ResizeNs(Some(h)) => return h,
-                CursorIcon::ResizeEw(Some(h)) => return h,
-                CursorIcon::ResizeNesw(Some(h)) => return h,
-                CursorIcon::ResizeNwse(Some(h)) => return h,
+                CursorIcon::Default(Some(h))
+                | CursorIcon::Pointer(Some(h))
+                | CursorIcon::Text(Some(h))
+                | CursorIcon::Grab(Some(h))
+                | CursorIcon::Grabbing(Some(h))
+                | CursorIcon::NotAllowed(Some(h))
+                | CursorIcon::ResizeNs(Some(h))
+                | CursorIcon::ResizeEw(Some(h))
+                | CursorIcon::ResizeNesw(Some(h))
+                | CursorIcon::ResizeNwse(Some(h)) => return h,
                 CursorIcon::Global(global_icon) => {
                     match global_icon {
-                        GlobalCursorIcon::Default(Some(h)) => return h,
-                        GlobalCursorIcon::Pointer(Some(h)) => return h,
-                        GlobalCursorIcon::Text(Some(h)) => return h,
-                        GlobalCursorIcon::Grab(Some(h)) => return h,
-                        GlobalCursorIcon::Grabbing(Some(h)) => return h,
-                        GlobalCursorIcon::NotAllowed(Some(h)) => return h,
-                        GlobalCursorIcon::ResizeNs(Some(h)) => return h,
-                        GlobalCursorIcon::ResizeEw(Some(h)) => return h,
-                        GlobalCursorIcon::ResizeNesw(Some(h)) => return h,
-                        GlobalCursorIcon::ResizeNwse(Some(h)) => return h,
+                        GlobalCursorIcon::Default(Some(h))
+                        | GlobalCursorIcon::Pointer(Some(h))
+                        | GlobalCursorIcon::Text(Some(h))
+                        | GlobalCursorIcon::Grab(Some(h))
+                        | GlobalCursorIcon::Grabbing(Some(h))
+                        | GlobalCursorIcon::NotAllowed(Some(h))
+                        | GlobalCursorIcon::ResizeNs(Some(h))
+                        | GlobalCursorIcon::ResizeEw(Some(h))
+                        | GlobalCursorIcon::ResizeNesw(Some(h))
+                        | GlobalCursorIcon::ResizeNwse(Some(h)) => return h,
                         _ => {}
                     }
                     // None 時は標準システムカーソルにフォールバック
@@ -1419,8 +1482,14 @@ impl CursorIcon {
             };
 
             let mut pv_bits = std::ptr::null_mut();
-            let hbm_color =
-                CreateDIBSection(Some(h_dc), &bmi, DIB_RGB_COLORS, &mut pv_bits, None, 0)?;
+            let hbm_color = CreateDIBSection(
+                Some(h_dc),
+                &raw const bmi,
+                DIB_RGB_COLORS,
+                &raw mut pv_bits,
+                None,
+                0,
+            )?;
 
             if pv_bits.is_null() {
                 let _ = ReleaseDC(None, h_dc);
@@ -1429,7 +1498,7 @@ impl CursorIcon {
             }
 
             let dest_slice =
-                std::slice::from_raw_parts_mut(pv_bits as *mut u8, (width * height * 4) as usize);
+                std::slice::from_raw_parts_mut(pv_bits.cast::<u8>(), (width * height * 4) as usize);
             for i in (0..(width * height * 4) as usize).step_by(4) {
                 dest_slice[i] = rgba_pixels[i + 2]; // B
                 dest_slice[i + 1] = rgba_pixels[i + 1]; // G
@@ -1447,7 +1516,7 @@ impl CursorIcon {
                 hbmColor: hbm_color,
             };
 
-            let h_icon = CreateIconIndirect(&icon_info)?;
+            let h_icon = CreateIconIndirect(&raw const icon_info)?;
             let h_cursor = windows::Win32::UI::WindowsAndMessaging::HCURSOR(h_icon.0);
 
             let _ = DeleteObject(HGDIOBJ(hbm_color.0));
@@ -1487,6 +1556,7 @@ pub enum ElementState {
     Released,
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Modifiers {
     pub shift: bool,
@@ -1552,6 +1622,7 @@ pub struct MovieProperty {
 }
 
 impl MovieProperty {
+    #[must_use]
     pub fn new(source: Option<MovieSource>) -> Self {
         Self {
             source,
@@ -1697,6 +1768,7 @@ impl Default for ScrollbarStyle {
 }
 
 impl ScrollbarStyle {
+    #[must_use]
     pub fn new(width: f32) -> Self {
         Self {
             width,
@@ -1709,31 +1781,37 @@ impl ScrollbarStyle {
         }
     }
 
+    #[must_use]
     pub fn mode(mut self, mode: ScrollbarMode) -> Self {
         self.mode = mode;
         self
     }
 
+    #[must_use]
     pub fn display(mut self, display: ScrollbarDisplay) -> Self {
         self.display = display;
         self
     }
 
+    #[must_use]
     pub fn v_track(mut self, style: ThisStyle) -> Self {
         self.v_track = Some(style);
         self
     }
 
+    #[must_use]
     pub fn v_thumb(mut self, style: ThisStyle) -> Self {
         self.v_thumb = Some(style);
         self
     }
 
+    #[must_use]
     pub fn h_track(mut self, style: ThisStyle) -> Self {
         self.h_track = Some(style);
         self
     }
 
+    #[must_use]
     pub fn h_thumb(mut self, style: ThisStyle) -> Self {
         self.h_thumb = Some(style);
         self
@@ -1756,7 +1834,7 @@ pub enum DragPayload {
     /// ドロップ時に UI ツリーが自動的に更新される。
     Element,
 
-    /// Element が持つ EntityId のみをドラッグデータとして転送する。
+    /// Element が持つ `EntityId` のみをドラッグデータとして転送する。
     /// UI ツリーは変更されず、アプリケーション側で並び替え等を行う。
     EntityId,
 }

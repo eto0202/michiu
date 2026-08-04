@@ -1,4 +1,4 @@
-use crate::*;
+use crate::{SignalId, EffectId, EntityId, Context, ParentsSecondary, ReadSignal, WriteSignal, TopologyStore};
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use smallvec::SmallVec;
 use std::{collections::HashMap, marker::PhantomData};
@@ -52,6 +52,7 @@ impl Default for ReactiveStore {
 
 impl ReactiveStore {
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             signals: SlotMap::with_key(),
@@ -89,7 +90,7 @@ impl ReactiveStore {
 }
 
 impl ReactiveStore {
-    /// 要素の階層トポロジーを親に向かって遡り、最初に見つかった型 T の ReadSignal を解決して返す
+    /// 要素の階層トポロジーを親に向かって遡り、最初に見つかった型 T の `ReadSignal` を解決して返す
     pub(crate) fn use_provided_from<T: Clone + 'static>(
         id: EntityId,
         providers: &ProvidersSparseSecondary,
@@ -111,21 +112,21 @@ impl ReactiveStore {
         effect_to_element: &EffectToElementSecondary,
     ) -> Option<EntityId> {
         // ACTIVE_EFFECT（エフェクト実行中）から解決
-        if let Some(effect_id) = crate::ACTIVE_EFFECT.with(|cell| cell.get()) {
+        if let Some(effect_id) = crate::ACTIVE_EFFECT.with(std::cell::Cell::get) {
             return Some(effect_to_element.get(effect_id).copied().expect(
                 "use_provided failed: active effect is not associated with any UI Element",
             ));
         }
 
         // ACTIVE_EFFECT が None であれば、ACTIVE_ELEMENT にフォールバック
-        if let Some(element_id) = crate::ACTIVE_ELEMENT.with(|cell| cell.get()) {
+        if let Some(element_id) = crate::ACTIVE_ELEMENT.with(std::cell::Cell::get) {
             return Some(element_id);
         }
 
         None
     }
 
-    /// 親ツリーを遡り、最初に見つかった型 T の WriteSignal を解決して返す
+    /// 親ツリーを遡り、最初に見つかった型 T の `WriteSignal` を解決して返す
     pub(crate) fn use_provided_setter_from<T: Send + 'static>(
         id: EntityId,
         providers: &ProvidersSparseSecondary,
@@ -242,7 +243,7 @@ impl ReactiveStore {
     }
 
     /// Context インスタンスから直接シグナルを生成。
-    /// これにより build_ui の外側（メインスレッド上）でもシグナルを定義できる。
+    /// これにより `build_ui` の外側（メインスレッド上）でもシグナルを定義できる。
     #[inline]
     pub(crate) fn create_signal<T: Send + 'static>(
         initial_value: T,
@@ -258,7 +259,7 @@ impl ReactiveStore {
 }
 
 impl Context {
-    /// 要素の階層トポロジーを親（Ancestor）に向かって遡り、最初に見つかった型 T の ReadSignal を解決して返します
+    /// 要素の階層トポロジーを親（Ancestor）に向かって遡り、最初に見つかった型 T の `ReadSignal` を解決して返します
     #[inline]
     pub(crate) fn use_provided_from<T: Clone + 'static>(
         &self,

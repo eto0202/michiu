@@ -1,6 +1,17 @@
 use std::{ops::Range, time::Instant};
 
-use crate::*;
+use crate::{
+    ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BasicLayoutsSecondary, BatchType,
+    BoxSizing, ChildrenSecondary, Color, ContentStore, Context, CornerRadius,
+    DirtyLayoutEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets, EntityId,
+    EventStore, FlexLayoutsSecondary, GridLayoutsSecondary, InputContents,
+    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
+    LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, QuadInstance,
+    RenderData, RenderStore, STATE_QUEUED_LAYOUT, STYLE_TEXT_SPANS, ScrollbarStylesSecondary,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary,
+    TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect, Val,
+    VisualPropertiesSecondary, VisualProperty, WindowStore,
+};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
@@ -32,6 +43,7 @@ impl Default for OutputStore {
 
 impl OutputStore {
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             rects: SecondaryMap::new(),
@@ -148,8 +160,7 @@ impl OutputStore {
         let s_offsets = scroll_offsets.get(parent_id).copied().unwrap_or_default();
         let is_absolute = basic_layouts
             .get(id)
-            .map(|l| l.position == Position::Absolute)
-            .unwrap_or(false);
+            .is_some_and(|l| l.position == Position::Absolute);
 
         let parent_scroll = if is_absolute {
             LayoutPoint::ZERO
@@ -284,11 +295,11 @@ impl OutputStore {
         is_out_x || is_out_y
     }
 
-    /// 現在の選択範囲（text_selections）に基づき、
-    /// 描画用の物理選択矩形（selected_rects）を自動再計算して SoA キャッシュを更新します。
+    /// `現在の選択範囲（text_selections）に基づき`、
+    /// `描画用の物理選択矩形（selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
     pub(crate) fn calc_selection_rects(
         id: EntityId,
-        layout: IDWriteTextLayout,
+        layout: &IDWriteTextLayout,
         range: Range<usize>,
         outputs: &mut OutputStore,
     ) -> Vec<LayoutRect> {
@@ -296,12 +307,14 @@ impl OutputStore {
         let mut actual_count: u32 = 0;
         let res = unsafe {
             layout.HitTestTextRange(
-                range.start as u32,
-                (range.end - range.start) as u32,
+                range.start.try_into().expect("Value fits in u32"),
+                (range.end - range.start)
+                    .try_into()
+                    .expect("Value fits in u32"),
                 0.0,
                 0.0,
                 Some(&mut hit_test_metrics),
-                &mut actual_count,
+                &raw mut actual_count,
             )
         };
 
@@ -309,12 +322,14 @@ impl OutputStore {
             hit_test_metrics.resize(actual_count as usize, DWRITE_HIT_TEST_METRICS::default());
             let _ = unsafe {
                 layout.HitTestTextRange(
-                    range.start as u32,
-                    (range.end - range.start) as u32,
+                    range.start.try_into().expect("Value fits in u32"),
+                    (range.end - range.start)
+                        .try_into()
+                        .expect("Value fits in u32"),
                     0.0,
                     0.0,
                     Some(&mut hit_test_metrics),
-                    &mut actual_count,
+                    &raw mut actual_count,
                 )
             };
         }
@@ -334,6 +349,7 @@ impl OutputStore {
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
+    #[must_use]
     pub fn get_selected_text(
         events: &EventStore,
         renders: &RenderStore,
@@ -596,8 +612,7 @@ impl OutputStore {
                 // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
                 let is_absolute = basic_layouts
                     .get(child_id)
-                    .map(|l| l.position == Position::Absolute)
-                    .unwrap_or(false);
+                    .is_some_and(|l| l.position == Position::Absolute);
                 if is_absolute {
                     continue;
                 }
@@ -621,6 +636,7 @@ impl OutputStore {
         LayoutSize::new(max_x, max_y)
     }
 
+    #[allow(clippy::too_many_lines)]
     #[inline]
     pub(crate) fn scroll_ime_info(
         id: EntityId,
@@ -670,7 +686,7 @@ impl OutputStore {
                     input_contents,
                     max,
                     filtered_comp_text,
-                )
+                );
             }
 
             if input_contents.is_password && !filtered_comp_text.is_empty() {
@@ -699,7 +715,7 @@ impl OutputStore {
                 input_contents
                     .placeholder
                     .as_ref()
-                    .map(|s| s.to_string())
+                    .map(std::string::ToString::to_string)
                     .unwrap_or_default()
             } else if input_contents.is_password {
                 let mask = input_contents.mask_text.as_deref().unwrap_or("●");
@@ -738,11 +754,7 @@ impl OutputStore {
                 .and_then(|v| v.font_weight);
             let font_style = renders.visual_properties.get(id).and_then(|v| v.font_style);
 
-            let spans = contents
-                .text_spans
-                .get(id)
-                .map(|s| s.as_slice())
-                .unwrap_or(&[]);
+            let spans = contents.text_spans.get(id).map_or(&[][..], Vec::as_slice);
 
             // 描画テキスト全体のレイアウトサイズを Taffy 測定用に設定
             let display_layout = system.text_engine.create_layout(
@@ -809,8 +821,7 @@ impl OutputStore {
                 let is_ime_active = input_contents
                     .ime_state
                     .as_ref()
-                    .map(|ime| !ime.composition_text.is_empty())
-                    .unwrap_or(false);
+                    .is_some_and(|ime| !ime.composition_text.is_empty());
 
                 if text_val.is_empty() && !is_ime_active {
                     // 確定文字列が空で、かつ未確定文字列も存在しない状態のみグレー表示
@@ -869,6 +880,170 @@ impl OutputStore {
             }
         }
         out
+    }
+
+    /// スクロールオフセットを目標位置へクランプした上で代入。
+    /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
+    pub(crate) fn scroll_to(
+        id: EntityId,
+        mut x: f32,
+        mut y: f32,
+        active_masks: &mut ActiveMasksSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        text_engine: &TextEngine,
+        text_contents: &TextContentsSparseSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        text_spans: &TextSpansSparseSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        rects: &RectsSecondary,
+        scrollbar_styles: &mut ScrollbarStylesSecondary,
+        scroll_offsets: &mut ScrollOffsetsSecondary,
+        last_window_size: Option<LayoutSize>,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+    ) -> bool {
+        let Some(rect) = OutputStore::rect(id, rects) else {
+            return false;
+        };
+
+        let scroll_size = OutputStore::get_scroll_size(
+            id,
+            active_masks,
+            input_contents,
+            text_engine,
+            text_contents,
+            visual_properties,
+            text_spans,
+            dwrite_layouts,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            interaction_properties,
+            rects,
+            scrollbar_styles,
+            scroll_offsets,
+        );
+
+        // 親コンテナのボーダーおよびパディング厚を取得
+        let (basic, _, _) = LayoutStore::resolve_active_layouts(
+            id,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            interaction_properties,
+            visual_properties,
+        );
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+        let visible_size = WindowStore::calculate_visible_size(last_window_size, rect);
+        let content_size = LayoutStore::calculate_inner_content_size(visible_size, border, padding);
+
+        // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
+        let max_scroll_x = (scroll_size.width - content_size.width).max(0.0);
+        let max_scroll_y = (scroll_size.height - content_size.height).max(0.0);
+
+        x = x.clamp(0.0, max_scroll_x);
+        y = y.clamp(0.0, max_scroll_y);
+
+        // スロットが存在しない場合はあらかじめ挿入して初期化
+        if !scroll_offsets.contains_key(id) {
+            scroll_offsets.insert(id, LayoutPoint::ZERO);
+        }
+
+        let current = scroll_offsets.get_mut(id).unwrap();
+        if (current.x - x).abs() > 0.01 || (current.y - y).abs() > 0.01 {
+            current.x = x;
+            current.y = y;
+
+            // スクロールバー状態の最終スクロール時刻を更新
+            if let Some(sb_state) = scrollbar_styles.get_mut(id) {
+                sb_state.last_scroll_time = Some(Instant::now());
+            }
+
+            // オフセット変化に伴い、子孫全体の絶対座標を再同期させる
+            LayoutStore::mark_layout_dirty(
+                id,
+                taffy_nodes,
+                taffy,
+                active_masks,
+                dirty_layout_entities,
+                parents,
+            );
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn scroll_by(
+        id: EntityId,
+        dx: f32,
+        dy: f32,
+        active_masks: &mut ActiveMasksSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        text_engine: &TextEngine,
+        text_contents: &TextContentsSparseSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        text_spans: &TextSpansSparseSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        rects: &RectsSecondary,
+        scrollbar_styles: &mut ScrollbarStylesSecondary,
+        scroll_offsets: &mut ScrollOffsetsSecondary,
+        last_window_size: Option<LayoutSize>,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+    ) -> bool {
+        let current = scroll_offsets.get(id).copied().unwrap_or_default();
+
+        OutputStore::scroll_to(
+            id,
+            current.x + dx,
+            current.y + dy,
+            active_masks,
+            input_contents,
+            text_engine,
+            text_contents,
+            visual_properties,
+            text_spans,
+            dwrite_layouts,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            interaction_properties,
+            rects,
+            scrollbar_styles,
+            scroll_offsets,
+            last_window_size,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        )
     }
 }
 
@@ -960,7 +1135,6 @@ impl Context {
     #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn calculate_caret_rect(
-        &self,
         rect: LayoutRect,
         border: EdgeInsets,
         padding: EdgeInsets,
@@ -1001,15 +1175,15 @@ impl Context {
         )
     }
 
-    /// 現在の選択範囲（text_selections）に基づき、
-    /// 描画用の物理選択矩形（selected_rects）を自動再計算して SoA キャッシュを更新します。
+    /// `現在の選択範囲（text_selections）に基づき`、
+    /// `描画用の物理選択矩形（selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
     #[inline]
     pub(crate) fn update_selection_rects(&mut self, id: EntityId) {
         if let Some(range) = self.outputs.text_selections.get(id).cloned()
             && range.start < range.end
             && let Some(layout) = self.get_or_create_layout(id)
         {
-            let rects = OutputStore::calc_selection_rects(id, layout, range, &mut self.outputs);
+            let rects = OutputStore::calc_selection_rects(id, &layout, range, &mut self.outputs);
             self.outputs.selected_rects.insert(id, rects);
             return;
         }
@@ -1021,7 +1195,7 @@ impl Context {
         let mut scrollbar_dragged = false;
         let mut active_drag_target: Option<(EntityId, bool, bool)> = None;
 
-        for (id, state) in self.layouts.scrollbar_styles.iter() {
+        for (id, state) in &self.layouts.scrollbar_styles {
             if state.v_thumb_dragged {
                 active_drag_target = Some((id, true, false));
                 break;
@@ -1084,8 +1258,7 @@ impl Context {
                             .outputs
                             .scroll_offsets
                             .get(current_id)
-                            .map(|o| o.x)
-                            .unwrap_or(0.0);
+                            .map_or(0.0, |o| o.x);
                         self.scroll_to(current_id, current_x, target_scroll_y);
                     }
                 }
@@ -1119,8 +1292,7 @@ impl Context {
                             .outputs
                             .scroll_offsets
                             .get(current_id)
-                            .map(|o| o.y)
-                            .unwrap_or(0.0);
+                            .map_or(0.0, |o| o.y);
                         self.scroll_to(current_id, target_scroll_x, current_y);
                     }
                 }
@@ -1180,8 +1352,7 @@ impl Context {
                     .layouts
                     .basic_layouts
                     .get(child_id)
-                    .map(|l| l.position == Position::Absolute)
-                    .unwrap_or(false);
+                    .is_some_and(|l| l.position == Position::Absolute);
                 if is_absolute {
                     continue;
                 }
@@ -1213,48 +1384,92 @@ impl Context {
     /// スクロールオフセットを目標位置へクランプした上で代入。
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
     pub(crate) fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
-        let Some(rect) = self.rect(id) else {
-            return false;
-        };
+        let TopologyStore {
+            entities,
+            parents,
+            children,
+            active_masks,
+            active_entities,
+            session_spawned,
+            session_roots,
+            flat_dfs_sequence,
+            is_structure_dirty,
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            scrollbar_styles,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        } = &mut self.layouts;
+        let RenderStore {
+            visual_properties,
+            interaction_properties,
+            base_visual_properties,
+            dirty_render_entities,
+            active_transitions,
+            active_animations,
+            active_webviews,
+            last_tick_time,
+        } = &mut self.renders;
+        let OutputStore {
+            rects,
+            clip_rects,
+            scroll_offsets,
+            prev_rects,
+            prev_clip_rects,
+            selected_rects,
+            text_selections,
+            selection_start_index,
+        } = &mut self.outputs;
+        let ContentStore {
+            text_contents,
+            text_spans,
+            input_contents,
+            image_sources,
+            movie_properties,
+            webview_contents,
+        } = &mut self.contents;
+        let WindowStore {
+            last_window_size, ..
+        } = &mut self.window;
+        let SystemStore {
+            text_engine,
+            dwrite_layouts,
+            uia_properties,
+            task_sender,
+            task_receiver,
+        } = &mut self.system;
 
-        let scroll_size = self.get_scroll_size(id);
-
-        // 親コンテナのボーダーおよびパディング厚を取得
-        let (basic, _, _) = self.resolve_active_layouts(id);
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-        let visible_size = self.calculate_visible_size(rect);
-        let content_size = LayoutStore::calculate_inner_content_size(visible_size, border, padding);
-
-        // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
-        let max_scroll_x = (scroll_size.width - content_size.width).max(0.0);
-        let max_scroll_y = (scroll_size.height - content_size.height).max(0.0);
-
-        x = x.clamp(0.0, max_scroll_x);
-        y = y.clamp(0.0, max_scroll_y);
-
-        // スロットが存在しない場合はあらかじめ挿入して初期化
-        if !self.outputs.scroll_offsets.contains_key(id) {
-            self.outputs.scroll_offsets.insert(id, LayoutPoint::ZERO);
-        }
-
-        let current = self.outputs.scroll_offsets.get_mut(id).unwrap();
-        if (current.x - x).abs() > 0.01 || (current.y - y).abs() > 0.01 {
-            current.x = x;
-            current.y = y;
-
-            // スクロールバー状態の最終スクロール時刻を更新
-            if let Some(sb_state) = self.layouts.scrollbar_styles.get_mut(id) {
-                sb_state.last_scroll_time = Some(Instant::now());
-            }
-
-            // オフセット変化に伴い、子孫全体の絶対座標を再同期させる
-            self.mark_layout_dirty(id);
-            true
-        } else {
-            false
-        }
+        OutputStore::scroll_to(
+            id,
+            x,
+            y,
+            active_masks,
+            input_contents,
+            text_engine,
+            text_contents,
+            visual_properties,
+            text_spans,
+            dwrite_layouts,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            interaction_properties,
+            rects,
+            scrollbar_styles,
+            scroll_offsets,
+            *last_window_size,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        )
     }
 
     /// 階層的な境界判定ヘルパー（非対象のブランチをまるごとスキップ）
@@ -1377,7 +1592,7 @@ impl Context {
             let (packed_transform, origin) =
                 self.get_transform_and_origin(id, visual, &effective_transforms);
             let (o_width, o_color, o_lengths, outline_offset_and_flags) =
-                self.get_outline_params(visual);
+                RenderStore::get_outline_params(visual);
 
             // WebView (アクティブ) の個別処理
             if is_webview_ready {
@@ -1738,7 +1953,7 @@ impl Context {
             if is_input
                 && is_focused
                 && let Some(contents) = self.contents.input_contents.get(id)
-                && self.should_show_caret(contents)
+                && ContentStore::should_show_caret(contents)
             {
                 let (border, padding) =
                     LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -1773,7 +1988,7 @@ impl Context {
                     y: align_offset_y,
                 };
 
-                let caret_rect = self.calculate_caret_rect(
+                let caret_rect = OutputStore::calculate_caret_rect(
                     rect,
                     border,
                     padding,

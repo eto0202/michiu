@@ -1,13 +1,17 @@
 #![allow(dead_code)]
-use crate::*;
+use crate::{
+    BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DrawBatch,
+    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, Length, QuadInstance, TextAlign,
+    TextCacheKey, TextCacheValue, TextRasterizer, TextSpan, TextureAtlas, Vertex, VisualProperty,
+};
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
 };
 use slotmap::SecondaryMap;
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
-use wgpu::CurrentSurfaceTexture;
 use wgpu::util::DeviceExt;
+use wgpu::{CurrentSurfaceTexture, PipelineCompilationOptions};
 use windows::{
     Win32::{
         Foundation::HANDLE,
@@ -129,7 +133,7 @@ impl WgpuRenderer {
             .formats
             .iter()
             .copied()
-            .find(|f| f.is_srgb()) // SRGBを優先
+            .find(wgpu::TextureFormat::is_srgb) // SRGBを優先
             .unwrap_or(caps.formats[0]);
 
         let config = wgpu::SurfaceConfiguration {
@@ -233,7 +237,7 @@ impl WgpuRenderer {
                         }],
                     },
                 ],
-                compilation_options: Default::default(),
+                compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -243,7 +247,7 @@ impl WgpuRenderer {
                     blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: Default::default(),
+                compilation_options: PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
@@ -268,7 +272,7 @@ impl WgpuRenderer {
                         shader_location: 0,
                     }],
                 }],
-                compilation_options: Default::default(),
+                compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -292,7 +296,7 @@ impl WgpuRenderer {
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: Default::default(),
+                compilation_options: PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
@@ -386,7 +390,7 @@ impl WgpuRenderer {
     }
 
     /// ウィンドウサイズが変更された際の再設定
-    /// new_physical_size: (width, height)
+    /// `new_physical_size`: (width, height)
     pub(crate) fn resize(&mut self, new_physical_size: (u32, u32), scale_factor: f32) {
         if new_physical_size.0 > 0 && new_physical_size.1 > 0 {
             self.config.width = new_physical_size.0;
@@ -418,9 +422,10 @@ impl WgpuRenderer {
 
         // スワップチェーンから描画先フレームを獲得
         // TODO: エラーハンドリング
-        let surface_texture = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(t) => t,
-            _ => return,
+        let wgpu::CurrentSurfaceTexture::Success(surface_texture) =
+            self.surface.get_current_texture()
+        else {
+            return;
         };
 
         let view = surface_texture
@@ -528,11 +533,9 @@ impl WgpuRenderer {
 
         // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュする
         self.device.poll(wgpu::PollType::Poll);
-
-        std::mem::drop(_context_guard);
     }
 
-    /// ヘルパー: バッチ内に静止 WebView2 テクスチャが含まれる場合、バインドグループを動的に切り替える
+    /// ヘルパー: バッチ内に静止 `WebView2` テクスチャが含まれる場合、バインドグループを動的に切り替える
     fn bind_texture_for_batch<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>, batch: &DrawBatch) {
         // バッチに含まれる最初の要素が静止 WebView2 キャッシュを持っているか
         if let Some(&first_id) = batch.entity_ids.first()
@@ -569,7 +572,7 @@ impl WgpuRenderer {
         }
     }
 
-    /// ヘルパー: 各 EntityId の属性から GPU 用の QuadInstance を正確に構築
+    /// ヘルパー: 各 `EntityId` の属性から GPU 用の `QuadInstance` を正確に構築
     fn build_quad_instance_for_entity(
         &mut self,
         cx: &Context,
@@ -584,10 +587,7 @@ impl WgpuRenderer {
             .get(entity_id)
             .unwrap_or(&default_visual);
 
-        let origin = visual
-            .transform_origin
-            .map(|p| [p.x, p.y])
-            .unwrap_or([0.5, 0.5]);
+        let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);
         let opacity = visual.opacity.unwrap_or(1.0);
 
         let box_sizing_val = match basic.box_sizing {
@@ -661,13 +661,13 @@ impl WgpuRenderer {
         }
 
         // 影のパラメータ（形状）も上記カラーが透明なら 0 に落とす
-        let shadow_params = if shadow_color != Color::TRANSPARENT {
+        let shadow_params = if shadow_color == Color::TRANSPARENT {
+            [0.0; 4]
+        } else {
             match visual.shadow_params {
                 Some(shadow) => [shadow.offset.x, shadow.offset.y, shadow.blur, shadow.spread],
                 None => [0.0; 4],
             }
-        } else {
-            [0.0; 4]
         };
 
         let is_decorator = instance.opacity_mode_sizing[1] < -0.5; // mode == -1.0 なら true
@@ -693,8 +693,7 @@ impl WgpuRenderer {
                 .contents
                 .text_spans
                 .get(entity_id)
-                .map(|s| s.as_slice())
-                .unwrap_or(&[]);
+                .map_or(&[][..], Vec::as_slice);
 
             let text_size = if cx.topology.active_masks[entity_id].has_input_content()
                 && let Some(contents) = cx.contents.input_contents.get(entity_id)
@@ -790,7 +789,7 @@ impl WgpuRenderer {
             current_mode = 3.0;
             uv_min = [0.0, 0.0];
             uv_max = [1.0, 1.0];
-        } else if is_text_body  && cx.topology.active_masks[entity_id].has_text_content() {
+        } else if is_text_body && cx.topology.active_masks[entity_id].has_text_content() {
             // テキスト要素である場合
             let text = cx
                 .contents
@@ -812,15 +811,13 @@ impl WgpuRenderer {
                 .input_contents
                 .get(entity_id)
                 .and_then(|c| c.ime_state.as_ref())
-                .map(|ime| !ime.composition_text.is_empty())
-                .unwrap_or(false);
+                .is_some_and(|ime| !ime.composition_text.is_empty());
 
             let base_text_empty = cx
                 .contents
                 .input_contents
                 .get(entity_id)
-                .map(|c| c.text.0.get().is_empty())
-                .unwrap_or(false);
+                .is_some_and(|c| c.text.0.get().is_empty());
 
             let placeholder_color = cx
                 .contents

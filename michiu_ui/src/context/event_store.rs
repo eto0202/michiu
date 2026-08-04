@@ -1,6 +1,21 @@
 use std::path::PathBuf;
 
-use crate::*;
+use crate::{
+    ActiveFocusTrigger, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
+    BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, ChildrenSecondary,
+    ClipRectsSecondary, Context, CursorIcon, DirtyLayoutEntitiesVec, DragPayload,
+    DragPlaceholderParent, DragProperty, DropProperty, DwriteLayoutsSparseSecondary, Element,
+    ElementState, EntityId, EventListeners, FlexLayoutsSecondary, FocusTrigger, Focusable,
+    GridLayoutsSecondary, InputContentsSparseSecondary, InteractionPropertiesSecondary,
+    InteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, Modifiers,
+    MouseButton, OutputStore, ParentsSecondary, PointerEvents, Position, Rect, RectsSecondary,
+    RenderStore, STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER, STATE_DRAGGING,
+    STATE_SELECTED, STYLE_DRAGGABLE, STYLE_DROPPABLE, STYLE_INTERACTION_PARENT,
+    STYLE_INTERACTION_WITHIN, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, ScrollOffsetsSecondary,
+    ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
+    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect,
+    Val, VirtualKey, VisualPropertiesSecondary,
+};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
 
@@ -68,6 +83,7 @@ impl Default for EventStore {
 
 impl EventStore {
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             event_listeners: SparseSecondaryMap::new(),
@@ -130,11 +146,11 @@ impl EventStore {
                         (
                             match l.border.left {
                                 Length::Px(v) => v,
-                                _ => 0.0,
+                                Length::Percent(_) => 0.0,
                             },
                             match l.border.top {
                                 Length::Px(v) => v,
-                                _ => 0.0,
+                                Length::Percent(_) => 0.0,
                             },
                         )
                     })
@@ -262,8 +278,8 @@ impl EventStore {
 
     #[inline]
     pub(crate) fn drag_overhang_distance(
-        pointer_pos: LayoutPoint,
-        clip: LayoutRect,
+        pointer_pos: &LayoutPoint,
+        clip: &LayoutRect,
     ) -> LayoutPoint {
         let mut dx = 0.0f32;
         let mut dy = 0.0f32;
@@ -284,56 +300,47 @@ impl EventStore {
         LayoutPoint { x: dx, y: dy }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn state_pressed_resize_drag(
         id: EntityId,
         dir: ResizeDirection,
-        outputs: &OutputStore,
-        layouts: &mut LayoutStore,
-        topology: &mut TopologyStore,
-        renders: &mut RenderStore,
-        events: &mut EventStore,
+        rects: &RectsSecondary,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
+        parents: &ParentsSecondary,
+        current_pointer_position: Option<LayoutPoint>,
+        resizing_state: &mut Option<ResizingState>,
+        interaction_states: &mut InteractionStates,
     ) {
-        let rect = outputs.rects.get(id).copied().unwrap_or_default();
-        let position = layouts
-            .basic_layouts
+        let rect = rects.get(id).copied().unwrap_or_default();
+        let position = basic_layouts
             .get(id)
             .map_or(Position::Relative, |l| l.position);
 
-        // 親要素の矩形を取得
-        // 親要素の矩形と、その「左・上ボーダーの厚み」を正確に取得する
+        let resolve_length = |length: Length, ref_size: f32| match length {
+            Length::Px(v) => v,
+            Length::Percent(p) => ref_size * (p / 100.0),
+        };
+
+        // 親要素の矩形と、その左・上ボーダーの厚みを取得
+        let parent_id = parents.get(id).copied().flatten();
         let (parent_rect, parent_border_left, parent_border_top) =
-            if let Some(Some(parent_id)) = topology.parents.get(id) {
-                let p_rect = outputs.rects.get(*parent_id).copied().unwrap_or_default();
-
-                let border_l = if let Some(layout) = layouts.basic_layouts.get(*parent_id) {
-                    match layout.border.left {
-                        Length::Px(v) => v,
-                        Length::Percent(p) => p_rect.width * (p / 100.0),
-                    }
-                } else {
-                    0.0
-                };
-                let border_t = if let Some(layout) = layouts.basic_layouts.get(*parent_id) {
-                    match layout.border.top {
-                        Length::Px(v) => v,
-                        Length::Percent(p) => p_rect.height * (p / 100.0),
-                    }
-                } else {
-                    0.0
-                };
-
+            parent_id.map_or((LayoutRect::ZERO, 0.0, 0.0), |p_id| {
+                let p_rect = rects.get(p_id).copied().unwrap_or_default();
+                // ボーダー幅の抽出
+                let (border_l, border_t) = basic_layouts.get(p_id).map_or((0.0, 0.0), |l| {
+                    let left = resolve_length(l.border.left, p_rect.width);
+                    let top = resolve_length(l.border.top, p_rect.height);
+                    (left, top)
+                });
                 (p_rect, border_l, border_t)
-            } else {
-                (LayoutRect::ZERO, 0.0, 0.0)
-            };
+            });
 
         // 親コンテナのボーダー内側を基準点として物理相対位置を逆算
         let local_x = rect.x - (parent_rect.x + parent_border_left);
         let local_y = rect.y - (parent_rect.y + parent_border_top);
 
-        // 絶対配置の場合、開始時に Top-Left 基準に完全に正規化（コンバート）する
-        // これにより、もともと right / bottom 基準で配置されていた要素であっても、
-        // ドラッグ開始の瞬間に左上へ吹っ飛ぶ現象を完全に阻止します。
+        // 絶対配置の場合、開始時に Top-Left 基準に完全に正規化
         let mut start_inset = Rect {
             top: Val::Px(0.0),
             right: Val::Px(0.0),
@@ -347,23 +354,21 @@ impl EventStore {
             start_inset.bottom = Val::Auto;
 
             // SoA 側も、この Top-Left 座標で即時上書きアップデート
-            if let Some(layout) = layouts.basic_layouts.get_mut(id) {
-                layout.inset = start_inset;
-            }
-            if let Some(layout) = layouts.base_basic_layouts.get_mut(id) {
+            let basic = basic_layouts.get_mut(id);
+            let base_basic = base_basic_layouts.get_mut(id);
+            for layout in [basic, base_basic].into_iter().flatten() {
                 layout.inset = start_inset;
             }
         } else {
             // 相対配置時は、通常通りそのままのインセットを使用
-            start_inset = layouts
-                .basic_layouts
+            start_inset = basic_layouts
                 .get(id)
                 .map_or(BasicLayout::default().inset, |l| l.inset);
         }
 
-        let start_pos = events.current_pointer_position.unwrap_or(LayoutPoint::ZERO);
+        let start_pos = current_pointer_position.unwrap_or(LayoutPoint::ZERO);
 
-        events.resizing_state = Some(ResizingState {
+        *resizing_state = Some(ResizingState {
             entity_id: id,
             direction: dir,
             start_mouse_pos: start_pos,
@@ -371,21 +376,20 @@ impl EventStore {
             start_inset,
         });
 
-        // リサイズ中の要素は pressed とマーク（多重干渉防止）
-        events.interaction_states.pressed = Some(id);
+        // リサイズ中の要素は pressed とマーク
+        interaction_states.pressed = Some(id);
     }
 
     pub(crate) fn restrict_focusable_element(
         id: EntityId,
-        topology: &TopologyStore,
-        renders: &RenderStore,
+        active_masks: &ActiveMasksSecondary,
+        visual_properties: &VisualPropertiesSecondary,
     ) -> bool {
-        let focusable = renders
-            .visual_properties
+        let focusable = visual_properties
             .get(id)
             .and_then(|v| v.focusable)
             .or_else(|| {
-                let mask = topology.active_masks.get(id).copied().unwrap_or_default();
+                let mask = active_masks.get(id).copied().unwrap_or_default();
                 if mask.has_input_content() || mask.has_webveiw2_content() {
                     Some(Focusable::Inherit(FocusTrigger::Both)) // 未指定時はキーボードフォーカス
                 } else {
@@ -402,9 +406,12 @@ impl EventStore {
     }
 
     #[inline]
-    pub(crate) fn get_scrollbar_dirty_ids(layouts: &mut LayoutStore) -> SmallVec<[EntityId; 4]> {
+    pub(crate) fn get_scrollbar_dirty_ids(
+        scrollbar_styles: &mut ScrollbarStylesSecondary,
+    ) -> SmallVec<[EntityId; 4]> {
         let mut dirty_ids = SmallVec::<[EntityId; 4]>::new();
-        for (id, state) in &mut layouts.scrollbar_styles {
+
+        for (id, state) in scrollbar_styles {
             if state.v_thumb_dragged || state.h_thumb_dragged {
                 state.v_thumb_dragged = false;
                 state.h_thumb_dragged = false;
@@ -415,12 +422,100 @@ impl EventStore {
     }
 
     #[inline]
-    pub(crate) fn get_user_select(id: EntityId, renders: &RenderStore) -> UserSelect {
-        renders
-            .visual_properties
+    pub(crate) fn get_user_select(
+        id: EntityId,
+        visual_properties: &VisualPropertiesSecondary,
+    ) -> UserSelect {
+        visual_properties
             .get(id)
             .and_then(|v| v.user_select)
             .unwrap_or(UserSelect::None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn autoscroll_occurred(
+        id: EntityId,
+        current_pointer_position: Option<LayoutPoint>,
+        clip_rects: &ClipRectsSecondary,
+        active_masks: &mut ActiveMasksSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        text_engine: &TextEngine,
+        text_contents: &TextContentsSparseSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        text_spans: &TextSpansSparseSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        rects: &RectsSecondary,
+        scrollbar_styles: &mut ScrollbarStylesSecondary,
+        scroll_offsets: &mut ScrollOffsetsSecondary,
+        last_window_size: Option<LayoutSize>,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+    ) -> (bool, Option<LayoutPoint>) {
+        // ポインタ位置、またはクリップ領域がない場合
+        let Some(pointer_pos) = current_pointer_position else {
+            return (false, None);
+        };
+        let Some(clip) = clip_rects.get(id).copied() else {
+            return (false, None);
+        };
+
+        // テキスト選択状態
+        let user_select = EventStore::get_user_select(id, visual_properties);
+        if user_select != UserSelect::Text {
+            return (false, None);
+        }
+
+        // はみ出し距離
+        let distance = EventStore::drag_overhang_distance(&pointer_pos, &clip);
+        if distance.x.abs() <= 1.0 && distance.y.abs() <= 1.0 {
+            return (false, None);
+        }
+
+        // オートスクロール実行
+        let speed_factor = 0.15f32;
+        let dx = distance.x * speed_factor;
+        let dy = distance.y * speed_factor;
+
+        let scroll = OutputStore::scroll_by(
+            id,
+            dx,
+            dy,
+            active_masks,
+            input_contents,
+            text_engine,
+            text_contents,
+            visual_properties,
+            text_spans,
+            dwrite_layouts,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            interaction_properties,
+            rects,
+            scrollbar_styles,
+            scroll_offsets,
+            last_window_size,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        );
+
+        if scroll {
+            (true, Some(pointer_pos))
+        } else {
+            (false, None)
+        }
     }
 }
 
@@ -440,37 +535,6 @@ impl Context {
         border: f32,
     ) -> Option<ResizeDirection> {
         EventStore::detect_resize_direction(rect, resizable, pos, border)
-    }
-
-    pub(crate) fn autoscroll_occurred(&mut self) -> (bool, Option<LayoutPoint>) {
-        let mut autoscroll_occurred = false;
-        let mut active_pos = None;
-
-        if let Some(id) = self.events.interaction_states.pressed
-            && let Some(pointer_pos) = self.events.current_pointer_position
-            && let Some(clip) = self.outputs.clip_rects.get(id).copied()
-        {
-            let user_select = self.get_user_select(id);
-
-            if user_select == UserSelect::Text {
-                let distace = EventStore::drag_overhang_distance(pointer_pos, clip);
-
-                // はみ出しがある場合、距離に比例したオートスクロールを実行
-                if distace.x.abs() > 1.0 || distace.y.abs() > 1.0 {
-                    // TODO: スクロール感度調整用メソッドを実装。
-                    let speed_factor = 0.15f32;
-                    let dx = distace.x * speed_factor;
-                    let dy = distace.y * speed_factor;
-
-                    if self.scroll_by(id, dx, dy) {
-                        autoscroll_occurred = true;
-                        active_pos = Some(pointer_pos);
-                    }
-                }
-            }
-        }
-
-        (autoscroll_occurred, active_pos)
     }
 
     #[inline]
@@ -635,6 +699,7 @@ impl Context {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     #[inline]
     pub(crate) fn propagate_drag_events(
         &mut self,
@@ -990,17 +1055,34 @@ impl Context {
 
     #[inline]
     pub(crate) fn state_pressed_resize_drag(&mut self, id: EntityId, dir: ResizeDirection) {
+        let OutputStore { rects, .. } = &self.outputs;
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            ..
+        } = &mut self.layouts;
+        let TopologyStore { parents, .. } = &self.topology;
+        let EventStore {
+            current_pointer_position,
+            resizing_state,
+            interaction_states,
+            ..
+        } = &mut self.events;
+
         EventStore::state_pressed_resize_drag(
             id,
             dir,
-            &self.outputs,
-            &mut self.layouts,
-            &mut self.topology,
-            &mut self.renders,
-            &mut self.events,
+            rects,
+            basic_layouts,
+            base_basic_layouts,
+            parents,
+            *current_pointer_position,
+            resizing_state,
+            interaction_states,
         );
     }
 
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn hit_decision_element_scrollbar(
         &mut self,
         target_id: EntityId,
@@ -1013,7 +1095,7 @@ impl Context {
         let mut is_v_track = false;
         let mut is_h_track = false;
 
-        for (c_id, sb_state) in self.layouts.scrollbar_styles.iter() {
+        for (c_id, sb_state) in &self.layouts.scrollbar_styles {
             if sb_state.v_thumb_id == Some(target_id) {
                 parent_container = Some(c_id);
                 is_v_thumb = true;
@@ -1186,7 +1268,12 @@ impl Context {
 
     #[inline]
     pub(crate) fn restrict_focusable_element(&self, id: EntityId) -> bool {
-        EventStore::restrict_focusable_element(id, &self.topology, &self.renders)
+        let TopologyStore { active_masks, .. } = &self.topology;
+        let RenderStore {
+            visual_properties, ..
+        } = &self.renders;
+
+        EventStore::restrict_focusable_element(id, active_masks, visual_properties)
     }
 
     #[inline]
@@ -1200,14 +1287,17 @@ impl Context {
         id: EntityId,
         trigger: ActiveFocusTrigger,
     ) {
-        if self.events.interaction_states.focused != Some(id) {
+        if self.events.interaction_states.focused == Some(id) {
+            // 同一要素をクリックした際にもマウス操作によるフォーカス可視化の消去を同期反映
+            self.set_focused_by_trigger(id, true, trigger);
+        } else {
             if let Some(old_focus_id) = self.events.interaction_states.focused {
                 self.set_focused_by_trigger(old_focus_id, false, trigger);
 
                 // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
                 self.clear_selection_highlight_rect(old_focus_id);
                 // 進行中の IME コンポジションを強制的に確定させ候補窓を閉じる
-                self.force_complete_ime_composition();
+                SystemStore::force_complete_ime_composition();
 
                 if let Some(l) = self.events.event_listeners.get_mut(old_focus_id)
                     && let Some(mut handler) = l.on_blur.take()
@@ -1243,9 +1333,6 @@ impl Context {
             }
 
             self.events.interaction_states.focused = Some(id);
-        } else {
-            // 同一要素をクリックした際にもマウス操作によるフォーカス可視化の消去を同期反映
-            self.set_focused_by_trigger(id, true, trigger);
         }
     }
 
@@ -1257,7 +1344,7 @@ impl Context {
             // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
             self.clear_selection_highlight_rect(old_focus_id);
             // 進行中の IME コンポジションを強制的に確定させ候補窓を閉じる
-            self.force_complete_ime_composition();
+            SystemStore::force_complete_ime_composition();
 
             // IME をデフォルトの有効化状態に戻す
             self.reset_ime_default_state();
@@ -1453,7 +1540,11 @@ impl Context {
 
     #[inline]
     pub(crate) fn get_scrollbar_dirty_ids(&mut self) -> SmallVec<[EntityId; 4]> {
-        EventStore::get_scrollbar_dirty_ids(&mut self.layouts)
+        let LayoutStore {
+            scrollbar_styles, ..
+        } = &mut self.layouts;
+
+        EventStore::get_scrollbar_dirty_ids(scrollbar_styles)
     }
 
     #[inline]
@@ -1503,7 +1594,11 @@ impl Context {
 
     #[inline]
     pub(crate) fn get_user_select(&self, id: EntityId) -> UserSelect {
-        EventStore::get_user_select(id, &self.renders)
+        let RenderStore {
+            visual_properties, ..
+        } = &self.renders;
+
+        EventStore::get_user_select(id, visual_properties)
     }
 
     #[inline]
@@ -1526,7 +1621,7 @@ impl Context {
     }
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
-    #[inline(always)]
+    #[inline]
     pub(crate) fn update_state(&mut self, id: EntityId, state_flag: u128, active: bool) {
         let Some(mask) = self.topology.active_masks.get_mut(id) else {
             return;
@@ -1596,7 +1691,7 @@ impl Context {
                         if let Some(l) = self.events.event_listeners.get_mut(id) {
                             l.on_disable = Some(handler);
                         }
-                    };
+                    }
                 }
                 // アクティブになった瞬間
                 STATE_ACTIVED => {
@@ -1608,7 +1703,7 @@ impl Context {
                         if let Some(l) = self.events.event_listeners.get_mut(id) {
                             l.on_active = Some(handler);
                         }
-                    };
+                    }
                 }
                 // セレクトになった瞬間
                 STATE_SELECTED => {
@@ -1620,7 +1715,7 @@ impl Context {
                         if let Some(l) = self.events.event_listeners.get_mut(id) {
                             l.on_select = Some(handler);
                         }
-                    };
+                    }
                 }
                 _ => {}
             }

@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct WebView2Contents {
     pub url: String,
@@ -9,7 +10,7 @@ pub struct WebView2Contents {
     pub enable_context_menu: bool,
     /// F12で開発者ツールを起動できるか
     pub enable_dev_tools: bool,
-    /// JavaScriptを有効にするか
+    /// `JavaScriptを有効にするか`
     pub enable_scripts: bool,
     /// 起動時（ドキュメント読み込み前）に自動実行させるJavaScript
     pub user_scripts: Vec<Cow<'static, str>>,
@@ -41,38 +42,44 @@ impl WebView2Contents {
     }
 
     #[inline]
+    #[must_use]
     pub fn url(mut self, url: impl Into<String>) -> Self {
         self.url = url.into();
         self
     }
 
     #[inline]
+    #[must_use]
     pub fn allow_interaction(mut self, allow: bool) -> Self {
         self.allow_interaction = allow;
         self
     }
 
     #[inline]
+    #[must_use]
     pub fn enable_context_menu(mut self, enable: bool) -> Self {
         self.enable_context_menu = enable;
         self
     }
 
     #[inline]
+    #[must_use]
     pub fn enable_dev_tools(mut self, enable: bool) -> Self {
         self.enable_dev_tools = enable;
         self
     }
 
     #[inline]
+    #[must_use]
     pub fn enable_scripts(mut self, enable: bool) -> Self {
         self.enable_scripts = enable;
         self
     }
 
     /// example
-    /// add_user_script(include_str!("example.js"))
+    /// `add_user_script(include_str!("example.js`"))
     #[inline]
+    #[must_use]
     pub fn add_user_script(mut self, script: impl Into<Cow<'static, str>>) -> Self {
         self.user_scripts.push(script.into());
         self
@@ -80,6 +87,7 @@ impl WebView2Contents {
 
     /// 動画プレイヤーやWebGL、アニメーションがある場合、常時レンダリングを有効にする
     #[inline]
+    #[must_use]
     pub fn always_active(mut self, always: bool) -> Self {
         self.always_active = always;
         self

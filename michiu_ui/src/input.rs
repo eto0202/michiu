@@ -40,9 +40,9 @@ pub struct TextSpan {
     pub font_size: Option<f32>,
     /// 部分的なフォントファミリーの上書き
     pub font_family: Option<Cow<'static, str>>,
-    /// 部分的な太さ (Bold = 700等) の上書き (DWRITE_FONT_WEIGHT 相当)
+    /// 部分的な太さ (Bold = 700等) の上書き (`DWRITE_FONT_WEIGHT` 相当)
     pub font_weight: Option<u32>,
-    /// 部分的な斜体 (Normal=0, Italic=2等) の上書き (DWRITE_FONT_STYLE 相当)
+    /// 部分的な斜体 (Normal=0, Italic=2等) の上書き (`DWRITE_FONT_STYLE` 相当)
     pub font_style: Option<u32>,
 
     /// 下線の種類 (標準下線、太下線、波下線)
@@ -67,6 +67,7 @@ impl Default for TextSpan {
 
 impl TextSpan {
     /// 空のデフォルトスパンを生成します
+    #[must_use]
     pub fn new(range: std::ops::Range<usize>) -> Self {
         Self {
             range,
@@ -84,60 +85,72 @@ impl TextSpan {
         }
     }
     #[inline]
+    #[must_use]
     pub fn range(mut self, range: std::ops::Range<usize>) -> Self {
         self.range = range;
         self
     }
     #[inline]
+    #[must_use]
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
     #[inline]
+    #[must_use]
     pub fn bg_color(mut self, color: Color) -> Self {
         self.bg_color = Some(color);
         self
     }
     #[inline]
+    #[must_use]
     pub fn font_size(mut self, size: f32) -> Self {
         self.font_size = Some(size);
         self
     }
+    #[must_use]
     #[inline]
     pub fn font_family(mut self, family: impl Into<Cow<'static, str>>) -> Self {
         self.font_family = Some(family.into());
         self
     }
     #[inline]
+    #[must_use]
     pub fn font_weight(mut self, weight: u32) -> Self {
         self.font_weight = Some(weight);
         self
     }
     #[inline]
+    #[must_use]
     pub fn font_style(mut self, style: u32) -> Self {
         self.font_style = Some(style);
         self
     }
     #[inline]
+    #[must_use]
     pub fn underline(mut self, style: UnderlineStyle) -> Self {
         self.underline = Some(style);
         self
     }
     #[inline]
+    #[must_use]
     pub fn underline_color(mut self, color: Color) -> Self {
         self.underline_color = Some(color);
         self
     }
     #[inline]
+    #[must_use]
     pub fn strikethrough(mut self, style: StrikethroughStyle) -> Self {
         self.strikethrough = Some(style);
         self
     }
     #[inline]
+    #[must_use]
     pub fn strikethrough_color(mut self, color: Color) -> Self {
         self.strikethrough_color = Some(color);
         self
     }
+    #[must_use]
     #[inline]
     pub fn link_id(mut self, link: impl Into<Cow<'static, str>>) -> Self {
         self.link_id = Some(link.into());
@@ -158,6 +171,7 @@ pub enum RoundingMode {
 }
 
 /// 入力ロジックプロパティ
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputContents {
     pub text: (ReadSignal<String>, WriteSignal<String>),
@@ -213,6 +227,7 @@ pub struct InputContents {
 
 impl InputContents {
     /// 新規に入力コンテンツの起点を作成します（不足フィールドの初期化を完全修正）。
+    #[must_use]
     pub fn new(text: (ReadSignal<String>, WriteSignal<String>)) -> Self {
         Self {
             text,
@@ -255,66 +270,79 @@ impl InputContents {
         }
     }
     #[inline]
+    #[must_use]
     pub fn text(mut self, text: (ReadSignal<String>, WriteSignal<String>)) -> Self {
         self.text = text;
         self
     }
     #[inline]
+    #[must_use]
     pub fn placeholder(mut self, placeholder: impl Into<Cow<'static, str>>) -> Self {
         self.placeholder = Some(placeholder.into());
         self
     }
     #[inline]
+    #[must_use]
     pub fn placeholder_color(mut self, color: Color) -> Self {
         self.placeholder_color = Some(color);
         self
     }
     #[inline]
+    #[must_use]
     pub fn max_length(mut self, max: usize) -> Self {
         self.max_length = Some(max);
         self
     }
     #[inline]
+    #[must_use]
     pub fn total_len(&self) -> usize {
         self.total_len
     }
     #[inline]
+    #[must_use]
     pub fn password(mut self, enabled: bool) -> Self {
         self.is_password = enabled;
         self
     }
     #[inline]
+    #[must_use]
     pub fn mask_text(mut self, mask: impl Into<Cow<'static, str>>) -> Self {
         self.mask_text = Some(mask.into());
         self
     }
     #[inline]
+    #[must_use]
     pub fn numeric_only(mut self, enabled: bool) -> Self {
         self.numeric_only = enabled;
         self
     }
     #[inline]
+    #[must_use]
     pub fn decimal_places(mut self, places: usize) -> Self {
         self.decimal_places = Some(places);
         self
     }
     #[inline]
+    #[must_use]
     pub fn rounding_mode(mut self, mode: RoundingMode) -> Self {
         self.rounding_mode = Some(mode);
         self
     }
     #[inline]
+    #[must_use]
     pub fn multiline(mut self, enabled: bool) -> Self {
         self.is_multiline = enabled;
         self
     }
     #[inline]
+    #[must_use]
     pub fn has_caret(mut self, enabled: bool) -> Self {
         self.has_caret = enabled;
         self
     }
     /// キャレットの太さと高さを一括設定します。単一値(f32)またはタプル(f32, f32)を受け入れます。
     #[inline]
+    #[must_use]
     pub fn caret_size(mut self, size: impl IntoSize<f32>) -> Self {
         let s = size.into_size();
         self.caret_width = Some(s.width);
@@ -324,6 +352,7 @@ impl InputContents {
 
     /// キャレットの太さ（幅）のみを個別設定します。
     #[inline]
+    #[must_use]
     pub fn caret_width(mut self, width: f32) -> Self {
         self.caret_width = Some(width);
         self
@@ -331,6 +360,7 @@ impl InputContents {
 
     /// キャレットの高さのみを個別設定します。
     #[inline]
+    #[must_use]
     pub fn caret_height(mut self, height: f32) -> Self {
         self.caret_height = Some(height);
         self
@@ -338,43 +368,51 @@ impl InputContents {
 
     /// キャレットの表示位置を垂直方向に微調整します。プラスは下、マイナスは上にスライドします。
     #[inline]
+    #[must_use]
     pub fn caret_offset(mut self, offset: f32) -> Self {
         self.caret_offset = offset;
         self
     }
     #[inline]
+    #[must_use]
     pub fn caret_color(mut self, color: Color) -> Self {
         self.caret_color = Some(color);
         self
     }
     #[inline]
+    #[must_use]
     pub fn is_blink(mut self, enabled: bool) -> Self {
         self.is_blink = enabled;
         self
     }
     #[inline]
+    #[must_use]
     pub fn blink_frequency(mut self, value: Duration) -> Self {
         self.blink_frequency = Some(value);
         self
     }
     #[inline]
+    #[must_use]
     pub fn is_ime(mut self, enabled: bool) -> Self {
         self.is_ime = enabled;
         self
     }
     #[inline]
+    #[must_use]
     pub fn ime_state(mut self, state: ImeState) -> Self {
         self.ime_state = Some(state);
         self
     }
 
     #[inline]
+    #[must_use]
     pub fn placeholder_select(mut self, enabled: bool) -> Self {
         self.placeholder_select = enabled;
         self
     }
 
     #[inline]
+    #[must_use]
     pub fn undo_limit(mut self, limit: usize) -> Self {
         self.undo_limit = limit;
         self

@@ -250,19 +250,21 @@ impl From<VirtualKey> for VIRTUAL_KEY {
 impl From<VIRTUAL_KEY> for VirtualKey {
     #[inline]
     fn from(vk: VIRTUAL_KEY) -> Self {
-        Self(vk.0 as u32)
+        Self(u32::from(vk.0))
     }
 }
 
 impl VirtualKey {
     #[inline]
+    #[must_use]
     pub fn to_windows(self) -> VIRTUAL_KEY {
         VIRTUAL_KEY(self.0 as u16)
     }
 
     #[inline]
+    #[must_use]
     pub fn from_windows(vk: VIRTUAL_KEY) -> Self {
-        Self(vk.0 as u32)
+        Self(u32::from(vk.0))
     }
 }
 

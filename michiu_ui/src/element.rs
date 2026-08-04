@@ -1,4 +1,13 @@
-use crate::*;
+use crate::{
+    BasicLayout, COMP_IMAGE_CONTENT, COMP_INPUT_CONTENT, COMP_MOVIE_CONTENT, COMP_TEXT_CONTENT,
+    COMP_UIA_CONTENT, COMP_WEBVIEW_CONTENT, Context, EffectCategory, ElementState, EntityId,
+    EventListeners, ImageMetadata, ImageSource, ImeState, InputContents, LayoutPoint, LayoutSize,
+    LayoutStore, Modifiers, MouseButton, MovieMetadata, MovieProperty, ReadSignal, Rect,
+    STYLE_DRAGGABLE, STYLE_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_PROPERTY,
+    STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, STYLE_TEXT_SPANS, ScrollBarState, ScrollbarDisplay,
+    ScrollbarStyle, Size, StyleTarget, TextAlign, TextSpan, ThisStyle, UiaValue, UnderlineStyle,
+    Val, VirtualKey, VisualProperty, WebView2Contents, create_effect, div_n,
+};
 use std::{borrow::Cow, cell::Cell, path::PathBuf, rc::Rc};
 
 thread_local! {
@@ -10,7 +19,7 @@ thread_local! {
 /// ユーザーがコンポーネントを評価する際に呼び出すグローバルラッパー
 pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     let old = ACTIVE_CONTEXT.get();
-    ACTIVE_CONTEXT.set(Some(cx as *mut Context));
+    ACTIVE_CONTEXT.set(Some(std::ptr::from_mut::<Context>(cx)));
     let _guard = ContextGuard { old };
 
     let marker = cx.start_session();
@@ -28,7 +37,7 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
 }
 
 /// スレッドローカルから安全にContextへのアクセスを解決する内部ヘルパー
-#[inline(always)]
+#[inline]
 pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
     let ptr = ACTIVE_CONTEXT
         .get()
@@ -42,13 +51,13 @@ pub(crate) struct ContextGuard {
     old: Option<*mut Context>,
 }
 
-/// 現在のスレッドローカル（ACTIVE_CONTEXT）に Context を一時的にバインドします。
+/// `現在のスレッドローカル（ACTIVE_CONTEXT）に` Context を一時的にバインドします。
 /// 戻り値のガードオブジェクト（ContextGuard）がスコープを抜ける際、自動的に元のコンテキストに復元されます。
-#[inline(always)]
+#[inline]
 pub(crate) fn bind_context(cx: &Context) -> ContextGuard {
     let old = ACTIVE_CONTEXT.get();
     // 借用チェッカーと衝突しないよう生ポインタキャストを行ってスレッドローカルに格納
-    ACTIVE_CONTEXT.set(Some(cx as *const Context as *mut Context));
+    ACTIVE_CONTEXT.set(Some(std::ptr::from_ref::<Context>(cx).cast_mut()));
     ContextGuard { old }
 }
 
@@ -87,6 +96,7 @@ impl From<EntityId> for Element {
 impl Element {
     /// 新規要素の構築を開始します
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         // スレッドローカルの Context から安全に要素を spawn
         let id = with_context(|cx| cx.spawn(None));
@@ -94,54 +104,57 @@ impl Element {
     }
 
     #[inline]
+    #[must_use]
     pub fn id(&self) -> EntityId {
         self.id
     }
 
     /// 要素が現在保持している子要素のハンドルリストを安全に取得します。
     #[inline]
+    #[must_use]
     pub fn get_children(self) -> Vec<Element> {
         with_context(|cx| cx.children_list(self).unwrap_or_default())
     }
 
     /// 要素に現在設定されている最新の Inset（位置・オフセット）を安全に読み取ります。
     #[inline]
+    #[must_use]
     pub fn get_inset(self) -> Rect<Val> {
         with_context(|cx| {
             cx.layouts
                 .basic_layouts
                 .get(self.id)
-                .map(|l| l.inset)
-                .unwrap_or_else(|| BasicLayout::default().inset)
+                .map_or_else(|| BasicLayout::default().inset, |l| l.inset)
         })
     }
 
     /// 要素に現在設定されている最新の Size（幅・高さ）を安全に読み取ります。
     #[inline]
+    #[must_use]
     pub fn get_size(self) -> Size<Val> {
         with_context(|cx| {
             cx.layouts
                 .basic_layouts
                 .get(self.id)
-                .map(|l| l.size)
-                .unwrap_or_else(|| BasicLayout::default().size)
+                .map_or_else(|| BasicLayout::default().size, |l| l.size)
         })
     }
 
-    /// 要素がドラッグ可能なスタイル設定（draggable_root / draggable_parent）を持っているか判定します。
+    /// `要素がドラッグ可能なスタイル設定（draggable_root` / `draggable_parent）を持っているか判定します`。
     #[inline]
+    #[must_use]
     pub fn is_draggable(self) -> bool {
         with_context(|cx| {
             cx.topology
                 .active_masks
                 .get(self.id)
-                .map(|m| m.has(STYLE_DRAGGABLE))
-                .unwrap_or(false)
+                .is_some_and(|m| m.has(STYLE_DRAGGABLE))
         })
     }
 
     /// この要素に対して、型 T のコンテキスト（シグナル）を提供（Provide）します。
     /// この要素、およびそのすべての子孫要素のエフェクトから `use_provided::<T>()` で取得可能になります。
+    #[must_use]
     pub fn provide<T: Send + 'static>(self, read_signal: ReadSignal<T>) -> Self {
         with_context(|cx| {
             cx.provide_context::<T>(self.id, read_signal.id);
@@ -150,6 +163,7 @@ impl Element {
     }
 
     /// スタイルを適用します（静的な値、Signal、またはクロージャ）。
+    #[must_use]
     pub fn style(self, style: impl Into<Prop<ThisStyle>>) -> Self {
         match style.into() {
             Prop::None => {}
@@ -158,7 +172,7 @@ impl Element {
                 with_context(|cx| {
                     // 静的なスタイルプロパティを通常通りインラインマウント
                     // 静的チェーンはマージ（merge = true）
-                    with_context(|cx| Element::style_internal(cx, id, s.clone(), true));
+                    with_context(|cx| Element::style_internal(cx, id, &s, true));
 
                     // 動的なセッターが存在する場合、それらを単一のエフェクトとして登録
                     if !s.inner.dynamic_setters.is_empty() {
@@ -182,7 +196,7 @@ impl Element {
                         // 動的評価された最新スタイルは、蓄積を避けるため置換（merge = false）
                         // 修正: 動的評価されたスタイルもマージ（true）としてマウントします。
                         // これにより、v_flex_c 等のColumn構造が破壊されるのを完全に防ぎます。
-                        Element::style_internal(cx, id, s.clone(), true);
+                        Element::style_internal(cx, id, &s, true);
 
                         // 動的スタイルが自身の中で動的なプロバイダーを含む場合も評価
                         for setter in &s.inner.dynamic_setters {
@@ -197,6 +211,7 @@ impl Element {
     }
 
     /// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用します。
+    #[must_use]
     #[inline]
     pub fn style_d<P, F>(self, f: F) -> Self
     where
@@ -215,7 +230,7 @@ impl Element {
     }
 
     /// スタイルの適用（一括インライン展開）
-    pub(crate) fn style_internal(cx: &mut Context, id: EntityId, style: ThisStyle, merge: bool) {
+    pub(crate) fn style_internal(cx: &mut Context, id: EntityId, style: &ThisStyle, merge: bool) {
         let inner = &style.inner;
         let mask = inner.mask;
 
@@ -306,6 +321,7 @@ impl Element {
 
     /// 子要素を追加します（Element単体、Signal、またはクロージャ）。
     /// 動的な値が渡された場合、自動的にスロット要素が作成され、その中身がリアクティブに切り替わります。
+    #[must_use]
     #[inline]
     pub fn child(self, element: impl Into<Prop<Element>>) -> Self {
         match element.into() {
@@ -344,6 +360,7 @@ impl Element {
     }
 
     /// プロバイダー `P` から動的に単一の子要素（Element）を解決して追加します。
+    #[must_use]
     #[inline]
     pub fn child_d<P, F>(self, f: F) -> Self
     where
@@ -360,6 +377,7 @@ impl Element {
 
     /// 複数の子要素を一括して追加します。
     /// 静的な要素、シグナル、またはクロージャ（Prop<Element> に変換可能なオブジェクト）のコレクションを受け入れます。
+    #[must_use]
     #[inline]
     pub fn children<I, E>(mut self, elements: I) -> Self
     where
@@ -373,8 +391,9 @@ impl Element {
     }
 
     /// プロバイダー `P` から動的に複数の子要素（コレクション）を解決して、
-    /// 中間コンテナ（div_n）を挟むことなく、親要素の直下へフラットに一括追加・置換します。
+    /// `中間コンテナ（div_n）を挟むことなく、親要素の直下へフラットに一括追加・置換します`。
     // children_c を持つコンテナには他の静的子要素を混在させない
+    #[must_use]
     #[inline]
     pub fn children_d<P, F, I, E>(self, f: F) -> Self
     where
@@ -427,6 +446,7 @@ impl Element {
 
     /// 子要素として、インタラクション（クリック等）を自動的に透過するテキストラベルを挿入します。
     /// 親子分離
+    #[must_use]
     #[inline]
     pub fn label(
         self,
@@ -444,6 +464,7 @@ impl Element {
 
     /// プロバイダー `P` から動的にスタイルを解決しつつ、ラベルテキストを設定して追加します。
     /// 第1引数のテキストには、静的な文字列や動的なプロパティ、シグナルを柔軟に渡すことができます。
+    #[must_use]
     #[inline]
     pub fn label_d<P, FS>(self, content: impl Into<Prop<Cow<'static, str>>>, style: FS) -> Self
     where
@@ -461,6 +482,7 @@ impl Element {
     }
 
     /// このコンテナの内容を差し替えます。以前の内容はすべて破棄されます。
+    #[allow(clippy::return_self_not_must_use)] 
     pub fn set_contents(self, contents: impl Into<Prop<Element>>) -> Self {
         match contents.into() {
             Prop::None => {}
@@ -537,8 +559,9 @@ impl Element {
     }
 
     /// テキストを設定します。
-    /// 引数には &str, String, ReadSignal<T>, またはクロージャを渡せます。
+    /// 引数には &str, String, `ReadSignal`<T>, またはクロージャを渡せます。
     /// 1ノードパターン
+    #[must_use]
     #[inline]
     pub fn text(self, content: impl Into<Prop<Cow<'static, str>>>) -> Self {
         match content.into() {
@@ -569,6 +592,7 @@ impl Element {
     }
 
     /// プロバイダー `P` から動的にテキストを設定します。
+    #[must_use]
     #[inline]
     pub fn text_d<P, F, S>(self, f: F) -> Self
     where
@@ -585,6 +609,7 @@ impl Element {
     }
 
     /// 画像を設定します。
+    #[must_use]
     pub fn image(self, content: impl Into<Prop<ImageSource>>) -> Self {
         match content.into() {
             Prop::None => {}
@@ -612,6 +637,7 @@ impl Element {
     }
 
     /// プロバイダー `P` から動的に画像ソースを解決して設定します。
+    #[must_use]
     #[inline]
     pub fn image_d<P, F>(self, f: F) -> Self
     where
@@ -627,6 +653,7 @@ impl Element {
     }
 
     /// 動画を設定します。
+    #[must_use]
     pub fn movie(self, content: impl Into<Prop<MovieProperty>>) -> Self {
         match content.into() {
             Prop::None => {}
@@ -653,6 +680,7 @@ impl Element {
     }
 
     /// プロバイダー `P` から動的に動画ソースを解決して設定します。
+    #[must_use]
     #[inline]
     pub fn movie_d<P, F>(self, f: F) -> Self
     where
@@ -667,7 +695,8 @@ impl Element {
         self.movie(dynamic_prop)
     }
 
-    /// WebView2 コンポーネントを配置します（静的設定、またはSignal / クロージャに対応）。
+    /// `WebView2` コンポーネントを配置します（静的設定、またはSignal / クロージャに対応）。
+    #[must_use]
     pub fn webview2(self, contents: impl Into<Prop<WebView2Contents>>) -> Self {
         match contents.into() {
             Prop::None => {}
@@ -693,7 +722,8 @@ impl Element {
         self
     }
 
-    /// プロバイダー `P` から動的にWebView2設定を解決してアタッチします。
+    /// プロバイダー `P` `から動的にWebView2設定を解決してアタッチします`。
+    #[must_use]
     #[inline]
     pub fn webview2_d<P, F>(self, f: F) -> Self
     where
@@ -709,6 +739,7 @@ impl Element {
     }
 
     /// このコンテナを入力フィールド（テキストボックス）化し、IME制御や入力ロジックをバインドします。
+    #[must_use]
     pub fn input(self, contents: impl Into<Prop<InputContents>>) -> Self {
         match contents.into() {
             Prop::None => {}
@@ -730,6 +761,7 @@ impl Element {
     }
 
     /// プロバイダー `P` から動的に設定を読み込んで入力フィールド化します。
+    #[must_use]
     #[inline]
     pub fn input_d<P, F>(self, f: F) -> Self
     where
@@ -745,6 +777,7 @@ impl Element {
     }
 
     /// 複数行入力（テキストエリア）をバインドします。
+    #[must_use]
     pub fn input_area(self, contents: impl Into<Prop<InputContents>>) -> Self {
         match contents.into() {
             Prop::None => {}
@@ -768,6 +801,7 @@ impl Element {
     }
 
     /// プロバイダー `P` から動的に設定を読み込んで複数行入力フィールド化します。
+    #[must_use]
     #[inline]
     pub fn input_area_d<P, F>(self, f: F) -> Self
     where
@@ -783,6 +817,7 @@ impl Element {
     }
 
     /// 入力イベント（キー、IME、文字入力、フォーカス）を自動的にマッピングして代行するロジック
+    #[allow(clippy::too_many_lines)]
     fn input_internal(self, cx: &mut Context, mut c: InputContents) {
         let id = self.id;
 
@@ -921,8 +956,7 @@ impl Element {
                             .contents
                             .text_spans
                             .get(id)
-                            .map(|s| s.as_slice())
-                            .unwrap_or(&[]);
+                            .map_or(&[][..], Vec::as_slice);
 
                         let layout = cx.system.text_engine.create_layout(
                             &editable_text_for_caret,
@@ -954,8 +988,7 @@ impl Element {
                             && contents
                                 .ime_state
                                 .as_ref()
-                                .map(|s| s.composition_text.is_empty())
-                                .unwrap_or(true);
+                                .is_none_or(|s| s.composition_text.is_empty());
 
                         // プレースホルダーではない、またはプレースホルダー選択が明示許可されていること
                         let allow_selection = !is_placeholder || contents.placeholder_select;
@@ -1038,8 +1071,7 @@ impl Element {
                     .input_contents
                     .get(id)
                     .and_then(|c| c.ime_state.as_ref())
-                    .map(|s| !s.composition_text.is_empty())
-                    .unwrap_or(false);
+                    .is_some_and(|s| !s.composition_text.is_empty());
 
                 if !is_ime_active {
                     let mut is_allowed = !ch.is_control();
@@ -1047,8 +1079,7 @@ impl Element {
                         .contents
                         .input_contents
                         .get(id)
-                        .map(|c| c.is_multiline)
-                        .unwrap_or(false);
+                        .is_some_and(|c| c.is_multiline);
 
                     // 複数行入力時に、Enterキー（'\r' / '\n'）が押された場合は改行コードとして許可
                     if is_multiline && (ch == '\r' || ch == '\n') {
@@ -1298,8 +1329,7 @@ impl Element {
                                     .contents
                                     .text_spans
                                     .get(id)
-                                    .map(|s| s.as_slice())
-                                    .unwrap_or(&[]);
+                                    .map_or(&[][..], Vec::as_slice);
 
                                 let layout = cx.system.text_engine.create_layout(
                                     &text_val,
@@ -1376,8 +1406,7 @@ impl Element {
                                 .contents
                                 .text_spans
                                 .get(id)
-                                .map(|s| s.as_slice())
-                                .unwrap_or(&[]);
+                                .map_or(&[][..], Vec::as_slice);
 
                             let layout = cx.system.text_engine.create_layout(
                                 &text_val,
@@ -1488,11 +1517,22 @@ impl Element {
                     }
 
                     // IME の未確定状態（未確定波線、変換フォーカス太線/細線）を TextSpan に自動マッピング
-                    if !ime.composition_text.is_empty() {
+                    if ime.composition_text.is_empty() {
+                        cx.contents.text_spans.remove(id);
+                        cx.topology.active_masks[id].unset(STYLE_TEXT_SPANS);
+                    } else {
                         let mut spans = Vec::new();
                         let caret = contents.selected_range.start;
 
-                        if !ime.composition_attrs.is_empty() {
+                        if ime.composition_attrs.is_empty() {
+                            // 属性が取得できない場合のフォールバック（全体を未確定波線に設定）
+                            let comp_len = ime.composition_text.encode_utf16().count();
+                            spans.push(TextSpan {
+                                range: caret..(caret + comp_len),
+                                underline: Some(UnderlineStyle::Wave),
+                                ..Default::default()
+                            });
+                        } else {
                             let attrs = &ime.composition_attrs;
                             let mut start_idx = 0;
 
@@ -1531,21 +1571,10 @@ impl Element {
 
                                 start_idx = end_idx;
                             }
-                        } else {
-                            // 属性が取得できない場合のフォールバック（全体を未確定波線に設定）
-                            let comp_len = ime.composition_text.encode_utf16().count();
-                            spans.push(TextSpan {
-                                range: caret..(caret + comp_len),
-                                underline: Some(UnderlineStyle::Wave),
-                                ..Default::default()
-                            });
                         }
 
                         cx.contents.text_spans.insert(id, spans);
                         cx.topology.active_masks[id].set(STYLE_TEXT_SPANS);
-                    } else {
-                        cx.contents.text_spans.remove(id);
-                        cx.topology.active_masks[id].unset(STYLE_TEXT_SPANS);
                     }
 
                     // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
@@ -1568,9 +1597,9 @@ impl Element {
         });
     }
 
-    /// 内部ヘルパー：この要素に対応する `EventListeners` が SoA 上に存在しない場合は新規に作成し、
+    /// 内部ヘルパー：この要素に対応する `EventListeners` が `SoA` 上に存在しない場合は新規に作成し、
     /// 可変参照を取得して渡されたクロージャを実行します。
-    #[inline(always)]
+    #[inline]
     fn get_or_create_listeners<R>(&self, f: impl FnOnce(&mut EventListeners) -> R) -> R {
         with_context(|cx| {
             // SparseSecondaryMap にキーが存在しない場合は Default (すべて None) で差し込む
@@ -1586,6 +1615,7 @@ impl Element {
 
     /// 左クリックのリリース（押し下げ ➔ 同一要素上での離し）が成立した際に発火するイベントを登録します。
     /// 複数回呼ぶとイベントは追加され登録順に実行されます。
+    #[must_use]
     #[inline]
     pub fn on_click<F>(self, mut f: F) -> Self
     where
@@ -1594,6 +1624,7 @@ impl Element {
         self.on_click_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_click_with<F>(self, f: F) -> Self
     where
@@ -1614,6 +1645,7 @@ impl Element {
     }
 
     /// 右クリックのリリース（押し下げ ➔ 同一要素上での離し）が成立した際に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_right_click<F>(self, mut f: F) -> Self
     where
@@ -1622,6 +1654,7 @@ impl Element {
         self.on_right_click_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_right_click_with<F>(self, f: F) -> Self
     where
@@ -1642,6 +1675,7 @@ impl Element {
     }
 
     /// マウスボタンの生入力（押し下げ、または離し）が発生した際に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_mouse_input<F>(self, mut f: F) -> Self
     where
@@ -1650,6 +1684,7 @@ impl Element {
         self.on_mouse_input_with(move |_cx, btn, mods, state| f(btn, mods, state))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_mouse_input_with<F>(self, f: F) -> Self
     where
@@ -1670,6 +1705,7 @@ impl Element {
     }
 
     /// マウスポインタが要素の可視境界内に入った（Enter）際に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_mouse_enter<F>(self, mut f: F) -> Self
     where
@@ -1678,6 +1714,7 @@ impl Element {
         self.on_mouse_enter_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_mouse_enter_with<F>(self, f: F) -> Self
     where
@@ -1698,6 +1735,7 @@ impl Element {
     }
 
     /// マウスポインタが要素の可視境界から外に出た（Leave）際に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_mouse_leave<F>(self, mut f: F) -> Self
     where
@@ -1706,6 +1744,7 @@ impl Element {
         self.on_mouse_leave_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_mouse_leave_with<F>(self, f: F) -> Self
     where
@@ -1727,6 +1766,7 @@ impl Element {
 
     /// マウスポインタが要素内で移動した際に発火するイベントを登録します。
     /// コールバックには、要素の左上を原点 (0, 0) とする論理座標 `LayoutPoint` が伝播します。
+    #[must_use]
     #[inline]
     pub fn on_cursor_moved<F>(self, mut f: F) -> Self
     where
@@ -1735,6 +1775,7 @@ impl Element {
         self.on_cursor_moved_with(move |_cx, point| f(point))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_cursor_moved_with<F>(self, f: F) -> Self
     where
@@ -1755,7 +1796,8 @@ impl Element {
     }
 
     /// マウスホイールスクロールがこの要素上で検知された際のイベントをバインドします。
-    /// コールバック引数には、論理ピクセル単位に換算された (scroll_x, scroll_y) が渡されます。
+    /// コールバック引数には、論理ピクセル単位に換算された (`scroll_x`, `scroll_y`) が渡されます。
+    #[must_use]
     #[inline]
     pub fn on_mouse_wheel<F>(self, mut f: F) -> Self
     where
@@ -1764,6 +1806,7 @@ impl Element {
         self.on_mouse_wheel_with(move |_cx, sx, sy| f(sx, sy))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_mouse_wheel_with<F>(self, f: F) -> Self
     where
@@ -1785,6 +1828,7 @@ impl Element {
 
     /// スクロールコンテナの指定軸方向のオフセット（スクロール位置）を強制変更します。
     #[inline]
+    #[must_use]
     pub fn scroll_to(self, x: f32, y: f32) -> Self {
         with_context(|cx| {
             cx.scroll_to(self.id, x, y);
@@ -1794,6 +1838,7 @@ impl Element {
 
     /// スクロールコンテナを指定ピクセル分だけ相対移動させます。
     #[inline]
+    #[must_use]
     pub fn scroll_by(self, dx: f32, dy: f32) -> Self {
         with_context(|cx| {
             cx.scroll_by(self.id, dx, dy);
@@ -1803,6 +1848,7 @@ impl Element {
 
     /// このコンテナの現在のスクロール位置 (x, y) を安全に取得します。
     #[inline]
+    #[must_use]
     pub fn scroll_offset(self) -> LayoutPoint {
         with_context(|cx| {
             cx.outputs
@@ -1815,6 +1861,7 @@ impl Element {
 
     /// 要素のドラッグ（左クリック押し下げ中のマウス移動）が発生した際に発火するイベントを登録します。
     /// コールバックには、前フレームからの移動差分である `LayoutPoint` が伝播します。
+    #[must_use]
     #[inline]
     pub fn on_drag<F>(self, mut f: F) -> Self
     where
@@ -1823,6 +1870,7 @@ impl Element {
         self.on_drag_with(move |_cx, delta| f(delta))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_drag_with<F>(self, f: F) -> Self
     where
@@ -1843,6 +1891,7 @@ impl Element {
     }
 
     /// マウスオーバーされた瞬間（`on_mouse_enter` と同時）に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_hover<F>(self, mut f: F) -> Self
     where
@@ -1851,6 +1900,7 @@ impl Element {
         self.on_hover_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_hover_with<F>(self, f: F) -> Self
     where
@@ -1871,6 +1921,7 @@ impl Element {
     }
 
     /// 物理キーボードキーの操作が発生した際に発火するイベントを登録します（フォーカス獲得時のみ有効）。
+    #[must_use]
     #[inline]
     pub fn on_keyboard_input<F>(self, mut f: F) -> Self
     where
@@ -1879,6 +1930,7 @@ impl Element {
         self.on_keyboard_input_with(move |_cx, key, mods, state| f(key, mods, state))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_keyboard_input_with<F>(self, f: F) -> Self
     where
@@ -1899,6 +1951,7 @@ impl Element {
     }
 
     /// ローカライズやリピート処理が適用された確定1文字が入力された際に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_char_input<F>(self, mut f: F) -> Self
     where
@@ -1907,6 +1960,7 @@ impl Element {
         self.on_char_input_with(move |_cx, c| f(c))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_char_input_with<F>(self, f: F) -> Self
     where
@@ -1927,6 +1981,7 @@ impl Element {
     }
 
     /// IME（入力文字プロセッサ）による変換テキスト、キャレット、確定文字列の更新を捕捉するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_ime<F>(self, mut f: F) -> Self
     where
@@ -1935,6 +1990,7 @@ impl Element {
         self.on_ime_with(move |_cx, state| f(state))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_ime_with<F>(self, f: F) -> Self
     where
@@ -1955,6 +2011,7 @@ impl Element {
     }
 
     /// OS上からファイルやフォルダーがこの要素へドラッグ＆ドロップされた際のイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_file_dropped<F>(self, mut f: F) -> Self
     where
@@ -1963,6 +2020,7 @@ impl Element {
         self.on_file_dropped_with(move |_cx, paths| f(paths))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_file_dropped_with<F>(self, f: F) -> Self
     where
@@ -1983,6 +2041,7 @@ impl Element {
     }
 
     /// ファイルが要素上にドラッグ侵入した際のイベント（シンプル版）
+    #[must_use]
     #[inline]
     pub fn on_file_drag_enter<F>(self, mut f: F) -> Self
     where
@@ -1992,6 +2051,7 @@ impl Element {
     }
 
     /// ファイルが要素上にドラッグ侵入した際のイベント（エスケープハッチ版）
+    #[must_use]
     #[inline]
     pub fn on_file_drag_enter_with<F>(self, f: F) -> Self
     where
@@ -2012,6 +2072,7 @@ impl Element {
     }
 
     /// ファイルが要素上からドラッグ離脱した際のイベント（シンプル版）
+    #[must_use]
     #[inline]
     pub fn on_file_drag_leave<F>(self, mut f: F) -> Self
     where
@@ -2021,6 +2082,7 @@ impl Element {
     }
 
     /// ファイルが要素上からドラッグ離脱した際のイベント（エスケープハッチ版）
+    #[must_use]
     #[inline]
     pub fn on_file_drag_leave_with<F>(self, f: F) -> Self
     where
@@ -2042,6 +2104,7 @@ impl Element {
 
     /// 画像ファイルのロードが完了し、
     /// メタデータ（解像度、フォーマット、アニメーションの有無等）が取得可能になった時のイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_image_loaded<F>(self, mut f: F) -> Self
     where
@@ -2050,6 +2113,7 @@ impl Element {
         self.on_image_loaded_with(move |_cx, img| f(img))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_image_loaded_with<F>(self, f: F) -> Self
     where
@@ -2070,6 +2134,7 @@ impl Element {
     }
 
     /// 動画ファイルがロードされ、メタデータ（解像度、FPS、ビットレート等）が取得可能になった時のイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_media_loaded<F>(self, mut f: F) -> Self
     where
@@ -2078,6 +2143,7 @@ impl Element {
         self.on_media_loaded_with(move |_cx, movie| f(movie))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_media_loaded_with<F>(self, f: F) -> Self
     where
@@ -2098,6 +2164,7 @@ impl Element {
     }
 
     /// 要素が新しく入力フォーカスを獲得した際に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_focus<F>(self, mut f: F) -> Self
     where
@@ -2106,6 +2173,7 @@ impl Element {
         self.on_focus_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_focus_with<F>(self, f: F) -> Self
     where
@@ -2126,6 +2194,7 @@ impl Element {
     }
 
     /// 他の要素がクリックされるなどして、フォーカスを喪失した際に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_blur<F>(self, mut f: F) -> Self
     where
@@ -2134,6 +2203,7 @@ impl Element {
         self.on_blur_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_blur_with<F>(self, f: F) -> Self
     where
@@ -2154,6 +2224,7 @@ impl Element {
     }
 
     /// 要素が無効化（Disabled）された瞬間に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_disable<F>(self, mut f: F) -> Self
     where
@@ -2162,6 +2233,7 @@ impl Element {
         self.on_disable_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_disable_with<F>(self, f: F) -> Self
     where
@@ -2182,6 +2254,7 @@ impl Element {
     }
 
     /// 要素がアクティブ（Actived）状態になった瞬間に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_active<F>(self, mut f: F) -> Self
     where
@@ -2190,6 +2263,7 @@ impl Element {
         self.on_active_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_active_with<F>(self, f: F) -> Self
     where
@@ -2210,6 +2284,7 @@ impl Element {
     }
 
     /// チェックボックスやラジオボタンなどで、要素が選択（Selected）された瞬間に発火するイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_select<F>(self, mut f: F) -> Self
     where
@@ -2218,6 +2293,7 @@ impl Element {
         self.on_select_with(move |_cx| f())
     }
 
+    #[must_use]
     #[inline]
     pub fn on_select_with<F>(self, f: F) -> Self
     where
@@ -2239,6 +2315,7 @@ impl Element {
 
     /// 実体（Entity）ドラッグ中に毎フレーム呼び出されるイベントを登録します。
     /// 引数: (ドラッグ元ID, 現在重なっているドロップ先ID)
+    #[must_use]
     #[inline]
     pub fn on_element_drag<F>(self, mut f: F) -> Self
     where
@@ -2247,6 +2324,7 @@ impl Element {
         self.on_element_drag_with(move |_cx, src, dst| f(src, dst))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_element_drag_with<F>(self, f: F) -> Self
     where
@@ -2259,6 +2337,7 @@ impl Element {
     }
 
     /// IDドラッグ中に毎フレーム呼び出されるイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_id_drag<F>(self, mut f: F) -> Self
     where
@@ -2267,6 +2346,7 @@ impl Element {
         self.on_id_drag_with(move |_cx, src, dst| f(src, dst))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_id_drag_with<F>(self, f: F) -> Self
     where
@@ -2280,6 +2360,7 @@ impl Element {
 
     /// ドロップ完了時（成功またはエリア外での失敗時）に呼び出されるイベントを登録します。
     /// 引数: (ドラッグ元ID, ドロップされた先のID（失敗時はNone）)
+    #[must_use]
     #[inline]
     pub fn on_element_drop<F>(self, mut f: F) -> Self
     where
@@ -2288,6 +2369,7 @@ impl Element {
         self.on_element_drop_with(move |_cx, src, dst| f(src, dst))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_element_drop_with<F>(self, f: F) -> Self
     where
@@ -2300,6 +2382,7 @@ impl Element {
     }
 
     /// IDドロップ完了時（成功またはエリア外での失敗時）に呼び出されるイベントを登録します。
+    #[must_use]
     #[inline]
     pub fn on_id_drop<F>(self, mut f: F) -> Self
     where
@@ -2308,6 +2391,7 @@ impl Element {
         self.on_id_drop_with(move |_cx, src, dst| f(src, dst))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_id_drop_with<F>(self, f: F) -> Self
     where
@@ -2321,6 +2405,7 @@ impl Element {
 
     /// ドラッグ開始時（プレースホルダー生成の瞬間）に呼び出されるイベントを登録します。
     /// 引数: (元のオリジナル要素, 生成されたプレースホルダー要素)
+    #[must_use]
     #[inline]
     pub fn on_drag_start<F>(self, mut f: F) -> Self
     where
@@ -2329,6 +2414,7 @@ impl Element {
         self.on_drag_start_with(move |_cx, src, placeholder| f(src, placeholder))
     }
 
+    #[must_use]
     #[inline]
     pub fn on_drag_start_with<F>(self, f: F) -> Self
     where
@@ -2341,6 +2427,7 @@ impl Element {
     }
 
     /// シグナルやクロージャに基づいて要素の `STATE_ACTIVED`（アクティブ疑似スタイル）を自動的にマッピングします。
+    #[must_use]
     pub fn active(self, active: impl Into<Prop<bool>>) -> Self {
         match active.into() {
             Prop::None => {}
@@ -2363,6 +2450,7 @@ impl Element {
     }
 
     /// シグナルやクロージャに基づいて要素の `STATE_SELECTED`（選択疑似スタイル）を自動的にマッピングします。
+    #[must_use]
     pub fn select(self, selected: impl Into<Prop<bool>>) -> Self {
         match selected.into() {
             Prop::None => {}
@@ -2385,6 +2473,7 @@ impl Element {
     }
 
     /// シグナルやクロージャに基づいて要素の `STATE_DISABLED`（無効疑似スタイル）を自動的にマッピングします。
+    #[must_use]
     pub fn disable(self, disabled: impl Into<Prop<bool>>) -> Self {
         match disabled.into() {
             Prop::None => {}
@@ -2407,6 +2496,7 @@ impl Element {
     }
 
     /// シグナルやクロージャに基づいて要素の `STATE_FOCUSED`（フォーカス疑似スタイル）を自動的にマッピングします。
+    #[must_use]
     pub fn focus(self, focused: impl Into<Prop<bool>>) -> Self {
         match focused.into() {
             Prop::None => {}
@@ -2429,13 +2519,15 @@ impl Element {
     }
 
     /// UI Automation のプロパティを生の ID (i32) を指定して直接登録します
+    #[must_use]
     #[inline]
     pub fn uia_property(self, property_id: i32, value: impl Into<UiaValue>) -> Self {
         with_context(|cx| self.uia_property_internal(cx, property_id, value.into()));
         self
     }
 
-    /// スクリーンリーダーが読み上げる要素の「名前」を設定します（UIA_NamePropertyId 互換）。
+    /// `スクリーンリーダーが読み上げる要素の「名前」を設定します（UIA_NamePropertyId` 互換）。
+    #[must_use]
     pub fn uia_name(self, name: impl Into<Prop<Cow<'static, str>>>) -> Self {
         match name.into() {
             Prop::None => self,
@@ -2448,7 +2540,7 @@ impl Element {
                     el.uia_property_internal(cx, 30005, UiaValue::String(s.into()));
                 });
                 with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::UiaName, effect_id)
+                    cx.register_element_effect(id, EffectCategory::UiaName, effect_id);
                 });
                 self
             }
@@ -2468,7 +2560,7 @@ impl Element {
         cx.topology.active_masks[self.id].set(COMP_UIA_CONTENT);
     }
 
-    /// 自動テストフレームワークやデバッグで要素を特定するための「Automation ID」を設定します（UIA_AutomationIdPropertyId 互換）。
+    /// 自動テストフレームワークやデバッグで要素を特定するための「Automation `ID」を設定します（UIA_AutomationIdPropertyId` 互換）。
     #[inline]
     pub fn uia_automation_id(self, id: impl Into<Prop<Cow<'static, str>>>) -> Self {
         match id.into() {
@@ -2482,21 +2574,23 @@ impl Element {
                     el.uia_property_internal(cx, 30011, UiaValue::String(s.into()));
                 });
                 with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::UiaAutomationId, effect_id)
+                    cx.register_element_effect(id, EffectCategory::UiaAutomationId, effect_id);
                 });
                 self
             }
         }
     }
 
-    /// この要素がどのようなコントロール（ボタン、チェックボックス、リスト等）として振る舞うかを定義します（UIA_ControlTypePropertyId 互換）。
+    /// `この要素がどのようなコントロール（ボタン、チェックボックス、リスト等）として振る舞うかを定義します（UIA_ControlTypePropertyId` 互換）。
     #[inline]
+    #[must_use]
     pub fn uia_control_type(self, control_type_id: i32) -> Self {
         self.uia_property(30003, control_type_id)
     }
 
     /// スクロールコンテナのスタイル設定に連動し、
     /// トラック・サムに相当する要素（Element）を遅延生成して親子関係にアタッチします。
+    #[must_use]
     #[inline]
     pub(crate) fn ensure_scrollbar_elements(
         cx: &mut Context,
@@ -2541,7 +2635,7 @@ impl Element {
                 .inset((0.0, 0.0, 0.0, crate::auto()))
                 .pointer_events_auto(); // イベントを透過させない
 
-            Element::style_internal(cx, v_track, track_style, merge);
+            Element::style_internal(cx, v_track, &track_style, merge);
 
             // A-1. 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
             let v_thumb = if let Some(v_thumb) = state.v_thumb_id {
@@ -2571,7 +2665,7 @@ impl Element {
                 .inset((0.0, crate::auto(), crate::auto(), crate::auto()))
                 .pointer_events_auto();
 
-            Element::style_internal(cx, v_thumb, thumb_style, merge);
+            Element::style_internal(cx, v_thumb, &thumb_style, merge);
 
             // B. 横スクロールバー (H-Track)
             let h_track = if let Some(h_track) = state.h_track_id {
@@ -2594,7 +2688,7 @@ impl Element {
                 .inset((crate::auto(), 0.0, 0.0, 0.0))
                 .pointer_events_auto();
 
-            Element::style_internal(cx, h_track, track_style, merge);
+            Element::style_internal(cx, h_track, &track_style, merge);
 
             // B-1. 横つまみ (H-Thumb、H-Track の子要素としてアタッチ)
             let h_thumb = if let Some(h_thumb) = state.h_thumb_id {
@@ -2623,7 +2717,7 @@ impl Element {
                 .inset((crate::auto(), crate::auto(), crate::auto(), 0.0))
                 .pointer_events_auto();
 
-            Element::style_internal(cx, h_thumb, thumb_style, merge);
+            Element::style_internal(cx, h_thumb, &thumb_style, merge);
         }
 
         if changed {

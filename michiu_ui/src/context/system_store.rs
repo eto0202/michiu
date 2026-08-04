@@ -1,4 +1,4 @@
-use crate::*;
+use crate::{Context, EntityId, UiaValue, TextEngine, TextContentsSparseSecondary, VisualPropertiesSecondary, TextSpansSparseSecondary, RenderStore, ContentStore, LayoutRect, EdgeInsets, LayoutPoint, InputContents, WindowStore};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     cell::RefCell,
@@ -35,7 +35,7 @@ pub struct TaskSender {
 
 impl TaskSender {
     /// ワーカースレッド等からメインスレッドで実行してほしい処理（クロージャ）を送信します。
-    /// ライブラリ内部で自動的に Box に包むため、呼び出し側での Box::new は不要です。
+    /// ライブラリ内部で自動的に Box に包むため、呼び出し側での `Box::new` は不要です。
     #[allow(clippy::result_unit_err)]
     pub fn send<F>(&self, f: F) -> Result<(), ()>
     where
@@ -68,6 +68,7 @@ pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;
 
 impl SystemStore {
     #[inline]
+    #[must_use]
     pub fn new(task_sender: TaskSender, task_receiver: Receiver<TaskRecv>) -> Self {
         Self {
             text_engine: TextEngine::new(),
@@ -127,6 +128,7 @@ impl SystemStore {
         Some(layout)
     }
 
+    #[allow(clippy::cast_possible_truncation)]
     #[inline]
     pub(crate) fn sync_imm_window_position(
         rect: LayoutRect,
@@ -164,7 +166,7 @@ impl SystemStore {
             },
             rcArea: windows::Win32::Foundation::RECT::default(),
         };
-        let _ = unsafe { ImmSetCompositionWindow(himc, &comp_form) };
+        let _ = unsafe { ImmSetCompositionWindow(himc, &raw const comp_form) };
 
         // 候補ウィンドウ位置の指定 (CFS_EXCLUDE)
         let candidate_form = CANDIDATEFORM {
@@ -181,7 +183,7 @@ impl SystemStore {
                 bottom: caret_phys_y + caret_phys_h,
             },
         };
-        let _ = unsafe { ImmSetCandidateWindow(himc, &candidate_form) };
+        let _ = unsafe { ImmSetCandidateWindow(himc, &raw const candidate_form) };
         let _ = unsafe { ImmReleaseContext(hwnd, himc) };
     }
 
@@ -229,7 +231,7 @@ impl SystemStore {
     }
 
     #[inline]
-    pub(crate) fn reset_ime_default_state(default_himc: &Option<HIMC>) {
+    pub(crate) fn reset_ime_default_state(default_himc: Option<&HIMC>) {
         let hwnd = unsafe { GetFocus() };
         if hwnd.is_invalid() {
             return;
@@ -249,7 +251,7 @@ impl SystemStore {
         let h_mem = unsafe { GlobalAlloc(GMEM_MOVEABLE, size)? };
         let ptr = unsafe { GlobalLock(h_mem) };
         unsafe {
-            std::ptr::copy_nonoverlapping(text_u16.as_ptr(), ptr as *mut u16, text_u16.len());
+            std::ptr::copy_nonoverlapping(text_u16.as_ptr(), ptr.cast::<u16>(), text_u16.len());
         }
         let _ = unsafe { GlobalUnlock(h_mem) };
         if unsafe { OpenClipboard(None).is_ok() } {
@@ -318,11 +320,6 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn force_complete_ime_composition(&self) {
-        SystemStore::force_complete_ime_composition();
-    }
-
-    #[inline]
     pub(crate) fn unassociate_ime(&mut self, contents: &InputContents) {
         let WindowStore { default_himc, .. } = &mut self.window;
 
@@ -333,6 +330,6 @@ impl Context {
     pub(crate) fn reset_ime_default_state(&self) {
         let WindowStore { default_himc, .. } = &self.window;
 
-        SystemStore::reset_ime_default_state(default_himc);
+        SystemStore::reset_ime_default_state(default_himc.as_ref());
     }
 }

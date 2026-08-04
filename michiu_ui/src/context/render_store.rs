@@ -1,4 +1,22 @@
-use crate::*;
+use crate::{
+    ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransition, AnimationCurve,
+    BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
+    BoxShadow, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
+    CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display, EdgeInsets, EffectCategory,
+    EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger,
+    Focusable, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStates,
+    InteractionStyles, LayoutPoint, LayoutSize, LayoutStore, OutputStore, ParentsSecondary,
+    PlaybackCount, Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary,
+    STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER, STATE_DRAGGED, STATE_DRAGGING,
+    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_RENDER,
+    STATE_SELECTED, STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_BG_COLOR, STYLE_BORDER,
+    STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_EXT_PROPERTIES,
+    STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OPACITY,
+    STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR, STYLE_TRANSFORM,
+    STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay, ScrollbarStylesSecondary,
+    StyleTarget, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle, TopologyStore, TransitionValue,
+    Val, VisualProperty, WindowStore,
+};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
@@ -711,7 +729,7 @@ impl RenderStore {
         true
     }
 
-    /// 補間されたアニメーション値を SoA のアクティブプロパティへ安全に上書きします
+    /// 補間されたアニメーション値を `SoA` のアクティブプロパティへ安全に上書きします
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_animation_value(
         id: EntityId,
@@ -726,7 +744,7 @@ impl RenderStore {
         parents: &ParentsSecondary,
     ) {
         if !visual_properties.contains_key(id) {
-            visual_properties.insert(id, Default::default());
+            visual_properties.insert(id, VisualProperty::default());
         }
         let v = visual_properties.get_mut(id).unwrap();
 
@@ -800,7 +818,7 @@ impl RenderStore {
         basic_layouts: &mut BasicLayoutsSecondary,
         base_basic_layouts: &BaseBasicLayoutsSecondary,
         rects: &RectsSecondary,
-        last_window_size: &Option<LayoutSize>,
+        last_window_size: Option<&LayoutSize>,
         taffy_nodes: &TaffyNodesSecondary,
         taffy: &mut TaffyTreeEntityId,
         dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
@@ -879,7 +897,7 @@ impl RenderStore {
         active_masks: &mut ActiveMasksSecondary,
         dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
         rects: &RectsSecondary,
-        last_window_size: &Option<LayoutSize>,
+        last_window_size: Option<&LayoutSize>,
         visual_properties: &VisualPropertiesSecondary,
         base_visual_properties: &BaseVisualPropertiesSecondary,
         element_effects: &ElementEffectsSecondary,
@@ -892,8 +910,8 @@ impl RenderStore {
             return;
         }
 
-        let active_layout = basic_layouts.get(id).cloned().unwrap_or_default();
-        let base_layout = base_basic_layouts.get(id).cloned().unwrap_or_default();
+        let active_layout = basic_layouts.get(id).copied().unwrap_or_default();
+        let base_layout = base_basic_layouts.get(id).copied().unwrap_or_default();
         let mut target_layout = base_layout;
 
         RenderStore::cascade_basic_layout(
@@ -904,13 +922,13 @@ impl RenderStore {
         );
 
         let to_px = |val, is_width| {
-            OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size.as_ref())
+            OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size)
         };
 
-        let target_w_px = to_px(target_layout.size.width, true);
-        let current_w_px = to_px(active_layout.size.width, true);
-        let target_h_px = to_px(target_layout.size.height, false);
-        let current_h_px = to_px(active_layout.size.height, false);
+        let target_w = to_px(target_layout.size.width, true);
+        let current_w = to_px(active_layout.size.width, true);
+        let target_h = to_px(target_layout.size.height, false);
+        let current_h = to_px(active_layout.size.height, false);
 
         let mut width_triggered = false;
         let mut height_triggered = false;
@@ -927,19 +945,16 @@ impl RenderStore {
             )
         };
 
-        let can_trigger_width = visual_properties
-            .get(id)
-            .map(|v| {
-                v.transitions.iter().any(|t| {
-                    t.property_list == PropertyList::Width || t.property_list == PropertyList::Size
-                })
+        let can_trigger_width = visual_properties.get(id).is_some_and(|v| {
+            v.transitions.iter().any(|t| {
+                t.property_list == PropertyList::Width || t.property_list == PropertyList::Size
             })
-            .unwrap_or(false);
+        });
 
         if allow_transition
             && can_trigger_width
             && has_active_layout
-            && let (Some(cw), Some(tw)) = (current_w_px, target_w_px)
+            && let (Some(cw), Some(tw)) = (current_w, target_w)
             && (cw - tw).abs() > 0.01
         {
             width_triggered = if_needed(
@@ -949,19 +964,16 @@ impl RenderStore {
             );
         }
 
-        let can_trigger_height = visual_properties
-            .get(id)
-            .map(|v| {
-                v.transitions.iter().any(|t| {
-                    t.property_list == PropertyList::Height || t.property_list == PropertyList::Size
-                })
+        let can_trigger_height = visual_properties.get(id).is_some_and(|v| {
+            v.transitions.iter().any(|t| {
+                t.property_list == PropertyList::Height || t.property_list == PropertyList::Size
             })
-            .unwrap_or(false);
+        });
 
         if allow_transition
             && can_trigger_height
             && has_active_layout
-            && let (Some(ch), Some(th)) = (current_h_px, target_h_px)
+            && let (Some(ch), Some(th)) = (current_h, target_h)
             && (ch - th).abs() > 0.01
         {
             height_triggered = if_needed(
@@ -972,16 +984,16 @@ impl RenderStore {
         }
 
         if !basic_layouts.contains_key(id) {
-            basic_layouts.insert(id, Default::default());
+            basic_layouts.insert(id, BasicLayout::default());
         }
         let active_layout_mut = basic_layouts.get_mut(id).unwrap();
         *active_layout_mut = target_layout;
 
         if width_triggered {
-            active_layout_mut.size.width = Val::Px(current_w_px.unwrap());
+            active_layout_mut.size.width = Val::Px(current_w.unwrap());
         }
         if height_triggered {
-            active_layout_mut.size.height = Val::Px(current_h_px.unwrap());
+            active_layout_mut.size.height = Val::Px(current_h.unwrap());
         }
 
         LayoutStore::mark_layout_dirty(
@@ -994,7 +1006,7 @@ impl RenderStore {
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn resolve_visual_styles(
         id: EntityId,
         allow_transition: bool,
@@ -1054,8 +1066,7 @@ impl RenderStore {
             let has_no_ime = contents
                 .ime_state
                 .as_ref()
-                .map(|s| s.composition_text.is_empty())
-                .unwrap_or(true);
+                .is_none_or(|s| s.composition_text.is_empty());
             if contents.text.0.get().is_empty() && has_no_ime {
                 is_placeholder_active = true;
             }
@@ -1179,7 +1190,7 @@ impl RenderStore {
             || base_visual_properties.contains_key(id)
         {
             if !visual_properties.contains_key(id) {
-                visual_properties.insert(id, Default::default());
+                visual_properties.insert(id, VisualProperty::default());
             }
             let active_vis = visual_properties.get_mut(id).unwrap();
 
@@ -1229,7 +1240,7 @@ impl RenderStore {
             active_vis.resizable_cursor = target.resizable_cursor;
 
             active_vis.font_size = target.font_size;
-            active_vis.font_family = target.font_family.clone();
+            active_vis.font_family.clone_from(&target.font_family);
             active_vis.font_weight = target.font_weight;
             active_vis.font_style = target.font_style;
 
@@ -1239,8 +1250,10 @@ impl RenderStore {
                 active_vis.z_index = target_vis.z_index;
                 active_vis.backdrop = target_vis.backdrop;
                 active_vis.bg_gradient = target_vis.bg_gradient;
-                active_vis.transitions = target_vis.transitions.clone();
-                active_vis.keyframe_animations = target_vis.keyframe_animations.clone();
+                active_vis.transitions.clone_from(&target_vis.transitions);
+                active_vis
+                    .keyframe_animations
+                    .clone_from(&target_vis.keyframe_animations);
                 active_vis.focusable = target_vis.focusable;
                 active_vis.prevent_focus_steal = target_vis.prevent_focus_steal;
                 active_vis.prevent_focus_steal_within = target_vis.prevent_focus_steal_within;
@@ -1312,8 +1325,7 @@ impl RenderStore {
             // 中間補間位置を計算
             let elapsed = existing
                 .start_time
-                .map(|st| now.duration_since(st))
-                .unwrap_or(Duration::ZERO);
+                .map_or(Duration::ZERO, |st| now.duration_since(st));
             let progress = (elapsed.as_secs_f32() / existing.duration.as_secs_f32()).min(1.0);
             let eased_t = existing.curve.evaluate(progress);
             let current_interposed_val = existing.start_value.lerp(&existing.end_value, eased_t);
@@ -1341,7 +1353,7 @@ impl RenderStore {
         true
     }
 
-    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
+    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な `CursorIcon` を正確に解決します。
     pub(crate) fn resolve_cursor(
         hovered_id: EntityId,
         interaction_states: &InteractionStates,
@@ -1441,13 +1453,11 @@ impl RenderStore {
             full_transform[1], // Y軸基底
             full_transform[3], // 平行移動部
         ];
-        let origin = visual
-            .transform_origin
-            .map(|p| [p.x, p.y])
-            .unwrap_or([0.5, 0.5]);
+        let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);
         (packed_transform, origin)
     }
 
+    #[allow(clippy::cast_precision_loss)]
     #[inline]
     pub(crate) fn get_outline_params(
         visual: &VisualProperty,
@@ -1618,7 +1628,7 @@ impl RenderStore {
 }
 
 impl TargetStyle {
-    /// 指定された VisualProperty と ComponentMask を基に自身のスタイルをマージ。
+    /// 指定された `VisualProperty` と `ComponentMask` を基に自身のスタイルをマージ。
     pub(crate) fn apply_visual_property(
         target: &mut TargetStyle,
         inner_vis: &VisualProperty,
@@ -1708,7 +1718,7 @@ impl TargetStyle {
         }
         if inner_mask.has(STYLE_EXT_PROPERTIES) {
             if inner_vis.font_family.is_some() {
-                target.font_family = inner_vis.font_family.clone();
+                target.font_family.clone_from(&inner_vis.font_family);
             }
             if inner_vis.font_weight.is_some() {
                 target.font_weight = inner_vis.font_weight;
@@ -1783,14 +1793,6 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn get_outline_params(
-        &self,
-        visual: &VisualProperty,
-    ) -> (EdgeInsets, Color, EdgeInsets, [f32; 4]) {
-        RenderStore::get_outline_params(visual)
-    }
-
-    #[inline]
     pub(crate) fn trigger_keyframe_animations_if_needed(&mut self, id: EntityId) {
         let RenderStore {
             visual_properties,
@@ -1805,7 +1807,7 @@ impl Context {
         );
     }
 
-    /// 指定された動的状態（例: STATE_HOVERED）に切り替わる際、
+    /// 指定された動的状態（例: `STATE_HOVERED）に切り替わる際`、
     /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定します。
     #[inline]
     pub(crate) fn does_state_require_layout(&self, id: EntityId, state_flag: u128) -> bool {
@@ -1989,7 +1991,7 @@ impl Context {
         )
     }
 
-    /// 補間されたアニメーション値を SoA のアクティブプロパティへ安全に上書きします
+    /// 補間されたアニメーション値を `SoA` のアクティブプロパティへ安全に上書きします
     #[inline]
     pub(crate) fn apply_animation_value(
         &mut self,
@@ -2087,7 +2089,7 @@ impl Context {
             basic_layouts,
             base_basic_layouts,
             rects,
-            last_window_size,
+            last_window_size.as_ref(),
             taffy_nodes,
             taffy,
             dirty_layout_entities,

@@ -1,3 +1,5 @@
+#![allow(clippy::pedantic, clippy::restriction)]
+
 use crate::window::{
     client_rect, create_renderer, create_window, message_loop, register_class, show_window,
 };
@@ -28,6 +30,17 @@ struct AppState {
     webview_id: Option<EntityId>,
 }
 
+// HWND を Send/Sync 化するラッパー
+struct SendHwnd(HWND);
+unsafe impl Send for SendHwnd {}
+unsafe impl Sync for SendHwnd {}
+
+impl SendHwnd {
+    fn wake(&self) {
+        let _ = unsafe { PostMessageW(Some(self.0), WM_NULL, WPARAM(0), LPARAM(0)) };
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -37,17 +50,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hwnd = create_window(h_instance, class_name)?;
 
     let mut context = Context::new();
-
-    // HWND を Send/Sync 化するラッパー
-    struct SendHwnd(HWND);
-    unsafe impl Send for SendHwnd {}
-    unsafe impl Sync for SendHwnd {}
-
-    impl SendHwnd {
-        fn wake(&self) {
-            let _ = unsafe { PostMessageW(Some(self.0), WM_NULL, WPARAM(0), LPARAM(0)) };
-        }
-    }
 
     let send_hwnd = SendHwnd(hwnd);
 

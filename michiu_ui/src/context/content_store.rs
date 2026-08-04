@@ -3,7 +3,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::*;
+use crate::{
+    ActiveMasksSecondary, Context, EntityId, ImageSource, InputContents, LayoutRect, MovieProperty,
+    RenderStore, SystemStore, TextEngine, TextSpan, TopologyStore, VisualPropertiesSecondary,
+    WebView2Contents,
+};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
 pub(crate) type TextContentsSparseSecondary = SparseSecondaryMap<EntityId, Cow<'static, str>>;
@@ -30,6 +34,7 @@ impl Default for ContentStore {
 
 impl ContentStore {
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             text_contents: SparseSecondaryMap::new(),
@@ -93,7 +98,7 @@ impl ContentStore {
         id: EntityId,
         text_spans: &TextSpansSparseSecondary,
     ) -> &[TextSpan] {
-        text_spans.get(id).map(|s| s.as_slice()).unwrap_or(&[])
+        text_spans.get(id).map_or(&[], Vec::as_slice)
     }
 
     /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
@@ -129,7 +134,9 @@ impl ContentStore {
             };
         }
 
-        let text = text_contents.get(id).map(|s| s.as_ref()).unwrap_or("");
+        let text = text_contents
+            .get(id)
+            .map_or("", std::convert::AsRef::as_ref);
         let (font_size, font_family, font_weight, font_style) =
             RenderStore::get_font_propery(id, visual_properties);
         let max_width = None;
@@ -162,11 +169,6 @@ impl ContentStore {
 }
 
 impl Context {
-    #[inline]
-    pub(crate) fn should_show_caret(&self, contents: &InputContents) -> bool {
-        ContentStore::should_show_caret(contents)
-    }
-
     /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
     #[inline]
     pub(crate) fn measure_content(

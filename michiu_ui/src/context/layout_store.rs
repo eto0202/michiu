@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::*;
+use crate::{ScrollbarStyle, EntityId, LayoutPoint, BasicLayout, FlexLayout, GridLayout, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, ParentsSecondary, InteractionPropertiesSecondary, VisualPropertiesSecondary, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, RenderStore, StyleTarget, InteractionStyles, PropertyList, ThisStyle, ComponentMask, STATE_SELECTED, STATE_ACTIVED, STATE_HOVERED, STATE_PRESSED, STATE_DISABLED, STATE_DRAGGING, STATE_DRAG_IN, STATE_DRAG_OVER, STYLE_SIZE, ScrollbarMode, ScrollbarDisplay, LayoutRect, Rect, Length, EdgeInsets, LayoutSize, Size, Val, Display, BaseVisualPropertiesSecondary, ChildrenSecondary, STATE_QUEUED_LAYOUT, ResizingState, RectsSecondary, DirtyRenderEntitiesVec, OutputStore, ResizeDirection, Position, InputContentsSparseSecondary, TextEngine, TextContentsSparseSecondary, TextSpansSparseSecondary, DwriteLayoutsSparseSecondary, ScrollOffsetsSecondary, WindowStore, Context, TopologyStore, ContentStore, SystemStore};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
 use taffy::TaffyTree;
@@ -551,8 +551,8 @@ impl LayoutStore {
         )
     }
 
-    /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
-    /// 内部 SoA リスト（self.children）の順序に沿って再同期。
+    /// 指定された親コンテナにアタッチされている `DComp` / Taffy 側のすべての子ノードの物理順序を
+    /// 内部 `SoA` リスト（self.children）の順序に沿って再同期。
     pub(crate) fn resync_taffy_children_order(
         parent_id: EntityId,
         taffy_nodes: &TaffyNodesSecondary,
@@ -812,7 +812,7 @@ impl ScrollbarSyncContext<'_> {
 }
 
 impl LayoutStore {
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn sync_scrollbar_styles(
         active_masks: &ActiveMasksSecondary,
         input_contents: &InputContentsSparseSecondary,
@@ -1380,8 +1380,8 @@ impl Context {
         LayoutStore::local_rect_from_taffy(id, taffy_nodes, taffy)
     }
 
-    /// 指定された親コンテナにアタッチされている DComp / Taffy 側のすべての子ノードの物理順序を
-    /// 内部 SoA リスト（self.children）の順序に沿って一括して再同期）します。
+    /// 指定された親コンテナにアタッチされている `DComp` / Taffy 側のすべての子ノードの物理順序を
+    /// 内部 `SoA` リスト（self.children）の順序に沿って一括して再同期）します。
     #[inline]
     pub(crate) fn resync_taffy_children_order(&mut self, parent_id: EntityId) {
         let LayoutStore {

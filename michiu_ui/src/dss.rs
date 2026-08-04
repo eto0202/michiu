@@ -30,6 +30,7 @@ pub struct Dss {
 
 impl Dss {
     /// 新しい独立スタイルシートの起点を作成します。
+    #[inline]
     pub fn new(key: impl Into<String>) -> Self {
         Self {
             key: key.into(),
@@ -40,12 +41,15 @@ impl Dss {
     }
 
     /// 参照元の CSS ファイルパスをアタッチ）。
+    #[must_use]
+    #[inline]
     pub fn from_file(mut self, path: impl Into<PathBuf>) -> Self {
         self.file_path = Some(path.into());
         self
     }
 
     /// ホットリロードの有効化フラグを設定。
+    #[must_use]
     pub fn hot_reload(mut self, enabled: bool) -> Self {
         self.hot_reload_enabled = enabled;
         self
@@ -53,6 +57,7 @@ impl Dss {
 
     /// シート内部の単一のクラス名からスタイルを安全に取得します。
     #[inline]
+    #[must_use]
     pub fn class(&self, class_name: &str) -> ThisStyle {
         self.classes.get(class_name).cloned().unwrap_or_default()
     }
@@ -65,11 +70,13 @@ pub struct DssSet {
 }
 
 impl DssSet {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// 新規構築用のビルダーインスタンスを開始します。
+    #[must_use]
     pub fn builder() -> DynamicStyleSheetSetBuilder {
         DynamicStyleSheetSetBuilder::new()
     }
@@ -78,6 +85,7 @@ impl DssSet {
     /// 指定されたシート（名前空間）またはクラスが存在しない場合は、
     /// 安全にスタイル未設定（Default）を返してクラッシュを防ぎます。
     #[inline]
+    #[must_use]
     pub fn class(&self, sheet_key: &str, class_name: &str) -> ThisStyle {
         self.sheets
             .get(sheet_key)
@@ -100,11 +108,13 @@ pub struct DynamicStyleSheetSetBuilder {
 }
 
 impl DynamicStyleSheetSetBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Self { sheets: Vec::new() }
     }
 
     /// スタイルシートを追加します（ビルダー）。
+    #[must_use]
     pub fn add_sheet(mut self, sheet: Dss) -> Self {
         self.sheets.push(sheet);
         self
@@ -144,10 +154,9 @@ impl DynamicStyleSheetSetBuilder {
                     let cwd = std::env::current_dir().unwrap_or_default();
                     eprintln!(
                         "Warning [michiu_ui]: Hot-reload watch target does not exist.\n\
-                                         Target path: {:?}\n\
-                                         Current working directory (CWD): {:?}\n\
-                                         Please adjust your relative path based on the CWD above.",
-                        file_path, cwd
+                                         Target path: {file_path:?}\n\
+                                         Current working directory (CWD): {cwd:?}\n\
+                                         Please adjust your relative path based on the CWD above."
                     );
                     continue;
                 }
@@ -230,7 +239,8 @@ pub struct StyleSheetWatchGuard {
     _watchers: Vec<notify::RecommendedWatcher>,
 }
 
-/// lightningcss の抽象構文木 (AST) を走査して ThisStyle に高精度にデコードします。
+/// lightningcss の抽象構文木 (AST) を走査して `ThisStyle` に高精度にデコードします。
+#[must_use]
 pub fn parse_css_to_stylesheet(css_content: &str) -> Dss {
     let mut classes: HashMap<String, ThisStyle> = HashMap::new();
 
@@ -460,7 +470,7 @@ fn apply_declarations_to_style(
                         DimensionPercentage::Percentage(p) => {
                             Some(crate::Val::Percent(p.0 * 100.0))
                         }
-                        _ => None,
+                        DimensionPercentage::Calc(_) => None,
                     },
                 };
                 if let Some(v) = val {
@@ -470,9 +480,15 @@ fn apply_declarations_to_style(
             Property::FlexWrap(fw, _) => {
                 use lightningcss::properties::flex::FlexWrap as CssFw;
                 style = match fw {
-                    CssFw::Wrap => map_style_prop(style, target, |s| s.flex_wrap()),
-                    CssFw::WrapReverse => map_style_prop(style, target, |s| s.flex_wrap_reverse()),
-                    _ => map_style_prop(style, target, |s| s.flex_nowrap()),
+                    CssFw::Wrap => {
+                        map_style_prop(style, target, super::style::ThisStyle::flex_wrap)
+                    }
+                    CssFw::WrapReverse => {
+                        map_style_prop(style, target, super::style::ThisStyle::flex_wrap_reverse)
+                    }
+                    CssFw::NoWrap => {
+                        map_style_prop(style, target, super::style::ThisStyle::flex_nowrap)
+                    }
                 };
             }
 
@@ -904,7 +920,7 @@ fn parse_css_size(size: &Size) -> Option<crate::Val> {
     }
 }
 
-/// `MaxSize` を Val に展開 (MaxWidth / MaxHeight 等)
+/// `MaxSize` を Val に展開 (`MaxWidth` / `MaxHeight` 等)
 fn parse_css_max_size(max_size: &lightningcss::properties::size::MaxSize) -> Option<crate::Val> {
     use lightningcss::properties::size::MaxSize;
     match max_size {
@@ -912,7 +928,7 @@ fn parse_css_max_size(max_size: &lightningcss::properties::size::MaxSize) -> Opt
         MaxSize::LengthPercentage(lp) => match lp {
             LengthPercentage::Dimension(d) => Some(crate::Val::Px(d.to_px().unwrap_or(0.0))),
             LengthPercentage::Percentage(p) => Some(crate::Val::Percent(p.0 * 100.0)),
-            _ => None,
+            LengthPercentage::Calc(_) => None,
         },
         _ => None,
     }
@@ -925,7 +941,7 @@ fn parse_length_percentage_or_auto(val: &LengthPercentageOrAuto) -> Option<crate
         LengthPercentageOrAuto::LengthPercentage(lp) => match lp {
             LengthPercentage::Dimension(d) => Some(crate::Val::Px(d.to_px().unwrap_or(0.0))),
             LengthPercentage::Percentage(p) => Some(crate::Val::Percent(p.0 * 100.0)),
-            _ => None,
+            LengthPercentage::Calc(_) => None,
         },
     }
 }
@@ -939,12 +955,12 @@ fn parse_length_percentage_or_auto_to_length(
         LengthPercentageOrAuto::LengthPercentage(lp) => match lp {
             DimensionPercentage::Dimension(d) => Some(crate::Length::Px(d.to_px().unwrap_or(0.0))),
             DimensionPercentage::Percentage(p) => Some(crate::Length::Percent(p.0 * 100.0)),
-            _ => None,
+            DimensionPercentage::Calc(_) => None,
         },
     }
 }
 
-/// `GapValue` から Val への変換 (LengthPercentage 解決へ修正)
+/// `GapValue` から Val への変換 (`LengthPercentage` 解決へ修正)
 fn parse_css_gap_value(val: &lightningcss::properties::align::GapValue) -> Option<crate::Val> {
     use lightningcss::properties::align::GapValue;
     match val {
@@ -952,7 +968,7 @@ fn parse_css_gap_value(val: &lightningcss::properties::align::GapValue) -> Optio
         GapValue::LengthPercentage(lp) => match lp {
             LengthPercentage::Dimension(d) => Some(crate::Val::Px(d.to_px().unwrap_or(0.0))),
             LengthPercentage::Percentage(p) => Some(crate::Val::Percent(p.0 * 100.0)),
-            _ => None,
+            LengthPercentage::Calc(_) => None,
         },
     }
 }
@@ -1010,10 +1026,10 @@ fn parse_css_color(color: &lightningcss::values::color::CssColor) -> Option<crat
             _ => None,
         },
         CssColor::RGBA(rgba) => Some(crate::Color::rgba_f32(
-            rgba.red as f32 / 255.0,
-            rgba.green as f32 / 255.0,
-            rgba.blue as f32 / 255.0,
-            rgba.alpha as f32 / 255.0,
+            f32::from(rgba.red) / 255.0,
+            f32::from(rgba.green) / 255.0,
+            f32::from(rgba.blue) / 255.0,
+            f32::from(rgba.alpha) / 255.0,
         )),
         _ => None,
     }
@@ -1046,7 +1062,7 @@ fn parse_number_or_percentage(val: &lightningcss::values::percentage::NumberOrPe
     }
 }
 
-/// lightningcss の PropertyId を michiu_ui の PropertyList（ビット対象）にマッピング
+/// lightningcss の `PropertyId` を `michiu_ui` の PropertyList（ビット対象）にマッピング
 fn parse_property_id_to_list(
     prop_id: &lightningcss::properties::PropertyId,
 ) -> Option<crate::PropertyList> {
@@ -1054,18 +1070,17 @@ fn parse_property_id_to_list(
     match prop_id {
         PropertyId::BackgroundColor => Some(crate::PropertyList::BackgroundColor),
         PropertyId::BorderColor => Some(crate::PropertyList::BorderColor),
-        PropertyId::Opacity => Some(crate::PropertyList::Opacity),
+        PropertyId::Opacity | PropertyId::Filter(_) => Some(crate::PropertyList::Opacity),
         PropertyId::TransformBox => Some(crate::PropertyList::Transform),
         PropertyId::BorderRadius(_) => Some(crate::PropertyList::CornerRadius),
         PropertyId::Width => Some(crate::PropertyList::Width),
         PropertyId::Height => Some(crate::PropertyList::Height),
         PropertyId::BoxShadow(_) => Some(crate::PropertyList::BoxShadow),
-        PropertyId::Filter(_) => Some(crate::PropertyList::Opacity),
         _ => None, // 未対応のプロパティはアニメーション対象外として無視
     }
 }
 
-/// CSS の Time（s / ms）を std::time::Duration に安全変換
+/// CSS の Time（s / ms）を `std::time::Duration` に安全変換
 fn parse_css_time(time: &lightningcss::values::time::Time) -> std::time::Duration {
     use lightningcss::values::time::Time;
     match time {
@@ -1074,7 +1089,7 @@ fn parse_css_time(time: &lightningcss::values::time::Time) -> std::time::Duratio
     }
 }
 
-/// CSS のタイミング関数（Easing）を AnimationCurve にマッピング
+/// CSS のタイミング関数（Easing）を `AnimationCurve` にマッピング
 fn parse_css_easing(
     easing: &lightningcss::values::easing::EasingFunction,
 ) -> crate::AnimationCurve {

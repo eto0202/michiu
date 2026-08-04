@@ -19,7 +19,15 @@ pub use system_store::*;
 pub use topology_store::*;
 pub use window_store::*;
 
-use crate::*;
+use crate::{
+    ActiveFocusTrigger, CursorIcon, DragPayload, Element, ElementState, ImeState, LayoutPoint,
+    LayoutRect, LayoutSize, Modifiers, MouseButton, Overflow, PlaybackCount, PointerEvents,
+    PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER,
+    STATE_DRAGGED, STATE_DRAGGING, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED,
+    STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW, STYLE_PREVENT_FOCUS_STEAL,
+    STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue, UserSelect, Val, VirtualKey,
+    WriteSignal, bind_context, with_context,
+};
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
 use std::{
@@ -55,15 +63,15 @@ pub struct Context {
     pub topology: TopologyStore,
     /// 解決済み基本/Flex/Gridスタイルデータの保持。
     /// TaffyTreeの同期、およびスクロールバー用要素のレイアウト。
-    /// taffy_style への同期、物理ボーダー/パディング、コンテナ内径サイズの算出など。
+    /// `taffy_style` への同期、物理ボーダー/パディング、コンテナ内径サイズの算出など。
     pub layouts: LayoutStore,
     /// 解決済みビジュアルスタイルの保持。
     /// DComp/wgpu用アニメーション・トランジションの時間軸Tick駆動、疑似スタイルのカスケード解決。
-    /// does_state_require_layout 判定、フォーカス/ホバー等のカスケードマージなど。
+    /// `does_state_require_layout` 判定、フォーカス/ホバー等のカスケードマージなど。
     pub renders: RenderStore,
     /// 計算完了後の物理絶対座標、クリップ範囲の保持。
     /// キャレット・テキスト選択範囲の物理領域キャッシュ。
-    /// resolve_val_to_px (単位の解決)、キャレット矩形の算出など。
+    /// `resolve_val_to_px` (単位の解決)、キャレット矩形の算出など。
     pub outputs: OutputStore,
     /// ユーザーコンテンツの保持。
     /// キャレット点滅判定、コンテンツサイズ計測など。
@@ -89,6 +97,7 @@ impl Default for Context {
 }
 
 impl Context {
+    #[must_use]
     pub fn new() -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
 
@@ -154,8 +163,7 @@ impl Context {
         self.topology
             .active_masks
             .get(id)
-            .map(|m| m.has(STATE_HOVERED))
-            .unwrap_or(false)
+            .is_some_and(|m| m.has(STATE_HOVERED))
     }
 
     /// 指定された要素が現在キーボードフォーカスを得ているか判定します
@@ -164,8 +172,7 @@ impl Context {
         self.topology
             .active_masks
             .get(id)
-            .map(|m| m.has(STATE_FOCUSED))
-            .unwrap_or(false)
+            .is_some_and(|m| m.has(STATE_FOCUSED))
     }
 
     /// 指定された要素が現在マウスやタップで押し下げられているか判定します
@@ -174,8 +181,7 @@ impl Context {
         self.topology
             .active_masks
             .get(id)
-            .map(|m| m.has(STATE_PRESSED))
-            .unwrap_or(false)
+            .is_some_and(|m| m.has(STATE_PRESSED))
     }
 
     /// 指定された要素が無効化（操作不可）状態にあるか判定します
@@ -184,8 +190,7 @@ impl Context {
         self.topology
             .active_masks
             .get(id)
-            .map(|m| m.has(STATE_DISABLED))
-            .unwrap_or(false)
+            .is_some_and(|m| m.has(STATE_DISABLED))
     }
 
     /// 指定された要素が現在アクティブ（有効選択など）状態にあるか判定します
@@ -194,8 +199,7 @@ impl Context {
         self.topology
             .active_masks
             .get(id)
-            .map(|m| m.has(STATE_ACTIVED))
-            .unwrap_or(false)
+            .is_some_and(|m| m.has(STATE_ACTIVED))
     }
 
     /// 指定された要素が現在テキストまたはトグル選択されているか判定します
@@ -204,8 +208,7 @@ impl Context {
         self.topology
             .active_masks
             .get(id)
-            .map(|m| m.has(STATE_SELECTED))
-            .unwrap_or(false)
+            .is_some_and(|m| m.has(STATE_SELECTED))
     }
 
     /// 指定された要素が現在ドラッグ操作中にあるか判定します
@@ -214,8 +217,7 @@ impl Context {
         self.topology
             .active_masks
             .get(id)
-            .map(|m| m.has(STATE_DRAGGED))
-            .unwrap_or(false)
+            .is_some_and(|m| m.has(STATE_DRAGGED))
     }
 
     /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。
@@ -227,10 +229,10 @@ impl Context {
             || self.topology.is_structure_dirty
     }
 
-    /// 現在イベントハンドラを実行している要素（自分自身）の EntityId を取得します
+    /// 現在イベントハンドラを実行している要素（自分自身）の `EntityId` を取得します
     #[inline]
     pub fn current_element_id(&self) -> Option<EntityId> {
-        crate::signal::ACTIVE_ELEMENT.with(|cell| cell.get())
+        crate::signal::ACTIVE_ELEMENT.with(std::cell::Cell::get)
     }
 
     /// 現在イベントハンドラを実行している要素（自分自身） を取得します
@@ -287,19 +289,96 @@ impl Context {
     }
 
     /// 現在のスクロール位置から相対移動します。
-    #[inline]
     pub fn scroll_by(&mut self, id: EntityId, dx: f32, dy: f32) -> bool {
-        let current = self
-            .outputs
-            .scroll_offsets
-            .get(id)
-            .copied()
-            .unwrap_or(LayoutPoint::ZERO);
-        self.scroll_to(id, current.x + dx, current.y + dy)
+        let TopologyStore {
+            entities,
+            parents,
+            children,
+            active_masks,
+            active_entities,
+            session_spawned,
+            session_roots,
+            flat_dfs_sequence,
+            is_structure_dirty,
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            scrollbar_styles,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        } = &mut self.layouts;
+        let RenderStore {
+            visual_properties,
+            interaction_properties,
+            base_visual_properties,
+            dirty_render_entities,
+            active_transitions,
+            active_animations,
+            active_webviews,
+            last_tick_time,
+        } = &mut self.renders;
+        let OutputStore {
+            rects,
+            clip_rects,
+            scroll_offsets,
+            prev_rects,
+            prev_clip_rects,
+            selected_rects,
+            text_selections,
+            selection_start_index,
+        } = &mut self.outputs;
+        let ContentStore {
+            text_contents,
+            text_spans,
+            input_contents,
+            image_sources,
+            movie_properties,
+            webview_contents,
+        } = &mut self.contents;
+        let WindowStore {
+            last_window_size, ..
+        } = &mut self.window;
+        let SystemStore {
+            text_engine,
+            dwrite_layouts,
+            uia_properties,
+            task_sender,
+            task_receiver,
+        } = &mut self.system;
+        OutputStore::scroll_by(
+            id,
+            dx,
+            dy,
+            active_masks,
+            input_contents,
+            text_engine,
+            text_contents,
+            visual_properties,
+            text_spans,
+            dwrite_layouts,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            interaction_properties,
+            rects,
+            scrollbar_styles,
+            scroll_offsets,
+            *last_window_size,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        )
     }
 
     /// Context インスタンスから直接シグナルを生成します。
-    /// これにより build_ui の外側（メインスレッド上）でもシグナルを定義できます。
+    /// これにより `build_ui` の外側（メインスレッド上）でもシグナルを定義できます。
     #[inline]
     pub fn create_signal<T: Send + 'static>(
         &mut self,
@@ -342,7 +421,7 @@ impl Context {
     }
 
     /// 現在のスレッドローカルコンテキスト（アクティブなエフェクト、またはイベントハンドラ）から、
-    /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の ReadSignal を解決します。
+    /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の `ReadSignal` を解決します。
     #[inline]
     pub fn use_provided<T: Clone + 'static>(&self) -> ReadSignal<T> {
         let ReactiveStore {
@@ -380,7 +459,7 @@ impl Context {
         ReactiveStore::use_provided_from::<T>(element_id, providers, parents)
     }
 
-    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な CursorIcon を正確に解決します。
+    /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な `CursorIcon` を正確に解決します。
     #[inline]
     pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
         let RenderStore {
@@ -454,7 +533,7 @@ impl Context {
         let mut active_map = std::mem::take(&mut self.renders.active_animations);
         let mut to_remove = Vec::new();
 
-        for (id, animations) in active_map.iter_mut() {
+        for (id, animations) in &mut active_map {
             let mut i = 0;
             while i < animations.len() {
                 let anim = &mut animations[i];
@@ -513,10 +592,10 @@ impl Context {
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
     pub fn tick_transitions(&mut self) {
+        const FRAME_TIME_120FPS: Duration = Duration::from_nanos(8_333_333);
         let now = Instant::now();
 
         // (1.0 / 120.0 秒 = 約 8,333,333 ナノ秒)
-        const FRAME_TIME_120FPS: Duration = Duration::from_nanos(8_333_333);
         if let Some(last) = self.renders.last_tick_time
             && now.duration_since(last) < FRAME_TIME_120FPS
         {
@@ -532,7 +611,7 @@ impl Context {
         // 完了して空になった要素のIDを記録する一時配列
         let mut to_remove = Vec::new();
 
-        for (id, transitions) in active_map.iter_mut() {
+        for (id, transitions) in &mut active_map {
             let mut i = 0;
             while i < transitions.len() {
                 let t_state = &mut transitions[i];
@@ -696,7 +775,7 @@ impl Context {
     }
 
     /// 現在のテキスト・IME状態・フォントサイズから、
-    /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して SoA を更新。
+    /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して `SoA` を更新。
     pub fn update_input_caret_position(&mut self, id: EntityId) {
         self.clear_layout_cache(id); // IMEやタイピング中の古いキャッシュを破棄
 
@@ -789,10 +868,88 @@ impl Context {
     }
 
     /// 毎フレーム呼び出され、ドラッグ選択中の要素に対するオートスクロールを自律駆動します。
-    /// ウィンドウメッセージループ等、 tick_transitions() を呼び出している箇所と同じ周期で実行する。
+    /// ウィンドウメッセージループ等、 `tick_transitions()` を呼び出している箇所と同じ周期で実行する。
     #[inline]
     pub fn tick_drag_autoscroll(&mut self) {
-        let (autoscroll_occurred, active_pos) = self.autoscroll_occurred();
+        let TopologyStore {
+            active_masks,
+            parents,
+            children,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            scrollbar_styles,
+            dirty_layout_entities,
+            taffy,
+            taffy_nodes,
+            ..
+        } = &mut self.layouts;
+        let RenderStore {
+            visual_properties,
+            interaction_properties,
+            active_transitions,
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+        let ContentStore {
+            input_contents,
+            text_contents,
+            text_spans,
+            ..
+        } = &mut self.contents;
+        let OutputStore {
+            rects,
+            scroll_offsets,
+            clip_rects,
+            ..
+        } = &mut self.outputs;
+        let EventStore {
+            current_pointer_position,
+            interaction_states,
+            ..
+        } = &mut self.events;
+        let SystemStore {
+            text_engine,
+            dwrite_layouts,
+            ..
+        } = &mut self.system;
+        let WindowStore {
+            last_window_size, ..
+        } = &mut self.window;
+
+        let Some(id) = interaction_states.pressed else {
+            return;
+        };
+        let (autoscroll_occurred, active_pos) = EventStore::autoscroll_occurred(
+            id,
+            *current_pointer_position,
+            clip_rects,
+            active_masks,
+            input_contents,
+            text_engine,
+            text_contents,
+            visual_properties,
+            text_spans,
+            dwrite_layouts,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            interaction_properties,
+            rects,
+            scrollbar_styles,
+            scroll_offsets,
+            *last_window_size,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        );
 
         if autoscroll_occurred && let Some(pos) = active_pos {
             // スクロールによりテキストが流れたため、
@@ -800,9 +957,7 @@ impl Context {
             // 選択文字インデックスおよびキャレット位置を同期
             self.inject_pointer_move(pos);
 
-            if let Some(pressed_id) = self.events.interaction_states.pressed {
-                self.mark_render_dirty(pressed_id);
-            }
+            self.mark_render_dirty(id);
         }
     }
 
@@ -864,7 +1019,7 @@ impl Context {
         self.update_state(id, STATE_DRAGGED, dragged);
     }
 
-    /// 要素のドラッグ・ドロップ擬似状態（STATE_DRAGGING, STATE_DRAG_IN, STATE_DRAG_OVER）を制御します。
+    /// `要素のドラッグ・ドロップ擬似状態（STATE_DRAGGING`, `STATE_DRAG_IN`, `STATE_DRAG_OVER）を制御します`。
     #[inline]
     pub(crate) fn set_drag_state(&mut self, id: EntityId, flag: u128, active: bool) {
         self.update_state(id, flag, active);
@@ -930,8 +1085,7 @@ impl Context {
                     let is_ime = contents
                         .ime_state
                         .as_ref()
-                        .map(|s| s.composition_text.is_empty())
-                        .unwrap_or(true);
+                        .is_none_or(|s| s.composition_text.is_empty());
 
                     if is_placeholder && is_ime && !contents.placeholder_select {
                         return;
@@ -1226,8 +1380,7 @@ impl Context {
                         && contents
                             .ime_state
                             .as_ref()
-                            .map(|s| s.composition_text.is_empty())
-                            .unwrap_or(true);
+                            .is_none_or(|s| s.composition_text.is_empty());
 
                     if is_placeholder && !contents.placeholder_select {
                         return;
@@ -1281,7 +1434,7 @@ impl Context {
         }
     }
 
-    /// 外部で計算された論理ピクセルスクロール移動量 (scroll_x, scroll_y) を注入し、
+    /// 外部で計算された論理ピクセルスクロール移動量 (`scroll_x`, `scroll_y`) を注入し、
     /// バブリングによる自動スクロール処理、またはユーザーイベントハンドラへの配送を行います。
     pub fn inject_mouse_wheel(&mut self, scroll_x: f32, scroll_y: f32) {
         let _context_guard = bind_context(self);

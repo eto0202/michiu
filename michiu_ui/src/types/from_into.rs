@@ -1,6 +1,13 @@
 use std::{borrow::Cow, path::PathBuf};
 
-use crate::*;
+use crate::{
+    AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display,
+    Element, FlexDirection, FlexWrap, FocusTrigger, Focusable, GridAutoFlow, GridLine,
+    GridPlacement, ImageSource, InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length,
+    LinearGradient, MovieProperty, MovieSource, Overflow, Percent, Pixel, Point, Position, Prop,
+    ReadSignal, Rect, Size, StyleValue, TextAlign, ThisStyle, Transform, UiaValue, Val,
+    WebView2Contents,
+};
 
 impl<T, U> From<Size<T>> for taffy::Size<U>
 where
@@ -113,8 +120,7 @@ where
 impl From<Length> for f32 {
     fn from(length: Length) -> Self {
         match length {
-            Length::Px(val) => val,
-            Length::Percent(val) => val,
+            Length::Px(val) | Length::Percent(val) => val,
         }
     }
 }
@@ -436,7 +442,6 @@ impl From<taffy::AlignItems> for AlignItems {
             taffy::AlignItems::FLEX_END => Self::FlexEnd,
             taffy::AlignItems::CENTER => Self::Center,
             taffy::AlignItems::BASELINE => Self::Baseline,
-            taffy::AlignItems::STRETCH => Self::Stretch,
             taffy::AlignItems::SAFE_START => Self::SafeStart,
             taffy::AlignItems::SAFE_END => Self::SafeEnd,
             taffy::AlignItems::SAFE_FLEX_START => Self::SafeFlexStart,
@@ -475,7 +480,6 @@ impl From<taffy::style::AlignSelf> for AlignSelf {
             taffy::AlignSelf::END => Self::End,
             taffy::AlignSelf::CENTER => Self::Center,
             taffy::AlignSelf::BASELINE => Self::Baseline,
-            taffy::AlignSelf::STRETCH => Self::Stretch,
             taffy::AlignSelf::FLEX_START => Self::FlexStart,
             taffy::AlignSelf::FLEX_END => Self::FlexEnd,
             taffy::AlignSelf::SAFE_START => Self::SafeStart,
@@ -516,8 +520,7 @@ impl From<taffy::JustifyContent> for JustifyContent {
         match t {
             taffy::JustifyContent::START => Self::Start,
             taffy::JustifyContent::END => Self::End,
-            taffy::JustifyContent::CENTER => Self::Center,
-            taffy::JustifyContent::STRETCH => Self::Stretch,
+            taffy::JustifyContent::CENTER | taffy::JustifyContent::SAFE_CENTER => Self::Center,
             taffy::JustifyContent::SPACE_BETWEEN => Self::SpaceBetween,
             taffy::JustifyContent::SPACE_AROUND => Self::SpaceAround,
             taffy::JustifyContent::SPACE_EVENLY => Self::SpaceEvenly,
@@ -527,7 +530,6 @@ impl From<taffy::JustifyContent> for JustifyContent {
             taffy::JustifyContent::SAFE_FLEX_END => Self::SafeFlexEnd,
             taffy::JustifyContent::FLEX_START => Self::FlexStart,
             taffy::JustifyContent::FLEX_END => Self::FlexEnd,
-            taffy::JustifyContent::SAFE_CENTER => Self::Center,
             _ => Self::Stretch,
         }
     }
@@ -561,8 +563,7 @@ impl From<taffy::AlignContent> for AlignContent {
         match t {
             taffy::AlignContent::START => Self::Start,
             taffy::AlignContent::END => Self::End,
-            taffy::AlignContent::CENTER => Self::Center,
-            taffy::AlignContent::STRETCH => Self::Stretch,
+            taffy::AlignContent::CENTER | taffy::AlignContent::SAFE_CENTER => Self::Center,
             taffy::AlignContent::SPACE_BETWEEN => Self::SpaceBetween,
             taffy::AlignContent::SPACE_AROUND => Self::SpaceAround,
             taffy::AlignContent::SPACE_EVENLY => Self::SpaceEvenly,
@@ -572,7 +573,6 @@ impl From<taffy::AlignContent> for AlignContent {
             taffy::AlignContent::SAFE_FLEX_END => Self::SafeFlexEnd,
             taffy::AlignContent::FLEX_START => Self::FlexStart,
             taffy::AlignContent::FLEX_END => Self::FlexEnd,
-            taffy::AlignContent::SAFE_CENTER => Self::Center,
             _ => Self::Stretch,
         }
     }

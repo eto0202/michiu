@@ -235,10 +235,10 @@ fn password_box() -> Element {
                 .h_full()
                 .hovered(ts().text_color(t.text));
 
-            if !read_text.get().is_empty() {
-                base_style.block()
-            } else {
+            if read_text.get().is_empty() {
                 base_style.hidden()
+            } else {
+                base_style.block()
             }
         })
         .on_click(move || {
@@ -283,6 +283,7 @@ fn password_box() -> Element {
     )
 }
 
+#[allow(clippy::too_many_lines)]
 fn search_box() -> Element {
     let (read_text, write_text) = create_signal(String::new());
     let (menu_open, set_menu_open) = create_signal(false);
@@ -335,7 +336,7 @@ fn search_box() -> Element {
         })
         .on_keyboard_input(move |key, _mods, state| {
             if key == VirtualKey::RETURN && state == ElementState::Pressed {
-                wrote_history()
+                wrote_history();
             }
         })
         .on_focus(move || {

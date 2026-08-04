@@ -1,10 +1,34 @@
-use crate::*;
+use crate::{
+    AlignContent, AlignItems, AlignSelf, AnimationCurve, Backdrop, BasicLayout, BorderAlignment,
+    BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
+    CursorIcon, Direction, Display, DragPayload, DragPlaceholderParent, DragProperty, DropProperty,
+    DropTarget, EdgeInsets, EntityId, FlexDirection, FlexLayout, FlexWrap, FocusTrigger, Focusable,
+    GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement, InteractionName,
+    InteractionStyles, IntoStyleConvert, IntoStyleCornerRadius, IntoStylePoint, IntoStyleRect,
+    IntoStyleResizable, IntoStyleSize, IntoStyleValue, JustifyContent, KeyframeAnimation,
+    LayoutOverflow, Length, LinearGradient, Overflow, PointerEvents, Position, PropertyList, Rect,
+    STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER, STATE_DRAGGED, STATE_DRAGGING,
+    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED,
+    STYLE_ALIGN_CONTENT, STYLE_ALIGN_ITEMS, STYLE_ALIGN_SELF, STYLE_ANIMATIONS, STYLE_ASPECT_RATIO,
+    STYLE_BACKDROP, STYLE_BG_COLOR, STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW,
+    STYLE_BOX_SIZING, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_DIRECTION, STYLE_DISPLAY,
+    STYLE_DRAGGABLE, STYLE_DROPPABLE, STYLE_EXT_PROPERTIES, STYLE_FLEX_BASIS, STYLE_FLEX_DIRECTION,
+    STYLE_FLEX_GROW, STYLE_FLEX_SHRINK, STYLE_FLEX_WRAP, STYLE_FOCUSABLE, STYLE_FONT_SIZE,
+    STYLE_GAP, STYLE_GRID_LAYOUT, STYLE_INSET, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
+    STYLE_ITEM_IS_REPLACED, STYLE_ITEM_IS_TABLE, STYLE_JUSTIFY_CONTENT, STYLE_JUSTIFY_ITEMS,
+    STYLE_JUSTIFY_SELF, STYLE_MARGIN, STYLE_MAX_SIZE, STYLE_MIN_SIZE, STYLE_OPACITY, STYLE_OUTLINE,
+    STYLE_OVERFLOW, STYLE_PADDING, STYLE_POINTER_EVENTS, STYLE_POSITION, STYLE_PREVENT_FOCUS_STEAL,
+    STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, STYLE_SCROLLBAR, STYLE_SIZE,
+    STYLE_TEXT_ALIGN, STYLE_TEXT_COLOR, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT,
+    STYLE_TRANSITIONS, STYLE_USER_SELECT, STYLE_Z_INDEX, ScrollbarDisplay, ScrollbarMode,
+    ScrollbarStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, pct,
+};
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
 // コールドデータである複雑なGridトラック設定のみTaffyからそのまま拝借
 use taffy::{GridTemplateArea, GridTemplateComponent, TrackSizingFunction};
 
-/// スレッド安全な動的クロージャをサポートする StyleValue の定義
+/// スレッド安全な動的クロージャをサポートする `StyleValue` の定義
 pub enum StyleValue<T> {
     Static(T),
     Dynamic(Box<dyn Fn() -> T + Send + Sync + 'static>),
@@ -75,8 +99,15 @@ impl std::fmt::Debug for StyleInner {
         f.debug_struct("StyleInner")
             .field("mask", &self.mask)
             .field("basic_layout", &self.basic_layout)
+            .field("flex_layout", &self.flex_layout)
+            .field("grid_layout", &self.grid_layout)
             .field("visual_property", &self.visual_property)
-            .finish()
+            .field("interaction_styles", &self.interaction_styles)
+            .field("scrollbar_style", &self.scrollbar_style)
+            // dynamic_setters はデバッグ表示が難しいため除外
+            .field("drag_property", &self.drag_property)
+            .field("drop_property", &self.drop_property)
+            .finish_non_exhaustive()
     }
 }
 
@@ -90,17 +121,20 @@ unsafe impl Sync for StyleInner {}
 impl ThisStyle {
     /// 新しいスタイルの起点
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     #[inline]
+    #[must_use]
     pub fn debug_border_red(self) -> Self {
         self.border_solid(1.0).border_color(Color::RED)
     }
 
     /// 要素の表示形態（Display）を設定します。
     #[inline]
+    #[must_use]
     pub fn display(mut self, value: impl IntoStyleValue<Display>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -126,27 +160,32 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn hidden(self) -> Self {
         self.display(Display::None)
     }
 
     #[inline]
+    #[must_use]
     pub fn flex(self) -> Self {
         self.display(Display::Flex)
     }
 
     #[inline]
+    #[must_use]
     pub fn grid(self) -> Self {
         self.display(Display::Grid)
     }
 
     #[inline]
+    #[must_use]
     pub fn block(self) -> Self {
         self.display(Display::Block)
     }
 
     /// 要素がテーブルアイテムとして振る舞うかどうかを設定します。
     #[inline]
+    #[must_use]
     pub fn item_is_table(mut self, value: impl IntoStyleValue<bool>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -173,6 +212,7 @@ impl ThisStyle {
 
     /// 要素が置換要素（画像やビデオなど）かどうかを設定します。
     #[inline]
+    #[must_use]
     pub fn item_is_replaced(mut self, value: impl IntoStyleValue<bool>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -199,6 +239,7 @@ impl ThisStyle {
 
     /// ボックスモデルの算出基準（BoxSizing）を設定します。
     #[inline]
+    #[must_use]
     pub fn box_sizing(mut self, value: impl IntoStyleValue<BoxSizing>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -224,17 +265,20 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn box_border(self) -> Self {
         self.box_sizing(BoxSizing::BorderBox)
     }
 
     #[inline]
+    #[must_use]
     pub fn box_content(self) -> Self {
         self.box_sizing(BoxSizing::ContentBox)
     }
 
     /// テキストや要素のインライン方向（Direction）を設定します。
     #[inline]
+    #[must_use]
     pub fn direction(mut self, value: impl IntoStyleValue<Direction>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -261,6 +305,7 @@ impl ThisStyle {
 
     /// スクロールバーのスタイル（太さ、トラック、サム、および疑似クラス）を登録します。
     #[inline]
+    #[must_use]
     pub fn scrollbar(mut self, style: impl IntoStyleValue<ScrollbarStyle>) -> Self {
         match style.into_style_value() {
             StyleValue::Static(v) => {
@@ -287,6 +332,7 @@ impl ThisStyle {
 
     /// スクロールバーの太さ（物理幅/高さ）を直接指定します。
     #[inline]
+    #[must_use]
     pub fn scrollbar_width(mut self, width: impl IntoStyleValue<f32>) -> Self {
         match width.into_style_value() {
             StyleValue::Static(v) => {
@@ -316,6 +362,7 @@ impl ThisStyle {
 
     /// スクロールバーの表示条件（None / Always / Auto）を直接指定します。
     #[inline]
+    #[must_use]
     pub fn scrollbar_display(mut self, display: impl IntoStyleValue<ScrollbarDisplay>) -> Self {
         match display.into_style_value() {
             StyleValue::Static(v) => {
@@ -344,26 +391,31 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn scrollbar_auto(self) -> Self {
         self.scrollbar_display(ScrollbarDisplay::Auto)
     }
 
     #[inline]
+    #[must_use]
     pub fn scrollbar_none(self) -> Self {
         self.scrollbar_display(ScrollbarDisplay::None)
     }
 
     #[inline]
+    #[must_use]
     pub fn scrollbar_always(self) -> Self {
         self.scrollbar_display(ScrollbarDisplay::Always)
     }
     #[inline]
+    #[must_use]
     pub fn scrollbar_transient(self) -> Self {
         self.scrollbar_display(ScrollbarDisplay::Transient)
     }
 
     /// スクロールバーの配置モード（Layout / Overlay）を直接指定します。
     #[inline]
+    #[must_use]
     pub fn scrollbar_mode(mut self, mode: impl IntoStyleValue<ScrollbarMode>) -> Self {
         match mode.into_style_value() {
             StyleValue::Static(v) => {
@@ -393,6 +445,7 @@ impl ThisStyle {
 
     /// コンテンツのはみ出し処理（Overflow）を設定します。
     #[inline]
+    #[must_use]
     pub fn overflow(mut self, value: impl IntoStyleValue<LayoutOverflow>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -418,6 +471,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_auto(self) -> Self {
         self.overflow(LayoutOverflow {
             x: Overflow::Visible,
@@ -426,6 +480,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_hidden(self) -> Self {
         self.overflow(LayoutOverflow {
             x: Overflow::Hidden,
@@ -434,6 +489,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_scroll(self) -> Self {
         self.overflow(LayoutOverflow {
             x: Overflow::Scroll,
@@ -442,6 +498,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_clip(self) -> Self {
         self.overflow(LayoutOverflow {
             x: Overflow::Clip,
@@ -451,6 +508,7 @@ impl ThisStyle {
 
     /// x軸方向のはみ出し処理を個別に設定します（動的セッター対応）
     #[inline]
+    #[must_use]
     pub fn overflow_x(mut self, value: impl IntoStyleValue<Overflow>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -477,6 +535,7 @@ impl ThisStyle {
 
     /// y軸方向のはみ出し処理を個別に設定します（動的セッター対応）
     #[inline]
+    #[must_use]
     pub fn overflow_y(mut self, value: impl IntoStyleValue<Overflow>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -502,47 +561,56 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_x_auto(self) -> Self {
         self.overflow_x(Overflow::Visible)
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_x_hidden(self) -> Self {
         self.overflow_x(Overflow::Hidden)
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_x_scroll(self) -> Self {
         self.overflow_x(Overflow::Scroll)
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_x_clip(self) -> Self {
         self.overflow_x(Overflow::Clip)
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_y_auto(self) -> Self {
         self.overflow_y(Overflow::Visible)
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_y_hidden(self) -> Self {
         self.overflow_y(Overflow::Hidden)
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_y_scroll(self) -> Self {
         self.overflow_y(Overflow::Scroll)
     }
 
     #[inline]
+    #[must_use]
     pub fn overflow_y_clip(self) -> Self {
         self.overflow_y(Overflow::Clip)
     }
 
     /// 要素の配置基準（Position）を設定します。
     #[inline]
+    #[must_use]
     pub fn position(mut self, value: impl IntoStyleValue<Position>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -568,17 +636,20 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn absolute(self) -> Self {
         self.position(Position::Absolute)
     }
 
     #[inline]
+    #[must_use]
     pub fn relative(self) -> Self {
         self.position(Position::Relative)
     }
 
     /// 要素の配置インセット（inset：top, right, bottom, left）を設定します。
     #[inline]
+    #[must_use]
     pub fn inset(mut self, value: impl IntoStyleRect<Val>) -> Self {
         match value.into_style_rect() {
             StyleValue::Static(v) => {
@@ -601,14 +672,16 @@ impl ThisStyle {
         self
     }
 
-    /// 要素を絶対配置 (Position::Absolute) に設定し、同時に配置インセットを設定します。
+    /// 要素を絶対配置 (`Position::Absolute`) に設定し、同時に配置インセットを設定します。
     #[inline]
+    #[must_use]
     pub fn absolute_inset(self, value: impl IntoStyleRect<Val>) -> Self {
         self.position(Position::Absolute).inset(value)
     }
 
     /// 左右の配置インセット（left, right）を一括設定します。
     #[inline]
+    #[must_use]
     pub fn inset_x(mut self, value: impl IntoStyleSize<Val>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -634,6 +707,7 @@ impl ThisStyle {
 
     /// 上下の配置インセット（top, bottom）を一括設定します。
     #[inline]
+    #[must_use]
     pub fn inset_y(mut self, value: impl IntoStyleSize<Val>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -658,6 +732,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn top(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -680,6 +755,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn right(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -702,6 +778,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn bottom(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -724,6 +801,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn left(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -747,6 +825,7 @@ impl ThisStyle {
 
     /// 要素の基本サイズ（width, height）を設定します。
     #[inline]
+    #[must_use]
     pub fn size(mut self, value: impl IntoStyleSize<Val>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -770,22 +849,26 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn size_full(self) -> Self {
         self.size(pct(100.0))
     }
 
     #[inline]
+    #[must_use]
     pub fn size_half(self) -> Self {
         self.size(pct(50.0))
     }
 
     #[inline]
+    #[must_use]
     pub fn size_auto(self) -> Self {
         self.size(auto())
     }
 
     /// 要素の幅（width）のみを設定します（高さは既存の値を維持）。
     #[inline]
+    #[must_use]
     pub fn width(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -808,27 +891,32 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn w(self, value: impl IntoStyleConvert<Val>) -> Self {
         self.width(value)
     }
 
     #[inline]
+    #[must_use]
     pub fn w_full(self) -> Self {
         self.width(pct(100.0))
     }
 
     #[inline]
+    #[must_use]
     pub fn w_half(self) -> Self {
         self.width(pct(50.0))
     }
 
     #[inline]
+    #[must_use]
     pub fn w_auto(self) -> Self {
         self.width(auto())
     }
 
     /// 要素の高さ（height）のみを設定します（幅は既存の値を維持）。
     #[inline]
+    #[must_use]
     pub fn height(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -851,27 +939,32 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn h(self, value: impl IntoStyleConvert<Val>) -> Self {
         self.height(value)
     }
 
     #[inline]
+    #[must_use]
     pub fn h_full(self) -> Self {
         self.height(pct(100.0))
     }
 
     #[inline]
+    #[must_use]
     pub fn h_half(self) -> Self {
         self.height(pct(50.0))
     }
 
     #[inline]
+    #[must_use]
     pub fn h_auto(self) -> Self {
         self.height(auto())
     }
 
     /// 要素の最小サイズを設定します。
     #[inline]
+    #[must_use]
     pub fn min_size(mut self, value: impl IntoStyleSize<Val>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -896,6 +989,7 @@ impl ThisStyle {
 
     /// 要素の最大サイズを設定します。
     #[inline]
+    #[must_use]
     pub fn max_size(mut self, value: impl IntoStyleSize<Val>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -918,8 +1012,9 @@ impl ThisStyle {
         self
     }
 
-    /// 要素の最小幅（min_width）のみを設定します。
+    /// `要素の最小幅（min_width）のみを設定します`。
     #[inline]
+    #[must_use]
     pub fn min_width(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -941,8 +1036,9 @@ impl ThisStyle {
         }
     }
 
-    /// 要素の最小高さ（min_height）のみを設定します。
+    /// `要素の最小高さ（min_height）のみを設定します`。
     #[inline]
+    #[must_use]
     pub fn min_height(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -964,8 +1060,9 @@ impl ThisStyle {
         }
     }
 
-    /// 要素の最大幅（max_width）のみを設定します。
+    /// `要素の最大幅（max_width）のみを設定します`。
     #[inline]
+    #[must_use]
     pub fn max_width(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -987,8 +1084,9 @@ impl ThisStyle {
         }
     }
 
-    /// 要素の最大高さ（max_height）のみを設定します。
+    /// `要素の最大高さ（max_height）のみを設定します`。
     #[inline]
+    #[must_use]
     pub fn max_height(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -1012,6 +1110,7 @@ impl ThisStyle {
 
     /// 任意の比率（幅 / 高さ）でアスペクト比を設定します。
     #[inline]
+    #[must_use]
     pub fn aspect_ratio(
         mut self,
         width: impl IntoStyleValue<f32>,
@@ -1067,47 +1166,56 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn ratio_16_9(self) -> Self {
         self.aspect_ratio(16.0, 9.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn ratio_9_16(self) -> Self {
         self.aspect_ratio(9.0, 16.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn ratio_4_3(self) -> Self {
         self.aspect_ratio(4.0, 3.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn ratio_3_4(self) -> Self {
         self.aspect_ratio(3.0, 4.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn ratio_1_1(self) -> Self {
         self.aspect_ratio(1.0, 1.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn ratio_21_9(self) -> Self {
         self.aspect_ratio(21.0, 9.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn ratio_9_21(self) -> Self {
         self.aspect_ratio(9.0, 21.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn clear_aspect_ratio(self) -> Self {
         self.aspect_ratio(0.0, 0.0)
     }
 
     /// 外側余白（margin）を設定します。
     #[inline]
+    #[must_use]
     pub fn margin(mut self, value: impl IntoStyleRect<Val>) -> Self {
         match value.into_style_rect() {
             StyleValue::Static(v) => {
@@ -1131,22 +1239,26 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn m(self, value: impl IntoStyleRect<Val>) -> Self {
         self.margin(value)
     }
 
     #[inline]
+    #[must_use]
     pub fn m_0(self) -> Self {
         self.margin(0.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn m_auto(self) -> Self {
         self.margin(auto())
     }
 
     /// 左右の外側余白（margin-left, margin-right）を一括設定します。
     #[inline]
+    #[must_use]
     pub fn m_x(mut self, value: impl IntoStyleSize<Val>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -1172,6 +1284,7 @@ impl ThisStyle {
 
     /// 上下の外側余白（margin-top, margin-bottom）を一括設定します。
     #[inline]
+    #[must_use]
     pub fn m_y(mut self, value: impl IntoStyleSize<Val>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -1195,6 +1308,8 @@ impl ThisStyle {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn m_t(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -1217,6 +1332,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn m_r(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -1239,6 +1355,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn m_b(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -1261,6 +1378,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn m_l(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -1284,6 +1402,7 @@ impl ThisStyle {
 
     /// 内側余白（padding）を設定します。
     #[inline]
+    #[must_use]
     pub fn padding(mut self, value: impl IntoStyleRect<Length>) -> Self {
         match value.into_style_rect() {
             StyleValue::Static(v) => {
@@ -1307,17 +1426,20 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn p(self, value: impl IntoStyleRect<Length>) -> Self {
         self.padding(value)
     }
 
     #[inline]
+    #[must_use]
     pub fn p_0(self) -> Self {
         self.padding(0.0)
     }
 
     /// 左右の内側余白（padding-left, padding-right）を一括設定します。
     #[inline]
+    #[must_use]
     pub fn p_x(mut self, value: impl IntoStyleSize<Length>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -1343,6 +1465,7 @@ impl ThisStyle {
 
     /// 上下の内側余白（padding-top, padding-bottom）を一括設定します。
     #[inline]
+    #[must_use]
     pub fn p_y(mut self, value: impl IntoStyleSize<Length>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -1367,6 +1490,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn p_t(mut self, value: impl IntoStyleConvert<Length>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -1389,6 +1513,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn p_r(mut self, value: impl IntoStyleConvert<Length>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -1411,6 +1536,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn p_b(mut self, value: impl IntoStyleConvert<Length>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -1433,6 +1559,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn p_l(mut self, value: impl IntoStyleConvert<Length>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -1456,6 +1583,7 @@ impl ThisStyle {
 
     /// 境界線の太さ（border）を設定します。
     #[inline]
+    #[must_use]
     pub fn border(
         mut self,
         style: impl IntoStyleValue<BorderStyle>,
@@ -1506,30 +1634,35 @@ impl ThisStyle {
 
     /// 実線（Solid）の枠線と太さを一括設定します。
     #[inline]
+    #[must_use]
     pub fn border_solid(self, width: impl IntoStyleRect<Length>) -> Self {
         self.border(BorderStyle::Solid, width)
     }
 
     /// 丸点線（Dotted）の枠線と太さを一括設定します。
     #[inline]
+    #[must_use]
     pub fn border_dotted(self, width: impl IntoStyleRect<Length>) -> Self {
         self.border(BorderStyle::Dotted, width)
     }
 
     /// 破線（Dashed）の枠線と太さを一括設定します。
     #[inline]
+    #[must_use]
     pub fn border_dashed(self, width: impl IntoStyleRect<Length>) -> Self {
         self.border(BorderStyle::Dashed, width)
     }
 
     /// 二重線（Double）の枠線と太さを一括設定します。
     #[inline]
+    #[must_use]
     pub fn border_double(self, width: impl IntoStyleRect<Length>) -> Self {
         self.border(BorderStyle::Double, width)
     }
 
     /// 上枠線（Border Top）の種類と太さを個別に設定します。
     #[inline]
+    #[must_use]
     pub fn border_top(
         mut self,
         style: impl IntoStyleValue<BorderStyle>,
@@ -1587,6 +1720,7 @@ impl ThisStyle {
 
     /// 右枠線（Border Right）の種類と太さを個別に設定します。
     #[inline]
+    #[must_use]
     pub fn border_right(
         mut self,
         style: impl IntoStyleValue<BorderStyle>,
@@ -1644,6 +1778,7 @@ impl ThisStyle {
 
     /// 下枠線（Border Bottom）の種類と太さを個別に設定します。
     #[inline]
+    #[must_use]
     pub fn border_bottom(
         mut self,
         style: impl IntoStyleValue<BorderStyle>,
@@ -1701,6 +1836,7 @@ impl ThisStyle {
 
     /// 左枠線（Border Left）の種類と太さを個別に設定します。
     #[inline]
+    #[must_use]
     pub fn border_left(
         mut self,
         style: impl IntoStyleValue<BorderStyle>,
@@ -1759,6 +1895,7 @@ impl ThisStyle {
     /// 四辺個別の枠線の長さ比率（0.0 ~ 1.0）を設定します。
     /// 単一値、2連タプル (縦, 横)、4連タプル (上, 右, 下, 左) を受け入れます。
     #[inline]
+    #[must_use]
     pub fn border_lengths(mut self, value: impl IntoStyleRect<f32>) -> Self {
         match value.into_style_rect() {
             StyleValue::Static(v) => {
@@ -1792,6 +1929,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn border_top_length(mut self, value: impl IntoStyleValue<f32>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -1822,6 +1960,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn border_right_length(mut self, value: impl IntoStyleValue<f32>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -1852,6 +1991,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn border_bottom_length(mut self, value: impl IntoStyleValue<f32>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -1882,6 +2022,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn border_left_length(mut self, value: impl IntoStyleValue<f32>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -1913,6 +2054,7 @@ impl ThisStyle {
 
     /// すべての辺の枠線基準点（伸縮方向）を一括設定します。
     #[inline]
+    #[must_use]
     pub fn border_align(mut self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -1937,6 +2079,7 @@ impl ThisStyle {
 
     /// 四辺個別の枠線基準点を設定します。[Top, Right, Bottom, Left]
     #[inline]
+    #[must_use]
     pub fn border_aligns(mut self, values: impl IntoStyleValue<[BorderAlignment; 4]>) -> Self {
         match values.into_style_value() {
             StyleValue::Static(v) => {
@@ -1994,24 +2137,29 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn border_top_align(self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         self.set_border_align_idx(0, value)
     }
     #[inline]
+    #[must_use]
     pub fn border_right_align(self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         self.set_border_align_idx(1, value)
     }
     #[inline]
+    #[must_use]
     pub fn border_bottom_align(self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         self.set_border_align_idx(2, value)
     }
     #[inline]
+    #[must_use]
     pub fn border_left_align(self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         self.set_border_align_idx(3, value)
     }
 
     /// アウトラインの太さとスタイルを一括指定します。
     #[inline]
+    #[must_use]
     pub fn outline(
         mut self,
         style: impl IntoStyleValue<BorderStyle>,
@@ -2069,30 +2217,35 @@ impl ThisStyle {
 
     /// 実線（Solid）の枠線と太さを一括設定します。
     #[inline]
+    #[must_use]
     pub fn outline_solid(self, width: impl IntoStyleRect<Length>) -> Self {
         self.outline(BorderStyle::Solid, width)
     }
 
     /// 丸点線（Dotted）の枠線と太さを一括設定します。
     #[inline]
+    #[must_use]
     pub fn outline_dotted(self, width: impl IntoStyleRect<Length>) -> Self {
         self.outline(BorderStyle::Dotted, width)
     }
 
     /// 破線（Dashed）の枠線と太さを一括設定します。
     #[inline]
+    #[must_use]
     pub fn outline_dashed(self, width: impl IntoStyleRect<Length>) -> Self {
         self.outline(BorderStyle::Dashed, width)
     }
 
     /// 二重線（Double）の枠線と太さを一括設定します。
     #[inline]
+    #[must_use]
     pub fn outline_double(self, width: impl IntoStyleRect<Length>) -> Self {
         self.outline(BorderStyle::Double, width)
     }
 
     /// アウトラインの色を設定します。
     #[inline]
+    #[must_use]
     pub fn outline_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2117,6 +2270,7 @@ impl ThisStyle {
 
     /// 要素とアウトラインとの「隙間（Offset）」を物理ピクセルで設定します。
     #[inline]
+    #[must_use]
     pub fn outline_offset(mut self, value: impl IntoStyleValue<f32>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2141,6 +2295,7 @@ impl ThisStyle {
 
     /// 四辺のアウトライン個別長さを設定します。
     #[inline]
+    #[must_use]
     pub fn outline_lengths(mut self, value: impl IntoStyleRect<f32>) -> Self {
         match value.into_style_rect() {
             StyleValue::Static(v) => {
@@ -2175,6 +2330,7 @@ impl ThisStyle {
 
     /// アウトラインの基準（配置伸縮の方向）を一括設定します。
     #[inline]
+    #[must_use]
     pub fn outline_align(mut self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2198,6 +2354,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn outline_weight(mut self, value: impl IntoStyleValue<BorderAlignment>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2222,6 +2379,7 @@ impl ThisStyle {
 
     /// コンテナ内の一括交差軸配置を設定します。
     #[inline]
+    #[must_use]
     pub fn align_items(mut self, value: impl IntoStyleValue<Option<AlignItems>>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2245,67 +2403,80 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn items_start(self) -> Self {
         self.align_items(AlignItems::Start)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_end(self) -> Self {
         self.align_items(AlignItems::End)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_flex_start(self) -> Self {
         self.align_items(AlignItems::FlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_flex_end(self) -> Self {
         self.align_items(AlignItems::FlexEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_center(self) -> Self {
         self.align_items(AlignItems::Center)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_baseline(self) -> Self {
         self.align_items(AlignItems::Baseline)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_stretch(self) -> Self {
         self.align_items(AlignItems::Stretch)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_start_safe(self) -> Self {
         self.align_items(AlignItems::SafeStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_end_safe(self) -> Self {
         self.align_items(AlignItems::SafeEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_flex_start_safe(self) -> Self {
         self.align_items(AlignItems::SafeFlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_flex_end_safe(self) -> Self {
         self.align_items(AlignItems::SafeFlexEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn items_center_safe(self) -> Self {
         self.align_items(AlignItems::SafeCenter)
     }
 
     /// 個別要素の交差軸配置を設定します。
     #[inline]
+    #[must_use]
     pub fn align_self(mut self, value: impl IntoStyleValue<Option<AlignSelf>>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2329,72 +2500,86 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn self_auto(self) -> Self {
         self.align_self(None)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_start(self) -> Self {
         self.align_self(AlignSelf::Start)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_end(self) -> Self {
         self.align_self(AlignSelf::End)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_flex_start(self) -> Self {
         self.align_self(AlignSelf::FlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_flex_end(self) -> Self {
         self.align_self(AlignSelf::FlexEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_center(self) -> Self {
         self.align_self(AlignSelf::Center)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_baseline(self) -> Self {
         self.align_self(AlignSelf::Baseline)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_stretch(self) -> Self {
         self.align_self(AlignSelf::Stretch)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_start_safe(self) -> Self {
         self.align_self(AlignSelf::SafeStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_end_safe(self) -> Self {
         self.align_self(AlignSelf::SafeEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_flex_start_safe(self) -> Self {
         self.align_self(AlignSelf::SafeFlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_flex_end_safe(self) -> Self {
         self.align_self(AlignSelf::SafeFlexEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn self_center_safe(self) -> Self {
         self.align_self(AlignSelf::SafeCenter)
     }
 
     /// コンテナ内の一括主軸配置を設定します。
     #[inline]
+    #[must_use]
     pub fn justify_items(mut self, value: impl IntoStyleValue<Option<AlignItems>>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2418,67 +2603,80 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_center(self) -> Self {
         self.justify_items(AlignItems::Center)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_center_safe(self) -> Self {
         self.justify_items(AlignItems::SafeCenter)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_end(self) -> Self {
         self.justify_items(AlignItems::End)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_end_safe(self) -> Self {
         self.justify_items(AlignItems::SafeEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_start(self) -> Self {
         self.justify_items(AlignItems::Start)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_start_safe(self) -> Self {
         self.justify_items(AlignItems::SafeStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_stretch(self) -> Self {
         self.justify_items(AlignItems::Stretch)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_flex_start(self) -> Self {
         self.justify_items(AlignItems::FlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_flex_end(self) -> Self {
         self.justify_items(AlignItems::FlexEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_flex_start_safe(self) -> Self {
         self.justify_items(AlignItems::SafeFlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_flex_end_safe(self) -> Self {
         self.justify_items(AlignItems::SafeFlexEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_items_baseline(self) -> Self {
         self.justify_items(AlignItems::Baseline)
     }
 
     /// 個別要素の主軸配置を設定します。
     #[inline]
+    #[must_use]
     pub fn justify_self(mut self, value: impl IntoStyleValue<Option<AlignSelf>>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2502,72 +2700,86 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_auto(self) -> Self {
         self.justify_self(None)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_baseline(self) -> Self {
         self.justify_self(AlignSelf::Baseline)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_center(self) -> Self {
         self.justify_self(AlignSelf::Center)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_center_safe(self) -> Self {
         self.justify_self(AlignSelf::SafeCenter)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_end(self) -> Self {
         self.justify_self(AlignSelf::End)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_end_safe(self) -> Self {
         self.justify_self(AlignSelf::SafeEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_start(self) -> Self {
         self.justify_self(AlignSelf::Start)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_start_safe(self) -> Self {
         self.justify_self(AlignSelf::SafeStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_stretch(self) -> Self {
         self.justify_self(AlignSelf::Stretch)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_flex_start(self) -> Self {
         self.justify_self(AlignSelf::FlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_flex_end(self) -> Self {
         self.justify_self(AlignSelf::FlexEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_flex_start_safe(self) -> Self {
         self.justify_self(AlignSelf::SafeFlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_self_flex_end_safe(self) -> Self {
         self.justify_self(AlignSelf::SafeFlexEnd)
     }
 
     /// 複数行にまたがる場合のコンテンツ一括配置を設定します。
     #[inline]
+    #[must_use]
     pub fn align_content(mut self, value: impl IntoStyleValue<Option<AlignContent>>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2591,77 +2803,92 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn content_around(self) -> Self {
         self.align_content(AlignContent::SpaceAround)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_between(self) -> Self {
         self.align_content(AlignContent::SpaceBetween)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_center(self) -> Self {
         self.align_content(AlignContent::Center)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_center_safe(self) -> Self {
         self.align_content(AlignContent::SafeCenter)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_end(self) -> Self {
         self.align_content(AlignContent::End)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_end_safe(self) -> Self {
         self.align_content(AlignContent::SafeEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_evenly(self) -> Self {
         self.align_content(AlignContent::SpaceEvenly)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_start(self) -> Self {
         self.align_content(AlignContent::Start)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_start_safe(self) -> Self {
         self.align_content(AlignContent::SafeStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_stretch(self) -> Self {
         self.align_content(AlignContent::Stretch)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_flex_start(self) -> Self {
         self.align_content(AlignContent::FlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_flex_end(self) -> Self {
         self.align_content(AlignContent::FlexEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_flex_start_safe(self) -> Self {
         self.align_content(AlignContent::SafeFlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn content_flex_end_safe(self) -> Self {
         self.align_content(AlignContent::SafeFlexEnd)
     }
 
     /// 主軸方向のコンテンツ配置を設定します。
     #[inline]
+    #[must_use]
     pub fn justify_content(mut self, value: impl IntoStyleValue<Option<JustifyContent>>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2685,77 +2912,92 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_around(self) -> Self {
         self.justify_content(JustifyContent::SpaceAround)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_between(self) -> Self {
         self.justify_content(JustifyContent::SpaceBetween)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_center(self) -> Self {
         self.justify_content(JustifyContent::Center)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_center_safe(self) -> Self {
         self.justify_content(JustifyContent::SafeCenter)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_end(self) -> Self {
         self.justify_content(JustifyContent::End)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_end_safe(self) -> Self {
         self.justify_content(JustifyContent::SafeEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_evenly(self) -> Self {
         self.justify_content(JustifyContent::SpaceEvenly)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_start(self) -> Self {
         self.justify_content(JustifyContent::Start)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_start_safe(self) -> Self {
         self.justify_content(JustifyContent::SafeStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_stretch(self) -> Self {
         self.justify_content(JustifyContent::Stretch)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_flex_start(self) -> Self {
         self.justify_content(JustifyContent::FlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_flex_end(self) -> Self {
         self.justify_content(JustifyContent::FlexEnd)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_flex_start_safe(self) -> Self {
         self.justify_content(JustifyContent::SafeFlexStart)
     }
 
     #[inline]
+    #[must_use]
     pub fn justify_flex_end_safe(self) -> Self {
         self.justify_content(JustifyContent::SafeFlexEnd)
     }
 
     /// 要素間の行・列方向の隙間（gap）を設定します。
     #[inline]
+    #[must_use]
     pub fn gap(mut self, value: impl IntoStyleSize<Val>) -> Self {
         match value.into_style_size() {
             StyleValue::Static(v) => {
@@ -2779,17 +3021,20 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn gap_0(self) -> Self {
         self.gap(0.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn gap_auto(self) -> Self {
         self.gap(auto())
     }
 
     /// 子要素同士の行方向（縦方向、row-gap）の隙間を設定します。
     #[inline]
+    #[must_use]
     pub fn gap_row(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -2813,6 +3058,7 @@ impl ThisStyle {
 
     /// 子要素同士の列方向（横方向、column-gap）の隙間を設定します。
     #[inline]
+    #[must_use]
     pub fn gap_col(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -2836,18 +3082,21 @@ impl ThisStyle {
 
     /// エイリアス：子要素同士の縦方向の隙間を設定します。
     #[inline]
+    #[must_use]
     pub fn gap_y(self, value: impl IntoStyleConvert<Val>) -> Self {
         self.gap_row(value)
     }
 
     /// エイリアス：子要素同士の横方向の隙間を設定します。
     #[inline]
+    #[must_use]
     pub fn gap_x(self, value: impl IntoStyleConvert<Val>) -> Self {
         self.gap_col(value)
     }
 
     /// テキストの配置揃え方向を設定します。
     #[inline]
+    #[must_use]
     pub fn text_align(mut self, value: impl IntoStyleValue<TextAlign>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2871,27 +3120,32 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn text_center(self) -> Self {
         self.text_align(TextAlign::Center)
     }
 
     #[inline]
+    #[must_use]
     pub fn text_auto(self) -> Self {
         self.text_align(TextAlign::Auto)
     }
 
     #[inline]
+    #[must_use]
     pub fn text_left(self) -> Self {
         self.text_align(TextAlign::Left)
     }
 
     #[inline]
+    #[must_use]
     pub fn text_right(self) -> Self {
         self.text_align(TextAlign::Right)
     }
 
     /// Flexコンテナ内での主軸の方向を設定します。
     #[inline]
+    #[must_use]
     pub fn flex_direction(mut self, value: impl IntoStyleValue<FlexDirection>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2917,27 +3171,32 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn flex_col(self) -> Self {
         self.flex_direction(FlexDirection::Column)
     }
 
     #[inline]
+    #[must_use]
     pub fn flex_col_reverse(self) -> Self {
         self.flex_direction(FlexDirection::ColumnReverse)
     }
 
     #[inline]
+    #[must_use]
     pub fn flex_row(self) -> Self {
         self.flex_direction(FlexDirection::Row)
     }
 
     #[inline]
+    #[must_use]
     pub fn flex_row_reverse(self) -> Self {
         self.flex_direction(FlexDirection::RowReverse)
     }
 
     /// 子要素を複数行に折り返すかどうかを設定します。
     #[inline]
+    #[must_use]
     pub fn flex_wrap_internal(mut self, value: impl IntoStyleValue<FlexWrap>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -2963,22 +3222,26 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn flex_wrap(self) -> Self {
         self.flex_wrap_internal(FlexWrap::Wrap)
     }
 
     #[inline]
+    #[must_use]
     pub fn flex_nowrap(self) -> Self {
         self.flex_wrap_internal(FlexWrap::NoWrap)
     }
 
     #[inline]
+    #[must_use]
     pub fn flex_wrap_reverse(self) -> Self {
         self.flex_wrap_internal(FlexWrap::WrapReverse)
     }
 
     /// 子要素の基準となる基本寸法を設定します。
     #[inline]
+    #[must_use]
     pub fn basis(mut self, value: impl IntoStyleConvert<Val>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -3002,16 +3265,19 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn basis_0(self) -> Self {
         self.basis(0.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn basis_auto(self) -> Self {
         self.basis(auto())
     }
 
     #[inline]
+    #[must_use]
     pub fn basis_full(self) -> Self {
         self.basis(pct(100.0))
     }
@@ -3019,6 +3285,7 @@ impl ThisStyle {
     /// 要素の伸長比率（flex-grow）を直接設定します。
     /// bool（true/false）または数値（f32/i32）を受け入れます。
     #[inline]
+    #[must_use]
     pub fn flex_grow(mut self, value: impl IntoStyleConvert<f32>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -3043,12 +3310,14 @@ impl ThisStyle {
 
     /// 要素を引き伸ばすように設定します (flex-grow: 1.0)。
     #[inline]
+    #[must_use]
     pub fn grow(self) -> Self {
         self.flex_grow(1.0)
     }
 
     /// 要素を引き伸ばさないように設定します (flex-grow: 0.0)。
     #[inline]
+    #[must_use]
     pub fn grow_0(self) -> Self {
         self.flex_grow(0.0)
     }
@@ -3056,6 +3325,7 @@ impl ThisStyle {
     /// 要素の縮小比率（flex-shrink）を直接設定します。
     /// bool（true/false）または数値（f32/i32）を受け入れます。
     #[inline]
+    #[must_use]
     pub fn flex_shrink(mut self, value: impl IntoStyleConvert<f32>) -> Self {
         match value.into_style_convert() {
             StyleValue::Static(v) => {
@@ -3080,18 +3350,21 @@ impl ThisStyle {
 
     /// 要素を縮小可能に設定します (flex-shrink: 1.0)。
     #[inline]
+    #[must_use]
     pub fn shrink(self) -> Self {
         self.flex_shrink(1.0)
     }
 
     /// 要素を絶対に縮小させない（サイズを潰さない）ように設定します (flex-shrink: 0.0)。
     #[inline]
+    #[must_use]
     pub fn shrink_0(self) -> Self {
         self.flex_shrink(0.0)
     }
 
     /// 要素の背景色（Background Color）を設定します。
     #[inline]
+    #[must_use]
     pub fn bg_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3116,6 +3389,7 @@ impl ThisStyle {
 
     /// 要素の境界線の色を設定します。
     #[inline]
+    #[must_use]
     pub fn border_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3140,6 +3414,7 @@ impl ThisStyle {
 
     /// 要素の角丸の半径を設定します。
     #[inline]
+    #[must_use]
     pub fn corner_radius(mut self, value: impl IntoStyleCornerRadius) -> Self {
         match value.into_style_corner_radius() {
             StyleValue::Static(v) => {
@@ -3165,24 +3440,28 @@ impl ThisStyle {
     /// `corner_radius` の短縮エイリアス。要素の角丸を設定します。
     /// 単一値、2連タプル、4連タプルを受け入れます。
     #[inline]
+    #[must_use]
     pub fn rounded(self, value: impl IntoStyleCornerRadius) -> Self {
         self.corner_radius(value)
     }
 
     /// `corner_radius` の超短縮エイリアス。要素の角丸を設定します。
     #[inline]
+    #[must_use]
     pub fn r(self, value: impl IntoStyleCornerRadius) -> Self {
         self.corner_radius(value)
     }
 
     /// 要素を完全なサークル（またはカプセル型、Tailwind CSS の rounded-full 相当）にします。
     #[inline]
+    #[must_use]
     pub fn r_full(self) -> Self {
         self.corner_radius(9999.0)
     }
 
     /// 上半分の角（top-left, top-right）にのみ角丸を設定します。
     #[inline]
+    #[must_use]
     pub fn r_top(self, value: impl Convert<f32>) -> Self {
         let val = value.convert();
         let current = self
@@ -3195,6 +3474,7 @@ impl ThisStyle {
 
     /// 下半分の角（bottom-left, bottom-right）にのみ角丸を設定します。
     #[inline]
+    #[must_use]
     pub fn r_bottom(self, value: impl Convert<f32>) -> Self {
         let val = value.convert();
         let current = self
@@ -3207,6 +3487,7 @@ impl ThisStyle {
 
     /// 左半分の角（top-left, bottom-left）にのみ角丸を設定します。
     #[inline]
+    #[must_use]
     pub fn r_left(self, value: impl Convert<f32>) -> Self {
         let val = value.convert();
         let current = self
@@ -3219,6 +3500,7 @@ impl ThisStyle {
 
     /// 右半分の角（top-right, bottom-right）にのみ角丸を設定します。
     #[inline]
+    #[must_use]
     pub fn r_right(self, value: impl Convert<f32>) -> Self {
         let val = value.convert();
         let current = self
@@ -3231,6 +3513,7 @@ impl ThisStyle {
 
     /// 要素全体の不透明度を設定します。
     #[inline]
+    #[must_use]
     pub fn opacity(mut self, value: impl IntoStyleValue<f32>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3254,22 +3537,26 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn opacity_0(self) -> Self {
         self.opacity(0.0)
     }
 
     #[inline]
+    #[must_use]
     pub fn opacity_50(self) -> Self {
         self.opacity(0.5)
     }
 
     #[inline]
+    #[must_use]
     pub fn opacity_100(self) -> Self {
         self.opacity(1.0)
     }
 
     /// 要素の外側に配置する影を設定します。
     #[inline]
+    #[must_use]
     pub fn box_shadow(mut self, value: impl IntoStyleValue<BoxShadow>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3294,8 +3581,9 @@ impl ThisStyle {
         self
     }
 
-    /// 影の色（shadow_color）のみを設定・上書きします。
+    /// `影の色（shadow_color）のみを設定・上書きします`。
     #[inline]
+    #[must_use]
     pub fn shadow_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3320,6 +3608,7 @@ impl ThisStyle {
 
     /// 重なり順（Z-Index）を整数で設定します。
     #[inline]
+    #[must_use]
     pub fn z_index(mut self, value: impl IntoStyleValue<i32>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3343,27 +3632,32 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn z(self, value: impl IntoStyleValue<i32>) -> Self {
         self.z_index(value)
     }
 
     #[inline]
+    #[must_use]
     pub fn z_neg_1(self) -> Self {
         self.z_index(-1)
     }
 
     #[inline]
+    #[must_use]
     pub fn z_0(self) -> Self {
         self.z_index(0)
     }
 
     #[inline]
+    #[must_use]
     pub fn z_1(self) -> Self {
         self.z_index(1)
     }
 
     /// この要素の上にマウスが乗った際のマウスクラスアイコンを設定します。
     #[inline]
+    #[must_use]
     pub fn cursor(mut self, value: impl IntoStyleValue<CursorIcon>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3387,37 +3681,44 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_default(self) -> Self {
         self.cursor(CursorIcon::Default(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_grab(self) -> Self {
         self.cursor(CursorIcon::Grab(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_grabbing(self) -> Self {
         self.cursor(CursorIcon::Grabbing(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_not_allowed(self) -> Self {
         self.cursor(CursorIcon::NotAllowed(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_pointer(self) -> Self {
         self.cursor(CursorIcon::Pointer(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_text(self) -> Self {
         self.cursor(CursorIcon::Text(None))
     }
 
     /// 親先祖へ伝播するグローバルカーソルアイコンを設定します。
     #[inline]
+    #[must_use]
     pub fn cursor_global(self, value: impl IntoStyleValue<GlobalCursorIcon>) -> Self {
         let cursor_val = match value.into_style_value() {
             StyleValue::Static(v) => StyleValue::Static(CursorIcon::Global(v)),
@@ -3429,31 +3730,37 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_global_default(self) -> Self {
         self.cursor_global(GlobalCursorIcon::Default(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_global_pointer(self) -> Self {
         self.cursor_global(GlobalCursorIcon::Pointer(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_global_text(self) -> Self {
         self.cursor_global(GlobalCursorIcon::Text(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_global_grab(self) -> Self {
         self.cursor_global(GlobalCursorIcon::Grab(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn cursor_global_grabbing(self) -> Self {
         self.cursor_global(GlobalCursorIcon::Grabbing(None))
     }
 
     #[inline]
+    #[must_use]
     pub fn backdrop(mut self, backdrop: impl IntoStyleValue<Backdrop>) -> Self {
         match backdrop.into_style_value() {
             StyleValue::Static(v) => {
@@ -3477,27 +3784,32 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn backdrop_acrylic(self) -> Self {
         self.backdrop(Backdrop::Acrylic)
     }
 
     #[inline]
+    #[must_use]
     pub fn backdrop_mica(self) -> Self {
         self.backdrop(Backdrop::Mica)
     }
 
     #[inline]
+    #[must_use]
     pub fn backdrop_mica_alt(self) -> Self {
         self.backdrop(Backdrop::MicaAlt)
     }
 
     #[inline]
+    #[must_use]
     pub fn backdrop_none(self) -> Self {
         self.backdrop(Backdrop::None)
     }
 
     /// 要素内でレンダリングされるテキストの基本色を設定します。
     #[inline]
+    #[must_use]
     pub fn text_color(mut self, value: impl IntoStyleValue<Color>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3522,6 +3834,7 @@ impl ThisStyle {
 
     /// グリッドの行方向の明示的なトラックサイズ定義を設定します。
     #[inline]
+    #[must_use]
     pub fn grid_template_rows(
         mut self,
         value: impl IntoStyleValue<Vec<GridTemplateComponent<String>>>,
@@ -3555,6 +3868,7 @@ impl ThisStyle {
 
     /// グリッドの列方向の明示的なトラックサイズ定義を設定します。
     #[inline]
+    #[must_use]
     pub fn grid_template_columns(
         mut self,
         value: impl IntoStyleValue<Vec<GridTemplateComponent<String>>>,
@@ -3588,6 +3902,7 @@ impl ThisStyle {
 
     /// 暗黙的に生成されるグリッド行のデフォルトサイズを設定します。
     #[inline]
+    #[must_use]
     pub fn grid_auto_rows(mut self, value: impl IntoStyleValue<Vec<TrackSizingFunction>>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3618,6 +3933,7 @@ impl ThisStyle {
 
     /// 暗黙的に生成されるグリッド列のデフォルトサイズを設定します。
     #[inline]
+    #[must_use]
     pub fn grid_auto_columns(
         mut self,
         value: impl IntoStyleValue<Vec<TrackSizingFunction>>,
@@ -3651,6 +3967,7 @@ impl ThisStyle {
 
     /// 自動配置アルゴリズムの制御方法を設定します。
     #[inline]
+    #[must_use]
     pub fn grid_auto_flow(mut self, value: impl IntoStyleValue<GridAutoFlow>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3681,6 +3998,7 @@ impl ThisStyle {
 
     /// 名前付きグリッドエリアを定義して配置を決定します。
     #[inline]
+    #[must_use]
     pub fn grid_template_areas(
         mut self,
         value: impl IntoStyleValue<Vec<GridTemplateArea<String>>>,
@@ -3714,6 +4032,7 @@ impl ThisStyle {
 
     /// 明示的に定義された各グリッド列線に対する名前のリストを設定します。
     #[inline]
+    #[must_use]
     pub fn grid_template_column_names(
         mut self,
         value: impl IntoStyleValue<Vec<Vec<String>>>,
@@ -3747,6 +4066,7 @@ impl ThisStyle {
 
     /// 明示的に定義された各グリッド行線に対する名前のリストを設定します。
     #[inline]
+    #[must_use]
     pub fn grid_template_row_names(mut self, value: impl IntoStyleValue<Vec<Vec<String>>>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3777,6 +4097,7 @@ impl ThisStyle {
 
     /// グリッドアイテムが配置される行の開始位置と終了位置を指定します。
     #[inline]
+    #[must_use]
     pub fn grid_row(mut self, value: impl IntoStyleValue<GridLine<GridPlacement<String>>>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -3807,6 +4128,7 @@ impl ThisStyle {
 
     /// グリッドアイテムが配置される列の開始位置と終了位置を指定します。
     #[inline]
+    #[must_use]
     pub fn grid_column(
         mut self,
         value: impl IntoStyleValue<GridLine<GridPlacement<String>>>,
@@ -3840,54 +4162,63 @@ impl ThisStyle {
 
     /// マウスが要素の上に乗った（Hover）際に適用するオーバーライドスタイルを設定します。
     #[inline]
+    #[must_use]
     pub fn hovered(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_HOVERED, StyleTarget::Hovered)
     }
 
     /// キーボードタブ移動などで要素にフォーカスが当たった際に適用するスタイルを設定します。
     #[inline]
+    #[must_use]
     pub fn focused(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_FOCUSED, StyleTarget::Focused)
     }
 
     /// キーボード経由のフォーカス時のみ（focus-visible相当）適用するスタイルを設定します。
     #[inline]
+    #[must_use]
     pub fn focused_visible(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_FOCUSED_VISIBLE, StyleTarget::FocusedVisible)
     }
 
     /// マウスの左ボタンが要素の上で押し下げられた際、またはタップ中に適用するスタイルを設定します。
     #[inline]
+    #[must_use]
     pub fn pressed(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_PRESSED, StyleTarget::Pressed)
     }
 
     /// 要素が無効化された際に適用するスタイルを設定します。
     #[inline]
+    #[must_use]
     pub fn disabled(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_DISABLED, StyleTarget::Disabled)
     }
 
     /// 要素がアクティブ状態の時に適用するスタイルを設定します。
     #[inline]
+    #[must_use]
     pub fn actived(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_ACTIVED, StyleTarget::Actived)
     }
 
     /// 要素がトグル選択された際に適用するスタイルを設定します。
     #[inline]
+    #[must_use]
     pub fn selected(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_SELECTED, StyleTarget::Selected)
     }
 
     /// 要素が現在ドラッグ操作中にある際に適用するスタイルを設定します。
     #[inline]
+    #[must_use]
     pub fn dragged(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_DRAGGED, StyleTarget::Dragged)
     }
 
     /// 子孫要素のインタラクション状態に連動して自身のスタイルを変化させる伝播設定
     #[inline]
+    #[must_use]
     pub fn interaction_within(
         self,
         name: InteractionName,
@@ -3910,53 +4241,63 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn hovered_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Hover, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn focused_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Focus, style)
     }
 
     /// 子孫要素がキーボードフォーカスされている場合のみ適用するスタイルを設定します。
     #[inline]
+    #[must_use]
     pub fn focused_visible_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::FocusVisible, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn pressed_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Press, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn disabled_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Disable, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn actived_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Active, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn selected_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Select, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn dragged_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::Drag, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn all_within(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_within(InteractionName::All, style)
     }
 
     /// 直近の親要素のインタラクション状態に連動して自身のスタイルを変化させる
     #[inline]
+    #[must_use]
     pub fn interaction_parent(
         self,
         name: InteractionName,
@@ -3979,46 +4320,55 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn hovered_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Hover, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn focused_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Focus, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn focused_visible_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::FocusVisible, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn pressed_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Press, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn disabled_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Disable, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn actived_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Active, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn selected_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Select, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn dragged_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::Drag, style)
     }
 
     #[inline]
+    #[must_use]
     pub fn all_parent(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.interaction_parent(InteractionName::All, style)
     }
@@ -4027,6 +4377,7 @@ impl ThisStyle {
     /// 引数にはタプル `(top, right, bottom, left)`、配列 `[top, right, bottom, left]`、
     /// またはそれらを解決するシグナル、動的クロージャを指定できます。
     #[inline]
+    #[must_use]
     pub fn resizable(mut self, value: impl IntoStyleResizable) -> Self {
         match value.into_style_resizable() {
             StyleValue::Static(v) => {
@@ -4051,6 +4402,7 @@ impl ThisStyle {
 
     /// 四方向（上下左右）すべてのリサイズ可否を一括設定します。
     #[inline]
+    #[must_use]
     pub fn resizable_all(mut self, value: impl IntoStyleValue<bool>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4075,6 +4427,7 @@ impl ThisStyle {
 
     /// 左右（X軸方向）のリサイズ可否を一括設定します。
     #[inline]
+    #[must_use]
     pub fn resizable_x(mut self, value: impl IntoStyleValue<bool>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4101,6 +4454,7 @@ impl ThisStyle {
 
     /// 上下（Y軸方向）のリサイズ可否を一括設定します。
     #[inline]
+    #[must_use]
     pub fn resizable_y(mut self, value: impl IntoStyleValue<bool>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4127,24 +4481,28 @@ impl ThisStyle {
 
     /// 上側のリサイズ可否を個別に設定します。
     #[inline]
+    #[must_use]
     pub fn resizable_top(self, value: impl IntoStyleValue<bool>) -> Self {
         self.set_resizable_edge_idx(0, value)
     }
 
     /// 右側のリサイズ可否を個別に設定します。
     #[inline]
+    #[must_use]
     pub fn resizable_right(self, value: impl IntoStyleValue<bool>) -> Self {
         self.set_resizable_edge_idx(1, value)
     }
 
     /// 下側のリサイズ可否を個別に設定します。
     #[inline]
+    #[must_use]
     pub fn resizable_bottom(self, value: impl IntoStyleValue<bool>) -> Self {
         self.set_resizable_edge_idx(2, value)
     }
 
     /// 左側のリサイズ可否を個別に設定します。
     #[inline]
+    #[must_use]
     pub fn resizable_left(self, value: impl IntoStyleValue<bool>) -> Self {
         self.set_resizable_edge_idx(3, value)
     }
@@ -4175,6 +4533,7 @@ impl ThisStyle {
     /// リサイズ方向ごとのカスタムカーソルを一括設定します。[Ns, Ew, Nesw, Nwse]
     /// 各方向に対して None を指定した場合は、ライブラリの自動カーソルマッピングが適用されます。
     #[inline]
+    #[must_use]
     pub fn resizable_cursor(
         mut self,
         ns: Option<CursorIcon>,
@@ -4189,12 +4548,14 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn resizable_cursor_default(self) -> Self {
         self.resizable_cursor(None, None, None, None)
     }
 
     /// ドラッグ時にプレースホルダーを最上位ルート要素の子としてアタッチし、絶対配置追従させます。
     #[inline]
+    #[must_use]
     pub fn draggable_root(
         mut self,
         mode: impl IntoStyleValue<DragPayload>,
@@ -4252,6 +4613,7 @@ impl ThisStyle {
 
     /// ドラッグ時にプレースホルダーを特定の親要素の子としてアタッチし（範囲制限）、絶対配置追従させます。
     #[inline]
+    #[must_use]
     pub fn draggable_parent(
         mut self,
         parent_id: impl IntoStyleValue<EntityId>,
@@ -4318,6 +4680,7 @@ impl ThisStyle {
 
     /// 要素がドロップの受け入れ可能であることを示し、取り込み方式と動作を指定します。
     #[inline]
+    #[must_use]
     pub fn droppable(
         mut self,
         target: impl IntoStyleValue<DropTarget>,
@@ -4373,24 +4736,28 @@ impl ThisStyle {
 
     /// ドラッグ中の元の要素に適用する疑似クラススタイルを指定します。
     #[inline]
+    #[must_use]
     pub fn draggable_original(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_DRAGGING, StyleTarget::Dragging)
     }
 
     /// ドラッグ中のプレースホルダー（ドラッグイメージ）に適用する疑似クラススタイルを指定します。
     #[inline]
+    #[must_use]
     pub fn draggable_placeholder(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_DRAG_OVER, StyleTarget::DragOver)
     }
 
     /// ドロップゾーンにドラッグ要素がホバー侵入している際に、ドロップゾーン側に適用するスタイルを指定します。
     #[inline]
+    #[must_use]
     pub fn drag_over(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
         self.apply_interaction_style(style, STATE_DRAG_IN, StyleTarget::DragIn)
     }
 
     /// ポインターメッセージ（マウスインタラクションなど）の透過を制御します。
     #[inline]
+    #[must_use]
     pub fn pointer_events(mut self, value: impl IntoStyleValue<PointerEvents>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4417,18 +4784,21 @@ impl ThisStyle {
 
     /// 要素がマウスインタラクションを無視し、背後にある要素へイベントを透過させます。
     #[inline]
+    #[must_use]
     pub fn pointer_events_none(self) -> Self {
         self.pointer_events(PointerEvents::None)
     }
 
     /// 要素が通常通りマウスインタラクションを受け取ります（デフォルト）。
     #[inline]
+    #[must_use]
     pub fn pointer_events_auto(self) -> Self {
         self.pointer_events(PointerEvents::Auto)
     }
 
     /// 要素にアフィン変換（平行移動・拡大・回転）を適用します。
     #[inline]
+    #[must_use]
     pub fn transform(mut self, value: impl IntoStyleValue<Transform>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4452,6 +4822,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn transform_origin(mut self, point: impl IntoStylePoint<f32>) -> Self {
         match point.into_style_point() {
             StyleValue::Static(v) => {
@@ -4475,6 +4846,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn transform_scale(self, x: f32, y: f32) -> Self {
         let current = self
             .inner
@@ -4486,6 +4858,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn transform_translate(self, x: f32, y: f32) -> Self {
         let current = self
             .inner
@@ -4497,6 +4870,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn transform_rotate(self, radians: f32) -> Self {
         let current = self
             .inner
@@ -4508,6 +4882,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn transform_inherit(mut self, value: impl IntoStyleValue<bool>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4532,6 +4907,7 @@ impl ThisStyle {
 
     /// 状態遷移時のトランジション（CSS transition）を設定します。
     #[inline]
+    #[must_use]
     pub fn transition(mut self, transition: impl IntoStyleValue<Transition>) -> Self {
         match transition.into_style_value() {
             StyleValue::Static(v) => {
@@ -4557,6 +4933,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn trans_bg_color(self, duration: Duration, curve: AnimationCurve) -> Self {
         self.transition(Transition::new(
             PropertyList::BackgroundColor,
@@ -4566,47 +4943,56 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn trans_border_color(self, duration: Duration, curve: AnimationCurve) -> Self {
         self.transition(Transition::new(PropertyList::BorderColor, duration, curve))
     }
 
     #[inline]
+    #[must_use]
     pub fn trans_box_shadow(self, duration: Duration, curve: AnimationCurve) -> Self {
         self.transition(Transition::new(PropertyList::BoxShadow, duration, curve))
     }
 
     #[inline]
+    #[must_use]
     pub fn trans_corder_radius(self, duration: Duration, curve: AnimationCurve) -> Self {
         self.transition(Transition::new(PropertyList::CornerRadius, duration, curve))
     }
 
     #[inline]
+    #[must_use]
     pub fn trans_opacity(self, duration: Duration, curve: AnimationCurve) -> Self {
         self.transition(Transition::new(PropertyList::Opacity, duration, curve))
     }
 
     #[inline]
+    #[must_use]
     pub fn trans_transform(self, duration: Duration, curve: AnimationCurve) -> Self {
         self.transition(Transition::new(PropertyList::Transform, duration, curve))
     }
 
     #[inline]
+    #[must_use]
     pub fn trans_size(self, duration: Duration, curve: AnimationCurve) -> Self {
         self.transition(Transition::new(PropertyList::Size, duration, curve))
     }
 
     #[inline]
+    #[must_use]
     pub fn trans_width(self, duration: Duration, curve: AnimationCurve) -> Self {
         self.transition(Transition::new(PropertyList::Width, duration, curve))
     }
 
     #[inline]
+    #[must_use]
     pub fn trans_height(self, duration: Duration, curve: AnimationCurve) -> Self {
         self.transition(Transition::new(PropertyList::Height, duration, curve))
     }
 
     /// キーフレームアニメーション（CSS animation）を設定します。
     #[inline]
+    #[must_use]
     pub fn animation(mut self, animation: impl IntoStyleValue<KeyframeAnimation>) -> Self {
         match animation.into_style_value() {
             StyleValue::Static(v) => {
@@ -4633,6 +5019,7 @@ impl ThisStyle {
 
     /// 背景に 2色線形グラデーションを適用します。
     #[inline]
+    #[must_use]
     pub fn bg_gradient(mut self, gradient: impl IntoStyleValue<LinearGradient>) -> Self {
         match gradient.into_style_value() {
             StyleValue::Static(v) => {
@@ -4655,8 +5042,9 @@ impl ThisStyle {
         self
     }
 
-    /// テキストのフォントファミリーを設定します。（例: font_family("Arial")）
+    /// テキストのフォントファミリーを設定します。（例: `font_family("Arial`")）
     #[inline]
+    #[must_use]
     pub fn font_family(mut self, family: impl IntoStyleValue<Cow<'static, str>>) -> Self {
         match family.into_style_value() {
             StyleValue::Static(v) => {
@@ -4681,6 +5069,7 @@ impl ThisStyle {
 
     /// テキストの太さを設定します。
     #[inline]
+    #[must_use]
     pub fn font_weight(mut self, weight: impl IntoStyleValue<u32>) -> Self {
         match weight.into_style_value() {
             StyleValue::Static(v) => {
@@ -4705,6 +5094,7 @@ impl ThisStyle {
 
     /// 要素内でレンダリングされるテキストの基本フォントサイズを設定します。
     #[inline]
+    #[must_use]
     pub fn font_size(mut self, size: impl IntoStyleValue<f32>) -> Self {
         match size.into_style_value() {
             StyleValue::Static(v) => {
@@ -4729,6 +5119,7 @@ impl ThisStyle {
 
     /// フォントスタイルを設定します
     #[inline]
+    #[must_use]
     pub fn font_style(mut self, style: impl IntoStyleValue<u32>) -> Self {
         match style.into_style_value() {
             StyleValue::Static(v) => {
@@ -4753,6 +5144,7 @@ impl ThisStyle {
 
     /// ユーザーによるテキスト選択・コピーの挙動を設定します
     #[inline]
+    #[must_use]
     pub fn user_select(mut self, value: impl IntoStyleValue<UserSelect>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4777,23 +5169,27 @@ impl ThisStyle {
 
     /// テキストのドラッグ範囲選択を許可します (user-select: text 相当)
     #[inline]
+    #[must_use]
     pub fn select_text(self) -> Self {
         self.user_select(UserSelect::Text)
     }
 
     /// テキストを全選択します
     #[inline]
+    #[must_use]
     pub fn select_all(self) -> Self {
         self.user_select(UserSelect::All)
     }
 
     /// テキストの範囲選択を禁止します
     #[inline]
+    #[must_use]
     pub fn select_none(self) -> Self {
         self.user_select(UserSelect::None)
     }
 
     #[inline]
+    #[must_use]
     pub fn select_bg_color(mut self, color: impl IntoStyleValue<Color>) -> Self {
         match color.into_style_value() {
             StyleValue::Static(v) => {
@@ -4817,6 +5213,7 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn select_text_color(mut self, color: impl IntoStyleValue<Color>) -> Self {
         match color.into_style_value() {
             StyleValue::Static(v) => {
@@ -4842,6 +5239,7 @@ impl ThisStyle {
     /// 要素にフォーカスを許可し、スタイル継承ポリシーを指定します。
     /// 引数には `bool`（true の場合は自動的に親スタイル継承を有効化）または `Focusable` を指定できます。
     #[inline]
+    #[must_use]
     pub fn focusable(mut self, value: impl IntoStyleValue<Focusable>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4865,52 +5263,62 @@ impl ThisStyle {
     }
 
     #[inline]
+    #[must_use]
     pub fn focusable_inherit(self, trigger: FocusTrigger) -> Self {
         self.focusable(Focusable::Inherit(trigger))
     }
 
     #[inline]
+    #[must_use]
     pub fn focusable_inherit_both(self) -> Self {
         self.focusable(Focusable::Inherit(FocusTrigger::Both))
     }
 
     #[inline]
+    #[must_use]
     pub fn focusable_inherit_mouse(self) -> Self {
         self.focusable(Focusable::Inherit(FocusTrigger::Mouse))
     }
 
     #[inline]
+    #[must_use]
     pub fn focusable_inherit_keyboard(self) -> Self {
         self.focusable(Focusable::Inherit(FocusTrigger::Keyboard))
     }
 
     #[inline]
+    #[must_use]
     pub fn focusable_self(self, trigger: FocusTrigger) -> Self {
         self.focusable(Focusable::SelfStyle(trigger))
     }
 
     #[inline]
+    #[must_use]
     pub fn focusable_self_both(self) -> Self {
         self.focusable(Focusable::SelfStyle(FocusTrigger::Both))
     }
 
     #[inline]
+    #[must_use]
     pub fn focusable_self_mouse(self) -> Self {
         self.focusable(Focusable::SelfStyle(FocusTrigger::Mouse))
     }
 
     #[inline]
+    #[must_use]
     pub fn focusable_self_keyboard(self) -> Self {
         self.focusable(Focusable::SelfStyle(FocusTrigger::Keyboard))
     }
 
     #[inline]
+    #[must_use]
     pub fn focusable_none(self) -> Self {
         self.focusable(Focusable::None)
     }
 
     /// 自身がクリックされた際に、現在アクティブなフォーカス要素からフォーカスを奪わないように設定します。
     #[inline]
+    #[must_use]
     pub fn prevent_focus_steal(mut self, value: impl IntoStyleValue<bool>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4935,6 +5343,7 @@ impl ThisStyle {
 
     /// 子孫要素がクリックされた際に、現在アクティブなフォーカス要素からフォーカスを奪わないように設定します。
     #[inline]
+    #[must_use]
     pub fn prevent_focus_steal_within(mut self, value: impl IntoStyleValue<bool>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
@@ -4958,6 +5367,7 @@ impl ThisStyle {
     }
 
     /// すべての疑似クラスおよび within 伝播系のスタイルと動的セッターを統合する共通コアヘルパー
+    #[allow(clippy::too_many_lines)]
     fn apply_interaction_style(
         mut self,
         style: impl IntoStyleValue<ThisStyle>,
@@ -5000,7 +5410,7 @@ impl ThisStyle {
                     StyleTarget::HoveredWithin => interaction.hovered_within = Some(v),
                     StyleTarget::FocusedWithin => interaction.focused_within = Some(v),
                     StyleTarget::FocusedVisibleWithin => {
-                        interaction.focused_visible_within = Some(v)
+                        interaction.focused_visible_within = Some(v);
                     }
                     StyleTarget::PressedWithin => interaction.pressed_within = Some(v),
                     StyleTarget::DisabledWithin => interaction.disabled_within = Some(v),
@@ -5013,7 +5423,7 @@ impl ThisStyle {
                     StyleTarget::HoveredParent => interaction.hovered_parent = Some(v),
                     StyleTarget::FocusedParent => interaction.focused_parent = Some(v),
                     StyleTarget::FocusedVisibleParent => {
-                        interaction.focused_visible_parent = Some(v)
+                        interaction.focused_visible_parent = Some(v);
                     }
                     StyleTarget::PressedParent => interaction.pressed_parent = Some(v),
                     StyleTarget::DisabledParent => interaction.disabled_parent = Some(v),
@@ -5046,7 +5456,7 @@ impl ThisStyle {
                             StyleTarget::Hovered => styles.hovered = Some(val.clone()),
                             StyleTarget::Focused => styles.focused = Some(val.clone()),
                             StyleTarget::FocusedVisible => {
-                                styles.focused_visible = Some(val.clone())
+                                styles.focused_visible = Some(val.clone());
                             }
                             StyleTarget::Pressed => styles.pressed = Some(val.clone()),
                             StyleTarget::Disabled => styles.disabled = Some(val.clone()),
@@ -5060,15 +5470,15 @@ impl ThisStyle {
                             StyleTarget::HoveredWithin => styles.hovered_within = Some(val.clone()),
                             StyleTarget::FocusedWithin => styles.focused_within = Some(val.clone()),
                             StyleTarget::FocusedVisibleWithin => {
-                                styles.focused_visible_within = Some(val.clone())
+                                styles.focused_visible_within = Some(val.clone());
                             }
                             StyleTarget::PressedWithin => styles.pressed_within = Some(val.clone()),
                             StyleTarget::DisabledWithin => {
-                                styles.disabled_within = Some(val.clone())
+                                styles.disabled_within = Some(val.clone());
                             }
                             StyleTarget::ActivedWithin => styles.actived_within = Some(val.clone()),
                             StyleTarget::SelectedWithin => {
-                                styles.selected_within = Some(val.clone())
+                                styles.selected_within = Some(val.clone());
                             }
                             StyleTarget::DraggedWithin => styles.dragged_within = Some(val.clone()),
                             StyleTarget::AnyWithin => styles.any_within = Some(val.clone()),
@@ -5077,15 +5487,15 @@ impl ThisStyle {
                             StyleTarget::HoveredParent => styles.hovered_parent = Some(val.clone()),
                             StyleTarget::FocusedParent => styles.focused_parent = Some(val.clone()),
                             StyleTarget::FocusedVisibleParent => {
-                                styles.focused_visible_parent = Some(val.clone())
+                                styles.focused_visible_parent = Some(val.clone());
                             }
                             StyleTarget::PressedParent => styles.pressed_parent = Some(val.clone()),
                             StyleTarget::DisabledParent => {
-                                styles.disabled_parent = Some(val.clone())
+                                styles.disabled_parent = Some(val.clone());
                             }
                             StyleTarget::ActivedParent => styles.actived_parent = Some(val.clone()),
                             StyleTarget::SelectedParent => {
-                                styles.selected_parent = Some(val.clone())
+                                styles.selected_parent = Some(val.clone());
                             }
                             StyleTarget::DraggedParent => styles.dragged_parent = Some(val.clone()),
                             StyleTarget::AnyParent => styles.any_parent = Some(val.clone()),
@@ -5103,7 +5513,8 @@ impl ThisStyle {
         self
     }
 
-    /// 別のスタイルを上に重ねてマージした新しい ThisStyle を生成して返します。
+    /// 別のスタイルを上に重ねてマージした新しい `ThisStyle` を生成して返します。
+    #[must_use]
     pub fn merge(&self, other: &Self) -> Self {
         let mut merged = self.clone();
         let inner_mut = Arc::make_mut(&mut merged.inner);

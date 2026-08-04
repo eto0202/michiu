@@ -88,8 +88,8 @@ fn rgba_container() -> Element {
 
 fn hex_container() -> Element {
     let red = item("hex(\"#ff0000\")", ts().bg_color(hex("#ff0000")));
-    let green = item("hex(0x00FF00)", ts().bg_color(hex(0x00FF00)));
-    let blue = item("hex(0x0000ff)", ts().bg_color(hex(0x0000ff)));
+    let green = item("hex(0x00FF00)", ts().bg_color(hex(0x00_FF00)));
+    let blue = item("hex(0x0000ff)", ts().bg_color(hex(0x00_00ff)));
     let white = item("hex(\"00000080\")", ts().bg_color(hex("00000080")));
     let black = item("hex(\"0xFFFFFF80\")", ts().bg_color(hex("0xFFFFFF80")));
 

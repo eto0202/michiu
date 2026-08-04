@@ -18,7 +18,7 @@ use windows::{
         Graphics::{
             Direct3D::*,
             Direct3D11::*,
-            DirectComposition::{IDCompositionVisual, *},
+            DirectComposition::{IDCompositionVisual, IDCompositionVisual2},
             Dxgi::*,
             Gdi::InvalidateRect,
         },
@@ -81,7 +81,7 @@ pub(crate) unsafe fn init_webview2_composition(
                         Box::new(move |_sender, args| {
                             if let Some(args) = args {
                                 let mut reason = COREWEBVIEW2_MOVE_FOCUS_REASON(0);
-                                let _ = unsafe { args.Reason(&mut reason) };
+                                let _ = unsafe { args.Reason(&raw mut reason) };
 
                                 // Tab なら 順順移動(false), Shift+Tab なら 逆順移動(true)
                                 let is_reverse = reason == COREWEBVIEW2_MOVE_FOCUS_REASON_PREVIOUS;
@@ -215,7 +215,7 @@ pub(crate) unsafe fn init_webview2_composition(
                                     move |_sender, args| {
                                         if let Some(args) = args {
                                             let mut reason = COREWEBVIEW2_MOVE_FOCUS_REASON(0);
-                                            let _ = unsafe { args.Reason(&mut reason) };
+                                            let _ = unsafe { args.Reason(&raw mut reason) };
 
                                             // Tab なら 順順移動(false), Shift+Tab なら 逆順移動(true)
                                             let is_reverse =

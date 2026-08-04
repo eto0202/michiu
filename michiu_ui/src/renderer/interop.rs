@@ -45,10 +45,10 @@ use windows::{
     },
 };
 
-/// WebView2 から非アクティブ時の静止画（1フレーム）をキャプチャし、
-/// wgpu 側の wgpu::Texture へとピクセルデータを転送します。
+/// `WebView2` から非アクティブ時の静止画（1フレーム）をキャプチャし、
+/// wgpu 側の `wgpu::Texture` へとピクセルデータを転送します。
 pub(crate) unsafe fn trigger_capture_async<F>(
-    webview: ICoreWebView2,
+    webview: &ICoreWebView2,
     width: u32,
     height: u32,
     wgpu_device: wgpu::Device,
@@ -103,7 +103,7 @@ where
 }
 
 /// 内部ヘルパー: ストリームに書き込まれた PNG バイト列を WIC で高速に BGRA8 ピクセル配列にデコードし、
-/// wgpu::Texture を作成してアップロードします。
+/// `wgpu::Texture` を作成してアップロードします。
 unsafe fn process_captured_stream(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -213,7 +213,7 @@ unsafe fn process_captured_stream(
 
 /// wgpu (D3D12) 側のインポート処理
 /// 外部の D3D11 からエクスポートされた共有 NT ハンドル（HANDLE）をインポートし、
-/// コピーを介さずに 100% 同一の VRAM アドレスを指す wgpu::Texture を構築します。
+/// コピーを介さずに 100% 同一の VRAM アドレスを指す `wgpu::Texture` を構築します。
 pub(crate) unsafe fn import_shared_texture(
     wgpu_renderer: &WgpuRenderer,
     shared_handle: HANDLE,
@@ -229,7 +229,7 @@ pub(crate) unsafe fn import_shared_texture(
 
         // 2. ID3D12Device::OpenSharedHandle を呼び出し、同じ VRAM 領域を指す ID3D12Resource を開く
         let mut raw_resource: Option<ID3D12Resource> = None;
-        raw_d3d12_device.OpenSharedHandle(shared_handle, &mut raw_resource)?;
+        raw_d3d12_device.OpenSharedHandle(shared_handle, &raw mut raw_resource)?;
         let resource = raw_resource.ok_or("Failed to open shared handle on D3D12 device")?;
 
         // 3. wgpu が扱うテクスチャ記述子（wgpu::TextureDescriptor）を正確に定義する

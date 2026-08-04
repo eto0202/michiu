@@ -15,7 +15,7 @@ use windows::{
                 D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
                 D2D1_RENDER_TARGET_PROPERTIES, D2D1CreateFactory, ID2D1Factory1,
             },
-            DirectWrite::{DWRITE_TEXT_RANGE, *},
+            DirectWrite::{DWRITE_TEXT_RANGE, IDWriteFactory, IDWriteTextFormat, IDWriteRenderingParams, DWriteCreateFactory, DWRITE_FACTORY_TYPE_SHARED, IDWriteFactory_Impl, IDWriteFactory6_Impl, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, IDWriteRenderingParams_Impl, IDWriteFactory1_Impl, IDWriteFactory2_Impl, IDWriteFactory3_Impl, IDWriteTextLayout, IDWriteTextLayout_Impl, IDWriteTextFormat_Impl, IDWriteTextFormat2_Impl, IDWriteTextLayout3_Impl, DWRITE_LINE_SPACING_METHOD_UNIFORM, DWRITE_FONT_WEIGHT, DWRITE_FONT_STYLE, DWRITE_TEXT_METRICS, IDWriteFont_Impl, IDWriteFont1_Impl, IDWriteFontFace_Impl, IDWriteFontFace1_Impl, IDWriteInlineObject_Impl, IDWriteTextLayout2_Impl, DWRITE_HIT_TEST_METRICS, IDWriteBitmapRenderTarget1_Impl},
             Imaging::{
                 CLSID_WICImagingFactory, GUID_WICPixelFormat32bppPBGRA, IWICImagingFactory,
                 WICBitmapCacheOnDemand, WICBitmapLockRead,
@@ -78,7 +78,7 @@ impl TextEngine {
         }
     }
 
-    /// 各パラメータを考慮して、完全な IDWriteTextLayout を生成する内部共通ロジック
+    /// 各パラメータを考慮して、完全な `IDWriteTextLayout` を生成する内部共通ロジック
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_layout(
         &self,
@@ -205,17 +205,17 @@ impl TextEngine {
 
             // メトリクス（正確な物理幅・高さ）を取得
             let mut metrics = DWRITE_TEXT_METRICS::default();
-            layout.GetMetrics(&mut metrics).unwrap();
+            layout.GetMetrics(&raw mut metrics).unwrap();
 
             LayoutSize::new(metrics.width, metrics.height)
         }
     }
 
-    /// 既に作成済みの IDWriteTextLayout から正確なサイズを取得する
+    /// 既に作成済みの `IDWriteTextLayout` から正確なサイズを取得する
     pub(crate) fn get_layout_size(&self, layout: &IDWriteTextLayout) -> LayoutSize {
         unsafe {
             let mut metrics = DWRITE_TEXT_METRICS::default();
-            layout.GetMetrics(&mut metrics).unwrap();
+            layout.GetMetrics(&raw mut metrics).unwrap();
             LayoutSize::new(metrics.width, metrics.height)
         }
     }
@@ -241,9 +241,9 @@ impl TextEngine {
             let _ = layout.HitTestTextPosition(
                 index as u32,
                 is_trailing,
-                &mut point_x,
-                &mut point_y,
-                &mut metrics,
+                &raw mut point_x,
+                &raw mut point_y,
+                &raw mut metrics,
             );
 
             // 実際の文字の上端位置を、metrics.top から算出して補正
@@ -267,7 +267,7 @@ impl TextEngine {
             let mut metrics = DWRITE_HIT_TEST_METRICS::default();
 
             // DirectWrite の HitTestPoint API を呼び出し
-            let _ = layout.HitTestPoint(x, y, &mut is_trailing, &mut is_inside, &mut metrics);
+            let _ = layout.HitTestPoint(x, y, &raw mut is_trailing, &raw mut is_inside, &raw mut metrics);
 
             // (ヒットした文字インデックス, 文字ブロックの後半部分（右半分）をクリックしたかどうかのフラグ)
             (metrics.textPosition as usize, is_trailing.into())
@@ -335,7 +335,7 @@ impl TextRasterizer {
             };
             let target = self
                 .d2d_factory
-                .CreateWicBitmapRenderTarget(&wic_bitmap, &props)
+                .CreateWicBitmapRenderTarget(&wic_bitmap, &raw const props)
                 .unwrap();
 
             target.SetTextRenderingParams(rendering_params);
@@ -357,7 +357,7 @@ impl TextRasterizer {
                 b: 1.0,
                 a: 1.0,
             };
-            let default_brush = target.CreateSolidColorBrush(&default_color, None).unwrap();
+            let default_brush = target.CreateSolidColorBrush(&raw const default_color, None).unwrap();
 
             for span in spans {
                 if let Some(bg_color) = span.bg_color {
@@ -376,7 +376,7 @@ impl TextRasterizer {
                         0.0,
                         0.0,
                         Some(&mut hit_test_metrics),
-                        &mut actual_count,
+                        &raw mut actual_count,
                     );
                     if res.is_ok() && actual_count as usize > hit_test_metrics.len() {
                         hit_test_metrics
@@ -387,7 +387,7 @@ impl TextRasterizer {
                             0.0,
                             0.0,
                             Some(&mut hit_test_metrics),
-                            &mut actual_count,
+                            &raw mut actual_count,
                         );
                     }
 
@@ -397,7 +397,7 @@ impl TextRasterizer {
                         b: bg_color.b,
                         a: bg_color.a,
                     };
-                    if let Ok(bg_brush) = target.CreateSolidColorBrush(&d2d_bg_color, None) {
+                    if let Ok(bg_brush) = target.CreateSolidColorBrush(&raw const d2d_bg_color, None) {
                         (0..actual_count as usize).for_each(|m_idx| {
                             let metric = &hit_test_metrics[m_idx];
                             let rect = D2D_RECT_F {
@@ -406,7 +406,7 @@ impl TextRasterizer {
                                 right: metric.left + metric.width,
                                 bottom: metric.top + metric.height,
                             };
-                            target.FillRectangle(&rect, &bg_brush);
+                            target.FillRectangle(&raw const rect, &bg_brush);
                         });
                     }
                 }
@@ -425,7 +425,7 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        if let Ok(span_brush) = target.CreateSolidColorBrush(&d2d_color, None) {
+                        if let Ok(span_brush) = target.CreateSolidColorBrush(&raw const d2d_color, None) {
                             let _ = layout.SetDrawingEffect(&span_brush, span_range);
                         }
                     }
@@ -452,7 +452,7 @@ impl TextRasterizer {
                     0.0,
                     0.0,
                     Some(&mut hit_test_metrics),
-                    &mut actual_count,
+                    &raw mut actual_count,
                 );
                 if res.is_ok() && actual_count as usize > hit_test_metrics.len() {
                     hit_test_metrics
@@ -463,7 +463,7 @@ impl TextRasterizer {
                         0.0,
                         0.0,
                         Some(&mut hit_test_metrics),
-                        &mut actual_count,
+                        &raw mut actual_count,
                     );
                 }
 
@@ -476,7 +476,7 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        target.CreateSolidColorBrush(&d2d_color, None).ok()
+                        target.CreateSolidColorBrush(&raw const d2d_color, None).ok()
                     } else if let Some(color) = span.color {
                         let d2d_color = D2D1_COLOR_F {
                             r: color.r,
@@ -484,7 +484,7 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        target.CreateSolidColorBrush(&d2d_color, None).ok()
+                        target.CreateSolidColorBrush(&raw const d2d_color, None).ok()
                     } else {
                         None
                     };
@@ -522,7 +522,7 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        target.CreateSolidColorBrush(&d2d_color, None).ok()
+                        target.CreateSolidColorBrush(&raw const d2d_color, None).ok()
                     } else if let Some(color) = span.color {
                         let d2d_color = D2D1_COLOR_F {
                             r: color.r,
@@ -530,7 +530,7 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        target.CreateSolidColorBrush(&d2d_color, None).ok()
+                        target.CreateSolidColorBrush(&raw const d2d_color, None).ok()
                     } else {
                         None
                     };
@@ -630,7 +630,7 @@ impl TextRasterizer {
     }
 }
 
-/// 安全に TextSpan 配列全体の等価ハッシュを計算するヘルパー
+/// 安全に `TextSpan` 配列全体の等価ハッシュを計算するヘルパー
 pub(crate) fn hash_text_spans(spans: &[crate::TextSpan]) -> u64 {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};

@@ -1,3 +1,5 @@
+#![allow(clippy::pedantic, clippy::restriction)]
+
 use crate::{
     app::theme::Theme,
     components::{label_style, section_title},
@@ -83,12 +85,12 @@ fn event_btn() -> Element {
     let mut count = 0u32;
 
     h_flex(item_style().bg_color(dynamic(|t: &Theme| t.primary)))
-        .label(move || format!("Event: {}", count), &style)
+        .label(move || format!("Event: {count}"), &style)
         .on_click_with(move |cx| {
             count += 1;
 
             cx.current()
-                .set_contents(div_n().label(move || format!("Event: {}", count), &style));
+                .set_contents(div_n().label(move || format!("Event: {count}"), &style));
         })
 }
 
@@ -201,7 +203,7 @@ pub fn selected_btn() -> Element {
                 set_selected.set(opt);
             })
             .on_select(move || {
-                println!("{:?} is now selected!", opt);
+                println!("{opt:?} is now selected!");
             })
     };
 

@@ -1,3 +1,5 @@
+#![allow(clippy::pedantic, clippy::restriction, unused_must_use)]
+
 use michiu_ui::{
     ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, prelude::*,
 };

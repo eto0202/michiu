@@ -1,4 +1,4 @@
-use crate::*;
+use crate::{Context, TaskSender, with_context};
 use slotmap::new_key_type;
 use smallvec::SmallVec;
 use std::cell::Cell;
@@ -19,13 +19,14 @@ thread_local! {
     pub(crate) static ACTIVE_ELEMENT: Cell<Option<crate::EntityId>> = const { Cell::new(None) };
 }
 
-/// スコープを抜けた際に自動的に ACTIVE_ELEMENT を復元するRAIIガード
+/// スコープを抜けた際に自動的に `ACTIVE_ELEMENT` を復元するRAIIガード
 pub struct ActiveElementGuard {
     prev: Option<crate::EntityId>,
 }
 
 impl ActiveElementGuard {
     #[inline]
+    #[must_use]
     pub fn new(id: crate::EntityId) -> Self {
         let prev = ACTIVE_ELEMENT.with(|cell| {
             let prev = cell.get();
@@ -58,6 +59,7 @@ impl<T> Clone for ReadSignal<T> {
 impl<T> Copy for ReadSignal<T> {}
 
 impl<T> ReadSignal<T> {
+    #[must_use]
     pub fn new(id: SignalId) -> Self {
         Self {
             id,
@@ -68,11 +70,13 @@ impl<T> ReadSignal<T> {
 
 impl<T: Clone + 'static> ReadSignal<T> {
     #[inline]
+    #[must_use]
     pub fn id(&self) -> SignalId {
         self.id
     }
     /// シグナルの現在の値を取得（複製）します。
     /// もし現在エフェクトの評価中であれば、そのエフェクトをこのシグナルの依存先（Subscriber）として自動登録します。
+    #[must_use]
     pub fn get(&self) -> T {
         // 依存関係の追跡（自動サブスクライブ）
         ACTIVE_EFFECT.with(|cell| {
@@ -149,6 +153,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
 
     /// 依存関係を追跡せずに現在のシグナルの値を即時取得します。
     #[inline]
+    #[must_use]
     pub fn get_untracked(&self) -> T {
         with_context(|cx| {
             let any_val = &cx.reactive.signals[self.id];
@@ -281,6 +286,7 @@ impl<T> Clone for WriteSignal<T> {
 impl<T> Copy for WriteSignal<T> {}
 
 impl<T> WriteSignal<T> {
+    #[must_use]
     pub fn new(id: SignalId) -> Self {
         Self {
             id,
@@ -291,6 +297,7 @@ impl<T> WriteSignal<T> {
 
 impl<T: Send + 'static> WriteSignal<T> {
     #[inline]
+    #[must_use]
     pub fn id(&self) -> SignalId {
         self.id
     }
@@ -305,7 +312,7 @@ impl<T: Send + 'static> WriteSignal<T> {
 
             // 依存しているエフェクトIDのリストをクローン
             if let Some(subs) = cx.reactive.subscribers.get(self.id) {
-                effects_to_run = subs.clone();
+                effects_to_run.clone_from(subs);
             }
         });
 
@@ -321,6 +328,7 @@ impl<T: Send + 'static> WriteSignal<T> {
 
     /// スレッドセーフな送信端（`SignalSender`）を取得します。
     #[inline]
+    #[must_use]
     pub fn sender(&self) -> SignalSender<T> {
         // スレッドローカルのメインコンテキストから送信端を一時的に解決
         let sender = with_context(|cx| cx.task_sender());
@@ -332,7 +340,7 @@ impl<T: Send + 'static> WriteSignal<T> {
     }
 
     /// 明示的なコンテキスト指定により、スレッドセーフな送信端を取得します。
-    /// UI構築スコープ外（ACTIVE_CONTEXT が設定されていないタイミング）からでも安全に呼び出せます。
+    /// `UI構築スコープ外（ACTIVE_CONTEXT` が設定されていないタイミング）からでも安全に呼び出せます。
     #[inline]
     pub fn sender_with_cx(&self, cx: &Context) -> SignalSender<T> {
         SignalSender {
@@ -386,9 +394,8 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
                 // 元のクロージャがまだ実行中（返却前）に、同一のエフェクトが再帰トリガーされたことを意味する
                 eprintln!(
                     "Warning: Cyclic dependency / Infinite loop detected! \
-                                     Effect {:?} recursively triggered itself. \
-                                     To prevent stack overflow, this recursive run has been skipped.",
-                    effect_id
+                                     Effect {effect_id:?} recursively triggered itself. \
+                                     To prevent stack overflow, this recursive run has been skipped."
                 );
             }),
         );
@@ -414,7 +421,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
 }
 
 /// 新しいエフェクトを構築し、評価を開始します。
-/// このエフェクトは、内部で get() されたすべてのシグナルが変更された際に自動的に再実行されます。
+/// このエフェクトは、内部で `get()` されたすべてのシグナルが変更された際に自動的に再実行されます。
 pub(crate) fn create_effect<F>(f: F) -> EffectId
 where
     F: FnMut(&mut Context) + 'static,

@@ -36,6 +36,7 @@ impl PropertyList {
 
 impl ComponentMask {
     #[inline]
+    #[must_use]
     pub fn new(flag: u128) -> Self {
         Self(flag)
     }
@@ -46,6 +47,7 @@ impl ComponentMask {
     }
 
     #[inline]
+    #[must_use]
     pub fn has(&self, flag: u128) -> bool {
         (self.0 & flag) != 0
     }
@@ -62,57 +64,68 @@ impl ComponentMask {
 
     /// 基本レイアウト関連のプロパティが1つでもあるか
     #[inline]
+    #[must_use]
     pub fn has_basic_layout(&self) -> bool {
         self.has(STYLE_BASIC_LAYOUT)
     }
 
     /// Flexレイアウト関連のプロパティが1つでもあるか
     #[inline]
+    #[must_use]
     pub fn has_flex_layout(&self) -> bool {
         self.has(STYLE_FLEX_LAYOUT)
     }
 
     #[inline]
+    #[must_use]
     pub fn has_grid_layout(&self) -> bool {
         self.has(STYLE_GRID_LAYOUT)
     }
 
     #[inline]
+    #[must_use]
     pub fn has_visual_property(&self) -> bool {
         self.has(STYLE_VISUAL_PROPERTY)
     }
 
     #[inline]
+    #[must_use]
     pub fn has_interaction_property(&self) -> bool {
         self.has(STYLE_INTERACTION_PROPERTY)
     }
 
     #[inline]
+    #[must_use]
     pub fn has_active_interaction_property(&self) -> bool {
         self.has(STYLE_ACTIVE_INTERACTION_PROPERTY)
     }
 
     #[inline]
+    #[must_use]
     pub fn has_input_content(&self) -> bool {
         self.has(COMP_INPUT_CONTENT)
     }
 
     #[inline]
+    #[must_use]
     pub fn has_text_content(&self) -> bool {
         self.has(COMP_TEXT_CONTENT)
     }
 
     #[inline]
+    #[must_use]
     pub fn has_webveiw2_content(&self) -> bool {
         self.has(COMP_WEBVIEW_CONTENT)
     }
 
     #[inline]
+    #[must_use]
     pub fn has_image_content(&self) -> bool {
         self.has(COMP_IMAGE_CONTENT)
     }
 
     #[inline]
+    #[must_use]
     pub fn has_movie_content(&self) -> bool {
         self.has(COMP_MOVIE_CONTENT)
     }
@@ -172,7 +185,7 @@ pub(crate) const STATE_DRAGGED: u128 = 1 << 49;
 pub(crate) const STYLE_INTERACTION_WITHIN: u128 = 1 << 7; // 親に focus_within 等のスタイル定義が存在することを示す
 
 // Vec等を含む重い構造体。SparseSecondaryMap に実体を逃がす。
-/// TaffyのGridレイアウト用の全プロパティ（grid_template_rows等：Vecを多数含む）
+/// `TaffyのGridレイアウト用の全プロパティ（grid_template_rows等：Vecを多数含む`）
 pub(crate) const STYLE_GRID_LAYOUT: u128 = 1 << 50;
 /// 動的キーフレームアニメーションの定義シーケンス（Vec含む）
 pub(crate) const STYLE_ANIMATIONS: u128 = 1 << 51;
@@ -197,7 +210,7 @@ pub(crate) const COMP_UIA_CONTENT: u128 = 1 << 60;
 /// カスタムのCSS変数や動的プロパティ（HashMap等含む）
 pub(crate) const STYLE_EXT_PROPERTIES: u128 = 1 << 61;
 
-/// WebView2 のコンテンツを持っているか
+/// `WebView2` のコンテンツを持っているか
 pub const COMP_WEBVIEW_CONTENT: u128 = 1 << 62;
 
 pub(crate) const STYLE_POINTER_EVENTS: u128 = 1 << 63;

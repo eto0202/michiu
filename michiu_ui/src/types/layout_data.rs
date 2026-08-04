@@ -1,6 +1,6 @@
 use std::{borrow::Cow, sync::Arc};
 
-use crate::*;
+use crate::{Display, BoxSizing, Direction, LayoutOverflow, Position, Rect, Val, Size, Length, ComponentMask, STYLE_DISPLAY, STYLE_ITEM_IS_TABLE, STYLE_ITEM_IS_REPLACED, STYLE_BOX_SIZING, STYLE_DIRECTION, STYLE_OVERFLOW, STYLE_POSITION, STYLE_INSET, STYLE_SIZE, STYLE_MIN_SIZE, STYLE_MAX_SIZE, STYLE_ASPECT_RATIO, STYLE_MARGIN, STYLE_PADDING, STYLE_BORDER, STYLE_RESIZABLE, AlignItems, AlignSelf, AlignContent, JustifyContent, TextAlign, FlexDirection, FlexWrap, STYLE_ALIGN_ITEMS, STYLE_ALIGN_SELF, STYLE_JUSTIFY_ITEMS, STYLE_JUSTIFY_SELF, STYLE_ALIGN_CONTENT, STYLE_JUSTIFY_CONTENT, STYLE_GAP, STYLE_TEXT_ALIGN, STYLE_FLEX_DIRECTION, STYLE_FLEX_WRAP, STYLE_FLEX_BASIS, STYLE_FLEX_GROW, STYLE_FLEX_SHRINK, GridAutoFlow, GridLine, GridPlacement, Color, EdgeInsets, BorderStyle, BorderAlignment, CornerRadius, BoxShadow, Point, CursorIcon, Backdrop, LinearGradient, Transition, KeyframeAnimation, PointerEvents, UserSelect, Focusable, STYLE_BG_COLOR, STYLE_BORDER_COLOR, STYLE_CORNER_RADIUS, STYLE_OPACITY, STYLE_BOX_SHADOW, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_Z_INDEX, STYLE_CURSOR, STYLE_BACKDROP, STYLE_TEXT_COLOR, STYLE_FONT_SIZE, STYLE_EXT_PROPERTIES, STYLE_POINTER_EVENTS, STYLE_USER_SELECT, STYLE_FOCUSABLE, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_OUTLINE, STYLE_TRANSITIONS, STYLE_ANIMATIONS, ThisStyle, StyleTarget, EntityId};
 
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -170,12 +170,12 @@ impl Default for FlexLayout {
     fn default() -> Self {
         let default_style: taffy::Style = taffy::Style::default();
         Self {
-            align_items: default_style.align_items.map(|a| a.into()),
-            align_self: default_style.align_self.map(|a| a.into()),
-            justify_items: default_style.justify_items.map(|a| a.into()),
-            justify_self: default_style.justify_self.map(|a| a.into()),
-            align_content: default_style.align_content.map(|a| a.into()),
-            justify_content: default_style.justify_content.map(|a| a.into()),
+            align_items: default_style.align_items.map(std::convert::Into::into),
+            align_self: default_style.align_self.map(std::convert::Into::into),
+            justify_items: default_style.justify_items.map(std::convert::Into::into),
+            justify_self: default_style.justify_self.map(std::convert::Into::into),
+            align_content: default_style.align_content.map(std::convert::Into::into),
+            justify_content: default_style.justify_content.map(std::convert::Into::into),
             gap: default_style.gap.into(),
             text_align: default_style.text_align.into(),
             flex_direction: default_style.flex_direction.into(),
@@ -324,7 +324,7 @@ impl VisualProperty {
         }
         if mask.has(STYLE_EXT_PROPERTIES) {
             if other.font_family.is_some() {
-                self.font_family = other.font_family.clone();
+                self.font_family.clone_from(&other.font_family);
             }
             if other.font_weight.is_some() {
                 self.font_weight = other.font_weight;
@@ -534,6 +534,7 @@ pub struct InteractionStates {
 }
 
 impl InteractionStates {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
