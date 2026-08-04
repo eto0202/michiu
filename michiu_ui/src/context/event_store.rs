@@ -1,20 +1,22 @@
 use std::path::PathBuf;
 
 use crate::{
-    ActiveFocusTrigger, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
-    BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, ChildrenSecondary,
-    ClipRectsSecondary, Context, CursorIcon, DirtyLayoutEntitiesVec, DragPayload,
+    ActiveAnimationsSparseSecondary, ActiveFocusTrigger, ActiveMasksSecondary,
+    ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
+    BasicLayout, BasicLayoutsSecondary, ChildrenSecondary, ClipRectsSecondary, ContentStore,
+    Context, CursorIcon, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DragPayload,
     DragPlaceholderParent, DragProperty, DropProperty, DwriteLayoutsSparseSecondary, Element,
-    ElementState, EntityId, EventListeners, FlexLayoutsSecondary, FocusTrigger, Focusable,
-    GridLayoutsSecondary, InputContentsSparseSecondary, InteractionPropertiesSecondary,
-    InteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, Modifiers,
-    MouseButton, OutputStore, ParentsSecondary, PointerEvents, Position, Rect, RectsSecondary,
-    RenderStore, STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER, STATE_DRAGGING,
+    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
+    FlexLayoutsSecondary, FocusTrigger, Focusable, GridLayoutsSecondary,
+    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
+    LayoutRect, LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore,
+    ParentsSecondary, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore,
+    STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER, STATE_DRAGGING, STATE_HOVERED,
     STATE_SELECTED, STYLE_DRAGGABLE, STYLE_DROPPABLE, STYLE_INTERACTION_PARENT,
     STYLE_INTERACTION_WITHIN, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, ScrollOffsetsSecondary,
     ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
     TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect,
-    Val, VirtualKey, VisualPropertiesSecondary,
+    Val, VirtualKey, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -278,7 +280,7 @@ impl EventStore {
 
     #[inline]
     pub(crate) fn drag_overhang_distance(
-        pointer_pos: &LayoutPoint,
+        pointer_pos: LayoutPoint,
         clip: &LayoutRect,
     ) -> LayoutPoint {
         let mut dx = 0.0f32;
@@ -474,7 +476,7 @@ impl EventStore {
         }
 
         // はみ出し距離
-        let distance = EventStore::drag_overhang_distance(&pointer_pos, &clip);
+        let distance = EventStore::drag_overhang_distance(pointer_pos, &clip);
         if distance.x.abs() <= 1.0 && distance.y.abs() <= 1.0 {
             return (false, None);
         }
@@ -515,6 +517,386 @@ impl EventStore {
             (true, Some(pointer_pos))
         } else {
             (false, None)
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn pressed_local_point(
+        pressed_id: EntityId,
+        logical_pos: LayoutPoint,
+        scroll_offsets: &mut ScrollOffsetsSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        rects: &RectsSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_masks: &ActiveMasksSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+    ) -> LayoutPoint {
+        let rect = OutputStore::rect(pressed_id, rects).unwrap_or_default();
+        let (basic, flex, _) = LayoutStore::resolve_active_layouts(
+            pressed_id,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            interaction_properties,
+            visual_properties,
+        );
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+        let scroll = scroll_offsets.get(pressed_id).copied().unwrap_or_default();
+
+        let text_size = if let Some(contents) = input_contents.get(pressed_id)
+            && let Some(layout_rect) = contents.last_layout
+        {
+            LayoutSize::new(layout_rect.width, layout_rect.height)
+        } else {
+            LayoutSize::ZERO
+        };
+
+        let align_offset =
+            OutputStore::calc_align_offset(rect, border, padding, text_size, flex.text_align);
+
+        let local_x =
+            logical_pos.x - (rect.x + border.left + padding.left + align_offset.x) + scroll.x;
+        let local_y =
+            logical_pos.y - (rect.y + border.top + padding.top + align_offset.y) + scroll.y;
+
+        LayoutPoint {
+            x: local_x,
+            y: local_y,
+        }
+    }
+
+    pub(crate) fn resolve_hover_state(cx: &mut Context, target_id: Option<EntityId>) {
+        let old_id = cx.events.interaction_states.hovered;
+
+        // 旧ホバー要素からマウスが去った
+        if let Some(old_id) = old_id {
+            EventStore::update_state(cx, old_id, STATE_HOVERED, false);
+
+            let mut handler = cx
+                .events
+                .event_listeners
+                .get_mut(old_id)
+                .and_then(|listeners| listeners.on_mouse_leave.take());
+
+            if let Some(mut h) = handler {
+                let _guard = crate::ActiveElementGuard::new(old_id);
+                h(cx);
+                if let Some(listeners) = cx.events.event_listeners.get_mut(old_id) {
+                    listeners.on_mouse_leave = Some(h);
+                }
+            }
+        }
+
+        // 新ホバー要素にマウスが入った
+        if let Some(new_id) = target_id {
+            EventStore::update_state(cx, new_id, STATE_HOVERED, true);
+
+            let mut handler = cx
+                .events
+                .event_listeners
+                .get_mut(new_id)
+                .and_then(|listeners| listeners.on_mouse_enter.take());
+
+            if let Some(mut h) = handler {
+                let _guard = crate::ActiveElementGuard::new(new_id);
+                h(cx);
+                if let Some(listeners) = cx.events.event_listeners.get_mut(new_id) {
+                    listeners.on_mouse_enter = Some(h);
+                }
+            }
+
+            let mut handler = cx
+                .events
+                .event_listeners
+                .get_mut(new_id)
+                .and_then(|listeners| listeners.on_hover.take());
+
+            if let Some(mut h) = handler {
+                let _guard = crate::ActiveElementGuard::new(new_id);
+                h(cx);
+                if let Some(listeners) = cx.events.event_listeners.get_mut(new_id) {
+                    listeners.on_hover = Some(h);
+                }
+            }
+        }
+
+        cx.events.interaction_states.hovered = target_id;
+    }
+
+    /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
+    #[inline]
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn update_state(cx: &mut Context, id: EntityId, state_flag: u128, active: bool) {
+        let mut was_active = false;
+        let mut state_changed = false;
+
+        let TopologyStore {
+            active_masks,
+            entities,
+            parents,
+            children,
+            ..
+        } = &mut cx.topology;
+        let LayoutStore {
+            taffy,
+            taffy_nodes,
+            basic_layouts,
+            base_basic_layouts,
+            dirty_layout_entities,
+            ..
+        } = &mut cx.layouts;
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            interaction_properties,
+            active_transitions,
+            active_animations,
+            dirty_render_entities,
+            ..
+        } = &mut cx.renders;
+        let OutputStore { rects, .. } = &mut cx.outputs;
+        let ContentStore { input_contents, .. } = &mut cx.contents;
+        let ReactiveStore {
+            element_effects, ..
+        } = &mut cx.reactive;
+        let EventStore {
+            event_listeners, ..
+        } = &mut cx.events;
+        let WindowStore {
+            last_window_size, ..
+        } = &mut cx.window;
+
+        let Some(mask) = active_masks.get_mut(id) else {
+            return;
+        };
+
+        was_active = mask.has(state_flag);
+        if was_active == active {
+            return;
+        }
+
+        state_changed = true;
+
+        if active {
+            mask.set(state_flag);
+        } else {
+            mask.unset(state_flag);
+        }
+
+        // 状態変化の発生時に即座に動的なスタイルを解決する
+        RenderStore::resolve_element_style_state(
+            id,
+            true,
+            active_masks,
+            base_visual_properties,
+            interaction_properties,
+            visual_properties,
+            parents,
+            entities,
+            children,
+            input_contents,
+            element_effects,
+            active_transitions,
+            active_animations,
+            dirty_render_entities,
+            basic_layouts,
+            base_basic_layouts,
+            rects,
+            last_window_size.as_ref(),
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        );
+
+        // 親から子方向へのスタイル解決の伝播
+        if let Some(child) = children.get(id).cloned() {
+            for child_id in child {
+                if active_masks[child_id].has(STYLE_INTERACTION_PARENT) {
+                    RenderStore::resolve_element_style_state(
+                        child_id,
+                        true,
+                        active_masks,
+                        base_visual_properties,
+                        interaction_properties,
+                        visual_properties,
+                        parents,
+                        entities,
+                        children,
+                        input_contents,
+                        element_effects,
+                        active_transitions,
+                        active_animations,
+                        dirty_render_entities,
+                        basic_layouts,
+                        base_basic_layouts,
+                        rects,
+                        last_window_size.as_ref(),
+                        taffy_nodes,
+                        taffy,
+                        dirty_layout_entities,
+                    );
+
+                    if RenderStore::does_state_require_layout(
+                        child_id,
+                        interaction_properties,
+                        state_flag,
+                    ) {
+                        LayoutStore::mark_layout_dirty(
+                            child_id,
+                            taffy_nodes,
+                            taffy,
+                            active_masks,
+                            dirty_layout_entities,
+                            parents,
+                        );
+                        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+                    } else {
+                        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+                    }
+                }
+            }
+        }
+
+        // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
+        let mut curr = id;
+        while let Some(Some(parent_id)) = parents.get(curr).copied() {
+            if entities.contains_key(parent_id) {
+                let parent_mask = active_masks[parent_id];
+
+                // 先祖要素が within スタイルを持っている場合のみそのスタイル評価を実行
+                if parent_mask.has(STYLE_INTERACTION_WITHIN) {
+                    RenderStore::resolve_element_style_state(
+                        parent_id,
+                        true,
+                        active_masks,
+                        base_visual_properties,
+                        interaction_properties,
+                        visual_properties,
+                        parents,
+                        entities,
+                        children,
+                        input_contents,
+                        element_effects,
+                        active_transitions,
+                        active_animations,
+                        dirty_render_entities,
+                        basic_layouts,
+                        base_basic_layouts,
+                        rects,
+                        last_window_size.as_ref(),
+                        taffy_nodes,
+                        taffy,
+                        dirty_layout_entities,
+                    );
+
+                    if RenderStore::does_state_require_layout(
+                        parent_id,
+                        interaction_properties,
+                        state_flag,
+                    ) {
+                        LayoutStore::mark_layout_dirty(
+                            parent_id,
+                            taffy_nodes,
+                            taffy,
+                            active_masks,
+                            dirty_layout_entities,
+                            parents,
+                        );
+                        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+                    } else {
+                        RenderStore::mark_render_dirty(
+                            parent_id,
+                            active_masks,
+                            dirty_render_entities,
+                        );
+                    }
+                }
+            }
+            curr = parent_id;
+        }
+
+        // 状態変化による本要素のレイアウト汚染チェック
+        if RenderStore::does_state_require_layout(id, interaction_properties, state_flag) {
+            LayoutStore::mark_layout_dirty(
+                id,
+                taffy_nodes,
+                taffy,
+                active_masks,
+                dirty_layout_entities,
+                parents,
+            );
+            RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+        } else {
+            RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+        }
+
+        if !state_changed {
+            return;
+        }
+
+        // 残りの状態遷移イベントの解決
+        if active {
+            match state_flag {
+                // Disabledになった瞬間
+                STATE_DISABLED => {
+                    let mut handler = cx
+                        .events
+                        .event_listeners
+                        .get_mut(id)
+                        .and_then(|listeners| listeners.on_disable.take());
+
+                    if let Some(mut h) = handler {
+                        let _guard = crate::ActiveElementGuard::new(id);
+                        h(cx);
+                        if let Some(listeners) = cx.events.event_listeners.get_mut(id) {
+                            listeners.on_disable = Some(h);
+                        }
+                    }
+                }
+                // アクティブになった瞬間
+                STATE_ACTIVED => {
+                    let mut handler = cx
+                        .events
+                        .event_listeners
+                        .get_mut(id)
+                        .and_then(|listeners| listeners.on_active.take());
+
+                    if let Some(mut h) = handler {
+                        let _guard = crate::ActiveElementGuard::new(id);
+                        h(cx);
+                        if let Some(listeners) = cx.events.event_listeners.get_mut(id) {
+                            listeners.on_active = Some(h);
+                        }
+                    }
+                }
+                // セレクトになった瞬間
+                STATE_SELECTED => {
+                    let mut handler = cx
+                        .events
+                        .event_listeners
+                        .get_mut(id)
+                        .and_then(|listeners| listeners.on_select.take());
+
+                    if let Some(mut h) = handler {
+                        let _guard = crate::ActiveElementGuard::new(id);
+                        h(cx);
+                        if let Some(listeners) = cx.events.event_listeners.get_mut(id) {
+                            listeners.on_select = Some(h);
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -584,94 +966,49 @@ impl Context {
 
     #[inline]
     pub(crate) fn pressed_local_point(
-        &self,
+        &mut self,
         pressed_id: EntityId,
         logical_pos: LayoutPoint,
     ) -> LayoutPoint {
-        let rect = self.rect(pressed_id).unwrap_or_default();
-        let (basic, flex, _) = self.resolve_active_layouts(pressed_id);
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+        let OutputStore {
+            rects,
+            scroll_offsets,
+            ..
+        } = &mut self.outputs;
+        let LayoutStore {
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            ..
+        } = &self.layouts;
+        let RenderStore {
+            active_transitions,
+            visual_properties,
+            interaction_properties,
+            ..
+        } = &self.renders;
+        let ContentStore { input_contents, .. } = &self.contents;
+        let TopologyStore {
+            parents,
+            active_masks,
+            ..
+        } = &self.topology;
 
-        let scroll = self
-            .outputs
-            .scroll_offsets
-            .get(pressed_id)
-            .copied()
-            .unwrap_or(LayoutPoint::ZERO);
-
-        let text_size = if let Some(contents) = self.contents.input_contents.get(pressed_id)
-            && let Some(layout_rect) = contents.last_layout
-        {
-            LayoutSize::new(layout_rect.width, layout_rect.height)
-        } else {
-            LayoutSize::ZERO
-        };
-
-        let content_w =
-            (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
-        let align_offset_x = match flex.text_align {
-            TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
-            TextAlign::Right => (content_w - text_size.width).max(0.0),
-            _ => 0.0,
-        };
-
-        let content_h =
-            (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
-        let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
-
-        let local_x =
-            logical_pos.x - (rect.x + border.left + padding.left + align_offset_x) + scroll.x;
-        let local_y =
-            logical_pos.y - (rect.y + border.top + padding.top + align_offset_y) + scroll.y;
-        LayoutPoint {
-            x: local_x,
-            y: local_y,
-        }
-    }
-
-    pub(crate) fn resolve_hover_state(&mut self, target_id: Option<EntityId>) {
-        // 旧ホバー要素からマウスが去った
-        if let Some(old_id) = self.events.interaction_states.hovered {
-            self.set_hovered(old_id, false);
-
-            if let Some(mut listeners) = self.events.event_listeners.get_mut(old_id)
-                && let Some(mut handler) = listeners.on_mouse_leave.take()
-            {
-                let _guard = crate::ActiveElementGuard::new(old_id);
-                handler(self);
-                if let Some(l) = self.events.event_listeners.get_mut(old_id) {
-                    l.on_mouse_leave = Some(handler);
-                }
-            }
-        }
-
-        // 新ホバー要素にマウスが入った
-        if let Some(new_id) = target_id {
-            self.set_hovered(new_id, true);
-
-            if let Some(mut listeners) = self.events.event_listeners.get_mut(new_id)
-                && let Some(mut handler) = listeners.on_mouse_enter.take()
-            {
-                let _guard = crate::ActiveElementGuard::new(new_id);
-                handler(self);
-                if let Some(l) = self.events.event_listeners.get_mut(new_id) {
-                    l.on_mouse_enter = Some(handler);
-                }
-            }
-
-            if let Some(mut listeners) = self.events.event_listeners.get_mut(new_id)
-                && let Some(mut handler) = listeners.on_hover.take()
-            {
-                let _guard = crate::ActiveElementGuard::new(new_id);
-                handler(self);
-                if let Some(l) = self.events.event_listeners.get_mut(new_id) {
-                    l.on_hover = Some(handler);
-                }
-            }
-        }
-
-        self.events.interaction_states.hovered = target_id;
+        EventStore::pressed_local_point(
+            pressed_id,
+            logical_pos,
+            scroll_offsets,
+            input_contents,
+            rects,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            interaction_properties,
+            visual_properties,
+        )
     }
 
     #[inline]
@@ -1617,115 +1954,6 @@ impl Context {
             if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
                 l.on_keyboard_input = Some(handler);
             }
-        }
-    }
-
-    /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
-    #[inline]
-    pub(crate) fn update_state(&mut self, id: EntityId, state_flag: u128, active: bool) {
-        let Some(mask) = self.topology.active_masks.get_mut(id) else {
-            return;
-        };
-
-        let was_active = mask.has(state_flag);
-        if (was_active == active) {
-            return;
-        }
-
-        if active {
-            mask.set(state_flag);
-        } else {
-            mask.unset(state_flag);
-        }
-
-        // 状態変化の発生時に即座に動的なスタイルを解決する
-        self.resolve_element_style_state(id, true);
-
-        // 親から子方向へのスタイル解決の伝播
-        if let Some(children) = self.topology.children.get(id).cloned() {
-            for child_id in children {
-                if self.topology.active_masks[child_id].has(STYLE_INTERACTION_PARENT) {
-                    self.resolve_element_style_state(child_id, true);
-
-                    if self.does_state_require_layout(child_id, state_flag) {
-                        self.mark_layout_dirty(child_id);
-                        self.mark_render_dirty(id);
-                    } else {
-                        self.mark_render_dirty(child_id);
-                    }
-                }
-            }
-        }
-
-        // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
-        let mut curr = id;
-        while let Some(Some(parent_id)) = self.topology.parents.get(curr).copied() {
-            if self.topology.entities.contains_key(parent_id) {
-                let parent_mask = self.topology.active_masks[parent_id];
-
-                // 先祖要素が within スタイルを持っている場合のみそのスタイル評価を実行
-                if parent_mask.has(STYLE_INTERACTION_WITHIN) {
-                    self.resolve_element_style_state(parent_id, true);
-
-                    if self.does_state_require_layout(parent_id, state_flag) {
-                        self.mark_layout_dirty(parent_id);
-                        self.mark_render_dirty(id);
-                    } else {
-                        self.mark_render_dirty(parent_id);
-                    }
-                }
-            }
-            curr = parent_id;
-        }
-
-        // 残りの状態遷移イベントの解決
-        if active {
-            match state_flag {
-                // Disabledになった瞬間
-                STATE_DISABLED => {
-                    if let Some(mut listeners) = self.events.event_listeners.get_mut(id)
-                        && let Some(mut handler) = listeners.on_disable.take()
-                    {
-                        let _guard = crate::ActiveElementGuard::new(id);
-                        handler(self);
-                        if let Some(l) = self.events.event_listeners.get_mut(id) {
-                            l.on_disable = Some(handler);
-                        }
-                    }
-                }
-                // アクティブになった瞬間
-                STATE_ACTIVED => {
-                    if let Some(mut listeners) = self.events.event_listeners.get_mut(id)
-                        && let Some(mut handler) = listeners.on_active.take()
-                    {
-                        let _guard = crate::ActiveElementGuard::new(id);
-                        handler(self);
-                        if let Some(l) = self.events.event_listeners.get_mut(id) {
-                            l.on_active = Some(handler);
-                        }
-                    }
-                }
-                // セレクトになった瞬間
-                STATE_SELECTED => {
-                    if let Some(mut listeners) = self.events.event_listeners.get_mut(id)
-                        && let Some(mut handler) = listeners.on_select.take()
-                    {
-                        let _guard = crate::ActiveElementGuard::new(id);
-                        handler(self);
-                        if let Some(l) = self.events.event_listeners.get_mut(id) {
-                            l.on_select = Some(handler);
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        if self.does_state_require_layout(id, state_flag) {
-            self.mark_layout_dirty(id);
-            self.mark_render_dirty(id);
-        } else {
-            self.mark_render_dirty(id);
         }
     }
 }

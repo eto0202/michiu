@@ -967,7 +967,7 @@ impl Context {
     /// 色や不透明度の変化だけであれば最速の描画更新（ファストパス）として処理されます。
     #[inline]
     pub fn set_hovered(&mut self, id: EntityId, hovered: bool) {
-        self.update_state(id, STATE_HOVERED, hovered);
+        EventStore::update_state(self, id, STATE_HOVERED, hovered);
     }
 
     /// フォーカス（Focused：キーボードタブフォーカス等）状態を更新します。
@@ -984,45 +984,45 @@ impl Context {
         focused: bool,
         trigger: ActiveFocusTrigger,
     ) {
-        self.update_state(id, STATE_FOCUSED, focused);
+        EventStore::update_state(self, id, STATE_FOCUSED, focused);
         let show_visible = focused && (trigger == ActiveFocusTrigger::Keyboard);
-        self.update_state(id, STATE_FOCUSED_VISIBLE, show_visible);
+        EventStore::update_state(self, id, STATE_FOCUSED, focused);
     }
 
     /// プレス（Pressed：クリック押し下げ、タップ中）状態を更新します。
     #[inline]
     pub fn set_pressed(&mut self, id: EntityId, pressed: bool) {
-        self.update_state(id, STATE_PRESSED, pressed);
+        EventStore::update_state(self, id, STATE_PRESSED, pressed);
     }
 
     /// 無効化（Disabled：ボタンの操作不可など）状態を更新します。
     #[inline]
     pub fn set_disabled(&mut self, id: EntityId, disabled: bool) {
-        self.update_state(id, STATE_DISABLED, disabled);
+        EventStore::update_state(self, id, STATE_DISABLED, disabled);
     }
 
     /// アクティブ（Actived：タブのトグル選択中など）状態を更新します。
     #[inline]
     pub fn set_actived(&mut self, id: EntityId, actived: bool) {
-        self.update_state(id, STATE_ACTIVED, actived);
+        EventStore::update_state(self, id, STATE_ACTIVED, actived);
     }
 
     /// セレクト（Selected：チェックボックス、リストなどの選択）状態を更新します。
     #[inline]
     pub fn set_selected(&mut self, id: EntityId, selected: bool) {
-        self.update_state(id, STATE_SELECTED, selected);
+        EventStore::update_state(self, id, STATE_SELECTED, selected);
     }
 
     /// ドラッグ（Dragged：スライダーノブやスプリッターのドラッグ中）状態を更新します。
     #[inline]
     pub fn set_dragged(&mut self, id: EntityId, dragged: bool) {
-        self.update_state(id, STATE_DRAGGED, dragged);
+        EventStore::update_state(self, id, STATE_DRAGGED, dragged);
     }
 
     /// `要素のドラッグ・ドロップ擬似状態（STATE_DRAGGING`, `STATE_DRAG_IN`, `STATE_DRAG_OVER）を制御します`。
     #[inline]
     pub(crate) fn set_drag_state(&mut self, id: EntityId, flag: u128, active: bool) {
-        self.update_state(id, flag, active);
+        EventStore::update_state(self, id, flag, active);
     }
 
     pub fn inject_pointer_move(&mut self, logical_pos: LayoutPoint) {
@@ -1102,7 +1102,7 @@ impl Context {
 
         // ホバー（Enter/Leave）状態の解決
         if target_id != self.events.interaction_states.hovered {
-            self.resolve_hover_state(target_id);
+            EventStore::resolve_hover_state(self, target_id);
         }
 
         // カーソル移動イベントの伝播

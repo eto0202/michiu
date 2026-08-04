@@ -882,8 +882,35 @@ impl OutputStore {
         out
     }
 
+    #[inline]
+    pub(crate) fn calc_align_offset(
+        rect: LayoutRect,
+        border: EdgeInsets,
+        padding: EdgeInsets,
+        text_size: LayoutSize,
+        text_align: TextAlign,
+    ) -> LayoutPoint {
+        let content_w =
+            (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
+        let align_offset_x = match text_align {
+            TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
+            TextAlign::Right => (content_w - text_size.width).max(0.0),
+            _ => 0.0,
+        };
+
+        let content_h =
+            (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
+        let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+
+        LayoutPoint {
+            x: align_offset_x,
+            y: align_offset_y,
+        }
+    }
+
     /// スクロールオフセットを目標位置へクランプした上で代入。
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn scroll_to(
         id: EntityId,
         mut x: f32,
@@ -990,6 +1017,7 @@ impl OutputStore {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn scroll_by(
         id: EntityId,
         dx: f32,

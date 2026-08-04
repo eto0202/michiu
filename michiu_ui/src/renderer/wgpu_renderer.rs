@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DrawBatch,
-    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, Length, QuadInstance, TextAlign,
-    TextCacheKey, TextCacheValue, TextRasterizer, TextSpan, TextureAtlas, Vertex, VisualProperty,
+    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
+    QuadInstance, TextAlign, TextCacheKey, TextCacheValue, TextRasterizer, TextSpan, TextureAtlas,
+    Vertex, VisualProperty,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -611,8 +612,8 @@ impl WgpuRenderer {
             border_flags |= a_val << (i * 4 + 2); // アライメント用： bit 2, 6, 10, 14 起点
         }
 
-        let o_width = visual.outline_width.unwrap_or(EdgeInsets::ZERO);
-        let o_color = visual.outline_color.unwrap_or(Color::TRANSPARENT);
+        let o_width = visual.outline_width.unwrap_or_default();
+        let o_color = visual.outline_color.unwrap_or_default();
         let o_lengths = visual.outline_lengths.unwrap_or(EdgeInsets::px_all(1.0));
         let o_offset = visual.outline_offset.unwrap_or(0.0);
         let o_styles = visual.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
@@ -632,7 +633,7 @@ impl WgpuRenderer {
         // テンプレート側が影なしを指定している場合は SoA を無視して完全透明にする
         let mut shadow_color =
             if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
-                visual.shadow_color.unwrap_or(Color::TRANSPARENT)
+                visual.shadow_color.unwrap_or_default()
             } else {
                 Color::TRANSPARENT // テンプレートが透明を指定、または SoA に形状が無いなら影を完全無効化
             };
@@ -719,38 +720,9 @@ impl WgpuRenderer {
                 cx.system.text_engine.get_layout_size(&layout)
             };
 
-            let border_left = match basic.border.left {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let border_right = match basic.border.right {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let padding_left = match basic.padding.left {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let padding_right = match basic.padding.right {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let border_top = match basic.border.top {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let border_bottom = match basic.border.bottom {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let padding_top = match basic.padding.top {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
-            let padding_bottom = match basic.padding.bottom {
-                Length::Px(v) => v,
-                _ => 0.0,
-            };
+            let rect = OutputStore::rect(entity_id, &cx.outputs.rects).unwrap_or_default();
+            let (border, padding) =
+                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
             // スクロールオフセット
             let scroll = cx
@@ -760,24 +732,13 @@ impl WgpuRenderer {
                 .copied()
                 .unwrap_or(LayoutPoint::ZERO);
 
-            let content_w =
-                (instance.rect.width - border_left - border_right - padding_left - padding_right)
-                    .max(0.0);
-            let align_offset_x = match flex.text_align {
-                TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
-                TextAlign::Right => (content_w - text_size.width).max(0.0),
-                _ => 0.0,
-            };
-
-            let content_h =
-                (instance.rect.height - border_top - border_bottom - padding_top - padding_bottom)
-                    .max(0.0);
-            let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+            let align_offset =
+                OutputStore::calc_align_offset(rect, border, padding, text_size, flex.text_align);
 
             // 完全に整数ピクセルサイズにスナップし、にじみとピクピク揺れを完全に阻止
             final_rect = LayoutRect::new(
-                instance.rect.x + border_left + padding_left + align_offset_x - scroll.x,
-                instance.rect.y + border_top + padding_top + align_offset_y - scroll.y,
+                instance.rect.x + border.left + padding.left + align_offset.x - scroll.x,
+                instance.rect.y + border.top + padding.top + align_offset.y - scroll.y,
                 text_size.width.ceil(),
                 text_size.height.ceil(),
             );
