@@ -15,6 +15,14 @@ pub(crate) struct ActiveDragState {
     pub(crate) original_parent: Option<EntityId>,
 }
 
+/// プレースホルダーをアタッチする際の親要素の情報
+pub(crate) struct PlaceholderAttachment {
+    pub(crate) parent_id: Option<EntityId>,
+    pub(crate) rect: LayoutRect,
+    pub(crate) border_left: f32,
+    pub(crate) border_top: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResizeDirection {
     Top,
@@ -101,102 +109,101 @@ impl EventStore {
 }
 
 impl EventStore {
-    pub(crate) fn to_attach_placeholder(
+    pub(crate) fn resolve_placeholder_parent(
         root: EntityId,
         drag_prop: DragProperty,
-        outputs: &OutputStore,
-        layouts: &LayoutStore,
-    ) -> (Option<EntityId>, LayoutRect, f32, f32) {
-        let (parent_id_opt, parent_rect, parent_border_left, parent_border_top) =
-            match drag_prop.placeholder_parent {
-                DragPlaceholderParent::Root => (
-                    Some(root),
-                    outputs.rects.get(root).copied().unwrap_or(LayoutRect::ZERO),
-                    0.0,
-                    0.0,
-                ),
-                DragPlaceholderParent::Custom(p_id) => {
-                    let p_rect = outputs.rects.get(p_id).copied().unwrap_or(LayoutRect::ZERO);
-                    let (b_l, b_t) = layouts
-                        .basic_layouts
-                        .get(p_id)
-                        .map(|l| {
-                            (
-                                match l.border.left {
-                                    Length::Px(v) => v,
-                                    _ => 0.0,
-                                },
-                                match l.border.top {
-                                    Length::Px(v) => v,
-                                    _ => 0.0,
-                                },
-                            )
-                        })
-                        .unwrap_or((0.0, 0.0));
-                    (Some(p_id), p_rect, b_l, b_t)
+        rects: &RectsSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+    ) -> PlaceholderAttachment {
+        match drag_prop.placeholder_parent {
+            DragPlaceholderParent::Root => PlaceholderAttachment {
+                parent_id: Some(root),
+                rect: OutputStore::rect(root, rects).unwrap_or_default(),
+                border_left: 0.0,
+                border_top: 0.0,
+            },
+            DragPlaceholderParent::Custom(p_id) => {
+                let p_rect = OutputStore::rect(p_id, rects).unwrap_or_default();
+                let (b_l, b_t) = basic_layouts
+                    .get(p_id)
+                    .map(|l| {
+                        (
+                            match l.border.left {
+                                Length::Px(v) => v,
+                                _ => 0.0,
+                            },
+                            match l.border.top {
+                                Length::Px(v) => v,
+                                _ => 0.0,
+                            },
+                        )
+                    })
+                    .unwrap_or_default();
+
+                PlaceholderAttachment {
+                    parent_id: Some(p_id),
+                    rect: p_rect,
+                    border_left: b_l,
+                    border_top: b_t,
                 }
-            };
-        (
-            parent_id_opt,
-            parent_rect,
-            parent_border_left,
-            parent_border_top,
-        )
+            }
+        }
     }
 
-    pub(crate) fn get_resizable_cursor_icon(
+    pub(crate) fn apply_resizable_cursor_style(
         id: EntityId,
         dir: ResizeDirection,
-        vis: &mut VisualProperty,
-    ) -> Option<CursorIcon> {
-        // 要素に resizable_cursor の個別指定があれば、方向に応じて該当カーソルを抽出
-        let custom_cursor = if let Some(arr) = vis.resizable_cursor {
-            let idx = match dir {
-                ResizeDirection::Top | ResizeDirection::Bottom => 0, // Ns
-                ResizeDirection::Left | ResizeDirection::Right => 1, // Ew
-                ResizeDirection::TopRight | ResizeDirection::BottomLeft => 2, // Nesw
-                ResizeDirection::TopLeft | ResizeDirection::BottomRight => 3, // Nwse
-            };
-            arr[idx]
-        } else {
-            None
+        visual_properties: &mut VisualPropertiesSecondary,
+    ) {
+        let Some(vis) = visual_properties.get_mut(id) else {
+            return;
+        };
+        // 方向に対応する配列インデックス
+        let idx = match dir {
+            ResizeDirection::Top | ResizeDirection::Bottom => 0, // Ns
+            ResizeDirection::Left | ResizeDirection::Right => 1, // Ew
+            ResizeDirection::TopRight | ResizeDirection::BottomLeft => 2, // Nesw
+            ResizeDirection::TopLeft | ResizeDirection::BottomRight => 3, // Nwse
         };
 
-        // 独自指定があればそれを使い、無ければライブラリの自動マッピングを使用
-        Some(custom_cursor.unwrap_or_else(|| Context::resize_direction_to_cursor(dir)))
+        // 独自指定があればそれを引き、なければデフォルトをフォールバックして解決
+        let cursor = vis
+            .resizable_cursor
+            .and_then(|arr| arr[idx])
+            .unwrap_or_else(|| EventStore::resize_direction_to_cursor(dir));
+
+        vis.cursor = Some(cursor);
     }
 
     pub(crate) fn found_resize_hover(
         target_id: Option<EntityId>,
         logical_pos: LayoutPoint,
-        topology: &mut TopologyStore,
-        layouts: &LayoutStore,
-        outputs: &OutputStore,
+        active_masks: &ActiveMasksSecondary,
+        parents: &ParentsSecondary,
+        rects: &RectsSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
     ) -> (Option<EntityId>, Option<(EntityId, ResizeDirection)>) {
         let mut current_id = target_id;
         let mut found_resize_hover = None;
         while let Some(id) = current_id {
-            if topology.active_masks[id].has(STYLE_RESIZABLE) {
-                let rect = outputs.rects.get(id).copied().unwrap_or_default();
-                let resizable_flags = layouts
-                    .basic_layouts
-                    .get(id)
-                    .map(|l| l.resizable)
-                    .unwrap_or([false; 4]);
+            if active_masks[id].has(STYLE_RESIZABLE) {
+                let rect = rects.get(id).copied().unwrap_or_default();
+                let resizable_flags = basic_layouts.get(id).map_or([false; 4], |l| l.resizable);
 
                 // 境界外周に 6.0px のあそびを持たせてヒット判定
                 let detect_border = 6.0f32;
-                if let Some(dir) = Context::detect_resize_direction(
+                let direction = Context::detect_resize_direction(
                     rect,
                     resizable_flags,
                     logical_pos,
                     detect_border,
-                ) {
+                );
+                if let Some(dir) = direction {
                     found_resize_hover = Some((id, dir));
                     break; // 最も前面寄りのリサイズ親要素を優先採用
                 }
             }
-            current_id = topology.parents.get(id).copied().flatten();
+            current_id = parents.get(id).copied().flatten();
         }
         (current_id, found_resize_hover)
     }
@@ -290,8 +297,7 @@ impl EventStore {
         let position = layouts
             .basic_layouts
             .get(id)
-            .map(|l| l.position)
-            .unwrap_or(Position::Relative);
+            .map_or(Position::Relative, |l| l.position);
 
         // 親要素の矩形を取得
         // 親要素の矩形と、その「左・上ボーダーの厚み」を正確に取得する
@@ -352,8 +358,7 @@ impl EventStore {
             start_inset = layouts
                 .basic_layouts
                 .get(id)
-                .map(|l| l.inset)
-                .unwrap_or(BasicLayout::default().inset);
+                .map_or(BasicLayout::default().inset, |l| l.inset);
         }
 
         let start_pos = events.current_pointer_position.unwrap_or(LayoutPoint::ZERO);
@@ -388,20 +393,18 @@ impl EventStore {
                 }
             });
 
-        focusable
-            .map(|f| match f {
-                Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
-                    trigger == FocusTrigger::Mouse || trigger == FocusTrigger::Both
-                }
-                Focusable::None => false,
-            })
-            .unwrap_or(false)
+        focusable.is_some_and(|f| match f {
+            Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
+                trigger == FocusTrigger::Mouse || trigger == FocusTrigger::Both
+            }
+            Focusable::None => false,
+        })
     }
 
     #[inline]
     pub(crate) fn get_scrollbar_dirty_ids(layouts: &mut LayoutStore) -> SmallVec<[EntityId; 4]> {
         let mut dirty_ids = SmallVec::<[EntityId; 4]>::new();
-        for (id, state) in layouts.scrollbar_styles.iter_mut() {
+        for (id, state) in &mut layouts.scrollbar_styles {
             if state.v_thumb_dragged || state.h_thumb_dragged {
                 state.v_thumb_dragged = false;
                 state.h_thumb_dragged = false;
@@ -456,10 +459,10 @@ impl Context {
                 if distace.x.abs() > 1.0 || distace.y.abs() > 1.0 {
                     // TODO: スクロール感度調整用メソッドを実装。
                     let speed_factor = 0.15f32;
-                    let scroll_dx = distace.x * speed_factor;
-                    let scroll_dy = distace.y * speed_factor;
+                    let dx = distace.x * speed_factor;
+                    let dy = distace.y * speed_factor;
 
-                    if self.scroll_by(id, scroll_dx, scroll_dy) {
+                    if self.scroll_by(id, dx, dy) {
                         autoscroll_occurred = true;
                         active_pos = Some(pointer_pos);
                     }
@@ -471,19 +474,24 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn to_attach_placeholder(
+    pub(crate) fn resolve_placeholder_parent(
         &self,
         root: EntityId,
         drag_prop: DragProperty,
-    ) -> (Option<EntityId>, LayoutRect, f32, f32) {
-        EventStore::to_attach_placeholder(root, drag_prop, &self.outputs, &self.layouts)
+    ) -> PlaceholderAttachment {
+        let OutputStore { rects, .. } = &self.outputs;
+        let LayoutStore { basic_layouts, .. } = &self.layouts;
+
+        EventStore::resolve_placeholder_parent(root, drag_prop, rects, basic_layouts)
     }
 
     #[inline]
     pub(crate) fn apply_resizable_cursor_style(&mut self, id: EntityId, dir: ResizeDirection) {
-        if let Some(vis) = self.renders.visual_properties.get_mut(id) {
-            vis.cursor = EventStore::get_resizable_cursor_icon(id, dir, vis);
-        }
+        let RenderStore {
+            visual_properties, ..
+        } = &mut self.renders;
+
+        EventStore::apply_resizable_cursor_style(id, dir, visual_properties);
     }
 
     #[inline]
@@ -492,12 +500,21 @@ impl Context {
         target_id: Option<EntityId>,
         logical_pos: LayoutPoint,
     ) -> (Option<EntityId>, Option<(EntityId, ResizeDirection)>) {
+        let TopologyStore {
+            active_masks,
+            parents,
+            ..
+        } = &self.topology;
+        let OutputStore { rects, .. } = &self.outputs;
+        let LayoutStore { basic_layouts, .. } = &self.layouts;
+
         EventStore::found_resize_hover(
             target_id,
             logical_pos,
-            &mut self.topology,
-            &self.layouts,
-            &self.outputs,
+            active_masks,
+            parents,
+            rects,
+            basic_layouts,
         )
     }
 
@@ -562,7 +579,7 @@ impl Context {
                 if let Some(l) = self.events.event_listeners.get_mut(old_id) {
                     l.on_mouse_leave = Some(handler);
                 }
-            };
+            }
         }
 
         // 新ホバー要素にマウスが入った
@@ -577,7 +594,7 @@ impl Context {
                 if let Some(l) = self.events.event_listeners.get_mut(new_id) {
                     l.on_mouse_enter = Some(handler);
                 }
-            };
+            }
 
             if let Some(mut listeners) = self.events.event_listeners.get_mut(new_id)
                 && let Some(mut handler) = listeners.on_hover.take()
@@ -587,7 +604,7 @@ impl Context {
                 if let Some(l) = self.events.event_listeners.get_mut(new_id) {
                     l.on_hover = Some(handler);
                 }
-            };
+            }
         }
 
         self.events.interaction_states.hovered = target_id;
@@ -656,12 +673,11 @@ impl Context {
                         .expect("Root EntityId not found in Context");
 
                     // プレースホルダーアタッチ先親要素の決定
-                    let (parent_id_opt, parent_rect, parent_border_left, parent_border_top) =
-                        self.to_attach_placeholder(root, drag_prop);
+                    let placeholder = self.resolve_placeholder_parent(root, drag_prop);
 
                     // プレースホルダー（クローン）をアタッチ先親の直下へ spawn して生成
-                    let placeholder_id = self.spawn(parent_id_opt);
-                    if let Some(p_id) = parent_id_opt {
+                    let placeholder_id = self.spawn(placeholder.parent_id);
+                    if let Some(p_id) = placeholder.parent_id {
                         self.add_child(p_id, placeholder_id);
                     }
 
@@ -799,9 +815,11 @@ impl Context {
         root: EntityId,
         drag_prop: DragProperty,
     ) -> (LayoutRect, f32, f32) {
-        let (_, parent_rect, b_l, b_t) =
-            EventStore::to_attach_placeholder(root, drag_prop, &self.outputs, &self.layouts);
-        (parent_rect, b_l, b_t)
+        let OutputStore { rects, .. } = &self.outputs;
+        let LayoutStore { basic_layouts, .. } = &self.layouts;
+
+        let p = EventStore::resolve_placeholder_parent(root, drag_prop, rects, basic_layouts);
+        (p.rect, p.border_left, p.border_top)
     }
 
     #[inline]

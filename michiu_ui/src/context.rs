@@ -436,7 +436,7 @@ impl Context {
 
         RenderStore::has_active_animations(
             interaction_states,
-            current_pointer_position,
+            current_pointer_position.as_ref(),
             clip_rects,
             visual_properties,
             active_transitions,
@@ -878,7 +878,7 @@ impl Context {
 
         // リサイズ中のドラッグ同期処理
         if let Some(state) = self.events.resizing_state.clone() {
-            self.sync_resizing_drag(logical_pos, state);
+            self.sync_resizing_drag(logical_pos, &state);
             return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
         }
 
@@ -901,6 +901,7 @@ impl Context {
 
         if let Some((id, dir)) = found_resize_hover {
             self.events.active_resize_hover = Some((id, dir));
+            let vis = self.renders.visual_properties.get(id).unwrap();
             self.apply_resizable_cursor_style(id, dir);
             self.mark_render_dirty(id);
         }

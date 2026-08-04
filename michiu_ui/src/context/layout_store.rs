@@ -9,6 +9,7 @@ use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
 use taffy::TaffyTree;
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ScrollBarState {
     pub(crate) style: ScrollbarStyle,
@@ -59,6 +60,7 @@ impl Default for LayoutStore {
 }
 
 impl LayoutStore {
+    #[must_use]
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -138,7 +140,7 @@ impl LayoutStore {
         LayoutStore::apply_interaction_styles(
             id,
             interaction_properties,
-            [focused_style_resolved, focused_visible_style_resolved],
+            &[focused_style_resolved, focused_visible_style_resolved],
             &active_mask,
             (is_width_transitioning, is_height_transitioning),
             &mut basic,
@@ -149,21 +151,20 @@ impl LayoutStore {
         (basic, flex, grid)
     }
 
-    /// ターゲット状態に応じた BasicLayout の可変参照を引き出す
+    /// ターゲット状態に応じた `BasicLayout` の可変参照を引き出す
     pub(crate) fn get_basic_layout_mut<'a>(
         id: EntityId,
         base_basic_layouts: &'a mut BaseBasicLayoutsSecondary,
         interaction_properties: &'a mut InteractionPropertiesSecondary,
         target: StyleTarget,
     ) -> Option<&'a mut BasicLayout> {
-        match target {
-            StyleTarget::Base => base_basic_layouts.get_mut(id),
-            _ => {
-                // interaction_properties から該当疑似クラスを安全に解決
-                let styles = interaction_properties.get_mut(id)?;
-                let style_ref = styles.get_style_target_mut(target);
-                Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
-            }
+        if target == StyleTarget::Base {
+            base_basic_layouts.get_mut(id)
+        } else {
+            // interaction_properties から該当疑似クラスを安全に解決
+            let styles = interaction_properties.get_mut(id)?;
+            let style_ref = styles.get_style_target_mut(target);
+            Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
         }
     }
 
@@ -173,16 +174,15 @@ impl LayoutStore {
         flex_layouts: &'a mut SecondaryMap<EntityId, FlexLayout>,
         interaction_properties: &'a mut InteractionPropertiesSecondary,
     ) -> Option<&'a mut FlexLayout> {
-        match target {
-            StyleTarget::Base => flex_layouts.get_mut(id),
-            _ => {
-                if !interaction_properties.contains_key(id) {
-                    interaction_properties.insert(id, InteractionStyles::default());
-                }
-                let styles = interaction_properties.get_mut(id).unwrap();
-                let style_ref = styles.get_style_target_mut(target);
-                Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
+        if target == StyleTarget::Base {
+            flex_layouts.get_mut(id)
+        } else {
+            if !interaction_properties.contains_key(id) {
+                interaction_properties.insert(id, InteractionStyles::default());
             }
+            let styles = interaction_properties.get_mut(id).unwrap();
+            let style_ref = styles.get_style_target_mut(target);
+            Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
         }
     }
 
@@ -217,7 +217,7 @@ impl LayoutStore {
     pub(crate) fn apply_interaction_styles(
         id: EntityId,
         interaction_properties: &InteractionPropertiesSecondary,
-        focused_resolved: [Option<ThisStyle>; 2],
+        focused_resolved: &[Option<ThisStyle>; 2],
         active_mask: &ComponentMask,
         is_transitioning: (bool, bool),
         basic: &mut BasicLayout,
@@ -289,12 +289,12 @@ impl LayoutStore {
             margin: basic.margin.into(),
             padding: basic.padding.into(),
             border: basic.border.into(),
-            align_items: flex.align_items.map(|f| f.into()),
-            align_self: flex.align_self.map(|f| f.into()),
-            justify_items: flex.justify_items.map(|f| f.into()),
-            justify_self: flex.justify_self.map(|f| f.into()),
-            align_content: flex.align_content.map(|f| f.into()),
-            justify_content: flex.justify_content.map(|f| f.into()),
+            align_items: flex.align_items.map(taffy::AlignItems::from),
+            align_self: flex.align_self.map(taffy::AlignItems::from),
+            justify_items: flex.justify_items.map(taffy::AlignItems::from),
+            justify_self: flex.justify_self.map(taffy::AlignItems::from),
+            align_content: flex.align_content.map(taffy::AlignContent::from),
+            justify_content: flex.justify_content.map(taffy::AlignContent::from),
             gap: flex.gap.into(),
             flex_direction: flex.flex_direction.into(),
             flex_wrap: flex.flex_wrap.into(),
@@ -313,14 +313,20 @@ impl LayoutStore {
             ..Default::default()
         };
         if let Some(g) = grid {
-            style.grid_template_rows = g.grid_template_rows.clone();
-            style.grid_template_columns = g.grid_template_columns.clone();
-            style.grid_auto_rows = g.grid_auto_rows.clone();
-            style.grid_auto_columns = g.grid_auto_columns.clone();
+            style.grid_template_rows.clone_from(&g.grid_template_rows);
+            style
+                .grid_template_columns
+                .clone_from(&g.grid_template_columns);
+            style.grid_auto_rows.clone_from(&g.grid_auto_rows);
+            style.grid_auto_columns.clone_from(&g.grid_auto_columns);
             style.grid_auto_flow = g.grid_auto_flow.into();
-            style.grid_template_areas = g.grid_template_areas.clone();
-            style.grid_template_column_names = g.grid_template_column_names.clone();
-            style.grid_template_row_names = g.grid_template_row_names.clone();
+            style.grid_template_areas.clone_from(&g.grid_template_areas);
+            style
+                .grid_template_column_names
+                .clone_from(&g.grid_template_column_names);
+            style
+                .grid_template_row_names
+                .clone_from(&g.grid_template_row_names);
             style.grid_row = g.grid_row.clone().into();
             style.grid_column = g.grid_column.clone().into();
         }
@@ -495,7 +501,7 @@ impl LayoutStore {
         );
     }
 
-    /// 解決済みの基本スタイルを TaffyTree のノードへ同期して適用。
+    /// 解決済みの基本スタイルを `TaffyTree` のノードへ同期して適用。
     #[inline]
     pub(crate) fn set_taffy_style(
         id: EntityId,
@@ -625,12 +631,12 @@ impl LayoutStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn sync_resizing_drag(
         logical_pos: LayoutPoint,
-        state: ResizingState,
+        state: &ResizingState,
         basic_layouts: &mut BasicLayoutsSecondary,
         base_basic_layouts: &mut BaseBasicLayoutsSecondary,
         rects: &RectsSecondary,
         parents: &ParentsSecondary,
-        last_window_size: &Option<LayoutSize>,
+        last_window_size: Option<&LayoutSize>,
         taffy_nodes: &TaffyNodesSecondary,
         taffy: &mut TaffyTreeEntityId,
         active_masks: &mut ActiveMasksSecondary,
@@ -776,7 +782,7 @@ pub(crate) struct ScrollbarSyncContext<'a> {
     pub scrollbar_styles: &'a ScrollbarStylesSecondary,
 }
 
-impl<'a> ScrollbarSyncContext<'a> {
+impl ScrollbarSyncContext<'_> {
     #[inline]
     pub fn update_el(&mut self, el_id: EntityId, size: Size<Val>, rect: Rect<Val>, opacity: f32) {
         LayoutStore::update_scrollbar_element(
@@ -878,22 +884,22 @@ impl LayoutStore {
             let content_size =
                 LayoutStore::calculate_inner_content_size(visible_size, border, padding);
 
-            let show_v_bar = scroll_size.height > content_size.height;
-            let show_h_bar = scroll_size.width > content_size.width;
+            let show_v = scroll_size.height > content_size.height;
+            let show_h = scroll_size.width > content_size.width;
 
             // トラックデフォルト長の計算
             let track_h_default = LayoutStore::calculate_track_len(
                 visible_size.height,
                 border.top,
                 border.bottom,
-                show_h_bar,
+                show_h,
                 sb_state.style.width,
             );
             let track_w = LayoutStore::calculate_track_len(
                 visible_size.width,
                 border.left,
                 border.right,
-                show_v_bar,
+                show_v,
                 sb_state.style.width,
             );
 
@@ -918,7 +924,7 @@ impl LayoutStore {
                 let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
                     sb_state.style.display,
                     sb_state.last_scroll_time,
-                    show_v_bar,
+                    show_v,
                 );
                 if visible {
                     let mut track_h = track_h_default;
@@ -943,7 +949,7 @@ impl LayoutStore {
                 let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
                     sb_state.style.display,
                     sb_state.last_scroll_time,
-                    show_v_bar,
+                    show_v,
                 );
                 if visible {
                     let mut ext = ExtractedThumb {
@@ -991,7 +997,7 @@ impl LayoutStore {
                         scroll_size.height,
                         current_scroll.y,
                         sb_state.style.width,
-                        ext,
+                        &ext,
                     );
 
                     ctx.update_el(
@@ -1010,7 +1016,7 @@ impl LayoutStore {
                 let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
                     sb_state.style.display,
                     sb_state.last_scroll_time,
-                    show_h_bar,
+                    show_h,
                 );
                 if visible {
                     ctx.update_el(
@@ -1029,7 +1035,7 @@ impl LayoutStore {
                 let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
                     sb_state.style.display,
                     sb_state.last_scroll_time,
-                    show_h_bar,
+                    show_h,
                 );
                 if visible {
                     let mut ext = ExtractedThumb {
@@ -1077,7 +1083,7 @@ impl LayoutStore {
                         scroll_size.width,
                         current_scroll.x,
                         sb_state.style.width,
-                        ext,
+                        &ext,
                     );
 
                     ctx.update_el(
@@ -1111,7 +1117,7 @@ impl LayoutStore {
                 };
 
                 let elapsed = last.elapsed();
-                if elapsed < Duration::from_millis(1000) {
+                if elapsed < Duration::from_secs(1) {
                     (true, 1.0)
                 } else if elapsed < Duration::from_millis(1500) {
                     let opacity = 1.0 - (elapsed.as_secs_f32() - 1.0) / 0.5;
@@ -1120,7 +1126,7 @@ impl LayoutStore {
                     (false, 1.0)
                 }
             }
-            _ => (false, 1.0),
+            ScrollbarDisplay::None => (false, 1.0),
         }
     }
 
@@ -1145,7 +1151,7 @@ impl LayoutStore {
         scroll_len: f32,
         current_scroll_val: f32,
         scrollbar_width: f32,
-        ext: ExtractedThumb,
+        ext: &ExtractedThumb,
     ) -> (f32, f32, f32, f32) {
         let view_ratio = if scroll_len > 0.0 {
             (visible_len / scroll_len).min(1.0)
@@ -1213,7 +1219,6 @@ impl Context {
     /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出します。
     #[inline]
     pub(crate) fn calculate_inner_content_size(
-        &self,
         visible_size: LayoutSize,
         border: EdgeInsets,
         padding: EdgeInsets,
@@ -1388,7 +1393,7 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn sync_resizing_drag(&mut self, logical_pos: LayoutPoint, state: ResizingState) {
+    pub(crate) fn sync_resizing_drag(&mut self, logical_pos: LayoutPoint, state: &ResizingState) {
         let LayoutStore {
             basic_layouts,
             base_basic_layouts,
@@ -1420,7 +1425,7 @@ impl Context {
             base_basic_layouts,
             rects,
             parents,
-            last_window_size,
+            last_window_size.as_ref(),
             taffy_nodes,
             taffy,
             active_masks,

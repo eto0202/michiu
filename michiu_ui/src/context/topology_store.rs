@@ -16,7 +16,7 @@ pub struct TopologyStore {
     pub(crate) entities: EntitiesSlot,
     /// 単方向の親ID参照。親子ポインタを排除した木構造の表現
     pub(crate) parents: ParentsSecondary,
-    /// 子要素のIDリスト。ヒープ割り当てを防ぐため SmallVec を採用
+    /// 子要素のIDリスト。ヒープ割り当てを防ぐため `SmallVec` を採用
     pub(crate) children: ChildrenSecondary,
     /// 各要素がどのSoAプロパティ（コンポーネント）を有効化しているかを示すビットマスク
     pub(crate) active_masks: ActiveMasksSecondary,
@@ -38,6 +38,7 @@ impl Default for TopologyStore {
 }
 
 impl TopologyStore {
+    #[must_use]
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -403,7 +404,8 @@ impl TopologyStore {
         *is_structure_dirty = false;
     }
 
-    /// 子孫要素のインタラクション状態（state_flag）を走査する純粋関連関数
+    /// 子孫要素のインタラクション状態を走査する純粋関連関数
+    #[must_use]
     pub fn has_descendant_with_state(
         entities: &EntitiesSlot,
         children: &ChildrenSecondary,
@@ -433,7 +435,7 @@ impl TopologyStore {
         false
     }
 
-    /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。
+    /// ウィンドウ内の最上位ルート要素の `EntityId` を自律解決して返します。
     #[inline]
     pub(crate) fn find_root_entity(
         entities: &EntitiesSlot,
@@ -784,7 +786,7 @@ impl Context {
         );
     }
 
-    /// ウィンドウ内の最上位ルート要素の EntityId を自律解決して返します。
+    /// ウィンドウ内の最上位ルート要素の `EntityId` を自律解決して返します。
     #[inline]
     pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
         let TopologyStore {

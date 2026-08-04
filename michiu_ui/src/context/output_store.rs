@@ -172,7 +172,7 @@ impl OutputStore {
         is_width: bool,
         parents: &ParentsSecondary,
         rects: &RectsSecondary,
-        last_window_size: &Option<LayoutSize>,
+        last_window_size: Option<&LayoutSize>,
     ) -> Option<f32> {
         match val {
             Val::Px(v) => Some(v),
@@ -187,7 +187,7 @@ impl OutputStore {
                 };
 
                 // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
-                let ref_size = parent_size.or(*last_window_size)?;
+                let ref_size = parent_size.or(last_window_size.copied())?;
                 let ref_val = if is_width {
                     ref_size.width
                 } else {
@@ -253,7 +253,7 @@ impl OutputStore {
     /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
     pub(crate) fn is_drag_autoscroll_active(
         interaction_states: &InteractionStates,
-        current_pointer_position: &Option<LayoutPoint>,
+        current_pointer_position: Option<&LayoutPoint>,
         clip_rects: &ClipRectsSecondary,
         visual_properties: &VisualPropertiesSecondary,
     ) -> bool {
@@ -954,7 +954,7 @@ impl Context {
             last_window_size, ..
         } = &self.window;
 
-        OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size)
+        OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size.as_ref())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -995,7 +995,7 @@ impl Context {
 
         OutputStore::is_drag_autoscroll_active(
             interaction_states,
-            current_pointer_position,
+            current_pointer_position.as_ref(),
             clip_rects,
             visual_properties,
         )
@@ -1225,7 +1225,7 @@ impl Context {
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
         let visible_size = self.calculate_visible_size(rect);
-        let content_size = self.calculate_inner_content_size(visible_size, border, padding);
+        let content_size = LayoutStore::calculate_inner_content_size(visible_size, border, padding);
 
         // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
         let max_scroll_x = (scroll_size.width - content_size.width).max(0.0);

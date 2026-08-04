@@ -50,6 +50,7 @@ impl Default for RenderStore {
 }
 
 impl RenderStore {
+    #[must_use]
     #[inline]
     pub fn new() -> Self {
         Self {
@@ -127,7 +128,7 @@ impl RenderStore {
     ) -> (f32, Option<&str>, Option<u32>, Option<u32>) {
         visual_properties
             .get(id)
-            .map(|v| {
+            .map_or((16.0, None, None, None), |v| {
                 (
                     v.font_size.unwrap_or(16.0),
                     v.font_family.as_deref(),
@@ -135,7 +136,6 @@ impl RenderStore {
                     v.font_style,
                 )
             })
-            .unwrap_or((16.0, None, None, None))
     }
 
     pub(crate) fn get_visual_property_mut<'a>(
@@ -144,16 +144,15 @@ impl RenderStore {
         base_visual_properties: &'a mut BaseVisualPropertiesSecondary,
         interaction_properties: &'a mut InteractionPropertiesSecondary,
     ) -> Option<&'a mut VisualProperty> {
-        match target {
-            StyleTarget::Base => base_visual_properties.get_mut(id),
-            _ => {
-                if !interaction_properties.contains_key(id) {
-                    interaction_properties.insert(id, InteractionStyles::default());
-                }
-                let styles = interaction_properties.get_mut(id).unwrap();
-                let style_ref = styles.get_style_target_mut(target);
-                Some(&mut Arc::make_mut(&mut style_ref.inner).visual_property)
+        if target == StyleTarget::Base {
+            base_visual_properties.get_mut(id)
+        } else {
+            if !interaction_properties.contains_key(id) {
+                interaction_properties.insert(id, InteractionStyles::default());
             }
+            let styles = interaction_properties.get_mut(id).unwrap();
+            let style_ref = styles.get_style_target_mut(target);
+            Some(&mut Arc::make_mut(&mut style_ref.inner).visual_property)
         }
     }
 
@@ -232,7 +231,7 @@ impl RenderStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn has_active_animations(
         interaction_states: &InteractionStates,
-        current_pointer_position: &Option<LayoutPoint>,
+        current_pointer_position: Option<&LayoutPoint>,
         clip_rects: &ClipRectsSecondary,
         visual_properties: &VisualPropertiesSecondary,
         active_transitions: &ActiveTransitionsSparseSecondary,
@@ -260,16 +259,14 @@ impl RenderStore {
         let has_blinking_input = interaction_states
             .focused
             .and_then(|id| input_contents.get(id))
-            .map(|c| c.has_caret && c.is_blink)
-            .unwrap_or(false);
+            .is_some_and(|c| c.has_caret && c.is_blink);
 
         // 一時的表示スクロールバーのフェード進行中は描画更新ループを継続
         let has_active_transient_scrollbar = scrollbar_styles.values().any(|sb_state| {
             sb_state.style.display == ScrollbarDisplay::Transient
                 && sb_state
                     .last_scroll_time
-                    .map(|t| t.elapsed() < Duration::from_millis(1500))
-                    .unwrap_or(false)
+                    .is_some_and(|t| t.elapsed() < Duration::from_millis(1500))
         });
 
         has_transitions
@@ -378,21 +375,21 @@ impl RenderStore {
     pub(crate) fn cascade_interaction_flag<'a>(
         id: EntityId,
         interaction: &'a InteractionStyles,
-        focused_style_resolved: &'a Option<ThisStyle>,
-        focused_visible_style_resolved: &'a Option<ThisStyle>,
-    ) -> [(u128, &'a Option<ThisStyle>); 11] {
+        focused_style_resolved: Option<&'a ThisStyle>,
+        focused_visible_style_resolved: Option<&'a ThisStyle>,
+    ) -> [(u128, Option<&'a ThisStyle>); 11] {
         [
             (STATE_FOCUSED, focused_style_resolved),
             (STATE_FOCUSED_VISIBLE, focused_visible_style_resolved),
-            (STATE_SELECTED, &interaction.selected),
-            (STATE_ACTIVED, &interaction.actived),
-            (STATE_HOVERED, &interaction.hovered),
-            (STATE_PRESSED, &interaction.pressed),
-            (STATE_DISABLED, &interaction.disabled),
-            (STATE_DRAGGED, &interaction.dragged),
-            (STATE_DRAGGING, &interaction.dragging),
-            (STATE_DRAG_IN, &interaction.drag_in),
-            (STATE_DRAG_OVER, &interaction.drag_over),
+            (STATE_SELECTED, interaction.selected.as_ref()),
+            (STATE_ACTIVED, interaction.actived.as_ref()),
+            (STATE_HOVERED, interaction.hovered.as_ref()),
+            (STATE_PRESSED, interaction.pressed.as_ref()),
+            (STATE_DISABLED, interaction.disabled.as_ref()),
+            (STATE_DRAGGED, interaction.dragged.as_ref()),
+            (STATE_DRAGGING, interaction.dragging.as_ref()),
+            (STATE_DRAG_IN, interaction.drag_in.as_ref()),
+            (STATE_DRAG_OVER, interaction.drag_over.as_ref()),
         ]
     }
 
@@ -481,8 +478,8 @@ impl RenderStore {
         let cascade = RenderStore::cascade_interaction_flag(
             id,
             interaction,
-            &focused_style_resolved,
-            &focused_visible_style_resolved,
+            focused_style_resolved.as_ref(),
+            focused_visible_style_resolved.as_ref(),
         );
 
         for (state, style_opt) in cascade {
@@ -907,7 +904,7 @@ impl RenderStore {
         );
 
         let to_px = |val, is_width| {
-            OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size)
+            OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size.as_ref())
         };
 
         let target_w_px = to_px(target_layout.size.width, true);
