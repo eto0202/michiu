@@ -1,4 +1,10 @@
-use crate::{EntityId, ComponentMask, TaffyTreeEntityId, TaffyNodesSecondary, DirtyRenderEntitiesVec, RenderStore, DirtyLayoutEntitiesVec, LayoutStore, OutputStore, ContentStore, EventStore, ReactiveStore, WindowStore, SystemStore, LayoutPoint, FlexLayoutsSecondary, RectsSecondary, FlexDirection, VisualPropertiesSecondary, Context};
+use crate::{
+    BaseVisualPropertiesSecondary, ClipRectsSecondary, ComponentMask, ContentStore, Context,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection,
+    FlexLayoutsSecondary, InteractionStates, LayoutPoint, LayoutStore, OutputStore, PointerEvents,
+    ReactiveStore, RectsSecondary, RenderStore, STATE_DND_DRAG_OVER, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
+};
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
 
@@ -561,6 +567,81 @@ impl TopologyStore {
         }
 
         eff_z_indices
+    }
+
+    /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
+    /// 階層的な早期枝刈りヒットテスト
+    pub fn hit_test(
+        point: LayoutPoint,
+        active_entities: &ActiveEntitiesVec,
+        active_masks: &ActiveMasksSecondary,
+        flat_dfs_sequence: &FlatDfsSequenceVec,
+        parents: &ParentsSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+        interaction_states: &InteractionStates,
+        rects: &RectsSecondary,
+        clip_rects: &ClipRectsSecondary,
+    ) -> Option<EntityId> {
+        // 各要素の実効 z_index を、親から子へカスケードして算出
+        let mut z_indices = SecondaryMap::with_capacity(flat_dfs_sequence.len());
+        for &id in flat_dfs_sequence {
+            let self_z = visual_properties.get(id).and_then(|v| v.z_index);
+
+            let parent_z = parents
+                .get(id)
+                .copied()
+                .flatten()
+                .and_then(|pid| z_indices.get(pid).copied());
+
+            let eff_z = self_z.or(parent_z).unwrap_or(0);
+            z_indices.insert(id, eff_z);
+        }
+
+        // 実効 z_index に基づいて active_entities を安定ソート
+        let mut sorted_entities = active_entities.clone();
+        sorted_entities.sort_by_key(|&id| z_indices.get(id).copied().unwrap_or(0));
+
+        for &id in sorted_entities.iter().rev() {
+            let is_drag_over = active_masks
+                .get(id)
+                .is_some_and(|mask| mask.has(STATE_DND_DRAG_OVER));
+
+            // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
+            if Some(id) == interaction_states.dragged || is_drag_over {
+                continue;
+            }
+
+            // 親などの overflow 等でクリップされている表示範囲外ならスキップ
+            if let Some(clip) = clip_rects.get(id)
+                && !clip.contains(point)
+            {
+                continue;
+            }
+
+            // pointer-events 設定の解決
+            let pointer_events = visual_properties
+                .get(id)
+                .and_then(|v| v.pointer_events)
+                .or_else(|| {
+                    base_visual_properties
+                        .get(id)
+                        .and_then(|v| v.pointer_events)
+                })
+                .unwrap_or_default();
+
+            if pointer_events == PointerEvents::None {
+                continue; // 透過設定
+            }
+
+            // 物理範囲にヒットしたかを検証
+            if let Some(rect) = OutputStore::rect(id, rects)
+                && rect.contains(point)
+            {
+                return Some(id);
+            }
+        }
+        None
     }
 }
 

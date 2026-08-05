@@ -1,28 +1,29 @@
 use std::path::PathBuf;
 
 use crate::{
-    ActiveAnimationsSparseSecondary, ActiveFocusTrigger, ActiveMasksSecondary,
+    ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
     ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
     BasicLayout, BasicLayoutsSecondary, ChildrenSecondary, ClipRectsSecondary, ContentStore,
-    Context, CursorIcon, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DragPayload,
-    DragPlaceholderParent, DragProperty, DropProperty, DwriteLayoutsSparseSecondary, Element,
-    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
-    FlexLayoutsSecondary, FocusTrigger, Focusable, GridLayoutsSecondary,
+    Context, CursorIcon, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPayload,
+    DndDragPlaceholderParent, DndDragProperty, DndDropProperty, DwriteLayoutsSparseSecondary,
+    Element, ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
+    FlatDfsSequenceVec, FlexLayoutsSecondary, FocusTrigger, Focusable, GridLayoutsSecondary,
     InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
     LayoutRect, LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore,
     ParentsSecondary, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore,
-    STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER, STATE_DRAGGING, STATE_HOVERED,
-    STATE_SELECTED, STYLE_DRAGGABLE, STYLE_DROPPABLE, STYLE_INTERACTION_PARENT,
-    STYLE_INTERACTION_WITHIN, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, ScrollOffsetsSecondary,
-    ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
-    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect,
-    Val, VirtualKey, VisualPropertiesSecondary, WindowStore,
+    STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING,
+    STATE_DRAGGED, STATE_HOVERED, STATE_SELECTED, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE,
+    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_POINTER_EVENTS, STYLE_RESIZABLE,
+    ScrollOffsetsSecondary, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
+    TextSpansSparseSecondary, TopologyStore, UserSelect, Val, VirtualKey,
+    VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
 
 #[derive(Debug, Clone)]
-pub(crate) struct ActiveDragState {
+pub(crate) struct ActiveDndDragState {
     pub(crate) source_entity: EntityId,      // ドラッグ元の要素
     pub(crate) placeholder_entity: EntityId, // ルートまたは親に浮かせているプレースホルダー
     pub(crate) current_drop_target: Option<EntityId>, // 現在ホバー侵入中のドロップターゲット要素
@@ -63,8 +64,8 @@ pub(crate) struct ResizingState {
 
 pub(crate) type EventListenersSparseSecondary = SparseSecondaryMap<EntityId, EventListeners>;
 pub(crate) type ActiveResizeHoverOption = Option<(EntityId, ResizeDirection)>;
-pub(crate) type DragPropertiesSparseSecondary = SparseSecondaryMap<EntityId, DragProperty>;
-pub(crate) type DropPropertiesSparseSecondary = SparseSecondaryMap<EntityId, DropProperty>;
+pub(crate) type DndDragPropertiesSparseSecondary = SparseSecondaryMap<EntityId, DndDragProperty>;
+pub(crate) type DndDropPropertiesSparseSecondary = SparseSecondaryMap<EntityId, DndDropProperty>;
 
 pub struct EventStore {
     pub(crate) event_listeners: EventListenersSparseSecondary,
@@ -72,9 +73,9 @@ pub struct EventStore {
     pub(crate) current_pointer_position: Option<LayoutPoint>,
     pub(crate) resizing_state: Option<ResizingState>,
     pub(crate) active_resize_hover: ActiveResizeHoverOption,
-    pub(crate) drag_properties: DragPropertiesSparseSecondary,
-    pub(crate) drop_properties: DropPropertiesSparseSecondary,
-    pub(crate) active_drag_state: Option<ActiveDragState>,
+    pub(crate) dnd_drag_properties: DndDragPropertiesSparseSecondary,
+    pub(crate) dnd_drop_properties: DndDropPropertiesSparseSecondary,
+    pub(crate) active_dnd_drag_state: Option<ActiveDndDragState>,
 }
 
 impl Default for EventStore {
@@ -93,9 +94,9 @@ impl EventStore {
             current_pointer_position: None,
             resizing_state: None,
             active_resize_hover: None,
-            drag_properties: SparseSecondaryMap::new(),
-            drop_properties: SparseSecondaryMap::new(),
-            active_drag_state: None,
+            dnd_drag_properties: SparseSecondaryMap::new(),
+            dnd_drop_properties: SparseSecondaryMap::new(),
+            active_dnd_drag_state: None,
         }
     }
 
@@ -106,41 +107,41 @@ impl EventStore {
         self.current_pointer_position = None;
         self.resizing_state = None;
         self.active_resize_hover = None;
-        self.drag_properties.clear();
-        self.drop_properties.clear();
-        self.active_drag_state = None;
+        self.dnd_drag_properties.clear();
+        self.dnd_drop_properties.clear();
+        self.active_dnd_drag_state = None;
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
         self.event_listeners.remove(id);
         self.interaction_states.clear_entity(id);
-        self.drag_properties.remove(id);
-        self.drop_properties.remove(id);
+        self.dnd_drag_properties.remove(id);
+        self.dnd_drop_properties.remove(id);
 
-        if let Some(ref state) = self.active_drag_state
+        if let Some(ref state) = self.active_dnd_drag_state
             && (state.source_entity == id || state.placeholder_entity == id)
         {
-            self.active_drag_state = None;
+            self.active_dnd_drag_state = None;
         }
     }
 }
 
 impl EventStore {
-    pub(crate) fn resolve_placeholder_parent(
+    pub(crate) fn resolve_dnd_placeholder_parent(
         root: EntityId,
-        drag_prop: DragProperty,
+        drag_prop: &DndDragProperty,
         rects: &RectsSecondary,
         basic_layouts: &BasicLayoutsSecondary,
     ) -> PlaceholderAttachment {
         match drag_prop.placeholder_parent {
-            DragPlaceholderParent::Root => PlaceholderAttachment {
+            DndDragPlaceholderParent::Root => PlaceholderAttachment {
                 parent_id: Some(root),
                 rect: OutputStore::rect(root, rects).unwrap_or_default(),
                 border_left: 0.0,
                 border_top: 0.0,
             },
-            DragPlaceholderParent::Custom(p_id) => {
+            DndDragPlaceholderParent::Custom(p_id) => {
                 let p_rect = OutputStore::rect(p_id, rects).unwrap_or_default();
                 let (b_l, b_t) = basic_layouts
                     .get(p_id)
@@ -899,6 +900,428 @@ impl EventStore {
             }
         }
     }
+
+    #[inline]
+    pub(crate) fn propagate_cursor_move_events(
+        cx: &mut Context,
+        target_id: Option<EntityId>,
+        logical_pos: LayoutPoint,
+    ) {
+        let Some(id) = target_id else {
+            return;
+        };
+
+        let mut handler = cx
+            .events
+            .event_listeners
+            .get_mut(id)
+            .and_then(|listeners| listeners.on_cursor_moved.take());
+
+        if let Some(mut handler) = handler {
+            let rect = OutputStore::rect(id, &cx.outputs.rects).unwrap_or_default();
+            let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
+            let _guard = crate::ActiveElementGuard::new(id);
+            handler(cx, relative_pos);
+            if let Some(l) = cx.events.event_listeners.get_mut(id) {
+                l.on_cursor_moved = Some(handler);
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn start_dnd_drag_session(cx: &mut Context, pressed_id: EntityId, logical_pos: LayoutPoint) {
+        let drag_prop = cx
+            .events
+            .dnd_drag_properties
+            .get(pressed_id)
+            .copied()
+            .unwrap();
+        let start_rect = OutputStore::rect(pressed_id, &cx.outputs.rects).unwrap_or_default();
+
+        // 開始時のクリック位置と要素左上の相対的なズレを計算
+        let click_offset =
+            LayoutPoint::new(logical_pos.x - start_rect.x, logical_pos.y - start_rect.y);
+
+        // ウィンドウのルート要素を自己解決
+        let root = TopologyStore::find_root_entity(
+            &cx.topology.entities,
+            &cx.topology.parents,
+            &cx.topology.flat_dfs_sequence,
+        )
+        .expect("Root EntityId not found in Context");
+
+        // プレースホルダーアタッチ先親要素の決定
+        let placeholder = EventStore::resolve_dnd_placeholder_parent(
+            root,
+            &drag_prop,
+            &cx.outputs.rects,
+            &cx.layouts.basic_layouts,
+        );
+
+        // プレースホルダー（クローン）をアタッチ先親の直下へ spawn して生成
+        let placeholder_id = TopologyStore::spawn(
+            placeholder.parent_id,
+            &mut cx.topology.entities,
+            &mut cx.topology.parents,
+            &mut cx.topology.children,
+            &mut cx.topology.active_masks,
+            &mut cx.topology.active_entities,
+            &mut cx.topology.session_spawned,
+            &mut cx.topology.is_structure_dirty,
+            &mut cx.layouts.taffy,
+            &mut cx.layouts.taffy_nodes,
+            &mut cx.renders.dirty_render_entities,
+        );
+        if let Some(p_id) = placeholder.parent_id {
+            TopologyStore::add_child(
+                p_id,
+                placeholder_id,
+                &mut cx.topology.parents,
+                &mut cx.topology.children,
+                &mut cx.topology.is_structure_dirty,
+                &mut cx.topology.active_masks,
+                &mut cx.layouts.taffy_nodes,
+                &mut cx.layouts.taffy,
+                &mut cx.layouts.dirty_layout_entities,
+            );
+        }
+
+        // 元要素のレイアウトおよびビジュアル情報をコピーして初期マウント
+        if let Some(basic) = cx.layouts.base_basic_layouts.get(pressed_id).copied() {
+            cx.layouts.base_basic_layouts.insert(placeholder_id, basic);
+            cx.layouts.basic_layouts.insert(placeholder_id, basic);
+        }
+        if let Some(visual) = cx.renders.base_visual_properties.get(pressed_id).cloned() {
+            cx.renders
+                .base_visual_properties
+                .insert(placeholder_id, visual.clone());
+            cx.renders.visual_properties.insert(placeholder_id, visual);
+        }
+        if let Some(interaction) = cx.renders.interaction_properties.get(pressed_id).cloned() {
+            cx.renders
+                .interaction_properties
+                .insert(placeholder_id, interaction);
+        }
+
+        // ドラッグ元の元の要素は非可視（または半透明）にするため STATE_DRAGGING 状態をセット
+        EventStore::update_state(cx, pressed_id, STATE_DND_DRAGGING, true);
+
+        // プレースホルダー側は absolute 配置化し、STATE_DRAG_OVER 状態をセット
+        EventStore::update_state(cx, placeholder_id, STATE_DND_DRAG_OVER, true);
+        if let Some(layout) = cx.layouts.basic_layouts.get_mut(placeholder_id) {
+            layout.position = Position::Absolute;
+            layout.size.width = Val::Px(start_rect.width);
+            layout.size.height = Val::Px(start_rect.height);
+        }
+        if let Some(layout) = cx.layouts.base_basic_layouts.get_mut(placeholder_id) {
+            layout.position = Position::Absolute;
+            layout.size.width = Val::Px(start_rect.width);
+            layout.size.height = Val::Px(start_rect.height);
+        }
+
+        // 元の要素が持つ本物の子要素トポロジーを、一時的にプレースホルダー配下へ自動アタッチ
+        if let Some(src_children) = cx.topology.children.get(pressed_id).cloned() {
+            for child_id in src_children {
+                // 子要素の親ポインタをプレースホルダーに付け替え
+                cx.topology.parents.insert(child_id, Some(placeholder_id));
+
+                // プレースホルダー側の子要素リストへ追加
+                if let Some(ph_children) = cx.topology.children.get_mut(placeholder_id) {
+                    ph_children.push(child_id);
+                }
+
+                // Taffy 側の親子構造も、一時的にプレースホルダーに繋ぎ替え
+                if let Some(&src_node) = cx.layouts.taffy_nodes.get(pressed_id)
+                    && let Some(&ph_node) = cx.layouts.taffy_nodes.get(placeholder_id)
+                    && let Some(&child_node) = cx.layouts.taffy_nodes.get(child_id)
+                {
+                    let _ = cx.layouts.taffy.remove_child(src_node, child_node);
+                    let _ = cx.layouts.taffy.add_child(ph_node, child_node);
+                }
+            }
+
+            // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
+            if let Some(src_children_mut) = cx.topology.children.get_mut(pressed_id) {
+                src_children_mut.clear();
+            }
+            LayoutStore::mark_layout_dirty(
+                pressed_id,
+                &cx.layouts.taffy_nodes,
+                &mut cx.layouts.taffy,
+                &mut cx.topology.active_masks,
+                &mut cx.layouts.dirty_layout_entities,
+                &cx.topology.parents,
+            );
+            LayoutStore::mark_layout_dirty(
+                placeholder_id,
+                &cx.layouts.taffy_nodes,
+                &mut cx.layouts.taffy,
+                &mut cx.topology.active_masks,
+                &mut cx.layouts.dirty_layout_entities,
+                &cx.topology.parents,
+            );
+        }
+
+        // プレースホルダー自体はヒットテストを完全に透過
+        if let Some(vis) = cx.renders.visual_properties.get_mut(placeholder_id) {
+            vis.pointer_events = Some(PointerEvents::None);
+        }
+        if let Some(vis) = cx.renders.base_visual_properties.get_mut(placeholder_id) {
+            vis.pointer_events = Some(PointerEvents::None);
+        }
+        if let Some(mask) = cx.topology.active_masks.get_mut(placeholder_id) {
+            mask.set(STYLE_POINTER_EVENTS);
+        }
+
+        // プレースホルダーアタッチ前の、本当の元の親要素のIDを安全に記録
+        let original_parent = cx.topology.parents.get(pressed_id).copied().flatten();
+
+        // セッション開始
+        cx.events.active_dnd_drag_state = Some(ActiveDndDragState {
+            source_entity: pressed_id,
+            placeholder_entity: placeholder_id,
+            current_drop_target: None,
+            start_mouse_pos: logical_pos,
+            start_rect,
+            click_offset,
+            original_parent,
+        });
+
+        // ドラッグ開始コールバックに、Original(pressed_id) と Placeholder(placeholder_id) の両ハンドルを渡して実行
+        let mut handler = cx
+            .events
+            .event_listeners
+            .get_mut(pressed_id)
+            .and_then(|l| l.on_dnd_drag_start.take());
+
+        if let Some(mut h) = handler {
+            {
+                let _guard = crate::ActiveElementGuard::new(pressed_id);
+                h(cx, Element::from(pressed_id), Element::from(placeholder_id));
+            }
+            if let Some(l) = cx.events.event_listeners.get_mut(pressed_id) {
+                l.on_dnd_drag_start = Some(h);
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn propagate_dnd_drag_events(
+        cx: &mut Context,
+        prev_pos: Option<LayoutPoint>,
+        logical_pos: LayoutPoint,
+    ) {
+        let Some(pressed_id) = cx.events.interaction_states.pressed else {
+            return;
+        };
+        let Some(prev) = prev_pos else {
+            return;
+        };
+
+        let delta = LayoutPoint::new(logical_pos.x - prev.x, logical_pos.y - prev.y);
+        if delta.x == 0.0 && delta.y == 0.0 {
+            return;
+        }
+
+        EventStore::update_state(cx, pressed_id, STATE_DRAGGED, true);
+        cx.events.interaction_states.dragged = Some(pressed_id);
+
+        // D&D 設定（STYLE_DRAGGABLE）を持っている場合のセッションのキック
+        if cx.topology.active_masks[pressed_id].has(STYLE_DND_DRAGGABLE)
+            && cx.events.active_dnd_drag_state.is_none()
+        {
+            EventStore::start_dnd_drag_session(cx, pressed_id, logical_pos);
+        }
+
+        let mut handler = cx
+            .events
+            .event_listeners
+            .get_mut(pressed_id)
+            .and_then(|l| l.on_drag.take());
+
+        if let Some(mut h) = handler {
+            let _guard = crate::ActiveElementGuard::new(pressed_id);
+            h(cx, delta);
+            if let Some(l) = cx.events.event_listeners.get_mut(pressed_id) {
+                l.on_drag = Some(h);
+            }
+        }
+    }
+
+    pub(crate) fn calculate_dnd_relative_local(
+        root: EntityId,
+        drag_prop: &DndDragProperty,
+        rects: &RectsSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+    ) -> (LayoutRect, f32, f32) {
+        let p = EventStore::resolve_dnd_placeholder_parent(root, drag_prop, rects, basic_layouts);
+        (p.rect, p.border_left, p.border_top)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn update_inset_based_relative_local(
+        root: EntityId,
+        placeholder: EntityId,
+        logical_pos: LayoutPoint,
+        drag_prop: &DndDragProperty,
+        drag_state: &ActiveDndDragState,
+        rects: &RectsSecondary,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        parents: &ParentsSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+    ) {
+        // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
+        let (parent_rect, b_l, b_t) =
+            EventStore::calculate_dnd_relative_local(root, drag_prop, rects, basic_layouts);
+
+        // マウスのドラッグ開始時クリックオフセットを用いて、ローカル Top-Left 座標を算出
+        let local_x = logical_pos.x - (parent_rect.x + b_l) - drag_state.click_offset.x;
+        let local_y = logical_pos.y - (parent_rect.y + b_t) - drag_state.click_offset.y;
+
+        if let Some(layout) = basic_layouts.get_mut(placeholder) {
+            layout.inset.left = Val::Px(local_x);
+            layout.inset.top = Val::Px(local_y);
+            layout.inset.right = Val::Auto;
+            layout.inset.bottom = Val::Auto;
+        }
+        if let Some(layout) = base_basic_layouts.get_mut(placeholder) {
+            layout.inset.left = Val::Px(local_x);
+            layout.inset.top = Val::Px(local_y);
+            layout.inset.right = Val::Auto;
+            layout.inset.bottom = Val::Auto;
+        }
+
+        LayoutStore::mark_layout_dirty(
+            placeholder,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+        );
+        RenderStore::mark_render_dirty(placeholder, active_masks, dirty_render_entities);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn detect_drop_target_during_intrusion(
+        src_id: EntityId,
+        placeholder: EntityId,
+        logical_pos: LayoutPoint,
+        active_entities: &ActiveEntitiesVec,
+        active_masks: &ActiveMasksSecondary,
+        flat_dfs_sequence: &FlatDfsSequenceVec,
+        parents: &ParentsSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+        interaction_states: &InteractionStates,
+        rects: &RectsSecondary,
+        clip_rects: &ClipRectsSecondary,
+    ) -> Option<EntityId> {
+        let hit_id = TopologyStore::hit_test(
+            logical_pos,
+            active_entities,
+            active_masks,
+            flat_dfs_sequence,
+            parents,
+            visual_properties,
+            base_visual_properties,
+            interaction_states,
+            rects,
+            clip_rects,
+        )?;
+
+        // ヒットした要素がドラッグ元自身、またはその子孫である場合は、
+        // 自身のサブツリーをすべてスキップするためにドラッグ元の親から探索を開始
+        let is_descendant = TopologyStore::is_descendant_of(hit_id, src_id, parents);
+        let mut current_id = if hit_id == src_id || is_descendant {
+            parents.get(src_id).copied().flatten()
+        } else {
+            Some(hit_id)
+        };
+
+        while let Some(id) = current_id {
+            let is_dnd = active_masks
+                .get(id)
+                .is_some_and(|f| f.has(STYLE_DND_DROPPABLE));
+
+            if id != placeholder && is_dnd {
+                return Some(id); // ドロップ先を見つけたら即座に返す
+            }
+            current_id = parents.get(id).copied().flatten();
+        }
+
+        None
+    }
+
+    pub(crate) fn sync_state_drag_in(cx: &mut Context, found_drop_target: Option<EntityId>) {
+        let Some(mut drag_state) = cx.events.active_dnd_drag_state.take() else {
+            return;
+        };
+
+        if found_drop_target == drag_state.current_drop_target {
+            cx.events.active_dnd_drag_state = Some(drag_state);
+            return;
+        }
+
+        if let Some(old_target) = drag_state.current_drop_target {
+            EventStore::update_state(cx, old_target, STATE_DND_DRAG_IN, false);
+        }
+        if let Some(new_target) = found_drop_target {
+            EventStore::update_state(cx, new_target, STATE_DND_DRAG_IN, true);
+        }
+
+        drag_state.current_drop_target = found_drop_target;
+        cx.events.active_dnd_drag_state = Some(drag_state);
+    }
+
+    pub(crate) fn callback_drag_prop(
+        cx: &mut Context,
+        src_id: EntityId,
+        found_drop_target: Option<EntityId>,
+        drag_prop: &DndDragProperty,
+    ) {
+        match drag_prop.drag_mode {
+            DndDragPayload::Element => {
+                let mut handler = cx
+                    .events
+                    .event_listeners
+                    .get_mut(src_id)
+                    .and_then(|l| l.on_dnd_entity_drag.take());
+
+                if let Some(mut h) = handler {
+                    let _guard = crate::ActiveElementGuard::new(src_id);
+                    h(
+                        cx,
+                        Element::from(src_id),
+                        found_drop_target.map(Element::from),
+                    );
+                    if let Some(l) = cx.events.event_listeners.get_mut(src_id) {
+                        l.on_dnd_entity_drag = Some(h);
+                    }
+                }
+            }
+            DndDragPayload::EntityId => {
+                let mut handler = cx
+                    .events
+                    .event_listeners
+                    .get_mut(src_id)
+                    .and_then(|l| l.on_dnd_id_drag.take());
+
+                if let Some(mut h) = handler {
+                    let _guard = crate::ActiveElementGuard::new(src_id);
+                    h(cx, src_id, found_drop_target);
+                    if let Some(l) = cx.events.event_listeners.get_mut(src_id) {
+                        l.on_dnd_id_drag = Some(h);
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Context {
@@ -917,18 +1340,6 @@ impl Context {
         border: f32,
     ) -> Option<ResizeDirection> {
         EventStore::detect_resize_direction(rect, resizable, pos, border)
-    }
-
-    #[inline]
-    pub(crate) fn resolve_placeholder_parent(
-        &self,
-        root: EntityId,
-        drag_prop: DragProperty,
-    ) -> PlaceholderAttachment {
-        let OutputStore { rects, .. } = &self.outputs;
-        let LayoutStore { basic_layouts, .. } = &self.layouts;
-
-        EventStore::resolve_placeholder_parent(root, drag_prop, rects, basic_layouts)
     }
 
     #[inline]
@@ -1012,249 +1423,48 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn propagate_cursor_move_events(
-        &mut self,
-        target_id: Option<EntityId>,
-        logical_pos: LayoutPoint,
-    ) {
-        if let Some(target_id) = target_id
-            && let Some(mut listeners) = self.events.event_listeners.get_mut(target_id)
-            && let Some(mut handler) = listeners.on_cursor_moved.take()
-        {
-            let rect = self
-                .outputs
-                .rects
-                .get(target_id)
-                .copied()
-                .unwrap_or_default();
-            let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
-            let _guard = crate::ActiveElementGuard::new(target_id);
-            handler(self, relative_pos);
-            if let Some(l) = self.events.event_listeners.get_mut(target_id) {
-                l.on_cursor_moved = Some(handler);
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_lines)]
-    #[inline]
-    pub(crate) fn propagate_drag_events(
-        &mut self,
-        prev_pos: Option<LayoutPoint>,
-        logical_pos: LayoutPoint,
-    ) {
-        if let Some(pressed_id) = self.events.interaction_states.pressed
-            && let Some(prev) = prev_pos
-        {
-            let delta = LayoutPoint::new(logical_pos.x - prev.x, logical_pos.y - prev.y);
-            if delta.x != 0.0 || delta.y != 0.0 {
-                self.set_dragged(pressed_id, true);
-                self.events.interaction_states.dragged = Some(pressed_id);
-
-                // D&D 設定（STYLE_DRAGGABLE）を持っている場合のセッションのキック
-                if self.topology.active_masks[pressed_id].has(STYLE_DRAGGABLE)
-                    && self.events.active_drag_state.is_none()
-                {
-                    let drag_prop = self
-                        .events
-                        .drag_properties
-                        .get(pressed_id)
-                        .copied()
-                        .unwrap();
-                    let start_rect = self.outputs.rects[pressed_id];
-
-                    // 開始時のクリック位置と要素左上の相対的なズレを計算
-                    let click_offset = LayoutPoint::new(
-                        logical_pos.x - start_rect.x,
-                        logical_pos.y - start_rect.y,
-                    );
-
-                    // ウィンドウの真のルート要素をライブラリ側で自己解決
-                    let root = self
-                        .find_root_entity()
-                        .expect("Root EntityId not found in Context");
-
-                    // プレースホルダーアタッチ先親要素の決定
-                    let placeholder = self.resolve_placeholder_parent(root, drag_prop);
-
-                    // プレースホルダー（クローン）をアタッチ先親の直下へ spawn して生成
-                    let placeholder_id = self.spawn(placeholder.parent_id);
-                    if let Some(p_id) = placeholder.parent_id {
-                        self.add_child(p_id, placeholder_id);
-                    }
-
-                    // 元要素のレイアウトおよびビジュアル情報をコピーして初期マウント
-                    if let Some(basic) = self.layouts.base_basic_layouts.get(pressed_id).copied() {
-                        self.layouts
-                            .base_basic_layouts
-                            .insert(placeholder_id, basic);
-                        self.layouts.basic_layouts.insert(placeholder_id, basic);
-                    }
-                    if let Some(visual) =
-                        self.renders.base_visual_properties.get(pressed_id).cloned()
-                    {
-                        self.renders
-                            .base_visual_properties
-                            .insert(placeholder_id, visual.clone());
-                        self.renders
-                            .visual_properties
-                            .insert(placeholder_id, visual);
-                    }
-                    if let Some(interaction) =
-                        self.renders.interaction_properties.get(pressed_id).cloned()
-                    {
-                        self.renders
-                            .interaction_properties
-                            .insert(placeholder_id, interaction);
-                    }
-
-                    // ドラッグ元の元の要素は非可視（または半透明）にするため STATE_DRAGGING 状態をセット
-                    self.set_drag_state(pressed_id, STATE_DRAGGING, true);
-
-                    // プレースホルダー側は absolute 配置化し、STATE_DRAG_OVER 状態をセット
-                    self.set_drag_state(placeholder_id, STATE_DRAG_OVER, true);
-                    if let Some(layout) = self.layouts.basic_layouts.get_mut(placeholder_id) {
-                        layout.position = Position::Absolute;
-                        layout.size.width = Val::Px(start_rect.width);
-                        layout.size.height = Val::Px(start_rect.height);
-                    }
-                    if let Some(layout) = self.layouts.base_basic_layouts.get_mut(placeholder_id) {
-                        layout.position = Position::Absolute;
-                        layout.size.width = Val::Px(start_rect.width);
-                        layout.size.height = Val::Px(start_rect.height);
-                    }
-
-                    // 元の要素が持つ本物の子要素トポロジーを、一時的にプレースホルダー配下へ自動アタッチ
-                    if let Some(src_children) = self.topology.children.get(pressed_id).cloned() {
-                        for child_id in src_children {
-                            // 子要素の親ポインタをプレースホルダーに付け替え
-                            self.topology.parents.insert(child_id, Some(placeholder_id));
-
-                            // プレースホルダー側の子要素リストへ追加
-                            if let Some(ph_children) =
-                                self.topology.children.get_mut(placeholder_id)
-                            {
-                                ph_children.push(child_id);
-                            }
-
-                            // Taffy 側の親子構造も、一時的にプレースホルダーに繋ぎ替え
-                            if let Some(&src_node) = self.layouts.taffy_nodes.get(pressed_id)
-                                && let Some(&ph_node) = self.layouts.taffy_nodes.get(placeholder_id)
-                                && let Some(&child_node) = self.layouts.taffy_nodes.get(child_id)
-                            {
-                                let _ = self.layouts.taffy.remove_child(src_node, child_node);
-                                let _ = self.layouts.taffy.add_child(ph_node, child_node);
-                            }
-                        }
-
-                        // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
-                        if let Some(src_children_mut) = self.topology.children.get_mut(pressed_id) {
-                            src_children_mut.clear();
-                        }
-                        self.mark_layout_dirty(pressed_id);
-                        self.mark_layout_dirty(placeholder_id);
-                    }
-
-                    // プレースホルダー自体はヒットテストを完全に透過させる
-                    if let Some(vis) = self.renders.visual_properties.get_mut(placeholder_id) {
-                        vis.pointer_events = Some(PointerEvents::None);
-                    }
-                    if let Some(vis) = self.renders.base_visual_properties.get_mut(placeholder_id) {
-                        vis.pointer_events = Some(PointerEvents::None);
-                    }
-                    if let Some(mask) = self.topology.active_masks.get_mut(placeholder_id) {
-                        mask.set(STYLE_POINTER_EVENTS);
-                    }
-
-                    // プレースホルダーアタッチ前の、本当の元の親要素のIDを安全に記録
-                    let original_parent = self.topology.parents.get(pressed_id).copied().flatten();
-
-                    // セッション開始
-                    self.events.active_drag_state = Some(ActiveDragState {
-                        source_entity: pressed_id,
-                        placeholder_entity: placeholder_id,
-                        current_drop_target: None,
-                        start_mouse_pos: logical_pos,
-                        start_rect,
-                        click_offset,
-                        original_parent,
-                    });
-
-                    // ドラッグ開始コールバックに、Original(pressed_id) と Placeholder(placeholder_id) の両ハンドルを渡して実行
-
-                    if let Some(mut l) = self.events.event_listeners.get_mut(pressed_id)
-                        && let Some(mut listener) = l.on_drag_start.take()
-                    {
-                        {
-                            let _guard = crate::ActiveElementGuard::new(pressed_id);
-                            listener(
-                                self,
-                                Element::from(pressed_id),
-                                Element::from(placeholder_id),
-                            );
-                        }
-                        if let Some(l) = self.events.event_listeners.get_mut(pressed_id) {
-                            l.on_drag_start = Some(listener);
-                        }
-                    }
-                }
-
-                if let Some(mut l) = self.events.event_listeners.get_mut(pressed_id)
-                    && let Some(mut handler) = l.on_drag.take()
-                {
-                    let _guard = crate::ActiveElementGuard::new(pressed_id);
-                    handler(self, delta);
-                    if let Some(l) = self.events.event_listeners.get_mut(pressed_id) {
-                        l.on_drag = Some(handler);
-                    }
-                }
-            }
-        }
-    }
-
-    pub(crate) fn calculate_relative_local(
-        &self,
-        root: EntityId,
-        drag_prop: DragProperty,
-    ) -> (LayoutRect, f32, f32) {
-        let OutputStore { rects, .. } = &self.outputs;
-        let LayoutStore { basic_layouts, .. } = &self.layouts;
-
-        let p = EventStore::resolve_placeholder_parent(root, drag_prop, rects, basic_layouts);
-        (p.rect, p.border_left, p.border_top)
-    }
-
-    #[inline]
     pub(crate) fn update_inset_based_relative_local(
         &mut self,
         root: EntityId,
         placeholder: EntityId,
         logical_pos: LayoutPoint,
-        drag_prop: DragProperty,
-        drag_state: &ActiveDragState,
+        drag_prop: &DndDragProperty,
+        drag_state: &ActiveDndDragState,
     ) {
-        // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
-        let (parent_rect, b_l, b_t) = self.calculate_relative_local(root, drag_prop);
-
-        // マウスのドラッグ開始時クリックオフセットを用いて、ローカル Top-Left 座標を算出
-        let local_x = logical_pos.x - (parent_rect.x + b_l) - drag_state.click_offset.x;
-        let local_y = logical_pos.y - (parent_rect.y + b_t) - drag_state.click_offset.y;
-
-        if let Some(layout) = self.layouts.basic_layouts.get_mut(placeholder) {
-            layout.inset.left = Val::Px(local_x);
-            layout.inset.top = Val::Px(local_y);
-            layout.inset.right = Val::Auto;
-            layout.inset.bottom = Val::Auto;
-        }
-        if let Some(layout) = self.layouts.base_basic_layouts.get_mut(placeholder) {
-            layout.inset.left = Val::Px(local_x);
-            layout.inset.top = Val::Px(local_y);
-            layout.inset.right = Val::Auto;
-            layout.inset.bottom = Val::Auto;
-        }
-
-        self.mark_layout_dirty(placeholder);
-        self.mark_render_dirty(placeholder);
+        let TopologyStore {
+            active_masks,
+            parents,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            taffy,
+            taffy_nodes,
+            basic_layouts,
+            base_basic_layouts,
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
+        let RenderStore {
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+        let OutputStore { rects, .. } = &self.outputs;
+        EventStore::update_inset_based_relative_local(
+            root,
+            placeholder,
+            logical_pos,
+            drag_prop,
+            drag_state,
+            rects,
+            basic_layouts,
+            base_basic_layouts,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+            dirty_render_entities,
+        );
     }
 
     pub(crate) fn detect_drop_target_during_intrusion(
@@ -1263,87 +1473,52 @@ impl Context {
         placeholder: EntityId,
         logical_pos: LayoutPoint,
     ) -> Option<EntityId> {
-        let hit_id_opt = self.hit_test(logical_pos);
-        let mut found_drop_target = None;
+        let TopologyStore {
+            active_entities,
+            active_masks,
+            flat_dfs_sequence,
+            parents,
+            ..
+        } = &self.topology;
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            ..
+        } = &self.renders;
+        let OutputStore {
+            rects, clip_rects, ..
+        } = &self.outputs;
+        let EventStore {
+            interaction_states, ..
+        } = &self.events;
 
-        if let Some(hit_id) = hit_id_opt {
-            let mut current_id = Some(hit_id);
-            while let Some(id) = current_id {
-                // ヒットした要素がドラッグ元（src_id）自身、またはその子孫である場合は
-                // ドロップ先として誤認されるのを完全に防ぐため、スルーしてさらに上の親を辿る
-                if id == src_id
-                    || TopologyStore::is_descendant_of(id, src_id, &self.topology.parents)
-                {
-                    current_id = self.topology.parents.get(id).copied().flatten();
-                    continue;
-                }
-
-                if id != placeholder && self.topology.active_masks[id].has(STYLE_DROPPABLE) {
-                    found_drop_target = Some(id);
-                    break;
-                }
-                current_id = self.topology.parents.get(id).copied().flatten();
-            }
-        }
-        found_drop_target
+        EventStore::detect_drop_target_during_intrusion(
+            src_id,
+            placeholder,
+            logical_pos,
+            active_entities,
+            active_masks,
+            flat_dfs_sequence,
+            parents,
+            visual_properties,
+            base_visual_properties,
+            interaction_states,
+            rects,
+            clip_rects,
+        )
     }
 
-    pub(crate) fn sync_state_drag_in(
-        &mut self,
-        drag_state: &mut ActiveDragState,
-        found_drop_target: Option<EntityId>,
-    ) {
-        if found_drop_target != drag_state.current_drop_target {
-            if let Some(old_target) = drag_state.current_drop_target {
-                self.set_drag_state(old_target, STATE_DRAG_IN, false);
-            }
-            if let Some(new_target) = found_drop_target {
-                self.set_drag_state(new_target, STATE_DRAG_IN, true);
-            }
-            drag_state.current_drop_target = found_drop_target;
-            self.events.active_drag_state = Some(drag_state.clone());
-        }
+    pub(crate) fn sync_state_drag_in(&mut self, found_drop_target: Option<EntityId>) {
+        EventStore::sync_state_drag_in(self, found_drop_target);
     }
 
     pub(crate) fn callback_drag_prop(
         &mut self,
         src_id: EntityId,
         found_drop_target: Option<EntityId>,
-        drag_prop: DragProperty,
+        drag_prop: &DndDragProperty,
     ) {
-        match drag_prop.drag_mode {
-            DragPayload::Element => {
-                if let Some(l) = self.events.event_listeners.get_mut(src_id)
-                    && let Some(mut listener) = l.on_entity_drag.take()
-                {
-                    {
-                        let _guard = crate::ActiveElementGuard::new(src_id);
-                        listener(
-                            self,
-                            Element::from(src_id),
-                            found_drop_target.map(Element::from),
-                        );
-                    }
-                    // 再度元の場所へ戻す
-                    if let Some(l) = self.events.event_listeners.get_mut(src_id) {
-                        l.on_entity_drag = Some(listener);
-                    }
-                }
-            }
-            DragPayload::EntityId => {
-                if let Some(l) = self.events.event_listeners.get_mut(src_id)
-                    && let Some(mut listener) = l.on_id_drag.take()
-                {
-                    {
-                        let _guard = crate::ActiveElementGuard::new(src_id);
-                        listener(self, src_id, found_drop_target);
-                    }
-                    if let Some(l) = self.events.event_listeners.get_mut(src_id) {
-                        l.on_id_drag = Some(listener);
-                    }
-                }
-            }
-        }
+        EventStore::callback_drag_prop(self, src_id, found_drop_target, drag_prop);
     }
 
     pub(crate) fn handle_text_selection_click(
@@ -1724,8 +1899,8 @@ impl Context {
         src_id: EntityId,
         target_id: EntityId,
         holder: EntityId,
-        drag_prop: DragProperty,
-        drag_state: &ActiveDragState,
+        drag_prop: DndDragProperty,
+        drag_state: &ActiveDndDragState,
     ) {
         // ドラッグ元要素の配置（Position）の取得
         let position = self
@@ -1803,7 +1978,11 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn remove_dragged_elemet(&mut self, src_id: EntityId, drag_state: &ActiveDragState) {
+    pub(crate) fn remove_dragged_elemet(
+        &mut self,
+        src_id: EntityId,
+        drag_state: &ActiveDndDragState,
+    ) {
         if let Some(src_parent_id) = drag_state.original_parent {
             if let Some(src_children) = self.topology.children.get_mut(src_parent_id) {
                 src_children.retain(|x| *x != src_id);
@@ -1848,14 +2027,14 @@ impl Context {
         drop_success: Option<EntityId>,
     ) {
         if let Some(l) = self.events.event_listeners.get_mut(src_id)
-            && let Some(mut listener) = l.on_entity_drop.take()
+            && let Some(mut listener) = l.on_dnd_entity_drop.take()
         {
             {
                 let _guard = crate::ActiveElementGuard::new(src_id);
                 listener(self, Element::from(src_id), drop_success.map(Element::from));
             }
             if let Some(l) = self.events.event_listeners.get_mut(src_id) {
-                l.on_entity_drop = Some(listener);
+                l.on_dnd_entity_drop = Some(listener);
             }
         }
     }
@@ -1863,14 +2042,14 @@ impl Context {
     #[inline]
     pub(crate) fn callback_on_id_drop(&mut self, src_id: EntityId, drop_success: Option<EntityId>) {
         if let Some(l) = self.events.event_listeners.get_mut(src_id)
-            && let Some(mut listener) = l.on_id_drop.take()
+            && let Some(mut listener) = l.on_dnd_id_drop.take()
         {
             {
                 let _guard = crate::ActiveElementGuard::new(src_id);
                 listener(self, src_id, drop_success);
             }
             if let Some(l) = self.events.event_listeners.get_mut(src_id) {
-                l.on_id_drop = Some(listener);
+                l.on_dnd_id_drop = Some(listener);
             }
         }
     }

@@ -4,7 +4,19 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{ScrollbarStyle, EntityId, LayoutPoint, BasicLayout, FlexLayout, GridLayout, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, ParentsSecondary, InteractionPropertiesSecondary, VisualPropertiesSecondary, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, RenderStore, StyleTarget, InteractionStyles, PropertyList, ThisStyle, ComponentMask, STATE_SELECTED, STATE_ACTIVED, STATE_HOVERED, STATE_PRESSED, STATE_DISABLED, STATE_DRAGGING, STATE_DRAG_IN, STATE_DRAG_OVER, STYLE_SIZE, ScrollbarMode, ScrollbarDisplay, LayoutRect, Rect, Length, EdgeInsets, LayoutSize, Size, Val, Display, BaseVisualPropertiesSecondary, ChildrenSecondary, STATE_QUEUED_LAYOUT, ResizingState, RectsSecondary, DirtyRenderEntitiesVec, OutputStore, ResizeDirection, Position, InputContentsSparseSecondary, TextEngine, TextContentsSparseSecondary, TextSpansSparseSecondary, DwriteLayoutsSparseSecondary, ScrollOffsetsSecondary, WindowStore, Context, TopologyStore, ContentStore, SystemStore};
+use crate::{
+    ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary,
+    BasicLayout, ChildrenSecondary, ComponentMask, ContentStore, Context, DirtyRenderEntitiesVec,
+    Display, DwriteLayoutsSparseSecondary, EdgeInsets, EntityId, FlexLayout, GridLayout,
+    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
+    LayoutRect, LayoutSize, Length, OutputStore, ParentsSecondary, Position, PropertyList, Rect,
+    RectsSecondary, RenderStore, ResizeDirection, ResizingState, STATE_ACTIVED, STATE_DISABLED,
+    STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_FOCUSED,
+    STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED,
+    STYLE_SIZE, ScrollOffsetsSecondary, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Size,
+    StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary,
+    ThisStyle, TopologyStore, Val, VisualPropertiesSecondary, WindowStore,
+};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
 use taffy::TaffyTree;
@@ -236,9 +248,9 @@ impl LayoutStore {
             (STATE_HOVERED, &interaction.hovered),
             (STATE_PRESSED, &interaction.pressed),
             (STATE_DISABLED, &interaction.disabled),
-            (STATE_DRAGGING, &interaction.dragging),
-            (STATE_DRAG_IN, &interaction.drag_in),
-            (STATE_DRAG_OVER, &interaction.drag_over),
+            (STATE_DND_DRAGGING, &interaction.dragging),
+            (STATE_DND_DRAG_IN, &interaction.drag_in),
+            (STATE_DND_DRAG_OVER, &interaction.drag_over),
         ];
 
         for (state, style_opt) in cascade {

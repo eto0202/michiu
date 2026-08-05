@@ -421,9 +421,9 @@ impl InteractionStyles {
             StyleTarget::Actived => self.actived.get_or_insert_with(ThisStyle::new),
             StyleTarget::Selected => self.selected.get_or_insert_with(ThisStyle::new),
             StyleTarget::Dragged => self.dragged.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Dragging => self.dragging.get_or_insert_with(ThisStyle::new),
-            StyleTarget::DragIn => self.drag_in.get_or_insert_with(ThisStyle::new),
-            StyleTarget::DragOver => self.drag_over.get_or_insert_with(ThisStyle::new),
+            StyleTarget::DndDragging => self.dragging.get_or_insert_with(ThisStyle::new),
+            StyleTarget::DndDragIn => self.drag_in.get_or_insert_with(ThisStyle::new),
+            StyleTarget::DndDragOver => self.drag_over.get_or_insert_with(ThisStyle::new),
 
             StyleTarget::HoveredWithin => self.hovered_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::FocusedWithin => self.focused_within.get_or_insert_with(ThisStyle::new),

@@ -39,7 +39,7 @@ pub mod prelude {
         style::ThisStyle,
         types::{
             AnimationCurve, Backdrop, BorderAlignment, BorderStyle, Color, CursorIcon, Display,
-            DragPayload, DropTarget, ElementState, KeyframeAnimation, LayoutPoint, LayoutRect,
+            DndDragPayload, DndDropTarget, ElementState, KeyframeAnimation, LayoutPoint, LayoutRect,
             LayoutSize, Modifiers, MouseButton, PlaybackCount, PointerEvents, ScrollbarDisplay,
             ScrollbarMode, ScrollbarStyle, Transform, Transition,
         },

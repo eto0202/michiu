@@ -1190,9 +1190,16 @@ pub(crate) struct EventListeners {
     /// 引数: 前方向ならプラス、後方向ならマイナスの移動量（delta）
     pub(crate) on_mouse_wheel: Option<MouseWheelCallback>,
 
-    /// 要素がドラッグされている最中のイベント（スライダーノブやDND用）
+    /// 要素がドラッグされている最中のイベント
     /// 引数: ドラッグによる移動量 `Point(delta_x, delta_y)`
     pub(crate) on_drag: Option<DragCallback>,
+
+    pub(crate) on_hover: Option<SimpleCallback>,
+    pub(crate) on_focus: Option<SimpleCallback>,
+    pub(crate) on_blur: Option<SimpleCallback>,
+    pub(crate) on_disable: Option<SimpleCallback>,
+    pub(crate) on_active: Option<SimpleCallback>,
+    pub(crate) on_select: Option<SimpleCallback>,
 
     /// 物理キーボードが押された、または離された際のイベント
     /// 引数: 検証済みの仮想キーコード, 装飾キー, 状態
@@ -1217,19 +1224,12 @@ pub(crate) struct EventListeners {
     /// 動画等のメディアファイルのロードが完了し、メタデータが確定した瞬間に発火します
     pub(crate) on_media_loaded: Option<MediaOpenedCallback>,
 
-    pub(crate) on_hover: Option<SimpleCallback>,
-    pub(crate) on_focus: Option<SimpleCallback>,
-    pub(crate) on_blur: Option<SimpleCallback>,
-    pub(crate) on_disable: Option<SimpleCallback>,
-    pub(crate) on_active: Option<SimpleCallback>,
-    pub(crate) on_select: Option<SimpleCallback>,
-
     // D&D 専用イベント
-    pub(crate) on_entity_drag: Option<EntityDragCallback>,
-    pub(crate) on_id_drag: Option<IdDragCallback>,
-    pub(crate) on_entity_drop: Option<EntityDropCallback>,
-    pub(crate) on_id_drop: Option<IdDropCallback>,
-    pub(crate) on_drag_start: Option<DragStartCallback>,
+    pub(crate) on_dnd_entity_drag: Option<EntityDragCallback>,
+    pub(crate) on_dnd_id_drag: Option<IdDragCallback>,
+    pub(crate) on_dnd_entity_drop: Option<EntityDropCallback>,
+    pub(crate) on_dnd_id_drop: Option<IdDropCallback>,
+    pub(crate) on_dnd_drag_start: Option<DragStartCallback>,
 }
 
 impl std::fmt::Debug for EventListeners {
@@ -1304,37 +1304,37 @@ impl std::fmt::Debug for EventListeners {
             .field("on_active", &self.on_active.as_ref().map(|_| "FnMut"))
             .field("on_select", &self.on_select.as_ref().map(|_| "FnMut"))
             .field(
-                "on_entity_drag",
+                "on_dnd_entity_drag",
                 &self
-                    .on_entity_drag
+                    .on_dnd_entity_drag
                     .as_ref()
                     .map(|_| "FnMut(EntityId, Option<EntityId>)"),
             )
             .field(
-                "on_id_drag",
+                "on_dnd_id_drag",
                 &self
-                    .on_id_drag
+                    .on_dnd_id_drag
                     .as_ref()
                     .map(|_| "FnMut(EntityId, Option<EntityId>)"),
             )
             .field(
-                "on_entity_drop",
+                "on_dnd_entity_drop",
                 &self
-                    .on_entity_drop
+                    .on_dnd_entity_drop
                     .as_ref()
                     .map(|_| "FnMut(EntityId, Option<EntityId>)"),
             )
             .field(
-                "on_id_drop",
+                "on_dnd_id_drop",
                 &self
-                    .on_id_drop
+                    .on_dnd_id_drop
                     .as_ref()
                     .map(|_| "FnMut(EntityId, Option<EntityId>)"),
             )
             .field(
-                "on_drag_start",
+                "on_dnd_drag_start",
                 &self
-                    .on_drag_start
+                    .on_dnd_drag_start
                     .as_ref()
                     .map(|_| "FnMut(EntityId, Element)"),
             )
@@ -1822,14 +1822,14 @@ impl ScrollbarStyle {
 
 /// プレースホルダーを挿入してマウントする親先祖の制御方法
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DragPlaceholderParent {
+pub enum DndDragPlaceholderParent {
     Root,             // 自動的に最上位ルート要素の子としてアタッチ
     Custom(EntityId), // ユーザーが指定した特定の親コンテナの子としてアタッチ（範囲制限）
 }
 
 /// ドラッグ＆ドロップ動作の論理形式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DragPayload {
+pub enum DndDragPayload {
     /// Element 自体を移動する。
     /// ドロップ時に UI ツリーが自動的に更新される。
     Element,
@@ -1841,25 +1841,25 @@ pub enum DragPayload {
 
 /// ドラッグ可能な要素が保持するスタイリング・動作設定
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DragProperty {
-    pub placeholder_parent: DragPlaceholderParent,
-    pub drag_mode: DragPayload,
+pub struct DndDragProperty {
+    pub placeholder_parent: DndDragPlaceholderParent,
+    pub drag_mode: DndDragPayload,
     // ドラッグ終了時に自動的に配置（相対並び替え／絶対座標）を更新するか
     pub update_position: bool,
 }
 
 /// ドロップ受け入れ先での取り込み形式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DropTarget {
+pub enum DndDropTarget {
     Child,   // ドロップ先の子要素として取り込む
     Sibling, // ドロップ先の兄弟要素（隣接位置）として取り込む
 }
 
 /// ドロップ受け入れ先（ドロップゾーン）が保持するスタイリング・動作設定
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DropProperty {
-    pub target: DropTarget,
-    pub drag_mode: DragPayload,
+pub struct DndDropProperty {
+    pub target: DndDropTarget,
+    pub drag_mode: DndDragPayload,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]

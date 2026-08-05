@@ -3,7 +3,7 @@ use crate::{
     COMP_UIA_CONTENT, COMP_WEBVIEW_CONTENT, Context, EffectCategory, ElementState, EntityId,
     EventListeners, ImageMetadata, ImageSource, ImeState, InputContents, LayoutPoint, LayoutSize,
     LayoutStore, Modifiers, MouseButton, MovieMetadata, MovieProperty, ReadSignal, Rect,
-    STYLE_DRAGGABLE, STYLE_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_PROPERTY,
+    STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_PROPERTY,
     STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, STYLE_TEXT_SPANS, ScrollBarState, ScrollbarDisplay,
     ScrollbarStyle, Size, StyleTarget, TextAlign, TextSpan, ThisStyle, UiaValue, UnderlineStyle,
     Val, VirtualKey, VisualProperty, WebView2Contents, create_effect, div_n,
@@ -148,7 +148,7 @@ impl Element {
             cx.topology
                 .active_masks
                 .get(self.id)
-                .is_some_and(|m| m.has(STYLE_DRAGGABLE))
+                .is_some_and(|m| m.has(STYLE_DND_DRAGGABLE))
         })
     }
 
@@ -305,15 +305,15 @@ impl Element {
         }
 
         // D&D のコールド SoA スロットへのマウント同期
-        if mask.has(STYLE_DRAGGABLE)
+        if mask.has(STYLE_DND_DRAGGABLE)
             && let Some(dp) = inner.drag_property
         {
-            cx.events.drag_properties.insert(id, dp);
+            cx.events.dnd_drag_properties.insert(id, dp);
         }
-        if mask.has(STYLE_DROPPABLE)
+        if mask.has(STYLE_DND_DROPPABLE)
             && let Some(dp) = inner.drop_property
         {
-            cx.events.drop_properties.insert(id, dp);
+            cx.events.dnd_drop_properties.insert(id, dp);
         }
 
         cx.resolve_element_style_state(id, false);
@@ -2317,21 +2317,21 @@ impl Element {
     /// 引数: (ドラッグ元ID, 現在重なっているドロップ先ID)
     #[must_use]
     #[inline]
-    pub fn on_element_drag<F>(self, mut f: F) -> Self
+    pub fn on_dnd_element_drag<F>(self, mut f: F) -> Self
     where
         F: FnMut(Element, Option<Element>) + 'static,
     {
-        self.on_element_drag_with(move |_cx, src, dst| f(src, dst))
+        self.on_dnd_element_drag_with(move |_cx, src, dst| f(src, dst))
     }
 
     #[must_use]
     #[inline]
-    pub fn on_element_drag_with<F>(self, f: F) -> Self
+    pub fn on_dnd_element_drag_with<F>(self, f: F) -> Self
     where
         F: FnMut(&mut Context, Element, Option<Element>) + 'static,
     {
         self.get_or_create_listeners(|l| {
-            l.on_entity_drag = Some(Box::new(f));
+            l.on_dnd_entity_drag = Some(Box::new(f));
         });
         self
     }
@@ -2339,21 +2339,21 @@ impl Element {
     /// IDドラッグ中に毎フレーム呼び出されるイベントを登録します。
     #[must_use]
     #[inline]
-    pub fn on_id_drag<F>(self, mut f: F) -> Self
+    pub fn on_dnd_id_drag<F>(self, mut f: F) -> Self
     where
         F: FnMut(EntityId, Option<EntityId>) + 'static,
     {
-        self.on_id_drag_with(move |_cx, src, dst| f(src, dst))
+        self.on_dnd_id_drag_with(move |_cx, src, dst| f(src, dst))
     }
 
     #[must_use]
     #[inline]
-    pub fn on_id_drag_with<F>(self, f: F) -> Self
+    pub fn on_dnd_id_drag_with<F>(self, f: F) -> Self
     where
         F: FnMut(&mut Context, EntityId, Option<EntityId>) + 'static,
     {
         self.get_or_create_listeners(|l| {
-            l.on_id_drag = Some(Box::new(f));
+            l.on_dnd_id_drag = Some(Box::new(f));
         });
         self
     }
@@ -2362,21 +2362,21 @@ impl Element {
     /// 引数: (ドラッグ元ID, ドロップされた先のID（失敗時はNone）)
     #[must_use]
     #[inline]
-    pub fn on_element_drop<F>(self, mut f: F) -> Self
+    pub fn on_dnd_element_drop<F>(self, mut f: F) -> Self
     where
         F: FnMut(Element, Option<Element>) + 'static,
     {
-        self.on_element_drop_with(move |_cx, src, dst| f(src, dst))
+        self.on_dnd_element_drop_with(move |_cx, src, dst| f(src, dst))
     }
 
     #[must_use]
     #[inline]
-    pub fn on_element_drop_with<F>(self, f: F) -> Self
+    pub fn on_dnd_element_drop_with<F>(self, f: F) -> Self
     where
         F: FnMut(&mut Context, Element, Option<Element>) + 'static,
     {
         self.get_or_create_listeners(|l| {
-            l.on_entity_drop = Some(Box::new(f));
+            l.on_dnd_entity_drop = Some(Box::new(f));
         });
         self
     }
@@ -2384,21 +2384,21 @@ impl Element {
     /// IDドロップ完了時（成功またはエリア外での失敗時）に呼び出されるイベントを登録します。
     #[must_use]
     #[inline]
-    pub fn on_id_drop<F>(self, mut f: F) -> Self
+    pub fn on_dnd_id_drop<F>(self, mut f: F) -> Self
     where
         F: FnMut(EntityId, Option<EntityId>) + 'static,
     {
-        self.on_id_drop_with(move |_cx, src, dst| f(src, dst))
+        self.on_dnd_id_drop_with(move |_cx, src, dst| f(src, dst))
     }
 
     #[must_use]
     #[inline]
-    pub fn on_id_drop_with<F>(self, f: F) -> Self
+    pub fn on_dnd_id_drop_with<F>(self, f: F) -> Self
     where
         F: FnMut(&mut Context, EntityId, Option<EntityId>) + 'static,
     {
         self.get_or_create_listeners(|l| {
-            l.on_id_drop = Some(Box::new(f));
+            l.on_dnd_id_drop = Some(Box::new(f));
         });
         self
     }
@@ -2407,21 +2407,21 @@ impl Element {
     /// 引数: (元のオリジナル要素, 生成されたプレースホルダー要素)
     #[must_use]
     #[inline]
-    pub fn on_drag_start<F>(self, mut f: F) -> Self
+    pub fn on_dnd_drag_start<F>(self, mut f: F) -> Self
     where
         F: FnMut(Element, Element) + 'static,
     {
-        self.on_drag_start_with(move |_cx, src, placeholder| f(src, placeholder))
+        self.on_dnd_drag_start_with(move |_cx, src, placeholder| f(src, placeholder))
     }
 
     #[must_use]
     #[inline]
-    pub fn on_drag_start_with<F>(self, f: F) -> Self
+    pub fn on_dnd_drag_start_with<F>(self, f: F) -> Self
     where
         F: FnMut(&mut Context, Element, Element) + 'static,
     {
         self.get_or_create_listeners(|l| {
-            l.on_drag_start = Some(Box::new(f));
+            l.on_dnd_drag_start = Some(Box::new(f));
         });
         self
     }

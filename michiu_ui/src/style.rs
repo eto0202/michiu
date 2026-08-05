@@ -1,23 +1,24 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, AnimationCurve, Backdrop, BasicLayout, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
-    CursorIcon, Direction, Display, DragPayload, DragPlaceholderParent, DragProperty, DropProperty,
-    DropTarget, EdgeInsets, EntityId, FlexDirection, FlexLayout, FlexWrap, FocusTrigger, Focusable,
-    GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement, InteractionName,
-    InteractionStyles, IntoStyleConvert, IntoStyleCornerRadius, IntoStylePoint, IntoStyleRect,
-    IntoStyleResizable, IntoStyleSize, IntoStyleValue, JustifyContent, KeyframeAnimation,
-    LayoutOverflow, Length, LinearGradient, Overflow, PointerEvents, Position, PropertyList, Rect,
-    STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER, STATE_DRAGGED, STATE_DRAGGING,
-    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED,
-    STYLE_ALIGN_CONTENT, STYLE_ALIGN_ITEMS, STYLE_ALIGN_SELF, STYLE_ANIMATIONS, STYLE_ASPECT_RATIO,
-    STYLE_BACKDROP, STYLE_BG_COLOR, STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW,
-    STYLE_BOX_SIZING, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_DIRECTION, STYLE_DISPLAY,
-    STYLE_DRAGGABLE, STYLE_DROPPABLE, STYLE_EXT_PROPERTIES, STYLE_FLEX_BASIS, STYLE_FLEX_DIRECTION,
-    STYLE_FLEX_GROW, STYLE_FLEX_SHRINK, STYLE_FLEX_WRAP, STYLE_FOCUSABLE, STYLE_FONT_SIZE,
-    STYLE_GAP, STYLE_GRID_LAYOUT, STYLE_INSET, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
-    STYLE_ITEM_IS_REPLACED, STYLE_ITEM_IS_TABLE, STYLE_JUSTIFY_CONTENT, STYLE_JUSTIFY_ITEMS,
-    STYLE_JUSTIFY_SELF, STYLE_MARGIN, STYLE_MAX_SIZE, STYLE_MIN_SIZE, STYLE_OPACITY, STYLE_OUTLINE,
-    STYLE_OVERFLOW, STYLE_PADDING, STYLE_POINTER_EVENTS, STYLE_POSITION, STYLE_PREVENT_FOCUS_STEAL,
+    CursorIcon, Direction, Display, DndDragProperty, DndDragPayload, DndDragPlaceholderParent,
+    DndDropProperty, DndDropTarget, EdgeInsets, EntityId, FlexDirection, FlexLayout, FlexWrap,
+    FocusTrigger, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement,
+    InteractionName, InteractionStyles, IntoStyleConvert, IntoStyleCornerRadius, IntoStylePoint,
+    IntoStyleRect, IntoStyleResizable, IntoStyleSize, IntoStyleValue, JustifyContent,
+    KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Overflow, PointerEvents, Position,
+    PropertyList, Rect, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER,
+    STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED,
+    STATE_PRESSED, STATE_SELECTED, STYLE_ALIGN_CONTENT, STYLE_ALIGN_ITEMS, STYLE_ALIGN_SELF,
+    STYLE_ANIMATIONS, STYLE_ASPECT_RATIO, STYLE_BACKDROP, STYLE_BG_COLOR, STYLE_BORDER,
+    STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_BOX_SIZING, STYLE_CORNER_RADIUS, STYLE_CURSOR,
+    STYLE_DIRECTION, STYLE_DISPLAY, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_EXT_PROPERTIES,
+    STYLE_FLEX_BASIS, STYLE_FLEX_DIRECTION, STYLE_FLEX_GROW, STYLE_FLEX_SHRINK, STYLE_FLEX_WRAP,
+    STYLE_FOCUSABLE, STYLE_FONT_SIZE, STYLE_GAP, STYLE_GRID_LAYOUT, STYLE_INSET,
+    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_ITEM_IS_REPLACED,
+    STYLE_ITEM_IS_TABLE, STYLE_JUSTIFY_CONTENT, STYLE_JUSTIFY_ITEMS, STYLE_JUSTIFY_SELF,
+    STYLE_MARGIN, STYLE_MAX_SIZE, STYLE_MIN_SIZE, STYLE_OPACITY, STYLE_OUTLINE, STYLE_OVERFLOW,
+    STYLE_PADDING, STYLE_POINTER_EVENTS, STYLE_POSITION, STYLE_PREVENT_FOCUS_STEAL,
     STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, STYLE_SCROLLBAR, STYLE_SIZE,
     STYLE_TEXT_ALIGN, STYLE_TEXT_COLOR, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT,
     STYLE_TRANSITIONS, STYLE_USER_SELECT, STYLE_Z_INDEX, ScrollbarDisplay, ScrollbarMode,
@@ -51,8 +52,8 @@ pub(crate) struct StyleInner {
     // 動的にスタイルプロパティを更新するためのクローン可能なセッターリスト
     pub(crate) dynamic_setters: DynamicSettersType,
 
-    pub(crate) drag_property: Option<DragProperty>,
-    pub(crate) drop_property: Option<DropProperty>,
+    pub(crate) drag_property: Option<DndDragProperty>,
+    pub(crate) drop_property: Option<DndDropProperty>,
 }
 
 type DynamicSettersType = Vec<Arc<dyn Fn(&mut Context, EntityId, StyleTarget) + Send + Sync>>;
@@ -68,9 +69,9 @@ pub enum StyleTarget {
     Actived,
     Selected,
     Dragged,
-    Dragging, // ドラッグ中の元の要素
-    DragIn,   // ドロップゾーン侵入時
-    DragOver, // プレースホルダー（ドラッグイメージ）
+    DndDragging, // ドラッグ中の元の要素
+    DndDragIn,   // ドロップゾーン侵入時
+    DndDragOver, // プレースホルダー（ドラッグイメージ）
 
     HoveredWithin,
     FocusedWithin,
@@ -4556,9 +4557,9 @@ impl ThisStyle {
     /// ドラッグ時にプレースホルダーを最上位ルート要素の子としてアタッチし、絶対配置追従させます。
     #[inline]
     #[must_use]
-    pub fn draggable_root(
+    pub fn dnd_draggable_root(
         mut self,
-        mode: impl IntoStyleValue<DragPayload>,
+        mode: impl IntoStyleValue<DndDragPayload>,
         update_position: impl IntoStyleValue<bool>,
     ) -> Self {
         let m_val = mode.into_style_value();
@@ -4567,20 +4568,20 @@ impl ThisStyle {
         match (m_val, u_val) {
             (StyleValue::Static(m), StyleValue::Static(u)) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.drag_property = Some(DragProperty {
-                    placeholder_parent: DragPlaceholderParent::Root,
+                inner.drag_property = Some(DndDragProperty {
+                    placeholder_parent: DndDragPlaceholderParent::Root,
                     drag_mode: m,
                     update_position: u,
                 });
-                inner.mask.set(STYLE_DRAGGABLE);
+                inner.mask.set(STYLE_DND_DRAGGABLE);
             }
             (m_getter, u_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_DRAGGABLE);
+                inner.mask.set(STYLE_DND_DRAGGABLE);
 
                 let get_m = match m_getter {
                     StyleValue::Static(m) => {
-                        Box::new(move || m) as Box<dyn Fn() -> DragPayload + Send + Sync>
+                        Box::new(move || m) as Box<dyn Fn() -> DndDragPayload + Send + Sync>
                     }
                     StyleValue::Dynamic(g) => g,
                 };
@@ -4595,10 +4596,10 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let m = get_m();
                         let u = get_u();
-                        cx.events.drag_properties.insert(
+                        cx.events.dnd_drag_properties.insert(
                             id,
-                            DragProperty {
-                                placeholder_parent: DragPlaceholderParent::Root,
+                            DndDragProperty {
+                                placeholder_parent: DndDragPlaceholderParent::Root,
                                 drag_mode: m,
                                 update_position: u,
                             },
@@ -4614,10 +4615,10 @@ impl ThisStyle {
     /// ドラッグ時にプレースホルダーを特定の親要素の子としてアタッチし（範囲制限）、絶対配置追従させます。
     #[inline]
     #[must_use]
-    pub fn draggable_parent(
+    pub fn dnd_draggable_parent(
         mut self,
         parent_id: impl IntoStyleValue<EntityId>,
-        mode: impl IntoStyleValue<DragPayload>,
+        mode: impl IntoStyleValue<DndDragPayload>,
         update_position: impl IntoStyleValue<bool>,
     ) -> Self {
         let p_val = parent_id.into_style_value();
@@ -4627,16 +4628,16 @@ impl ThisStyle {
         match (p_val, m_val, u_val) {
             (StyleValue::Static(p), StyleValue::Static(m), StyleValue::Static(u)) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.drag_property = Some(DragProperty {
-                    placeholder_parent: DragPlaceholderParent::Custom(p),
+                inner.drag_property = Some(DndDragProperty {
+                    placeholder_parent: DndDragPlaceholderParent::Custom(p),
                     drag_mode: m,
                     update_position: u,
                 });
-                inner.mask.set(STYLE_DRAGGABLE);
+                inner.mask.set(STYLE_DND_DRAGGABLE);
             }
             (p_getter, m_getter, u_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_DRAGGABLE);
+                inner.mask.set(STYLE_DND_DRAGGABLE);
 
                 let get_p = match p_getter {
                     StyleValue::Static(p) => {
@@ -4646,7 +4647,7 @@ impl ThisStyle {
                 };
                 let get_m = match m_getter {
                     StyleValue::Static(m) => {
-                        Box::new(move || m) as Box<dyn Fn() -> DragPayload + Send + Sync>
+                        Box::new(move || m) as Box<dyn Fn() -> DndDragPayload + Send + Sync>
                     }
                     StyleValue::Dynamic(g) => g,
                 };
@@ -4662,10 +4663,10 @@ impl ThisStyle {
                         let p = get_p();
                         let m = get_m();
                         let u = get_u();
-                        cx.events.drag_properties.insert(
+                        cx.events.dnd_drag_properties.insert(
                             id,
-                            DragProperty {
-                                placeholder_parent: DragPlaceholderParent::Custom(p),
+                            DndDragProperty {
+                                placeholder_parent: DndDragPlaceholderParent::Custom(p),
                                 drag_mode: m,
                                 update_position: u,
                             },
@@ -4681,10 +4682,10 @@ impl ThisStyle {
     /// 要素がドロップの受け入れ可能であることを示し、取り込み方式と動作を指定します。
     #[inline]
     #[must_use]
-    pub fn droppable(
+    pub fn dnd_droppable(
         mut self,
-        target: impl IntoStyleValue<DropTarget>,
-        mode: impl IntoStyleValue<DragPayload>,
+        target: impl IntoStyleValue<DndDropTarget>,
+        mode: impl IntoStyleValue<DndDragPayload>,
     ) -> Self {
         let t_val = target.into_style_value();
         let m_val = mode.into_style_value();
@@ -4692,25 +4693,25 @@ impl ThisStyle {
         match (t_val, m_val) {
             (StyleValue::Static(t), StyleValue::Static(m)) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.drop_property = Some(DropProperty {
+                inner.drop_property = Some(DndDropProperty {
                     target: t,
                     drag_mode: m,
                 });
-                inner.mask.set(STYLE_DROPPABLE);
+                inner.mask.set(STYLE_DND_DROPPABLE);
             }
             (t_getter, m_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_DROPPABLE);
+                inner.mask.set(STYLE_DND_DROPPABLE);
 
                 let get_t = match t_getter {
                     StyleValue::Static(t) => {
-                        Box::new(move || t) as Box<dyn Fn() -> DropTarget + Send + Sync>
+                        Box::new(move || t) as Box<dyn Fn() -> DndDropTarget + Send + Sync>
                     }
                     StyleValue::Dynamic(g) => g,
                 };
                 let get_m = match m_getter {
                     StyleValue::Static(m) => {
-                        Box::new(move || m) as Box<dyn Fn() -> DragPayload + Send + Sync>
+                        Box::new(move || m) as Box<dyn Fn() -> DndDragPayload + Send + Sync>
                     }
                     StyleValue::Dynamic(g) => g,
                 };
@@ -4719,9 +4720,9 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let t = get_t();
                         let m = get_m();
-                        cx.events.drop_properties.insert(
+                        cx.events.dnd_drop_properties.insert(
                             id,
-                            DropProperty {
+                            DndDropProperty {
                                 target: t,
                                 drag_mode: m,
                             },
@@ -4737,22 +4738,22 @@ impl ThisStyle {
     /// ドラッグ中の元の要素に適用する疑似クラススタイルを指定します。
     #[inline]
     #[must_use]
-    pub fn draggable_original(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_DRAGGING, StyleTarget::Dragging)
+    pub fn dnd_draggable_original(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_DND_DRAGGING, StyleTarget::DndDragging)
     }
 
     /// ドラッグ中のプレースホルダー（ドラッグイメージ）に適用する疑似クラススタイルを指定します。
     #[inline]
     #[must_use]
-    pub fn draggable_placeholder(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_DRAG_OVER, StyleTarget::DragOver)
+    pub fn dnd_draggable_placeholder(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_DND_DRAG_OVER, StyleTarget::DndDragOver)
     }
 
     /// ドロップゾーンにドラッグ要素がホバー侵入している際に、ドロップゾーン側に適用するスタイルを指定します。
     #[inline]
     #[must_use]
-    pub fn drag_over(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_DRAG_IN, StyleTarget::DragIn)
+    pub fn dnd_drag_over(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
+        self.apply_interaction_style(style, STATE_DND_DRAG_IN, StyleTarget::DndDragIn)
     }
 
     /// ポインターメッセージ（マウスインタラクションなど）の透過を制御します。
@@ -5403,9 +5404,9 @@ impl ThisStyle {
                     StyleTarget::Actived => interaction.actived = Some(v),
                     StyleTarget::Selected => interaction.selected = Some(v),
                     StyleTarget::Dragged => interaction.dragged = Some(v),
-                    StyleTarget::Dragging => interaction.dragging = Some(v),
-                    StyleTarget::DragIn => interaction.drag_in = Some(v),
-                    StyleTarget::DragOver => interaction.drag_over = Some(v),
+                    StyleTarget::DndDragging => interaction.dragging = Some(v),
+                    StyleTarget::DndDragIn => interaction.drag_in = Some(v),
+                    StyleTarget::DndDragOver => interaction.drag_over = Some(v),
 
                     StyleTarget::HoveredWithin => interaction.hovered_within = Some(v),
                     StyleTarget::FocusedWithin => interaction.focused_within = Some(v),
@@ -5463,9 +5464,9 @@ impl ThisStyle {
                             StyleTarget::Actived => styles.actived = Some(val.clone()),
                             StyleTarget::Selected => styles.selected = Some(val.clone()),
                             StyleTarget::Dragged => styles.dragged = Some(val.clone()),
-                            StyleTarget::Dragging => styles.dragging = Some(val.clone()),
-                            StyleTarget::DragIn => styles.drag_in = Some(val.clone()),
-                            StyleTarget::DragOver => styles.drag_over = Some(val.clone()),
+                            StyleTarget::DndDragging => styles.dragging = Some(val.clone()),
+                            StyleTarget::DndDragIn => styles.drag_in = Some(val.clone()),
+                            StyleTarget::DndDragOver => styles.drag_over = Some(val.clone()),
 
                             StyleTarget::HoveredWithin => styles.hovered_within = Some(val.clone()),
                             StyleTarget::FocusedWithin => styles.focused_within = Some(val.clone()),

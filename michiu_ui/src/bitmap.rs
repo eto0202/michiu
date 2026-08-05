@@ -219,12 +219,12 @@ pub(crate) const STYLE_USER_SELECT: u128 = 1 << 8;
 
 pub(crate) const STYLE_RESIZABLE: u128 = 1 << 64;
 
-pub(crate) const STYLE_DRAGGABLE: u128 = 1 << 65;
-pub(crate) const STYLE_DROPPABLE: u128 = 1 << 66;
+pub(crate) const STYLE_DND_DRAGGABLE: u128 = 1 << 65;
+pub(crate) const STYLE_DND_DROPPABLE: u128 = 1 << 66;
 
-pub(crate) const STATE_DRAGGING: u128 = 1 << 67; // ドラッグ元の実体に当てる（Dragging）
-pub(crate) const STATE_DRAG_IN: u128 = 1 << 68; // ドロップ受け入れ先に当てる（DragIn）
-pub(crate) const STATE_DRAG_OVER: u128 = 1 << 69; // プレースホルダー自体に当てる（DragOver）
+pub(crate) const STATE_DND_DRAGGING: u128 = 1 << 67; // ドラッグ元の実体に当てる（Dragging）
+pub(crate) const STATE_DND_DRAG_IN: u128 = 1 << 68; // ドロップ受け入れ先に当てる（DragIn）
+pub(crate) const STATE_DND_DRAG_OVER: u128 = 1 << 69; // プレースホルダー自体に当てる（DragOver）
 
 pub(crate) const STYLE_FOCUSABLE: u128 = 1 << 70;
 pub(crate) const STYLE_OUTLINE: u128 = 1 << 71;
@@ -291,8 +291,8 @@ pub(crate) const STYLE_VISUAL_PROPERTY: u128 = STYLE_BG_COLOR
     | STYLE_EXT_PROPERTIES
     | STYLE_POINTER_EVENTS
     | STYLE_USER_SELECT
-    | STYLE_DRAGGABLE
-    | STYLE_DROPPABLE
+    | STYLE_DND_DRAGGABLE
+    | STYLE_DND_DROPPABLE
     | STYLE_FOCUSABLE
     | STYLE_OUTLINE
     | STYLE_TRANSFORM_INHERIT
@@ -307,9 +307,9 @@ pub(crate) const STYLE_INTERACTION_PROPERTY: u128 = STATE_HOVERED
     | STATE_ACTIVED
     | STATE_SELECTED
     | STATE_DRAGGED
-    | STATE_DRAGGING
-    | STATE_DRAG_IN
-    | STATE_DRAG_OVER
+    | STATE_DND_DRAGGING
+    | STATE_DND_DRAG_IN
+    | STATE_DND_DRAG_OVER
     | STATE_FOCUSED_VISIBLE;
 
 pub(crate) const STYLE_ACTIVE_INTERACTION_PROPERTY: u128 = STATE_HOVERED
@@ -317,5 +317,5 @@ pub(crate) const STYLE_ACTIVE_INTERACTION_PROPERTY: u128 = STATE_HOVERED
     | STATE_PRESSED
     | STATE_DRAGGED
     | STATE_ACTIVED
-    | STATE_DRAGGING
+    | STATE_DND_DRAGGING
     | STATE_FOCUSED_VISIBLE;

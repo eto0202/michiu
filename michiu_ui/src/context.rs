@@ -20,13 +20,13 @@ pub use topology_store::*;
 pub use window_store::*;
 
 use crate::{
-    ActiveFocusTrigger, CursorIcon, DragPayload, Element, ElementState, ImeState, LayoutPoint,
+    ActiveFocusTrigger, CursorIcon, DndDragPayload, Element, ElementState, ImeState, LayoutPoint,
     LayoutRect, LayoutSize, Modifiers, MouseButton, Overflow, PlaybackCount, PointerEvents,
-    PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER,
-    STATE_DRAGGED, STATE_DRAGGING, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED,
-    STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW, STYLE_PREVENT_FOCUS_STEAL,
-    STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue, UserSelect, Val, VirtualKey,
-    WriteSignal, bind_context, with_context,
+    PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
+    STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
+    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW,
+    STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue,
+    UserSelect, Val, VirtualKey, WriteSignal, bind_context, with_context,
 };
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
@@ -1106,13 +1106,13 @@ impl Context {
         }
 
         // カーソル移動イベントの伝播
-        self.propagate_cursor_move_events(target_id, logical_pos);
+        EventStore::propagate_cursor_move_events(self, target_id, logical_pos);
 
         // ドラッグイベントの伝播
-        self.propagate_drag_events(prev_pos, logical_pos);
+        EventStore::propagate_dnd_drag_events(self, prev_pos, logical_pos);
 
         // D&D プレースホルダーの移動とドロップ先ホバー検知
-        let Some(mut drag_state) = self.events.active_drag_state.clone() else {
+        let Some(mut drag_state) = self.events.active_dnd_drag_state.clone() else {
             return;
         };
 
@@ -1123,14 +1123,19 @@ impl Context {
 
         let src_id = drag_state.source_entity;
         let placeholder_id = drag_state.placeholder_entity;
-        let drag_prop = self.events.drag_properties.get(src_id).copied().unwrap();
+        let drag_prop = self
+            .events
+            .dnd_drag_properties
+            .get(src_id)
+            .copied()
+            .unwrap();
 
         // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
         self.update_inset_based_relative_local(
             root,
             placeholder_id,
             logical_pos,
-            drag_prop,
+            &drag_prop,
             &drag_state,
         );
 
@@ -1139,9 +1144,9 @@ impl Context {
             self.detect_drop_target_during_intrusion(src_id, placeholder_id, logical_pos);
 
         // ドロップ先のホバー切り替えイベントを解決（STATE_DRAG_IN の同期）
-        self.sync_state_drag_in(&mut drag_state, found_drop_target);
+        self.sync_state_drag_in(found_drop_target);
 
-        self.callback_drag_prop(src_id, found_drop_target, drag_prop);
+        self.callback_drag_prop(src_id, found_drop_target, &drag_prop);
     }
 
     pub fn inject_pointer_button(
@@ -1258,15 +1263,20 @@ impl Context {
                 }
 
                 // D&D ドラッグ終了・ドロップ確定処理
-                if let Some(drag_state) = self.events.active_drag_state.take() {
+                if let Some(drag_state) = self.events.active_dnd_drag_state.take() {
                     let src_id = drag_state.source_entity;
                     let holder = drag_state.placeholder_entity;
-                    let drag_prop = self.events.drag_properties.get(src_id).copied().unwrap();
+                    let drag_prop = self
+                        .events
+                        .dnd_drag_properties
+                        .get(src_id)
+                        .copied()
+                        .unwrap();
 
                     // 疑似クラス（STATE_DRAGGING, STATE_DRAG_IN）を解除
-                    self.set_drag_state(src_id, STATE_DRAGGING, false);
+                    self.set_drag_state(src_id, STATE_DND_DRAGGING, false);
                     if let Some(target_id) = drag_state.current_drop_target {
-                        self.set_drag_state(target_id, STATE_DRAG_IN, false);
+                        self.set_drag_state(target_id, STATE_DND_DRAG_IN, false);
                     }
 
                     // プレースホルダー要素を親および Taffy から安全にデスポーン
@@ -1278,8 +1288,8 @@ impl Context {
 
                     // 実体移動（DragMode::Entity）の場合のツリートポロジー書き換え
                     if let Some(target_id) = drop_success
-                        && drag_prop.drag_mode == DragPayload::Element
-                        && let Some(prop) = self.events.drop_properties.get(target_id).copied()
+                        && drag_prop.drag_mode == DndDragPayload::Element
+                        && let Some(prop) = self.events.dnd_drop_properties.get(target_id).copied()
                     {
                         // ドラッグ元要素を現在の親の children リストから安全に引き抜いて削除
                         self.remove_dragged_elemet(src_id, &drag_state);
@@ -1306,10 +1316,10 @@ impl Context {
                     }
 
                     match drag_prop.drag_mode {
-                        DragPayload::Element => {
+                        DndDragPayload::Element => {
                             self.callback_on_entity_drop(src_id, drop_success);
                         }
-                        DragPayload::EntityId => {
+                        DndDragPayload::EntityId => {
                             self.callback_on_id_drop(src_id, drop_success);
                         }
                     }
@@ -1741,73 +1751,37 @@ impl Context {
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
     /// 階層的な早期枝刈りヒットテスト
     pub fn hit_test(&self, point: LayoutPoint) -> Option<EntityId> {
-        // 各要素の実効 z_index を、親から子へカスケードして算出
-        let mut effective_z_indices =
-            SecondaryMap::with_capacity(self.topology.active_entities.len());
-        for &id in &self.topology.flat_dfs_sequence {
-            let self_z = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.z_index);
+        let TopologyStore {
+            active_entities,
+            active_masks,
+            parents,
+            flat_dfs_sequence,
+            ..
+        } = &self.topology;
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            ..
+        } = &self.renders;
+        let OutputStore {
+            rects, clip_rects, ..
+        } = &self.outputs;
+        let EventStore {
+            interaction_states, ..
+        } = &self.events;
 
-            let parent_z = self
-                .topology
-                .parents
-                .get(id)
-                .copied()
-                .flatten()
-                .and_then(|pid| effective_z_indices.get(pid).copied());
-
-            let eff_z = self_z.or(parent_z).unwrap_or(0);
-            effective_z_indices.insert(id, eff_z);
-        }
-
-        // 実効 z_index に基づいて active_entities を安定ソート
-        let mut sorted_entities = self.topology.active_entities.clone();
-        sorted_entities.sort_by_key(|&id| effective_z_indices.get(id).copied().unwrap_or(0));
-
-        for &id in sorted_entities.iter().rev() {
-            // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
-            if Some(id) == self.events.interaction_states.dragged
-                || self.topology.active_masks[id].has(STATE_DRAG_OVER)
-            {
-                continue;
-            }
-
-            // 親などの overflow 等でクリップされている表示範囲外ならスキップ
-            if let Some(clip) = self.outputs.clip_rects.get(id)
-                && !clip.contains(point)
-            {
-                continue;
-            }
-
-            // pointer-events 設定の解決
-            let pointer_events = self
-                .renders
-                .visual_properties
-                .get(id)
-                .and_then(|v| v.pointer_events)
-                .or_else(|| {
-                    self.renders
-                        .base_visual_properties
-                        .get(id)
-                        .and_then(|v| v.pointer_events)
-                })
-                .unwrap_or(PointerEvents::Auto);
-
-            if pointer_events == PointerEvents::None {
-                continue; // 透過設定
-            }
-
-            // 物理範囲にヒットしたかを検証
-            if let Some(rect) = self.rect(id)
-                && rect.contains(point)
-            {
-                return Some(id);
-            }
-        }
-        None
+        TopologyStore::hit_test(
+            point,
+            active_entities,
+            active_masks,
+            flat_dfs_sequence,
+            parents,
+            visual_properties,
+            base_visual_properties,
+            interaction_states,
+            rects,
+            clip_rects,
+        )
     }
 
     /// キャッシュコヒーレントな直列DFS同期（1次元直線ループ同期）

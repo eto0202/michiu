@@ -7,15 +7,15 @@ use crate::{
     Focusable, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStates,
     InteractionStyles, LayoutPoint, LayoutSize, LayoutStore, OutputStore, ParentsSecondary,
     PlaybackCount, Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary,
-    STATE_ACTIVED, STATE_DISABLED, STATE_DRAG_IN, STATE_DRAG_OVER, STATE_DRAGGED, STATE_DRAGGING,
-    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_RENDER,
-    STATE_SELECTED, STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_BG_COLOR, STYLE_BORDER,
-    STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_EXT_PROPERTIES,
-    STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OPACITY,
-    STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR, STYLE_TRANSFORM,
-    STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay, ScrollbarStylesSecondary,
-    StyleTarget, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle, TopologyStore, TransitionValue,
-    Val, VisualProperty, WindowStore,
+    STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING,
+    STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED,
+    STATE_QUEUED_RENDER, STATE_SELECTED, STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_BG_COLOR,
+    STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR,
+    STYLE_EXT_PROPERTIES, STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
+    STYLE_OPACITY, STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR,
+    STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay,
+    ScrollbarStylesSecondary, StyleTarget, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle,
+    TopologyStore, TransitionValue, Val, VisualProperty, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -315,9 +315,9 @@ impl RenderStore {
             STATE_ACTIVED => &interaction.actived,
             STATE_SELECTED => &interaction.selected,
             STATE_DRAGGED => &interaction.dragged,
-            STATE_DRAGGING => &interaction.dragging,
-            STATE_DRAG_IN => &interaction.drag_in,
-            STATE_DRAG_OVER => &interaction.drag_over,
+            STATE_DND_DRAGGING => &interaction.dragging,
+            STATE_DND_DRAG_IN => &interaction.drag_in,
+            STATE_DND_DRAG_OVER => &interaction.drag_over,
             _ => &None,
         };
 
@@ -405,9 +405,9 @@ impl RenderStore {
             (STATE_PRESSED, interaction.pressed.as_ref()),
             (STATE_DISABLED, interaction.disabled.as_ref()),
             (STATE_DRAGGED, interaction.dragged.as_ref()),
-            (STATE_DRAGGING, interaction.dragging.as_ref()),
-            (STATE_DRAG_IN, interaction.drag_in.as_ref()),
-            (STATE_DRAG_OVER, interaction.drag_over.as_ref()),
+            (STATE_DND_DRAGGING, interaction.dragging.as_ref()),
+            (STATE_DND_DRAG_IN, interaction.drag_in.as_ref()),
+            (STATE_DND_DRAG_OVER, interaction.drag_over.as_ref()),
         ]
     }
 
@@ -424,8 +424,8 @@ impl RenderStore {
             (STATE_PRESSED, &interaction.pressed_within),
             (STATE_DISABLED, &interaction.disabled_within),
             (STATE_DRAGGED, &interaction.dragged_within),
-            (STATE_DRAGGING, &interaction.dragged_within),
-            (STATE_DRAG_IN, &interaction.hovered_within),
+            (STATE_DND_DRAGGING, &interaction.dragged_within),
+            (STATE_DND_DRAG_IN, &interaction.hovered_within),
         ]
     }
 
@@ -442,8 +442,8 @@ impl RenderStore {
             (STATE_PRESSED, &interaction.pressed_parent),
             (STATE_DISABLED, &interaction.disabled_parent),
             (STATE_DRAGGED, &interaction.dragged_parent),
-            (STATE_DRAGGING, &interaction.dragged_parent),
-            (STATE_DRAG_IN, &interaction.hovered_parent),
+            (STATE_DND_DRAGGING, &interaction.dragged_parent),
+            (STATE_DND_DRAG_IN, &interaction.hovered_parent),
         ]
     }
 
@@ -466,9 +466,9 @@ impl RenderStore {
             (STATE_PRESSED, &interaction.pressed),
             (STATE_DISABLED, &interaction.disabled),
             (STATE_DRAGGED, &interaction.dragged),
-            (STATE_DRAGGING, &interaction.dragging),
-            (STATE_DRAG_IN, &interaction.drag_in),
-            (STATE_DRAG_OVER, &interaction.drag_over),
+            (STATE_DND_DRAGGING, &interaction.dragging),
+            (STATE_DND_DRAG_IN, &interaction.drag_in),
+            (STATE_DND_DRAG_OVER, &interaction.drag_over),
         ];
 
         for (state, style_opt) in cascade {

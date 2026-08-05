@@ -8,8 +8,8 @@ pub fn container() -> Element {
             .size_full()
             .p(16.0)
             .r(4.0)
-            .droppable(DropTarget::Child, DragPayload::Element)
-            .drag_over(ts().bg_color(dynamic(|t: &Theme| t.background_hover))),
+            .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
+            .dnd_drag_over(ts().bg_color(dynamic(|t: &Theme| t.background_hover))),
     )
     .label("Droppable", label_style());
     let parent_id = container.id();
@@ -31,10 +31,10 @@ fn section_draggable(parent_id: EntityId) -> Element {
         .left(50.0)
         .size(300.0)
         .border_solid(1.0)
-        .droppable(DropTarget::Child, DragPayload::Element)
-        .draggable_parent(parent_id, DragPayload::Element, true)
-        .draggable_original(ts().hidden())
-        .draggable_placeholder(ts().p(16.0).border_solid(1.0));
+        .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
+        .dnd_draggable_parent(parent_id, DndDragPayload::Element, true)
+        .dnd_draggable_original(ts().hidden())
+        .dnd_draggable_placeholder(ts().p(16.0).border_solid(1.0));
 
     // 動的なカラースタイルのみを style_d で評価
     div(layout)
@@ -42,8 +42,8 @@ fn section_draggable(parent_id: EntityId) -> Element {
             ts().bg_color(t.background)
                 .border_color(t.border)
                 .hovered(ts().bg_color(t.background_hover))
-                .drag_over(ts().border_color(t.border_hover))
-                .draggable_placeholder(ts().bg_color(t.border).border_color(t.border))
+                .dnd_drag_over(ts().border_color(t.border_hover))
+                .dnd_draggable_placeholder(ts().bg_color(t.border).border_color(t.border))
         })
         .label("Draggable & Droppable", label_style())
 }
@@ -60,23 +60,23 @@ fn item_draggable(parent_id: EntityId) -> Element {
         .left(50.0)
         .size(150.0)
         .border_solid(1.0)
-        .draggable_parent(parent_id, DragPayload::Element, true)
-        .draggable_original(ts().p(16.0).border_dashed(1.0).opacity_50())
-        .draggable_placeholder(ts().p(16.0).border_solid(1.0));
+        .dnd_draggable_parent(parent_id, DndDragPayload::Element, true)
+        .dnd_draggable_original(ts().p(16.0).border_dashed(1.0).opacity_50())
+        .dnd_draggable_placeholder(ts().p(16.0).border_solid(1.0));
 
     div(layout)
         .style_d(|t: &Theme| {
             ts().bg_color(t.background)
                 .border_color(t.border)
                 .hovered(ts().bg_color(t.background_hover))
-                .draggable_original(ts().bg_color(t.background).border_color(t.border))
-                .draggable_placeholder(ts().bg_color(t.background).border_color(t.border))
+                .dnd_draggable_original(ts().bg_color(t.background).border_color(t.border))
+                .dnd_draggable_placeholder(ts().bg_color(t.background).border_color(t.border))
         })
         .label(label_text, label_style())
-        .on_drag_start(move |_, _| {
+        .on_dnd_drag_start(move |_, _| {
             set_label_text.set("Dragging...".to_string());
         })
-        .on_element_drop(move |_, _| {
+        .on_dnd_element_drop(move |_, _| {
             set_label_text.set("Draggable".to_string());
         })
 }
