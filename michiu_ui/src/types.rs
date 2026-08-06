@@ -1137,6 +1137,42 @@ pub enum InteractionName {
     All,
 }
 
+macro_rules! define_event_dispatchers {
+    (
+        $(
+            $fn_name:ident, $field_name:ident $(, $arg_name:ident : $arg_type:ty)*;
+        )*
+    ) => {
+        $(
+            #[inline]
+            #[allow(dead_code)]
+            pub(crate) fn $fn_name(
+                cx: &mut Context,
+                id: EntityId,
+                $($arg_name : $arg_type),*
+            ) {
+                // events.event_listeners から該当のハンドラを一時的に take する
+                if let Some(mut handler) = cx
+                    .events
+                    .event_listeners
+                    .get_mut(id)
+                    .and_then(|l| l.$field_name.take())
+                {
+                    let _guard = crate::ActiveElementGuard::new(id);
+
+                    // コールバックを安全に実行
+                    handler(cx, $($arg_name),*);
+
+                    // 実行後コールバックを書き戻す
+                    if let Some(l) = cx.events.event_listeners.get_mut(id) {
+                        l.$field_name = Some(handler);
+                    }
+                }
+            }
+        )*
+    };
+}
+
 pub type ClickCallback = Box<dyn FnMut(&mut Context) + 'static>;
 pub type MouseCallback =
     Box<dyn FnMut(&mut Context, MouseButton, Modifiers, ElementState) + 'static>;
@@ -1230,6 +1266,44 @@ pub(crate) struct EventListeners {
     pub(crate) on_dnd_entity_drop: Option<EntityDropCallback>,
     pub(crate) on_dnd_id_drop: Option<IdDropCallback>,
     pub(crate) on_dnd_drag_start: Option<DragStartCallback>,
+}
+
+define_event_dispatchers! {
+    // マウス・クリック
+    handle_on_click, on_click;
+    handle_on_right_click, on_right_click;
+    handle_on_mouse_input, on_mouse_input, button: MouseButton, modifiers: Modifiers, state: ElementState;
+    handle_on_mouse_enter, on_mouse_enter;
+    handle_on_mouse_leave, on_mouse_leave;
+    handle_on_cursor_moved, on_cursor_moved, pos: LayoutPoint;
+    handle_on_mouse_wheel, on_mouse_wheel, delta_x: f32, delta_y: f32;
+    handle_on_drag, on_drag, delta: LayoutPoint;
+
+    // ステート変化（on_blur は特殊処理があるため除外）
+    handle_on_hover, on_hover;
+    handle_on_focus, on_focus;
+    handle_on_disable, on_disable;
+    handle_on_active, on_active;
+    handle_on_select, on_select;
+
+    // キーボード・入力
+    handle_on_keyboard_input, on_keyboard_input, key: VirtualKey, modifiers: Modifiers, state: ElementState;
+    handle_on_char_input, on_char_input, ch: char;
+    handle_on_ime, on_ime, info: ImeState;
+
+    // ファイルドロップ・メディア
+    handle_on_file_dropped, on_file_dropped, paths: Vec<PathBuf>;
+    handle_on_file_drag_enter, on_file_drag_enter;
+    handle_on_file_drag_leave, on_file_drag_leave;
+    handle_on_image_loaded, on_image_loaded, metadata: ImageMetadata;
+    handle_on_media_loaded, on_media_loaded, metadata: MovieMetadata;
+
+    // ドラッグ＆ドロップ
+    handle_on_dnd_entity_drag, on_dnd_entity_drag, origin: Element, target: Option<Element>;
+    handle_on_dnd_id_drag, on_dnd_id_drag, origin_id: EntityId, target_id: Option<EntityId>;
+    handle_on_dnd_entity_drop, on_dnd_entity_drop, origin: Element, target: Option<Element>;
+    handle_on_dnd_id_drop, on_dnd_id_drop, origin_id: EntityId, target_id: Option<EntityId>;
+    handle_on_dnd_drag_start, on_dnd_drag_start, origin: Element, placeholder: Element;
 }
 
 impl std::fmt::Debug for EventListeners {

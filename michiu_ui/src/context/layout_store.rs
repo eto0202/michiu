@@ -397,6 +397,22 @@ impl LayoutStore {
     }
 
     #[inline]
+    pub(crate) fn calculate_viewport_size(
+        visible_size: LayoutRect,
+        border: EdgeInsets,
+        padding: EdgeInsets,
+    ) -> LayoutSize {
+        let content_w =
+            (visible_size.width - border.left - border.right - padding.left - padding.right)
+                .max(0.0);
+        let content_h =
+            (visible_size.height - border.top - border.bottom - padding.top - padding.bottom)
+                .max(0.0);
+
+        LayoutSize::new(content_w, content_h)
+    }
+
+    #[inline]
     fn length_to_px(length: Length, reference: f32) -> f32 {
         match length {
             Length::Px(v) => v,

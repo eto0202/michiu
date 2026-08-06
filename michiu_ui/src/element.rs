@@ -482,7 +482,7 @@ impl Element {
     }
 
     /// このコンテナの内容を差し替えます。以前の内容はすべて破棄されます。
-    #[allow(clippy::return_self_not_must_use)] 
+    #[allow(clippy::return_self_not_must_use)]
     pub fn set_contents(self, contents: impl Into<Prop<Element>>) -> Self {
         match contents.into() {
             Prop::None => {}
@@ -1037,7 +1037,9 @@ impl Element {
                     }
 
                     if update_rects_needed {
-                        cx.update_selection_rects(id);
+                        if let Some(layout) = cx.get_or_create_layout(id) {
+                            cx.update_selection_rects(id, &layout);
+                        }
                     }
 
                     cx.mark_render_dirty(id);
@@ -1470,7 +1472,9 @@ impl Element {
                     }
 
                     if changed {
-                        cx.update_selection_rects(id);
+                        if let Some(layout) = cx.get_or_create_layout(id) {
+                            cx.update_selection_rects(id, &layout);
+                        }
                         cx.update_input_caret_position(id);
                         cx.mark_render_dirty(id);
                     }

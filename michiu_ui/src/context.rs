@@ -26,7 +26,9 @@ use crate::{
     STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
     STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW,
     STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue,
-    UserSelect, Val, VirtualKey, WriteSignal, bind_context, with_context,
+    UserSelect, Val, VirtualKey, WriteSignal, bind_context, handle_on_click,
+    handle_on_dnd_entity_drop, handle_on_dnd_id_drop, handle_on_keyboard_input,
+    handle_on_mouse_input, handle_on_right_click, with_context,
 };
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
@@ -781,10 +783,13 @@ impl Context {
 
         let scroll_ime_info = OutputStore::scroll_ime_info(
             id,
-            &mut self.outputs,
-            &mut self.contents,
-            &mut self.renders,
-            &self.system,
+            &mut self.contents.input_contents,
+            &mut self.contents.text_contents,
+            &mut self.outputs.text_selections,
+            &self.contents.text_spans,
+            &self.system.text_engine,
+            &mut self.renders.visual_properties,
+            &self.renders.base_visual_properties,
         );
 
         let Some((caret, caret_offset, is_multiline)) = scroll_ime_info else {
@@ -1243,7 +1248,7 @@ impl Context {
                         }
                     }
 
-                    self.handle_on_mouse_input(target_id, button, modifiers, state);
+                    handle_on_mouse_input(self, target_id, button, modifiers, state);
                 }
             }
             ElementState::Released => {
@@ -1317,10 +1322,15 @@ impl Context {
 
                     match drag_prop.drag_mode {
                         DndDragPayload::Element => {
-                            self.callback_on_entity_drop(src_id, drop_success);
+                            handle_on_dnd_entity_drop(
+                                self,
+                                src_id,
+                                Element::from(src_id),
+                                drop_success.map(Element::from),
+                            );
                         }
                         DndDragPayload::EntityId => {
-                            self.callback_on_id_drop(src_id, drop_success);
+                            handle_on_dnd_id_drop(self, src_id, src_id, drop_success);
                         }
                     }
 
@@ -1351,17 +1361,17 @@ impl Context {
                     }
 
                     // on_mouse_input の発火（ボタンの種類を問わず常に呼ぶ）
-                    self.callback_on_mouse_input(pressed_id, button, modifiers, state);
+                    handle_on_mouse_input(self, pressed_id, button, modifiers, state);
 
                     // 同一要素上で離された場合の各種クリック解決
                     if self.events.interaction_states.hovered == Some(pressed_id) {
                         match button {
                             // 左クリックの解決
                             MouseButton::Left => {
-                                self.callback_on_click(pressed_id);
+                                handle_on_click(self, pressed_id);
                             }
                             MouseButton::Right => {
-                                self.callback_on_right_click(pressed_id);
+                                handle_on_right_click(self, pressed_id);
                             }
                             _ => {}
                         }
@@ -1405,11 +1415,11 @@ impl Context {
                 let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
                 let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
 
-                if let Some(layout) = self.get_or_create_layout(target_id) {
+                if let Some(dw_layout) = self.get_or_create_layout(target_id) {
                     let (clicked_index, is_trailing) = self
                         .system
                         .text_engine
-                        .hit_test_point(&layout, local_x, local_y);
+                        .hit_test_point(&dw_layout, local_x, local_y);
                     let final_index = if is_trailing {
                         clicked_index + 1
                     } else {
@@ -1429,7 +1439,7 @@ impl Context {
                         self.outputs
                             .selection_start_index
                             .insert(target_id, range.start);
-                        self.update_selection_rects(target_id); // 選択矩形を更新
+                        self.update_selection_rects(target_id, &dw_layout); // 選択矩形を更新
 
                         if let Some(contents) = self.contents.input_contents.get_mut(target_id) {
                             contents.selected_range = range;
@@ -1523,7 +1533,7 @@ impl Context {
                 && (key == VirtualKey::RETURN || key == VirtualKey::SPACE)
                 && !self.topology.active_masks[focused_id].has_input_content()
             {
-                self.callback_on_click(focused_id);
+                handle_on_click(self, focused_id);
                 return;
             }
             // 内部で完結する全選択（Ctrl+A）のみを自動処理
@@ -1531,7 +1541,7 @@ impl Context {
                 let user_select = self.get_user_select(focused_id);
 
                 if key == VirtualKey::A && user_select == UserSelect::Text {
-                    if let Some(layout) = self.get_or_create_layout(focused_id)
+                    if let Some(dw_layout) = self.get_or_create_layout(focused_id)
                         && let Some(text) = self.contents.text_contents.get(focused_id)
                     {
                         let u16_len = text.encode_utf16().count();
@@ -1541,7 +1551,7 @@ impl Context {
                             .text_selections
                             .insert(focused_id, full_range.clone());
 
-                        self.update_selection_rects(focused_id);
+                        self.update_selection_rects(focused_id, &dw_layout);
 
                         if let Some(contents) = self.contents.input_contents.get_mut(focused_id) {
                             contents.selected_range = full_range;
@@ -1553,8 +1563,7 @@ impl Context {
                     return;
                 }
             }
-
-            self.callback_on_keyboard_input(focused_id, key, modifiers, state);
+            handle_on_keyboard_input(self, focused_id, key, modifiers, state);
         }
     }
 

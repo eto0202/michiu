@@ -1,4 +1,8 @@
-use crate::{Context, EntityId, UiaValue, TextEngine, TextContentsSparseSecondary, VisualPropertiesSecondary, TextSpansSparseSecondary, RenderStore, ContentStore, LayoutRect, EdgeInsets, LayoutPoint, InputContents, WindowStore};
+use crate::{
+    ContentStore, Context, EdgeInsets, EntityId, InputContents, LayoutPoint, LayoutRect,
+    RenderStore, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, UiaValue,
+    VisualPropertiesSecondary, WindowStore,
+};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     cell::RefCell,
@@ -94,6 +98,12 @@ impl SystemStore {
 }
 
 impl SystemStore {
+    /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
+    #[inline]
+    pub(crate) fn clear_layout_cache(id: EntityId, dwrite_layouts: &DwriteLayoutsSparseSecondary) {
+        dwrite_layouts.borrow_mut().remove(id);
+    }
+
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
     pub(crate) fn get_or_create_layout(

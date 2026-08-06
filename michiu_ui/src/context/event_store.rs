@@ -12,15 +12,17 @@ use crate::{
     LayoutRect, LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore,
     ParentsSecondary, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore,
     STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING,
-    STATE_DRAGGED, STATE_HOVERED, STATE_SELECTED, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE,
-    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_POINTER_EVENTS, STYLE_RESIZABLE,
-    ScrollOffsetsSecondary, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
-    TextSpansSparseSecondary, TopologyStore, UserSelect, Val, VirtualKey,
-    VisualPropertiesSecondary, WindowStore,
+    STATE_DRAGGED, STATE_FOCUSED, STATE_HOVERED, STATE_SELECTED, STYLE_DND_DRAGGABLE,
+    STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_POINTER_EVENTS,
+    STYLE_RESIZABLE, ScrollOffsetsSecondary, ScrollbarStylesSecondary,
+    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary,
+    TextEngine, TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopologyStore, UserSelect,
+    Val, VirtualKey, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
+use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ActiveDndDragState {
@@ -929,6 +931,166 @@ impl EventStore {
     }
 
     #[allow(clippy::too_many_arguments)]
+    fn spawn_dnd_placeholder(
+        root: EntityId,
+        pressed_id: EntityId,
+        drag_prop: &DndDragProperty,
+        rects: &RectsSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        entities: &mut EntitiesSlot,
+        parents: &mut ParentsSecondary,
+        children: &mut ChildrenSecondary,
+        active_masks: &mut ActiveMasksSecondary,
+        active_entities: &mut ActiveEntitiesVec,
+        session_spawned: &mut SessionSpawnedVec,
+        is_structure_dirty: &mut bool,
+        taffy: &mut TaffyTreeEntityId,
+        taffy_nodes: &mut TaffyNodesSecondary,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+    ) -> EntityId {
+        let placeholder =
+            EventStore::resolve_dnd_placeholder_parent(root, drag_prop, rects, basic_layouts);
+
+        let placeholder_id = TopologyStore::spawn(
+            placeholder.parent_id,
+            entities,
+            parents,
+            children,
+            active_masks,
+            active_entities,
+            session_spawned,
+            is_structure_dirty,
+            taffy,
+            taffy_nodes,
+            dirty_render_entities,
+        );
+
+        if let Some(p_id) = placeholder.parent_id {
+            TopologyStore::add_child(
+                p_id,
+                placeholder_id,
+                parents,
+                children,
+                is_structure_dirty,
+                active_masks,
+                taffy_nodes,
+                taffy,
+                dirty_layout_entities,
+            );
+        }
+
+        placeholder_id
+    }
+
+    fn setup_placeholder_properties(
+        cx: &mut Context,
+        pressed_id: EntityId,
+        placeholder_id: EntityId,
+        start_rect: LayoutRect,
+    ) {
+        // 元要素のレイアウトおよびビジュアル情報をコピー
+        if let Some(basic) = cx.layouts.base_basic_layouts.get(pressed_id).copied() {
+            cx.layouts.base_basic_layouts.insert(placeholder_id, basic);
+            cx.layouts.basic_layouts.insert(placeholder_id, basic);
+        }
+        if let Some(visual) = cx.renders.base_visual_properties.get(pressed_id).cloned() {
+            cx.renders
+                .base_visual_properties
+                .insert(placeholder_id, visual.clone());
+            cx.renders.visual_properties.insert(placeholder_id, visual);
+        }
+        if let Some(interaction) = cx.renders.interaction_properties.get(pressed_id).cloned() {
+            cx.renders
+                .interaction_properties
+                .insert(placeholder_id, interaction);
+        }
+
+        // ドラッグ元とプレースホルダーの状態を同期
+        EventStore::update_state(cx, pressed_id, STATE_DND_DRAGGING, true);
+        EventStore::update_state(cx, placeholder_id, STATE_DND_DRAG_OVER, true);
+
+        // プレースホルダー側を Absolute 配置化
+        for layout in [
+            cx.layouts.basic_layouts.get_mut(placeholder_id),
+            cx.layouts.base_basic_layouts.get_mut(placeholder_id),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            layout.position = Position::Absolute;
+            layout.size.width = Val::Px(start_rect.width);
+            layout.size.height = Val::Px(start_rect.height);
+        }
+
+        // ヒットテストを透過
+        for vis in [
+            cx.renders.visual_properties.get_mut(placeholder_id),
+            cx.renders.base_visual_properties.get_mut(placeholder_id),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            vis.pointer_events = Some(PointerEvents::None);
+        }
+        if let Some(mask) = cx.topology.active_masks.get_mut(placeholder_id) {
+            mask.set(STYLE_POINTER_EVENTS);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn transfer_children_to_placeholder(
+        pressed_id: EntityId,
+        placeholder_id: EntityId,
+        parents: &mut ParentsSecondary,
+        children: &mut ChildrenSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+    ) {
+        let Some(src_children) = children.get(pressed_id).cloned() else {
+            return;
+        };
+
+        for child_id in src_children {
+            // 子要素の親ポインタをプレースホルダーに付け替え
+            parents.insert(child_id, Some(placeholder_id));
+
+            // プレースホルダー側の子要素リストへ追加
+            if let Some(ph_children) = children.get_mut(placeholder_id) {
+                ph_children.push(child_id);
+            }
+
+            // Taffy 側の親子構造も、一時的にプレースホルダーに繋ぎ替え
+            if let Some(&src_node) = taffy_nodes.get(pressed_id)
+                && let Some(&ph_node) = taffy_nodes.get(placeholder_id)
+                && let Some(&child_node) = taffy_nodes.get(child_id)
+            {
+                let _ = taffy.remove_child(src_node, child_node);
+                let _ = taffy.add_child(ph_node, child_node);
+            }
+        }
+
+        // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
+        if let Some(src_children_mut) = children.get_mut(pressed_id) {
+            src_children_mut.clear();
+        }
+
+        // 元要素とプレースホルダー要素の両方をダーティマーク
+        for id in [pressed_id, placeholder_id] {
+            LayoutStore::mark_layout_dirty(
+                id,
+                taffy_nodes,
+                taffy,
+                active_masks,
+                dirty_layout_entities,
+                parents,
+            );
+        }
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn start_dnd_drag_session(cx: &mut Context, pressed_id: EntityId, logical_pos: LayoutPoint) {
         let drag_prop = cx
             .events
@@ -950,17 +1112,13 @@ impl EventStore {
         )
         .expect("Root EntityId not found in Context");
 
-        // プレースホルダーアタッチ先親要素の決定
-        let placeholder = EventStore::resolve_dnd_placeholder_parent(
+        // プレースホルダーをアタッチ先親の直下へ spawn して生成
+        let placeholder_id = EventStore::spawn_dnd_placeholder(
             root,
+            pressed_id,
             &drag_prop,
             &cx.outputs.rects,
             &cx.layouts.basic_layouts,
-        );
-
-        // プレースホルダー（クローン）をアタッチ先親の直下へ spawn して生成
-        let placeholder_id = TopologyStore::spawn(
-            placeholder.parent_id,
             &mut cx.topology.entities,
             &mut cx.topology.parents,
             &mut cx.topology.children,
@@ -970,110 +1128,26 @@ impl EventStore {
             &mut cx.topology.is_structure_dirty,
             &mut cx.layouts.taffy,
             &mut cx.layouts.taffy_nodes,
+            &mut cx.layouts.dirty_layout_entities,
             &mut cx.renders.dirty_render_entities,
         );
-        if let Some(p_id) = placeholder.parent_id {
-            TopologyStore::add_child(
-                p_id,
-                placeholder_id,
-                &mut cx.topology.parents,
-                &mut cx.topology.children,
-                &mut cx.topology.is_structure_dirty,
-                &mut cx.topology.active_masks,
-                &mut cx.layouts.taffy_nodes,
-                &mut cx.layouts.taffy,
-                &mut cx.layouts.dirty_layout_entities,
-            );
-        }
 
-        // 元要素のレイアウトおよびビジュアル情報をコピーして初期マウント
-        if let Some(basic) = cx.layouts.base_basic_layouts.get(pressed_id).copied() {
-            cx.layouts.base_basic_layouts.insert(placeholder_id, basic);
-            cx.layouts.basic_layouts.insert(placeholder_id, basic);
-        }
-        if let Some(visual) = cx.renders.base_visual_properties.get(pressed_id).cloned() {
-            cx.renders
-                .base_visual_properties
-                .insert(placeholder_id, visual.clone());
-            cx.renders.visual_properties.insert(placeholder_id, visual);
-        }
-        if let Some(interaction) = cx.renders.interaction_properties.get(pressed_id).cloned() {
-            cx.renders
-                .interaction_properties
-                .insert(placeholder_id, interaction);
-        }
+        // プレースホルダーの初期スタイル・透過・状態情報をセットアップ
+        EventStore::setup_placeholder_properties(cx, pressed_id, placeholder_id, start_rect);
 
-        // ドラッグ元の元の要素は非可視（または半透明）にするため STATE_DRAGGING 状態をセット
-        EventStore::update_state(cx, pressed_id, STATE_DND_DRAGGING, true);
+        // 元の要素から子要素トポロジーをプレースホルダーへ移行
+        EventStore::transfer_children_to_placeholder(
+            pressed_id,
+            placeholder_id,
+            &mut cx.topology.parents,
+            &mut cx.topology.children,
+            &cx.layouts.taffy_nodes,
+            &mut cx.layouts.taffy,
+            &mut cx.topology.active_masks,
+            &mut cx.layouts.dirty_layout_entities,
+        );
 
-        // プレースホルダー側は absolute 配置化し、STATE_DRAG_OVER 状態をセット
-        EventStore::update_state(cx, placeholder_id, STATE_DND_DRAG_OVER, true);
-        if let Some(layout) = cx.layouts.basic_layouts.get_mut(placeholder_id) {
-            layout.position = Position::Absolute;
-            layout.size.width = Val::Px(start_rect.width);
-            layout.size.height = Val::Px(start_rect.height);
-        }
-        if let Some(layout) = cx.layouts.base_basic_layouts.get_mut(placeholder_id) {
-            layout.position = Position::Absolute;
-            layout.size.width = Val::Px(start_rect.width);
-            layout.size.height = Val::Px(start_rect.height);
-        }
-
-        // 元の要素が持つ本物の子要素トポロジーを、一時的にプレースホルダー配下へ自動アタッチ
-        if let Some(src_children) = cx.topology.children.get(pressed_id).cloned() {
-            for child_id in src_children {
-                // 子要素の親ポインタをプレースホルダーに付け替え
-                cx.topology.parents.insert(child_id, Some(placeholder_id));
-
-                // プレースホルダー側の子要素リストへ追加
-                if let Some(ph_children) = cx.topology.children.get_mut(placeholder_id) {
-                    ph_children.push(child_id);
-                }
-
-                // Taffy 側の親子構造も、一時的にプレースホルダーに繋ぎ替え
-                if let Some(&src_node) = cx.layouts.taffy_nodes.get(pressed_id)
-                    && let Some(&ph_node) = cx.layouts.taffy_nodes.get(placeholder_id)
-                    && let Some(&child_node) = cx.layouts.taffy_nodes.get(child_id)
-                {
-                    let _ = cx.layouts.taffy.remove_child(src_node, child_node);
-                    let _ = cx.layouts.taffy.add_child(ph_node, child_node);
-                }
-            }
-
-            // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
-            if let Some(src_children_mut) = cx.topology.children.get_mut(pressed_id) {
-                src_children_mut.clear();
-            }
-            LayoutStore::mark_layout_dirty(
-                pressed_id,
-                &cx.layouts.taffy_nodes,
-                &mut cx.layouts.taffy,
-                &mut cx.topology.active_masks,
-                &mut cx.layouts.dirty_layout_entities,
-                &cx.topology.parents,
-            );
-            LayoutStore::mark_layout_dirty(
-                placeholder_id,
-                &cx.layouts.taffy_nodes,
-                &mut cx.layouts.taffy,
-                &mut cx.topology.active_masks,
-                &mut cx.layouts.dirty_layout_entities,
-                &cx.topology.parents,
-            );
-        }
-
-        // プレースホルダー自体はヒットテストを完全に透過
-        if let Some(vis) = cx.renders.visual_properties.get_mut(placeholder_id) {
-            vis.pointer_events = Some(PointerEvents::None);
-        }
-        if let Some(vis) = cx.renders.base_visual_properties.get_mut(placeholder_id) {
-            vis.pointer_events = Some(PointerEvents::None);
-        }
-        if let Some(mask) = cx.topology.active_masks.get_mut(placeholder_id) {
-            mask.set(STYLE_POINTER_EVENTS);
-        }
-
-        // プレースホルダーアタッチ前の、本当の元の親要素のIDを安全に記録
+        // プレースホルダーアタッチ前の、本当の元の親要素のIDを記録
         let original_parent = cx.topology.parents.get(pressed_id).copied().flatten();
 
         // セッション開始
@@ -1087,7 +1161,7 @@ impl EventStore {
             original_parent,
         });
 
-        // ドラッグ開始コールバックに、Original(pressed_id) と Placeholder(placeholder_id) の両ハンドルを渡して実行
+        // ドラッグ開始コールバック
         let mut handler = cx
             .events
             .event_listeners
@@ -1322,6 +1396,516 @@ impl EventStore {
             }
         }
     }
+
+    #[inline]
+    pub(crate) fn calculate_text_selection(
+        start_pos: usize,
+        local: LayoutPoint,
+        text_engine: &TextEngine,
+        dw_layout: &IDWriteTextLayout,
+    ) -> (std::ops::Range<usize>, bool) {
+        let (current_index, is_trailing) = text_engine.hit_test_point(dw_layout, local.x, local.y);
+        let final_index = if is_trailing {
+            current_index + 1
+        } else {
+            current_index
+        };
+
+        if start_pos <= final_index {
+            (start_pos..final_index, false)
+        } else {
+            (final_index..start_pos, true)
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn handle_text_selection_click(
+        id: EntityId,
+        start_pos: usize,
+        local: LayoutPoint,
+        rects: &RectsSecondary,
+        selected_rects: &mut SelectedRectsSparseSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        input_contents: &mut InputContentsSparseSecondary,
+        text_contents: &mut TextContentsSparseSecondary,
+        text_selections: &mut TextSelectionsSparseSecondary,
+        text_spans: &TextSpansSparseSecondary,
+        text_engine: &TextEngine,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_masks: &mut ActiveMasksSecondary,
+        children: &ChildrenSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        scrollbar_styles: &mut ScrollbarStylesSecondary,
+        scroll_offsets: &mut ScrollOffsetsSecondary,
+        last_window_size: Option<LayoutSize>,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        visual_properties: &mut VisualPropertiesSecondary,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+        scale_factor: f32,
+    ) {
+        let Some(dw_layout) = SystemStore::get_or_create_layout(
+            id,
+            text_contents,
+            visual_properties,
+            dwrite_layouts,
+            text_spans,
+            text_engine,
+        ) else {
+            return;
+        };
+
+        let (range, is_reversed) =
+            EventStore::calculate_text_selection(start_pos, local, text_engine, &dw_layout);
+
+        text_selections.insert(id, range.clone());
+
+        OutputStore::update_selection_rects(id, &dw_layout, text_selections, selected_rects);
+
+        if let Some(contents) = input_contents.get_mut(id) {
+            contents.selection_reversed = is_reversed;
+            contents.selected_range = range;
+
+            OutputStore::update_input_caret_position(
+                id,
+                rects,
+                dwrite_layouts,
+                input_contents,
+                text_contents,
+                text_selections,
+                text_spans,
+                text_engine,
+                basic_layouts,
+                flex_layouts,
+                grid_layouts,
+                active_masks,
+                children,
+                interaction_properties,
+                scrollbar_styles,
+                scroll_offsets,
+                last_window_size,
+                taffy_nodes,
+                taffy,
+                dirty_layout_entities,
+                active_transitions,
+                parents,
+                visual_properties,
+                base_visual_properties,
+                scale_factor,
+            );
+        }
+        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScrollbarComponent {
+    VThumb,
+    HThumb,
+    VTrack,
+    HTrack,
+}
+
+impl EventStore {
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+    pub(crate) fn hit_decision_element_scrollbar(
+        target_id: EntityId,
+        pointer_pos: LayoutPoint,
+        input_contents: &InputContentsSparseSecondary,
+        text_engine: &TextEngine,
+        text_contents: &TextContentsSparseSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        interaction_states: &mut InteractionStates,
+        text_spans: &TextSpansSparseSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+        interaction_properties: &InteractionPropertiesSecondary,
+        rects: &RectsSecondary,
+        scrollbar_styles: &mut ScrollbarStylesSecondary,
+        scroll_offsets: &mut ScrollOffsetsSecondary,
+        last_window_size: Option<LayoutSize>,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+    ) -> bool {
+        let Some((c_id, component)) = scrollbar_styles.iter().find_map(|(c_id, sb_state)| {
+            if sb_state.v_thumb_id == Some(target_id) {
+                Some((c_id, ScrollbarComponent::VThumb))
+            } else if sb_state.h_thumb_id == Some(target_id) {
+                Some((c_id, ScrollbarComponent::HThumb))
+            } else if sb_state.v_track_id == Some(target_id) {
+                Some((c_id, ScrollbarComponent::VTrack))
+            } else if sb_state.h_track_id == Some(target_id) {
+                Some((c_id, ScrollbarComponent::HTrack))
+            } else {
+                None
+            }
+        }) else {
+            return false;
+        };
+
+        // 親スクロールコンテナ
+        let sb_state = scrollbar_styles.get(c_id).cloned().unwrap();
+        let container_rect = OutputStore::rect(c_id, rects).unwrap_or_default();
+        let scroll_size = OutputStore::get_scroll_size(
+            c_id,
+            active_masks,
+            input_contents,
+            text_engine,
+            text_contents,
+            visual_properties,
+            text_spans,
+            dwrite_layouts,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            interaction_properties,
+            rects,
+            scrollbar_styles,
+            scroll_offsets,
+        );
+        let offset = scroll_offsets.get(c_id).copied().unwrap_or_default();
+
+        match component {
+            ScrollbarComponent::VThumb | ScrollbarComponent::HThumb => {
+                // サムをクリックした場合：ドラッグを開始
+                if let Some(st) = scrollbar_styles.get_mut(c_id) {
+                    if component == ScrollbarComponent::VThumb {
+                        st.v_thumb_dragged = true;
+                    } else {
+                        st.h_thumb_dragged = true;
+                    }
+                    st.drag_start_mouse = pointer_pos;
+                    st.drag_start_offset = offset;
+                }
+                interaction_states.pressed = Some(target_id);
+                RenderStore::mark_render_dirty(target_id, active_masks, dirty_render_entities);
+            }
+            ScrollbarComponent::VTrack | ScrollbarComponent::HTrack => {
+                // レールをクリックした場合：ダイレクトジャンプスクロールを実行
+                let is_vertical = component == ScrollbarComponent::VTrack;
+                let thumb_id = if is_vertical {
+                    sb_state.v_thumb_id
+                } else {
+                    sb_state.h_thumb_id
+                };
+
+                let track_rect = OutputStore::rect(target_id, rects).unwrap_or_default();
+                let thumb_rect = thumb_id
+                    .and_then(|i| OutputStore::rect(i, rects))
+                    .unwrap_or_default();
+                let visible_size =
+                    WindowStore::calculate_visible_size(last_window_size, container_rect);
+
+                // 縦・横の計算用パラメータ
+                let (pointer_coord, track_coord, track_len, thumb_len, scroll_total, visible_total) =
+                    if is_vertical {
+                        (
+                            pointer_pos.y,
+                            track_rect.y,
+                            track_rect.height,
+                            thumb_rect.height,
+                            scroll_size.height,
+                            visible_size.height,
+                        )
+                    } else {
+                        (
+                            pointer_pos.x,
+                            track_rect.x,
+                            track_rect.width,
+                            thumb_rect.width,
+                            scroll_size.width,
+                            visible_size.width,
+                        )
+                    };
+
+                let relative_pos = pointer_coord - track_coord;
+                let track_range = track_len - thumb_len;
+                let scroll_ratio = if track_range > 0.0 {
+                    ((relative_pos - thumb_len * 0.5) / track_range).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+
+                let target_val = scroll_ratio * (scroll_total - visible_total);
+                let (target_x, target_y) = if is_vertical {
+                    (offset.x, target_val)
+                } else {
+                    (target_val, offset.y)
+                };
+
+                OutputStore::scroll_to(
+                    c_id,
+                    target_x,
+                    target_y,
+                    active_masks,
+                    input_contents,
+                    text_engine,
+                    text_contents,
+                    visual_properties,
+                    text_spans,
+                    dwrite_layouts,
+                    basic_layouts,
+                    flex_layouts,
+                    grid_layouts,
+                    active_transitions,
+                    parents,
+                    children,
+                    interaction_properties,
+                    rects,
+                    scrollbar_styles,
+                    scroll_offsets,
+                    last_window_size,
+                    taffy_nodes,
+                    taffy,
+                    dirty_layout_entities,
+                );
+
+                let new_offset = scroll_offsets.get(c_id).copied().unwrap_or_default();
+                if let Some(st) = scrollbar_styles.get_mut(c_id) {
+                    if is_vertical {
+                        st.v_thumb_dragged = true;
+                    } else {
+                        st.h_thumb_dragged = true;
+                    }
+                    st.drag_start_mouse = pointer_pos;
+                    st.drag_start_offset = new_offset;
+                }
+
+                interaction_states.pressed = thumb_id;
+                if let Some(tid) = thumb_id {
+                    RenderStore::mark_render_dirty(tid, active_masks, dirty_render_entities);
+                }
+            }
+        }
+        true
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn handle_user_select_text(
+        id: EntityId,
+        pointer_pos: LayoutPoint,
+        pressed_shift: bool,
+        text_contents: &TextContentsSparseSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        text_spans: &TextSpansSparseSecondary,
+        text_engine: &TextEngine,
+        scroll_offsets: &mut ScrollOffsetsSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        rects: &RectsSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_masks: &mut ActiveMasksSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        interaction_properties: &InteractionPropertiesSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+        text_selections: &mut TextSelectionsSparseSecondary,
+        selected_rects: &mut SelectedRectsSparseSecondary,
+        selection_start_index: &mut SelectionStartIndexSparseSecondary,
+    ) {
+        let Some(layout) = SystemStore::get_or_create_layout(
+            id,
+            text_contents,
+            visual_properties,
+            dwrite_layouts,
+            text_spans,
+            text_engine,
+        ) else {
+            return;
+        };
+
+        let local = EventStore::pressed_local_point(
+            id,
+            pointer_pos,
+            scroll_offsets,
+            input_contents,
+            rects,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            interaction_properties,
+            visual_properties,
+        );
+        let (clicked_index, is_trailing) = text_engine.hit_test_point(&layout, local.x, local.y);
+        let final_index = if is_trailing {
+            clicked_index + 1
+        } else {
+            clicked_index
+        };
+
+        if pressed_shift {
+            // 共通の Shift選択拡張
+            let anchor = selection_start_index
+                .get(id)
+                .copied()
+                .unwrap_or(final_index);
+            if !selection_start_index.contains_key(id) {
+                selection_start_index.insert(id, final_index);
+            }
+            let range = if anchor <= final_index {
+                anchor..final_index
+            } else {
+                final_index..anchor
+            };
+            text_selections.insert(id, range);
+            OutputStore::update_selection_rects(id, &layout, text_selections, selected_rects);
+        } else {
+            // 共通の通常クリックリセット
+            selection_start_index.insert(id, final_index);
+            text_selections.insert(id, final_index..final_index);
+            selected_rects.remove(id);
+        }
+
+        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+    }
+
+    /// 入力トリガー源を考慮してフォーカス状態を更新します。
+    #[inline]
+    pub fn set_focused_by_trigger(
+        cx: &mut Context,
+        id: EntityId,
+        focused: bool,
+        trigger: ActiveFocusTrigger,
+    ) {
+        EventStore::update_state(cx, id, STATE_FOCUSED, focused);
+        let show_visible = focused && (trigger == ActiveFocusTrigger::Keyboard);
+        EventStore::update_state(cx, id, STATE_FOCUSED, focused);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn auto_focus_switch_by_trigger(
+        cx: &mut Context,
+        id: EntityId,
+        trigger: ActiveFocusTrigger,
+    ) {
+        // 同一要素をクリックした場合はフォーカス可視化の同期のみ
+        if cx.events.interaction_states.focused == Some(id) {
+            EventStore::set_focused_by_trigger(cx, id, true, trigger);
+            return;
+        }
+
+        if let Some(old_focus_id) = cx.events.interaction_states.focused {
+            EventStore::set_focused_by_trigger(cx, old_focus_id, false, trigger);
+
+            // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
+            OutputStore::clear_selection_highlight_rect(
+                old_focus_id,
+                &mut cx.topology.active_masks,
+                &mut cx.outputs.text_selections,
+                &mut cx.outputs.selected_rects,
+                &mut cx.contents.input_contents,
+                &mut cx.contents.text_spans,
+            );
+            // 進行中の IME コンポジションを強制的に確定させ候補窓を閉じる
+            SystemStore::force_complete_ime_composition();
+
+            let mut handler = cx
+                .events
+                .event_listeners
+                .get_mut(old_focus_id)
+                .and_then(|l| l.on_blur.take());
+
+            if let Some(mut h) = handler {
+                let _guard = crate::ActiveElementGuard::new(old_focus_id);
+                h(cx);
+                if let Some(l) = cx.events.event_listeners.get_mut(old_focus_id) {
+                    l.on_blur = Some(h);
+                }
+            }
+        }
+
+        // 新しいフォーカス可能要素にフォーカスを設定
+        EventStore::set_focused_by_trigger(cx, id, true, trigger);
+
+        // 新しいフォーカス先が is_ime(false) の場合は IME 関連付けを解除
+        let is_input = cx.topology.active_masks[id].has_input_content();
+        if is_input && let Some(contents) = cx.contents.input_contents.get(id) {
+            SystemStore::unassociate_ime(contents, &mut cx.window.default_himc);
+        } else {
+            // インプット以外の場合は IME をデフォルト状態に戻す
+            SystemStore::reset_ime_default_state(cx.window.default_himc.as_ref());
+        }
+
+        let mut handler = cx
+            .events
+            .event_listeners
+            .get_mut(id)
+            .and_then(|l| l.on_focus.take());
+
+        if let Some(mut h) = handler {
+            let _guard = crate::ActiveElementGuard::new(id);
+            h(cx);
+            if let Some(l) = cx.events.event_listeners.get_mut(id) {
+                l.on_focus = Some(h);
+            }
+        }
+
+        cx.events.interaction_states.focused = Some(id);
+    }
+
+    #[inline]
+    pub(crate) fn handle_remove_focus(cx: &mut Context) {
+        let Some(old_focus_id) = cx.events.interaction_states.focused else {
+            return;
+        };
+
+        // 先にフォーカス状態を解除しておく
+        // コールバック内で再フォーカスされても上書きしないため
+        cx.events.interaction_states.focused = None;
+
+        EventStore::set_focused_by_trigger(cx, old_focus_id, false, ActiveFocusTrigger::Mouse);
+
+        // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
+        OutputStore::clear_selection_highlight_rect(
+            old_focus_id,
+            &mut cx.topology.active_masks,
+            &mut cx.outputs.text_selections,
+            &mut cx.outputs.selected_rects,
+            &mut cx.contents.input_contents,
+            &mut cx.contents.text_spans,
+        );
+        // 進行中の IME コンポジションを強制的に確定させ候補窓を閉じる
+        SystemStore::force_complete_ime_composition();
+
+        // IME をデフォルトの有効化状態に戻す
+        SystemStore::reset_ime_default_state(cx.window.default_himc.as_ref());
+
+        let mut handler = cx
+            .events
+            .event_listeners
+            .get_mut(old_focus_id)
+            .and_then(|l| l.on_blur.take());
+
+        if let Some(mut h) = handler {
+            let _guard = crate::ActiveElementGuard::new(old_focus_id);
+            h(cx);
+            if let Some(l) = cx.events.event_listeners.get_mut(old_focus_id) {
+                l.on_blur = Some(h);
+            }
+        }
+    }
 }
 
 impl Context {
@@ -1527,42 +2111,85 @@ impl Context {
         start_pos: usize,
         local: LayoutPoint,
     ) {
-        let Some(layout) = self.get_or_create_layout(id) else {
-            return;
-        };
-        let (current_index, is_trailing) = self
-            .system
-            .text_engine
-            .hit_test_point(&layout, local.x, local.y);
-        let final_index = if is_trailing {
-            current_index + 1
-        } else {
-            current_index
-        };
+        let TopologyStore {
+            active_masks,
+            parents,
+            children,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            dirty_layout_entities,
+            taffy,
+            taffy_nodes,
+            scrollbar_styles,
+            ..
+        } = &mut self.layouts;
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            interaction_properties,
+            active_transitions,
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+        let OutputStore {
+            rects,
+            text_selections,
+            scroll_offsets,
+            selected_rects,
+            ..
+        } = &mut self.outputs;
+        let ContentStore {
+            input_contents,
+            text_contents,
+            text_spans,
+            ..
+        } = &mut self.contents;
+        let SystemStore {
+            text_engine,
+            dwrite_layouts,
+            ..
+        } = &self.system;
+        let WindowStore {
+            scale_factor,
+            last_window_size,
+            ..
+        } = &self.window;
 
-        let range = if start_pos <= final_index {
-            // 順選択（右方向ドラッグ）
-            if let Some(contents) = self.contents.input_contents.get_mut(id) {
-                contents.selection_reversed = false;
-            }
-            start_pos..final_index
-        } else {
-            // 逆選択（左方向ドラッグ）
-            if let Some(contents) = self.contents.input_contents.get_mut(id) {
-                contents.selection_reversed = true;
-            }
-            final_index..start_pos
-        };
-
-        self.outputs.text_selections.insert(id, range.clone());
-
-        self.update_selection_rects(id);
-
-        if let Some(contents) = self.contents.input_contents.get_mut(id) {
-            contents.selected_range = range;
-            self.update_input_caret_position(id);
-        }
-        self.mark_render_dirty(id);
+        EventStore::handle_text_selection_click(
+            id,
+            start_pos,
+            local,
+            rects,
+            selected_rects,
+            dwrite_layouts,
+            input_contents,
+            text_contents,
+            text_selections,
+            text_spans,
+            text_engine,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            children,
+            interaction_properties,
+            scrollbar_styles,
+            scroll_offsets,
+            *last_window_size,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+            active_transitions,
+            parents,
+            visual_properties,
+            base_visual_properties,
+            dirty_render_entities,
+            *scale_factor,
+        );
     }
 
     #[inline]
@@ -1594,138 +2221,89 @@ impl Context {
         );
     }
 
+    #[inline]
     #[allow(clippy::too_many_lines)]
     pub(crate) fn hit_decision_element_scrollbar(
         &mut self,
         target_id: EntityId,
         pointer_pos: LayoutPoint,
     ) -> bool {
-        let mut clicked_scrollbar = false;
-        let mut parent_container = None;
-        let mut is_v_thumb = false;
-        let mut is_h_thumb = false;
-        let mut is_v_track = false;
-        let mut is_h_track = false;
+        let TopologyStore {
+            active_masks,
+            parents,
+            children,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            dirty_layout_entities,
+            taffy,
+            taffy_nodes,
+            scrollbar_styles,
+            ..
+        } = &mut self.layouts;
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            interaction_properties,
+            active_transitions,
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+        let OutputStore {
+            rects,
+            text_selections,
+            scroll_offsets,
+            selected_rects,
+            ..
+        } = &mut self.outputs;
+        let ContentStore {
+            input_contents,
+            text_contents,
+            text_spans,
+            ..
+        } = &mut self.contents;
+        let EventStore {
+            interaction_states, ..
+        } = &mut self.events;
+        let SystemStore {
+            text_engine,
+            dwrite_layouts,
+            ..
+        } = &self.system;
+        let WindowStore {
+            last_window_size, ..
+        } = &self.window;
 
-        for (c_id, sb_state) in &self.layouts.scrollbar_styles {
-            if sb_state.v_thumb_id == Some(target_id) {
-                parent_container = Some(c_id);
-                is_v_thumb = true;
-                break;
-            } else if sb_state.h_thumb_id == Some(target_id) {
-                parent_container = Some(c_id);
-                is_h_thumb = true;
-                break;
-            } else if sb_state.v_track_id == Some(target_id) {
-                parent_container = Some(c_id);
-                is_v_track = true;
-                break;
-            } else if sb_state.h_track_id == Some(target_id) {
-                parent_container = Some(c_id);
-                is_h_track = true;
-                break;
-            }
-        }
-
-        if let Some(c_id) = parent_container {
-            clicked_scrollbar = true;
-
-            let (sb_state, container_rect, scroll_size) = {
-                let sb_state = self.layouts.scrollbar_styles.get(c_id).cloned().unwrap();
-                let container_rect = self
-                    .outputs
-                    .rects
-                    .get(c_id)
-                    .copied()
-                    .unwrap_or(LayoutRect::ZERO);
-                let scroll_size = self.get_scroll_size(c_id);
-                (sb_state, container_rect, scroll_size)
-            };
-
-            let offset = self
-                .outputs
-                .scroll_offsets
-                .get(c_id)
-                .copied()
-                .unwrap_or(LayoutPoint::ZERO);
-
-            if is_v_thumb || is_h_thumb {
-                // サムをクリックした場合：ドラッグを開始
-                if let Some(st) = self.layouts.scrollbar_styles.get_mut(c_id) {
-                    if is_v_thumb {
-                        st.v_thumb_dragged = true;
-                    } else {
-                        st.h_thumb_dragged = true;
-                    }
-                    st.drag_start_mouse = pointer_pos;
-                    st.drag_start_offset = offset;
-                }
-                self.events.interaction_states.pressed = Some(target_id); // サム要素自体を pressed に設定
-                self.mark_render_dirty(target_id);
-            } else if is_v_track || is_h_track {
-                let visible_size = self.calculate_visible_size(container_rect);
-
-                // レールをクリックした場合：ダイレクトジャンプスクロールを実行
-                if is_v_track {
-                    let track_rect = self.outputs.rects[target_id];
-                    let thumb_rect = self.outputs.rects[sb_state.v_thumb_id.unwrap()];
-                    let relative_y = pointer_pos.y - track_rect.y;
-
-                    let track_range = track_rect.height - thumb_rect.height;
-                    let scroll_ratio = if track_range > 0.0 {
-                        ((relative_y - thumb_rect.height * 0.5) / track_range).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
-
-                    let target_y = scroll_ratio * (scroll_size.height - visible_size.height);
-                    self.scroll_to(c_id, offset.x, target_y);
-
-                    let new_offset = self
-                        .outputs
-                        .scroll_offsets
-                        .get(c_id)
-                        .copied()
-                        .unwrap_or(LayoutPoint::ZERO);
-                    if let Some(st) = self.layouts.scrollbar_styles.get_mut(c_id) {
-                        st.v_thumb_dragged = true;
-                        st.drag_start_mouse = pointer_pos;
-                        st.drag_start_offset = new_offset;
-                    }
-                    self.events.interaction_states.pressed = Some(sb_state.v_thumb_id.unwrap());
-                    self.mark_render_dirty(sb_state.v_thumb_id.unwrap());
-                } else {
-                    let track_rect = self.outputs.rects[target_id];
-                    let thumb_rect = self.outputs.rects[sb_state.h_thumb_id.unwrap()];
-                    let relative_x = pointer_pos.x - track_rect.x;
-
-                    let track_range = track_rect.width - thumb_rect.width;
-                    let scroll_ratio = if track_range > 0.0 {
-                        ((relative_x - thumb_rect.width * 0.5) / track_range).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
-
-                    let target_x = scroll_ratio * (scroll_size.width - visible_size.width);
-                    self.scroll_to(c_id, target_x, offset.y);
-
-                    let new_offset = self
-                        .outputs
-                        .scroll_offsets
-                        .get(c_id)
-                        .copied()
-                        .unwrap_or(LayoutPoint::ZERO);
-                    if let Some(st) = self.layouts.scrollbar_styles.get_mut(c_id) {
-                        st.h_thumb_dragged = true;
-                        st.drag_start_mouse = pointer_pos;
-                        st.drag_start_offset = new_offset;
-                    }
-                    self.events.interaction_states.pressed = Some(sb_state.h_thumb_id.unwrap());
-                    self.mark_render_dirty(sb_state.h_thumb_id.unwrap());
-                }
-            }
-        }
-        clicked_scrollbar
+        EventStore::hit_decision_element_scrollbar(
+            target_id,
+            pointer_pos,
+            input_contents,
+            text_engine,
+            text_contents,
+            visual_properties,
+            interaction_states,
+            text_spans,
+            dwrite_layouts,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            active_masks,
+            dirty_render_entities,
+            interaction_properties,
+            rects,
+            scrollbar_styles,
+            scroll_offsets,
+            *last_window_size,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        )
     }
 
     #[inline]
@@ -1735,47 +2313,80 @@ impl Context {
         pointer_pos: LayoutPoint,
         pressed_shift: bool,
     ) {
-        if let Some(layout) = self.get_or_create_layout(id) {
-            let local = self.pressed_local_point(id, pointer_pos);
-            let (clicked_index, is_trailing) = self
-                .system
-                .text_engine
-                .hit_test_point(&layout, local.x, local.y);
-            let final_index = if is_trailing {
-                clicked_index + 1
-            } else {
-                clicked_index
-            };
+        let TopologyStore {
+            active_masks,
+            parents,
+            children,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            dirty_layout_entities,
+            taffy,
+            taffy_nodes,
+            scrollbar_styles,
+            ..
+        } = &mut self.layouts;
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            interaction_properties,
+            active_transitions,
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+        let OutputStore {
+            rects,
+            text_selections,
+            scroll_offsets,
+            selected_rects,
+            selection_start_index,
+            ..
+        } = &mut self.outputs;
+        let ContentStore {
+            input_contents,
+            text_contents,
+            text_spans,
+            ..
+        } = &mut self.contents;
+        let EventStore {
+            interaction_states, ..
+        } = &mut self.events;
+        let SystemStore {
+            text_engine,
+            dwrite_layouts,
+            ..
+        } = &self.system;
+        let WindowStore {
+            last_window_size, ..
+        } = &self.window;
 
-            if pressed_shift {
-                // 共通の Shift選択拡張
-                let anchor = self
-                    .outputs
-                    .selection_start_index
-                    .get(id)
-                    .copied()
-                    .unwrap_or(final_index);
-                if !self.outputs.selection_start_index.contains_key(id) {
-                    self.outputs.selection_start_index.insert(id, final_index);
-                }
-                let range = if anchor <= final_index {
-                    anchor..final_index
-                } else {
-                    final_index..anchor
-                };
-                self.outputs.text_selections.insert(id, range);
-                self.update_selection_rects(id);
-            } else {
-                // 共通の通常クリックリセット
-                self.outputs.selection_start_index.insert(id, final_index);
-                self.outputs
-                    .text_selections
-                    .insert(id, final_index..final_index);
-                self.outputs.selected_rects.remove(id);
-            }
-
-            self.mark_render_dirty(id);
-        }
+        EventStore::handle_user_select_text(
+            id,
+            pointer_pos,
+            pressed_shift,
+            text_contents,
+            visual_properties,
+            dwrite_layouts,
+            text_spans,
+            text_engine,
+            scroll_offsets,
+            input_contents,
+            rects,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            interaction_properties,
+            dirty_render_entities,
+            text_selections,
+            selected_rects,
+            selection_start_index,
+        );
     }
 
     #[inline]
@@ -1799,98 +2410,12 @@ impl Context {
         id: EntityId,
         trigger: ActiveFocusTrigger,
     ) {
-        if self.events.interaction_states.focused == Some(id) {
-            // 同一要素をクリックした際にもマウス操作によるフォーカス可視化の消去を同期反映
-            self.set_focused_by_trigger(id, true, trigger);
-        } else {
-            if let Some(old_focus_id) = self.events.interaction_states.focused {
-                self.set_focused_by_trigger(old_focus_id, false, trigger);
-
-                // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
-                self.clear_selection_highlight_rect(old_focus_id);
-                // 進行中の IME コンポジションを強制的に確定させ候補窓を閉じる
-                SystemStore::force_complete_ime_composition();
-
-                if let Some(l) = self.events.event_listeners.get_mut(old_focus_id)
-                    && let Some(mut handler) = l.on_blur.take()
-                {
-                    let _guard = crate::ActiveElementGuard::new(old_focus_id);
-                    handler(self);
-                    if let Some(l) = self.events.event_listeners.get_mut(old_focus_id) {
-                        l.on_blur = Some(handler);
-                    }
-                }
-            }
-
-            // 新しいフォーカス可能要素にフォーカスを設定
-            self.set_focused_by_trigger(id, true, trigger);
-
-            // 新しいフォーカス先が is_ime(false) の場合は IME 関連付けを解除
-            let is_input = self.topology.active_masks[id].has_input_content();
-            if is_input && let Some(contents) = self.contents.input_contents.get(id) {
-                SystemStore::unassociate_ime(contents, &mut self.window.default_himc);
-            } else {
-                // インプット以外の場合は IME をデフォルト状態に戻す
-                self.reset_ime_default_state();
-            }
-
-            if let Some(l) = self.events.event_listeners.get_mut(id)
-                && let Some(mut handler) = l.on_focus.take()
-            {
-                let _guard = crate::ActiveElementGuard::new(id);
-                handler(self);
-                if let Some(l) = self.events.event_listeners.get_mut(id) {
-                    l.on_focus = Some(handler);
-                }
-            }
-
-            self.events.interaction_states.focused = Some(id);
-        }
+        EventStore::auto_focus_switch_by_trigger(self, id, trigger);
     }
 
     #[inline]
     pub(crate) fn handle_remove_focus(&mut self) {
-        if let Some(old_focus_id) = self.events.interaction_states.focused {
-            self.set_focused_by_trigger(old_focus_id, false, ActiveFocusTrigger::Mouse);
-
-            // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
-            self.clear_selection_highlight_rect(old_focus_id);
-            // 進行中の IME コンポジションを強制的に確定させ候補窓を閉じる
-            SystemStore::force_complete_ime_composition();
-
-            // IME をデフォルトの有効化状態に戻す
-            self.reset_ime_default_state();
-
-            if let Some(l) = self.events.event_listeners.get_mut(old_focus_id)
-                && let Some(mut handler) = l.on_blur.take()
-            {
-                let _guard = crate::ActiveElementGuard::new(old_focus_id);
-                handler(self);
-                if let Some(l) = self.events.event_listeners.get_mut(old_focus_id) {
-                    l.on_blur = Some(handler);
-                }
-            }
-
-            self.events.interaction_states.focused = None;
-        }
-    }
-
-    pub(crate) fn handle_on_mouse_input(
-        &mut self,
-        id: EntityId,
-        button: MouseButton,
-        modifiers: Modifiers,
-        state: ElementState,
-    ) {
-        if let Some(l) = self.events.event_listeners.get_mut(id)
-            && let Some(mut handler) = l.on_mouse_input.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(id);
-            handler(self, button, modifiers, state);
-            if let Some(l) = self.events.event_listeners.get_mut(id) {
-                l.on_mouse_input = Some(handler);
-            }
-        }
+        EventStore::handle_remove_focus(self);
     }
 
     #[inline]
@@ -2021,91 +2546,12 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn callback_on_entity_drop(
-        &mut self,
-        src_id: EntityId,
-        drop_success: Option<EntityId>,
-    ) {
-        if let Some(l) = self.events.event_listeners.get_mut(src_id)
-            && let Some(mut listener) = l.on_dnd_entity_drop.take()
-        {
-            {
-                let _guard = crate::ActiveElementGuard::new(src_id);
-                listener(self, Element::from(src_id), drop_success.map(Element::from));
-            }
-            if let Some(l) = self.events.event_listeners.get_mut(src_id) {
-                l.on_dnd_entity_drop = Some(listener);
-            }
-        }
-    }
-
-    #[inline]
-    pub(crate) fn callback_on_id_drop(&mut self, src_id: EntityId, drop_success: Option<EntityId>) {
-        if let Some(l) = self.events.event_listeners.get_mut(src_id)
-            && let Some(mut listener) = l.on_dnd_id_drop.take()
-        {
-            {
-                let _guard = crate::ActiveElementGuard::new(src_id);
-                listener(self, src_id, drop_success);
-            }
-            if let Some(l) = self.events.event_listeners.get_mut(src_id) {
-                l.on_dnd_id_drop = Some(listener);
-            }
-        }
-    }
-
-    #[inline]
     pub(crate) fn get_scrollbar_dirty_ids(&mut self) -> SmallVec<[EntityId; 4]> {
         let LayoutStore {
             scrollbar_styles, ..
         } = &mut self.layouts;
 
         EventStore::get_scrollbar_dirty_ids(scrollbar_styles)
-    }
-
-    #[inline]
-    pub(crate) fn callback_on_mouse_input(
-        &mut self,
-        pressed_id: EntityId,
-        button: MouseButton,
-        modifiers: Modifiers,
-        state: ElementState,
-    ) {
-        if let Some(l) = self.events.event_listeners.get_mut(pressed_id)
-            && let Some(mut handler) = l.on_mouse_input.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(pressed_id);
-            handler(self, button, modifiers, state);
-            if let Some(l) = self.events.event_listeners.get_mut(pressed_id) {
-                l.on_mouse_input = Some(handler);
-            }
-        }
-    }
-
-    #[inline]
-    pub(crate) fn callback_on_right_click(&mut self, pressed_id: EntityId) {
-        if let Some(l) = self.events.event_listeners.get_mut(pressed_id)
-            && let Some(mut handler) = l.on_right_click.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(pressed_id);
-            handler(self);
-            if let Some(l) = self.events.event_listeners.get_mut(pressed_id) {
-                l.on_right_click = Some(handler);
-            }
-        }
-    }
-
-    #[inline]
-    pub(crate) fn callback_on_click(&mut self, pressed_id: EntityId) {
-        if let Some(l) = self.events.event_listeners.get_mut(pressed_id)
-            && let Some(mut handler) = l.on_click.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(pressed_id);
-            handler(self);
-            if let Some(l) = self.events.event_listeners.get_mut(pressed_id) {
-                l.on_click = Some(handler);
-            }
-        }
     }
 
     #[inline]
@@ -2117,22 +2563,4 @@ impl Context {
         EventStore::get_user_select(id, visual_properties)
     }
 
-    #[inline]
-    pub(crate) fn callback_on_keyboard_input(
-        &mut self,
-        focused_id: EntityId,
-        key: VirtualKey,
-        modifiers: Modifiers,
-        state: ElementState,
-    ) {
-        if let Some(l) = self.events.event_listeners.get_mut(focused_id)
-            && let Some(mut handler) = l.on_keyboard_input.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(focused_id);
-            handler(self, key, modifiers, state);
-            if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
-                l.on_keyboard_input = Some(handler);
-            }
-        }
-    }
 }
