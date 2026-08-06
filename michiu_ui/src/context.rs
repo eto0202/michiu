@@ -20,15 +20,7 @@ pub use topology_store::*;
 pub use window_store::*;
 
 use crate::{
-    ActiveFocusTrigger, CursorIcon, DndDragPayload, Element, ElementState, ImeState, LayoutPoint,
-    LayoutRect, LayoutSize, Modifiers, MouseButton, Overflow, PlaybackCount, PointerEvents,
-    PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
-    STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
-    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW,
-    STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue,
-    UserSelect, Val, VirtualKey, WriteSignal, bind_context, handle_on_click,
-    handle_on_dnd_entity_drop, handle_on_dnd_id_drop, handle_on_keyboard_input,
-    handle_on_mouse_input, handle_on_right_click, with_context,
+    ActiveFocusTrigger, CursorIcon, DndDragPayload, Element, ElementState, ImeState, LayoutPoint, LayoutRect, LayoutSize, Modifiers, MouseButton, Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue, UserSelect, Val, VirtualKey, WriteSignal, bind_context, handle_on_char_input, handle_on_click, handle_on_dnd_entity_drop, handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime, handle_on_keyboard_input, handle_on_mouse_input, handle_on_right_click, with_context
 };
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
@@ -141,7 +133,21 @@ impl Context {
     /// 子要素が存在する場合は、自動的に再帰破棄されます。
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
-        self.despawn_internal(id);
+        let Context {
+            topology,
+            layouts,
+            renders,
+            outputs,
+            contents,
+            events,
+            reactive,
+            window,
+            system,
+        } = self;
+
+        TopologyStore::despawn_internal(
+            id, topology, layouts, renders, outputs, contents, events, reactive, window, system,
+        );
     }
 
     /// 指定した要素の子要素一覧を取得します。
@@ -255,8 +261,31 @@ impl Context {
 
     #[inline]
     pub fn mark_dirty(&mut self, id: EntityId) {
-        self.mark_layout_dirty(id);
-        self.mark_render_dirty(id);
+        let LayoutStore {
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
+        let TopologyStore {
+            active_masks,
+            parents,
+            ..
+        } = &mut self.topology;
+        let RenderStore {
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+
+        LayoutStore::mark_layout_dirty(
+            id,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+        );
+        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
     }
 
     #[inline]
@@ -765,15 +794,7 @@ impl Context {
         if !self.topology.entities.contains_key(id) || self.is_disabled(id) {
             return;
         }
-        if let Some(mut listeners) = self.events.event_listeners.get_mut(id)
-            && let Some(mut handler) = listeners.on_click.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(id);
-            handler(self);
-            if let Some(l) = self.events.event_listeners.get_mut(id) {
-                l.on_click = Some(handler);
-            }
-        }
+        handle_on_click(self, id);
     }
 
     /// 現在のテキスト・IME状態・フォントサイズから、
@@ -961,7 +982,6 @@ impl Context {
             // 現在のポインタ座標で仮想的にポインタ移動を再トリガーし、
             // 選択文字インデックスおよびキャレット位置を同期
             self.inject_pointer_move(pos);
-
             self.mark_render_dirty(id);
         }
     }
@@ -1628,46 +1648,28 @@ impl Context {
     #[inline]
     pub fn inject_character(&mut self, c: char) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && let Some(l) = self.events.event_listeners.get_mut(focused_id)
-            && let Some(mut handler) = l.on_char_input.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(focused_id);
-            handler(self, c);
-            if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
-                l.on_char_input = Some(handler);
-            }
-        }
+        let Some(focused_id) = self.events.interaction_states.focused else {
+            return;
+        };
+        handle_on_char_input(self, focused_id, c);
     }
 
     #[inline]
     pub fn inject_ime(&mut self, ime_state: ImeState) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && let Some(l) = self.events.event_listeners.get_mut(focused_id)
-            && let Some(mut handler) = l.on_ime.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(focused_id);
-            handler(self, ime_state);
-            if let Some(l) = self.events.event_listeners.get_mut(focused_id) {
-                l.on_ime = Some(handler);
-            }
-        }
+        let Some(focused_id) = self.events.interaction_states.focused else {
+            return;
+        };
+        handle_on_ime(self, focused_id, ime_state);
     }
 
     #[inline]
     pub fn inject_file_dropped(&mut self, paths: Vec<PathBuf>) {
         let _context_guard = bind_context(self);
-        if let Some(target_id) = self.events.interaction_states.hovered
-            && let Some(l) = self.events.event_listeners.get_mut(target_id)
-            && let Some(mut handler) = l.on_file_dropped.take()
-        {
-            let _guard = crate::ActiveElementGuard::new(target_id);
-            handler(self, paths);
-            if let Some(l) = self.events.event_listeners.get_mut(target_id) {
-                l.on_file_dropped = Some(handler);
-            }
-        }
+        let Some(target_id) = self.events.interaction_states.hovered else {
+            return;
+        };
+        handle_on_file_dropped(self, target_id, paths);
     }
 
     /// 外部から提供されたテキストを、現在フォーカスされている入力要素にペーストします。

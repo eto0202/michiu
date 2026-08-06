@@ -2,15 +2,16 @@ use std::{ops::Range, time::Instant};
 
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary,
-    BasicLayoutsSecondary, BatchType, BoxSizing, ChildrenSecondary, Color, ContentStore, Context,
-    CornerRadius, DirtyLayoutEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets,
-    EntityId, EventStore, FlexLayoutsSecondary, GridLayoutsSecondary, InputContents,
-    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, QuadInstance,
-    RenderData, RenderStore, STATE_QUEUED_LAYOUT, STYLE_TEXT_SPANS, ScrollbarStylesSecondary,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary,
-    TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect, Val,
-    VisualPropertiesSecondary, VisualProperty, WindowStore,
+    BasicLayoutsSecondary, BatchType, BoxSizing, ChildrenSecondary, Color, ComponentMask,
+    ContentStore, Context, CornerRadius, DirtyLayoutEntitiesVec, DrawBatch,
+    DwriteLayoutsSparseSecondary, EdgeInsets, EntityId, EventStore, FlexLayoutsSecondary,
+    GridLayoutsSecondary, InputContents, InputContentsSparseSecondary,
+    InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, ParentsSecondary, PointerEvents, Position, QuadInstance, RenderData, RenderStore,
+    STATE_QUEUED_LAYOUT, STYLE_TEXT_SPANS, ScrollbarStylesSecondary, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
+    TextSpansSparseSecondary, TopologyStore, UserSelect, Val, VisualPropertiesSecondary,
+    VisualProperty, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
@@ -350,7 +351,7 @@ impl OutputStore {
             .visual_properties
             .get(focused_id)
             .and_then(|v| v.user_select)
-            .unwrap_or(UserSelect::None);
+            .unwrap_or_default();
 
         if user_select == UserSelect::Text {
             let range = outputs.text_selections.get(focused_id)?;
@@ -543,15 +544,19 @@ impl OutputStore {
         let mut max_y = 0.0f32;
 
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
-        if active_masks[id].has_input_content()
+        if active_masks
+            .get(id)
+            .is_some_and(ComponentMask::has_input_content)
             && let Some(contents) = input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
             max_x =
                 layout_rect.width + contents.caret_width.unwrap_or(contents.default_caret_width);
             max_y = layout_rect.height;
-        } else if active_masks[id].has_text_content()
-            && let Some(layout) = SystemStore::get_or_create_layout(
+        } else if active_masks
+            .get(id)
+            .is_some_and(ComponentMask::has_text_content)
+            && let Some(dw_layout) = SystemStore::get_or_create_layout(
                 id,
                 text_contents,
                 visual_properties,
@@ -560,7 +565,7 @@ impl OutputStore {
                 text_engine,
             )
         {
-            let size = text_engine.get_layout_size(&layout);
+            let size = text_engine.get_layout_size(&dw_layout);
             max_x = size.width;
             max_y = size.height;
         }
@@ -608,7 +613,7 @@ impl OutputStore {
                 }
 
                 if let Some(&rect) = rects.get(child_id) {
-                    let parent_rect = rects.get(id).copied().unwrap_or_default();
+                    let parent_rect = OutputStore::rect(id, rects).unwrap_or_default();
                     let scroll_offset = scroll_offsets.get(id).copied().unwrap_or_default();
 
                     // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
@@ -1385,7 +1390,7 @@ impl Context {
                     .rects
                     .get(current_id)
                     .copied()
-                    .unwrap_or(LayoutRect::ZERO);
+                    .unwrap_or_default();
                 let scroll_size = self.get_scroll_size(current_id);
                 (sb_state, container_rect, scroll_size)
             };
