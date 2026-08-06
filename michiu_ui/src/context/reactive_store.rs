@@ -1,4 +1,6 @@
-use crate::{SignalId, EffectId, EntityId, Context, ParentsSecondary, ReadSignal, WriteSignal, TopologyStore};
+use crate::{
+    Context, EffectId, EntityId, ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal,
+};
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use smallvec::SmallVec;
 use std::{collections::HashMap, marker::PhantomData};
@@ -140,10 +142,7 @@ impl ReactiveStore {
                 providers
                     .get(curr_id)
                     .and_then(|map| map.get(&type_id))
-                    .map(|&signal_id| WriteSignal {
-                        id: signal_id,
-                        _marker: std::marker::PhantomData,
-                    })
+                    .map(|&signal_id| WriteSignal::new(signal_id))
             })
     }
 

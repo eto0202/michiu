@@ -571,7 +571,8 @@ impl TopologyStore {
 
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
     /// 階層的な早期枝刈りヒットテスト
-    pub fn hit_test(
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn hit_test(
         point: LayoutPoint,
         active_entities: &ActiveEntitiesVec,
         active_masks: &ActiveMasksSecondary,

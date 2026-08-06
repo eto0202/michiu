@@ -18,7 +18,10 @@ use crate::{
     SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec,
     SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary,
     TextEngine, TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopologyStore, UserSelect,
-    Val, VirtualKey, VisualPropertiesSecondary, WindowStore,
+    Val, VirtualKey, VisualPropertiesSecondary, WindowStore, handle_on_active, handle_on_blur,
+    handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
+    handle_on_dnd_id_drag, handle_on_drag, handle_on_focus, handle_on_hover, handle_on_mouse_enter,
+    handle_on_mouse_leave, handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -581,59 +584,24 @@ impl EventStore {
     pub(crate) fn resolve_hover_state(cx: &mut Context, target_id: Option<EntityId>) {
         let old_id = cx.events.interaction_states.hovered;
 
+        if old_id == target_id {
+            return;
+        }
+
+        cx.events.interaction_states.hovered = target_id;
+
         // 旧ホバー要素からマウスが去った
         if let Some(old_id) = old_id {
             EventStore::update_state(cx, old_id, STATE_HOVERED, false);
-
-            let mut handler = cx
-                .events
-                .event_listeners
-                .get_mut(old_id)
-                .and_then(|listeners| listeners.on_mouse_leave.take());
-
-            if let Some(mut h) = handler {
-                let _guard = crate::ActiveElementGuard::new(old_id);
-                h(cx);
-                if let Some(listeners) = cx.events.event_listeners.get_mut(old_id) {
-                    listeners.on_mouse_leave = Some(h);
-                }
-            }
+            handle_on_mouse_leave(cx, old_id);
         }
 
         // 新ホバー要素にマウスが入った
         if let Some(new_id) = target_id {
             EventStore::update_state(cx, new_id, STATE_HOVERED, true);
-
-            let mut handler = cx
-                .events
-                .event_listeners
-                .get_mut(new_id)
-                .and_then(|listeners| listeners.on_mouse_enter.take());
-
-            if let Some(mut h) = handler {
-                let _guard = crate::ActiveElementGuard::new(new_id);
-                h(cx);
-                if let Some(listeners) = cx.events.event_listeners.get_mut(new_id) {
-                    listeners.on_mouse_enter = Some(h);
-                }
-            }
-
-            let mut handler = cx
-                .events
-                .event_listeners
-                .get_mut(new_id)
-                .and_then(|listeners| listeners.on_hover.take());
-
-            if let Some(mut h) = handler {
-                let _guard = crate::ActiveElementGuard::new(new_id);
-                h(cx);
-                if let Some(listeners) = cx.events.event_listeners.get_mut(new_id) {
-                    listeners.on_hover = Some(h);
-                }
-            }
+            handle_on_mouse_enter(cx, new_id);
+            handle_on_hover(cx, new_id);
         }
-
-        cx.events.interaction_states.hovered = target_id;
     }
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
@@ -850,54 +818,10 @@ impl EventStore {
         // 残りの状態遷移イベントの解決
         if active {
             match state_flag {
-                // Disabledになった瞬間
-                STATE_DISABLED => {
-                    let mut handler = cx
-                        .events
-                        .event_listeners
-                        .get_mut(id)
-                        .and_then(|listeners| listeners.on_disable.take());
+                STATE_DISABLED => handle_on_disable(cx, id),
+                STATE_ACTIVED => handle_on_active(cx, id),
+                STATE_SELECTED => handle_on_select(cx, id),
 
-                    if let Some(mut h) = handler {
-                        let _guard = crate::ActiveElementGuard::new(id);
-                        h(cx);
-                        if let Some(listeners) = cx.events.event_listeners.get_mut(id) {
-                            listeners.on_disable = Some(h);
-                        }
-                    }
-                }
-                // アクティブになった瞬間
-                STATE_ACTIVED => {
-                    let mut handler = cx
-                        .events
-                        .event_listeners
-                        .get_mut(id)
-                        .and_then(|listeners| listeners.on_active.take());
-
-                    if let Some(mut h) = handler {
-                        let _guard = crate::ActiveElementGuard::new(id);
-                        h(cx);
-                        if let Some(listeners) = cx.events.event_listeners.get_mut(id) {
-                            listeners.on_active = Some(h);
-                        }
-                    }
-                }
-                // セレクトになった瞬間
-                STATE_SELECTED => {
-                    let mut handler = cx
-                        .events
-                        .event_listeners
-                        .get_mut(id)
-                        .and_then(|listeners| listeners.on_select.take());
-
-                    if let Some(mut h) = handler {
-                        let _guard = crate::ActiveElementGuard::new(id);
-                        h(cx);
-                        if let Some(listeners) = cx.events.event_listeners.get_mut(id) {
-                            listeners.on_select = Some(h);
-                        }
-                    }
-                }
                 _ => {}
             }
         }
@@ -913,20 +837,16 @@ impl EventStore {
             return;
         };
 
-        let mut handler = cx
+        let has_listener = cx
             .events
             .event_listeners
-            .get_mut(id)
-            .and_then(|listeners| listeners.on_cursor_moved.take());
+            .get(id)
+            .is_some_and(|l| l.on_cursor_moved.is_some());
 
-        if let Some(mut handler) = handler {
+        if has_listener {
             let rect = OutputStore::rect(id, &cx.outputs.rects).unwrap_or_default();
             let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
-            let _guard = crate::ActiveElementGuard::new(id);
-            handler(cx, relative_pos);
-            if let Some(l) = cx.events.event_listeners.get_mut(id) {
-                l.on_cursor_moved = Some(handler);
-            }
+            handle_on_cursor_moved(cx, id, relative_pos);
         }
     }
 
@@ -1011,26 +931,18 @@ impl EventStore {
         EventStore::update_state(cx, placeholder_id, STATE_DND_DRAG_OVER, true);
 
         // プレースホルダー側を Absolute 配置化
-        for layout in [
-            cx.layouts.basic_layouts.get_mut(placeholder_id),
-            cx.layouts.base_basic_layouts.get_mut(placeholder_id),
-        ]
-        .into_iter()
-        .flatten()
-        {
+        let basic = cx.layouts.basic_layouts.get_mut(placeholder_id);
+        let base_basic = cx.layouts.base_basic_layouts.get_mut(placeholder_id);
+        for layout in [basic, base_basic].into_iter().flatten() {
             layout.position = Position::Absolute;
             layout.size.width = Val::Px(start_rect.width);
             layout.size.height = Val::Px(start_rect.height);
         }
 
         // ヒットテストを透過
-        for vis in [
-            cx.renders.visual_properties.get_mut(placeholder_id),
-            cx.renders.base_visual_properties.get_mut(placeholder_id),
-        ]
-        .into_iter()
-        .flatten()
-        {
+        let visual = cx.renders.visual_properties.get_mut(placeholder_id);
+        let base_visual = cx.renders.base_visual_properties.get_mut(placeholder_id);
+        for vis in [visual, base_visual].into_iter().flatten() {
             vis.pointer_events = Some(PointerEvents::None);
         }
         if let Some(mask) = cx.topology.active_masks.get_mut(placeholder_id) {
@@ -1162,21 +1074,12 @@ impl EventStore {
         });
 
         // ドラッグ開始コールバック
-        let mut handler = cx
-            .events
-            .event_listeners
-            .get_mut(pressed_id)
-            .and_then(|l| l.on_dnd_drag_start.take());
-
-        if let Some(mut h) = handler {
-            {
-                let _guard = crate::ActiveElementGuard::new(pressed_id);
-                h(cx, Element::from(pressed_id), Element::from(placeholder_id));
-            }
-            if let Some(l) = cx.events.event_listeners.get_mut(pressed_id) {
-                l.on_dnd_drag_start = Some(h);
-            }
-        }
+        handle_on_dnd_drag_start(
+            cx,
+            pressed_id,
+            Element::from(pressed_id),
+            Element::from(placeholder_id),
+        );
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1207,19 +1110,7 @@ impl EventStore {
             EventStore::start_dnd_drag_session(cx, pressed_id, logical_pos);
         }
 
-        let mut handler = cx
-            .events
-            .event_listeners
-            .get_mut(pressed_id)
-            .and_then(|l| l.on_drag.take());
-
-        if let Some(mut h) = handler {
-            let _guard = crate::ActiveElementGuard::new(pressed_id);
-            h(cx, delta);
-            if let Some(l) = cx.events.event_listeners.get_mut(pressed_id) {
-                l.on_drag = Some(h);
-            }
-        }
+        handle_on_drag(cx, pressed_id, delta);
     }
 
     pub(crate) fn calculate_dnd_relative_local(
@@ -1361,38 +1252,15 @@ impl EventStore {
     ) {
         match drag_prop.drag_mode {
             DndDragPayload::Element => {
-                let mut handler = cx
-                    .events
-                    .event_listeners
-                    .get_mut(src_id)
-                    .and_then(|l| l.on_dnd_entity_drag.take());
-
-                if let Some(mut h) = handler {
-                    let _guard = crate::ActiveElementGuard::new(src_id);
-                    h(
-                        cx,
-                        Element::from(src_id),
-                        found_drop_target.map(Element::from),
-                    );
-                    if let Some(l) = cx.events.event_listeners.get_mut(src_id) {
-                        l.on_dnd_entity_drag = Some(h);
-                    }
-                }
+                handle_on_dnd_entity_drag(
+                    cx,
+                    src_id,
+                    Element::from(src_id),
+                    found_drop_target.map(Element::from),
+                );
             }
             DndDragPayload::EntityId => {
-                let mut handler = cx
-                    .events
-                    .event_listeners
-                    .get_mut(src_id)
-                    .and_then(|l| l.on_dnd_id_drag.take());
-
-                if let Some(mut h) = handler {
-                    let _guard = crate::ActiveElementGuard::new(src_id);
-                    h(cx, src_id, found_drop_target);
-                    if let Some(l) = cx.events.event_listeners.get_mut(src_id) {
-                        l.on_dnd_id_drag = Some(h);
-                    }
-                }
+                handle_on_dnd_id_drag(cx, src_id, src_id, found_drop_target);
             }
         }
     }
@@ -1821,19 +1689,7 @@ impl EventStore {
             // 進行中の IME コンポジションを強制的に確定させ候補窓を閉じる
             SystemStore::force_complete_ime_composition();
 
-            let mut handler = cx
-                .events
-                .event_listeners
-                .get_mut(old_focus_id)
-                .and_then(|l| l.on_blur.take());
-
-            if let Some(mut h) = handler {
-                let _guard = crate::ActiveElementGuard::new(old_focus_id);
-                h(cx);
-                if let Some(l) = cx.events.event_listeners.get_mut(old_focus_id) {
-                    l.on_blur = Some(h);
-                }
-            }
+            handle_on_blur(cx, old_focus_id);
         }
 
         // 新しいフォーカス可能要素にフォーカスを設定
@@ -1848,21 +1704,9 @@ impl EventStore {
             SystemStore::reset_ime_default_state(cx.window.default_himc.as_ref());
         }
 
-        let mut handler = cx
-            .events
-            .event_listeners
-            .get_mut(id)
-            .and_then(|l| l.on_focus.take());
-
-        if let Some(mut h) = handler {
-            let _guard = crate::ActiveElementGuard::new(id);
-            h(cx);
-            if let Some(l) = cx.events.event_listeners.get_mut(id) {
-                l.on_focus = Some(h);
-            }
-        }
-
         cx.events.interaction_states.focused = Some(id);
+
+        handle_on_focus(cx, id);
     }
 
     #[inline]
@@ -1892,19 +1736,124 @@ impl EventStore {
         // IME をデフォルトの有効化状態に戻す
         SystemStore::reset_ime_default_state(cx.window.default_himc.as_ref());
 
-        let mut handler = cx
-            .events
-            .event_listeners
-            .get_mut(old_focus_id)
-            .and_then(|l| l.on_blur.take());
+        handle_on_blur(cx, old_focus_id);
+    }
 
-        if let Some(mut h) = handler {
-            let _guard = crate::ActiveElementGuard::new(old_focus_id);
-            h(cx);
-            if let Some(l) = cx.events.event_listeners.get_mut(old_focus_id) {
-                l.on_blur = Some(h);
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn rewrite_tree_topology(
+        src_id: EntityId,
+        target_id: EntityId,
+        holder: EntityId,
+        drag_prop: &DndDragProperty,
+        drag_state: &ActiveDndDragState,
+        flex_layouts: &FlexLayoutsSecondary,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
+        rects: &RectsSecondary,
+        current_pointer_position: Option<LayoutPoint>,
+        parents: &mut ParentsSecondary,
+        children: &mut ChildrenSecondary,
+        is_structure_dirty: &mut bool,
+        active_masks: &mut ActiveMasksSecondary,
+        taffy_nodes: &mut TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+    ) {
+        // ドラッグ元要素の配置（Position）の取得
+        let position = basic_layouts
+            .get(src_id)
+            .map(|l| l.position)
+            .unwrap_or_default();
+
+        if position == Position::Absolute {
+            // 絶対配置: 位置移動（補正）を伴うアタッチ
+            if drag_prop.update_position {
+                // プレースホルダーの最終的な絶対画面座標を取得
+                let ph_abs_rect = OutputStore::rect(holder, rects).unwrap_or_default();
+                // 新しい親（target_id）の絶対画面座標とボーダー厚みを取得
+                let target_rect = OutputStore::rect(target_id, rects).unwrap_or_default();
+                let (border_l, border_t) = if let Some(basic) = basic_layouts.get(target_id) {
+                    let border = LayoutStore::get_physical_border(target_rect, basic.border);
+                    (border.left, border.top)
+                } else {
+                    (0.0, 0.0)
+                };
+
+                // 新しい親を基準にした新しいローカル相対位置を逆算して割り出す
+                let new_inset_left = ph_abs_rect.x - (target_rect.x + border_l);
+                let new_inset_top = ph_abs_rect.y - (target_rect.y + border_t);
+
+                let new_inset = Rect {
+                    top: Val::Px(new_inset_top),
+                    right: Val::Auto,
+                    bottom: Val::Auto,
+                    left: Val::Px(new_inset_left),
+                };
+
+                if let Some(basic) = basic_layouts.get_mut(src_id) {
+                    basic.inset = new_inset;
+                }
+                if let Some(base_basic) = base_basic_layouts.get_mut(src_id) {
+                    base_basic.inset = new_inset;
+                }
             }
+
+            // ドロップ先コンテナ（target_id）の末尾の子要素としてマウント
+            TopologyStore::add_child(
+                target_id,
+                src_id,
+                parents,
+                children,
+                is_structure_dirty,
+                active_masks,
+                taffy_nodes,
+                taffy,
+                dirty_layout_entities,
+            );
+
+            return;
         }
+        // 相対配置: マウス座標に基づいた子要素の動的並び替えアタッチ
+        if drag_prop.update_position {
+            let mouse_pos = current_pointer_position.unwrap_or_default();
+            let insert_idx = TopologyStore::calculate_insert_index(
+                target_id,
+                mouse_pos,
+                children,
+                flex_layouts,
+                rects,
+            );
+
+            if let Some(parent_children) = children.get_mut(target_id) {
+                // 算出されたインデックス位置へ挿入
+                parent_children.insert(insert_idx, src_id);
+            }
+            parents.insert(src_id, Some(target_id));
+
+            // Taffy 側のノード順序を物理並び替え結果に沿って一括して再同期
+            LayoutStore::resync_taffy_children_order(target_id, taffy_nodes, taffy, children);
+        } else {
+            // 自動更新オフの場合は末尾に通常アタッチ
+            TopologyStore::add_child(
+                target_id,
+                src_id,
+                parents,
+                children,
+                is_structure_dirty,
+                active_masks,
+                taffy_nodes,
+                taffy,
+                dirty_layout_entities,
+            );
+        }
+        LayoutStore::mark_layout_dirty(
+            target_id,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+        );
     }
 }
 
@@ -2414,11 +2363,6 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn handle_remove_focus(&mut self) {
-        EventStore::handle_remove_focus(self);
-    }
-
-    #[inline]
     pub(crate) fn rewrite_tree_topology(
         &mut self,
         src_id: EntityId,
@@ -2480,10 +2424,7 @@ impl Context {
         } else {
             // 相対配置: マウス座標に基づいた子要素の動的並び替えアタッチ
             if drag_prop.update_position {
-                let mouse_pos = self
-                    .events
-                    .current_pointer_position
-                    .unwrap_or(LayoutPoint::ZERO);
+                let mouse_pos = self.events.current_pointer_position.unwrap_or_default();
                 let insert_idx = self.mouse_drop_insert_element_index(target_id, mouse_pos);
 
                 if let Some(parent_children) = self.topology.children.get_mut(target_id) {
@@ -2562,5 +2503,4 @@ impl Context {
 
         EventStore::get_user_select(id, visual_properties)
     }
-
 }

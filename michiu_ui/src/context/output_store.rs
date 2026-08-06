@@ -105,27 +105,15 @@ impl OutputStore {
         clip_rects: &ClipRectsSecondary,
         prev_clip_rects: &PrevClipRectsSecondary,
     ) -> bool {
-        let parent_id_opt = parents.get(id).copied().flatten();
+        let Some(parent_id) = parents.get(id).copied().flatten() else {
+            return false;
+        };
 
-        let mut parent_changed = false;
-
-        if let Some(parent_id) = parent_id_opt {
-            let prev_parent_rect = prev_rects.get(parent_id);
-            let curr_parent_rect = rects.get(parent_id);
-            let prev_parent_clip = prev_clip_rects.get(parent_id);
-            let curr_parent_clip = clip_rects.get(parent_id);
-            let is_parent_dirty = active_masks[parent_id].has(STATE_QUEUED_LAYOUT);
-
-            // 親が動いた、サイズが変わった、クリップが変わった、または親にレイアウト変更がある
-            if prev_parent_rect != curr_parent_rect
-                || prev_parent_clip != curr_parent_clip
-                || is_parent_dirty
-            {
-                parent_changed = true;
-            }
-        }
-
-        parent_changed
+        prev_rects.get(parent_id) != rects.get(parent_id)
+            || prev_clip_rects.get(parent_id) != clip_rects.get(parent_id)
+            || active_masks
+                .get(parent_id)
+                .is_some_and(|a| a.has(STATE_QUEUED_LAYOUT))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -143,7 +131,13 @@ impl OutputStore {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
         let local_rect = LayoutStore::local_rect_from_taffy(id, taffy_nodes, taffy);
 
-        let Some(parent_id) = parents.get(id).copied().flatten() else {
+        let parent_info = parents.get(id).copied().flatten().and_then(|p_id| {
+            let rect = rects.get(p_id).copied()?;
+            let clip = clip_rects.get(p_id).copied()?;
+            Some((p_id, rect, clip))
+        });
+
+        let Some((parent_id, parent_rect, parent_clip)) = parent_info else {
             return (
                 LayoutRect::new(
                     local_rect.x,
@@ -155,12 +149,10 @@ impl OutputStore {
             );
         };
 
-        let parent_rect = rects.get(parent_id).copied().unwrap_or_default();
-        let parent_clip = clip_rects.get(parent_id).copied().unwrap_or_default();
         let s_offsets = scroll_offsets.get(parent_id).copied().unwrap_or_default();
         let is_absolute = basic_layouts
             .get(id)
-            .is_some_and(|l| l.position == Position::Absolute);
+            .is_some_and(|l| l.position == Position::default());
 
         let parent_scroll = if is_absolute {
             LayoutPoint::ZERO
@@ -189,13 +181,12 @@ impl OutputStore {
             Val::Px(v) => Some(v),
             Val::Percent(p) => {
                 // 親要素の確定サイズを優先取得
-                let parent_size = if let Some(Some(parent_id)) = parents.get(id) {
-                    rects
-                        .get(*parent_id)
-                        .map(|r| LayoutSize::new(r.width, r.height))
-                } else {
-                    None
-                };
+                let parent_size = parents
+                    .get(id)
+                    .copied()
+                    .flatten()
+                    .and_then(|p_id| rects.get(p_id))
+                    .map(|r| LayoutSize::new(r.width, r.height));
 
                 // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
                 let ref_size = parent_size.or(last_window_size.copied())?;
@@ -209,9 +200,8 @@ impl OutputStore {
             }
             Val::Auto => {
                 // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
-                rects
-                    .get(id)
-                    .map(|r| if is_width { r.width } else { r.height })
+                let r = rects.get(id)?;
+                Some(if is_width { r.width } else { r.height })
             }
         }
     }
@@ -237,7 +227,7 @@ impl OutputStore {
         let aligned_x = (logical_x * scale).round() / scale;
 
         let line_height = contents.caret_line_height;
-        let caret_width = contents.caret_width.unwrap_or(1.5);
+        let caret_width = contents.caret_width.unwrap_or(contents.default_caret_width);
         let caret_height = contents.caret_height.unwrap_or(line_height);
 
         let vertical_center_offset = if contents.caret_height.is_some() {
@@ -557,7 +547,8 @@ impl OutputStore {
             && let Some(contents) = input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
-            max_x = layout_rect.width + contents.caret_width.unwrap_or(1.5);
+            max_x =
+                layout_rect.width + contents.caret_width.unwrap_or(contents.default_caret_width);
             max_y = layout_rect.height;
         } else if active_masks[id].has_text_content()
             && let Some(layout) = SystemStore::get_or_create_layout(
@@ -825,7 +816,7 @@ impl OutputStore {
                 LayoutRect {
                     x: cx_offset,
                     y: cy_offset,
-                    width: contents.caret_width.unwrap_or(1.5),
+                    width: contents.caret_width.unwrap_or(contents.default_caret_width),
                     height: ch_height,
                 },
                 contents.caret_offset,
@@ -1489,7 +1480,8 @@ impl Context {
             && let Some(contents) = self.contents.input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
-            max_x = layout_rect.width + contents.caret_width.unwrap_or(1.5);
+            max_x =
+                layout_rect.width + contents.caret_width.unwrap_or(contents.default_caret_width);
             max_y = layout_rect.height;
         } else if self.topology.active_masks[id].has_text_content()
             && let Some(layout) = self.get_or_create_layout(id)

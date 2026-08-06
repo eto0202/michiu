@@ -286,6 +286,7 @@ impl<T> Clone for WriteSignal<T> {
 impl<T> Copy for WriteSignal<T> {}
 
 impl<T> WriteSignal<T> {
+    #[inline]
     #[must_use]
     pub fn new(id: SignalId) -> Self {
         Self {
@@ -370,6 +371,7 @@ impl<T> Clone for SignalSender<T> {
 
 impl<T: Send + 'static> SignalSender<T> {
     /// ワーカースレッド等から安全にメインスレッドへ更新タスクをディスパッチします。
+    #[inline]
     pub fn send(&self, value: T) {
         let signal_id = self.id;
         let _ = self.task_sender.send(move |_cx| {
@@ -422,6 +424,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
 
 /// 新しいエフェクトを構築し、評価を開始します。
 /// このエフェクトは、内部で `get()` されたすべてのシグナルが変更された際に自動的に再実行されます。
+#[inline]
 pub(crate) fn create_effect<F>(f: F) -> EffectId
 where
     F: FnMut(&mut Context) + 'static,

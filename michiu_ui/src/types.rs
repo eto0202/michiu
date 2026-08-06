@@ -1279,9 +1279,10 @@ define_event_dispatchers! {
     handle_on_mouse_wheel, on_mouse_wheel, delta_x: f32, delta_y: f32;
     handle_on_drag, on_drag, delta: LayoutPoint;
 
-    // ステート変化（on_blur は特殊処理があるため除外）
+    // ステート変化
     handle_on_hover, on_hover;
     handle_on_focus, on_focus;
+    handle_on_blur, on_blur;
     handle_on_disable, on_disable;
     handle_on_active, on_active;
     handle_on_select, on_select;

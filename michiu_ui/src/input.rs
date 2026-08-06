@@ -189,6 +189,7 @@ pub struct InputContents {
     // キャレットデザイン
     pub has_caret: bool,
     pub caret_width: Option<f32>,
+    pub default_caret_width: f32,
     pub caret_height: Option<f32>,
     pub caret_offset: f32,
     pub caret_color: Option<Color>,
@@ -243,6 +244,7 @@ impl InputContents {
             placeholder_select: false,
             has_caret: true,
             caret_width: None,
+            default_caret_width: 1.5,
             caret_height: None,
             caret_offset: 0.0,
             caret_color: None,

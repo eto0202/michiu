@@ -1240,11 +1240,15 @@ impl Context {
                         let is_focusable = self.restrict_focusable_element(target_id);
                         if is_focusable {
                             // フォーカスの自動切り替え
-                            self.auto_focus_switch_by_trigger(target_id, ActiveFocusTrigger::Mouse);
+                            EventStore::auto_focus_switch_by_trigger(
+                                self,
+                                target_id,
+                                ActiveFocusTrigger::Mouse,
+                            );
                         } else {
                             // フォーカス不可能な要素をクリックした場合は、
                             // 現在フォーカスされているインプットからフォーカスを完全に外し状態をクリアする
-                            self.handle_remove_focus();
+                            EventStore::handle_remove_focus(self);
                         }
                     }
 
