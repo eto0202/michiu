@@ -473,7 +473,7 @@ fn search_box() -> Element {
             .bg_color(t.background_hover)
             .border_solid(1.0)
             .border_color(t.border)
-            .focused_within(ts().border_color(dynamic(|t: &Theme| t.primary)));
+            .focused_within(ts().border_color(t.primary));
 
         if menu_open.get() {
             base.r_bottom(0.0).border_bottom(BorderStyle::Solid, 0.0)

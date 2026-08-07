@@ -249,8 +249,7 @@ unsafe extern "system" fn wnd_proc(
                 }
 
                 // クリックした要素が実際に WebView2 である場合のみ、キーボードフォーカスをブラウザにアタッチ
-                if msg == WM_LBUTTONDOWN
-                    && app.context.entity_id_focused() == Some(app.webview_id)
+                if msg == WM_LBUTTONDOWN && app.context.entity_id_focused() == Some(app.webview_id)
                 {
                     app.renderer.focus_webview(app.webview_id);
                 }
@@ -353,81 +352,163 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut context = Context::new();
     let webview_id_cell = std::cell::Cell::new(None);
 
-    let hovered_style = ts().bg_color(rgb(110, 110, 110));
-
-    let btn_style = ts()
-        .absolute()
-        .m_auto()
-        .m_l(20.0)
-        .size(50.0)
-        .bg_color(rgb(100, 100, 100))
-        .r(5.0)
-        .box_shadow(blur(5.0).spread(1.0).color(Color::BLACK))
-        .transform(Transform::new().scale(1.0, 1.0))
-        .trans_bg_color(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-        .trans_size(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-        .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-        .trans_box_shadow(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-        // 擬似クラス状態のスタイルマッピング
-        .hovered(
-            hovered_style
-                .size(150.0)
-                .box_shadow(blur(10.0).spread(2.0).color(Color::BLACK)),
-        )
-        .pressed(ts().transform(Transform::new().scale(0.95, 0.95)));
-
     // build_ui を使って要素ツリーを宣言的に組み立て
     let root = build_ui(&mut context, || {
-        let root_node = v_flex(
-            ts().size_full()
-                .bg_color(rgba(34, 36, 42, 0.3))
-                .items_center()
-                .justify_center()
-                .gap_col(15.0)
-                .backdrop_acrylic(),
-        );
-
-        let main = v_flex(
-            ts().items_center()
-                .justify_center()
-                .size_full()
-                .m(20.0)
-                .bg_color(rgba(34, 36, 42, 0.6)),
-        );
-
-        let title = text("WebView2 Composition Demo").style(
-            ts().font_size(24.0)
-                .text_color(Color::WHITE)
-                .font_family("Segoe UI"),
-        );
+        let (is_open, set_is_open) = create_signal(false);
+        let (is_active, set_is_active) = create_signal(false);
+        let (is_opacity, set_is_opacity) = create_signal(false);
 
         let webview_element = {
             let wv = webview2(
                 WebView2Contents::new("https://www.google.com/maps")
                     .enable_context_menu(true)
                     .enable_dev_tools(true)
-                    .allow_interaction(true),
+                    .allow_interaction(true)
+                    .always_active(true),
             )
-            .style(
-                ts().size((pct(80.0), pct(70.0)))
-                    .r(12.0)
-                    .resizable_all(true)
+            .style(move || {
+                let base = ts()
+                    .size_full()
+                    .r(2.0)
+                    .resizable_bottom(true)
+                    .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
+                    .overflow_hidden()
                     .transform(Transform::new().scale(1.0, 1.0))
-                    .trans_border_color(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
                     .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-                    .focused(ts().border_solid(2.0).border_color(rgb(150, 150, 150)))
-                    .pressed(ts().transform(Transform::new().scale(1.01, 1.01)))
-                    .hovered(ts().box_shadow(blur(15.0).spread(1.0).color(Color::BLACK))),
-            );
+                    .pressed(ts().transform(Transform::new().scale(1.01, 1.01)));
+
+                if is_opacity.get() {
+                    base.opacity_50()
+                } else {
+                    base.opacity_100()
+                }
+            })
+            .on_focus(move || set_is_active.set(false));
 
             webview_id_cell.set(Some(wv.id()));
             wv
         };
 
-        root_node.child(
-            main.child(title)
-                .child(webview_element.child(div(btn_style.bg_color(Color::WHITE)))),
+        let google_map = webview_element.child(v_flex(move || {
+            let base = ts()
+                .absolute()
+                .size((300.0, 200.0))
+                .r(3.0)
+                .inset_x(100.0)
+                .inset_y(50.0)
+                .bg_color(Color::DARK_GRAY)
+                .opacity(0.9)
+                .resizable_all(true)
+                .dnd_draggable_root(DndDragPayload::Element, true)
+                .dnd_draggable_original(ts().opacity_0())
+                .dnd_draggable_placeholder(
+                    ts().size(100.0)
+                        .r(3.0)
+                        .bg_color(Color::DARK_GRAY)
+                        .opacity(0.9),
+                );
+
+            if is_active.get() {
+                base.flex()
+            } else {
+                base.hidden()
+            }
+        }));
+
+        let btn_style = |color: Color| {
+            ts().justify_center()
+                .items_center()
+                .r(3.0)
+                .size((100.0, 40.0))
+                .border_dashed(1.0)
+                .border_color(color)
+                .hovered(ts().border_solid(1.0))
+                .actived(ts().border_solid(1.0).bg_color(color))
+        };
+
+        let overlay_btn = h_flex(move || btn_style(Color::BLUE))
+            .label("Overlay", ts().font_size(14.0).text_color(Color::WHITE))
+            .active(is_active)
+            .on_click(move || set_is_active.set(!is_active.get()));
+
+        let opacity_btn = h_flex(move || btn_style(Color::CYAN))
+            .label("Opacity", ts().font_size(14.0).text_color(Color::WHITE))
+            .active(is_opacity)
+            .on_click(move || set_is_opacity.set(!is_opacity.get()));
+
+        let close_btn = h_flex(
+            ts().justify_center()
+                .items_center()
+                .r(3.0)
+                .size((100.0, 40.0))
+                .border_dashed(1.0)
+                .border_color(Color::RED)
+                .hovered(ts().border_solid(1.0)),
         )
+        .label("Close", ts().font_size(14.0).text_color(Color::RED))
+        .on_click(move || set_is_open.set(false));
+
+        v_flex(
+            ts().size_full()
+                .p(20.0)
+                .gap(20.0)
+                .items_center()
+                .bg_color(hsla(0.0, 0.0, 3.0, 0.4))
+                .backdrop_acrylic(),
+        )
+        .children([
+            v_flex(
+                ts().r(3.0)
+                    .size((150.0, 40.0))
+                    .justify_center()
+                    .items_center()
+                    .p(10.0)
+                    .bg_color(hsl(0.0, 0.0, 50.0)),
+            )
+            .label("Open", ts().font_size(16.0).text_color(Color::BLACK))
+            .on_click(move || set_is_open.set(true)),
+            v_flex(
+                ts().r(3.0)
+                    .size_full()
+                    .justify_center()
+                    .items_center()
+                    .border_dashed(2.0)
+                    .border_color(Color::GRAY),
+            )
+            .children([
+                div(ts().r(3.0).size(pct(50.0)).bg_color(hsl(0.0, 0.0, 10.0))),
+                v_flex(move || {
+                    let base = ts()
+                        .size_full()
+                        .p(10.0)
+                        .gap(10.0)
+                        .justify_center()
+                        .items_center()
+                        .absolute()
+                        .top(0.0)
+                        .left(0.0)
+                        .overflow_hidden();
+
+                    if is_open.get() {
+                        base.flex()
+                    } else {
+                        base.hidden()
+                    }
+                })
+                .children([
+                    google_map,
+                    h_flex(
+                        ts().p(10.0)
+                            .gap(10.0)
+                            .w_full()
+                            .h_auto()
+                            .justify_center()
+                            .items_center(),
+                    )
+                    .children([overlay_btn, opacity_btn, close_btn]),
+                ]),
+            ]),
+        ])
     });
 
     let webview_id = webview_id_cell.get().expect("WebView2 ID not assigned");
