@@ -167,7 +167,7 @@ impl Context {
             .map(|c| c.iter().map(|&id| Element { id }).collect())
     }
 
-    /// 画面上でアクティブ（有効）になっている要素の総数を取得します。
+    /// 画面上でアクティブになっている要素の総数を取得します。
     #[inline]
     pub fn active_entities_count(&self) -> usize {
         self.topology.active_entities.len()
@@ -239,7 +239,6 @@ impl Context {
     /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。
     #[inline]
     pub fn is_render_dirty(&self) -> bool {
-        // dirty_render_entities に何か登録されている、またはレイアウトに Dirty がある場合
         !self.renders.dirty_render_entities.is_empty()
             || !self.layouts.dirty_layout_entities.is_empty()
             || self.topology.is_structure_dirty
@@ -569,188 +568,72 @@ impl Context {
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
     pub fn tick_animations(&mut self) {
-        let now = Instant::now();
+        let RenderStore {
+            active_animations,
+            visual_properties,
+            dirty_render_entities,
+            ..
+        } = &mut self.renders;
+        let TopologyStore {
+            active_masks,
+            parents,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            taffy,
+            taffy_nodes,
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
 
-        // 借用チェッカーを回避するため、一時的にマップを take して更新
-        let mut active_map = std::mem::take(&mut self.renders.active_animations);
-        let mut to_remove = Vec::new();
-
-        for (id, animations) in &mut active_map {
-            let mut i = 0;
-            while i < animations.len() {
-                let anim = &mut animations[i];
-                let elapsed = now.duration_since(anim.start_time);
-                let elapsed_secs = elapsed.as_secs_f32();
-                let duration_secs = anim.duration.as_secs_f32();
-
-                // 1. 現在の周回回数（ループインデックス）の算出
-                let current_iteration = (elapsed_secs / duration_secs).floor() as u32;
-
-                // ループ制限に達しているかチェック
-                let is_finished = match anim.iteration_count {
-                    PlaybackCount::Count(max_count) => current_iteration >= max_count,
-                    PlaybackCount::Infinite => false,
-                };
-
-                if is_finished {
-                    // ループ終了：目標の最終値（end_value）で固定してアニメーションを破棄
-                    self.apply_animation_value(id, anim.property, &anim.end_value);
-                    animations.remove(i);
-                    continue;
-                }
-
-                // 2. 現在のループ内での正規化進行度 (0.0 ～ 1.0) の計算
-                let local_time = elapsed_secs % duration_secs;
-                let progress = if duration_secs > 0.0 {
-                    (local_time / duration_secs).min(1.0)
-                } else {
-                    1.0
-                };
-                let eased_t = anim.curve.evaluate(progress);
-
-                // 3. 値の補間
-                let current_val = anim.start_value.lerp(&anim.end_value, eased_t);
-
-                // 4. SoA へ補間された動的スタイル値を上書き書き戻し
-                self.apply_animation_value(id, anim.property, &current_val);
-
-                // レンダラーへ再描画要求（ファストパス）
-                self.mark_render_dirty(id);
-
-                i += 1;
-            }
-
-            if animations.is_empty() {
-                to_remove.push(id);
-            }
-        }
-
-        // 空になったエントリをクリーンアップ
-        for id in to_remove {
-            active_map.remove(id);
-        }
-        self.renders.active_animations = active_map;
+        RenderStore::tick_animations(
+            active_animations,
+            visual_properties,
+            basic_layouts,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            dirty_render_entities,
+            parents,
+        );
     }
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
     pub fn tick_transitions(&mut self) {
-        const FRAME_TIME_120FPS: Duration = Duration::from_nanos(8_333_333);
-        let now = Instant::now();
+        let RenderStore {
+            visual_properties,
+            dirty_render_entities,
+            last_tick_time,
+            active_transitions,
+            ..
+        } = &mut self.renders;
+        let TopologyStore {
+            active_masks,
+            parents,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            taffy,
+            taffy_nodes,
+            dirty_layout_entities,
+            ..
+        } = &mut self.layouts;
 
-        // (1.0 / 120.0 秒 = 約 8,333,333 ナノ秒)
-        if let Some(last) = self.renders.last_tick_time
-            && now.duration_since(last) < FRAME_TIME_120FPS
-        {
-            return;
-        }
-
-        // 実行制限を通過したため、基準時刻を更新して処理を継続
-        self.renders.last_tick_time = Some(now);
-
-        // 借用チェッカーを回避するため、一時的にマップを take して更新する
-        let mut active_map = std::mem::take(&mut self.renders.active_transitions);
-
-        // 完了して空になった要素のIDを記録する一時配列
-        let mut to_remove = Vec::new();
-
-        for (id, transitions) in &mut active_map {
-            let mut i = 0;
-            while i < transitions.len() {
-                let t_state = &mut transitions[i];
-
-                // start_time が None なら、このフレームの時刻 now を格納しその値を取り出す。
-                let start_time = *t_state.start_time.get_or_insert(now);
-                let elapsed = now.duration_since(start_time);
-
-                // 進行度 (0.0 ～ 1.0)
-                let progress = (elapsed.as_secs_f32() / t_state.duration.as_secs_f32()).min(1.0);
-                let eased_t = t_state.curve.evaluate(progress);
-
-                // Lerpによる新しい値の決定
-                let current_val = t_state.start_value.lerp(&t_state.end_value, eased_t);
-
-                // SoA（Context のアクティブなプロパティ）に補間された値を書き戻す
-                match current_val {
-                    TransitionValue::Color(c) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            if t_state.property_list == PropertyList::BackgroundColor {
-                                v.bg_color = Some(c);
-                            } else if t_state.property_list == PropertyList::BorderColor {
-                                v.border_color = Some(c);
-                            }
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                    TransitionValue::Opacity(o) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            v.opacity = Some(o);
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                    TransitionValue::Transform(m) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            v.transform = Some(m);
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                    TransitionValue::CornerRadius(cr) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            v.corner_radius = Some(cr);
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                    TransitionValue::Width(w) => {
-                        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
-                            layout.size.width = Val::Px(w); // ピクセル値で上書き
-                        }
-                        self.mark_layout_dirty(id); // レイアウト再計算をマーク
-
-                        // キャッシュを毎フレーム強制バイパスさせるためにマスクを再セット
-                        if let Some(mask) = self.topology.active_masks.get_mut(id) {
-                            mask.set(STATE_QUEUED_LAYOUT);
-                        }
-                    }
-                    // 縦幅（Height）の毎フレームアニメーション補間
-                    TransitionValue::Height(h) => {
-                        if let Some(layout) = self.layouts.basic_layouts.get_mut(id) {
-                            layout.size.height = Val::Px(h);
-                        }
-                        self.mark_layout_dirty(id);
-
-                        if let Some(mask) = self.topology.active_masks.get_mut(id) {
-                            mask.set(STATE_QUEUED_LAYOUT);
-                        }
-                    }
-                    // 影（BoxShadow）の毎フレームの書き戻し処理
-                    TransitionValue::BoxShadow(shadow) => {
-                        if let Some(v) = self.renders.visual_properties.get_mut(id) {
-                            v.shadow_params = Some(shadow);
-                            v.shadow_color = Some(shadow.color);
-                        }
-                        self.mark_render_dirty(id);
-                    }
-                }
-
-                // アニメーション完了判定
-                if progress >= 1.0 {
-                    transitions.remove(i);
-                } else {
-                    i += 1;
-                }
-
-                // トランジションが空になった要素をマーク
-                if transitions.is_empty() {
-                    to_remove.push(id);
-                }
-            }
-        }
-
-        // 空になったエントリをマップから完全削除（クリーンアップ）
-        for id in to_remove {
-            active_map.remove(id);
-        }
-
-        self.renders.active_transitions = active_map;
+        RenderStore::tick_transitions(
+            last_tick_time,
+            active_transitions,
+            visual_properties,
+            basic_layouts,
+            taffy_nodes,
+            taffy,
+            active_masks,
+            dirty_layout_entities,
+            parents,
+            dirty_render_entities,
+        );
     }
 
     /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
@@ -811,96 +694,78 @@ impl Context {
     /// 現在のテキスト・IME状態・フォントサイズから、
     /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して `SoA` を更新。
     pub fn update_input_caret_position(&mut self, id: EntityId) {
-        self.clear_layout_cache(id); // IMEやタイピング中の古いキャッシュを破棄
+        let TopologyStore {
+            active_masks,
+            parents,
+            children,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            dirty_layout_entities,
+            taffy,
+            taffy_nodes,
+            scrollbar_styles,
+            ..
+        } = &mut self.layouts;
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            interaction_properties,
+            active_transitions,
+            ..
+        } = &mut self.renders;
+        let OutputStore {
+            rects,
+            scroll_offsets,
+            text_selections,
+            ..
+        } = &mut self.outputs;
+        let ContentStore {
+            text_contents,
+            input_contents,
+            text_spans,
+            ..
+        } = &mut self.contents;
+        let SystemStore {
+            text_engine,
+            dwrite_layouts,
+            ..
+        } = &mut self.system;
+        let WindowStore {
+            last_window_size,
+            scale_factor,
+            ..
+        } = &mut self.window;
 
-        let scroll_ime_info = OutputStore::scroll_ime_info(
+        OutputStore::update_input_caret_position(
             id,
-            &mut self.contents.input_contents,
-            &mut self.contents.text_contents,
-            &mut self.outputs.text_selections,
-            &self.contents.text_spans,
-            &self.system.text_engine,
-            &mut self.renders.visual_properties,
-            &self.renders.base_visual_properties,
-        );
-
-        let Some((caret, caret_offset, is_multiline)) = scroll_ime_info else {
-            return;
-        };
-        let (basic, _, _) = self.resolve_active_layouts(id);
-        let rect = self.rect(id).unwrap_or_default();
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-        let mut scroll = self
-            .outputs
-            .scroll_offsets
-            .get(id)
-            .copied()
-            .unwrap_or(LayoutPoint::ZERO);
-        let scale = self.window.scale_factor;
-
-        if rect.width > 0.0 && rect.height > 0.0 {
-            let viewport_w =
-                (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
-            let viewport_h =
-                (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
-
-            let text_size = if let Some(contents) = self.contents.input_contents.get(id)
-                && let Some(layout_rect) = contents.last_layout
-            {
-                LayoutSize::new(layout_rect.width, layout_rect.height)
-            } else {
-                LayoutSize::ZERO
-            };
-            let (_, flex, _) = self.resolve_active_layouts(id);
-            let content_w =
-                (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
-            let align_offset_x = match flex.text_align {
-                TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
-                TextAlign::Right => (content_w - text_size.width).max(0.0),
-                _ => 0.0,
-            };
-            let content_h =
-                (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
-            let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
-
-            let aligned_caret_x = caret.x + align_offset_x;
-            let aligned_caret_y = caret.y + align_offset_y;
-
-            // マージンを設定するとキー移動時にキャレット位置がずれるため削除
-            // let margin_x = 0.0; // 左右端のあそび（マージン）
-
-            // 1. 横方向スクロール (X軸)
-            if aligned_caret_x < scroll.x {
-                scroll.x = aligned_caret_x.max(0.0);
-            } else if aligned_caret_x + caret.width > scroll.x + viewport_w {
-                scroll.x = (aligned_caret_x + caret.width - viewport_w).max(0.0);
-            }
-
-            // 2. 縦方向スクロール (Y軸 - マルチラインのみ)
-            if is_multiline {
-                if aligned_caret_y < scroll.y {
-                    scroll.y = aligned_caret_y.max(0.0);
-                } else if aligned_caret_y + caret.height > scroll.y + viewport_h {
-                    scroll.y = (aligned_caret_y + caret.height - viewport_h).max(0.0);
-                }
-            } else {
-                scroll.y = 0.0;
-            }
-
-            self.scroll_to(id, scroll.x, scroll.y);
-        }
-
-        // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
-        SystemStore::sync_imm_window_position(
-            rect,
-            scale,
-            border,
-            padding,
-            caret,
-            caret_offset,
-            scroll,
+            rects,
+            dwrite_layouts,
+            input_contents,
+            text_contents,
+            text_selections,
+            text_spans,
+            text_engine,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            children,
+            interaction_properties,
+            scrollbar_styles,
+            scroll_offsets,
+            *last_window_size,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+            active_transitions,
+            parents,
+            visual_properties,
+            base_visual_properties,
+            *scale_factor,
         );
     }
 

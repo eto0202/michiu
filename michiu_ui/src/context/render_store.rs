@@ -9,7 +9,7 @@ use crate::{
     LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList,
     ReactiveStore, RectsSecondary, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
     STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
-    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_RENDER, STATE_SELECTED,
+    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_QUEUED_RENDER, STATE_SELECTED,
     STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_BG_COLOR, STYLE_BORDER, STYLE_BORDER_COLOR,
     STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_EXT_PROPERTIES, STYLE_FONT_SIZE,
     STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OPACITY, STYLE_OUTLINE,
@@ -49,7 +49,6 @@ pub(crate) type ActiveTransitionsSparseSecondary =
 pub(crate) type ActiveAnimationsSparseSecondary =
     SparseSecondaryMap<EntityId, Vec<ActiveAnimation>>;
 pub(crate) type ActiveWebviewsHashSet = HashSet<EntityId>;
-pub(crate) type LastTickTimeOption = Option<Instant>;
 
 pub struct RenderStore {
     pub(crate) visual_properties: VisualPropertiesSecondary,
@@ -59,7 +58,7 @@ pub struct RenderStore {
     pub(crate) active_transitions: ActiveTransitionsSparseSecondary,
     pub(crate) active_animations: ActiveAnimationsSparseSecondary,
     pub(crate) active_webviews: ActiveWebviewsHashSet,
-    pub(crate) last_tick_time: LastTickTimeOption,
+    pub(crate) last_tick_time: Option<Instant>,
 }
 
 impl Default for RenderStore {
@@ -1496,6 +1495,212 @@ impl RenderStore {
         let outline_offset_and_flags = [o_offset, o_flags as f32, 0.0, 0.0];
 
         (o_width, o_color, o_lengths, outline_offset_and_flags)
+    }
+
+    /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub(crate) fn tick_animations(
+        active_animations: &mut ActiveAnimationsSparseSecondary,
+        visual_properties: &mut VisualPropertiesSecondary,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+        parents: &ParentsSecondary,
+    ) {
+        let now = Instant::now();
+
+        active_animations.retain(|id, animations| {
+            animations.retain_mut(|anim| {
+                let elapsed = now.duration_since(anim.start_time);
+                let elapsed_secs = elapsed.as_secs_f32();
+                let duration_secs = anim.duration.as_secs_f32();
+
+                // 現在の周回回数
+                let current_iteration = (elapsed_secs / duration_secs).floor() as u32;
+
+                // ループ制限に達しているかチェック
+                let is_finished = match anim.iteration_count {
+                    PlaybackCount::Count(max_count) => current_iteration >= max_count,
+                    PlaybackCount::Infinite => false,
+                };
+
+                if is_finished {
+                    // ループ終了：目標の最終値で固定してアニメーションを破棄
+                    RenderStore::apply_animation_value(
+                        id,
+                        anim.property,
+                        &anim.end_value,
+                        visual_properties,
+                        basic_layouts,
+                        taffy_nodes,
+                        taffy,
+                        active_masks,
+                        dirty_layout_entities,
+                        parents,
+                    );
+                    return false;
+                }
+
+                // 現在のループ内での正規化進行度
+                let local_time = elapsed_secs % duration_secs;
+                let progress = if duration_secs > 0.0 {
+                    (local_time / duration_secs).min(1.0)
+                } else {
+                    1.0
+                };
+                let eased_t = anim.curve.evaluate(progress);
+
+                // 値の補間
+                let current_val = anim.start_value.lerp(&anim.end_value, eased_t);
+
+                // 補間された動的スタイル値を書き戻し
+                RenderStore::apply_animation_value(
+                    id,
+                    anim.property,
+                    &current_val,
+                    visual_properties,
+                    basic_layouts,
+                    taffy_nodes,
+                    taffy,
+                    active_masks,
+                    dirty_layout_entities,
+                    parents,
+                );
+
+                RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+                true // 継続して保持
+            });
+
+            // // アニメーションが空の要素はマップごと削除
+            !animations.is_empty()
+        });
+    }
+
+    /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub(crate) fn tick_transitions(
+        last_tick_time: &mut Option<Instant>,
+        active_transitions: &mut ActiveTransitionsSparseSecondary,
+        visual_properties: &mut VisualPropertiesSecondary,
+        basic_layouts: &mut BasicLayoutsSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        active_masks: &mut ActiveMasksSecondary,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        parents: &ParentsSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+    ) {
+        const FRAME_TIME_120FPS: Duration = Duration::from_nanos(8_333_333);
+        let now = Instant::now();
+
+        // (1.0 / 120.0 秒 = 約 8,333,333 ナノ秒)
+        if let Some(last) = last_tick_time
+            && now.duration_since(*last) < FRAME_TIME_120FPS
+        {
+            return;
+        }
+
+        // 実行制限を通過したため、基準時刻を更新して処理を継続
+        *last_tick_time = Some(now);
+        active_transitions.retain(|id, transitions| {
+            transitions.retain_mut(|t_state| {
+                // start_time が None なら、このフレームの時刻 now を格納しその値を取り出す。
+                let start_time = *t_state.start_time.get_or_insert(now);
+                let elapsed = now.duration_since(start_time);
+
+                // 進行度 (0.0 ～ 1.0)
+                let progress = (elapsed.as_secs_f32() / t_state.duration.as_secs_f32()).min(1.0);
+                let eased_t = t_state.curve.evaluate(progress);
+
+                // Lerpによる新しい値の決定
+                let current_val = t_state.start_value.lerp(&t_state.end_value, eased_t);
+
+                // 補間された値を書き戻す
+                match current_val {
+                    TransitionValue::Color(c) => {
+                        if let Some(v) = visual_properties.get_mut(id) {
+                            if t_state.property_list == PropertyList::BackgroundColor {
+                                v.bg_color = Some(c);
+                            } else if t_state.property_list == PropertyList::BorderColor {
+                                v.border_color = Some(c);
+                            }
+                        }
+                        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+                    }
+                    TransitionValue::Opacity(o) => {
+                        if let Some(v) = visual_properties.get_mut(id) {
+                            v.opacity = Some(o);
+                        }
+                        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+                    }
+                    TransitionValue::Transform(m) => {
+                        if let Some(v) = visual_properties.get_mut(id) {
+                            v.transform = Some(m);
+                        }
+                        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+                    }
+                    TransitionValue::CornerRadius(cr) => {
+                        if let Some(v) = visual_properties.get_mut(id) {
+                            v.corner_radius = Some(cr);
+                        }
+                        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+                    }
+                    TransitionValue::Width(w) => {
+                        if let Some(layout) = basic_layouts.get_mut(id) {
+                            layout.size.width = Val::Px(w); // ピクセル値で上書き
+                        }
+                        LayoutStore::mark_layout_dirty(
+                            id,
+                            taffy_nodes,
+                            taffy,
+                            active_masks,
+                            dirty_layout_entities,
+                            parents,
+                        );
+
+                        // キャッシュを毎フレーム強制バイパスさせるためにマスクを再セット
+                        if let Some(mask) = active_masks.get_mut(id) {
+                            mask.set(STATE_QUEUED_LAYOUT);
+                        }
+                    }
+                    // 縦幅（Height）の毎フレームアニメーション補間
+                    TransitionValue::Height(h) => {
+                        if let Some(layout) = basic_layouts.get_mut(id) {
+                            layout.size.height = Val::Px(h);
+                        }
+                        LayoutStore::mark_layout_dirty(
+                            id,
+                            taffy_nodes,
+                            taffy,
+                            active_masks,
+                            dirty_layout_entities,
+                            parents,
+                        );
+
+                        if let Some(mask) = active_masks.get_mut(id) {
+                            mask.set(STATE_QUEUED_LAYOUT);
+                        }
+                    }
+                    // 影（BoxShadow）の毎フレームの書き戻し処理
+                    TransitionValue::BoxShadow(shadow) => {
+                        if let Some(v) = visual_properties.get_mut(id) {
+                            v.shadow_params = Some(shadow);
+                            v.shadow_color = Some(shadow.color);
+                        }
+                        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+                    }
+                }
+
+                // アニメーション完了判定 (1.0未満なら継続=true, 1.0に達したら削除=false)
+                progress < 1.0
+            });
+
+            // トランジションが空になった要素はマップごと削除
+            !transitions.is_empty()
+        });
     }
 }
 
