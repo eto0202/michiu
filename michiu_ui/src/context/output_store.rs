@@ -1,17 +1,7 @@
 use std::{ops::Range, time::Instant};
 
 use crate::{
-    ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary,
-    BasicLayoutsSecondary, BatchType, BoxSizing, ChildrenSecondary, Color, ComponentMask,
-    ContentStore, Context, CornerRadius, DirtyLayoutEntitiesVec, DrawBatch,
-    DwriteLayoutsSparseSecondary, EdgeInsets, EntityId, EventStore, FlexLayoutsSecondary,
-    GridLayoutsSecondary, InputContents, InputContentsSparseSecondary,
-    InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, ParentsSecondary, PointerEvents, Position, QuadInstance, RenderData, RenderStore,
-    STATE_QUEUED_LAYOUT, STYLE_TEXT_SPANS, ScrollbarStylesSecondary, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
-    TextSpansSparseSecondary, TopologyStore, UserSelect, Val, VisualPropertiesSecondary,
-    VisualProperty, WindowStore,
+    ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, ActiveWebviewsHashSet, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType, BoxSizing, ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets, EffectiveTransformsSecondary, EffectiveZindicesSecondary, EntityId, EventStore, FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSecondary, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, QuadInstance, RenderData, RenderStore, STATE_QUEUED_LAYOUT, STYLE_TEXT_SPANS, ScrollbarStylesSecondary, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect, Val, VisualPropertiesSecondary, VisualProperty, WindowStore
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
@@ -153,7 +143,7 @@ impl OutputStore {
         let s_offsets = scroll_offsets.get(parent_id).copied().unwrap_or_default();
         let is_absolute = basic_layouts
             .get(id)
-            .is_some_and(|l| l.position == Position::default());
+            .is_some_and(|l| l.position == Position::Absolute);
 
         let parent_scroll = if is_absolute {
             LayoutPoint::ZERO
@@ -211,6 +201,13 @@ impl OutputStore {
     #[inline]
     pub(crate) fn rect(id: EntityId, rects: &RectsSecondary) -> Option<LayoutRect> {
         rects.get(id).copied()
+    }
+
+    /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
+    #[inline]
+    #[must_use]
+    pub fn clip_rect(id: EntityId, clip_rects: &ClipRectsSecondary) -> Option<LayoutRect> {
+        clip_rects.get(id).copied()
     }
 
     pub(crate) fn calculate_caret_rect(
@@ -1220,6 +1217,798 @@ impl OutputStore {
         // 範囲が 0、または選択なしの時は自動クリーンアップ
         selected_rects.remove(id);
     }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub(crate) fn sync_scrollbar_drag(
+        logical_pos: LayoutPoint,
+        active_masks: &mut ActiveMasksSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        text_engine: &TextEngine,
+        text_contents: &TextContentsSparseSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+        text_spans: &TextSpansSparseSecondary,
+        dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        children: &ChildrenSecondary,
+        taffy_nodes: &TaffyNodesSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        interaction_properties: &InteractionPropertiesSecondary,
+        rects: &RectsSecondary,
+        scrollbar_styles: &mut ScrollbarStylesSecondary,
+        scroll_offsets: &mut ScrollOffsetsSecondary,
+        last_window_size: Option<LayoutSize>,
+    ) {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        pub(crate) enum DragDirection {
+            Vertical,
+            Horizontal,
+        }
+
+        let active_drag_target = scrollbar_styles.iter().find_map(|(id, state)| {
+            if state.v_thumb_dragged {
+                Some((id, DragDirection::Vertical))
+            } else if state.h_thumb_dragged {
+                Some((id, DragDirection::Horizontal))
+            } else {
+                None
+            }
+        });
+
+        let Some((current_id, direction)) = active_drag_target else {
+            return;
+        };
+
+        let (sb_state, container_rect, scroll_size) = {
+            let sb_state = scrollbar_styles.get(current_id).cloned().unwrap();
+            let container_rect = OutputStore::rect(current_id, rects).unwrap_or_default();
+            let scroll_size = OutputStore::get_scroll_size(
+                current_id,
+                active_masks,
+                input_contents,
+                text_engine,
+                text_contents,
+                visual_properties,
+                text_spans,
+                dwrite_layouts,
+                basic_layouts,
+                flex_layouts,
+                grid_layouts,
+                active_transitions,
+                parents,
+                children,
+                interaction_properties,
+                rects,
+                scrollbar_styles,
+                scroll_offsets,
+            );
+            (sb_state, container_rect, scroll_size)
+        };
+
+        let visible_size = WindowStore::calculate_visible_size(last_window_size, container_rect);
+
+        let (
+            track_id,
+            thumb_id,
+            track_len,
+            thumb_len,
+            margin_start,
+            margin_end,
+            delta_mouse,
+            max_scroll_len,
+            start_scroll_offset,
+        ) = match direction {
+            DragDirection::Vertical => {
+                let track_id = sb_state.v_track_id.unwrap();
+                let thumb_id = sb_state.v_thumb_id.unwrap();
+                let track_rect = OutputStore::rect(track_id, rects).unwrap_or_default();
+                let thumb_rect = OutputStore::rect(thumb_id, rects).unwrap_or_default();
+
+                let (mut margin_top, mut margin_bottom) = (0.0, 0.0);
+                if let Some(ref thumb_style) = sb_state.style.v_thumb {
+                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.top {
+                        margin_top = val;
+                    }
+                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.bottom {
+                        margin_bottom = val;
+                    }
+                }
+
+                (
+                    track_id,
+                    thumb_id,
+                    track_rect.height,
+                    thumb_rect.height,
+                    margin_top,
+                    margin_bottom,
+                    logical_pos.y - sb_state.drag_start_mouse.y,
+                    scroll_size.height - visible_size.height,
+                    sb_state.drag_start_offset.y,
+                )
+            }
+            DragDirection::Horizontal => {
+                let track_id = sb_state.h_track_id.unwrap();
+                let thumb_id = sb_state.h_thumb_id.unwrap();
+                let track_rect = OutputStore::rect(track_id, rects).unwrap_or_default();
+                let thumb_rect = OutputStore::rect(thumb_id, rects).unwrap_or_default();
+
+                let (mut margin_left, mut margin_right) = (0.0, 0.0);
+                if let Some(ref thumb_style) = sb_state.style.h_thumb {
+                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.left {
+                        margin_left = val;
+                    }
+                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.right {
+                        margin_right = val;
+                    }
+                }
+
+                (
+                    track_id,
+                    thumb_id,
+                    track_rect.width,
+                    thumb_rect.width,
+                    margin_left,
+                    margin_right,
+                    logical_pos.x - sb_state.drag_start_mouse.x,
+                    scroll_size.width - visible_size.width,
+                    sb_state.drag_start_offset.x,
+                )
+            }
+        };
+
+        // スクロール可動域と割合
+        let track_range = track_len - thumb_len - margin_start - margin_end;
+        if track_range > 0.0 {
+            let ratio = max_scroll_len / track_range;
+            let target_scroll = start_scroll_offset + delta_mouse * ratio;
+
+            let (target_x, target_y) = match direction {
+                DragDirection::Vertical => {
+                    let current_x = scroll_offsets.get(current_id).map_or(0.0, |o| o.x);
+                    (current_x, target_scroll)
+                }
+                DragDirection::Horizontal => {
+                    let current_y = scroll_offsets.get(current_id).map_or(0.0, |o| o.y);
+                    (target_scroll, current_y)
+                }
+            };
+
+            OutputStore::scroll_to(
+                current_id,
+                target_x,
+                target_y,
+                active_masks,
+                input_contents,
+                text_engine,
+                text_contents,
+                visual_properties,
+                text_spans,
+                dwrite_layouts,
+                basic_layouts,
+                flex_layouts,
+                grid_layouts,
+                active_transitions,
+                parents,
+                children,
+                interaction_properties,
+                rects,
+                scrollbar_styles,
+                scroll_offsets,
+                last_window_size,
+                taffy_nodes,
+                taffy,
+                dirty_layout_entities,
+            );
+        }
+
+        RenderStore::mark_render_dirty(current_id, active_masks, dirty_render_entities);
+    }
+
+    /// 階層的な境界判定ヘルパー
+    pub(crate) fn hit_test_recursive(
+        id: EntityId,
+        point: LayoutPoint,
+        rects: &RectsSecondary,
+        clip_rects: &ClipRectsSecondary,
+        children: &ChildrenSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+    ) -> Option<EntityId> {
+        // 親などの overflow: hidden 等でクリップされている表示範囲をチェック
+        // クリップ領域外であれば、この要素もそのすべての子孫要素も画面上に見えていないためをスキップ
+        if let Some(clip) = OutputStore::clip_rect(id, clip_rects)
+            && !clip.contains(point)
+        {
+            return None;
+        }
+
+        // 子要素を逆順で再帰降下
+        if let Some(c) = children.get(id) {
+            for &child_id in c.iter().rev() {
+                if let Some(hit) = OutputStore::hit_test_recursive(
+                    child_id,
+                    point,
+                    rects,
+                    clip_rects,
+                    children,
+                    visual_properties,
+                    base_visual_properties,
+                ) {
+                    return Some(hit);
+                }
+            }
+        }
+
+        // pointer_events: none の場合は、自分自身の矩形判定のみをスルーする (子要素は上を辿れるため除外しない)
+        // visual_properties に無ければ base_visual_properties を見に行く
+        if let Some(rect) = rects.get(id)
+            && rect.contains(point)
+        {
+            let pointer_events = visual_properties
+                .get(id)
+                .and_then(|v| v.pointer_events)
+                .or_else(|| {
+                    base_visual_properties
+                        .get(id)
+                        .and_then(|v| v.pointer_events)
+                })
+                .unwrap_or_default();
+
+            if pointer_events != PointerEvents::None {
+                return Some(id);
+            }
+        }
+
+        None
+    }
+
+    // 溜まっているインスタンスを DrawBatch としてフラッシュ
+    #[inline]
+    fn flush_batch(
+        batches: &mut Vec<DrawBatch>,
+        instances: &mut Vec<QuadInstance>,
+        ids: &mut Vec<EntityId>,
+        scissor_rect: LayoutRect,
+        batch_type: BatchType,
+    ) {
+        if instances.is_empty() {
+            return;
+        }
+        batches.push(DrawBatch {
+            scissor_rect,
+            instances: std::mem::take(instances),
+            entity_ids: std::mem::take(ids),
+            batch_type,
+        });
+    }
+
+    /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
+    // TOTO: フラットバッファ ＋ インデックス範囲に変更
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    pub(crate) fn collect_render_data(
+        rects: &RectsSecondary,
+        clip_rects: &ClipRectsSecondary,
+        basic_layouts: &BasicLayoutsSecondary,
+        flex_layouts: &FlexLayoutsSecondary,
+        grid_layouts: &GridLayoutsSecondary,
+        active_masks: &ActiveMasksSecondary,
+        active_transitions: &ActiveTransitionsSparseSecondary,
+        parents: &ParentsSecondary,
+        flat_dfs_sequence: &FlatDfsSequenceVec,
+        active_entities: &ActiveEntitiesVec,
+        interaction_properties: &InteractionPropertiesSecondary,
+        base_visual_properties: &BaseVisualPropertiesSecondary,
+        visual_properties: &VisualPropertiesSecondary,
+        active_webviews: &ActiveWebviewsHashSet,
+        selected_rects: &SelectedRectsSparseSecondary,
+        scroll_offsets: &ScrollOffsetsSecondary,
+        input_contents: &InputContentsSparseSecondary,
+        scale_factor: f32,
+        interaction_states: &InteractionStates,
+        sorted_entities: &mut SortedEntitiesVec,
+        effective_transforms: &mut EffectiveTransformsSecondary,
+        effective_z_indices: &mut EffectiveZindicesSecondary,
+    ) -> RenderData {
+        let mut batches = Vec::new();
+        let mut current_instances = Vec::new();
+        let mut current_ids = Vec::new();
+        let mut last_clip = None;
+
+        // 現在のバッチの種類 (通常)
+        let mut current_batch_type = BatchType::Normal;
+
+        // 静的なデフォルト値（一度だけ確保して使い回す）
+        let default_visual = VisualProperty::default();
+
+        // 各要素の実効トランスフォーム行列を DFS 順にカスケード累積
+        RenderStore::accumulate_transform_matrix(
+            flat_dfs_sequence,
+            visual_properties,
+            parents,
+            active_entities,
+            effective_transforms,
+        );
+
+        // 実効 z_index の計算とソートを一括実行
+        TopologyStore::prepare_sorted_entities(
+            active_entities,
+            flat_dfs_sequence,
+            visual_properties,
+            parents,
+            effective_z_indices,
+            sorted_entities,
+        );
+
+        for &id in &*sorted_entities {
+            let rect = OutputStore::rect(id, rects).unwrap_or_default();
+            if rect.width <= 0.0 || rect.height <= 0.0 {
+                continue;
+            }
+
+            let clip = OutputStore::clip_rect(id, clip_rects).unwrap_or_default();
+            let is_webview = active_masks
+                .get(id)
+                .is_some_and(ComponentMask::has_webveiw2_content);
+
+            // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
+            let is_webview_ready = is_webview && active_webviews.contains(&id);
+
+            let (basic, _, _) = LayoutStore::resolve_active_layouts(
+                id,
+                basic_layouts,
+                flex_layouts,
+                grid_layouts,
+                active_masks,
+                active_transitions,
+                parents,
+                interaction_properties,
+                visual_properties,
+            );
+            let visual = visual_properties.get(id).unwrap_or(&default_visual);
+
+            // 共通パラメータの展開
+            let (packed_transform, origin) =
+                RenderStore::get_transform_and_origin(id, visual, &effective_transforms);
+            let (o_width, o_color, o_lengths, outline_offset_and_flags) =
+                RenderStore::get_outline_params(visual);
+
+            // WebView (アクティブ) の個別処理
+            if is_webview_ready {
+                // 溜まっている通常（Normal）のバッチがあれば一旦フラッシュ
+                OutputStore::flush_batch(
+                    &mut batches,
+                    &mut current_instances,
+                    &mut current_ids,
+                    last_clip.unwrap_or_default(),
+                    current_batch_type,
+                );
+
+                let punchout_opacity = visual.opacity.unwrap_or(1.0);
+                let punchout_instance = QuadInstance {
+                    rect,
+                    transform: packed_transform,
+                    transform_origin: origin,
+                    color: Color::WHITE,
+                    corner_radius: visual.corner_radius.unwrap_or_default(),
+                    opacity_mode_sizing: [punchout_opacity, 0.0, 0.0, 0.0],
+                    ..Default::default()
+                };
+                current_instances.push(punchout_instance);
+                current_ids.push(id);
+
+                // くり抜き用のバッチとして即座にフラッシュ
+                OutputStore::flush_batch(
+                    &mut batches,
+                    &mut current_instances,
+                    &mut current_ids,
+                    clip,
+                    BatchType::Punchout,
+                );
+
+                // 前面装飾（通常）用のインスタンス
+                let border_instance = QuadInstance {
+                    rect,
+                    transform: packed_transform,
+                    transform_origin: origin,
+                    corner_radius: visual.corner_radius.unwrap_or_default(),
+                    border_width: EdgeInsets {
+                        top: basic.border.top.into(),
+                        right: basic.border.right.into(),
+                        bottom: basic.border.bottom.into(),
+                        left: basic.border.left.into(),
+                    },
+                    border_color: visual.border_color.unwrap_or_default(),
+                    border_lengths: visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0)),
+                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    outline_width: o_width,
+                    outline_color: o_color,
+                    outline_lengths: o_lengths,
+                    outline_offset_and_flags,
+                    ..Default::default()
+                };
+                current_instances.push(border_instance);
+                current_ids.push(id);
+
+                current_batch_type = BatchType::Normal;
+                last_clip = Some(clip);
+                continue;
+            }
+
+            // WebView (非アクティブ・静止キャッシュ) の処理
+            let is_webview_static = is_webview && !is_webview_ready;
+            if is_webview_static {
+                // 一般UIインスタンスがあれば強制フラッシュ
+                OutputStore::flush_batch(
+                    &mut batches,
+                    &mut current_instances,
+                    &mut current_ids,
+                    last_clip.unwrap_or_default(),
+                    current_batch_type,
+                );
+
+                let static_instance = QuadInstance {
+                    rect,
+                    transform: packed_transform,
+                    transform_origin: origin,
+                    corner_radius: visual.corner_radius.unwrap_or_default(),
+                    border_width: EdgeInsets {
+                        top: basic.border.top.into(),
+                        right: basic.border.right.into(),
+                        bottom: basic.border.bottom.into(),
+                        left: basic.border.left.into(),
+                    },
+                    border_color: visual.border_color.unwrap_or_default(),
+                    border_lengths: visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0)),
+                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    ..Default::default()
+                };
+                current_instances.push(static_instance);
+                current_ids.push(id);
+
+                OutputStore::flush_batch(
+                    &mut batches,
+                    &mut current_instances,
+                    &mut current_ids,
+                    clip,
+                    BatchType::Normal,
+                );
+
+                let border_instance = QuadInstance {
+                    rect,
+                    transform: packed_transform,
+                    transform_origin: origin,
+                    corner_radius: visual.corner_radius.unwrap_or_default(),
+                    border_width: EdgeInsets {
+                        top: basic.border.top.into(),
+                        right: basic.border.right.into(),
+                        bottom: basic.border.bottom.into(),
+                        left: basic.border.left.into(),
+                    },
+                    border_color: visual.border_color.unwrap_or_default(),
+                    border_lengths: visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0)),
+                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
+                    shadow_color: Color::WHITE,
+                    outline_width: o_width,
+                    outline_color: o_color,
+                    outline_lengths: o_lengths,
+                    outline_offset_and_flags,
+                    ..Default::default()
+                };
+                current_instances.push(border_instance);
+                current_ids.push(id);
+
+                OutputStore::flush_batch(
+                    &mut batches,
+                    &mut current_instances,
+                    &mut current_ids,
+                    clip,
+                    BatchType::Normal,
+                );
+
+                last_clip = Some(clip);
+                continue;
+            }
+
+            // 一般要素
+            if let Some(prev_clip) = last_clip {
+                if clip != prev_clip {
+                    OutputStore::flush_batch(
+                        &mut batches,
+                        &mut current_instances,
+                        &mut current_ids,
+                        prev_clip,
+                        current_batch_type,
+                    );
+                    last_clip = Some(clip);
+                }
+            } else {
+                last_clip = Some(clip);
+            }
+
+            // 選択ハイライト背景のwgpu側への差し込み
+            if let Some(rects) = selected_rects.get(id) {
+                let (border, padding) =
+                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+                let sel_bg = visual
+                    .select_bg_color
+                    .unwrap_or(Color::rgba_f32(0.0, 0.47, 0.84, 0.35));
+
+                let scroll = scroll_offsets.get(id).copied().unwrap_or_default();
+
+                let text_size = if let Some(contents) = input_contents.get(id)
+                    && let Some(layout_rect) = contents.last_layout
+                {
+                    LayoutSize::new(layout_rect.width, layout_rect.height)
+                } else {
+                    LayoutSize::ZERO
+                };
+                let (_, flex, _) = LayoutStore::resolve_active_layouts(
+                    id,
+                    basic_layouts,
+                    flex_layouts,
+                    grid_layouts,
+                    active_masks,
+                    active_transitions,
+                    parents,
+                    interaction_properties,
+                    visual_properties,
+                );
+
+                let align_offset = OutputStore::calc_align_offset(
+                    rect,
+                    border,
+                    padding,
+                    text_size,
+                    flex.text_align,
+                );
+
+                for metric_rect in rects {
+                    let sel_rect = LayoutRect::new(
+                        rect.x + border.left + padding.left + align_offset.x + metric_rect.x
+                            - scroll.x,
+                        rect.y + border.top + padding.top + align_offset.y + metric_rect.y
+                            - scroll.y,
+                        metric_rect.width,
+                        metric_rect.height,
+                    );
+
+                    let sel_instance = QuadInstance {
+                        rect: sel_rect,
+                        transform: packed_transform,
+                        color: sel_bg,
+                        opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), -1.0, 0.0, 0.0],
+                        ..Default::default()
+                    };
+                    current_instances.push(sel_instance);
+                    current_ids.push(id);
+                }
+            }
+
+            // 背景色とテキストの多重描画の解決
+            let is_text = active_masks[id].has_text_content();
+            let has_bg = visual.bg_color.is_some()
+                || visual.bg_gradient.is_some()
+                || visual.border_color.is_some()
+                || visual.shadow_params.is_some();
+
+            let box_sizing_val = match basic.box_sizing {
+                BoxSizing::BorderBox => 0.0f32,
+                BoxSizing::ContentBox => 1.0f32,
+            };
+
+            if is_text && has_bg {
+                let bg_color = visual.bg_color.unwrap_or_default();
+                let (gradient_end_color, gradient_angle, bg_mode) = match visual.bg_gradient {
+                    Some(g) => (g.end_color, g.angle, 1.0f32),
+                    None => (bg_color, 0.0, 0.0f32),
+                };
+
+                let bg_instance = QuadInstance {
+                    rect,
+                    transform: packed_transform,
+                    transform_origin: origin,
+                    color: bg_color,
+                    corner_radius: visual.corner_radius.unwrap_or_default(),
+                    border_width: EdgeInsets {
+                        top: basic.border.top.into(),
+                        right: basic.border.right.into(),
+                        bottom: basic.border.bottom.into(),
+                        left: basic.border.left.into(),
+                    },
+                    border_color: visual.border_color.unwrap_or_default(),
+                    border_lengths: visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0)),
+                    opacity_mode_sizing: [
+                        visual.opacity.unwrap_or(1.0),
+                        bg_mode,
+                        box_sizing_val,
+                        0.0,
+                    ],
+                    gradient_end_color,
+                    gradient_angle,
+                    shadow_color: Color::WHITE,
+                    shadow_params: [0.0; 4],
+                    outline_width: o_width,
+                    outline_color: o_color,
+                    outline_lengths: o_lengths,
+                    outline_offset_and_flags,
+                    ..Default::default()
+                };
+                current_instances.push(bg_instance);
+                current_ids.push(id);
+            }
+
+            // 通常のテキスト / 背景のレンダリング
+            let color = if is_text {
+                visual.text_color.unwrap_or(Color::BLACK)
+            } else {
+                visual.bg_color.unwrap_or_default()
+            };
+
+            let (gradient_end_color, gradient_angle, mut mode) = match visual.bg_gradient {
+                Some(g) => (g.end_color, g.angle, 1.0f32),
+                None => (color, 0.0, 0.0f32),
+            };
+
+            if is_text {
+                mode = 2.0;
+            }
+
+            // テキスト要素で背景を分離描画した場合、テキストレイヤー側の装飾をクリア
+            let bypass_decorations = is_text && has_bg;
+            let border_width = if bypass_decorations {
+                EdgeInsets::ZERO
+            } else {
+                EdgeInsets {
+                    top: basic.border.top.into(),
+                    right: basic.border.right.into(),
+                    bottom: basic.border.bottom.into(),
+                    left: basic.border.left.into(),
+                }
+            };
+            let border_lengths = if bypass_decorations {
+                EdgeInsets::ZERO
+            } else {
+                visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0))
+            };
+            let border_color = if bypass_decorations {
+                Color::TRANSPARENT
+            } else {
+                visual.border_color.unwrap_or_default()
+            };
+            let shadow_color = if bypass_decorations {
+                Color::TRANSPARENT
+            } else {
+                Color::WHITE
+            };
+            let outline_width = if bypass_decorations {
+                EdgeInsets::ZERO
+            } else {
+                o_width
+            };
+            let outline_color = if bypass_decorations {
+                Color::TRANSPARENT
+            } else {
+                o_color
+            };
+            let outline_lengths = if bypass_decorations {
+                EdgeInsets::ZERO
+            } else {
+                o_lengths
+            };
+            let outline_offset_and_flags = if bypass_decorations {
+                [0.0; 4]
+            } else {
+                outline_offset_and_flags
+            };
+
+            let instance = QuadInstance {
+                rect,
+                transform: packed_transform,
+                transform_origin: origin,
+                color,
+                corner_radius: visual.corner_radius.unwrap_or_default(),
+                border_width,
+                border_color,
+                border_lengths,
+                opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), mode, 0.0, 0.0],
+                gradient_end_color,
+                gradient_angle,
+                shadow_color,
+                outline_width,
+                outline_color,
+                outline_lengths,
+                outline_offset_and_flags,
+                ..Default::default()
+            };
+
+            current_instances.push(instance);
+            current_ids.push(id);
+
+            // インプット要素のキャレット描画
+            let is_input = active_masks
+                .get(id)
+                .is_some_and(ComponentMask::has_input_content);
+            let is_focused = interaction_states.focused == Some(id);
+
+            if is_input
+                && is_focused
+                && let Some(contents) = input_contents.get(id)
+                && ContentStore::should_show_caret(contents)
+            {
+                let (border, padding) =
+                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+                let scroll = scroll_offsets.get(id).copied().unwrap_or_default();
+
+                let text_size = if let Some(layout_rect) = contents.last_layout {
+                    LayoutSize::new(layout_rect.width, layout_rect.height)
+                } else {
+                    LayoutSize::ZERO
+                };
+                let (_, flex, _) = LayoutStore::resolve_active_layouts(
+                    id,
+                    basic_layouts,
+                    flex_layouts,
+                    grid_layouts,
+                    active_masks,
+                    active_transitions,
+                    parents,
+                    interaction_properties,
+                    visual_properties,
+                );
+
+                let align_offset = OutputStore::calc_align_offset(
+                    rect,
+                    border,
+                    padding,
+                    text_size,
+                    flex.text_align,
+                );
+
+                let caret_rect = OutputStore::calculate_caret_rect(
+                    rect,
+                    border,
+                    padding,
+                    contents,
+                    scale_factor,
+                    scroll,
+                    align_offset,
+                );
+                let c_color = contents
+                    .caret_color
+                    .or(base_visual_properties.get(id).and_then(|v| v.text_color))
+                    .or(visual.text_color)
+                    .unwrap_or(Color::WHITE);
+
+                let caret_instance = QuadInstance {
+                    rect: caret_rect,
+                    transform: packed_transform,
+                    color: c_color,
+                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), -1.0, 0.0, 0.0],
+                    ..Default::default()
+                };
+
+                current_instances.push(caret_instance);
+                current_ids.push(id);
+            }
+        }
+
+        // 走査終了後、最後に残ったバッチをフラッシュ
+        OutputStore::flush_batch(
+            &mut batches,
+            &mut current_instances,
+            &mut current_ids,
+            last_clip.unwrap_or_default(),
+            current_batch_type,
+        );
+
+        RenderData { batches }
+    }
 }
 
 impl Context {
@@ -1364,209 +2153,13 @@ impl Context {
     }
 
     pub(crate) fn sync_scrollbar_drag(&mut self, logical_pos: LayoutPoint) {
-        let mut scrollbar_dragged = false;
-        let mut active_drag_target: Option<(EntityId, bool, bool)> = None;
-
-        for (id, state) in &self.layouts.scrollbar_styles {
-            if state.v_thumb_dragged {
-                active_drag_target = Some((id, true, false));
-                break;
-            } else if state.h_thumb_dragged {
-                active_drag_target = Some((id, false, true));
-                break;
-            }
-        }
-
-        if let Some((current_id, is_vertical, is_horiazon)) = active_drag_target {
-            let (sb_state, container_rect, scroll_size) = {
-                let sb_state = self
-                    .layouts
-                    .scrollbar_styles
-                    .get(current_id)
-                    .cloned()
-                    .unwrap();
-                let container_rect = self
-                    .outputs
-                    .rects
-                    .get(current_id)
-                    .copied()
-                    .unwrap_or_default();
-                let scroll_size = self.get_scroll_size(current_id);
-                (sb_state, container_rect, scroll_size)
-            };
-
-            let visible_size = self.calculate_visible_size(container_rect);
-
-            if is_vertical {
-                let track_id = sb_state.v_track_id.unwrap();
-                let thumb_id = sb_state.v_thumb_id.unwrap();
-                let track_rect = self.outputs.rects[track_id];
-                let thumb_rect = self.outputs.rects[thumb_id];
-
-                // サムのマージンを差し引く
-                let mut margin_top = 0.0;
-                let mut margin_bottom = 0.0;
-                if let Some(ref thumb_style) = sb_state.style.v_thumb {
-                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.top {
-                        margin_top = val;
-                    }
-                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.bottom {
-                        margin_bottom = val;
-                    }
-                }
-
-                // 同期処理と同じく、マージンを含めた実際の有効可動域を正確に計算
-                let track_range =
-                    track_rect.height - thumb_rect.height - margin_top - margin_bottom;
-                if track_range > 0.0 {
-                    let dy = logical_pos.y - sb_state.drag_start_mouse.y;
-                    let max_scroll_y = scroll_size.height - visible_size.height;
-
-                    if max_scroll_y > 0.0 {
-                        let ratio = max_scroll_y / track_range;
-                        let target_scroll_y = sb_state.drag_start_offset.y + dy * ratio;
-
-                        let current_x = self
-                            .outputs
-                            .scroll_offsets
-                            .get(current_id)
-                            .map_or(0.0, |o| o.x);
-                        self.scroll_to(current_id, current_x, target_scroll_y);
-                    }
-                }
-            } else if is_horiazon {
-                let track_id = sb_state.h_track_id.unwrap();
-                let thumb_id = sb_state.h_thumb_id.unwrap();
-                let track_rect = self.outputs.rects[track_id];
-                let thumb_rect = self.outputs.rects[thumb_id];
-
-                let mut margin_left = 0.0;
-                let mut margin_right = 0.0;
-                if let Some(ref thumb_style) = sb_state.style.h_thumb {
-                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.left {
-                        margin_left = val;
-                    }
-                    if let Val::Px(val) = thumb_style.inner.basic_layout.margin.right {
-                        margin_right = val;
-                    }
-                }
-
-                let track_range = track_rect.width - thumb_rect.width - margin_left - margin_right;
-                if track_range > 0.0 {
-                    let dx = logical_pos.x - sb_state.drag_start_mouse.x;
-                    let max_scroll_x = scroll_size.width - visible_size.width;
-
-                    if max_scroll_x > 0.0 {
-                        let ratio = max_scroll_x / track_range;
-                        let target_scroll_x = sb_state.drag_start_offset.x + dx * ratio;
-
-                        let current_y = self
-                            .outputs
-                            .scroll_offsets
-                            .get(current_id)
-                            .map_or(0.0, |o| o.y);
-                        self.scroll_to(current_id, target_scroll_x, current_y);
-                    }
-                }
-            }
-
-            self.mark_render_dirty(current_id);
-            scrollbar_dragged = true;
-        }
-    }
-
-    /// 指定された要素の子要素全体のスクロール領域を親ローカル座標系で算出します。
-    pub(crate) fn get_scroll_size(&self, id: EntityId) -> LayoutSize {
-        let mut max_x = 0.0f32;
-        let mut max_y = 0.0f32;
-
-        // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
-        if self.topology.active_masks[id].has_input_content()
-            && let Some(contents) = self.contents.input_contents.get(id)
-            && let Some(layout_rect) = contents.last_layout
-        {
-            max_x =
-                layout_rect.width + contents.caret_width.unwrap_or(contents.default_caret_width);
-            max_y = layout_rect.height;
-        } else if self.topology.active_masks[id].has_text_content()
-            && let Some(layout) = self.get_or_create_layout(id)
-        {
-            let size = self.system.text_engine.get_layout_size(&layout);
-            max_x = size.width;
-            max_y = size.height;
-        }
-
-        // 親要素自体のボーダー・パディング厚を取得
-        let (basic, _, _) = self.resolve_active_layouts(id);
-        let rect = self.rect(id).unwrap_or_default();
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-        let offset_x = border.left + padding.left;
-        let offset_y = border.top + padding.top;
-
-        // スクロールバー要素のIDを取得して除外対象にする
-        let (v_track_opt, h_track_opt) =
-            if let Some(sb_state) = self.layouts.scrollbar_styles.get(id) {
-                (sb_state.v_track_id, sb_state.h_track_id)
-            } else {
-                (None, None)
-            };
-
-        if let Some(children_list) = self.topology.children.get(id) {
-            for &child_id in children_list {
-                // スクロールバーのトラックはサイズ計算から除外
-                if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
-                    continue;
-                }
-
-                // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
-                let is_absolute = self
-                    .layouts
-                    .basic_layouts
-                    .get(child_id)
-                    .is_some_and(|l| l.position == Position::Absolute);
-                if is_absolute {
-                    continue;
-                }
-
-                if let Some(&rect) = self.outputs.rects.get(child_id) {
-                    let parent_rect = self.outputs.rects.get(id).copied().unwrap_or_default();
-                    let scroll_offset = self
-                        .outputs
-                        .scroll_offsets
-                        .get(id)
-                        .copied()
-                        .unwrap_or_default();
-
-                    // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
-                    let local_right =
-                        rect.x - parent_rect.x + scroll_offset.x + rect.width - offset_x;
-                    let local_bottom =
-                        rect.y - parent_rect.y + scroll_offset.y + rect.height - offset_y;
-
-                    max_x = max_x.max(local_right);
-                    max_y = max_y.max(local_bottom);
-                }
-            }
-        }
-
-        LayoutSize::new(max_x, max_y)
-    }
-
-    /// スクロールオフセットを目標位置へクランプした上で代入。
-    /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
-    pub(crate) fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
         let TopologyStore {
             entities,
             parents,
             children,
             active_masks,
             active_entities,
-            session_spawned,
-            session_roots,
-            flat_dfs_sequence,
-            is_structure_dirty,
+            ..
         } = &mut self.topology;
         let LayoutStore {
             basic_layouts,
@@ -1585,26 +2178,20 @@ impl Context {
             dirty_render_entities,
             active_transitions,
             active_animations,
-            active_webviews,
-            last_tick_time,
+            ..
         } = &mut self.renders;
         let OutputStore {
             rects,
-            clip_rects,
             scroll_offsets,
-            prev_rects,
-            prev_clip_rects,
             selected_rects,
             text_selections,
-            selection_start_index,
+            ..
         } = &mut self.outputs;
         let ContentStore {
             text_contents,
             text_spans,
             input_contents,
-            image_sources,
-            movie_properties,
-            webview_contents,
+            ..
         } = &mut self.contents;
         let WindowStore {
             last_window_size, ..
@@ -1612,9 +2199,86 @@ impl Context {
         let SystemStore {
             text_engine,
             dwrite_layouts,
-            uia_properties,
-            task_sender,
-            task_receiver,
+            ..
+        } = &mut self.system;
+
+        OutputStore::sync_scrollbar_drag(
+            logical_pos,
+            active_masks,
+            input_contents,
+            text_engine,
+            text_contents,
+            visual_properties,
+            dirty_render_entities,
+            text_spans,
+            dwrite_layouts,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_transitions,
+            parents,
+            children,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+            interaction_properties,
+            rects,
+            scrollbar_styles,
+            scroll_offsets,
+            *last_window_size,
+        );
+    }
+
+    /// スクロールオフセットを目標位置へクランプした上で代入。
+    /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
+    pub(crate) fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
+        let TopologyStore {
+            entities,
+            parents,
+            children,
+            active_masks,
+            active_entities,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            base_basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            scrollbar_styles,
+            taffy_nodes,
+            taffy,
+            dirty_layout_entities,
+        } = &mut self.layouts;
+        let RenderStore {
+            visual_properties,
+            interaction_properties,
+            base_visual_properties,
+            dirty_render_entities,
+            active_transitions,
+            active_animations,
+            ..
+        } = &mut self.renders;
+        let OutputStore {
+            rects,
+            scroll_offsets,
+            selected_rects,
+            text_selections,
+            ..
+        } = &mut self.outputs;
+        let ContentStore {
+            text_contents,
+            text_spans,
+            input_contents,
+            ..
+        } = &mut self.contents;
+        let WindowStore {
+            last_window_size, ..
+        } = &mut self.window;
+        let SystemStore {
+            text_engine,
+            dwrite_layouts,
+            ..
         } = &mut self.system;
 
         OutputStore::scroll_to(
@@ -1647,48 +2311,25 @@ impl Context {
 
     /// 階層的な境界判定ヘルパー（非対象のブランチをまるごとスキップ）
     pub(crate) fn hit_test_recursive(&self, id: EntityId, point: LayoutPoint) -> Option<EntityId> {
-        // 1. 親などの overflow: hidden 等でクリップされている表示範囲をチェック
-        // クリップ領域外であれば、この要素もそのすべての子孫要素も画面上に見えていないため、走査を即座にスキップ（枝刈り）
-        if let Some(clip) = self.clip_rect(id)
-            && !clip.contains(point)
-        {
-            return None;
-        }
+        let OutputStore {
+            rects, clip_rects, ..
+        } = &self.outputs;
+        let TopologyStore { children, .. } = &self.topology;
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            ..
+        } = &self.renders;
 
-        // 2. 子要素を逆順（前面優先）で再帰降下
-        if let Some(children) = self.topology.children.get(id) {
-            let child_len = children.len();
-            for i in (0..child_len).rev() {
-                let child_id = children[i];
-                if let Some(hit) = self.hit_test_recursive(child_id, point) {
-                    return Some(hit);
-                }
-            }
-        }
-
-        // pointer_events: none の場合は、自分自身の矩形判定のみをスルーする (子要素は上を辿れるため除外しない)
-        // visual_properties (動的) に無ければ base_visual_properties (静的) を見に行く
-        let pointer_events = self
-            .renders
-            .visual_properties
-            .get(id)
-            .and_then(|v| v.pointer_events)
-            .or_else(|| {
-                self.renders
-                    .base_visual_properties
-                    .get(id)
-                    .and_then(|v| v.pointer_events)
-            })
-            .unwrap_or(PointerEvents::Auto);
-
-        if pointer_events != PointerEvents::None
-            && let Some(rect) = self.outputs.rects.get(id)
-            && rect.contains(point)
-        {
-            return Some(id);
-        }
-
-        None
+        OutputStore::hit_test_recursive(
+            id,
+            point,
+            rects,
+            clip_rects,
+            children,
+            visual_properties,
+            base_visual_properties,
+        )
     }
 
     #[inline]
@@ -1716,506 +2357,69 @@ impl Context {
     }
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
-    pub(crate) fn collect_render_data(&self) -> RenderData {
-        let mut batches = Vec::new();
-        let mut current_instances = Vec::new();
-        let mut current_ids = Vec::new();
-        let mut last_clip = None;
+    #[inline]
+    pub(crate) fn collect_render_data(&mut self) -> RenderData {
+        let OutputStore {
+            rects,
+            clip_rects,
+            selected_rects,
+            scroll_offsets,
+            ..
+        } = &self.outputs;
+        let TopologyStore {
+            active_masks,
+            active_entities,
+            parents,
+            children,
+            flat_dfs_sequence,
+            sorted_entities,
+            effective_transforms,
+            effective_z_indices,
+            ..
+        } = &mut self.topology;
+        let LayoutStore {
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            ..
+        } = &self.layouts;
+        let RenderStore {
+            visual_properties,
+            base_visual_properties,
+            active_webviews,
+            active_transitions,
+            interaction_properties,
+            ..
+        } = &self.renders;
+        let ContentStore { input_contents, .. } = &self.contents;
+        let EventStore {
+            interaction_states, ..
+        } = &self.events;
+        let WindowStore { scale_factor, .. } = &self.window;
 
-        // 現在のバッチの種類 (通常)
-        let mut current_batch_type = BatchType::Normal;
-
-        // 静的なデフォルト値（一度だけ確保して使い回す）
-        let default_visual = VisualProperty::default();
-
-        // 各要素の実効トランスフォーム行列を DFS 順にカスケード累積
-        let mut effective_transforms = self.accumulate_transform_matrix();
-
-        // 各要素の実効 z_index を親から子へカスケード（伝播）して計算
-        let effective_z_indices = self.compute_effective_z_indices();
-
-        // 実効 z_index で active_entities を安定ソート
-        let mut sorted_entities = self.topology.active_entities.clone();
-        sorted_entities.sort_by_key(|&id| effective_z_indices.get(id).copied().unwrap_or(0));
-
-        // 溜まっているインスタンスを DrawBatch としてフラッシュ
-        fn flush_batch(
-            batches: &mut Vec<DrawBatch>,
-            instances: &mut Vec<QuadInstance>,
-            ids: &mut Vec<EntityId>,
-            scissor_rect: LayoutRect,
-            batch_type: BatchType,
-        ) {
-            if !instances.is_empty() {
-                batches.push(DrawBatch {
-                    scissor_rect,
-                    instances: std::mem::take(instances),
-                    entity_ids: std::mem::take(ids),
-                    batch_type,
-                });
-            }
-        }
-
-        for &id in &sorted_entities {
-            let rect = self.rect(id).unwrap_or_default();
-            if rect.width <= 0.0 || rect.height <= 0.0 {
-                continue;
-            }
-
-            let clip = self.clip_rect(id).unwrap_or_default();
-            let is_webview = self.topology.active_masks[id].has_webveiw2_content();
-
-            // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
-            let is_webview_ready = is_webview && self.renders.active_webviews.contains(&id);
-
-            let (basic, _, _) = self.resolve_active_layouts(id);
-            let visual = self
-                .renders
-                .visual_properties
-                .get(id)
-                .unwrap_or(&default_visual);
-
-            // 共通パラメータの展開
-            let (packed_transform, origin) =
-                self.get_transform_and_origin(id, visual, &effective_transforms);
-            let (o_width, o_color, o_lengths, outline_offset_and_flags) =
-                RenderStore::get_outline_params(visual);
-
-            // WebView (アクティブ) の個別処理
-            if is_webview_ready {
-                // 溜まっている通常（Normal）のバッチがあれば一旦フラッシュ
-                flush_batch(
-                    &mut batches,
-                    &mut current_instances,
-                    &mut current_ids,
-                    last_clip.unwrap_or(LayoutRect::ZERO),
-                    current_batch_type,
-                );
-
-                let punchout_opacity = visual.opacity.unwrap_or(1.0);
-                let punchout_instance = QuadInstance {
-                    rect,
-                    transform: packed_transform,
-                    transform_origin: origin,
-                    color: Color::WHITE,
-                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
-                    opacity_mode_sizing: [punchout_opacity, 0.0, 0.0, 0.0],
-                    ..Default::default()
-                };
-                current_instances.push(punchout_instance);
-                current_ids.push(id);
-
-                // くり抜き用のバッチとして即座にフラッシュ
-                flush_batch(
-                    &mut batches,
-                    &mut current_instances,
-                    &mut current_ids,
-                    clip,
-                    BatchType::Punchout,
-                );
-
-                // 前面装飾（通常）用のインスタンス
-                let border_instance = QuadInstance {
-                    rect,
-                    transform: packed_transform,
-                    transform_origin: origin,
-                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
-                    border_width: EdgeInsets {
-                        top: basic.border.top.into(),
-                        right: basic.border.right.into(),
-                        bottom: basic.border.bottom.into(),
-                        left: basic.border.left.into(),
-                    },
-                    border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-                    border_lengths: visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0)),
-                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
-                    outline_width: o_width,
-                    outline_color: o_color,
-                    outline_lengths: o_lengths,
-                    outline_offset_and_flags,
-                    ..Default::default()
-                };
-                current_instances.push(border_instance);
-                current_ids.push(id);
-
-                current_batch_type = BatchType::Normal;
-                last_clip = Some(clip);
-                continue;
-            }
-
-            // WebView (非アクティブ・静止キャッシュ) の処理
-            let is_webview_static = is_webview && !is_webview_ready;
-            if is_webview_static {
-                // 一般UIインスタンスがあれば強制フラッシュ
-                flush_batch(
-                    &mut batches,
-                    &mut current_instances,
-                    &mut current_ids,
-                    last_clip.unwrap_or(LayoutRect::ZERO),
-                    current_batch_type,
-                );
-
-                let static_instance = QuadInstance {
-                    rect,
-                    transform: packed_transform,
-                    transform_origin: origin,
-                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
-                    border_width: EdgeInsets {
-                        top: basic.border.top.into(),
-                        right: basic.border.right.into(),
-                        bottom: basic.border.bottom.into(),
-                        left: basic.border.left.into(),
-                    },
-                    border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-                    border_lengths: visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0)),
-                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
-                    ..Default::default()
-                };
-                current_instances.push(static_instance);
-                current_ids.push(id);
-
-                flush_batch(
-                    &mut batches,
-                    &mut current_instances,
-                    &mut current_ids,
-                    clip,
-                    BatchType::Normal,
-                );
-
-                let border_instance = QuadInstance {
-                    rect,
-                    transform: packed_transform,
-                    transform_origin: origin,
-                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
-                    border_width: EdgeInsets {
-                        top: basic.border.top.into(),
-                        right: basic.border.right.into(),
-                        bottom: basic.border.bottom.into(),
-                        left: basic.border.left.into(),
-                    },
-                    border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-                    border_lengths: visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0)),
-                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, 0.0, 0.0],
-                    shadow_color: Color::WHITE,
-                    outline_width: o_width,
-                    outline_color: o_color,
-                    outline_lengths: o_lengths,
-                    outline_offset_and_flags,
-                    ..Default::default()
-                };
-                current_instances.push(border_instance);
-                current_ids.push(id);
-
-                flush_batch(
-                    &mut batches,
-                    &mut current_instances,
-                    &mut current_ids,
-                    clip,
-                    BatchType::Normal,
-                );
-
-                last_clip = Some(clip);
-                continue;
-            }
-
-            // 一般要素
-            if let Some(prev_clip) = last_clip {
-                if clip != prev_clip {
-                    flush_batch(
-                        &mut batches,
-                        &mut current_instances,
-                        &mut current_ids,
-                        prev_clip,
-                        current_batch_type,
-                    );
-                    last_clip = Some(clip);
-                }
-            } else {
-                last_clip = Some(clip);
-            }
-
-            // 選択ハイライト背景のwgpu側への差し込み
-            if let Some(rects) = self.outputs.selected_rects.get(id) {
-                let (border, padding) =
-                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-                let sel_bg = visual
-                    .select_bg_color
-                    .unwrap_or(Color::rgba_f32(0.0, 0.47, 0.84, 0.35));
-
-                let scroll = self
-                    .outputs
-                    .scroll_offsets
-                    .get(id)
-                    .copied()
-                    .unwrap_or(LayoutPoint::ZERO);
-
-                let text_size = if let Some(contents) = self.contents.input_contents.get(id)
-                    && let Some(layout_rect) = contents.last_layout
-                {
-                    LayoutSize::new(layout_rect.width, layout_rect.height)
-                } else {
-                    LayoutSize::ZERO
-                };
-                let (_, flex, _) = self.resolve_active_layouts(id);
-                let content_w =
-                    (rect.width - border.left - border.right - padding.left - padding.right)
-                        .max(0.0);
-                let align_offset_x = match flex.text_align {
-                    TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
-                    TextAlign::Right => (content_w - text_size.width).max(0.0),
-                    _ => 0.0,
-                };
-                let content_h =
-                    (rect.height - border.top - border.bottom - padding.top - padding.bottom)
-                        .max(0.0);
-                let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
-
-                for metric_rect in rects {
-                    let sel_rect = LayoutRect::new(
-                        rect.x + border.left + padding.left + align_offset_x + metric_rect.x
-                            - scroll.x,
-                        rect.y + border.top + padding.top + align_offset_y + metric_rect.y
-                            - scroll.y,
-                        metric_rect.width,
-                        metric_rect.height,
-                    );
-
-                    let sel_instance = QuadInstance {
-                        rect: sel_rect,
-                        transform: packed_transform,
-                        color: sel_bg,
-                        opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), -1.0, 0.0, 0.0],
-                        ..Default::default()
-                    };
-                    current_instances.push(sel_instance);
-                    current_ids.push(id);
-                }
-            }
-
-            // 背景色とテキストの多重描画の解決
-            let is_text = self.topology.active_masks[id].has_text_content();
-            let has_bg = visual.bg_color.is_some()
-                || visual.bg_gradient.is_some()
-                || visual.border_color.is_some()
-                || visual.shadow_params.is_some();
-
-            let box_sizing_val = match basic.box_sizing {
-                BoxSizing::BorderBox => 0.0f32,
-                BoxSizing::ContentBox => 1.0f32,
-            };
-
-            if is_text && has_bg {
-                let bg_color = visual.bg_color.unwrap_or(Color::TRANSPARENT);
-                let (gradient_end_color, gradient_angle, bg_mode) = match visual.bg_gradient {
-                    Some(g) => (g.end_color, g.angle, 1.0f32),
-                    None => (bg_color, 0.0, 0.0f32),
-                };
-
-                let bg_instance = QuadInstance {
-                    rect,
-                    transform: packed_transform,
-                    transform_origin: origin,
-                    color: bg_color,
-                    corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
-                    border_width: EdgeInsets {
-                        top: basic.border.top.into(),
-                        right: basic.border.right.into(),
-                        bottom: basic.border.bottom.into(),
-                        left: basic.border.left.into(),
-                    },
-                    border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-                    border_lengths: visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0)),
-                    opacity_mode_sizing: [
-                        visual.opacity.unwrap_or(1.0),
-                        bg_mode,
-                        box_sizing_val,
-                        0.0,
-                    ],
-                    gradient_end_color,
-                    gradient_angle,
-                    shadow_color: Color::WHITE,
-                    shadow_params: [0.0; 4],
-                    outline_width: o_width,
-                    outline_color: o_color,
-                    outline_lengths: o_lengths,
-                    outline_offset_and_flags,
-                    ..Default::default()
-                };
-                current_instances.push(bg_instance);
-                current_ids.push(id);
-            }
-
-            // 通常のテキスト / 背景のレンダリング
-            let color = if is_text {
-                visual.text_color.unwrap_or(Color::BLACK)
-            } else {
-                visual.bg_color.unwrap_or(Color::TRANSPARENT)
-            };
-
-            let (gradient_end_color, gradient_angle, mut mode) = match visual.bg_gradient {
-                Some(g) => (g.end_color, g.angle, 1.0f32),
-                None => (color, 0.0, 0.0f32),
-            };
-
-            if is_text {
-                mode = 2.0;
-            }
-
-            // テキスト要素で背景を分離描画した場合、テキストレイヤー側の装飾をクリア
-            let bypass_decorations = is_text && has_bg;
-            let border_width = if bypass_decorations {
-                EdgeInsets::ZERO
-            } else {
-                EdgeInsets {
-                    top: basic.border.top.into(),
-                    right: basic.border.right.into(),
-                    bottom: basic.border.bottom.into(),
-                    left: basic.border.left.into(),
-                }
-            };
-            let border_lengths = if bypass_decorations {
-                EdgeInsets::ZERO
-            } else {
-                visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0))
-            };
-            let border_color = if bypass_decorations {
-                Color::TRANSPARENT
-            } else {
-                visual.border_color.unwrap_or(Color::TRANSPARENT)
-            };
-            let shadow_color = if bypass_decorations {
-                Color::TRANSPARENT
-            } else {
-                Color::WHITE
-            };
-            let outline_width = if bypass_decorations {
-                EdgeInsets::ZERO
-            } else {
-                o_width
-            };
-            let outline_color = if bypass_decorations {
-                Color::TRANSPARENT
-            } else {
-                o_color
-            };
-            let outline_lengths = if bypass_decorations {
-                EdgeInsets::ZERO
-            } else {
-                o_lengths
-            };
-            let outline_offset_and_flags = if bypass_decorations {
-                [0.0; 4]
-            } else {
-                outline_offset_and_flags
-            };
-
-            let instance = QuadInstance {
-                rect,
-                transform: packed_transform,
-                transform_origin: origin,
-                color,
-                corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
-                border_width,
-                border_color,
-                border_lengths,
-                opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), mode, 0.0, 0.0],
-                gradient_end_color,
-                gradient_angle,
-                shadow_color,
-                outline_width,
-                outline_color,
-                outline_lengths,
-                outline_offset_and_flags,
-                ..Default::default()
-            };
-
-            current_instances.push(instance);
-            current_ids.push(id);
-
-            // インプット要素のキャレット描画
-            let is_input = self.topology.active_masks[id].has_input_content();
-            let is_focused = self.events.interaction_states.focused == Some(id);
-
-            if is_input
-                && is_focused
-                && let Some(contents) = self.contents.input_contents.get(id)
-                && ContentStore::should_show_caret(contents)
-            {
-                let (border, padding) =
-                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-                let scale = self.window.scale_factor;
-                let scroll = self
-                    .outputs
-                    .scroll_offsets
-                    .get(id)
-                    .copied()
-                    .unwrap_or(LayoutPoint::ZERO);
-
-                let text_size = if let Some(layout_rect) = contents.last_layout {
-                    LayoutSize::new(layout_rect.width, layout_rect.height)
-                } else {
-                    LayoutSize::ZERO
-                };
-                let (_, flex, _) = self.resolve_active_layouts(id);
-                let content_w =
-                    (rect.width - border.left - border.right - padding.left - padding.right)
-                        .max(0.0);
-                let align_offset_x = match flex.text_align {
-                    TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
-                    TextAlign::Right => (content_w - text_size.width).max(0.0),
-                    _ => 0.0,
-                };
-                let content_h =
-                    (rect.height - border.top - border.bottom - padding.top - padding.bottom)
-                        .max(0.0);
-                let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
-                let align_offset = LayoutPoint {
-                    x: align_offset_x,
-                    y: align_offset_y,
-                };
-
-                let caret_rect = OutputStore::calculate_caret_rect(
-                    rect,
-                    border,
-                    padding,
-                    contents,
-                    scale,
-                    scroll,
-                    align_offset,
-                );
-                let c_color = contents
-                    .caret_color
-                    .or(self
-                        .renders
-                        .base_visual_properties
-                        .get(id)
-                        .and_then(|v| v.text_color))
-                    .or(visual.text_color)
-                    .unwrap_or(Color::WHITE);
-
-                let caret_instance = QuadInstance {
-                    rect: caret_rect,
-                    transform: packed_transform,
-                    color: c_color,
-                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), -1.0, 0.0, 0.0],
-                    ..Default::default()
-                };
-
-                current_instances.push(caret_instance);
-                current_ids.push(id);
-            }
-        }
-
-        // 走査終了後、最後に残ったバッチをフラッシュ
-        flush_batch(
-            &mut batches,
-            &mut current_instances,
-            &mut current_ids,
-            last_clip.unwrap_or(LayoutRect::ZERO),
-            current_batch_type,
-        );
-
-        RenderData { batches }
+        OutputStore::collect_render_data(
+            rects,
+            clip_rects,
+            basic_layouts,
+            flex_layouts,
+            grid_layouts,
+            active_masks,
+            active_transitions,
+            parents,
+            flat_dfs_sequence,
+            active_entities,
+            interaction_properties,
+            base_visual_properties,
+            visual_properties,
+            active_webviews,
+            selected_rects,
+            scroll_offsets,
+            input_contents,
+            *scale_factor,
+            interaction_states,
+            sorted_entities,
+            effective_transforms,
+            effective_z_indices,
+        )
     }
 }

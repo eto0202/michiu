@@ -20,7 +20,15 @@ pub use topology_store::*;
 pub use window_store::*;
 
 use crate::{
-    ActiveFocusTrigger, CursorIcon, DndDragPayload, Element, ElementState, ImeState, LayoutPoint, LayoutRect, LayoutSize, Modifiers, MouseButton, Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue, UserSelect, Val, VirtualKey, WriteSignal, bind_context, handle_on_char_input, handle_on_click, handle_on_dnd_entity_drop, handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime, handle_on_keyboard_input, handle_on_mouse_input, handle_on_right_click, with_context
+    ActiveFocusTrigger, CursorIcon, DndDragPayload, Element, ElementState, ImeState, LayoutPoint,
+    LayoutRect, LayoutSize, Modifiers, MouseButton, Overflow, PlaybackCount, PointerEvents,
+    PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
+    STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
+    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW,
+    STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue,
+    UserSelect, Val, VirtualKey, WriteSignal, bind_context, handle_on_char_input, handle_on_click,
+    handle_on_dnd_entity_drop, handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime,
+    handle_on_keyboard_input, handle_on_mouse_input, handle_on_right_click, with_context,
 };
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
@@ -310,7 +318,9 @@ impl Context {
     /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
     #[inline]
     pub fn clip_rect(&self, id: EntityId) -> Option<LayoutRect> {
-        self.outputs.clip_rects.get(id).copied()
+        let OutputStore { clip_rects, .. } = &self.outputs;
+
+        OutputStore::clip_rect(id, clip_rects)
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
@@ -331,6 +341,7 @@ impl Context {
             session_roots,
             flat_dfs_sequence,
             is_structure_dirty,
+            ..
         } = &mut self.topology;
         let LayoutStore {
             basic_layouts,
@@ -1765,14 +1776,16 @@ impl Context {
 
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
     /// 階層的な早期枝刈りヒットテスト
-    pub fn hit_test(&self, point: LayoutPoint) -> Option<EntityId> {
+    pub fn hit_test(&mut self, point: LayoutPoint) -> Option<EntityId> {
         let TopologyStore {
             active_entities,
             active_masks,
             parents,
             flat_dfs_sequence,
+            effective_z_indices,
+            sorted_entities,
             ..
-        } = &self.topology;
+        } = &mut self.topology;
         let RenderStore {
             visual_properties,
             base_visual_properties,
@@ -1791,6 +1804,8 @@ impl Context {
             active_masks,
             flat_dfs_sequence,
             parents,
+            effective_z_indices,
+            sorted_entities,
             visual_properties,
             base_visual_properties,
             interaction_states,

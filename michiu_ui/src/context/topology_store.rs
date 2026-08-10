@@ -16,6 +16,9 @@ pub(crate) type ActiveEntitiesVec = Vec<EntityId>;
 pub(crate) type SessionSpawnedVec = Vec<EntityId>;
 pub(crate) type SessionRootsVec = Vec<EntityId>;
 pub(crate) type FlatDfsSequenceVec = Vec<EntityId>;
+pub(crate) type EffectiveZindicesSecondary = SecondaryMap<EntityId, i32>;
+pub(crate) type EffectiveTransformsSecondary = SecondaryMap<EntityId, [[f32; 4]; 4]>;
+pub(crate) type SortedEntitiesVec = Vec<EntityId>;
 
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
@@ -35,6 +38,12 @@ pub struct TopologyStore {
     pub(crate) session_roots: SessionRootsVec,
     pub(crate) flat_dfs_sequence: FlatDfsSequenceVec,
     pub(crate) is_structure_dirty: bool,
+    // ソート用の作業用配列
+    pub(crate) sorted_entities: SortedEntitiesVec,
+    // 累積トランスフォーム行列の作業用マップ
+    pub(crate) effective_transforms: EffectiveTransformsSecondary,
+    // 実効 z-index の作業用マップ
+    pub(crate) effective_z_indices: EffectiveZindicesSecondary,
 }
 
 impl Default for TopologyStore {
@@ -57,6 +66,10 @@ impl TopologyStore {
             session_roots: Vec::new(),
             flat_dfs_sequence: Vec::new(),
             is_structure_dirty: true,
+            // TODO: 容量確保に関して要検討
+            sorted_entities: Vec::new(),
+            effective_transforms: SecondaryMap::new(),
+            effective_z_indices: SecondaryMap::new(),
         }
     }
 
@@ -69,6 +82,9 @@ impl TopologyStore {
         self.active_entities.clear();
         self.flat_dfs_sequence.clear();
         self.is_structure_dirty = true;
+        self.sorted_entities.clear();
+        self.effective_transforms.clear();
+        self.effective_z_indices.clear();
     }
 
     #[inline]
@@ -76,12 +92,15 @@ impl TopologyStore {
         self.entities.remove(id);
         self.parents.remove(id);
         self.active_masks.remove(id);
+        self.effective_z_indices.remove(id);
+        self.effective_transforms.remove(id);
         // ダーティキュー、DFSシーケンス、アクティブ走査用の一時配列から
         // デスポーンされた無効な ID をその場で即時に抹消クリーンアップします。
         self.active_entities.retain(|&x| x != id);
         self.session_spawned.retain(|&x| x != id);
         self.session_roots.retain(|&x| x != id);
         self.flat_dfs_sequence.retain(|&x| x != id);
+        self.sorted_entities.retain(|&x| x != id);
     }
 }
 
@@ -249,6 +268,8 @@ impl TopologyStore {
         if !topology.entities.contains_key(id) {
             return;
         }
+
+        topology.is_structure_dirty = true;
 
         // 親トポロジーおよび Taffy ツリーからのデタッチ
         if let Some(Some(parent_id)) = topology.parents.get(id) {
@@ -541,14 +562,39 @@ impl TopologyStore {
         false
     }
 
-    pub(crate) fn compute_effective_z_indices(
+    /// 実効z_indexの計算と、それに基づく要素のソート
+    #[inline]
+    pub(crate) fn prepare_sorted_entities(
         active_entities: &ActiveEntitiesVec,
         flat_dfs_sequence: &FlatDfsSequenceVec,
         visual_properties: &VisualPropertiesSecondary,
         parents: &ParentsSecondary,
-    ) -> SecondaryMap<EntityId, i32> {
-        // 各要素の実効 z_index を親から子へカスケードして計算
-        let mut eff_z_indices = SecondaryMap::with_capacity(active_entities.len());
+        effective_z_indices: &mut EffectiveZindicesSecondary,
+        sorted_entities: &mut SortedEntitiesVec,
+    ) {
+        // 実効 z_index をカスケード計算
+        TopologyStore::compute_effective_z_indices(
+            flat_dfs_sequence,
+            visual_properties,
+            parents,
+            effective_z_indices,
+        );
+
+        sorted_entities.clear();
+        sorted_entities.extend(active_entities.iter().copied());
+
+        sorted_entities.sort_by_key(|&id| effective_z_indices.get(id).copied().unwrap_or(0));
+    }
+
+    /// 各要素の実効 `z_index` を親から子へカスケードして計算
+    #[inline]
+    pub(crate) fn compute_effective_z_indices(
+        flat_dfs_sequence: &FlatDfsSequenceVec,
+        visual_properties: &VisualPropertiesSecondary,
+        parents: &ParentsSecondary,
+        effective_z_indices: &mut EffectiveZindicesSecondary,
+    ) {
+        effective_z_indices.clear();
 
         // flat_dfs_sequence は必ず親から子への順でフラットに並んでいるため、前方1方向の走査で完結
         for &id in flat_dfs_sequence {
@@ -558,15 +604,13 @@ impl TopologyStore {
                 .get(id)
                 .copied()
                 .flatten()
-                .and_then(|pid| eff_z_indices.get(pid).copied());
+                .and_then(|pid| effective_z_indices.get(pid).copied());
 
             // 自身に z_index 指定があればそれを最優先し、
             // なければ親の実効 z_index を継承する（双方になければデフォルト 0）
             let eff_z = self_z.or(parent_z).unwrap_or(0);
-            eff_z_indices.insert(id, eff_z);
+            effective_z_indices.insert(id, eff_z);
         }
-
-        eff_z_indices
     }
 
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
@@ -578,31 +622,25 @@ impl TopologyStore {
         active_masks: &ActiveMasksSecondary,
         flat_dfs_sequence: &FlatDfsSequenceVec,
         parents: &ParentsSecondary,
+        effective_z_indices: &mut EffectiveZindicesSecondary,
+        sorted_entities: &mut SortedEntitiesVec,
         visual_properties: &VisualPropertiesSecondary,
         base_visual_properties: &BaseVisualPropertiesSecondary,
         interaction_states: &InteractionStates,
         rects: &RectsSecondary,
         clip_rects: &ClipRectsSecondary,
     ) -> Option<EntityId> {
-        // 各要素の実効 z_index を、親から子へカスケードして算出
-        let mut z_indices = SecondaryMap::with_capacity(flat_dfs_sequence.len());
-        for &id in flat_dfs_sequence {
-            let self_z = visual_properties.get(id).and_then(|v| v.z_index);
+        // 実効 z_index の計算とソート
+        TopologyStore::prepare_sorted_entities(
+            active_entities,
+            flat_dfs_sequence,
+            visual_properties,
+            parents,
+            effective_z_indices,
+            sorted_entities,
+        );
 
-            let parent_z = parents
-                .get(id)
-                .copied()
-                .flatten()
-                .and_then(|pid| z_indices.get(pid).copied());
-
-            let eff_z = self_z.or(parent_z).unwrap_or(0);
-            z_indices.insert(id, eff_z);
-        }
-
-        // 実効 z_index に基づいて active_entities を安定ソート
-        let mut sorted_entities = active_entities.clone();
-        sorted_entities.sort_by_key(|&id| z_indices.get(id).copied().unwrap_or(0));
-
+        // 最前面の要素から逆順
         for &id in sorted_entities.iter().rev() {
             let is_drag_over = active_masks
                 .get(id)
@@ -610,6 +648,14 @@ impl TopologyStore {
 
             // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
             if Some(id) == interaction_states.dragged || is_drag_over {
+                continue;
+            }
+
+            // 物理範囲に含まれているか
+            let Some(rect) = OutputStore::rect(id, rects) else {
+                continue;
+            };
+            if !rect.contains(point) {
                 continue;
             }
 
@@ -635,12 +681,7 @@ impl TopologyStore {
                 continue; // 透過設定
             }
 
-            // 物理範囲にヒットしたかを検証
-            if let Some(rect) = OutputStore::rect(id, rects)
-                && rect.contains(point)
-            {
-                return Some(id);
-            }
+            return Some(id);
         }
         None
     }
@@ -882,22 +923,23 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn compute_effective_z_indices(&self) -> SecondaryMap<EntityId, i32> {
+    pub(crate) fn compute_effective_z_indices(&mut self) {
         let TopologyStore {
             parents,
             active_entities,
             flat_dfs_sequence,
+            effective_z_indices,
             ..
-        } = &self.topology;
+        } = &mut self.topology;
         let RenderStore {
             visual_properties, ..
         } = &self.renders;
 
         TopologyStore::compute_effective_z_indices(
-            active_entities,
             flat_dfs_sequence,
             visual_properties,
             parents,
+            effective_z_indices,
         )
     }
 }

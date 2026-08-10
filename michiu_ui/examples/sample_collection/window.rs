@@ -76,7 +76,7 @@ unsafe extern "system" fn wnd_proc(
                         app.context
                             .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
                         app.renderer.update_composition_tree(&mut app.context);
-                        app.renderer.draw(&app.context); // これが内部で InvalidateRect 等を適切に走らせます
+                        app.renderer.draw(&mut app.context); // これが内部で InvalidateRect 等を適切に走らせます
                     }
                 }
                 return LRESULT(0);
@@ -135,7 +135,7 @@ unsafe extern "system" fn wnd_proc(
 
                 app.renderer.update_composition_tree(&mut app.context);
 
-                app.renderer.draw(&app.context);
+                app.renderer.draw(&mut app.context);
                 app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };

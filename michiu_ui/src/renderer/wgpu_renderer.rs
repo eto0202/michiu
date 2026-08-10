@@ -413,7 +413,7 @@ impl WgpuRenderer {
         }
     }
 
-    pub(crate) fn render(&mut self, cx: &Context, scale_factor: f32) {
+    pub(crate) fn render(&mut self, cx: &mut Context, scale_factor: f32) {
         let _context_guard = crate::bind_context(cx);
         // 1. 前面と背面に分類されたバッチを Context から引き出す
         let render_data = cx.collect_render_data();

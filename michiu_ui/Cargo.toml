@@ -54,6 +54,7 @@ features = [
 
 [features]
 serde = ["dep:serde"]
+dhat-heap = ["dep:dhat"]
 
 [package.metadata.docs.rs]
 all-features = true

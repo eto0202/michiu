@@ -108,7 +108,7 @@ unsafe extern "system" fn wnd_proc(
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 描画実行
-                app.renderer.draw(&app.context);
+                app.renderer.draw(&mut app.context);
                 app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };

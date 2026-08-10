@@ -3,19 +3,20 @@ use crate::{
     BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
     BoxShadow, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
     CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display, EdgeInsets, EffectCategory,
-    EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger,
-    Focusable, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStates,
-    InteractionStyles, LayoutPoint, LayoutSize, LayoutStore, OutputStore, ParentsSecondary,
-    PlaybackCount, Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary,
-    STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING,
-    STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED,
-    STATE_QUEUED_RENDER, STATE_SELECTED, STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_BG_COLOR,
-    STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR,
-    STYLE_EXT_PROPERTIES, STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
-    STYLE_OPACITY, STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR,
-    STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay,
-    ScrollbarStylesSecondary, StyleTarget, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle,
-    TopologyStore, TransitionValue, Val, VisualProperty, WindowStore,
+    EffectId, EffectiveTransformsSecondary, ElementEffectsSecondary, EntitiesSlot, EntityId,
+    FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon, IDENTITY_MATRIX,
+    InputContentsSparseSecondary, InteractionStates, InteractionStyles, LayoutPoint, LayoutSize,
+    LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList,
+    ReactiveStore, RectsSecondary, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
+    STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
+    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_RENDER, STATE_SELECTED,
+    STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_BG_COLOR, STYLE_BORDER, STYLE_BORDER_COLOR,
+    STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_EXT_PROPERTIES, STYLE_FONT_SIZE,
+    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OPACITY, STYLE_OUTLINE,
+    STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR, STYLE_TRANSFORM,
+    STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay, ScrollbarStylesSecondary,
+    StyleTarget, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle, TopologyStore, TransitionValue,
+    Val, VisualProperty, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -1410,13 +1411,15 @@ impl RenderStore {
         }
     }
 
+    /// 各要素の実効トランスフォーム行列を累積計算
     pub(crate) fn accumulate_transform_matrix(
         flat_dfs_sequence: &FlatDfsSequenceVec,
         visual_properties: &VisualPropertiesSecondary,
         parents: &ParentsSecondary,
         active_entities: &ActiveEntitiesVec,
-    ) -> SecondaryMap<EntityId, [[f32; 4]; 4]> {
-        let mut effective_transforms = SecondaryMap::with_capacity(active_entities.len());
+        effective_transforms: &mut EffectiveTransformsSecondary,
+    ) {
+        effective_transforms.clear();
 
         for &id in flat_dfs_sequence {
             let (self_transform, transform_inherit) = match visual_properties.get(id) {
@@ -1438,7 +1441,6 @@ impl RenderStore {
             }
             effective_transforms.insert(id, eff_transform);
         }
-        effective_transforms
     }
 
     #[inline]
@@ -1759,26 +1761,6 @@ impl Context {
             target,
             base_visual_properties,
             interaction_properties,
-        )
-    }
-
-    #[inline]
-    pub(crate) fn accumulate_transform_matrix(&self) -> SecondaryMap<EntityId, [[f32; 4]; 4]> {
-        let TopologyStore {
-            flat_dfs_sequence,
-            parents,
-            active_entities,
-            ..
-        } = &self.topology;
-        let RenderStore {
-            visual_properties, ..
-        } = &self.renders;
-
-        RenderStore::accumulate_transform_matrix(
-            flat_dfs_sequence,
-            visual_properties,
-            parents,
-            active_entities,
         )
     }
 
