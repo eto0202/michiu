@@ -213,8 +213,8 @@ impl ComposedRenderer {
             }
 
             // ルート要素（root_node）のスタイルから DWM アクリル効果を自動検出して同期
-            if let Some(&root_id) = cx.topology.active_entities.first()
-                && let Some(visual_prop) = cx.renders.visual_properties.get(root_id)
+            if let Some(&root_id) = cx.topology.topo_active_entities.first()
+                && let Some(visual_prop) = cx.renders.ren_visual.get(root_id)
             {
                 let target_backdrop = visual_prop.backdrop;
 
@@ -239,7 +239,7 @@ impl ComposedRenderer {
                         wgpu_texture.create_view(&wgpu::wgt::TextureViewDescriptor::default());
                     self.wgpu_renderer.webview_static_caches.insert(id, view);
 
-                    cx.renders.active_webviews.remove(&id);
+                    cx.renders.ren_active_webviews.remove(&id);
 
                     self.pending_dcomp_releases.push(PendingDcompRelease {
                         entity_id: id,
@@ -280,13 +280,13 @@ impl ComposedRenderer {
 
             let mut current_promoted_ids = Vec::new();
 
-            for &id in &cx.topology.active_entities {
+            for &id in &cx.topology.topo_active_entities {
                 // WebView2 要素を抽出して昇格させる
-                let is_webview = cx.topology.active_masks[id].has_webveiw2_content();
+                let is_webview = cx.topology.topo_active_masks[id].has_webveiw2_content();
 
                 let is_always_active = cx
                     .contents
-                    .webview_contents
+                    .cont_webview_contents
                     .get(id)
                     .is_some_and(|c| c.always_active);
 
@@ -300,14 +300,14 @@ impl ComposedRenderer {
                     .any(|v| v.entity_id == id && v.is_capturing);
                 // 対象要素が現在サイズ・トランスフォーム等のアニメーション/トランジション中であるか判定
                 let is_transitioning =
-                    cx.renders.active_transitions.get(id).is_some_and(|list| {
+                    cx.renders.ren_active_transitions.get(id).is_some_and(|list| {
                         list.iter().any(|t| {
                             t.property_list == PropertyList::Width
                                 || t.property_list == PropertyList::Height
                                 || t.property_list == PropertyList::Size
                                 || t.property_list == PropertyList::Transform
                         })
-                    }) || cx.renders.active_animations.get(id).is_some_and(|list| {
+                    }) || cx.renders.ren_active_animations.get(id).is_some_and(|list| {
                         list.iter().any(|a| {
                             a.property == PropertyList::Width
                                 || a.property == PropertyList::Height
@@ -317,10 +317,10 @@ impl ComposedRenderer {
                     });
 
                 // 要素の物理サイズが前フレームから微細変動（リサイズドラッグなど）しているか判定
-                let rect = cx.outputs.rects[id];
+                let rect = cx.outputs.out_rects[id];
                 let prev_rect = cx
                     .outputs
-                    .prev_rects
+                    .out_prev_rects
                     .get(id)
                     .copied()
                     .unwrap_or(LayoutRect::ZERO);
@@ -336,7 +336,7 @@ impl ComposedRenderer {
                     .any(|r| r.entity_id == id);
 
                 // 現在ウィンドウがリアルタイムにリサイズ中であるか
-                let is_resizing = cx.window.is_window_resizing;
+                let is_resizing = cx.window.win_is_resizing;
 
                 // インタラクティブ操作中、またはまだキャッシュがなくキャプチャもキックされていない間、
                 // あるいはキャプチャ実行中（wgpuにテクスチャが届くのを待っている間）は、DComp上に実体を生かします。
@@ -379,7 +379,7 @@ impl ComposedRenderer {
                             .is_some()
                     {
                         // コントローラーがバインドされた＝初期化完了したため、wgpu 側に穴あけを指示
-                        cx.renders.active_webviews.insert(id);
+                        cx.renders.ren_active_webviews.insert(id);
 
                         // 実体 WebView2 の表示が可能になった「このフレーム」で初めてキャッシュを解放。
                         if self.wgpu_renderer.webview_static_caches.contains_key(&id) {
@@ -395,7 +395,7 @@ impl ComposedRenderer {
                 let id = self.promoted_visuals[i].entity_id;
 
                 // 生存していない（despawn済みの）要素はクリーンアップ
-                if !cx.topology.entities.contains_key(id) {
+                if !cx.topology.topo_entities.contains_key(id) {
                     let promoted = &self.promoted_visuals[i];
                     if promoted.is_visible {
                         let _ = self.root_visual.RemoveVisual(&promoted.visual);
@@ -432,21 +432,21 @@ impl ComposedRenderer {
 
                 let is_always_active = cx
                     .contents
-                    .webview_contents
+                    .cont_webview_contents
                     .get(id)
                     .is_some_and(|c| c.always_active);
                 let is_interactive = has_interactive_descendant(cx, id);
                 let has_no_cache = !self.wgpu_renderer.webview_static_caches.contains_key(&id);
 
                 let is_transitioning =
-                    cx.renders.active_transitions.get(id).is_some_and(|list| {
+                    cx.renders.ren_active_transitions.get(id).is_some_and(|list| {
                         list.iter().any(|t| {
                             t.property_list == PropertyList::Width
                                 || t.property_list == PropertyList::Height
                                 || t.property_list == PropertyList::Size
                                 || t.property_list == PropertyList::Transform
                         })
-                    }) || cx.renders.active_animations.get(id).is_some_and(|list| {
+                    }) || cx.renders.ren_active_animations.get(id).is_some_and(|list| {
                         list.iter().any(|a| {
                             a.property == PropertyList::Width
                                 || a.property == PropertyList::Height
@@ -455,10 +455,10 @@ impl ComposedRenderer {
                         })
                     });
 
-                let rect = cx.outputs.rects[id];
+                let rect = cx.outputs.out_rects[id];
                 let prev_rect = cx
                     .outputs
-                    .prev_rects
+                    .out_prev_rects
                     .get(id)
                     .copied()
                     .unwrap_or(LayoutRect::ZERO);
@@ -466,7 +466,7 @@ impl ComposedRenderer {
                     || (rect.height - prev_rect.height).abs() > 0.01;
 
                 // 要素自体のサイズ・変形アニメーションが終了（is_transitioning = false）するまでキャプチャを保留
-                let is_stable = !cx.window.is_window_resizing
+                let is_stable = !cx.window.win_is_resizing
                     && self.resize_cooldown_frames == 0
                     && !is_transitioning
                     && !is_size_changing;
@@ -485,7 +485,7 @@ impl ComposedRenderer {
                     {
                         let rect = cx
                             .outputs
-                            .rects
+                            .out_rects
                             .get(id)
                             .copied()
                             .unwrap_or(LayoutRect::ZERO);
@@ -504,7 +504,7 @@ impl ComposedRenderer {
                         // 安全な .get() とアンラップで座標を取得
                         let rect = cx
                             .outputs
-                            .rects
+                            .out_rects
                             .get(id)
                             .copied()
                             .unwrap_or(LayoutRect::ZERO);
@@ -558,8 +558,8 @@ impl ComposedRenderer {
                 }
 
                 // 2. 生きている要素のサイズを追従（Taffyのレイアウトアニメーションと完全同期）
-                let rect = cx.outputs.rects[id];
-                let clip_rect = cx.outputs.clip_rects[id]; // 親の overflow 等で制限された表示領域
+                let rect = cx.outputs.out_rects[id];
+                let clip_rect = cx.outputs.out_clip_rects[id]; // 親の overflow 等で制限された表示領域
                 let visual = &self.promoted_visuals[i].visual;
 
                 // 移動中・リサイズ中におけるDCompスワップチェーンの子の影の点滅を防止するため、
@@ -567,13 +567,13 @@ impl ComposedRenderer {
                 // DComp側へのOffset/Clip/Boundsの再設定を完全にスキップして早期スルー。
                 let prev_rect = cx
                     .outputs
-                    .prev_rects
+                    .out_prev_rects
                     .get(id)
                     .copied()
                     .unwrap_or(LayoutRect::ZERO);
                 let prev_clip = cx
                     .outputs
-                    .prev_clip_rects
+                    .out_prev_clip_rects
                     .get(id)
                     .copied()
                     .unwrap_or(LayoutRect::ZERO);
@@ -590,12 +590,12 @@ impl ComposedRenderer {
 
                 // トランスフォーム（Transform）が現在トランジション中か判定
                 let has_active_transform_anim =
-                    cx.renders.active_transitions.get(id).is_some_and(|list| {
+                    cx.renders.ren_active_transitions.get(id).is_some_and(|list| {
                         list.iter()
                             .any(|t| t.property_list == PropertyList::Transform)
                     });
 
-                let is_resizing = cx.window.is_window_resizing;
+                let is_resizing = cx.window.win_is_resizing;
                 // トランジション駆動中であれば早期スルーを確実にバイパスして毎フレームの再設定を保証
                 if !is_resizing
                     && rect == prev_rect
@@ -613,7 +613,7 @@ impl ComposedRenderer {
                 visual.SetOffsetY2(phys_y).unwrap();
 
                 // DComp 側への 2D アフィン変換行列 (Matrix3x2) の同期を追加
-                if let Some(visual_prop) = cx.renders.visual_properties.get(id) {
+                if let Some(visual_prop) = cx.renders.ren_visual.get(id) {
                     if let Some(m) = visual_prop.transform {
                         let m11 = m[0][0];
                         let m12 = m[0][1];
@@ -660,7 +660,7 @@ impl ComposedRenderer {
                 }
 
                 // DComp の仕様に則り、通常の CreateRectangleClip から角丸設定を行います
-                if let Some(visual_prop) = cx.renders.visual_properties.get(id) {
+                if let Some(visual_prop) = cx.renders.ren_visual.get(id) {
                     // 1. 通常の RectangleClip オブジェクトをデバイスから生成
                     let dcomp_device = self.dcomp_device.clone();
                     let rectangle_clip = dcomp_device.CreateRectangleClip().unwrap();
@@ -734,7 +734,7 @@ impl ComposedRenderer {
             let visual = self.dcomp_device.CreateVisual().unwrap();
 
             // 2. 位置とサイズを DComp 側に同期（最初のフレームから物理座標を使い、ジャンプを防ぐ）
-            let rect = cx.outputs.rects[id];
+            let rect = cx.outputs.out_rects[id];
             let phys_x = rect.x * self.scale_factor;
             let phys_y = rect.y * self.scale_factor;
             visual.SetOffsetX2(phys_x).unwrap();
@@ -750,8 +750,8 @@ impl ComposedRenderer {
             let webview_controller = Rc::new(RefCell::new(None));
 
             // B. WebView2 設定のバインド (COMP_WEBVIEW_CONTENTフラグ)
-            if cx.topology.active_masks[id].has_webveiw2_content()
-                && let Some(contents) = cx.contents.webview_contents.get(id)
+            if cx.topology.topo_active_masks[id].has_webveiw2_content()
+                && let Some(contents) = cx.contents.cont_webview_contents.get(id)
             {
                 let slot_clone = webview_controller.clone();
 
@@ -764,7 +764,7 @@ impl ComposedRenderer {
                     rect,
                     self.scale_factor,
                     self.webview_env.clone(),
-                    cx.task_sender(),
+                    cx.sys_task_sender(),
                 );
             }
 
@@ -803,14 +803,14 @@ impl ComposedRenderer {
         physical_cursor_pos: LayoutPoint, // 親ウィンドウ上の論理カーソル座標
     ) {
         // 1. allow_interaction が false なら、転送を完全に無視して早期リターン
-        if let Some(contents) = cx.contents.webview_contents.get(id)
+        if let Some(contents) = cx.contents.cont_webview_contents.get(id)
             && !contents.allow_interaction
         {
             return;
         }
 
         // 2. この WebView2 要素の矩形（rect）を取得
-        let rect = cx.outputs.rects[id];
+        let rect = cx.outputs.out_rects[id];
 
         // 3. マウス座標を WebView2 の左上 (0,0) を原点とする相対座標にローカライズ
         // ※ さらに DComp 側に引き渡すために物理ピクセルにスケールアップします
@@ -900,11 +900,11 @@ pub(crate) unsafe fn setup_direct_composition(
 // 親子関係を再帰的に走査してアクティビティを伝播するヘルパー関数の追加 ───
 fn has_interactive_descendant(cx: &Context, id: EntityId) -> bool {
     // 自分自身がフォーカス、またはアクティブ状態のインタラクション属性を持っているか
-    if cx.topology.active_masks[id].has_active_interaction_property() {
+    if cx.topology.topo_active_masks[id].has_active_interaction_property() {
         return true;
     }
     // 子要素を再帰的にチェック
-    if let Some(children) = cx.topology.children.get(id) {
+    if let Some(children) = cx.topology.topo_children.get(id) {
         for &child_id in children {
             if has_interactive_descendant(cx, child_id) {
                 return true;

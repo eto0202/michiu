@@ -38,12 +38,12 @@ pub(crate) unsafe fn init_webview2_composition(
     rect: LayoutRect,
     scale_factor: f32,
     env_slot: Rc<RefCell<Option<ICoreWebView2Environment3>>>,
-    task_sender: TaskSender,
+    sys_task_sender: TaskSender,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let webview_visual_clone = webview_visual.clone();
     let controller_slot_clone = controller_slot.clone();
     let settings_clone = settings.clone();
-    let task_sender_clone = task_sender.clone();
+    let task_sender_clone = sys_task_sender.clone();
 
     // プリウォーム済み環境（Environment）の利用
     if let Some(ref env3) = *env_slot.borrow() {

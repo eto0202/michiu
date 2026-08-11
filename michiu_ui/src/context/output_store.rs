@@ -1,7 +1,18 @@
 use std::{ops::Range, time::Instant};
 
 use crate::{
-    ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, ActiveWebviewsHashSet, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType, BoxSizing, ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets, EffectiveTransformsSecondary, EffectiveZindicesSecondary, EntityId, EventStore, FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSecondary, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, QuadInstance, RenderData, RenderStore, STATE_QUEUED_LAYOUT, STYLE_TEXT_SPANS, ScrollbarStylesSecondary, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect, Val, VisualPropertiesSecondary, VisualProperty, WindowStore
+    ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
+    ActiveWebviewsHashSet, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType,
+    BoxSizing, ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary,
+    EdgeInsets, EffectiveTransformsSecondary, EffectiveZindicesSecondary, EntityId, EventStore,
+    FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSecondary, InputContents,
+    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
+    LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, QuadInstance,
+    RenderData, RenderStore, STATE_QUEUED_LAYOUT, STYLE_TEXT_SPANS, ScrollbarStylesSecondary,
+    SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
+    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect,
+    Val, VisualPropertiesSecondary, VisualProperty, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
@@ -15,15 +26,16 @@ pub(crate) type SelectedRectsSparseSecondary = SparseSecondaryMap<EntityId, Vec<
 pub(crate) type TextSelectionsSparseSecondary = SparseSecondaryMap<EntityId, Range<usize>>;
 pub(crate) type SelectionStartIndexSparseSecondary = SparseSecondaryMap<EntityId, usize>;
 
+#[allow(clippy::struct_field_names)]
 pub struct OutputStore {
-    pub(crate) rects: RectsSecondary,
-    pub(crate) clip_rects: ClipRectsSecondary,
-    pub(crate) scroll_offsets: ScrollOffsetsSecondary,
-    pub(crate) prev_rects: PrevRectsSecondary,
-    pub(crate) prev_clip_rects: PrevClipRectsSecondary,
-    pub(crate) selected_rects: SelectedRectsSparseSecondary,
-    pub(crate) text_selections: TextSelectionsSparseSecondary,
-    pub(crate) selection_start_index: SelectionStartIndexSparseSecondary,
+    pub(crate) out_rects: RectsSecondary,
+    pub(crate) out_clip_rects: ClipRectsSecondary,
+    pub(crate) out_scroll_offsets: ScrollOffsetsSecondary,
+    pub(crate) out_prev_rects: PrevRectsSecondary,
+    pub(crate) out_prev_clip_rects: PrevClipRectsSecondary,
+    pub(crate) out_selected_rects: SelectedRectsSparseSecondary,
+    pub(crate) out_text_selections: TextSelectionsSparseSecondary,
+    pub(crate) out_selection_start_index: SelectionStartIndexSparseSecondary,
 }
 
 impl Default for OutputStore {
@@ -37,72 +49,72 @@ impl OutputStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            rects: SecondaryMap::new(),
-            clip_rects: SecondaryMap::new(),
-            scroll_offsets: SecondaryMap::new(),
-            prev_rects: SecondaryMap::new(),
-            prev_clip_rects: SecondaryMap::new(),
-            selected_rects: SparseSecondaryMap::new(),
-            text_selections: SparseSecondaryMap::new(),
-            selection_start_index: SparseSecondaryMap::new(),
+            out_rects: SecondaryMap::new(),
+            out_clip_rects: SecondaryMap::new(),
+            out_scroll_offsets: SecondaryMap::new(),
+            out_prev_rects: SecondaryMap::new(),
+            out_prev_clip_rects: SecondaryMap::new(),
+            out_selected_rects: SparseSecondaryMap::new(),
+            out_text_selections: SparseSecondaryMap::new(),
+            out_selection_start_index: SparseSecondaryMap::new(),
         }
     }
 
     #[inline]
     pub fn clear(&mut self) {
-        self.rects.clear();
-        self.clip_rects.clear();
-        self.scroll_offsets.clear();
-        self.prev_rects.clear();
-        self.prev_clip_rects.clear();
-        self.selected_rects.clear();
-        self.text_selections.clear();
-        self.selection_start_index.clear();
+        self.out_rects.clear();
+        self.out_clip_rects.clear();
+        self.out_scroll_offsets.clear();
+        self.out_prev_rects.clear();
+        self.out_prev_clip_rects.clear();
+        self.out_selected_rects.clear();
+        self.out_text_selections.clear();
+        self.out_selection_start_index.clear();
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
-        self.rects.remove(id);
-        self.clip_rects.remove(id);
-        self.scroll_offsets.remove(id);
-        self.prev_rects.remove(id);
-        self.prev_clip_rects.remove(id);
-        self.selected_rects.remove(id);
-        self.text_selections.remove(id);
-        self.selection_start_index.remove(id);
+        self.out_rects.remove(id);
+        self.out_clip_rects.remove(id);
+        self.out_scroll_offsets.remove(id);
+        self.out_prev_rects.remove(id);
+        self.out_prev_clip_rects.remove(id);
+        self.out_selected_rects.remove(id);
+        self.out_text_selections.remove(id);
+        self.out_selection_start_index.remove(id);
     }
 }
 
 impl OutputStore {
     pub(crate) fn swap_output_rect(
-        rects: &mut RectsSecondary,
-        prev_rects: &mut PrevRectsSecondary,
-        clip_rects: &mut ClipRectsSecondary,
-        prev_clip_rects: &mut PrevClipRectsSecondary,
+        out_rects: &mut RectsSecondary,
+        out_prev_rects: &mut PrevRectsSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
+        out_prev_clip_rects: &mut PrevClipRectsSecondary,
     ) {
-        std::mem::swap(rects, prev_rects);
-        std::mem::swap(clip_rects, prev_clip_rects);
+        std::mem::swap(out_rects, out_prev_rects);
+        std::mem::swap(out_clip_rects, out_prev_clip_rects);
 
-        rects.clear();
-        clip_rects.clear();
+        out_rects.clear();
+        out_clip_rects.clear();
     }
 
     pub(crate) fn has_parent_changed(
         id: EntityId,
-        parents: &ParentsSecondary,
-        active_masks: &ActiveMasksSecondary,
-        rects: &RectsSecondary,
-        prev_rects: &PrevRectsSecondary,
-        clip_rects: &ClipRectsSecondary,
-        prev_clip_rects: &PrevClipRectsSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        out_rects: &RectsSecondary,
+        out_prev_rects: &PrevRectsSecondary,
+        out_clip_rects: &ClipRectsSecondary,
+        out_prev_clip_rects: &PrevClipRectsSecondary,
     ) -> bool {
-        let Some(parent_id) = parents.get(id).copied().flatten() else {
+        let Some(parent_id) = topo_parents.get(id).copied().flatten() else {
             return false;
         };
 
-        prev_rects.get(parent_id) != rects.get(parent_id)
-            || prev_clip_rects.get(parent_id) != clip_rects.get(parent_id)
-            || active_masks
+        out_prev_rects.get(parent_id) != out_rects.get(parent_id)
+            || out_prev_clip_rects.get(parent_id) != out_clip_rects.get(parent_id)
+            || topo_active_masks
                 .get(parent_id)
                 .is_some_and(|a| a.has(STATE_QUEUED_LAYOUT))
     }
@@ -110,21 +122,21 @@ impl OutputStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn calc_local_rect(
         id: EntityId,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &TaffyTreeEntityId,
-        parents: &ParentsSecondary,
-        rects: &RectsSecondary,
-        clip_rects: &ClipRectsSecondary,
-        basic_layouts: &BasicLayoutsSecondary,
-        scroll_offsets: &ScrollOffsetsSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &TaffyTreeEntityId,
+        topo_parents: &ParentsSecondary,
+        out_rects: &RectsSecondary,
+        out_clip_rects: &ClipRectsSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
         window_size: LayoutSize,
     ) -> (LayoutRect, LayoutRect) {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
-        let local_rect = LayoutStore::local_rect_from_taffy(id, taffy_nodes, taffy);
+        let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy_nodes, lay_taffy);
 
-        let parent_info = parents.get(id).copied().flatten().and_then(|p_id| {
-            let rect = rects.get(p_id).copied()?;
-            let clip = clip_rects.get(p_id).copied()?;
+        let parent_info = topo_parents.get(id).copied().flatten().and_then(|p_id| {
+            let rect = out_rects.get(p_id).copied()?;
+            let clip = out_clip_rects.get(p_id).copied()?;
             Some((p_id, rect, clip))
         });
 
@@ -140,8 +152,11 @@ impl OutputStore {
             );
         };
 
-        let s_offsets = scroll_offsets.get(parent_id).copied().unwrap_or_default();
-        let is_absolute = basic_layouts
+        let s_offsets = out_scroll_offsets
+            .get(parent_id)
+            .copied()
+            .unwrap_or_default();
+        let is_absolute = lay_basic
             .get(id)
             .is_some_and(|l| l.position == Position::Absolute);
 
@@ -164,23 +179,23 @@ impl OutputStore {
         id: EntityId,
         val: Val,
         is_width: bool,
-        parents: &ParentsSecondary,
-        rects: &RectsSecondary,
-        last_window_size: Option<&LayoutSize>,
+        topo_parents: &ParentsSecondary,
+        out_rects: &RectsSecondary,
+        win_last_size: Option<&LayoutSize>,
     ) -> Option<f32> {
         match val {
             Val::Px(v) => Some(v),
             Val::Percent(p) => {
                 // 親要素の確定サイズを優先取得
-                let parent_size = parents
+                let parent_size = topo_parents
                     .get(id)
                     .copied()
                     .flatten()
-                    .and_then(|p_id| rects.get(p_id))
+                    .and_then(|p_id| out_rects.get(p_id))
                     .map(|r| LayoutSize::new(r.width, r.height));
 
                 // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
-                let ref_size = parent_size.or(last_window_size.copied())?;
+                let ref_size = parent_size.or(win_last_size.copied())?;
                 let ref_val = if is_width {
                     ref_size.width
                 } else {
@@ -191,7 +206,7 @@ impl OutputStore {
             }
             Val::Auto => {
                 // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
-                let r = rects.get(id)?;
+                let r = out_rects.get(id)?;
                 Some(if is_width { r.width } else { r.height })
             }
         }
@@ -199,15 +214,15 @@ impl OutputStore {
 
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
     #[inline]
-    pub(crate) fn rect(id: EntityId, rects: &RectsSecondary) -> Option<LayoutRect> {
-        rects.get(id).copied()
+    pub(crate) fn rect(id: EntityId, out_rects: &RectsSecondary) -> Option<LayoutRect> {
+        out_rects.get(id).copied()
     }
 
     /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
     #[inline]
     #[must_use]
-    pub fn clip_rect(id: EntityId, clip_rects: &ClipRectsSecondary) -> Option<LayoutRect> {
-        clip_rects.get(id).copied()
+    pub fn clip_rect(id: EntityId, out_clip_rects: &ClipRectsSecondary) -> Option<LayoutRect> {
+        out_clip_rects.get(id).copied()
     }
 
     pub(crate) fn calculate_caret_rect(
@@ -251,24 +266,24 @@ impl OutputStore {
 
     /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
     pub(crate) fn is_drag_autoscroll_active(
-        interaction_states: &InteractionStates,
-        current_pointer_position: Option<&LayoutPoint>,
-        clip_rects: &ClipRectsSecondary,
-        visual_properties: &VisualPropertiesSecondary,
+        evt_interaction_states: &InteractionStates,
+        evt_current_pointer_position: Option<&LayoutPoint>,
+        out_clip_rects: &ClipRectsSecondary,
+        ren_visual: &VisualPropertiesSecondary,
     ) -> bool {
-        let Some(id) = interaction_states.pressed else {
+        let Some(id) = evt_interaction_states.pressed else {
             return false;
         };
 
-        let Some(pointer_pos) = current_pointer_position else {
+        let Some(pointer_pos) = evt_current_pointer_position else {
             return false;
         };
 
-        let Some(clip) = clip_rects.get(id) else {
+        let Some(clip) = out_clip_rects.get(id) else {
             return false;
         };
 
-        let user_select = visual_properties
+        let user_select = ren_visual
             .get(id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
@@ -283,8 +298,8 @@ impl OutputStore {
         is_out_x || is_out_y
     }
 
-    /// `現在の選択範囲（text_selections）に基づき`、
-    /// `描画用の物理選択矩形（selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
+    /// `現在の選択範囲（out_text_selections）に基づき`、
+    /// `描画用の物理選択矩形（out_selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
     pub(crate) fn calc_selection_rects(
         id: EntityId,
         layout: &IDWriteTextLayout,
@@ -321,10 +336,10 @@ impl OutputStore {
             };
         }
 
-        let mut rects = Vec::with_capacity(actual_count as usize);
+        let mut out_rects = Vec::with_capacity(actual_count as usize);
         (0..actual_count as usize).for_each(|m_idx| {
             let metric = &hit_test_metrics[m_idx];
-            rects.push(LayoutRect::new(
+            out_rects.push(LayoutRect::new(
                 metric.left,
                 metric.top,
                 metric.width,
@@ -332,7 +347,7 @@ impl OutputStore {
             ));
         });
 
-        rects
+        out_rects
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
@@ -343,17 +358,17 @@ impl OutputStore {
         outputs: &OutputStore,
         contents: &ContentStore,
     ) -> Option<String> {
-        let focused_id = events.interaction_states.focused?;
+        let focused_id = events.evt_interaction_states.focused?;
         let user_select = renders
-            .visual_properties
+            .ren_visual
             .get(focused_id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
 
         if user_select == UserSelect::Text {
-            let range = outputs.text_selections.get(focused_id)?;
+            let range = outputs.out_text_selections.get(focused_id)?;
             if range.start < range.end {
-                let text = contents.text_contents.get(focused_id)?;
+                let text = contents.cont_text_contents.get(focused_id)?;
                 let u16_text: Vec<u16> = text.encode_utf16().collect();
                 let slice =
                     &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
@@ -415,9 +430,9 @@ impl OutputStore {
 
         contents.selected_range = new_caret..new_caret;
         outputs
-            .text_selections
+            .out_text_selections
             .insert(focused_id, new_caret..new_caret);
-        outputs.selected_rects.remove(focused_id);
+        outputs.out_selected_rects.remove(focused_id);
         contents.text.1.set(new_text);
     }
 
@@ -433,8 +448,8 @@ impl OutputStore {
         contents.redo_stack.push((current_text, current_sel)); // 現在の状態を Redo 用にセーブ
 
         contents.selected_range = prev_sel.clone();
-        outputs.text_selections.insert(focused_id, prev_sel);
-        outputs.selected_rects.remove(focused_id);
+        outputs.out_text_selections.insert(focused_id, prev_sel);
+        outputs.out_selected_rects.remove(focused_id);
         contents.text.1.set(prev_text);
     }
 
@@ -450,8 +465,8 @@ impl OutputStore {
         contents.undo_stack.push((current_text, current_sel)); // 現在の状態を Undo 用に退避
 
         contents.selected_range = next_sel.clone();
-        outputs.text_selections.insert(focused_id, next_sel);
-        outputs.selected_rects.remove(focused_id);
+        outputs.out_text_selections.insert(focused_id, next_sel);
+        outputs.out_selected_rects.remove(focused_id);
         contents.text.1.set(next_text);
     }
 
@@ -474,21 +489,21 @@ impl OutputStore {
         let new_text = String::from_utf16_lossy(&left);
         contents.selected_range = range.start..range.start;
         outputs
-            .text_selections
+            .out_text_selections
             .insert(focused_id, range.start..range.start);
-        outputs.selected_rects.remove(focused_id);
+        outputs.out_selected_rects.remove(focused_id);
         contents.text.1.set(new_text);
     }
 
     #[inline]
     pub(crate) fn truncate_unconfirmed_text(
         text_val: &str,
-        input_contents: &InputContents,
+        cont_input_contents: &InputContents,
         max: usize,
         filtered_comp_text: String,
     ) -> String {
         let text_u16: Vec<u16> = text_val.encode_utf16().collect();
-        let range = &input_contents.selected_range;
+        let range = &cont_input_contents.selected_range;
         let range_start = range.start.min(text_u16.len());
         let range_end = range.end.min(text_u16.len());
         let deleted_len = range_end - range_start;
@@ -519,50 +534,50 @@ impl OutputStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn get_scroll_size(
         id: EntityId,
-        active_masks: &ActiveMasksSecondary,
-        input_contents: &InputContentsSparseSecondary,
-        text_engine: &TextEngine,
-        text_contents: &TextContentsSparseSecondary,
-        visual_properties: &VisualPropertiesSecondary,
-        text_spans: &TextSpansSparseSecondary,
-        dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        basic_layouts: &BasicLayoutsSecondary,
-        flex_layouts: &FlexLayoutsSecondary,
-        grid_layouts: &GridLayoutsSecondary,
-        active_transitions: &ActiveTransitionsSparseSecondary,
-        parents: &ParentsSecondary,
-        children: &ChildrenSecondary,
-        interaction_properties: &InteractionPropertiesSecondary,
-        rects: &RectsSecondary,
-        scrollbar_styles: &ScrollbarStylesSecondary,
-        scroll_offsets: &ScrollOffsetsSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        sys_text_engine: &TextEngine,
+        cont_text_contents: &TextContentsSparseSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        out_rects: &RectsSecondary,
+        lay_scrollbar_styles: &ScrollbarStylesSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
     ) -> LayoutSize {
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;
 
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
-        if active_masks
+        if topo_active_masks
             .get(id)
             .is_some_and(ComponentMask::has_input_content)
-            && let Some(contents) = input_contents.get(id)
+            && let Some(contents) = cont_input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
             max_x =
                 layout_rect.width + contents.caret_width.unwrap_or(contents.default_caret_width);
             max_y = layout_rect.height;
-        } else if active_masks
+        } else if topo_active_masks
             .get(id)
             .is_some_and(ComponentMask::has_text_content)
             && let Some(dw_layout) = SystemStore::get_or_create_layout(
                 id,
-                text_contents,
-                visual_properties,
-                dwrite_layouts,
-                text_spans,
-                text_engine,
+                cont_text_contents,
+                ren_visual,
+                sys_dwrite_layouts,
+                cont_text_spans,
+                sys_text_engine,
             )
         {
-            let size = text_engine.get_layout_size(&dw_layout);
+            let size = sys_text_engine.get_layout_size(&dw_layout);
             max_x = size.width;
             max_y = size.height;
         }
@@ -570,17 +585,17 @@ impl OutputStore {
         // 親要素自体のボーダー・パディング厚を取得
         let (basic, _, _) = LayoutStore::resolve_active_layouts(
             id,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_masks,
-            active_transitions,
-            parents,
-            interaction_properties,
-            visual_properties,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            topo_active_masks,
+            ren_active_transitions,
+            topo_parents,
+            ren_interaction,
+            ren_visual,
         );
 
-        let rect = OutputStore::rect(id, rects).unwrap_or_default();
+        let rect = OutputStore::rect(id, out_rects).unwrap_or_default();
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -588,13 +603,13 @@ impl OutputStore {
         let offset_y = border.top + padding.top;
 
         // スクロールバー要素のIDを取得して除外対象にする
-        let (v_track_opt, h_track_opt) = if let Some(sb_state) = scrollbar_styles.get(id) {
+        let (v_track_opt, h_track_opt) = if let Some(sb_state) = lay_scrollbar_styles.get(id) {
             (sb_state.v_track_id, sb_state.h_track_id)
         } else {
             (None, None)
         };
 
-        if let Some(children_list) = children.get(id) {
+        if let Some(children_list) = topo_children.get(id) {
             for &child_id in children_list {
                 // スクロールバーのトラックはサイズ計算から除外
                 if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
@@ -602,16 +617,16 @@ impl OutputStore {
                 }
 
                 // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
-                let is_absolute = basic_layouts
+                let is_absolute = lay_basic
                     .get(child_id)
                     .is_some_and(|l| l.position == Position::Absolute);
                 if is_absolute {
                     continue;
                 }
 
-                if let Some(&rect) = rects.get(child_id) {
-                    let parent_rect = OutputStore::rect(id, rects).unwrap_or_default();
-                    let scroll_offset = scroll_offsets.get(id).copied().unwrap_or_default();
+                if let Some(&rect) = out_rects.get(child_id) {
+                    let parent_rect = OutputStore::rect(id, out_rects).unwrap_or_default();
+                    let scroll_offset = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
                     // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
                     let local_right =
@@ -632,20 +647,20 @@ impl OutputStore {
     #[inline]
     pub(crate) fn scroll_ime_info(
         id: EntityId,
-        input_contents: &mut InputContentsSparseSecondary,
-        text_contents: &mut TextContentsSparseSecondary,
-        text_selections: &mut TextSelectionsSparseSecondary,
-        text_spans: &TextSpansSparseSecondary,
-        text_engine: &TextEngine,
-        visual_properties: &mut VisualPropertiesSecondary,
-        base_visual_properties: &BaseVisualPropertiesSecondary,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_text_contents: &mut TextContentsSparseSecondary,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        sys_text_engine: &TextEngine,
+        ren_visual: &mut VisualPropertiesSecondary,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
     ) -> Option<(LayoutRect, f32, bool)> {
         // (caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)
         let mut scroll_ime_info: Option<(LayoutRect, f32, bool)> = None;
 
-        if let Some(contents) = input_contents.get_mut(id) {
+        if let Some(contents) = cont_input_contents.get_mut(id) {
             // 入力エンジン側の最新カーソル位置を描画SoA側に同期
-            text_selections.insert(id, contents.selected_range.clone());
+            out_text_selections.insert(id, contents.selected_range.clone());
 
             let text_val = contents.text.0.get();
             contents.total_len = text_val.chars().count();
@@ -733,12 +748,12 @@ impl OutputStore {
             };
 
             let (font_size, font_family, font_weight, font_style) =
-                RenderStore::get_font_propery(id, visual_properties);
+                RenderStore::get_font_propery(id, ren_visual);
 
-            let spans = text_spans.get(id).map_or(&[][..], Vec::as_slice);
+            let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
 
             // 描画テキスト全体のレイアウトサイズを Taffy 測定用に設定
-            let display_layout = text_engine.create_layout(
+            let display_layout = sys_text_engine.create_layout(
                 &display_text,
                 font_size,
                 font_family,
@@ -747,12 +762,12 @@ impl OutputStore {
                 None,
                 spans,
             );
-            let text_size = text_engine.get_layout_size(&display_layout);
+            let text_size = sys_text_engine.get_layout_size(&display_layout);
             contents.last_layout =
                 Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
 
             // キャレット位置測定用のレイアウトをプレースホルダー抜きで作成
-            let caret_layout = text_engine.create_layout(
+            let caret_layout = sys_text_engine.create_layout(
                 &caret_text,
                 font_size,
                 font_family,
@@ -783,7 +798,7 @@ impl OutputStore {
 
             // プレースホルダーに干渉されない純粋なキャレット位置を算出
             let (cx_offset, cy_offset, ch_height) =
-                text_engine.get_caret_position(&caret_layout, caret_index, u16_len_caret);
+                sys_text_engine.get_caret_position(&caret_layout, caret_index, u16_len_caret);
 
             contents.measured_caret_x = cx_offset;
             contents.measured_caret_y = cy_offset;
@@ -794,9 +809,9 @@ impl OutputStore {
             contents.total_lines = tot_lines;
 
             // 最終表示用テキストを Context 側に反映
-            text_contents.insert(id, display_text.into());
+            cont_text_contents.insert(id, display_text.into());
 
-            if let Some(visual) = visual_properties.get_mut(id) {
+            if let Some(visual) = ren_visual.get_mut(id) {
                 let is_ime_active = contents
                     .ime_state
                     .as_ref()
@@ -806,7 +821,7 @@ impl OutputStore {
                     // 確定文字列が空で、かつ未確定文字列も存在しない状態のみグレー表示
                     visual.text_color = contents.placeholder_color;
                 } else {
-                    let base_color = base_visual_properties
+                    let base_color = ren_base_visual
                         .get(id)
                         .and_then(|v| v.text_color)
                         .unwrap_or(Color::WHITE);
@@ -831,22 +846,22 @@ impl OutputStore {
     #[inline]
     pub(crate) fn clear_selection_highlight_rect(
         id: EntityId,
-        active_masks: &mut ActiveMasksSecondary,
-        text_selections: &mut TextSelectionsSparseSecondary,
-        selected_rects: &mut SelectedRectsSparseSecondary,
-        input_contents: &mut InputContentsSparseSecondary,
-        text_spans: &mut TextSpansSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_text_spans: &mut TextSpansSparseSecondary,
     ) {
-        text_selections.remove(id);
-        selected_rects.remove(id);
-        if let Some(contents) = input_contents.get_mut(id) {
+        out_text_selections.remove(id);
+        out_selected_rects.remove(id);
+        if let Some(contents) = cont_input_contents.get_mut(id) {
             contents.selected_range = 0..0;
             // 進行中の IME コンポジションをリセットして波線を消去
             contents.ime_state = None;
             contents.marked_range = None;
         }
-        text_spans.remove(id);
-        if let Some(i) = active_masks.get_mut(id) {
+        cont_text_spans.remove(id);
+        if let Some(i) = topo_active_masks.get_mut(id) {
             i.unset(STYLE_TEXT_SPANS);
         }
     }
@@ -897,69 +912,69 @@ impl OutputStore {
         id: EntityId,
         mut x: f32,
         mut y: f32,
-        active_masks: &mut ActiveMasksSecondary,
-        input_contents: &InputContentsSparseSecondary,
-        text_engine: &TextEngine,
-        text_contents: &TextContentsSparseSecondary,
-        visual_properties: &VisualPropertiesSecondary,
-        text_spans: &TextSpansSparseSecondary,
-        dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        basic_layouts: &BasicLayoutsSecondary,
-        flex_layouts: &FlexLayoutsSecondary,
-        grid_layouts: &GridLayoutsSecondary,
-        active_transitions: &ActiveTransitionsSparseSecondary,
-        parents: &ParentsSecondary,
-        children: &ChildrenSecondary,
-        interaction_properties: &InteractionPropertiesSecondary,
-        rects: &RectsSecondary,
-        scrollbar_styles: &mut ScrollbarStylesSecondary,
-        scroll_offsets: &mut ScrollOffsetsSecondary,
-        last_window_size: Option<LayoutSize>,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
-        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        sys_text_engine: &TextEngine,
+        cont_text_contents: &TextContentsSparseSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        out_rects: &RectsSecondary,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        win_last_size: Option<LayoutSize>,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
     ) -> bool {
-        let Some(rect) = OutputStore::rect(id, rects) else {
+        let Some(rect) = OutputStore::rect(id, out_rects) else {
             return false;
         };
 
         let scroll_size = OutputStore::get_scroll_size(
             id,
-            active_masks,
-            input_contents,
-            text_engine,
-            text_contents,
-            visual_properties,
-            text_spans,
-            dwrite_layouts,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_transitions,
-            parents,
-            children,
-            interaction_properties,
-            rects,
-            scrollbar_styles,
-            scroll_offsets,
+            topo_active_masks,
+            cont_input_contents,
+            sys_text_engine,
+            cont_text_contents,
+            ren_visual,
+            cont_text_spans,
+            sys_dwrite_layouts,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            ren_active_transitions,
+            topo_parents,
+            topo_children,
+            ren_interaction,
+            out_rects,
+            lay_scrollbar_styles,
+            out_scroll_offsets,
         );
 
         // 親コンテナのボーダーおよびパディング厚を取得
         let (basic, _, _) = LayoutStore::resolve_active_layouts(
             id,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_masks,
-            active_transitions,
-            parents,
-            interaction_properties,
-            visual_properties,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            topo_active_masks,
+            ren_active_transitions,
+            topo_parents,
+            ren_interaction,
+            ren_visual,
         );
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-        let visible_size = WindowStore::calculate_visible_size(last_window_size, rect);
+        let visible_size = WindowStore::calculate_visible_size(win_last_size, rect);
         let content_size = LayoutStore::calculate_inner_content_size(visible_size, border, padding);
 
         // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
@@ -970,28 +985,28 @@ impl OutputStore {
         y = y.clamp(0.0, max_scroll_y);
 
         // スロットが存在しない場合はあらかじめ挿入して初期化
-        if !scroll_offsets.contains_key(id) {
-            scroll_offsets.insert(id, LayoutPoint::ZERO);
+        if !out_scroll_offsets.contains_key(id) {
+            out_scroll_offsets.insert(id, LayoutPoint::ZERO);
         }
 
-        let current = scroll_offsets.get_mut(id).unwrap();
+        let current = out_scroll_offsets.get_mut(id).unwrap();
         if (current.x - x).abs() > 0.01 || (current.y - y).abs() > 0.01 {
             current.x = x;
             current.y = y;
 
             // スクロールバー状態の最終スクロール時刻を更新
-            if let Some(sb_state) = scrollbar_styles.get_mut(id) {
+            if let Some(sb_state) = lay_scrollbar_styles.get_mut(id) {
                 sb_state.last_scroll_time = Some(Instant::now());
             }
 
             // オフセット変化に伴い、子孫全体の絶対座標を再同期させる
             LayoutStore::mark_layout_dirty(
                 id,
-                taffy_nodes,
-                taffy,
-                active_masks,
-                dirty_layout_entities,
-                parents,
+                lay_taffy_nodes,
+                lay_taffy,
+                topo_active_masks,
+                lay_dirty_entities,
+                topo_parents,
             );
             true
         } else {
@@ -1004,55 +1019,55 @@ impl OutputStore {
         id: EntityId,
         dx: f32,
         dy: f32,
-        active_masks: &mut ActiveMasksSecondary,
-        input_contents: &InputContentsSparseSecondary,
-        text_engine: &TextEngine,
-        text_contents: &TextContentsSparseSecondary,
-        visual_properties: &VisualPropertiesSecondary,
-        text_spans: &TextSpansSparseSecondary,
-        dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        basic_layouts: &BasicLayoutsSecondary,
-        flex_layouts: &FlexLayoutsSecondary,
-        grid_layouts: &GridLayoutsSecondary,
-        active_transitions: &ActiveTransitionsSparseSecondary,
-        parents: &ParentsSecondary,
-        children: &ChildrenSecondary,
-        interaction_properties: &InteractionPropertiesSecondary,
-        rects: &RectsSecondary,
-        scrollbar_styles: &mut ScrollbarStylesSecondary,
-        scroll_offsets: &mut ScrollOffsetsSecondary,
-        last_window_size: Option<LayoutSize>,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
-        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        sys_text_engine: &TextEngine,
+        cont_text_contents: &TextContentsSparseSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        out_rects: &RectsSecondary,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        win_last_size: Option<LayoutSize>,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
     ) -> bool {
-        let current = scroll_offsets.get(id).copied().unwrap_or_default();
+        let current = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
         OutputStore::scroll_to(
             id,
             current.x + dx,
             current.y + dy,
-            active_masks,
-            input_contents,
-            text_engine,
-            text_contents,
-            visual_properties,
-            text_spans,
-            dwrite_layouts,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_transitions,
-            parents,
-            children,
-            interaction_properties,
-            rects,
-            scrollbar_styles,
-            scroll_offsets,
-            last_window_size,
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
+            topo_active_masks,
+            cont_input_contents,
+            sys_text_engine,
+            cont_text_contents,
+            ren_visual,
+            cont_text_spans,
+            sys_dwrite_layouts,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            ren_active_transitions,
+            topo_parents,
+            topo_children,
+            ren_interaction,
+            out_rects,
+            lay_scrollbar_styles,
+            out_scroll_offsets,
+            win_last_size,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_dirty_entities,
         )
     }
 
@@ -1061,43 +1076,43 @@ impl OutputStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn update_input_caret_position(
         id: EntityId,
-        rects: &RectsSecondary,
-        dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        input_contents: &mut InputContentsSparseSecondary,
-        text_contents: &mut TextContentsSparseSecondary,
-        text_selections: &mut TextSelectionsSparseSecondary,
-        text_spans: &TextSpansSparseSecondary,
-        text_engine: &TextEngine,
-        basic_layouts: &BasicLayoutsSecondary,
-        flex_layouts: &FlexLayoutsSecondary,
-        grid_layouts: &GridLayoutsSecondary,
-        active_masks: &mut ActiveMasksSecondary,
-        children: &ChildrenSecondary,
-        interaction_properties: &InteractionPropertiesSecondary,
-        scrollbar_styles: &mut ScrollbarStylesSecondary,
-        scroll_offsets: &mut ScrollOffsetsSecondary,
-        last_window_size: Option<LayoutSize>,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
-        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
-        active_transitions: &ActiveTransitionsSparseSecondary,
-        parents: &ParentsSecondary,
-        visual_properties: &mut VisualPropertiesSecondary,
-        base_visual_properties: &BaseVisualPropertiesSecondary,
-        scale_factor: f32,
+        out_rects: &RectsSecondary,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_text_contents: &mut TextContentsSparseSecondary,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        sys_text_engine: &TextEngine,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_children: &ChildrenSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        win_last_size: Option<LayoutSize>,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        topo_parents: &ParentsSecondary,
+        ren_visual: &mut VisualPropertiesSecondary,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
+        win_scale_factor: f32,
     ) {
         // IMEやタイピング中の古いキャッシュを破棄
-        SystemStore::clear_layout_cache(id, dwrite_layouts);
+        SystemStore::clear_layout_cache(id, sys_dwrite_layouts);
 
         let scroll_ime_info = OutputStore::scroll_ime_info(
             id,
-            input_contents,
-            text_contents,
-            text_selections,
-            text_spans,
-            text_engine,
-            visual_properties,
-            base_visual_properties,
+            cont_input_contents,
+            cont_text_contents,
+            out_text_selections,
+            cont_text_spans,
+            sys_text_engine,
+            ren_visual,
+            ren_base_visual,
         );
 
         let Some((caret, caret_offset, is_multiline)) = scroll_ime_info else {
@@ -1105,25 +1120,25 @@ impl OutputStore {
         };
         let (basic, flex, _) = LayoutStore::resolve_active_layouts(
             id,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_masks,
-            active_transitions,
-            parents,
-            interaction_properties,
-            visual_properties,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            topo_active_masks,
+            ren_active_transitions,
+            topo_parents,
+            ren_interaction,
+            ren_visual,
         );
-        let rect = OutputStore::rect(id, rects).unwrap_or_default();
+        let rect = OutputStore::rect(id, out_rects).unwrap_or_default();
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-        let mut scroll = scroll_offsets.get(id).copied().unwrap_or_default();
+        let mut scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
         if rect.width > 0.0 && rect.height > 0.0 {
             let viewport = LayoutStore::calculate_viewport_size(rect, border, padding);
 
-            let text_size = if let Some(contents) = input_contents.get(id)
+            let text_size = if let Some(contents) = cont_input_contents.get(id)
                 && let Some(layout_rect) = contents.last_layout
             {
                 LayoutSize::new(layout_rect.width, layout_rect.height)
@@ -1162,34 +1177,34 @@ impl OutputStore {
                 id,
                 scroll.x,
                 scroll.y,
-                active_masks,
-                input_contents,
-                text_engine,
-                text_contents,
-                visual_properties,
-                text_spans,
-                dwrite_layouts,
-                basic_layouts,
-                flex_layouts,
-                grid_layouts,
-                active_transitions,
-                parents,
-                children,
-                interaction_properties,
-                rects,
-                scrollbar_styles,
-                scroll_offsets,
-                last_window_size,
-                taffy_nodes,
-                taffy,
-                dirty_layout_entities,
+                topo_active_masks,
+                cont_input_contents,
+                sys_text_engine,
+                cont_text_contents,
+                ren_visual,
+                cont_text_spans,
+                sys_dwrite_layouts,
+                lay_basic,
+                lay_flex,
+                lay_grid,
+                ren_active_transitions,
+                topo_parents,
+                topo_children,
+                ren_interaction,
+                out_rects,
+                lay_scrollbar_styles,
+                out_scroll_offsets,
+                win_last_size,
+                lay_taffy_nodes,
+                lay_taffy,
+                lay_dirty_entities,
             );
         }
 
         // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
         SystemStore::sync_imm_window_position(
             rect,
-            scale_factor,
+            win_scale_factor,
             border,
             padding,
             caret,
@@ -1198,51 +1213,51 @@ impl OutputStore {
         );
     }
 
-    /// `現在の選択範囲（text_selections）に基づき`、
-    /// `描画用の物理選択矩形（selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
+    /// `現在の選択範囲（out_text_selections）に基づき`、
+    /// `描画用の物理選択矩形（out_selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
     #[inline]
     pub(crate) fn update_selection_rects(
         id: EntityId,
         layout: &IDWriteTextLayout,
-        text_selections: &TextSelectionsSparseSecondary,
-        selected_rects: &mut SelectedRectsSparseSecondary,
+        out_text_selections: &TextSelectionsSparseSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
-        if let Some(range) = text_selections.get(id).cloned()
+        if let Some(range) = out_text_selections.get(id).cloned()
             && range.start < range.end
         {
-            let rects = OutputStore::calc_selection_rects(id, layout, range);
-            selected_rects.insert(id, rects);
+            let out_rects = OutputStore::calc_selection_rects(id, layout, range);
+            out_selected_rects.insert(id, out_rects);
             return;
         }
         // 範囲が 0、または選択なしの時は自動クリーンアップ
-        selected_rects.remove(id);
+        out_selected_rects.remove(id);
     }
 
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn sync_scrollbar_drag(
         logical_pos: LayoutPoint,
-        active_masks: &mut ActiveMasksSecondary,
-        input_contents: &InputContentsSparseSecondary,
-        text_engine: &TextEngine,
-        text_contents: &TextContentsSparseSecondary,
-        visual_properties: &VisualPropertiesSecondary,
-        dirty_render_entities: &mut DirtyRenderEntitiesVec,
-        text_spans: &TextSpansSparseSecondary,
-        dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        basic_layouts: &BasicLayoutsSecondary,
-        flex_layouts: &FlexLayoutsSecondary,
-        grid_layouts: &GridLayoutsSecondary,
-        active_transitions: &ActiveTransitionsSparseSecondary,
-        parents: &ParentsSecondary,
-        children: &ChildrenSecondary,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
-        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
-        interaction_properties: &InteractionPropertiesSecondary,
-        rects: &RectsSecondary,
-        scrollbar_styles: &mut ScrollbarStylesSecondary,
-        scroll_offsets: &mut ScrollOffsetsSecondary,
-        last_window_size: Option<LayoutSize>,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        sys_text_engine: &TextEngine,
+        cont_text_contents: &TextContentsSparseSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        cont_text_spans: &TextSpansSparseSecondary,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        ren_interaction: &InteractionPropertiesSecondary,
+        out_rects: &RectsSecondary,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        win_last_size: Option<LayoutSize>,
     ) {
         #[derive(Clone, Copy, PartialEq, Eq)]
         pub(crate) enum DragDirection {
@@ -1250,7 +1265,7 @@ impl OutputStore {
             Horizontal,
         }
 
-        let active_drag_target = scrollbar_styles.iter().find_map(|(id, state)| {
+        let active_drag_target = lay_scrollbar_styles.iter().find_map(|(id, state)| {
             if state.v_thumb_dragged {
                 Some((id, DragDirection::Vertical))
             } else if state.h_thumb_dragged {
@@ -1265,32 +1280,32 @@ impl OutputStore {
         };
 
         let (sb_state, container_rect, scroll_size) = {
-            let sb_state = scrollbar_styles.get(current_id).cloned().unwrap();
-            let container_rect = OutputStore::rect(current_id, rects).unwrap_or_default();
+            let sb_state = lay_scrollbar_styles.get(current_id).cloned().unwrap();
+            let container_rect = OutputStore::rect(current_id, out_rects).unwrap_or_default();
             let scroll_size = OutputStore::get_scroll_size(
                 current_id,
-                active_masks,
-                input_contents,
-                text_engine,
-                text_contents,
-                visual_properties,
-                text_spans,
-                dwrite_layouts,
-                basic_layouts,
-                flex_layouts,
-                grid_layouts,
-                active_transitions,
-                parents,
-                children,
-                interaction_properties,
-                rects,
-                scrollbar_styles,
-                scroll_offsets,
+                topo_active_masks,
+                cont_input_contents,
+                sys_text_engine,
+                cont_text_contents,
+                ren_visual,
+                cont_text_spans,
+                sys_dwrite_layouts,
+                lay_basic,
+                lay_flex,
+                lay_grid,
+                ren_active_transitions,
+                topo_parents,
+                topo_children,
+                ren_interaction,
+                out_rects,
+                lay_scrollbar_styles,
+                out_scroll_offsets,
             );
             (sb_state, container_rect, scroll_size)
         };
 
-        let visible_size = WindowStore::calculate_visible_size(last_window_size, container_rect);
+        let visible_size = WindowStore::calculate_visible_size(win_last_size, container_rect);
 
         let (
             track_id,
@@ -1306,8 +1321,8 @@ impl OutputStore {
             DragDirection::Vertical => {
                 let track_id = sb_state.v_track_id.unwrap();
                 let thumb_id = sb_state.v_thumb_id.unwrap();
-                let track_rect = OutputStore::rect(track_id, rects).unwrap_or_default();
-                let thumb_rect = OutputStore::rect(thumb_id, rects).unwrap_or_default();
+                let track_rect = OutputStore::rect(track_id, out_rects).unwrap_or_default();
+                let thumb_rect = OutputStore::rect(thumb_id, out_rects).unwrap_or_default();
 
                 let (mut margin_top, mut margin_bottom) = (0.0, 0.0);
                 if let Some(ref thumb_style) = sb_state.style.v_thumb {
@@ -1334,8 +1349,8 @@ impl OutputStore {
             DragDirection::Horizontal => {
                 let track_id = sb_state.h_track_id.unwrap();
                 let thumb_id = sb_state.h_thumb_id.unwrap();
-                let track_rect = OutputStore::rect(track_id, rects).unwrap_or_default();
-                let thumb_rect = OutputStore::rect(thumb_id, rects).unwrap_or_default();
+                let track_rect = OutputStore::rect(track_id, out_rects).unwrap_or_default();
+                let thumb_rect = OutputStore::rect(thumb_id, out_rects).unwrap_or_default();
 
                 let (mut margin_left, mut margin_right) = (0.0, 0.0);
                 if let Some(ref thumb_style) = sb_state.style.h_thumb {
@@ -1369,11 +1384,11 @@ impl OutputStore {
 
             let (target_x, target_y) = match direction {
                 DragDirection::Vertical => {
-                    let current_x = scroll_offsets.get(current_id).map_or(0.0, |o| o.x);
+                    let current_x = out_scroll_offsets.get(current_id).map_or(0.0, |o| o.x);
                     (current_x, target_scroll)
                 }
                 DragDirection::Horizontal => {
-                    let current_y = scroll_offsets.get(current_id).map_or(0.0, |o| o.y);
+                    let current_y = out_scroll_offsets.get(current_id).map_or(0.0, |o| o.y);
                     (target_scroll, current_y)
                 }
             };
@@ -1382,62 +1397,62 @@ impl OutputStore {
                 current_id,
                 target_x,
                 target_y,
-                active_masks,
-                input_contents,
-                text_engine,
-                text_contents,
-                visual_properties,
-                text_spans,
-                dwrite_layouts,
-                basic_layouts,
-                flex_layouts,
-                grid_layouts,
-                active_transitions,
-                parents,
-                children,
-                interaction_properties,
-                rects,
-                scrollbar_styles,
-                scroll_offsets,
-                last_window_size,
-                taffy_nodes,
-                taffy,
-                dirty_layout_entities,
+                topo_active_masks,
+                cont_input_contents,
+                sys_text_engine,
+                cont_text_contents,
+                ren_visual,
+                cont_text_spans,
+                sys_dwrite_layouts,
+                lay_basic,
+                lay_flex,
+                lay_grid,
+                ren_active_transitions,
+                topo_parents,
+                topo_children,
+                ren_interaction,
+                out_rects,
+                lay_scrollbar_styles,
+                out_scroll_offsets,
+                win_last_size,
+                lay_taffy_nodes,
+                lay_taffy,
+                lay_dirty_entities,
             );
         }
 
-        RenderStore::mark_render_dirty(current_id, active_masks, dirty_render_entities);
+        RenderStore::mark_render_dirty(current_id, topo_active_masks, ren_dirty_entities);
     }
 
     /// 階層的な境界判定ヘルパー
     pub(crate) fn hit_test_recursive(
         id: EntityId,
         point: LayoutPoint,
-        rects: &RectsSecondary,
-        clip_rects: &ClipRectsSecondary,
-        children: &ChildrenSecondary,
-        visual_properties: &VisualPropertiesSecondary,
-        base_visual_properties: &BaseVisualPropertiesSecondary,
+        out_rects: &RectsSecondary,
+        out_clip_rects: &ClipRectsSecondary,
+        topo_children: &ChildrenSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
     ) -> Option<EntityId> {
         // 親などの overflow: hidden 等でクリップされている表示範囲をチェック
         // クリップ領域外であれば、この要素もそのすべての子孫要素も画面上に見えていないためをスキップ
-        if let Some(clip) = OutputStore::clip_rect(id, clip_rects)
+        if let Some(clip) = OutputStore::clip_rect(id, out_clip_rects)
             && !clip.contains(point)
         {
             return None;
         }
 
         // 子要素を逆順で再帰降下
-        if let Some(c) = children.get(id) {
+        if let Some(c) = topo_children.get(id) {
             for &child_id in c.iter().rev() {
                 if let Some(hit) = OutputStore::hit_test_recursive(
                     child_id,
                     point,
-                    rects,
-                    clip_rects,
-                    children,
-                    visual_properties,
-                    base_visual_properties,
+                    out_rects,
+                    out_clip_rects,
+                    topo_children,
+                    ren_visual,
+                    ren_base_visual,
                 ) {
                     return Some(hit);
                 }
@@ -1445,15 +1460,15 @@ impl OutputStore {
         }
 
         // pointer_events: none の場合は、自分自身の矩形判定のみをスルーする (子要素は上を辿れるため除外しない)
-        // visual_properties に無ければ base_visual_properties を見に行く
-        if let Some(rect) = rects.get(id)
+        // ren_visual に無ければ ren_base_visual を見に行く
+        if let Some(rect) = out_rects.get(id)
             && rect.contains(point)
         {
-            let pointer_events = visual_properties
+            let pointer_events = ren_visual
                 .get(id)
                 .and_then(|v| v.pointer_events)
                 .or_else(|| {
-                    base_visual_properties
+                    ren_base_visual
                         .get(id)
                         .and_then(|v| v.pointer_events)
                 })
@@ -1491,28 +1506,28 @@ impl OutputStore {
     // TOTO: フラットバッファ ＋ インデックス範囲に変更
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn collect_render_data(
-        rects: &RectsSecondary,
-        clip_rects: &ClipRectsSecondary,
-        basic_layouts: &BasicLayoutsSecondary,
-        flex_layouts: &FlexLayoutsSecondary,
-        grid_layouts: &GridLayoutsSecondary,
-        active_masks: &ActiveMasksSecondary,
-        active_transitions: &ActiveTransitionsSparseSecondary,
-        parents: &ParentsSecondary,
-        flat_dfs_sequence: &FlatDfsSequenceVec,
-        active_entities: &ActiveEntitiesVec,
-        interaction_properties: &InteractionPropertiesSecondary,
-        base_visual_properties: &BaseVisualPropertiesSecondary,
-        visual_properties: &VisualPropertiesSecondary,
-        active_webviews: &ActiveWebviewsHashSet,
-        selected_rects: &SelectedRectsSparseSecondary,
-        scroll_offsets: &ScrollOffsetsSecondary,
-        input_contents: &InputContentsSparseSecondary,
-        scale_factor: f32,
-        interaction_states: &InteractionStates,
-        sorted_entities: &mut SortedEntitiesVec,
-        effective_transforms: &mut EffectiveTransformsSecondary,
-        effective_z_indices: &mut EffectiveZindicesSecondary,
+        out_rects: &RectsSecondary,
+        out_clip_rects: &ClipRectsSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_active_entities: &ActiveEntitiesVec,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_active_webviews: &ActiveWebviewsHashSet,
+        out_selected_rects: &SelectedRectsSparseSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        win_scale_factor: f32,
+        evt_interaction_states: &InteractionStates,
+        topo_sorted_entities: &mut SortedEntitiesVec,
+        topo_effective_transforms: &mut EffectiveTransformsSecondary,
+        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
     ) -> RenderData {
         let mut batches = Vec::new();
         let mut current_instances = Vec::new();
@@ -1527,53 +1542,53 @@ impl OutputStore {
 
         // 各要素の実効トランスフォーム行列を DFS 順にカスケード累積
         RenderStore::accumulate_transform_matrix(
-            flat_dfs_sequence,
-            visual_properties,
-            parents,
-            active_entities,
-            effective_transforms,
+            topo_flat_dfs_sequence,
+            ren_visual,
+            topo_parents,
+            topo_active_entities,
+            topo_effective_transforms,
         );
 
         // 実効 z_index の計算とソートを一括実行
         TopologyStore::prepare_sorted_entities(
-            active_entities,
-            flat_dfs_sequence,
-            visual_properties,
-            parents,
-            effective_z_indices,
-            sorted_entities,
+            topo_active_entities,
+            topo_flat_dfs_sequence,
+            ren_visual,
+            topo_parents,
+            topo_effective_z_indices,
+            topo_sorted_entities,
         );
 
-        for &id in &*sorted_entities {
-            let rect = OutputStore::rect(id, rects).unwrap_or_default();
+        for &id in &*topo_sorted_entities {
+            let rect = OutputStore::rect(id, out_rects).unwrap_or_default();
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
 
-            let clip = OutputStore::clip_rect(id, clip_rects).unwrap_or_default();
-            let is_webview = active_masks
+            let clip = OutputStore::clip_rect(id, out_clip_rects).unwrap_or_default();
+            let is_webview = topo_active_masks
                 .get(id)
                 .is_some_and(ComponentMask::has_webveiw2_content);
 
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
-            let is_webview_ready = is_webview && active_webviews.contains(&id);
+            let is_webview_ready = is_webview && ren_active_webviews.contains(&id);
 
             let (basic, _, _) = LayoutStore::resolve_active_layouts(
                 id,
-                basic_layouts,
-                flex_layouts,
-                grid_layouts,
-                active_masks,
-                active_transitions,
-                parents,
-                interaction_properties,
-                visual_properties,
+                lay_basic,
+                lay_flex,
+                lay_grid,
+                topo_active_masks,
+                ren_active_transitions,
+                topo_parents,
+                ren_interaction,
+                ren_visual,
             );
-            let visual = visual_properties.get(id).unwrap_or(&default_visual);
+            let visual = ren_visual.get(id).unwrap_or(&default_visual);
 
             // 共通パラメータの展開
             let (packed_transform, origin) =
-                RenderStore::get_transform_and_origin(id, visual, &effective_transforms);
+                RenderStore::get_transform_and_origin(id, visual, &topo_effective_transforms);
             let (o_width, o_color, o_lengths, outline_offset_and_flags) =
                 RenderStore::get_outline_params(visual);
 
@@ -1731,7 +1746,7 @@ impl OutputStore {
             }
 
             // 選択ハイライト背景のwgpu側への差し込み
-            if let Some(rects) = selected_rects.get(id) {
+            if let Some(out_rects) = out_selected_rects.get(id) {
                 let (border, padding) =
                     LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -1739,9 +1754,9 @@ impl OutputStore {
                     .select_bg_color
                     .unwrap_or(Color::rgba_f32(0.0, 0.47, 0.84, 0.35));
 
-                let scroll = scroll_offsets.get(id).copied().unwrap_or_default();
+                let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
-                let text_size = if let Some(contents) = input_contents.get(id)
+                let text_size = if let Some(contents) = cont_input_contents.get(id)
                     && let Some(layout_rect) = contents.last_layout
                 {
                     LayoutSize::new(layout_rect.width, layout_rect.height)
@@ -1750,14 +1765,14 @@ impl OutputStore {
                 };
                 let (_, flex, _) = LayoutStore::resolve_active_layouts(
                     id,
-                    basic_layouts,
-                    flex_layouts,
-                    grid_layouts,
-                    active_masks,
-                    active_transitions,
-                    parents,
-                    interaction_properties,
-                    visual_properties,
+                    lay_basic,
+                    lay_flex,
+                    lay_grid,
+                    topo_active_masks,
+                    ren_active_transitions,
+                    topo_parents,
+                    ren_interaction,
+                    ren_visual,
                 );
 
                 let align_offset = OutputStore::calc_align_offset(
@@ -1768,7 +1783,7 @@ impl OutputStore {
                     flex.text_align,
                 );
 
-                for metric_rect in rects {
+                for metric_rect in out_rects {
                     let sel_rect = LayoutRect::new(
                         rect.x + border.left + padding.left + align_offset.x + metric_rect.x
                             - scroll.x,
@@ -1791,7 +1806,7 @@ impl OutputStore {
             }
 
             // 背景色とテキストの多重描画の解決
-            let is_text = active_masks[id].has_text_content();
+            let is_text = topo_active_masks[id].has_text_content();
             let has_bg = visual.bg_color.is_some()
                 || visual.bg_gradient.is_some()
                 || visual.border_color.is_some()
@@ -1931,19 +1946,19 @@ impl OutputStore {
             current_ids.push(id);
 
             // インプット要素のキャレット描画
-            let is_input = active_masks
+            let is_input = topo_active_masks
                 .get(id)
                 .is_some_and(ComponentMask::has_input_content);
-            let is_focused = interaction_states.focused == Some(id);
+            let is_focused = evt_interaction_states.focused == Some(id);
 
             if is_input
                 && is_focused
-                && let Some(contents) = input_contents.get(id)
+                && let Some(contents) = cont_input_contents.get(id)
                 && ContentStore::should_show_caret(contents)
             {
                 let (border, padding) =
                     LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-                let scroll = scroll_offsets.get(id).copied().unwrap_or_default();
+                let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
                 let text_size = if let Some(layout_rect) = contents.last_layout {
                     LayoutSize::new(layout_rect.width, layout_rect.height)
@@ -1952,14 +1967,14 @@ impl OutputStore {
                 };
                 let (_, flex, _) = LayoutStore::resolve_active_layouts(
                     id,
-                    basic_layouts,
-                    flex_layouts,
-                    grid_layouts,
-                    active_masks,
-                    active_transitions,
-                    parents,
-                    interaction_properties,
-                    visual_properties,
+                    lay_basic,
+                    lay_flex,
+                    lay_grid,
+                    topo_active_masks,
+                    ren_active_transitions,
+                    topo_parents,
+                    ren_interaction,
+                    ren_visual,
                 );
 
                 let align_offset = OutputStore::calc_align_offset(
@@ -1975,13 +1990,13 @@ impl OutputStore {
                     border,
                     padding,
                     contents,
-                    scale_factor,
+                    win_scale_factor,
                     scroll,
                     align_offset,
                 );
                 let c_color = contents
                     .caret_color
-                    .or(base_visual_properties.get(id).and_then(|v| v.text_color))
+                    .or(ren_base_visual.get(id).and_then(|v| v.text_color))
                     .or(visual.text_color)
                     .unwrap_or(Color::WHITE);
 
@@ -2015,39 +2030,44 @@ impl Context {
     #[inline]
     pub(crate) fn swap_output_rect(&mut self) {
         let OutputStore {
-            rects,
-            clip_rects,
-            prev_rects,
-            prev_clip_rects,
+            out_rects,
+            out_clip_rects,
+            out_prev_rects,
+            out_prev_clip_rects,
             ..
         } = &mut self.outputs;
 
-        OutputStore::swap_output_rect(rects, prev_rects, clip_rects, prev_clip_rects);
+        OutputStore::swap_output_rect(
+            out_rects,
+            out_prev_rects,
+            out_clip_rects,
+            out_prev_clip_rects,
+        );
     }
 
     #[inline]
     pub(crate) fn parent_changed(&self, id: EntityId) -> bool {
         let TopologyStore {
-            parents,
-            active_masks,
+            topo_parents,
+            topo_active_masks,
             ..
         } = &self.topology;
         let OutputStore {
-            rects,
-            clip_rects,
-            prev_rects,
-            prev_clip_rects,
+            out_rects,
+            out_clip_rects,
+            out_prev_rects,
+            out_prev_clip_rects,
             ..
         } = &self.outputs;
 
         OutputStore::has_parent_changed(
             id,
-            parents,
-            active_masks,
-            rects,
-            prev_rects,
-            clip_rects,
-            prev_clip_rects,
+            topo_parents,
+            topo_active_masks,
+            out_rects,
+            out_prev_rects,
+            out_clip_rects,
+            out_prev_clip_rects,
         )
     }
 
@@ -2058,94 +2078,94 @@ impl Context {
         window_size: LayoutSize,
     ) -> (LayoutRect, LayoutRect) {
         let LayoutStore {
-            taffy_nodes,
-            taffy,
-            basic_layouts,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_basic,
             ..
         } = &self.layouts;
-        let TopologyStore { parents, .. } = &self.topology;
+        let TopologyStore { topo_parents, .. } = &self.topology;
         let OutputStore {
-            rects,
-            clip_rects,
-            scroll_offsets,
+            out_rects,
+            out_clip_rects,
+            out_scroll_offsets,
             ..
         } = &self.outputs;
 
         OutputStore::calc_local_rect(
             id,
-            taffy_nodes,
-            taffy,
-            parents,
-            rects,
-            clip_rects,
-            basic_layouts,
-            scroll_offsets,
+            lay_taffy_nodes,
+            lay_taffy,
+            topo_parents,
+            out_rects,
+            out_clip_rects,
+            lay_basic,
+            out_scroll_offsets,
             window_size,
         )
     }
 
-    /// `現在の選択範囲（text_selections）に基づき`、
-    /// `描画用の物理選択矩形（selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
+    /// `現在の選択範囲（out_text_selections）に基づき`、
+    /// `描画用の物理選択矩形（out_selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
     #[inline]
     pub(crate) fn update_selection_rects(&mut self, id: EntityId, layout: &IDWriteTextLayout) {
         let OutputStore {
-            text_selections,
-            selected_rects,
+            out_text_selections,
+            out_selected_rects,
             ..
         } = &mut self.outputs;
 
-        OutputStore::update_selection_rects(id, layout, text_selections, selected_rects);
+        OutputStore::update_selection_rects(id, layout, out_text_selections, out_selected_rects);
     }
 
     /// スクロールオフセットを目標位置へクランプした上で代入。
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
     pub(crate) fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
         let TopologyStore {
-            entities,
-            parents,
-            children,
-            active_masks,
-            active_entities,
+            topo_entities: topo_entities,
+            topo_parents,
+            topo_children,
+            topo_active_masks,
+            topo_active_entities,
             ..
         } = &mut self.topology;
         let LayoutStore {
-            basic_layouts,
-            base_basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            scrollbar_styles,
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
+            lay_basic,
+            lay_base_basic,
+            lay_flex,
+            lay_grid,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_dirty_entities,
         } = &mut self.layouts;
         let RenderStore {
-            visual_properties,
-            interaction_properties,
-            base_visual_properties,
-            dirty_render_entities,
-            active_transitions,
-            active_animations,
+            ren_visual,
+            ren_interaction,
+            ren_base_visual,
+            ren_dirty_entities,
+            ren_active_transitions,
+            ren_active_animations,
             ..
         } = &mut self.renders;
         let OutputStore {
-            rects,
-            scroll_offsets,
-            selected_rects,
-            text_selections,
+            out_rects,
+            out_scroll_offsets,
+            out_selected_rects,
+            out_text_selections,
             ..
         } = &mut self.outputs;
         let ContentStore {
-            text_contents,
-            text_spans,
-            input_contents,
+            cont_text_contents,
+            cont_text_spans,
+            cont_input_contents,
             ..
         } = &mut self.contents;
         let WindowStore {
-            last_window_size, ..
+            win_last_size, ..
         } = &mut self.window;
         let SystemStore {
-            text_engine,
-            dwrite_layouts,
+            sys_text_engine,
+            sys_dwrite_layouts,
             ..
         } = &mut self.system;
 
@@ -2153,50 +2173,52 @@ impl Context {
             id,
             x,
             y,
-            active_masks,
-            input_contents,
-            text_engine,
-            text_contents,
-            visual_properties,
-            text_spans,
-            dwrite_layouts,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_transitions,
-            parents,
-            children,
-            interaction_properties,
-            rects,
-            scrollbar_styles,
-            scroll_offsets,
-            *last_window_size,
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
+            topo_active_masks,
+            cont_input_contents,
+            sys_text_engine,
+            cont_text_contents,
+            ren_visual,
+            cont_text_spans,
+            sys_dwrite_layouts,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            ren_active_transitions,
+            topo_parents,
+            topo_children,
+            ren_interaction,
+            out_rects,
+            lay_scrollbar_styles,
+            out_scroll_offsets,
+            *win_last_size,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_dirty_entities,
         )
     }
 
     /// 階層的な境界判定ヘルパー（非対象のブランチをまるごとスキップ）
     pub(crate) fn hit_test_recursive(&self, id: EntityId, point: LayoutPoint) -> Option<EntityId> {
         let OutputStore {
-            rects, clip_rects, ..
+            out_rects,
+            out_clip_rects,
+            ..
         } = &self.outputs;
-        let TopologyStore { children, .. } = &self.topology;
+        let TopologyStore { topo_children, .. } = &self.topology;
         let RenderStore {
-            visual_properties,
-            base_visual_properties,
+            ren_visual,
+            ren_base_visual,
             ..
         } = &self.renders;
 
         OutputStore::hit_test_recursive(
             id,
             point,
-            rects,
-            clip_rects,
-            children,
-            visual_properties,
-            base_visual_properties,
+            out_rects,
+            out_clip_rects,
+            topo_children,
+            ren_visual,
+            ren_base_visual,
         )
     }
 
@@ -2204,66 +2226,70 @@ impl Context {
     #[inline]
     pub(crate) fn collect_render_data(&mut self) -> RenderData {
         let OutputStore {
-            rects,
-            clip_rects,
-            selected_rects,
-            scroll_offsets,
+            out_rects,
+            out_clip_rects,
+            out_selected_rects,
+            out_scroll_offsets,
             ..
         } = &self.outputs;
         let TopologyStore {
-            active_masks,
-            active_entities,
-            parents,
-            children,
-            flat_dfs_sequence,
-            sorted_entities,
-            effective_transforms,
-            effective_z_indices,
+            topo_active_masks,
+            topo_active_entities,
+            topo_parents,
+            topo_children,
+            topo_flat_dfs_sequence,
+            topo_sorted_entities,
+            topo_effective_transforms,
+            topo_effective_z_indices,
             ..
         } = &mut self.topology;
         let LayoutStore {
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
+            lay_basic,
+            lay_flex,
+            lay_grid,
             ..
         } = &self.layouts;
         let RenderStore {
-            visual_properties,
-            base_visual_properties,
-            active_webviews,
-            active_transitions,
-            interaction_properties,
+            ren_visual,
+            ren_base_visual,
+            ren_active_webviews,
+            ren_active_transitions,
+            ren_interaction,
             ..
         } = &self.renders;
-        let ContentStore { input_contents, .. } = &self.contents;
+        let ContentStore {
+            cont_input_contents,
+            ..
+        } = &self.contents;
         let EventStore {
-            interaction_states, ..
+            evt_interaction_states,
+            ..
         } = &self.events;
-        let WindowStore { scale_factor, .. } = &self.window;
+        let WindowStore { win_scale_factor, .. } = &self.window;
 
         OutputStore::collect_render_data(
-            rects,
-            clip_rects,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_masks,
-            active_transitions,
-            parents,
-            flat_dfs_sequence,
-            active_entities,
-            interaction_properties,
-            base_visual_properties,
-            visual_properties,
-            active_webviews,
-            selected_rects,
-            scroll_offsets,
-            input_contents,
-            *scale_factor,
-            interaction_states,
-            sorted_entities,
-            effective_transforms,
-            effective_z_indices,
+            out_rects,
+            out_clip_rects,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            topo_active_masks,
+            ren_active_transitions,
+            topo_parents,
+            topo_flat_dfs_sequence,
+            topo_active_entities,
+            ren_interaction,
+            ren_base_visual,
+            ren_visual,
+            ren_active_webviews,
+            out_selected_rects,
+            out_scroll_offsets,
+            cont_input_contents,
+            *win_scale_factor,
+            evt_interaction_states,
+            topo_sorted_entities,
+            topo_effective_transforms,
+            topo_effective_z_indices,
         )
     }
 }

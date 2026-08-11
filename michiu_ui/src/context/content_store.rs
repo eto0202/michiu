@@ -17,13 +17,14 @@ pub(crate) type ImageSourcesSparseSecondary = SparseSecondaryMap<EntityId, Image
 pub(crate) type MoviePropertiesSparseSecondary = SparseSecondaryMap<EntityId, MovieProperty>;
 pub(crate) type WebviewContentsSparseSecondary = SparseSecondaryMap<EntityId, WebView2Contents>;
 
+#[allow(clippy::struct_field_names)]
 pub struct ContentStore {
-    pub(crate) text_contents: TextContentsSparseSecondary,
-    pub(crate) text_spans: TextSpansSparseSecondary,
-    pub(crate) input_contents: InputContentsSparseSecondary,
-    pub(crate) image_sources: ImageSourcesSparseSecondary,
-    pub(crate) movie_properties: MoviePropertiesSparseSecondary,
-    pub(crate) webview_contents: WebviewContentsSparseSecondary,
+    pub(crate) cont_text_contents: TextContentsSparseSecondary,
+    pub(crate) cont_text_spans: TextSpansSparseSecondary,
+    pub(crate) cont_input_contents: InputContentsSparseSecondary,
+    pub(crate) cont_image_sources: ImageSourcesSparseSecondary,
+    pub(crate) cont_movie_properties: MoviePropertiesSparseSecondary,
+    pub(crate) cont_webview_contents: WebviewContentsSparseSecondary,
 }
 
 impl Default for ContentStore {
@@ -37,33 +38,33 @@ impl ContentStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            text_contents: SparseSecondaryMap::new(),
-            text_spans: SparseSecondaryMap::new(),
-            input_contents: SparseSecondaryMap::new(),
-            image_sources: SparseSecondaryMap::new(),
-            movie_properties: SparseSecondaryMap::new(),
-            webview_contents: SparseSecondaryMap::new(),
+            cont_text_contents: SparseSecondaryMap::new(),
+            cont_text_spans: SparseSecondaryMap::new(),
+            cont_input_contents: SparseSecondaryMap::new(),
+            cont_image_sources: SparseSecondaryMap::new(),
+            cont_movie_properties: SparseSecondaryMap::new(),
+            cont_webview_contents: SparseSecondaryMap::new(),
         }
     }
 
     #[inline]
     pub fn clear(&mut self) {
-        self.text_contents.clear();
-        self.text_spans.clear();
-        self.input_contents.clear();
-        self.image_sources.clear();
-        self.movie_properties.clear();
-        self.webview_contents.clear();
+        self.cont_text_contents.clear();
+        self.cont_text_spans.clear();
+        self.cont_input_contents.clear();
+        self.cont_image_sources.clear();
+        self.cont_movie_properties.clear();
+        self.cont_webview_contents.clear();
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
-        self.text_contents.remove(id);
-        self.text_spans.remove(id);
-        self.input_contents.remove(id);
-        self.image_sources.remove(id);
-        self.movie_properties.remove(id);
-        self.webview_contents.remove(id);
+        self.cont_text_contents.remove(id);
+        self.cont_text_spans.remove(id);
+        self.cont_input_contents.remove(id);
+        self.cont_image_sources.remove(id);
+        self.cont_movie_properties.remove(id);
+        self.cont_webview_contents.remove(id);
     }
 }
 
@@ -96,28 +97,28 @@ impl ContentStore {
     #[inline]
     pub(crate) fn get_text_span(
         id: EntityId,
-        text_spans: &TextSpansSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
     ) -> &[TextSpan] {
-        text_spans.get(id).map_or(&[], Vec::as_slice)
+        cont_text_spans.get(id).map_or(&[], Vec::as_slice)
     }
 
     /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn measure_content(
         id: EntityId,
-        input_contents: &mut InputContentsSparseSecondary,
-        text_contents: &TextContentsSparseSecondary,
-        text_spans: &TextSpansSparseSecondary,
-        active_masks: &ActiveMasksSecondary,
-        visual_properties: &VisualPropertiesSecondary,
-        text_engine: &TextEngine,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        sys_text_engine: &TextEngine,
         known_dims: taffy::Size<Option<f32>>,
     ) -> taffy::Size<f32> {
-        let mask = active_masks.get(id).copied().unwrap_or_default();
+        let mask = topo_active_masks.get(id).copied().unwrap_or_default();
 
         // 入力かつキャッシュが既に存在する場合は即座にそのサイズを早期リターン
         if mask.has_input_content()
-            && let Some(contents) = input_contents.get(id)
+            && let Some(contents) = cont_input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
             return taffy::Size {
@@ -134,16 +135,16 @@ impl ContentStore {
             };
         }
 
-        let text = text_contents
+        let text = cont_text_contents
             .get(id)
             .map_or("", std::convert::AsRef::as_ref);
         let (font_size, font_family, font_weight, font_style) =
-            RenderStore::get_font_propery(id, visual_properties);
+            RenderStore::get_font_propery(id, ren_visual);
         let max_width = None;
-        let spans = ContentStore::get_text_span(id, text_spans);
+        let spans = ContentStore::get_text_span(id, cont_text_spans);
 
         // DirectWrite を使用して正確なサイズを計測
-        let size = text_engine.measure_text(
+        let size = sys_text_engine.measure_text(
             text,
             font_size,
             font_family,
@@ -155,7 +156,7 @@ impl ContentStore {
 
         // 計測した文字自体の正確なサイズをここでインプット要素にキャッシュする
         if mask.has_input_content()
-            && let Some(contents) = input_contents.get_mut(id)
+            && let Some(contents) = cont_input_contents.get_mut(id)
         {
             contents.last_layout = Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
         }
@@ -176,26 +177,28 @@ impl Context {
         id: EntityId,
         known_dims: taffy::Size<Option<f32>>,
     ) -> taffy::Size<f32> {
-        let TopologyStore { active_masks, .. } = &mut self.topology;
+        let TopologyStore {
+            topo_active_masks, ..
+        } = &mut self.topology;
         let RenderStore {
-            visual_properties, ..
+            ren_visual, ..
         } = &self.renders;
         let ContentStore {
-            input_contents,
-            text_contents,
-            text_spans,
+            cont_input_contents,
+            cont_text_contents,
+            cont_text_spans,
             ..
         } = &mut self.contents;
-        let SystemStore { text_engine, .. } = &mut self.system;
+        let SystemStore { sys_text_engine, .. } = &mut self.system;
 
         ContentStore::measure_content(
             id,
-            input_contents,
-            text_contents,
-            text_spans,
-            active_masks,
-            visual_properties,
-            text_engine,
+            cont_input_contents,
+            cont_text_contents,
+            cont_text_spans,
+            topo_active_masks,
+            ren_visual,
+            sys_text_engine,
             known_dims,
         )
     }

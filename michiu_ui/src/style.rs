@@ -149,7 +149,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             v.display = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -200,7 +200,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             v.item_is_table = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -227,7 +227,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             v.item_is_replaced = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -254,7 +254,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             v.box_sizing = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -293,7 +293,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             v.direction = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -320,7 +320,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_scrollbar_styles.get_mut(id) {
                             v.style = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -350,7 +350,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_scrollbar_styles.get_mut(id) {
                             v.style.width = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -380,7 +380,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_scrollbar_styles.get_mut(id) {
                             v.style.display = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -433,7 +433,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_scrollbar_styles.get_mut(id) {
                             v.style.mode = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -460,7 +460,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             v.overflow = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -523,7 +523,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             v.overflow.x = val; // x軸のみを安全に更新（y軸の動的設定を破壊しない）
                         }
                         cx.mark_layout_dirty(id); // クリック境界が動くため必須
@@ -550,7 +550,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             v.overflow.y = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -625,7 +625,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             v.position = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -1151,7 +1151,7 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let w = get_w();
                         let h = get_h();
-                        if let Some(v) = cx.layouts.basic_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
                             if h <= 0.0 {
                                 v.aspect_ratio = None;
                             } else {
@@ -3160,7 +3160,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.flex_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_flex.get_mut(id) {
                             v.flex_direction = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -3211,7 +3211,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.flex_layouts.get_mut(id) {
+                        if let Some(v) = cx.layouts.lay_flex.get_mut(id) {
                             v.flex_wrap = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -3853,10 +3853,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_template_rows = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -3887,10 +3887,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_template_columns = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -3918,10 +3918,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_auto_rows = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -3952,10 +3952,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_auto_columns = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -3983,10 +3983,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_auto_flow = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -4017,10 +4017,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_template_areas = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -4051,10 +4051,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_template_column_names = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -4082,10 +4082,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_template_row_names = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -4113,10 +4113,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_row = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -4147,10 +4147,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if !cx.layouts.grid_layouts.contains_key(id) {
-                            cx.layouts.grid_layouts.insert(id, GridLayout::default());
+                        if !cx.layouts.lay_grid.contains_key(id) {
+                            cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.grid_layouts.get_mut(id) {
+                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
                             grid.grid_column = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -4596,7 +4596,7 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let m = get_m();
                         let u = get_u();
-                        cx.events.dnd_drag_properties.insert(
+                        cx.events.evt_dnd_drag_properties.insert(
                             id,
                             DndDragProperty {
                                 placeholder_parent: DndDragPlaceholderParent::Root,
@@ -4663,7 +4663,7 @@ impl ThisStyle {
                         let p = get_p();
                         let m = get_m();
                         let u = get_u();
-                        cx.events.dnd_drag_properties.insert(
+                        cx.events.evt_dnd_drag_properties.insert(
                             id,
                             DndDragProperty {
                                 placeholder_parent: DndDragPlaceholderParent::Custom(p),
@@ -4720,7 +4720,7 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let t = get_t();
                         let m = get_m();
-                        cx.events.dnd_drop_properties.insert(
+                        cx.events.evt_dnd_drop_properties.insert(
                             id,
                             DndDropProperty {
                                 target: t,
@@ -4772,7 +4772,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.renders.base_visual_properties.get_mut(id) {
+                        if let Some(v) = cx.renders.ren_base_visual.get_mut(id) {
                             v.pointer_events = Some(val);
                         }
                         cx.mark_render_dirty(id);
@@ -4922,7 +4922,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.renders.base_visual_properties.get_mut(id) {
+                        if let Some(v) = cx.renders.ren_base_visual.get_mut(id) {
                             v.transitions.push(val);
                         }
                         cx.mark_render_dirty(id);
@@ -5007,7 +5007,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.renders.base_visual_properties.get_mut(id) {
+                        if let Some(v) = cx.renders.ren_base_visual.get_mut(id) {
                             v.keyframe_animations.push(val);
                         }
                         cx.mark_render_dirty(id);
@@ -5445,12 +5445,12 @@ impl ThisStyle {
                     .push(Arc::new(move |cx, id, _parent_target| {
                         let val = getter(); // ThisStyle の動的評価結果
 
-                        if !cx.renders.interaction_properties.contains_key(id) {
+                        if !cx.renders.ren_interaction.contains_key(id) {
                             cx.renders
-                                .interaction_properties
+                                .ren_interaction
                                 .insert(id, InteractionStyles::default());
                         }
-                        let styles = cx.renders.interaction_properties.get_mut(id).unwrap();
+                        let styles = cx.renders.ren_interaction.get_mut(id).unwrap();
 
                         // 動的に解決されたスタイルを対応する疑似フィールドへ上書きマウント
                         match target {

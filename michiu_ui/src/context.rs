@@ -57,8 +57,17 @@ new_key_type! {
 // pub struct EventContext<'a> {
 //    cx: &'a mut Context,
 // }
-// RawContext 側で全てのAPIを公開
-// Facade化するのもあり
+
+/// 引数の配置ルールと接頭辞。それぞれ `&mut` を先に配置。
+/// 1. window (win_)
+/// 2. system (sys_)
+/// 3. reactive (react_)
+/// 4. events (evt_)
+/// 5. contents (cont_)
+/// 6. topology (topo_)
+/// 7. layouts (lay_)
+/// 8. renders (ren_)
+/// 9. outputs (out_)
 pub struct Context {
     /// ツリー構造の構築、親子関係の管理、DFS走査順序。
     /// despawn 連鎖、DFS配列の構築、子孫/親の状態バブリング走査など。
@@ -162,22 +171,22 @@ impl Context {
     #[inline]
     pub fn children_list(&self, handle: Element) -> Option<Vec<Element>> {
         self.topology
-            .children
+            .topo_children
             .get(handle.id)
             .map(|c| c.iter().map(|&id| Element { id }).collect())
     }
 
     /// 画面上でアクティブになっている要素の総数を取得します。
     #[inline]
-    pub fn active_entities_count(&self) -> usize {
-        self.topology.active_entities.len()
+    pub fn topo_active_entities_count(&self) -> usize {
+        self.topology.topo_active_entities.len()
     }
 
     /// 指定された要素が現在マウスホバーされているか判定します
     #[inline]
     pub fn is_hovered(&self, id: EntityId) -> bool {
         self.topology
-            .active_masks
+            .topo_active_masks
             .get(id)
             .is_some_and(|m| m.has(STATE_HOVERED))
     }
@@ -186,7 +195,7 @@ impl Context {
     #[inline]
     pub fn is_focused(&self, id: EntityId) -> bool {
         self.topology
-            .active_masks
+            .topo_active_masks
             .get(id)
             .is_some_and(|m| m.has(STATE_FOCUSED))
     }
@@ -195,7 +204,7 @@ impl Context {
     #[inline]
     pub fn is_pressed(&self, id: EntityId) -> bool {
         self.topology
-            .active_masks
+            .topo_active_masks
             .get(id)
             .is_some_and(|m| m.has(STATE_PRESSED))
     }
@@ -204,7 +213,7 @@ impl Context {
     #[inline]
     pub fn is_disabled(&self, id: EntityId) -> bool {
         self.topology
-            .active_masks
+            .topo_active_masks
             .get(id)
             .is_some_and(|m| m.has(STATE_DISABLED))
     }
@@ -213,7 +222,7 @@ impl Context {
     #[inline]
     pub fn is_actived(&self, id: EntityId) -> bool {
         self.topology
-            .active_masks
+            .topo_active_masks
             .get(id)
             .is_some_and(|m| m.has(STATE_ACTIVED))
     }
@@ -222,7 +231,7 @@ impl Context {
     #[inline]
     pub fn is_selected(&self, id: EntityId) -> bool {
         self.topology
-            .active_masks
+            .topo_active_masks
             .get(id)
             .is_some_and(|m| m.has(STATE_SELECTED))
     }
@@ -231,7 +240,7 @@ impl Context {
     #[inline]
     pub fn is_dragged(&self, id: EntityId) -> bool {
         self.topology
-            .active_masks
+            .topo_active_masks
             .get(id)
             .is_some_and(|m| m.has(STATE_DRAGGED))
     }
@@ -239,9 +248,9 @@ impl Context {
     /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。
     #[inline]
     pub fn is_render_dirty(&self) -> bool {
-        !self.renders.dirty_render_entities.is_empty()
-            || !self.layouts.dirty_layout_entities.is_empty()
-            || self.topology.is_structure_dirty
+        !self.renders.ren_dirty_entities.is_empty()
+            || !self.layouts.lay_dirty_entities.is_empty()
+            || self.topology.topo_is_structure_dirty
     }
 
     /// 現在イベントハンドラを実行している要素（自分自身）の `EntityId` を取得します
@@ -269,57 +278,57 @@ impl Context {
     #[inline]
     pub fn mark_dirty(&mut self, id: EntityId) {
         let LayoutStore {
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_dirty_entities,
             ..
         } = &mut self.layouts;
         let TopologyStore {
-            active_masks,
-            parents,
+            topo_active_masks,
+            topo_parents,
             ..
         } = &mut self.topology;
         let RenderStore {
-            dirty_render_entities,
+            ren_dirty_entities,
             ..
         } = &mut self.renders;
 
         LayoutStore::mark_layout_dirty(
             id,
-            taffy_nodes,
-            taffy,
-            active_masks,
-            dirty_layout_entities,
-            parents,
+            lay_taffy_nodes,
+            lay_taffy,
+            topo_active_masks,
+            lay_dirty_entities,
+            topo_parents,
         );
-        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+        RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
     }
 
     #[inline]
     pub fn clear_layout_dirty(&mut self) {
-        let TopologyStore { active_masks, .. } = &mut self.topology;
+        let TopologyStore { topo_active_masks, .. } = &mut self.topology;
         let LayoutStore {
-            dirty_layout_entities,
+            lay_dirty_entities,
             ..
         } = &mut self.layouts;
 
-        LayoutStore::clear_layout_dirty(dirty_layout_entities, active_masks);
+        LayoutStore::clear_layout_dirty(lay_dirty_entities, topo_active_masks);
     }
 
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
     #[inline]
     pub fn rect(&self, id: EntityId) -> Option<LayoutRect> {
-        let OutputStore { rects, .. } = &self.outputs;
+        let OutputStore { out_rects, .. } = &self.outputs;
 
-        OutputStore::rect(id, rects)
+        OutputStore::rect(id, out_rects)
     }
 
     /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
     #[inline]
     pub fn clip_rect(&self, id: EntityId) -> Option<LayoutRect> {
-        let OutputStore { clip_rects, .. } = &self.outputs;
+        let OutputStore { out_clip_rects, .. } = &self.outputs;
 
-        OutputStore::clip_rect(id, clip_rects)
+        OutputStore::clip_rect(id, out_clip_rects)
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
@@ -331,90 +340,90 @@ impl Context {
     /// 現在のスクロール位置から相対移動します。
     pub fn scroll_by(&mut self, id: EntityId, dx: f32, dy: f32) -> bool {
         let TopologyStore {
-            entities,
-            parents,
-            children,
-            active_masks,
-            active_entities,
-            session_spawned,
-            session_roots,
-            flat_dfs_sequence,
-            is_structure_dirty,
+            topo_entities,
+            topo_parents,
+            topo_children,
+            topo_active_masks,
+            topo_active_entities,
+            topo_session_spawned,
+            topo_session_roots,
+            topo_flat_dfs_sequence,
+            topo_is_structure_dirty,
             ..
         } = &mut self.topology;
         let LayoutStore {
-            basic_layouts,
-            base_basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            scrollbar_styles,
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
+            lay_basic,
+            lay_base_basic,
+            lay_flex,
+            lay_grid,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_dirty_entities,
         } = &mut self.layouts;
         let RenderStore {
-            visual_properties,
-            interaction_properties,
-            base_visual_properties,
-            dirty_render_entities,
-            active_transitions,
-            active_animations,
-            active_webviews,
-            last_tick_time,
+            ren_visual,
+            ren_interaction,
+            ren_base_visual,
+            ren_dirty_entities,
+            ren_active_transitions,
+            ren_active_animations,
+            ren_active_webviews,
+            ren_last_tick_time,
         } = &mut self.renders;
         let OutputStore {
-            rects,
-            clip_rects,
-            scroll_offsets,
-            prev_rects,
-            prev_clip_rects,
-            selected_rects,
-            text_selections,
-            selection_start_index,
+            out_rects,
+            out_clip_rects,
+            out_scroll_offsets,
+            out_prev_rects,
+            out_prev_clip_rects,
+            out_selected_rects,
+            out_text_selections,
+            out_selection_start_index,
         } = &mut self.outputs;
         let ContentStore {
-            text_contents,
-            text_spans,
-            input_contents,
-            image_sources,
-            movie_properties,
-            webview_contents,
+            cont_text_contents,
+            cont_text_spans,
+            cont_input_contents,
+            cont_image_sources,
+            cont_movie_properties,
+            cont_webview_contents,
         } = &mut self.contents;
         let WindowStore {
-            last_window_size, ..
+            win_last_size, ..
         } = &mut self.window;
         let SystemStore {
-            text_engine,
-            dwrite_layouts,
-            uia_properties,
-            task_sender,
-            task_receiver,
+            sys_text_engine,
+            sys_dwrite_layouts,
+            sys_uia_properties,
+            sys_task_sender,
+            sys_task_receiver,
         } = &mut self.system;
         OutputStore::scroll_by(
             id,
             dx,
             dy,
-            active_masks,
-            input_contents,
-            text_engine,
-            text_contents,
-            visual_properties,
-            text_spans,
-            dwrite_layouts,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_transitions,
-            parents,
-            children,
-            interaction_properties,
-            rects,
-            scrollbar_styles,
-            scroll_offsets,
-            *last_window_size,
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
+            topo_active_masks,
+            cont_input_contents,
+            sys_text_engine,
+            cont_text_contents,
+            ren_visual,
+            cont_text_spans,
+            sys_dwrite_layouts,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            ren_active_transitions,
+            topo_parents,
+            topo_children,
+            ren_interaction,
+            out_rects,
+            lay_scrollbar_styles,
+            out_scroll_offsets,
+            *win_last_size,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_dirty_entities,
         )
     }
 
@@ -426,12 +435,12 @@ impl Context {
         initial_value: T,
     ) -> (ReadSignal<T>, WriteSignal<T>) {
         let ReactiveStore {
-            signals,
-            subscribers,
+            react_signals,
+            react_subscribers,
             ..
         } = &mut self.reactive;
 
-        ReactiveStore::create_signal(initial_value, signals, subscribers)
+        ReactiveStore::create_signal(initial_value, react_signals, react_subscribers)
     }
 
     /// 現在のスレッドローカルコンテキストから、
@@ -439,20 +448,20 @@ impl Context {
     #[inline]
     pub fn use_provided_setter<T: Send + 'static>(&self) -> WriteSignal<T> {
         let ReactiveStore {
-            effect_to_element,
-            providers,
+            react_effect_to_element,
+            react_providers,
             ..
         } = &self.reactive;
-        let TopologyStore { parents, .. } = &self.topology;
+        let TopologyStore { topo_parents, .. } = &self.topology;
 
-        let element_id = ReactiveStore::resolve_element_effect(effect_to_element)
+        let element_id = ReactiveStore::resolve_element_effect(react_effect_to_element)
                 .unwrap_or_else(|| {
                     panic!(
                         "use_provided_setter must be called inside a dynamic reactive context or an active event handler context"
                     );
                 });
 
-        ReactiveStore::use_provided_setter_from::<T>(element_id, providers, parents)
+        ReactiveStore::use_provided_setter_from::<T>(element_id, react_providers, topo_parents)
                 .unwrap_or_else(|| {
                     panic!(
                         "Dependency resolution failed: No Provider Setter found in ancestor sub-tree for type: '{}'",
@@ -466,20 +475,20 @@ impl Context {
     #[inline]
     pub fn use_provided<T: Clone + 'static>(&self) -> ReadSignal<T> {
         let ReactiveStore {
-            providers,
-            effect_to_element,
+            react_providers,
+            react_effect_to_element,
             ..
         } = &self.reactive;
-        let TopologyStore { parents, .. } = &self.topology;
+        let TopologyStore { topo_parents, .. } = &self.topology;
 
-        let element_id = ReactiveStore::resolve_element_effect(effect_to_element)
+        let element_id = ReactiveStore::resolve_element_effect(react_effect_to_element)
                 .unwrap_or_else(|| {
                     panic!(
                         "use_provided must be called inside a dynamic style, text, content closure, or an active event handler context"
                     );
                 });
 
-        ReactiveStore::use_provided_from::<T>(element_id, providers, parents)
+        ReactiveStore::use_provided_from::<T>(element_id, react_providers, topo_parents)
                 .unwrap_or_else(|| {
                     panic!(
                         "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
@@ -490,35 +499,35 @@ impl Context {
 
     pub fn try_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
         let ReactiveStore {
-            providers,
-            effect_to_element,
+            react_providers,
+            react_effect_to_element,
             ..
         } = &self.reactive;
-        let TopologyStore { parents, .. } = &self.topology;
+        let TopologyStore { topo_parents, .. } = &self.topology;
 
-        let element_id = ReactiveStore::resolve_element_effect(effect_to_element)?;
-        ReactiveStore::use_provided_from::<T>(element_id, providers, parents)
+        let element_id = ReactiveStore::resolve_element_effect(react_effect_to_element)?;
+        ReactiveStore::use_provided_from::<T>(element_id, react_providers, topo_parents)
     }
 
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な `CursorIcon` を正確に解決します。
     #[inline]
     pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
         let RenderStore {
-            visual_properties,
-            base_visual_properties,
+            ren_visual,
+            ren_base_visual,
             ..
         } = &self.renders;
         let EventStore {
-            interaction_states, ..
+            evt_interaction_states, ..
         } = &self.events;
-        let TopologyStore { parents, .. } = &self.topology;
+        let TopologyStore { topo_parents, .. } = &self.topology;
 
         RenderStore::resolve_cursor(
             hovered_id,
-            interaction_states,
-            visual_properties,
-            base_visual_properties,
-            parents,
+            evt_interaction_states,
+            ren_visual,
+            ren_base_visual,
+            topo_parents,
         )
     }
 
@@ -526,120 +535,120 @@ impl Context {
     #[inline]
     pub fn clear_render_dirty(&mut self) {
         let RenderStore {
-            dirty_render_entities,
+            ren_dirty_entities,
             ..
         } = &mut self.renders;
-        let TopologyStore { active_masks, .. } = &mut self.topology;
+        let TopologyStore { topo_active_masks, .. } = &mut self.topology;
 
-        RenderStore::clear_render_dirty(dirty_render_entities, active_masks);
+        RenderStore::clear_render_dirty(ren_dirty_entities, topo_active_masks);
     }
 
     /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
     #[inline]
     pub fn has_active_animations(&self) -> bool {
         let RenderStore {
-            active_animations,
-            active_transitions,
-            visual_properties,
+            ren_active_animations,
+            ren_active_transitions,
+            ren_visual,
             ..
         } = &self.renders;
         let EventStore {
-            interaction_states,
-            current_pointer_position,
+            evt_interaction_states,
+            evt_current_pointer_position,
             ..
         } = &self.events;
-        let OutputStore { clip_rects, .. } = &self.outputs;
+        let OutputStore { out_clip_rects, .. } = &self.outputs;
         let LayoutStore {
-            scrollbar_styles, ..
+            lay_scrollbar_styles, ..
         } = &self.layouts;
-        let ContentStore { input_contents, .. } = &self.contents;
+        let ContentStore { cont_input_contents, .. } = &self.contents;
 
         RenderStore::has_active_animations(
-            interaction_states,
-            current_pointer_position.as_ref(),
-            clip_rects,
-            visual_properties,
-            active_transitions,
-            active_animations,
-            input_contents,
-            scrollbar_styles,
+            evt_interaction_states,
+            evt_current_pointer_position.as_ref(),
+            out_clip_rects,
+            ren_visual,
+            ren_active_transitions,
+            ren_active_animations,
+            cont_input_contents,
+            lay_scrollbar_styles,
         )
     }
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
     pub fn tick_animations(&mut self) {
         let RenderStore {
-            active_animations,
-            visual_properties,
-            dirty_render_entities,
+            ren_active_animations,
+            ren_visual,
+            ren_dirty_entities,
             ..
         } = &mut self.renders;
         let TopologyStore {
-            active_masks,
-            parents,
+            topo_active_masks,
+            topo_parents,
             ..
         } = &mut self.topology;
         let LayoutStore {
-            basic_layouts,
-            taffy,
-            taffy_nodes,
-            dirty_layout_entities,
+            lay_basic,
+            lay_taffy,
+            lay_taffy_nodes,
+            lay_dirty_entities,
             ..
         } = &mut self.layouts;
 
         RenderStore::tick_animations(
-            active_animations,
-            visual_properties,
-            basic_layouts,
-            taffy_nodes,
-            taffy,
-            active_masks,
-            dirty_layout_entities,
-            dirty_render_entities,
-            parents,
+            ren_active_animations,
+            ren_visual,
+            lay_basic,
+            lay_taffy_nodes,
+            lay_taffy,
+            topo_active_masks,
+            lay_dirty_entities,
+            ren_dirty_entities,
+            topo_parents,
         );
     }
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
     pub fn tick_transitions(&mut self) {
         let RenderStore {
-            visual_properties,
-            dirty_render_entities,
-            last_tick_time,
-            active_transitions,
+            ren_visual,
+            ren_dirty_entities,
+            ren_last_tick_time,
+            ren_active_transitions,
             ..
         } = &mut self.renders;
         let TopologyStore {
-            active_masks,
-            parents,
+            topo_active_masks,
+            topo_parents,
             ..
         } = &mut self.topology;
         let LayoutStore {
-            basic_layouts,
-            taffy,
-            taffy_nodes,
-            dirty_layout_entities,
+            lay_basic,
+            lay_taffy,
+            lay_taffy_nodes,
+            lay_dirty_entities,
             ..
         } = &mut self.layouts;
 
         RenderStore::tick_transitions(
-            last_tick_time,
-            active_transitions,
-            visual_properties,
-            basic_layouts,
-            taffy_nodes,
-            taffy,
-            active_masks,
-            dirty_layout_entities,
-            parents,
-            dirty_render_entities,
+            ren_last_tick_time,
+            ren_active_transitions,
+            ren_visual,
+            lay_basic,
+            lay_taffy_nodes,
+            lay_taffy,
+            topo_active_masks,
+            lay_dirty_entities,
+            topo_parents,
+            ren_dirty_entities,
         );
     }
 
     /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
     #[inline]
-    pub fn task_sender(&self) -> TaskSender {
-        self.system.task_sender.clone()
+    pub fn sys_task_sender(&self) -> TaskSender {
+        self.system.sys_task_sender.clone()
     }
 
     /// ウィンドウ生成後に起床用コールバックを登録します。
@@ -648,7 +657,7 @@ impl Context {
     where
         F: Fn() + Send + Sync + 'static,
     {
-        self.system.task_sender.waker = Some(Arc::new(f));
+        self.system.sys_task_sender.waker = Some(Arc::new(f));
     }
 
     /// メインスレッドの毎フレーム開始時（またはイベントハンドラの先頭など）に呼び出され、
@@ -657,35 +666,35 @@ impl Context {
     pub fn process_main_thread_tasks(&mut self) {
         let _context_guard = bind_context(self);
         // キューに溜まっているクロージャをすべてメインスレッドのコンテキスト上で実行
-        while let Ok(task) = self.system.task_receiver.try_recv() {
+        while let Ok(task) = self.system.sys_task_receiver.try_recv() {
             task(self);
         }
     }
 
     #[inline]
     pub fn entity_id_focused(&self) -> Option<EntityId> {
-        self.events.interaction_states.focused
+        self.events.evt_interaction_states.focused
     }
 
     #[inline]
     pub fn entity_id_dragged(&self) -> Option<EntityId> {
-        self.events.interaction_states.dragged
+        self.events.evt_interaction_states.dragged
     }
 
     #[inline]
     pub fn entity_id_hovered(&self) -> Option<EntityId> {
-        self.events.interaction_states.hovered
+        self.events.evt_interaction_states.hovered
     }
 
     #[inline]
     pub fn entity_id_pressed(&self) -> Option<EntityId> {
-        self.events.interaction_states.pressed
+        self.events.evt_interaction_states.pressed
     }
 
     /// 指定された要素をプログラム駆動でクリックさせます
     #[inline]
     pub fn trigger_element_click(&mut self, id: EntityId) {
-        if !self.topology.entities.contains_key(id) || self.is_disabled(id) {
+        if !self.topology.topo_entities.contains_key(id) || self.is_disabled(id) {
             return;
         }
         handle_on_click(self, id);
@@ -695,77 +704,77 @@ impl Context {
     /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して `SoA` を更新。
     pub fn update_input_caret_position(&mut self, id: EntityId) {
         let TopologyStore {
-            active_masks,
-            parents,
-            children,
+            topo_active_masks,
+            topo_parents,
+            topo_children,
             ..
         } = &mut self.topology;
         let LayoutStore {
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            dirty_layout_entities,
-            taffy,
-            taffy_nodes,
-            scrollbar_styles,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            lay_dirty_entities,
+            lay_taffy,
+            lay_taffy_nodes,
+            lay_scrollbar_styles,
             ..
         } = &mut self.layouts;
         let RenderStore {
-            visual_properties,
-            base_visual_properties,
-            interaction_properties,
-            active_transitions,
+            ren_visual,
+            ren_base_visual,
+            ren_interaction,
+            ren_active_transitions,
             ..
         } = &mut self.renders;
         let OutputStore {
-            rects,
-            scroll_offsets,
-            text_selections,
+            out_rects,
+            out_scroll_offsets,
+            out_text_selections,
             ..
         } = &mut self.outputs;
         let ContentStore {
-            text_contents,
-            input_contents,
-            text_spans,
+            cont_text_contents,
+            cont_input_contents,
+            cont_text_spans,
             ..
         } = &mut self.contents;
         let SystemStore {
-            text_engine,
-            dwrite_layouts,
+            sys_text_engine,
+            sys_dwrite_layouts,
             ..
         } = &mut self.system;
         let WindowStore {
-            last_window_size,
-            scale_factor,
+            win_last_size,
+            win_scale_factor,
             ..
         } = &mut self.window;
 
         OutputStore::update_input_caret_position(
             id,
-            rects,
-            dwrite_layouts,
-            input_contents,
-            text_contents,
-            text_selections,
-            text_spans,
-            text_engine,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_masks,
-            children,
-            interaction_properties,
-            scrollbar_styles,
-            scroll_offsets,
-            *last_window_size,
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
-            active_transitions,
-            parents,
-            visual_properties,
-            base_visual_properties,
-            *scale_factor,
+            out_rects,
+            sys_dwrite_layouts,
+            cont_input_contents,
+            cont_text_contents,
+            out_text_selections,
+            cont_text_spans,
+            sys_text_engine,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            topo_active_masks,
+            topo_children,
+            ren_interaction,
+            lay_scrollbar_styles,
+            out_scroll_offsets,
+            *win_last_size,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_dirty_entities,
+            ren_active_transitions,
+            topo_parents,
+            ren_visual,
+            ren_base_visual,
+            *win_scale_factor,
         );
     }
 
@@ -774,83 +783,83 @@ impl Context {
     #[inline]
     pub fn tick_drag_autoscroll(&mut self) {
         let TopologyStore {
-            active_masks,
-            parents,
-            children,
+            topo_active_masks,
+            topo_parents,
+            topo_children,
             ..
         } = &mut self.topology;
         let LayoutStore {
-            basic_layouts,
-            base_basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            scrollbar_styles,
-            dirty_layout_entities,
-            taffy,
-            taffy_nodes,
+            lay_basic,
+            lay_base_basic,
+            lay_flex,
+            lay_grid,
+            lay_scrollbar_styles,
+            lay_dirty_entities,
+            lay_taffy,
+            lay_taffy_nodes,
             ..
         } = &mut self.layouts;
         let RenderStore {
-            visual_properties,
-            interaction_properties,
-            active_transitions,
-            dirty_render_entities,
+            ren_visual,
+            ren_interaction,
+            ren_active_transitions,
+            ren_dirty_entities,
             ..
         } = &mut self.renders;
         let ContentStore {
-            input_contents,
-            text_contents,
-            text_spans,
+            cont_input_contents,
+            cont_text_contents,
+            cont_text_spans,
             ..
         } = &mut self.contents;
         let OutputStore {
-            rects,
-            scroll_offsets,
-            clip_rects,
+            out_rects,
+            out_scroll_offsets,
+            out_clip_rects,
             ..
         } = &mut self.outputs;
         let EventStore {
-            current_pointer_position,
-            interaction_states,
+            evt_current_pointer_position,
+            evt_interaction_states,
             ..
         } = &mut self.events;
         let SystemStore {
-            text_engine,
-            dwrite_layouts,
+            sys_text_engine,
+            sys_dwrite_layouts,
             ..
         } = &mut self.system;
         let WindowStore {
-            last_window_size, ..
+            win_last_size, ..
         } = &mut self.window;
 
-        let Some(id) = interaction_states.pressed else {
+        let Some(id) = evt_interaction_states.pressed else {
             return;
         };
         let (autoscroll_occurred, active_pos) = EventStore::autoscroll_occurred(
             id,
-            *current_pointer_position,
-            clip_rects,
-            active_masks,
-            input_contents,
-            text_engine,
-            text_contents,
-            visual_properties,
-            text_spans,
-            dwrite_layouts,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_transitions,
-            parents,
-            children,
-            interaction_properties,
-            rects,
-            scrollbar_styles,
-            scroll_offsets,
-            *last_window_size,
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
+            *evt_current_pointer_position,
+            out_clip_rects,
+            topo_active_masks,
+            cont_input_contents,
+            sys_text_engine,
+            cont_text_contents,
+            ren_visual,
+            cont_text_spans,
+            sys_dwrite_layouts,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            ren_active_transitions,
+            topo_parents,
+            topo_children,
+            ren_interaction,
+            out_rects,
+            lay_scrollbar_styles,
+            out_scroll_offsets,
+            *win_last_size,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_dirty_entities,
         );
 
         if autoscroll_occurred && let Some(pos) = active_pos {
@@ -943,15 +952,15 @@ impl Context {
     // ダブルクリック
     pub fn inject_pointer_double_click(&mut self, modifiers: Modifiers) {
         let _context_guard = bind_context(self);
-        let current_hovered = self.events.interaction_states.hovered;
+        let current_hovered = self.events.evt_interaction_states.hovered;
 
         if let Some(target_id) = current_hovered {
             let user_select = self.get_user_select(target_id);
 
             if user_select == UserSelect::Text
-                && let Some(pointer_pos) = self.events.current_pointer_position
+                && let Some(pointer_pos) = self.events.evt_current_pointer_position
             {
-                if let Some(contents) = self.contents.input_contents.get(target_id) {
+                if let Some(contents) = self.contents.cont_input_contents.get(target_id) {
                     let text_val = contents.text.0.get();
                     let is_placeholder = text_val.is_empty()
                         && contents
@@ -975,7 +984,7 @@ impl Context {
                 if let Some(dw_layout) = self.get_or_create_layout(target_id) {
                     let (clicked_index, is_trailing) = self
                         .system
-                        .text_engine
+                        .sys_text_engine
                         .hit_test_point(&dw_layout, local_x, local_y);
                     let final_index = if is_trailing {
                         clicked_index + 1
@@ -983,22 +992,22 @@ impl Context {
                         clicked_index
                     };
 
-                    if let Some(text) = self.contents.text_contents.get(target_id) {
+                    if let Some(text) = self.contents.cont_text_contents.get(target_id) {
                         let text_u16: Vec<u16> = text.encode_utf16().collect();
 
                         // 高精度な文節境界を抽出
                         let range = crate::find_word_boundaries(&text_u16, final_index);
 
                         self.outputs
-                            .text_selections
+                            .out_text_selections
                             .insert(target_id, range.clone());
                         // アンカー開始を文節左端にセット
                         self.outputs
-                            .selection_start_index
+                            .out_selection_start_index
                             .insert(target_id, range.start);
                         self.update_selection_rects(target_id, &dw_layout); // 選択矩形を更新
 
-                        if let Some(contents) = self.contents.input_contents.get_mut(target_id) {
+                        if let Some(contents) = self.contents.cont_input_contents.get_mut(target_id) {
                             contents.selected_range = range;
                             contents.selection_reversed = false; // キャレットは右端に配置
                             self.update_input_caret_position(target_id);
@@ -1016,18 +1025,18 @@ impl Context {
     pub fn inject_mouse_wheel(&mut self, scroll_x: f32, scroll_y: f32) {
         let _context_guard = bind_context(self);
 
-        let mut curr = self.events.interaction_states.hovered;
+        let mut curr = self.events.evt_interaction_states.hovered;
         let mut handled = false;
 
         // イベントバブリング: ホバー要素から親へ辿る
         while let Some(curr_id) = curr {
             // 個別に定義された `on_mouse_wheel` ハンドラがあれば最優先実行
-            if let Some(l) = self.events.event_listeners.get_mut(curr_id)
+            if let Some(l) = self.events.evt_listeners.get_mut(curr_id)
                 && let Some(mut handler) = l.on_mouse_wheel.take()
             {
                 let _guard = crate::ActiveElementGuard::new(curr_id);
                 handler(self, scroll_x, scroll_y);
-                if let Some(l) = self.events.event_listeners.get_mut(curr_id) {
+                if let Some(l) = self.events.evt_listeners.get_mut(curr_id) {
                     l.on_mouse_wheel = Some(handler);
                 }
                 handled = true; // イベントが消費されたため、これ以降のコンテナスクロールは行わない
@@ -1035,7 +1044,7 @@ impl Context {
             }
 
             // ユーザーハンドラがない場合、要素がスクロールコンテナであるか判定
-            let mask = self.topology.active_masks[curr_id];
+            let mask = self.topology.topo_active_masks[curr_id];
             if mask.has(STYLE_OVERFLOW) {
                 let (basic, _, _) = self.resolve_active_layouts(curr_id);
 
@@ -1066,7 +1075,7 @@ impl Context {
             }
 
             // 先祖へ伝播
-            curr = self.topology.parents.get(curr_id).copied().flatten();
+            curr = self.topology.topo_parents.get(curr_id).copied().flatten();
         }
     }
 
@@ -1084,11 +1093,11 @@ impl Context {
             return;
         }
 
-        if let Some(focused_id) = self.events.interaction_states.focused {
+        if let Some(focused_id) = self.events.evt_interaction_states.focused {
             // フォーカス中に Enter または Space が押されたら自動的にクリックをエミュレートする
             if state == ElementState::Pressed
                 && (key == VirtualKey::RETURN || key == VirtualKey::SPACE)
-                && !self.topology.active_masks[focused_id].has_input_content()
+                && !self.topology.topo_active_masks[focused_id].has_input_content()
             {
                 handle_on_click(self, focused_id);
                 return;
@@ -1099,18 +1108,18 @@ impl Context {
 
                 if key == VirtualKey::A && user_select == UserSelect::Text {
                     if let Some(dw_layout) = self.get_or_create_layout(focused_id)
-                        && let Some(text) = self.contents.text_contents.get(focused_id)
+                        && let Some(text) = self.contents.cont_text_contents.get(focused_id)
                     {
                         let u16_len = text.encode_utf16().count();
                         let full_range = 0..u16_len;
 
                         self.outputs
-                            .text_selections
+                            .out_text_selections
                             .insert(focused_id, full_range.clone());
 
                         self.update_selection_rects(focused_id, &dw_layout);
 
-                        if let Some(contents) = self.contents.input_contents.get_mut(focused_id) {
+                        if let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id) {
                             contents.selected_range = full_range;
                             contents.selection_reversed = false;
                             self.update_input_caret_position(focused_id);
@@ -1126,18 +1135,18 @@ impl Context {
 
     /// キーボードフォーカスを次の適格な要素へ巡回させます
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
-        if self.topology.flat_dfs_sequence.is_empty() {
+        if self.topology.topo_flat_dfs_sequence.is_empty() {
             return;
         }
 
-        let len = self.topology.flat_dfs_sequence.len();
+        let len = self.topology.topo_flat_dfs_sequence.len();
 
         // 現在フォーカスされている要素のインデックスを特定（無ければ探索方向の末端から開始）
-        let current_focused = self.events.interaction_states.focused;
+        let current_focused = self.events.evt_interaction_states.focused;
         let start_idx = current_focused
             .and_then(|id| {
                 self.topology
-                    .flat_dfs_sequence
+                    .topo_flat_dfs_sequence
                     .iter()
                     .position(|&x| x == id)
             })
@@ -1157,18 +1166,18 @@ impl Context {
                 break;
             }
 
-            let candidate_id = self.topology.flat_dfs_sequence[idx];
+            let candidate_id = self.topology.topo_flat_dfs_sequence[idx];
 
             if self.is_keyboard_focusable(candidate_id) {
                 // 古い要素のフォーカスを外し、新しい要素へフォーカスを設定
-                if let Some(old_id) = self.events.interaction_states.focused {
+                if let Some(old_id) = self.events.evt_interaction_states.focused {
                     self.set_focused_by_trigger(old_id, false, ActiveFocusTrigger::Keyboard);
                 }
                 self.set_focused_by_trigger(candidate_id, true, ActiveFocusTrigger::Keyboard);
-                self.events.interaction_states.focused = Some(candidate_id);
+                self.events.evt_interaction_states.focused = Some(candidate_id);
 
                 // WebView2 要素だった場合はシステム側にフォーカスをプログラム駆動で移譲
-                if self.topology.active_masks[candidate_id].has_webveiw2_content() {
+                if self.topology.topo_active_masks[candidate_id].has_webveiw2_content() {
                     // 通常のレンダラーから focus_webview を呼び出すためここでは何もしない
                 }
 
@@ -1181,7 +1190,7 @@ impl Context {
     #[inline]
     pub fn inject_character(&mut self, c: char) {
         let _context_guard = bind_context(self);
-        let Some(focused_id) = self.events.interaction_states.focused else {
+        let Some(focused_id) = self.events.evt_interaction_states.focused else {
             return;
         };
         handle_on_char_input(self, focused_id, c);
@@ -1190,7 +1199,7 @@ impl Context {
     #[inline]
     pub fn inject_ime(&mut self, ime_state: ImeState) {
         let _context_guard = bind_context(self);
-        let Some(focused_id) = self.events.interaction_states.focused else {
+        let Some(focused_id) = self.events.evt_interaction_states.focused else {
             return;
         };
         handle_on_ime(self, focused_id, ime_state);
@@ -1199,7 +1208,7 @@ impl Context {
     #[inline]
     pub fn inject_file_dropped(&mut self, paths: Vec<PathBuf>) {
         let _context_guard = bind_context(self);
-        let Some(target_id) = self.events.interaction_states.hovered else {
+        let Some(target_id) = self.events.evt_interaction_states.hovered else {
             return;
         };
         handle_on_file_dropped(self, target_id, paths);
@@ -1209,9 +1218,9 @@ impl Context {
     #[inline]
     pub fn inject_paste(&mut self, text: &str) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && self.topology.active_masks[focused_id].has_input_content()
-            && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
+        if let Some(focused_id) = self.events.evt_interaction_states.focused
+            && self.topology.topo_active_masks[focused_id].has_input_content()
+            && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
         {
             OutputStore::inject_paste_internal(focused_id, text, &mut self.outputs, contents);
 
@@ -1224,9 +1233,9 @@ impl Context {
     #[inline]
     pub fn inject_undo(&mut self) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && self.topology.active_masks[focused_id].has_input_content()
-            && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
+        if let Some(focused_id) = self.events.evt_interaction_states.focused
+            && self.topology.topo_active_masks[focused_id].has_input_content()
+            && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
             && let Some((prev_text, prev_sel)) = contents.undo_stack.pop()
         {
             OutputStore::inject_undo_internal(
@@ -1246,9 +1255,9 @@ impl Context {
     #[inline]
     pub fn inject_redo(&mut self) {
         let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.interaction_states.focused
-            && self.topology.active_masks[focused_id].has_input_content()
-            && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
+        if let Some(focused_id) = self.events.evt_interaction_states.focused
+            && self.topology.topo_active_masks[focused_id].has_input_content()
+            && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
             && let Some((next_text, next_sel)) = contents.redo_stack.pop()
         {
             OutputStore::inject_redo_internal(
@@ -1268,21 +1277,21 @@ impl Context {
     #[inline]
     pub fn inject_cut(&mut self) -> Option<String> {
         let _context_guard = bind_context(self);
-        let focused_id = self.events.interaction_states.focused?;
+        let focused_id = self.events.evt_interaction_states.focused?;
         let user_select = self.get_user_select(focused_id);
 
         if user_select == UserSelect::Text
-            && let Some(range) = self.outputs.text_selections.get(focused_id).cloned()
+            && let Some(range) = self.outputs.out_text_selections.get(focused_id).cloned()
             && range.start < range.end
-            && let Some(text) = self.contents.text_contents.get(focused_id)
+            && let Some(text) = self.contents.cont_text_contents.get(focused_id)
         {
             let u16_text: Vec<u16> = text.encode_utf16().collect();
             let slice = &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
             let cut_text = String::from_utf16(slice).ok()?;
 
             // 対象が Input コントロールである場合のみ、切り取り削除上書きを実行
-            if self.topology.active_masks[focused_id].has_input_content()
-                && let Some(contents) = self.contents.input_contents.get_mut(focused_id)
+            if self.topology.topo_active_masks[focused_id].has_input_content()
+                && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
             {
                 OutputStore::inject_cut_internal(focused_id, range, &mut self.outputs, contents);
 
@@ -1300,39 +1309,39 @@ impl Context {
     /// 階層的な早期枝刈りヒットテスト
     pub fn hit_test(&mut self, point: LayoutPoint) -> Option<EntityId> {
         let TopologyStore {
-            active_entities,
-            active_masks,
-            parents,
-            flat_dfs_sequence,
-            effective_z_indices,
-            sorted_entities,
+            topo_active_entities,
+            topo_active_masks,
+            topo_parents,
+            topo_flat_dfs_sequence,
+            topo_effective_z_indices,
+            topo_sorted_entities,
             ..
         } = &mut self.topology;
         let RenderStore {
-            visual_properties,
-            base_visual_properties,
+            ren_visual,
+            ren_base_visual,
             ..
         } = &self.renders;
         let OutputStore {
-            rects, clip_rects, ..
+            out_rects, out_clip_rects, ..
         } = &self.outputs;
         let EventStore {
-            interaction_states, ..
+            evt_interaction_states, ..
         } = &self.events;
 
         TopologyStore::hit_test(
             point,
-            active_entities,
-            active_masks,
-            flat_dfs_sequence,
-            parents,
-            effective_z_indices,
-            sorted_entities,
-            visual_properties,
-            base_visual_properties,
-            interaction_states,
-            rects,
-            clip_rects,
+            topo_active_entities,
+            topo_active_masks,
+            topo_flat_dfs_sequence,
+            topo_parents,
+            topo_effective_z_indices,
+            topo_sorted_entities,
+            ren_visual,
+            ren_base_visual,
+            evt_interaction_states,
+            out_rects,
+            out_clip_rects,
         )
     }
 
@@ -1348,23 +1357,23 @@ impl Context {
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // すべてスキップして早期リターン。
-        if self.layouts.dirty_layout_entities.is_empty()
-            && !self.topology.is_structure_dirty
+        if self.layouts.lay_dirty_entities.is_empty()
+            && !self.topology.topo_is_structure_dirty
             && !window_resized
-            && !self.outputs.rects.is_empty()
+            && !self.outputs.out_rects.is_empty()
         {
             return;
         }
 
-        if self.topology.is_structure_dirty {
-            self.rebuild_flat_dfs_sequence(root);
+        if self.topology.topo_is_structure_dirty {
+            self.rebuild_topo_flat_dfs_sequence(root);
         }
 
         // 全スクロールバー関連IDを一括抽出
         let scrollbar_el_ids = self.scrollbar_el_ids();
 
         // 1. Taffy永続ツリーへの差分同期
-        for id in &self.layouts.dirty_layout_entities {
+        for id in &self.layouts.lay_dirty_entities {
             // スクロールバー専用要素は手動で物理座標を同期させるため、Taffyへの登録更新を完全にバイパス
             if scrollbar_el_ids.contains(id) {
                 continue;
@@ -1372,19 +1381,19 @@ impl Context {
 
             let (mut basic, flex, grid) = self.resolve_active_layouts(*id);
 
-            // もしこの要素が現在アニメーション中（active_transitions に存在）であれば、
+            // もしこの要素が現在アニメーション中（ren_active_transitions に存在）であれば、
             // resolve_active_layouts が強制マージした目標値を拒否し、
             // tick_transitions が毎フレーム更新している現在値に上書きし直して Taffy に送信。
-            if let Some(active_list) = self.renders.active_transitions.get(*id) {
+            if let Some(active_list) = self.renders.ren_active_transitions.get(*id) {
                 for t_state in active_list {
                     match t_state.property_list {
                         PropertyList::Width => {
-                            if let Some(layout) = self.layouts.basic_layouts.get(*id) {
+                            if let Some(layout) = self.layouts.lay_basic.get(*id) {
                                 basic.size.width = layout.size.width;
                             }
                         }
                         PropertyList::Height => {
-                            if let Some(layout) = self.layouts.basic_layouts.get(*id) {
+                            if let Some(layout) = self.layouts.lay_basic.get(*id) {
                                 basic.size.height = layout.size.height;
                             }
                         }
@@ -1394,13 +1403,13 @@ impl Context {
             }
 
             let t_style = self.resolve_taffy_style(*id, &basic, &flex, grid.as_ref());
-            let t_node = self.layouts.taffy_nodes[*id];
+            let t_node = self.layouts.lay_taffy_nodes[*id];
 
-            self.layouts.taffy.set_style(t_node, t_style).unwrap();
+            self.layouts.lay_taffy.set_style(t_node, t_style).unwrap();
         }
 
         // 2. Taffy のレイアウト再計算
-        if let Some(&root_node) = self.layouts.taffy_nodes.get(root) {
+        if let Some(&root_node) = self.layouts.lay_taffy_nodes.get(root) {
             // 計測関数をクロージャとして定義
             let measure_func = |known_dims: taffy::Size<Option<f32>>,
                                 available_space: taffy::Size<taffy::AvailableSpace>,
@@ -1425,7 +1434,7 @@ impl Context {
                 taffy::Size::ZERO
             };
 
-            let _ = self.layouts.taffy.compute_layout_with_measure(
+            let _ = self.layouts.lay_taffy.compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
@@ -1435,16 +1444,16 @@ impl Context {
             );
         }
 
-        self.topology.active_entities.clear();
+        self.topology.topo_active_entities.clear();
 
-        // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの rects のみを確定
+        // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの out_rects のみを確定
         self.swap_output_rect();
 
-        let flat_len = self.topology.flat_dfs_sequence.len();
+        let flat_len = self.topology.topo_flat_dfs_sequence.len();
 
         // 1次元非再帰・静的キャッシュバイパスループ
         for i in 0..flat_len {
-            let id = self.topology.flat_dfs_sequence[i];
+            let id = self.topology.topo_flat_dfs_sequence[i];
 
             // スクロールバー専用子要素は手動で物理座標を強制更新するため、この走査ループから完全にスルー
             if scrollbar_el_ids.contains(&id) {
@@ -1455,32 +1464,32 @@ impl Context {
             let parent_changed = self.parent_changed(id);
 
             // 静的キャッシュバイパス判定
-            let has_style_changed = self.topology.active_masks[id].has(STATE_QUEUED_LAYOUT);
+            let has_style_changed = self.topology.topo_active_masks[id].has(STATE_QUEUED_LAYOUT);
 
             if !window_resized
                 && !has_style_changed
                 && !parent_changed
-                && self.outputs.prev_rects.contains_key(id)
+                && self.outputs.out_prev_rects.contains_key(id)
             {
                 // 自分自身のスタイルが変わっておらず、親も動いていない、かつモニターリサイズもされていないならキャッシュ利用
-                let cached_rect = self.outputs.prev_rects[id];
-                self.outputs.rects.insert(id, cached_rect);
+                let cached_rect = self.outputs.out_prev_rects[id];
+                self.outputs.out_rects.insert(id, cached_rect);
 
                 // クリップも同様にキャッシュ再利用
-                let cached_clip = self.outputs.prev_clip_rects[id];
-                self.outputs.clip_rects.insert(id, cached_clip);
+                let cached_clip = self.outputs.out_prev_clip_rects[id];
+                self.outputs.out_clip_rects.insert(id, cached_clip);
 
-                self.topology.active_entities.push(id);
+                self.topology.topo_active_entities.push(id);
                 continue;
             }
 
             let (abs_rect, parent_clip) = self.calc_local_rect(id, window_size);
 
-            self.outputs.rects.insert(id, abs_rect);
-            let mask = self.topology.active_masks[id];
+            self.outputs.out_rects.insert(id, abs_rect);
+            let mask = self.topology.topo_active_masks[id];
 
             if mask.has_input_content()
-                && let Some(contents) = self.contents.input_contents.get_mut(id)
+                && let Some(contents) = self.contents.cont_input_contents.get_mut(id)
             {
                 contents.last_bounds = Some(abs_rect);
             }
@@ -1490,10 +1499,10 @@ impl Context {
             } else {
                 parent_clip
             };
-            self.outputs.clip_rects.insert(id, current_clip);
+            self.outputs.out_clip_rects.insert(id, current_clip);
 
             // 常に1次元DFS順でアクティブ要素リストに登録する
-            self.topology.active_entities.push(id);
+            self.topology.topo_active_entities.push(id);
         }
 
         // スクロールバー要素（Track & Thumb）のサイズ・配置・不透明度を一括同期更新
@@ -1501,8 +1510,8 @@ impl Context {
 
         // スクロールバー専用要素のサイズ・位置が確定したため、
         // 差分計算を走らせてマージンやパディングを考慮した物理位置を Taffy 内部で正確に解決
-        if let Some(&root_node) = self.layouts.taffy_nodes.get(root) {
-            let _ = self.layouts.taffy.compute_layout_with_measure(
+        if let Some(&root_node) = self.layouts.lay_taffy_nodes.get(root) {
+            let _ = self.layouts.lay_taffy.compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
@@ -1516,8 +1525,8 @@ impl Context {
                  -> taffy::Size<f32> {
                     if let Some(&id) = context.as_deref() {
                         return with_context(|cx| {
-                            if cx.topology.active_masks[id].has_input_content()
-                                && let Some(contents) = cx.contents.input_contents.get(id)
+                            if cx.topology.topo_active_masks[id].has_input_content()
+                                && let Some(contents) = cx.contents.cont_input_contents.get(id)
                                 && let Some(layout_rect) = contents.last_layout
                             {
                                 return taffy::Size {
@@ -1527,7 +1536,7 @@ impl Context {
                             }
 
                             // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
-                            if let Some(&rect) = cx.outputs.rects.get(id) {
+                            if let Some(&rect) = cx.outputs.out_rects.get(id) {
                                 taffy::Size {
                                     width: known_dims.width.unwrap_or(rect.width),
                                     height: known_dims.height.unwrap_or(rect.height),
@@ -1542,19 +1551,19 @@ impl Context {
             );
         }
 
-        // スクロールバー要素も含めて、Taffy から最終確定位置をすべて引き出して rects にマウント
-        self.topology.active_entities.clear();
+        // スクロールバー要素も含めて、Taffy から最終確定位置をすべて引き出して out_rects にマウント
+        self.topology.topo_active_entities.clear();
 
         for i in 0..flat_len {
-            let id = self.topology.flat_dfs_sequence[i];
+            let id = self.topology.topo_flat_dfs_sequence[i];
 
             let (abs_rect, parent_clip) = self.calc_local_rect(id, window_size);
 
-            self.outputs.rects.insert(id, abs_rect);
-            let mask = self.topology.active_masks[id];
+            self.outputs.out_rects.insert(id, abs_rect);
+            let mask = self.topology.topo_active_masks[id];
 
             if mask.has_input_content()
-                && let Some(contents) = self.contents.input_contents.get_mut(id)
+                && let Some(contents) = self.contents.cont_input_contents.get_mut(id)
             {
                 contents.last_bounds = Some(abs_rect);
             }
@@ -1564,16 +1573,16 @@ impl Context {
             } else {
                 parent_clip
             };
-            self.outputs.clip_rects.insert(id, current_clip);
+            self.outputs.out_clip_rects.insert(id, current_clip);
 
-            self.topology.active_entities.push(id);
+            self.topology.topo_active_entities.push(id);
         }
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
         for i in 0..flat_len {
-            let id = self.topology.flat_dfs_sequence[i];
-            if self.outputs.scroll_offsets.contains_key(id) {
-                let current = self.outputs.scroll_offsets[id];
+            let id = self.topology.topo_flat_dfs_sequence[i];
+            if self.outputs.out_scroll_offsets.contains_key(id) {
+                let current = self.outputs.out_scroll_offsets[id];
                 // 枠サイズの変更があった場合など、現在の位置からはみ出していれば自動クランプ調整
                 self.scroll_to(id, current.x, current.y);
             }

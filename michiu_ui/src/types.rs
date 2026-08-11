@@ -1151,10 +1151,10 @@ macro_rules! define_event_dispatchers {
                 id: EntityId,
                 $($arg_name : $arg_type),*
             ) {
-                // events.event_listeners から該当のハンドラを一時的に take する
+                // events.evt_listeners から該当のハンドラを一時的に take する
                 if let Some(mut handler) = cx
                     .events
-                    .event_listeners
+                    .evt_listeners
                     .get_mut(id)
                     .and_then(|l| l.$field_name.take())
                 {
@@ -1164,7 +1164,7 @@ macro_rules! define_event_dispatchers {
                     handler(cx, $($arg_name),*);
 
                     // 実行後コールバックを書き戻す
-                    if let Some(l) = cx.events.event_listeners.get_mut(id) {
+                    if let Some(l) = cx.events.evt_listeners.get_mut(id) {
                         l.$field_name = Some(handler);
                     }
                 }
@@ -1212,7 +1212,7 @@ pub(crate) struct EventListeners {
     /// 引数: (ボタンの種類, 装飾キーの状態, 押し下げ/離し状態)
     pub(crate) on_mouse_input: Option<MouseCallback>,
 
-    /// `マウスカーソルがこの要素の可視境界（clip_rects）に入った際のイベント`
+    /// `マウスカーソルがこの要素の可視境界（out_clip_rects）に入った際のイベント`
     pub(crate) on_mouse_enter: Option<SimpleCallback>,
 
     /// マウスカーソルがこの要素の可視境界から外に出た際のイベント

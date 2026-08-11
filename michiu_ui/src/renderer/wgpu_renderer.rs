@@ -584,7 +584,7 @@ impl WgpuRenderer {
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders
-            .visual_properties
+            .ren_visual
             .get(entity_id)
             .unwrap_or(&default_visual);
 
@@ -641,14 +641,14 @@ impl WgpuRenderer {
         // WebView2 がアクティブ（昇格表示）の時は、
         // 透過スナップショットを突き抜けて DComp コンポジターでブレンドされるため、
         // 影の黒さが非線形（ガンマ空間）で強調されて濃く見えてしまう。
-        // これを防ぐため、親要素に COMP_WEBVIEW_CONTENT があり、かつそれが active_webviews (準備完了) に
+        // これを防ぐため、親要素に COMP_WEBVIEW_CONTENT があり、かつそれが ren_active_webviews (準備完了) に
         // 入っている場合は、影のアルファを 45% に補正して、静止画キャッシュ時と視覚的な濃さを統一。
         if shadow_color != Color::TRANSPARENT {
             let mut has_active_webview_parent = false;
             let mut curr_id = entity_id;
-            while let Some(Some(parent_id)) = cx.topology.parents.get(curr_id) {
-                if cx.topology.active_masks[*parent_id].has_webveiw2_content()
-                    && cx.renders.active_webviews.contains(parent_id)
+            while let Some(Some(parent_id)) = cx.topology.topo_parents.get(curr_id) {
+                if cx.topology.topo_active_masks[*parent_id].has_webveiw2_content()
+                    && cx.renders.ren_active_webviews.contains(parent_id)
                 {
                     has_active_webview_parent = true;
                     break;
@@ -689,26 +689,26 @@ impl WgpuRenderer {
         let mut final_rect = instance.rect;
         let mut final_color = instance.color;
 
-        if is_text_body && cx.topology.active_masks[entity_id].has_text_content() {
+        if is_text_body && cx.topology.topo_active_masks[entity_id].has_text_content() {
             let spans = cx
                 .contents
-                .text_spans
+                .cont_text_spans
                 .get(entity_id)
                 .map_or(&[][..], Vec::as_slice);
 
-            let text_size = if cx.topology.active_masks[entity_id].has_input_content()
-                && let Some(contents) = cx.contents.input_contents.get(entity_id)
+            let text_size = if cx.topology.topo_active_masks[entity_id].has_input_content()
+                && let Some(contents) = cx.contents.cont_input_contents.get(entity_id)
                 && let Some(layout_rect) = contents.last_layout
             {
                 LayoutSize::new(layout_rect.width, layout_rect.height)
             } else {
-                let text = &cx.contents.text_contents[entity_id];
+                let text = &cx.contents.cont_text_contents[entity_id];
                 let visual = cx
                     .renders
-                    .visual_properties
+                    .ren_visual
                     .get(entity_id)
                     .unwrap_or(&default_visual);
-                let layout = cx.system.text_engine.create_layout(
+                let layout = cx.system.sys_text_engine.create_layout(
                     text,
                     visual.font_size.unwrap_or(16.0),
                     visual.font_family.as_deref(),
@@ -717,17 +717,17 @@ impl WgpuRenderer {
                     None,
                     spans,
                 );
-                cx.system.text_engine.get_layout_size(&layout)
+                cx.system.sys_text_engine.get_layout_size(&layout)
             };
 
-            let rect = OutputStore::rect(entity_id, &cx.outputs.rects).unwrap_or_default();
+            let rect = OutputStore::rect(entity_id, &cx.outputs.out_rects).unwrap_or_default();
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
             // スクロールオフセット
             let scroll = cx
                 .outputs
-                .scroll_offsets
+                .out_scroll_offsets
                 .get(entity_id)
                 .copied()
                 .unwrap_or(LayoutPoint::ZERO);
@@ -750,18 +750,18 @@ impl WgpuRenderer {
             current_mode = 3.0;
             uv_min = [0.0, 0.0];
             uv_max = [1.0, 1.0];
-        } else if is_text_body && cx.topology.active_masks[entity_id].has_text_content() {
+        } else if is_text_body && cx.topology.topo_active_masks[entity_id].has_text_content() {
             // テキスト要素である場合
             let text = cx
                 .contents
-                .text_contents
+                .cont_text_contents
                 .get(entity_id)
                 .cloned()
                 .unwrap_or_else(|| "".into());
 
             let font_size = cx
                 .renders
-                .visual_properties
+                .ren_visual
                 .get(entity_id)
                 .and_then(|v| v.font_size)
                 .unwrap_or(16.0);
@@ -769,20 +769,20 @@ impl WgpuRenderer {
             // IME 未確定テキストが入力中か否かを判定
             let is_ime_active = cx
                 .contents
-                .input_contents
+                .cont_input_contents
                 .get(entity_id)
                 .and_then(|c| c.ime_state.as_ref())
                 .is_some_and(|ime| !ime.composition_text.is_empty());
 
             let base_text_empty = cx
                 .contents
-                .input_contents
+                .cont_input_contents
                 .get(entity_id)
                 .is_some_and(|c| c.text.0.get().is_empty());
 
             let placeholder_color = cx
                 .contents
-                .input_contents
+                .cont_input_contents
                 .get(entity_id)
                 .and_then(|p| p.placeholder_color)
                 .unwrap_or(Color::rgb_f32(0.5, 0.5, 0.5));
@@ -794,7 +794,7 @@ impl WgpuRenderer {
             } else {
                 // 通常文字入力中はユーザー指定色、無ければ不透明白
                 cx.renders
-                    .visual_properties
+                    .ren_visual
                     .get(entity_id)
                     .and_then(|v| v.text_color)
                     .unwrap_or(Color::WHITE)
@@ -802,13 +802,13 @@ impl WgpuRenderer {
 
             let mut spans = cx
                 .contents
-                .text_spans
+                .cont_text_spans
                 .get(entity_id)
                 .cloned()
                 .unwrap_or_else(Vec::new);
 
             // 選択範囲がある場合、ハイライトスパンをキャッシュ判定の前にマージ
-            if let Some(selection) = cx.outputs.text_selections.get(entity_id)
+            if let Some(selection) = cx.outputs.out_text_selections.get(entity_id)
                 && selection.start < selection.end
                 && let Some(sel_text) = visual.select_text_color
             {
@@ -827,20 +827,20 @@ impl WgpuRenderer {
             let text_clone = text.clone();
             let key = TextCacheKey {
                 text,
-                font_size_bits: (font_size * cx.window.scale_factor).to_bits(),
+                font_size_bits: (font_size * cx.window.win_scale_factor).to_bits(),
                 font_style: cx
                     .renders
-                    .visual_properties
+                    .ren_visual
                     .get(entity_id)
                     .and_then(|v| v.font_style),
                 font_family: cx
                     .renders
-                    .visual_properties
+                    .ren_visual
                     .get(entity_id)
                     .and_then(|f| f.font_family.clone()),
                 font_weight: cx
                     .renders
-                    .visual_properties
+                    .ren_visual
                     .get(entity_id)
                     .and_then(|v| v.font_weight),
                 spans_hash,
@@ -849,17 +849,17 @@ impl WgpuRenderer {
             let uv = if let Some(cached) = self.text_cache.get(&key) {
                 (cached.uv_min, cached.uv_max)
             } else {
-                let physical_font_size = font_size * cx.window.scale_factor;
+                let physical_font_size = font_size * cx.window.win_scale_factor;
 
                 let mut spans = cx
                     .contents
-                    .text_spans
+                    .cont_text_spans
                     .get(entity_id)
                     .cloned()
                     .unwrap_or_else(Vec::new);
 
                 // 選択範囲が存在する場合、カラーハイライト用の TextSpan を動的にマージ
-                if let Some(selection) = cx.outputs.text_selections.get(entity_id)
+                if let Some(selection) = cx.outputs.out_text_selections.get(entity_id)
                     && selection.start < selection.end
                     && let Some(sel_text) = visual.select_text_color
                 {
@@ -872,31 +872,31 @@ impl WgpuRenderer {
                     });
                 }
 
-                let physical_layout = cx.system.text_engine.create_layout(
+                let physical_layout = cx.system.sys_text_engine.create_layout(
                     &text_clone,
                     physical_font_size,
                     cx.renders
-                        .visual_properties
+                        .ren_visual
                         .get(entity_id)
                         .and_then(|v| v.font_family.as_deref()),
                     cx.renders
-                        .visual_properties
+                        .ren_visual
                         .get(entity_id)
                         .and_then(|v| v.font_weight),
                     cx.renders
-                        .visual_properties
+                        .ren_visual
                         .get(entity_id)
                         .and_then(|v| v.font_style),
                     None,
                     &spans,
                 );
 
-                let size = cx.system.text_engine.get_layout_size(&physical_layout);
+                let size = cx.system.sys_text_engine.get_layout_size(&physical_layout);
                 let r8_pixels = self.text_rasterizer.rasterize(
                     &physical_layout,
                     size,
                     &spans,
-                    &cx.system.text_engine.rendering_params,
+                    &cx.system.sys_text_engine.rendering_params,
                 );
 
                 let width = size.width.ceil() as u32;

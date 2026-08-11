@@ -82,7 +82,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
         ACTIVE_EFFECT.with(|cell| {
             if let Some(active_effect_id) = cell.get() {
                 with_context(|cx| {
-                    if let Some(subs) = cx.reactive.subscribers.get_mut(self.id) {
+                    if let Some(subs) = cx.reactive.react_subscribers.get_mut(self.id) {
                         // すでに依存関係リストに登録されていなければ追加
                         if !subs.contains(&active_effect_id) {
                             subs.push(active_effect_id);
@@ -91,7 +91,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
                         // 新規登録
                         let mut subs = smallvec::SmallVec::new();
                         subs.push(active_effect_id);
-                        cx.reactive.subscribers.insert(self.id, subs);
+                        cx.reactive.react_subscribers.insert(self.id, subs);
                     }
                 });
             }
@@ -99,7 +99,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
 
         // 実値の取得とキャスト
         with_context(|cx| {
-            let any_val = &cx.reactive.signals[self.id];
+            let any_val = &cx.reactive.react_signals[self.id];
             any_val
                 .downcast_ref::<T>()
                 .cloned()
@@ -156,7 +156,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
     #[must_use]
     pub fn get_untracked(&self) -> T {
         with_context(|cx| {
-            let any_val = &cx.reactive.signals[self.id];
+            let any_val = &cx.reactive.react_signals[self.id];
             any_val
                 .downcast_ref::<T>()
                 .cloned()
@@ -309,10 +309,10 @@ impl<T: Send + 'static> WriteSignal<T> {
 
         with_context(|cx| {
             // 新しい値に差し替え
-            cx.reactive.signals[self.id] = Box::new(new_value);
+            cx.reactive.react_signals[self.id] = Box::new(new_value);
 
             // 依存しているエフェクトIDのリストをクローン
-            if let Some(subs) = cx.reactive.subscribers.get(self.id) {
+            if let Some(subs) = cx.reactive.react_subscribers.get(self.id) {
                 effects_to_run.clone_from(subs);
             }
         });
@@ -320,7 +320,7 @@ impl<T: Send + 'static> WriteSignal<T> {
         // 依存エフェクトを順次実行
         for effect_id in effects_to_run {
             // エフェクトがデスポーンされて消滅していない場合のみ実行する
-            let exists = with_context(|cx| cx.reactive.effects.contains_key(effect_id));
+            let exists = with_context(|cx| cx.reactive.react_effects.contains_key(effect_id));
             if exists {
                 execute_effect(effect_id);
             }
@@ -332,10 +332,10 @@ impl<T: Send + 'static> WriteSignal<T> {
     #[must_use]
     pub fn sender(&self) -> SignalSender<T> {
         // スレッドローカルのメインコンテキストから送信端を一時的に解決
-        let sender = with_context(|cx| cx.task_sender());
+        let sender = with_context(|cx| cx.sys_task_sender());
         SignalSender {
             id: self.id,
-            task_sender: sender,
+            sys_task_sender: sender,
             _marker: PhantomData,
         }
     }
@@ -346,7 +346,7 @@ impl<T: Send + 'static> WriteSignal<T> {
     pub fn sender_with_cx(&self, cx: &Context) -> SignalSender<T> {
         SignalSender {
             id: self.id,
-            task_sender: cx.task_sender(),
+            sys_task_sender: cx.sys_task_sender(),
             _marker: PhantomData,
         }
     }
@@ -355,7 +355,7 @@ impl<T: Send + 'static> WriteSignal<T> {
 /// バックグラウンドスレッドからメインスレッドのシグナルを安全に書き換えるためのスレッドセーフな送信端。
 pub struct SignalSender<T> {
     pub(crate) id: SignalId,
-    pub(crate) task_sender: TaskSender,
+    pub(crate) sys_task_sender: TaskSender,
     pub(crate) _marker: PhantomData<T>,
 }
 
@@ -363,7 +363,7 @@ impl<T> Clone for SignalSender<T> {
     fn clone(&self) -> Self {
         Self {
             id: self.id,
-            task_sender: self.task_sender.clone(),
+            sys_task_sender: self.sys_task_sender.clone(),
             _marker: PhantomData,
         }
     }
@@ -374,7 +374,7 @@ impl<T: Send + 'static> SignalSender<T> {
     #[inline]
     pub fn send(&self, value: T) {
         let signal_id = self.id;
-        let _ = self.task_sender.send(move |_cx| {
+        let _ = self.sys_task_sender.send(move |_cx| {
             let write_signal = WriteSignal::<T> {
                 id: signal_id,
                 _marker: PhantomData,
@@ -390,7 +390,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
         // エフェクトのクロージャを一時的にダミーのプレースホルダと入れ替えて安全に取り出す
         // slotMap のキーやバージョンを完全に維持しつつ、多重借用を回避
         let mut effect_closure = std::mem::replace(
-            cx.reactive.effects.get_mut(effect_id).expect("Effect lost"),
+            cx.reactive.react_effects.get_mut(effect_id).expect("Effect lost"),
             Box::new(move |_| {
                 // このプレースホルダが呼び出されたということは、
                 // 元のクロージャがまだ実行中（返却前）に、同一のエフェクトが再帰トリガーされたことを意味する
@@ -416,7 +416,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
         ACTIVE_EFFECT.with(|cell| cell.set(prev_effect));
 
         // プレースホルダがあった場所に元のクロージャを書き戻す
-        if let Some(slot) = cx.reactive.effects.get_mut(effect_id) {
+        if let Some(slot) = cx.reactive.react_effects.get_mut(effect_id) {
             *slot = effect_closure;
         }
     });
@@ -430,7 +430,7 @@ where
     F: FnMut(&mut Context) + 'static,
 {
     // SoA にクロージャを登録
-    let id = with_context(|cx| cx.reactive.effects.insert(Box::new(f)));
+    let id = with_context(|cx| cx.reactive.react_effects.insert(Box::new(f)));
     // 初回評価を実行し、同時にシグナルとの依存関係マップを自動構築する
     execute_effect(id);
     id

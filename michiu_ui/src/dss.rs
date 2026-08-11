@@ -162,7 +162,7 @@ impl DynamicStyleSheetSetBuilder {
                 }
 
                 // スレッド安全に STA メインスレッドへメッセージを送るための TaskSender をクローン取得
-                let task_sender = cx.task_sender();
+                let sys_task_sender = cx.sys_task_sender();
                 let key_clone = key.clone();
                 let file_path_clone = file_path.clone(); // 目的ファイルの絶対パス
                 let write_sig_clone = write_sig;
@@ -179,7 +179,7 @@ impl DynamicStyleSheetSetBuilder {
                             // B. 対象ファイルがあり、かつ単なる読込（is_access）以外のすべての書き込み・リネームイベントを許容
                             if has_target_file && !event.kind.is_access() {
                                 let path = file_path_clone.clone();
-                                let task_sender_clone = task_sender.clone();
+                                let task_sender_clone = sys_task_sender.clone();
                                 let key_name = key_clone.clone();
                                 let write_sig_inner = write_sig_clone;
                                 let read_sig_inner = read_sig_clone;

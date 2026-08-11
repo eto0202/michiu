@@ -298,7 +298,7 @@ unsafe extern "system" fn wnd_proc(
                     // 他ウィンドウにフォーカスが移った瞬間、アプリ内部のフォーカスを強制的に解除
                     if let Some(focused_id) = app.context.entity_id_focused() {
                         app.context.set_focused(focused_id, false);
-                        app.context.events.interaction_states.focused = None;
+                        app.context.events.evt_interaction_states.focused = None;
                     }
 
                     // 非アクティブ移行時のキャプチャプロセスを即時トリガー
@@ -307,13 +307,13 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_ENTERSIZEMOVE => {
-                app.context.window.is_window_resizing = true;
+                app.context.window.win_is_resizing = true;
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             // ウィンドウドラッグリサイズの完了をキャッチ
             WM_EXITSIZEMOVE => {
-                app.context.window.is_window_resizing = false;
+                app.context.window.win_is_resizing = false;
                 // リサイズ完了後の再描画を即座にキックして、新サイズでの静止画キャプチャを誘発
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);

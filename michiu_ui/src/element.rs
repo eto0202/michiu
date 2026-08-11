@@ -122,7 +122,7 @@ impl Element {
     pub fn get_inset(self) -> Rect<Val> {
         with_context(|cx| {
             cx.layouts
-                .basic_layouts
+                .lay_basic
                 .get(self.id)
                 .map_or_else(|| BasicLayout::default().inset, |l| l.inset)
         })
@@ -134,7 +134,7 @@ impl Element {
     pub fn get_size(self) -> Size<Val> {
         with_context(|cx| {
             cx.layouts
-                .basic_layouts
+                .lay_basic
                 .get(self.id)
                 .map_or_else(|| BasicLayout::default().size, |l| l.size)
         })
@@ -146,7 +146,7 @@ impl Element {
     pub fn is_draggable(self) -> bool {
         with_context(|cx| {
             cx.topology
-                .active_masks
+                .topo_active_masks
                 .get(self.id)
                 .is_some_and(|m| m.has(STYLE_DND_DRAGGABLE))
         })
@@ -234,19 +234,19 @@ impl Element {
         let inner = &style.inner;
         let mask = inner.mask;
 
-        // active_masks にスタイル側のマスクをマージするが、
+        // topo_active_masks にスタイル側のマスクをマージするが、
         // 動的なインタラクション状態フラグ（STYLE_INTERACTION_PROPERTY）は
         // 実行時にのみ制御されるべきなので、ここでは除外（マスクアウト）する
         let property_only_mask = mask.0 & !STYLE_INTERACTION_PROPERTY;
-        cx.topology.active_masks[id].0 |= property_only_mask;
+        cx.topology.topo_active_masks[id].0 |= property_only_mask;
 
         // ベースの基本レイアウトをマージ
         if mask.has_basic_layout() {
-            if merge && let Some(base) = cx.layouts.base_basic_layouts.get_mut(id) {
+            if merge && let Some(base) = cx.layouts.lay_base_basic.get_mut(id) {
                 base.override_with(&inner.basic_layout, mask);
             } else {
                 // 置換モード：前回の設定蓄積をクリアして完全置換
-                cx.layouts.base_basic_layouts.insert(id, inner.basic_layout);
+                cx.layouts.lay_base_basic.insert(id, inner.basic_layout);
             }
             cx.mark_layout_dirty(id);
         }
@@ -255,11 +255,11 @@ impl Element {
         let has_visual =
             mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
         if has_visual {
-            if merge && let Some(vis) = cx.renders.base_visual_properties.get_mut(id) {
+            if merge && let Some(vis) = cx.renders.ren_base_visual.get_mut(id) {
                 vis.override_with(&inner.visual_property, mask);
             } else {
                 cx.renders
-                    .base_visual_properties
+                    .ren_base_visual
                     .insert(id, inner.visual_property.clone());
             }
         }
@@ -269,21 +269,21 @@ impl Element {
             || mask.has(STYLE_INTERACTION_WITHIN)
             || mask.has(STYLE_INTERACTION_PARENT)
         {
-            if merge && let Some(interaction) = cx.renders.interaction_properties.get_mut(id) {
+            if merge && let Some(interaction) = cx.renders.ren_interaction.get_mut(id) {
                 interaction.override_with(&inner.interaction_styles, mask);
             } else {
                 cx.renders
-                    .interaction_properties
+                    .ren_interaction
                     .insert(id, inner.interaction_styles.clone());
             }
         }
 
         // 4. Flexレイアウト
         if mask.has_flex_layout() {
-            if merge && let Some(flex) = cx.layouts.flex_layouts.get_mut(id) {
+            if merge && let Some(flex) = cx.layouts.lay_flex.get_mut(id) {
                 flex.override_with(&inner.flex_layout, mask);
             } else {
-                cx.layouts.flex_layouts.insert(id, inner.flex_layout);
+                cx.layouts.lay_flex.insert(id, inner.flex_layout);
             }
             cx.mark_layout_dirty(id);
         }
@@ -292,7 +292,7 @@ impl Element {
         if mask.has_grid_layout()
             && let Some(ref grid) = inner.grid_layout
         {
-            cx.layouts.grid_layouts.insert(id, grid.clone());
+            cx.layouts.lay_grid.insert(id, grid.clone());
             cx.mark_layout_dirty(id);
         }
 
@@ -308,12 +308,12 @@ impl Element {
         if mask.has(STYLE_DND_DRAGGABLE)
             && let Some(dp) = inner.drag_property
         {
-            cx.events.dnd_drag_properties.insert(id, dp);
+            cx.events.evt_dnd_drag_properties.insert(id, dp);
         }
         if mask.has(STYLE_DND_DROPPABLE)
             && let Some(dp) = inner.drop_property
         {
-            cx.events.dnd_drop_properties.insert(id, dp);
+            cx.events.evt_dnd_drop_properties.insert(id, dp);
         }
 
         cx.resolve_element_style_state(id, false);
@@ -420,7 +420,7 @@ impl Element {
                     .into_iter()
                     .map(|e| match e.into() {
                         Prop::Static(el) => el,
-                        _ => panic!("Dynamic nested elements inside children_c are not supported"),
+                        _ => panic!("Dynamic nested elements inside topo_children_c are not supported"),
                     })
                     .collect();
 
@@ -490,16 +490,16 @@ impl Element {
                 let id = self.id;
                 with_context(|cx| {
                     // 静的なコンテンツ上書き時のみ古い動的評価エフェクト（Contentsカテゴリ）を一括破棄
-                    if let Some(effects) = cx.reactive.element_effects.get_mut(id)
-                        && let Some(pos) = effects
+                    if let Some(react_effects) = cx.reactive.react_element_effects.get_mut(id)
+                        && let Some(pos) = react_effects
                             .iter()
                             .position(|(cat, _)| *cat == EffectCategory::Contents)
                     {
-                        let (_, old_effect_id) = effects.remove(pos);
-                        cx.reactive.effects.remove(old_effect_id);
-                        cx.reactive.effect_to_element.remove(old_effect_id);
+                        let (_, old_effect_id) = react_effects.remove(pos);
+                        cx.reactive.react_effects.remove(old_effect_id);
+                        cx.reactive.react_effect_to_element.remove(old_effect_id);
                         cx.reactive
-                            .pending_element_effects
+                            .react_pending_element_effects
                             .retain(|&x| x != old_effect_id);
                     }
                     self.set_contents_internal(cx, new_child);
@@ -526,7 +526,7 @@ impl Element {
 
         // 1. 親コンテナに紐づくスクロールバー専用要素のIDを安全に抽出
         let mut scrollbar_ids = std::collections::HashSet::new();
-        if let Some(sb) = cx.layouts.scrollbar_styles.get(id) {
+        if let Some(sb) = cx.layouts.lay_scrollbar_styles.get(id) {
             if let Some(tid) = sb.v_track_id {
                 scrollbar_ids.insert(tid);
             }
@@ -542,7 +542,7 @@ impl Element {
         }
 
         // 2. 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
-        if let Some(children_list) = cx.topology.children.get(id) {
+        if let Some(children_list) = cx.topology.topo_children.get(id) {
             let old_children: Vec<EntityId> = children_list.iter().copied().collect();
             for child_id in old_children {
                 if !scrollbar_ids.contains(&child_id) {
@@ -569,8 +569,8 @@ impl Element {
             Prop::Static(val) => {
                 let id = self.id;
                 with_context(|cx| {
-                    cx.contents.text_contents.insert(id, val);
-                    cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
+                    cx.contents.cont_text_contents.insert(id, val);
+                    cx.topology.topo_active_masks[id].set(COMP_TEXT_CONTENT);
                     cx.clear_layout_cache(id);
                     cx.mark_dirty(id);
                 });
@@ -580,8 +580,8 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Text, move |cx| {
                         let new_text = f();
-                        cx.contents.text_contents.insert(id, new_text);
-                        cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
+                        cx.contents.cont_text_contents.insert(id, new_text);
+                        cx.topology.topo_active_masks[id].set(COMP_TEXT_CONTENT);
                         cx.clear_layout_cache(id);
                         cx.mark_dirty(id);
                     });
@@ -615,8 +615,8 @@ impl Element {
             Prop::None => {}
             Prop::Static(src) => {
                 with_context(|cx| {
-                    cx.contents.image_sources.insert(self.id, src);
-                    cx.topology.active_masks[self.id].set(COMP_IMAGE_CONTENT);
+                    cx.contents.cont_image_sources.insert(self.id, src);
+                    cx.topology.topo_active_masks[self.id].set(COMP_IMAGE_CONTENT);
                     cx.mark_layout_dirty(self.id);
                     cx.mark_render_dirty(self.id);
                 });
@@ -626,8 +626,8 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Image, move |cx| {
                         let src = f();
-                        cx.contents.image_sources.insert(id, src);
-                        cx.topology.active_masks[id].set(COMP_IMAGE_CONTENT);
+                        cx.contents.cont_image_sources.insert(id, src);
+                        cx.topology.topo_active_masks[id].set(COMP_IMAGE_CONTENT);
                         cx.mark_dirty(id);
                     });
                 });
@@ -659,8 +659,8 @@ impl Element {
             Prop::None => {}
             Prop::Static(p) => {
                 with_context(|cx| {
-                    cx.contents.movie_properties.insert(self.id, p);
-                    cx.topology.active_masks[self.id].set(COMP_MOVIE_CONTENT);
+                    cx.contents.cont_movie_properties.insert(self.id, p);
+                    cx.topology.topo_active_masks[self.id].set(COMP_MOVIE_CONTENT);
                     cx.mark_dirty(self.id);
                 });
             }
@@ -669,8 +669,8 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Movie, move |cx| {
                         let p = f();
-                        cx.contents.movie_properties.insert(id, p);
-                        cx.topology.active_masks[id].set(COMP_MOVIE_CONTENT);
+                        cx.contents.cont_movie_properties.insert(id, p);
+                        cx.topology.topo_active_masks[id].set(COMP_MOVIE_CONTENT);
                         cx.mark_dirty(id);
                     });
                 });
@@ -702,8 +702,8 @@ impl Element {
             Prop::None => {}
             Prop::Static(contents) => {
                 with_context(|cx| {
-                    cx.contents.webview_contents.insert(self.id, contents);
-                    cx.topology.active_masks[self.id].set(COMP_WEBVIEW_CONTENT);
+                    cx.contents.cont_webview_contents.insert(self.id, contents);
+                    cx.topology.topo_active_masks[self.id].set(COMP_WEBVIEW_CONTENT);
                     cx.mark_dirty(self.id);
                 });
             }
@@ -712,8 +712,8 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::WebView2, move |cx| {
                         let contents = f();
-                        cx.contents.webview_contents.insert(id, contents);
-                        cx.topology.active_masks[id].set(COMP_WEBVIEW_CONTENT);
+                        cx.contents.cont_webview_contents.insert(id, contents);
+                        cx.topology.topo_active_masks[id].set(COMP_WEBVIEW_CONTENT);
                         cx.mark_dirty(id);
                     });
                 });
@@ -824,7 +824,7 @@ impl Element {
         // シグナル更新やテーマ変更、親コンポーネントの再レンダリングによる
         // キャレット位置（selected_range）や Undo/Redo 履歴の末尾への強制初期化を防止
         // 既存の状態を検知した場合はデザイン設定のみを上書き
-        if let Some(existing) = cx.contents.input_contents.get_mut(id) {
+        if let Some(existing) = cx.contents.cont_input_contents.get_mut(id) {
             existing.placeholder = c.placeholder;
             existing.placeholder_color = c.placeholder_color;
             existing.caret_color = c.caret_color;
@@ -858,16 +858,16 @@ impl Element {
         let current_len = current_text.encode_utf16().count();
         c.selected_range = current_len..current_len;
 
-        cx.contents.input_contents.insert(id, c);
-        cx.topology.active_masks[id].set(COMP_INPUT_CONTENT);
-        cx.topology.active_masks[id].set(COMP_TEXT_CONTENT);
+        cx.contents.cont_input_contents.insert(id, c);
+        cx.topology.topo_active_masks[id].set(COMP_INPUT_CONTENT);
+        cx.topology.topo_active_masks[id].set(COMP_TEXT_CONTENT);
 
         self.get_or_create_listeners(|l| {
             let mut existing_mouse = l.on_mouse_input.take();
             l.on_mouse_input = Some(Box::new(move |cx, button, modifiers, state| {
                 if button == MouseButton::Left
                     && state == ElementState::Pressed
-                    && let Some(pointer_pos) = cx.events.current_pointer_position
+                    && let Some(pointer_pos) = cx.events.evt_current_pointer_position
                 {
                     let rect = cx.rect(id).unwrap_or_default();
                     // 要素の境界枠（border + padding）を取得してローカル座標を算出
@@ -877,12 +877,12 @@ impl Element {
 
                     let scroll = cx
                         .outputs
-                        .scroll_offsets
+                        .out_scroll_offsets
                         .get(id)
                         .copied()
                         .unwrap_or(LayoutPoint::ZERO);
 
-                    let text_size = if let Some(contents) = cx.contents.input_contents.get(id)
+                    let text_size = if let Some(contents) = cx.contents.cont_input_contents.get(id)
                         && let Some(layout_rect) = contents.last_layout
                     {
                         LayoutSize::new(layout_rect.width, layout_rect.height)
@@ -914,7 +914,7 @@ impl Element {
 
                     let mut update_rects_needed = false;
 
-                    if let Some(contents) = cx.contents.input_contents.get_mut(id) {
+                    if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
                         let text_val = contents.text.0.get();
 
                         // 逆引きレイアウト時もプレースホルダーは含まない
@@ -944,7 +944,7 @@ impl Element {
                         let default_visual = VisualProperty::default();
                         let visual = cx
                             .renders
-                            .visual_properties
+                            .ren_visual
                             .get(id)
                             .unwrap_or(&default_visual);
                         let font_size = visual.font_size.unwrap_or(16.0);
@@ -954,11 +954,11 @@ impl Element {
 
                         let spans = cx
                             .contents
-                            .text_spans
+                            .cont_text_spans
                             .get(id)
                             .map_or(&[][..], Vec::as_slice);
 
-                        let layout = cx.system.text_engine.create_layout(
+                        let layout = cx.system.sys_text_engine.create_layout(
                             &editable_text_for_caret,
                             font_size,
                             font_family,
@@ -971,7 +971,7 @@ impl Element {
                         // 物理クリック座標から文字インデックスを逆引き
                         let (new_caret, is_trailing) = cx
                             .system
-                            .text_engine
+                            .sys_text_engine
                             .hit_test_point(&layout, local_x, local_y);
 
                         let final_caret = if is_trailing {
@@ -996,14 +996,14 @@ impl Element {
                         if modifiers.shift && allow_selection {
                             let anchor = cx
                                 .outputs
-                                .selection_start_index
+                                .out_selection_start_index
                                 .get(id)
                                 .copied()
                                 .unwrap_or(contents.selected_range.start);
 
-                            if !cx.outputs.selection_start_index.contains_key(id) {
+                            if !cx.outputs.out_selection_start_index.contains_key(id) {
                                 cx.outputs
-                                    .selection_start_index
+                                    .out_selection_start_index
                                     .insert(id, contents.selected_range.start);
                             }
 
@@ -1016,17 +1016,17 @@ impl Element {
                             };
 
                             contents.selected_range = range.clone();
-                            cx.outputs.text_selections.insert(id, range);
+                            cx.outputs.out_text_selections.insert(id, range);
                             update_rects_needed = true;
                         } else {
                             contents.selected_range = final_caret_clamped..final_caret_clamped;
                             cx.outputs
-                                .text_selections
+                                .out_text_selections
                                 .insert(id, final_caret_clamped..final_caret_clamped);
                             cx.outputs
-                                .selection_start_index
+                                .out_selection_start_index
                                 .insert(id, final_caret_clamped);
-                            cx.outputs.selected_rects.remove(id);
+                            cx.outputs.out_selected_rects.remove(id);
                             contents.selection_reversed = false;
                         }
 
@@ -1052,7 +1052,7 @@ impl Element {
             let mut existing_focus = l.on_focus.take();
             // フォーカス取得（点滅カーソルの有効化等）
             l.on_focus = Some(Box::new(move |cx| {
-                if let Some(contents) = cx.contents.input_contents.get_mut(id) {
+                if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
                     contents.is_selecting = false;
                     // フォーカス獲得時も操作時刻を記録して即座にキャレットを表示
                     contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1070,7 +1070,7 @@ impl Element {
                 // IME未変換の入力中 (composition_textがある間) は文字入力を無視
                 let is_ime_active = cx
                     .contents
-                    .input_contents
+                    .cont_input_contents
                     .get(id)
                     .and_then(|c| c.ime_state.as_ref())
                     .is_some_and(|s| !s.composition_text.is_empty());
@@ -1079,7 +1079,7 @@ impl Element {
                     let mut is_allowed = !ch.is_control();
                     let is_multiline = cx
                         .contents
-                        .input_contents
+                        .cont_input_contents
                         .get(id)
                         .is_some_and(|c| c.is_multiline);
 
@@ -1089,7 +1089,7 @@ impl Element {
                         is_allowed = true;
                     }
 
-                    if is_allowed && let Some(contents) = cx.contents.input_contents.get_mut(id) {
+                    if is_allowed && let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
                         contents.last_interacted_time = Some(std::time::Instant::now());
 
                         let text_val = contents.text.0.get();
@@ -1132,10 +1132,10 @@ impl Element {
                         let new_caret = range.start + ch_u16_slice.len();
 
                         contents.selected_range = new_caret..new_caret;
-                        cx.outputs.text_selections.insert(id, new_caret..new_caret); // 選択表示をリセット
-                        cx.outputs.selected_rects.remove(id);
+                        cx.outputs.out_text_selections.insert(id, new_caret..new_caret); // 選択表示をリセット
+                        cx.outputs.out_selected_rects.remove(id);
                         // タイピング編集が発生したため古い開始選択アンカーを消去
-                        cx.outputs.selection_start_index.remove(id);
+                        cx.outputs.out_selection_start_index.remove(id);
                         contents.text.1.set(new_text);
                         cx.mark_render_dirty(id);
                     }
@@ -1149,7 +1149,7 @@ impl Element {
             // 物理キーボード操作 (Backspace, Delete, 矢印キー)
             l.on_keyboard_input = Some(Box::new(move |cx, key, modifiers, state| {
                 if state == ElementState::Pressed
-                    && let Some(contents) = cx.contents.input_contents.get_mut(id)
+                    && let Some(contents) = cx.contents.cont_input_contents.get_mut(id)
                 {
                     let default_visual = VisualProperty::default();
                     let text_val = contents.text.0.get();
@@ -1181,17 +1181,17 @@ impl Element {
                                 let new_text = String::from_utf16_lossy(&left);
                                 contents.selected_range = range.start..range.start;
                                 cx.outputs
-                                    .text_selections
+                                    .out_text_selections
                                     .insert(id, range.start..range.start);
-                                cx.outputs.selection_start_index.remove(id);
+                                cx.outputs.out_selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             } else {
                                 // 通常の1文字バックスペース
                                 let new_text = crate::input_backspace(&text_val, &mut caret);
                                 contents.selected_range = caret..caret;
                                 // Context側の描画SoAにも最新のキャレット位置を強制同期
-                                cx.outputs.text_selections.insert(id, caret..caret);
-                                cx.outputs.selection_start_index.remove(id);
+                                cx.outputs.out_text_selections.insert(id, caret..caret);
+                                cx.outputs.out_selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             }
                             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1209,16 +1209,16 @@ impl Element {
                                 let new_text = String::from_utf16_lossy(&left);
                                 contents.selected_range = range.start..range.start;
                                 cx.outputs
-                                    .text_selections
+                                    .out_text_selections
                                     .insert(id, range.start..range.start);
-                                cx.outputs.selection_start_index.remove(id);
+                                cx.outputs.out_selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             } else {
                                 // 通常の1文字デリート
                                 let new_text = crate::input_delete(&text_val, caret);
                                 contents.selected_range = caret..caret;
-                                cx.outputs.text_selections.insert(id, caret..caret);
-                                cx.outputs.selection_start_index.remove(id);
+                                cx.outputs.out_text_selections.insert(id, caret..caret);
+                                cx.outputs.out_selection_start_index.remove(id);
                                 contents.text.1.set(new_text);
                             }
                             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -1231,9 +1231,9 @@ impl Element {
                                 // 選択範囲をすべて解除し、キャレットを左端（start）に収束
                                 let new_caret = range.start;
                                 contents.selected_range = new_caret..new_caret;
-                                cx.outputs.text_selections.insert(id, new_caret..new_caret);
-                                cx.outputs.selected_rects.remove(id);
-                                cx.outputs.selection_start_index.remove(id);
+                                cx.outputs.out_text_selections.insert(id, new_caret..new_caret);
+                                cx.outputs.out_selected_rects.remove(id);
+                                cx.outputs.out_selection_start_index.remove(id);
                                 contents.selection_reversed = false;
                                 contents.last_interacted_time = Some(std::time::Instant::now());
                                 changed = true;
@@ -1244,12 +1244,12 @@ impl Element {
                                     // Shiftキー押下中：選択の拡張
                                     let anchor = cx
                                         .outputs
-                                        .selection_start_index
+                                        .out_selection_start_index
                                         .get(id)
                                         .copied()
                                         .unwrap_or(caret);
-                                    if !cx.outputs.selection_start_index.contains_key(id) {
-                                        cx.outputs.selection_start_index.insert(id, caret);
+                                    if !cx.outputs.out_selection_start_index.contains_key(id) {
+                                        cx.outputs.out_selection_start_index.insert(id, caret);
                                     }
                                     let range = if anchor <= new_caret {
                                         contents.selection_reversed = false;
@@ -1259,13 +1259,13 @@ impl Element {
                                         new_caret..anchor
                                     };
                                     contents.selected_range = range.clone();
-                                    cx.outputs.text_selections.insert(id, range);
+                                    cx.outputs.out_text_selections.insert(id, range);
                                 } else {
                                     // Shiftキー非押下：選択解除して単なる移動
                                     contents.selected_range = new_caret..new_caret;
-                                    cx.outputs.text_selections.insert(id, new_caret..new_caret);
-                                    cx.outputs.selected_rects.remove(id);
-                                    cx.outputs.selection_start_index.remove(id);
+                                    cx.outputs.out_text_selections.insert(id, new_caret..new_caret);
+                                    cx.outputs.out_selected_rects.remove(id);
+                                    cx.outputs.out_selection_start_index.remove(id);
                                 }
                                 contents.last_interacted_time = Some(std::time::Instant::now());
                                 changed = true;
@@ -1277,9 +1277,9 @@ impl Element {
                             if range.start < range.end && !modifiers.shift {
                                 let new_caret = range.end;
                                 contents.selected_range = new_caret..new_caret;
-                                cx.outputs.text_selections.insert(id, new_caret..new_caret);
-                                cx.outputs.selected_rects.remove(id);
-                                cx.outputs.selection_start_index.remove(id);
+                                cx.outputs.out_text_selections.insert(id, new_caret..new_caret);
+                                cx.outputs.out_selected_rects.remove(id);
+                                cx.outputs.out_selection_start_index.remove(id);
                                 contents.selection_reversed = false;
                                 contents.last_interacted_time = Some(std::time::Instant::now());
                                 changed = true;
@@ -1289,12 +1289,12 @@ impl Element {
                                 if modifiers.shift {
                                     let anchor = cx
                                         .outputs
-                                        .selection_start_index
+                                        .out_selection_start_index
                                         .get(id)
                                         .copied()
                                         .unwrap_or(caret);
-                                    if !cx.outputs.selection_start_index.contains_key(id) {
-                                        cx.outputs.selection_start_index.insert(id, caret);
+                                    if !cx.outputs.out_selection_start_index.contains_key(id) {
+                                        cx.outputs.out_selection_start_index.insert(id, caret);
                                     }
                                     let range = if anchor <= new_caret {
                                         contents.selection_reversed = false;
@@ -1304,12 +1304,12 @@ impl Element {
                                         new_caret..anchor
                                     };
                                     contents.selected_range = range.clone();
-                                    cx.outputs.text_selections.insert(id, range);
+                                    cx.outputs.out_text_selections.insert(id, range);
                                 } else {
                                     contents.selected_range = new_caret..new_caret;
-                                    cx.outputs.text_selections.insert(id, new_caret..new_caret);
-                                    cx.outputs.selected_rects.remove(id);
-                                    cx.outputs.selection_start_index.remove(id);
+                                    cx.outputs.out_text_selections.insert(id, new_caret..new_caret);
+                                    cx.outputs.out_selected_rects.remove(id);
+                                    cx.outputs.out_selection_start_index.remove(id);
                                 }
                                 contents.last_interacted_time = Some(std::time::Instant::now());
                                 changed = true;
@@ -1319,7 +1319,7 @@ impl Element {
                             if contents.is_multiline {
                                 let visual = cx
                                     .renders
-                                    .visual_properties
+                                    .ren_visual
                                     .get(id)
                                     .unwrap_or(&default_visual);
                                 let font_size = visual.font_size.unwrap_or(16.0);
@@ -1329,11 +1329,11 @@ impl Element {
 
                                 let spans = cx
                                     .contents
-                                    .text_spans
+                                    .cont_text_spans
                                     .get(id)
                                     .map_or(&[][..], Vec::as_slice);
 
-                                let layout = cx.system.text_engine.create_layout(
+                                let layout = cx.system.sys_text_engine.create_layout(
                                     &text_val,
                                     font_size,
                                     font_family,
@@ -1345,7 +1345,7 @@ impl Element {
 
                                 let (cx_offset, cy_offset, _) = cx
                                     .system
-                                    .text_engine
+                                    .sys_text_engine
                                     .get_caret_position(&layout, caret, u16_len);
 
                                 let line_height = font_size * 1.3;
@@ -1353,7 +1353,7 @@ impl Element {
 
                                 let (new_caret, is_trailing) = cx
                                     .system
-                                    .text_engine
+                                    .sys_text_engine
                                     .hit_test_point(&layout, cx_offset, target_y);
                                 let final_caret = if is_trailing {
                                     new_caret + 1
@@ -1364,12 +1364,12 @@ impl Element {
                                 if modifiers.shift {
                                     let anchor = cx
                                         .outputs
-                                        .selection_start_index
+                                        .out_selection_start_index
                                         .get(id)
                                         .copied()
                                         .unwrap_or(caret);
-                                    if !cx.outputs.selection_start_index.contains_key(id) {
-                                        cx.outputs.selection_start_index.insert(id, caret);
+                                    if !cx.outputs.out_selection_start_index.contains_key(id) {
+                                        cx.outputs.out_selection_start_index.insert(id, caret);
                                     }
                                     let range = if anchor <= final_caret {
                                         contents.selection_reversed = false;
@@ -1379,13 +1379,13 @@ impl Element {
                                         final_caret..anchor
                                     };
                                     contents.selected_range = range.clone();
-                                    cx.outputs.text_selections.insert(id, range);
+                                    cx.outputs.out_text_selections.insert(id, range);
                                 } else {
                                     contents.selected_range = final_caret..final_caret;
                                     cx.outputs
-                                        .text_selections
+                                        .out_text_selections
                                         .insert(id, final_caret..final_caret);
-                                    cx.outputs.selection_start_index.remove(id);
+                                    cx.outputs.out_selection_start_index.remove(id);
                                     contents.selection_reversed = false;
                                 }
 
@@ -1396,7 +1396,7 @@ impl Element {
                         VirtualKey::DOWN if contents.is_multiline => {
                             let visual = cx
                                 .renders
-                                .visual_properties
+                                .ren_visual
                                 .get(id)
                                 .unwrap_or(&default_visual);
                             let font_size = visual.font_size.unwrap_or(16.0);
@@ -1406,11 +1406,11 @@ impl Element {
 
                             let spans = cx
                                 .contents
-                                .text_spans
+                                .cont_text_spans
                                 .get(id)
                                 .map_or(&[][..], Vec::as_slice);
 
-                            let layout = cx.system.text_engine.create_layout(
+                            let layout = cx.system.sys_text_engine.create_layout(
                                 &text_val,
                                 font_size,
                                 font_family,
@@ -1422,14 +1422,14 @@ impl Element {
 
                             let (cx_offset, cy_offset, _) = cx
                                 .system
-                                .text_engine
+                                .sys_text_engine
                                 .get_caret_position(&layout, caret, u16_len);
 
                             let line_height = font_size * 1.3;
                             let target_y = cy_offset + line_height * 1.5;
                             let (new_caret, is_trailing) = cx
                                 .system
-                                .text_engine
+                                .sys_text_engine
                                 .hit_test_point(&layout, cx_offset, target_y);
                             let final_caret = if is_trailing {
                                 new_caret + 1
@@ -1440,12 +1440,12 @@ impl Element {
                             if modifiers.shift {
                                 let anchor = cx
                                     .outputs
-                                    .selection_start_index
+                                    .out_selection_start_index
                                     .get(id)
                                     .copied()
                                     .unwrap_or(caret);
-                                if !cx.outputs.selection_start_index.contains_key(id) {
-                                    cx.outputs.selection_start_index.insert(id, caret);
+                                if !cx.outputs.out_selection_start_index.contains_key(id) {
+                                    cx.outputs.out_selection_start_index.insert(id, caret);
                                 }
                                 let range = if anchor <= final_caret {
                                     contents.selection_reversed = false;
@@ -1455,13 +1455,13 @@ impl Element {
                                     final_caret..anchor
                                 };
                                 contents.selected_range = range.clone();
-                                cx.outputs.text_selections.insert(id, range);
+                                cx.outputs.out_text_selections.insert(id, range);
                             } else {
                                 contents.selected_range = final_caret..final_caret;
                                 cx.outputs
-                                    .text_selections
+                                    .out_text_selections
                                     .insert(id, final_caret..final_caret);
-                                cx.outputs.selection_start_index.remove(id);
+                                cx.outputs.out_selection_start_index.remove(id);
                                 contents.selection_reversed = false;
                             }
 
@@ -1487,7 +1487,7 @@ impl Element {
             let mut existing_ime = l.on_ime.take();
             // IME連動
             l.on_ime = Some(Box::new(move |cx, ime| {
-                if let Some(contents) = cx.contents.input_contents.get_mut(id) {
+                if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
                     contents.last_interacted_time = Some(std::time::Instant::now());
                     contents.ime_state = Some(ime.clone());
 
@@ -1522,8 +1522,8 @@ impl Element {
 
                     // IME の未確定状態（未確定波線、変換フォーカス太線/細線）を TextSpan に自動マッピング
                     if ime.composition_text.is_empty() {
-                        cx.contents.text_spans.remove(id);
-                        cx.topology.active_masks[id].unset(STYLE_TEXT_SPANS);
+                        cx.contents.cont_text_spans.remove(id);
+                        cx.topology.topo_active_masks[id].unset(STYLE_TEXT_SPANS);
                     } else {
                         let mut spans = Vec::new();
                         let caret = contents.selected_range.start;
@@ -1577,8 +1577,8 @@ impl Element {
                             }
                         }
 
-                        cx.contents.text_spans.insert(id, spans);
-                        cx.topology.active_masks[id].set(STYLE_TEXT_SPANS);
+                        cx.contents.cont_text_spans.insert(id, spans);
+                        cx.topology.topo_active_masks[id].set(STYLE_TEXT_SPANS);
                     }
 
                     // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
@@ -1593,7 +1593,7 @@ impl Element {
         });
 
         cx.create_element_effect(id, EffectCategory::Text, move |cx| {
-            if let Some(contents) = cx.contents.input_contents.get(id) {
+            if let Some(contents) = cx.contents.cont_input_contents.get(id) {
                 let _base_text_val = contents.text.0.get();
             }
             cx.update_input_caret_position(id);
@@ -1607,12 +1607,12 @@ impl Element {
     fn get_or_create_listeners<R>(&self, f: impl FnOnce(&mut EventListeners) -> R) -> R {
         with_context(|cx| {
             // SparseSecondaryMap にキーが存在しない場合は Default (すべて None) で差し込む
-            if !cx.events.event_listeners.contains_key(self.id) {
+            if !cx.events.evt_listeners.contains_key(self.id) {
                 cx.events
-                    .event_listeners
+                    .evt_listeners
                     .insert(self.id, EventListeners::default());
             }
-            let listeners = cx.events.event_listeners.get_mut(self.id).unwrap();
+            let listeners = cx.events.evt_listeners.get_mut(self.id).unwrap();
             f(listeners)
         })
     }
@@ -1856,7 +1856,7 @@ impl Element {
     pub fn scroll_offset(self) -> LayoutPoint {
         with_context(|cx| {
             cx.outputs
-                .scroll_offsets
+                .out_scroll_offsets
                 .get(self.id)
                 .copied()
                 .unwrap_or(LayoutPoint::ZERO)
@@ -2552,16 +2552,16 @@ impl Element {
     }
 
     fn uia_property_internal(self, cx: &mut Context, property_id: i32, value: UiaValue) {
-        if !cx.system.uia_properties.contains_key(self.id) {
-            cx.system.uia_properties.insert(self.id, Vec::new());
+        if !cx.system.sys_uia_properties.contains_key(self.id) {
+            cx.system.sys_uia_properties.insert(self.id, Vec::new());
         }
-        let list = cx.system.uia_properties.get_mut(self.id).unwrap();
+        let list = cx.system.sys_uia_properties.get_mut(self.id).unwrap();
         if let Some(pos) = list.iter().position(|(k, _)| *k == property_id) {
             list[pos].1 = value;
         } else {
             list.push((property_id, value));
         }
-        cx.topology.active_masks[self.id].set(COMP_UIA_CONTENT);
+        cx.topology.topo_active_masks[self.id].set(COMP_UIA_CONTENT);
     }
 
     /// 自動テストフレームワークやデバッグで要素を特定するための「Automation `ID」を設定します（UIA_AutomationIdPropertyId` 互換）。
@@ -2602,8 +2602,8 @@ impl Element {
         sb: &ScrollbarStyle,
         merge: bool,
     ) {
-        if !cx.layouts.scrollbar_styles.contains_key(id) {
-            cx.layouts.scrollbar_styles.insert(
+        if !cx.layouts.lay_scrollbar_styles.contains_key(id) {
+            cx.layouts.lay_scrollbar_styles.insert(
                 id,
                 ScrollBarState {
                     style: sb.clone(),
@@ -2612,7 +2612,7 @@ impl Element {
             );
         }
 
-        let mut state = cx.layouts.scrollbar_styles.get(id).cloned().unwrap();
+        let mut state = cx.layouts.lay_scrollbar_styles.get(id).cloned().unwrap();
         state.style = sb.clone();
         let mut changed = false;
 
@@ -2725,8 +2725,8 @@ impl Element {
         }
 
         if changed {
-            *cx.layouts.scrollbar_styles.get_mut(id).unwrap() = state;
-            cx.topology.is_structure_dirty = true; // flat_dfs_sequence の更新契機
+            *cx.layouts.lay_scrollbar_styles.get_mut(id).unwrap() = state;
+            cx.topology.topo_is_structure_dirty = true; // topo_flat_dfs_sequence の更新契機
         }
     }
 }

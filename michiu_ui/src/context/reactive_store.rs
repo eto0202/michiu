@@ -34,14 +34,15 @@ pub(crate) type PendingElementEffectsVec = Vec<EffectId>;
 pub(crate) type ProvidersSparseSecondary =
     SparseSecondaryMap<EntityId, HashMap<std::any::TypeId, SignalId>>;
 
+#[allow(clippy::struct_field_names)]
 pub struct ReactiveStore {
-    pub(crate) signals: SignalsSlotMap,
-    pub(crate) effects: EffectsSlotMap,
-    pub(crate) subscribers: SubscribersSecondary,
-    pub(crate) element_effects: ElementEffectsSecondary,
-    pub(crate) effect_to_element: EffectToElementSecondary,
-    pub(crate) pending_element_effects: PendingElementEffectsVec,
-    pub(crate) providers: ProvidersSparseSecondary,
+    pub(crate) react_signals: SignalsSlotMap,
+    pub(crate) react_effects: EffectsSlotMap,
+    pub(crate) react_subscribers: SubscribersSecondary,
+    pub(crate) react_element_effects: ElementEffectsSecondary,
+    pub(crate) react_effect_to_element: EffectToElementSecondary,
+    pub(crate) react_pending_element_effects: PendingElementEffectsVec,
+    pub(crate) react_providers: ProvidersSparseSecondary,
 }
 
 pub(crate) type Effects = Box<dyn FnMut(&mut Context)>;
@@ -57,37 +58,38 @@ impl ReactiveStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            signals: SlotMap::with_key(),
-            effects: SlotMap::with_key(),
-            subscribers: SecondaryMap::new(),
-            element_effects: SecondaryMap::new(),
-            effect_to_element: SecondaryMap::new(),
-            pending_element_effects: Vec::new(),
-            providers: SparseSecondaryMap::new(),
+            react_signals: SlotMap::with_key(),
+            react_effects: SlotMap::with_key(),
+            react_subscribers: SecondaryMap::new(),
+            react_element_effects: SecondaryMap::new(),
+            react_effect_to_element: SecondaryMap::new(),
+            react_pending_element_effects: Vec::new(),
+            react_providers: SparseSecondaryMap::new(),
         }
     }
 
     #[inline]
     pub fn clear(&mut self) {
-        self.signals.clear();
-        self.effects.clear();
-        self.subscribers.clear();
-        self.element_effects.clear();
-        self.effect_to_element.clear();
-        self.pending_element_effects.clear();
-        self.providers.clear();
+        self.react_signals.clear();
+        self.react_effects.clear();
+        self.react_subscribers.clear();
+        self.react_element_effects.clear();
+        self.react_effect_to_element.clear();
+        self.react_pending_element_effects.clear();
+        self.react_providers.clear();
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
-        if let Some(effects) = self.element_effects.remove(id) {
-            for (_, effect_id) in effects {
-                self.effects.remove(effect_id);
-                self.effect_to_element.remove(effect_id);
-                self.pending_element_effects.retain(|&x| x != effect_id);
+        if let Some(react_effects) = self.react_element_effects.remove(id) {
+            for (_, effect_id) in react_effects {
+                self.react_effects.remove(effect_id);
+                self.react_effect_to_element.remove(effect_id);
+                self.react_pending_element_effects
+                    .retain(|&x| x != effect_id);
             }
         }
-        self.providers.remove(id);
+        self.react_providers.remove(id);
     }
 }
 
@@ -95,27 +97,29 @@ impl ReactiveStore {
     /// 要素の階層トポロジーを親に向かって遡り、最初に見つかった型 T の `ReadSignal` を解決して返す
     pub(crate) fn use_provided_from<T: Clone + 'static>(
         id: EntityId,
-        providers: &ProvidersSparseSecondary,
-        parents: &ParentsSecondary,
+        react_providers: &ProvidersSparseSecondary,
+        topo_parents: &ParentsSecondary,
     ) -> Option<ReadSignal<T>> {
         let type_id = std::any::TypeId::of::<T>();
 
         // 親要素へ遡るイテレータを生成
-        std::iter::successors(Some(id), |&curr_id| parents.get(curr_id).copied().flatten())
-            .find_map(|curr_id| {
-                providers
-                    .get(curr_id)
-                    .and_then(|map| map.get(&type_id))
-                    .map(|&signal_id| ReadSignal::new(signal_id))
-            })
+        std::iter::successors(Some(id), |&curr_id| {
+            topo_parents.get(curr_id).copied().flatten()
+        })
+        .find_map(|curr_id| {
+            react_providers
+                .get(curr_id)
+                .and_then(|map| map.get(&type_id))
+                .map(|&signal_id| ReadSignal::new(signal_id))
+        })
     }
 
     pub(crate) fn resolve_element_effect(
-        effect_to_element: &EffectToElementSecondary,
+        react_effect_to_element: &EffectToElementSecondary,
     ) -> Option<EntityId> {
         // ACTIVE_EFFECT（エフェクト実行中）から解決
         if let Some(effect_id) = crate::ACTIVE_EFFECT.with(std::cell::Cell::get) {
-            return Some(effect_to_element.get(effect_id).copied().expect(
+            return Some(react_effect_to_element.get(effect_id).copied().expect(
                 "use_provided failed: active effect is not associated with any UI Element",
             ));
         }
@@ -131,19 +135,21 @@ impl ReactiveStore {
     /// 親ツリーを遡り、最初に見つかった型 T の `WriteSignal` を解決して返す
     pub(crate) fn use_provided_setter_from<T: Send + 'static>(
         id: EntityId,
-        providers: &ProvidersSparseSecondary,
-        parents: &ParentsSecondary,
+        react_providers: &ProvidersSparseSecondary,
+        topo_parents: &ParentsSecondary,
     ) -> Option<WriteSignal<T>> {
         let type_id = std::any::TypeId::of::<T>();
 
         // 親要素へ遡るイテレータを生成
-        std::iter::successors(Some(id), |&curr_id| parents.get(curr_id).copied().flatten())
-            .find_map(|curr_id| {
-                providers
-                    .get(curr_id)
-                    .and_then(|map| map.get(&type_id))
-                    .map(|&signal_id| WriteSignal::new(signal_id))
-            })
+        std::iter::successors(Some(id), |&curr_id| {
+            topo_parents.get(curr_id).copied().flatten()
+        })
+        .find_map(|curr_id| {
+            react_providers
+                .get(curr_id)
+                .and_then(|map| map.get(&type_id))
+                .map(|&signal_id| WriteSignal::new(signal_id))
+        })
     }
 
     /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録。
@@ -153,57 +159,57 @@ impl ReactiveStore {
         element_id: EntityId,
         category: EffectCategory,
         effect_id: EffectId,
-        effects: &mut EffectsSlotMap,
-        effect_to_element: &mut EffectToElementSecondary,
-        pending_element_effects: &mut PendingElementEffectsVec,
-        element_effects: &mut ElementEffectsSecondary,
+        react_effects: &mut EffectsSlotMap,
+        react_effect_to_element: &mut EffectToElementSecondary,
+        react_pending_element_effects: &mut PendingElementEffectsVec,
+        react_element_effects: &mut ElementEffectsSecondary,
     ) {
         // 既に登録済みの場合は、更新処理を行って早期リターン
-        if let Some(e) = element_effects.get_mut(element_id) {
+        if let Some(e) = react_element_effects.get_mut(element_id) {
             if let Some(pos) = e.iter().position(|(cat, _)| *cat == category) {
                 let (_, old_id) = e.remove(pos);
-                effects.remove(old_id); // エフェクト実体を削除
-                effect_to_element.remove(old_id); // 要素との紐付けを解除
-                pending_element_effects.retain(|&x| x != old_id); // 実行待ちキューから排除
+                react_effects.remove(old_id); // エフェクト実体を削除
+                react_effect_to_element.remove(old_id); // 要素との紐付けを解除
+                react_pending_element_effects.retain(|&x| x != old_id); // 実行待ちキューから排除
             }
             e.push((category, effect_id));
             return;
         }
         // 未登録の場合
-        element_effects.insert(element_id, smallvec::smallvec![(category, effect_id)]);
+        react_element_effects.insert(element_id, smallvec::smallvec![(category, effect_id)]);
     }
 
     /// 要素に動的エフェクトを登録し初期評価を実行
     pub(crate) fn create_element_effect<F>(
         element_id: EntityId,
         category: EffectCategory,
-        effects: &mut EffectsSlotMap,
-        effect_to_element: &mut EffectToElementSecondary,
-        element_effects: &mut ElementEffectsSecondary,
-        pending_element_effects: &mut PendingElementEffectsVec,
+        react_effects: &mut EffectsSlotMap,
+        react_effect_to_element: &mut EffectToElementSecondary,
+        react_element_effects: &mut ElementEffectsSecondary,
+        react_pending_element_effects: &mut PendingElementEffectsVec,
         f: F,
     ) -> EffectId
     where
         F: FnMut(&mut Context) + 'static,
     {
-        let effect_id = effects.insert(Box::new(f));
+        let effect_id = react_effects.insert(Box::new(f));
 
         // 初回評価が走る前に要素との紐付けを登録
-        effect_to_element.insert(effect_id, element_id);
+        react_effect_to_element.insert(effect_id, element_id);
 
         // 要素のエフェクトリストに登録し、古い同じカテゴリのエフェクトがあれば破棄
         ReactiveStore::register_element_effect(
             element_id,
             category,
             effect_id,
-            effects,
-            effect_to_element,
-            pending_element_effects,
-            element_effects,
+            react_effects,
+            react_effect_to_element,
+            react_pending_element_effects,
+            react_element_effects,
         );
 
         // 即時実行を廃止。トポロジーが整うまで初回評価を一時保留
-        pending_element_effects.push(effect_id);
+        react_pending_element_effects.push(effect_id);
 
         effect_id
     }
@@ -211,17 +217,20 @@ impl ReactiveStore {
     /// ビルド完了後、または同期直前に、溜めてある初回評価を実行
     #[inline]
     pub(crate) fn evaluate_pending_element_effects(
-        pending_element_effects: &mut PendingElementEffectsVec,
-        effects: &mut EffectsSlotMap,
+        react_pending_element_effects: &mut PendingElementEffectsVec,
+        react_effects: &mut EffectsSlotMap,
     ) {
-        if pending_element_effects.is_empty() {
+        if react_pending_element_effects.is_empty() {
             return;
         }
 
         // 評価中に別のネストしたエフェクトが追加されるケースを許容するため、drain で一度排出して処理
-        let pending: Vec<EffectId> = std::mem::take(pending_element_effects);
+        let pending: Vec<EffectId> = std::mem::take(react_pending_element_effects);
 
-        for effect_id in pending.into_iter().filter(|&id| effects.contains_key(id)) {
+        for effect_id in pending
+            .into_iter()
+            .filter(|&id| react_effects.contains_key(id))
+        {
             crate::execute_effect(effect_id);
         }
     }
@@ -231,9 +240,9 @@ impl ReactiveStore {
     pub(crate) fn provide_context<T: Send + 'static>(
         id: EntityId,
         signal_id: SignalId,
-        providers: &mut ProvidersSparseSecondary,
+        react_providers: &mut ProvidersSparseSecondary,
     ) {
-        let Some(entry) = providers.entry(id) else {
+        let Some(entry) = react_providers.entry(id) else {
             return;
         };
 
@@ -246,12 +255,12 @@ impl ReactiveStore {
     #[inline]
     pub(crate) fn create_signal<T: Send + 'static>(
         initial_value: T,
-        signals: &mut SignalsSlotMap,
-        subscribers: &mut SubscribersSecondary,
+        react_signals: &mut SignalsSlotMap,
+        react_subscribers: &mut SubscribersSecondary,
     ) -> (ReadSignal<T>, WriteSignal<T>) {
-        let id = signals.insert(Box::new(initial_value));
+        let id = react_signals.insert(Box::new(initial_value));
 
-        subscribers.insert(id, SmallVec::new());
+        react_subscribers.insert(id, SmallVec::new());
 
         (ReadSignal::new(id), WriteSignal::new(id))
     }
@@ -268,10 +277,10 @@ impl Context {
         effect_id: EffectId,
     ) {
         let ReactiveStore {
-            effects,
-            element_effects,
-            effect_to_element,
-            pending_element_effects,
+            react_effects,
+            react_element_effects,
+            react_effect_to_element,
+            react_pending_element_effects,
             ..
         } = &mut self.reactive;
 
@@ -279,10 +288,10 @@ impl Context {
             element_id,
             category,
             effect_id,
-            effects,
-            effect_to_element,
-            pending_element_effects,
-            element_effects,
+            react_effects,
+            react_effect_to_element,
+            react_pending_element_effects,
+            react_element_effects,
         );
     }
 
@@ -298,20 +307,20 @@ impl Context {
         F: FnMut(&mut Context) + 'static,
     {
         let ReactiveStore {
-            effects,
-            effect_to_element,
-            element_effects,
-            pending_element_effects,
+            react_effects,
+            react_effect_to_element,
+            react_element_effects,
+            react_pending_element_effects,
             ..
         } = &mut self.reactive;
 
         ReactiveStore::create_element_effect(
             element_id,
             category,
-            effects,
-            effect_to_element,
-            element_effects,
-            pending_element_effects,
+            react_effects,
+            react_effect_to_element,
+            react_element_effects,
+            react_pending_element_effects,
             f,
         )
     }
@@ -320,19 +329,24 @@ impl Context {
     #[inline]
     pub(crate) fn evaluate_pending_element_effects(&mut self) {
         let ReactiveStore {
-            pending_element_effects,
-            effects,
+            react_pending_element_effects,
+            react_effects,
             ..
         } = &mut self.reactive;
 
-        ReactiveStore::evaluate_pending_element_effects(pending_element_effects, effects);
+        ReactiveStore::evaluate_pending_element_effects(
+            react_pending_element_effects,
+            react_effects,
+        );
     }
 
     /// 指定された要素に対してシグナルコンテキストを提供します
     #[inline]
     pub(crate) fn provide_context<T: Send + 'static>(&mut self, id: EntityId, signal_id: SignalId) {
-        let ReactiveStore { providers, .. } = &mut self.reactive;
+        let ReactiveStore {
+            react_providers, ..
+        } = &mut self.reactive;
 
-        ReactiveStore::provide_context::<T>(id, signal_id, providers);
+        ReactiveStore::provide_context::<T>(id, signal_id, react_providers);
     }
 }

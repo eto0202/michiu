@@ -54,15 +54,16 @@ pub(crate) type TaffyNodesSecondary = SecondaryMap<EntityId, taffy::NodeId>;
 pub(crate) type TaffyTreeEntityId = taffy::TaffyTree<EntityId>;
 pub(crate) type DirtyLayoutEntitiesVec = Vec<EntityId>;
 
+#[allow(clippy::struct_field_names)]
 pub struct LayoutStore {
-    pub(crate) basic_layouts: BasicLayoutsSecondary,
-    pub(crate) base_basic_layouts: BaseBasicLayoutsSecondary,
-    pub(crate) flex_layouts: FlexLayoutsSecondary,
-    pub(crate) grid_layouts: GridLayoutsSecondary,
-    pub(crate) scrollbar_styles: ScrollbarStylesSecondary,
-    pub(crate) taffy_nodes: TaffyNodesSecondary,
-    pub(crate) taffy: TaffyTreeEntityId,
-    pub(crate) dirty_layout_entities: DirtyLayoutEntitiesVec,
+    pub(crate) lay_basic: BasicLayoutsSecondary,
+    pub(crate) lay_base_basic: BaseBasicLayoutsSecondary,
+    pub(crate) lay_flex: FlexLayoutsSecondary,
+    pub(crate) lay_grid: GridLayoutsSecondary,
+    pub(crate) lay_scrollbar_styles: ScrollbarStylesSecondary,
+    pub(crate) lay_taffy_nodes: TaffyNodesSecondary,
+    pub(crate) lay_taffy: TaffyTreeEntityId,
+    pub(crate) lay_dirty_entities: DirtyLayoutEntitiesVec,
 }
 
 impl Default for LayoutStore {
@@ -76,38 +77,38 @@ impl LayoutStore {
     #[inline]
     pub fn new() -> Self {
         Self {
-            basic_layouts: SecondaryMap::new(),
-            base_basic_layouts: SecondaryMap::new(),
-            flex_layouts: SecondaryMap::new(),
-            grid_layouts: SparseSecondaryMap::new(),
-            scrollbar_styles: SparseSecondaryMap::new(),
-            taffy_nodes: SecondaryMap::new(),
-            taffy: TaffyTree::new(),
-            dirty_layout_entities: Vec::new(),
+            lay_basic: SecondaryMap::new(),
+            lay_base_basic: SecondaryMap::new(),
+            lay_flex: SecondaryMap::new(),
+            lay_grid: SparseSecondaryMap::new(),
+            lay_scrollbar_styles: SparseSecondaryMap::new(),
+            lay_taffy_nodes: SecondaryMap::new(),
+            lay_taffy: TaffyTree::new(),
+            lay_dirty_entities: Vec::new(),
         }
     }
 
     #[inline]
     pub fn clear(&mut self) {
-        self.basic_layouts.clear();
-        self.base_basic_layouts.clear();
-        self.flex_layouts.clear();
-        self.grid_layouts.clear();
-        self.scrollbar_styles.clear();
-        self.taffy_nodes.clear();
-        self.taffy = TaffyTree::new();
-        self.dirty_layout_entities.clear();
+        self.lay_basic.clear();
+        self.lay_base_basic.clear();
+        self.lay_flex.clear();
+        self.lay_grid.clear();
+        self.lay_scrollbar_styles.clear();
+        self.lay_taffy_nodes.clear();
+        self.lay_taffy = TaffyTree::new();
+        self.lay_dirty_entities.clear();
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
-        self.basic_layouts.remove(id);
-        self.base_basic_layouts.remove(id);
-        self.flex_layouts.remove(id);
-        self.grid_layouts.remove(id);
-        self.scrollbar_styles.remove(id);
-        self.taffy_nodes.remove(id);
-        self.dirty_layout_entities.retain(|&x| x != id);
+        self.lay_basic.remove(id);
+        self.lay_base_basic.remove(id);
+        self.lay_flex.remove(id);
+        self.lay_grid.remove(id);
+        self.lay_scrollbar_styles.remove(id);
+        self.lay_taffy_nodes.remove(id);
+        self.lay_dirty_entities.retain(|&x| x != id);
     }
 }
 
@@ -116,34 +117,34 @@ impl LayoutStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn resolve_active_layouts(
         id: EntityId,
-        basic_layouts: &BasicLayoutsSecondary,
-        flex_layouts: &FlexLayoutsSecondary,
-        grid_layouts: &GridLayoutsSecondary,
-        active_masks: &ActiveMasksSecondary,
-        active_transitions: &ActiveTransitionsSparseSecondary,
-        parents: &ParentsSecondary,
-        interaction_properties: &InteractionPropertiesSecondary,
-        visual_properties: &VisualPropertiesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        topo_parents: &ParentsSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_visual: &VisualPropertiesSecondary,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
-        let mut basic = basic_layouts.get(id).copied().unwrap_or_default();
-        let mut flex = flex_layouts.get(id).copied().unwrap_or_default();
-        let mut grid = grid_layouts.get(id).cloned();
+        let mut basic = lay_basic.get(id).copied().unwrap_or_default();
+        let mut flex = lay_flex.get(id).copied().unwrap_or_default();
+        let mut grid = lay_grid.get(id).cloned();
 
-        let active_mask = active_masks[id];
+        let active_mask = topo_active_masks[id];
 
         // 幅・高さ・一括サイズに対して、現在トランジションアニメーションが駆動中であるかを走査
         let (is_width_transitioning, is_height_transitioning) =
-            LayoutStore::is_transition_currently_running(id, active_transitions);
+            LayoutStore::is_transition_currently_running(id, ren_active_transitions);
 
         // 自身、または親先祖から focused / focus_visible のフォーカス関連スタイルを解決
         let [focused_style_resolved, focused_visible_style_resolved] =
             [STATE_FOCUSED, STATE_FOCUSED_VISIBLE].map(|state| {
                 RenderStore::resolv_focus_style(
                     id,
-                    interaction_properties,
-                    visual_properties,
+                    ren_interaction,
+                    ren_visual,
                     &active_mask,
-                    parents,
+                    topo_parents,
                     state,
                 )
             });
@@ -151,7 +152,7 @@ impl LayoutStore {
         // 状態マッピング解決のルックアップとループを1回に集約
         LayoutStore::apply_interaction_styles(
             id,
-            interaction_properties,
+            ren_interaction,
             &[focused_style_resolved, focused_visible_style_resolved],
             &active_mask,
             (is_width_transitioning, is_height_transitioning),
@@ -166,15 +167,15 @@ impl LayoutStore {
     /// ターゲット状態に応じた `BasicLayout` の可変参照を引き出す
     pub(crate) fn get_basic_layout_mut<'a>(
         id: EntityId,
-        base_basic_layouts: &'a mut BaseBasicLayoutsSecondary,
-        interaction_properties: &'a mut InteractionPropertiesSecondary,
+        lay_base_basic: &'a mut BaseBasicLayoutsSecondary,
+        ren_interaction: &'a mut InteractionPropertiesSecondary,
         target: StyleTarget,
     ) -> Option<&'a mut BasicLayout> {
         if target == StyleTarget::Base {
-            base_basic_layouts.get_mut(id)
+            lay_base_basic.get_mut(id)
         } else {
-            // interaction_properties から該当疑似クラスを安全に解決
-            let styles = interaction_properties.get_mut(id)?;
+            // ren_interaction から該当疑似クラスを安全に解決
+            let styles = ren_interaction.get_mut(id)?;
             let style_ref = styles.get_style_target_mut(target);
             Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
         }
@@ -183,16 +184,16 @@ impl LayoutStore {
     pub(crate) fn get_flex_layout_mut<'a>(
         id: EntityId,
         target: StyleTarget,
-        flex_layouts: &'a mut SecondaryMap<EntityId, FlexLayout>,
-        interaction_properties: &'a mut InteractionPropertiesSecondary,
+        lay_flex: &'a mut SecondaryMap<EntityId, FlexLayout>,
+        ren_interaction: &'a mut InteractionPropertiesSecondary,
     ) -> Option<&'a mut FlexLayout> {
         if target == StyleTarget::Base {
-            flex_layouts.get_mut(id)
+            lay_flex.get_mut(id)
         } else {
-            if !interaction_properties.contains_key(id) {
-                interaction_properties.insert(id, InteractionStyles::default());
+            if !ren_interaction.contains_key(id) {
+                ren_interaction.insert(id, InteractionStyles::default());
             }
-            let styles = interaction_properties.get_mut(id).unwrap();
+            let styles = ren_interaction.get_mut(id).unwrap();
             let style_ref = styles.get_style_target_mut(target);
             Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
         }
@@ -200,9 +201,9 @@ impl LayoutStore {
 
     pub(crate) fn is_transition_currently_running(
         id: EntityId,
-        active_transitions: &ActiveTransitionsSparseSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
     ) -> (bool, bool) {
-        let Some(list) = active_transitions.get(id) else {
+        let Some(list) = ren_active_transitions.get(id) else {
             return (false, false);
         };
 
@@ -228,7 +229,7 @@ impl LayoutStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_interaction_styles(
         id: EntityId,
-        interaction_properties: &InteractionPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
         focused_resolved: &[Option<ThisStyle>; 2],
         active_mask: &ComponentMask,
         is_transitioning: (bool, bool),
@@ -236,7 +237,7 @@ impl LayoutStore {
         flex: &mut FlexLayout,
         grid: &mut Option<GridLayout>,
     ) {
-        let Some(interaction) = interaction_properties.get(id) else {
+        let Some(interaction) = ren_interaction.get(id) else {
             return;
         };
 
@@ -280,12 +281,12 @@ impl LayoutStore {
     // Taffyスタイルを一括解決するヘルパー
     pub(crate) fn resolve_taffy_style(
         id: EntityId,
-        scrollbar_styles: &ScrollbarStylesSecondary,
+        lay_scrollbar_styles: &ScrollbarStylesSecondary,
         basic: &BasicLayout,
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
     ) -> taffy::Style {
-        let sb_style = scrollbar_styles.get(id).map(|s| &s.style);
+        let sb_style = lay_scrollbar_styles.get(id).map(|s| &s.style);
 
         let mut style: taffy::Style = taffy::Style {
             display: basic.display.into(),
@@ -423,9 +424,9 @@ impl LayoutStore {
     // 全スクロールバー関連IDを一括抽出
     #[inline]
     pub(crate) fn scrollbar_el_ids(
-        scrollbar_styles: &SparseSecondaryMap<EntityId, ScrollBarState>,
+        lay_scrollbar_styles: &SparseSecondaryMap<EntityId, ScrollBarState>,
     ) -> HashSet<EntityId> {
-        scrollbar_styles
+        lay_scrollbar_styles
             .values()
             .flat_map(|sb_state| {
                 [
@@ -443,14 +444,14 @@ impl LayoutStore {
     /// スクロールバー用要素のレイアウト情報を同期して更新。
     pub(crate) fn update_scrollbar_element_layout(
         id: EntityId,
-        basic_layouts: &mut BasicLayoutsSecondary,
-        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_base_basic: &mut BaseBasicLayoutsSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
         size: Size<Val>,
         inset: Rect<Val>,
     ) {
-        let layouts = [basic_layouts.get_mut(id), base_basic_layouts.get_mut(id)];
+        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
 
         for layout in layouts.into_iter().flatten() {
             layout.display = Display::Flex;
@@ -459,8 +460,8 @@ impl LayoutStore {
         }
 
         // affy 側のノードスタイルも Display::None にして同期
-        let _ = taffy.set_style(
-            taffy_nodes[id],
+        let _ = lay_taffy.set_style(
+            lay_taffy_nodes[id],
             taffy::Style {
                 display: taffy::Display::None,
                 ..Default::default()
@@ -476,53 +477,53 @@ impl LayoutStore {
         size: Size<Val>,
         inset: Rect<Val>,
         opacity: f32,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
-        basic_layouts: &mut BasicLayoutsSecondary,
-        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
-        flex_layouts: &FlexLayoutsSecondary,
-        grid_layouts: &GridLayoutsSecondary,
-        active_masks: &ActiveMasksSecondary,
-        active_transitions: &ActiveTransitionsSparseSecondary,
-        parents: &ParentsSecondary,
-        interaction_properties: &InteractionPropertiesSecondary,
-        visual_properties: &mut VisualPropertiesSecondary,
-        base_visual_properties: &mut BaseVisualPropertiesSecondary,
-        scrollbar_styles: &ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_base_basic: &mut BaseBasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        topo_parents: &ParentsSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_visual: &mut VisualPropertiesSecondary,
+        ren_base_visual: &mut BaseVisualPropertiesSecondary,
+        lay_scrollbar_styles: &ScrollbarStylesSecondary,
     ) {
         LayoutStore::update_scrollbar_element_layout(
             id,
-            basic_layouts,
-            base_basic_layouts,
-            taffy_nodes,
-            taffy,
+            lay_basic,
+            lay_base_basic,
+            lay_taffy_nodes,
+            lay_taffy,
             size,
             inset,
         );
         RenderStore::update_scrollbar_element_opacity(
             id,
-            visual_properties,
-            base_visual_properties,
+            ren_visual,
+            ren_base_visual,
             opacity,
         );
 
         let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
             id,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_masks,
-            active_transitions,
-            parents,
-            interaction_properties,
-            visual_properties,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            topo_active_masks,
+            ren_active_transitions,
+            topo_parents,
+            ren_interaction,
+            ren_visual,
         );
 
         LayoutStore::set_taffy_style(
             id,
-            scrollbar_styles,
-            taffy_nodes,
-            taffy,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
+            lay_taffy,
             &basic,
             &flex,
             grid.as_ref(),
@@ -533,25 +534,26 @@ impl LayoutStore {
     #[inline]
     pub(crate) fn set_taffy_style(
         id: EntityId,
-        scrollbar_styles: &ScrollbarStylesSecondary,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
+        lay_scrollbar_styles: &ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
         basic: &BasicLayout,
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
     ) {
-        let taffy_style = LayoutStore::resolve_taffy_style(id, scrollbar_styles, basic, flex, grid);
-        let _ = taffy.set_style(taffy_nodes[id], taffy_style);
+        let taffy_style =
+            LayoutStore::resolve_taffy_style(id, lay_scrollbar_styles, basic, flex, grid);
+        let _ = lay_taffy.set_style(lay_taffy_nodes[id], taffy_style);
     }
 
     /// スクロールバー用要素をレイアウト上から安全に隠します。
     #[inline]
     pub(crate) fn hide_scrollbar_element(
         id: EntityId,
-        basic_layouts: &mut BasicLayoutsSecondary,
-        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_base_basic: &mut BaseBasicLayoutsSecondary,
     ) {
-        let layouts = [basic_layouts.get_mut(id), base_basic_layouts.get_mut(id)];
+        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
 
         for layout in layouts.into_iter().flatten() {
             layout.display = Display::None;
@@ -560,14 +562,14 @@ impl LayoutStore {
 
     pub(crate) fn local_rect_from_taffy(
         id: EntityId,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &TaffyTreeEntityId,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &TaffyTreeEntityId,
     ) -> LayoutRect {
-        let Some(&taffy_node) = taffy_nodes.get(id) else {
+        let Some(&taffy_node) = lay_taffy_nodes.get(id) else {
             return LayoutRect::ZERO;
         };
 
-        let Ok(layout) = taffy.layout(taffy_node) else {
+        let Ok(layout) = lay_taffy.layout(taffy_node) else {
             return LayoutRect::ZERO;
         };
 
@@ -583,73 +585,73 @@ impl LayoutStore {
     /// 内部 `SoA` リスト（self.children）の順序に沿って再同期。
     pub(crate) fn resync_taffy_children_order(
         parent_id: EntityId,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
-        children: &ChildrenSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        topo_children: &ChildrenSecondary,
     ) {
-        let Some(&parent_node) = taffy_nodes.get(parent_id) else {
+        let Some(&parent_node) = lay_taffy_nodes.get(parent_id) else {
             return;
         };
         // 一旦現在登録されているすべての子ノードを Taffy 側から安全にデタッチ
-        if let Ok(taffy_children) = taffy.children(parent_node) {
+        if let Ok(taffy_children) = lay_taffy.children(parent_node) {
             for child_node in taffy_children {
-                let _ = taffy.remove_child(parent_node, child_node);
+                let _ = lay_taffy.remove_child(parent_node, child_node);
             }
         }
         // 最新の並び替え順序リストの存在チェック
-        let Some(children_list) = children.get(parent_id) else {
+        let Some(children_list) = topo_children.get(parent_id) else {
             return;
         };
 
         // 最新の順序に従って、Taffy 側に再アタッチ
         for &child_id in children_list {
-            let Some(&child_node) = taffy_nodes.get(child_id) else {
+            let Some(&child_node) = lay_taffy_nodes.get(child_id) else {
                 continue;
             };
-            let _ = taffy.add_child(parent_node, child_node);
+            let _ = lay_taffy.add_child(parent_node, child_node);
         }
     }
 
     pub fn clear_layout_dirty(
-        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
-        active_masks: &mut ActiveMasksSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        topo_active_masks: &mut ActiveMasksSecondary,
     ) {
-        for id in dirty_layout_entities.drain(..) {
-            if let Some(mask) = active_masks.get_mut(id) {
+        for id in lay_dirty_entities.drain(..) {
+            if let Some(mask) = topo_active_masks.get_mut(id) {
                 mask.unset(STATE_QUEUED_LAYOUT);
             }
         }
-        dirty_layout_entities.clear();
+        lay_dirty_entities.clear();
     }
 
     #[inline]
     pub(crate) fn mark_layout_dirty(
         id: EntityId,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
-        active_masks: &mut ActiveMasksSecondary,
-        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
-        parents: &ParentsSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        topo_parents: &ParentsSecondary,
     ) {
         let mut curr = id;
         // Taffy 側の該当ノードのレイアウトキャッシュを無効化
-        if let Some(&taffy_node) = taffy_nodes.get(curr) {
-            let _ = taffy.mark_dirty(taffy_node);
+        if let Some(&taffy_node) = lay_taffy_nodes.get(curr) {
+            let _ = lay_taffy.mark_dirty(taffy_node);
         }
 
         loop {
             // マスクが存在する場合のみDirtyマーク
-            if let Some(mask) = active_masks.get_mut(curr) {
+            if let Some(mask) = topo_active_masks.get_mut(curr) {
                 // すでに登録済みなら多重登録を防ぐため探索を早期ブレイク
                 if mask.has(STATE_QUEUED_LAYOUT) {
                     break;
                 }
                 mask.set(STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
-                dirty_layout_entities.push(curr);
+                lay_dirty_entities.push(curr);
             }
 
             // 親要素（先祖）をルートまで辿って Dirty フラグを連鎖伝播させる
-            let Some(Some(parent_id)) = parents.get(curr).copied() else {
+            let Some(Some(parent_id)) = topo_parents.get(curr).copied() else {
                 break;
             };
             curr = parent_id;
@@ -660,32 +662,29 @@ impl LayoutStore {
     pub(crate) fn sync_resizing_drag(
         logical_pos: LayoutPoint,
         state: &ResizingState,
-        basic_layouts: &mut BasicLayoutsSecondary,
-        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
-        rects: &RectsSecondary,
-        parents: &ParentsSecondary,
-        last_window_size: Option<&LayoutSize>,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
-        active_masks: &mut ActiveMasksSecondary,
-        dirty_layout_entities: &mut DirtyLayoutEntitiesVec,
-        dirty_render_entities: &mut DirtyRenderEntitiesVec,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_base_basic: &mut BaseBasicLayoutsSecondary,
+        out_rects: &RectsSecondary,
+        topo_parents: &ParentsSecondary,
+        win_last_size: Option<&LayoutSize>,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
     ) {
         let id = state.entity_id;
         let delta_x = logical_pos.x - state.start_mouse_pos.x;
         let delta_y = logical_pos.y - state.start_mouse_pos.y;
 
         let start_rect = state.start_rect;
-        let position = basic_layouts
-            .get(id)
-            .map(|l| l.position)
-            .unwrap_or_default();
+        let position = lay_basic.get(id).map(|l| l.position).unwrap_or_default();
 
         // 最小サイズ・最大クランプ値の解決
         let (min_w, max_w, min_h, max_h) = {
-            let basic = basic_layouts.get(id).copied().unwrap_or_default();
+            let basic = lay_basic.get(id).copied().unwrap_or_default();
 
-            let rect = OutputStore::rect(id, rects).unwrap_or_default();
+            let rect = OutputStore::rect(id, out_rects).unwrap_or_default();
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -697,7 +696,7 @@ impl LayoutStore {
             let resolve_val = |val: Val, is_width: bool, fallback: f32| match val {
                 Val::Px(v) => v,
                 Val::Percent(_) => {
-                    OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size)
+                    OutputStore::val_to_px(id, val, is_width, topo_parents, out_rects, win_last_size)
                         .unwrap_or(fallback)
                 }
                 Val::Auto => fallback,
@@ -750,7 +749,7 @@ impl LayoutStore {
             }
         }
 
-        let layouts = [basic_layouts.get_mut(id), base_basic_layouts.get_mut(id)];
+        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
 
         for layout in layouts.into_iter().flatten() {
             layout.size.width = Val::Px(new_w);
@@ -772,13 +771,13 @@ impl LayoutStore {
 
         LayoutStore::mark_layout_dirty(
             id,
-            taffy_nodes,
-            taffy,
-            active_masks,
-            dirty_layout_entities,
-            parents,
+            lay_taffy_nodes,
+            lay_taffy,
+            topo_active_masks,
+            lay_dirty_entities,
+            topo_parents,
         );
-        RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
+        RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
     }
 }
 
@@ -795,19 +794,19 @@ pub(crate) struct ExtractedThumb {
 }
 
 pub(crate) struct ScrollbarSyncContext<'a> {
-    pub taffy_nodes: &'a TaffyNodesSecondary,
-    pub taffy: &'a mut TaffyTreeEntityId,
-    pub basic_layouts: &'a mut BasicLayoutsSecondary,
-    pub base_basic_layouts: &'a mut BaseBasicLayoutsSecondary,
-    pub flex_layouts: &'a FlexLayoutsSecondary,
-    pub grid_layouts: &'a GridLayoutsSecondary,
-    pub active_masks: &'a ActiveMasksSecondary,
-    pub active_transitions: &'a ActiveTransitionsSparseSecondary,
-    pub parents: &'a ParentsSecondary,
-    pub interaction_properties: &'a InteractionPropertiesSecondary,
-    pub visual_properties: &'a mut VisualPropertiesSecondary,
-    pub base_visual_properties: &'a mut BaseVisualPropertiesSecondary,
-    pub scrollbar_styles: &'a ScrollbarStylesSecondary,
+    pub lay_taffy_nodes: &'a TaffyNodesSecondary,
+    pub lay_taffy: &'a mut TaffyTreeEntityId,
+    pub lay_basic: &'a mut BasicLayoutsSecondary,
+    pub lay_base_basic: &'a mut BaseBasicLayoutsSecondary,
+    pub lay_flex: &'a FlexLayoutsSecondary,
+    pub lay_grid: &'a GridLayoutsSecondary,
+    pub topo_active_masks: &'a ActiveMasksSecondary,
+    pub ren_active_transitions: &'a ActiveTransitionsSparseSecondary,
+    pub topo_parents: &'a ParentsSecondary,
+    pub ren_interaction: &'a InteractionPropertiesSecondary,
+    pub ren_visual: &'a mut VisualPropertiesSecondary,
+    pub ren_base_visual: &'a mut BaseVisualPropertiesSecondary,
+    pub lay_scrollbar_styles: &'a ScrollbarStylesSecondary,
 }
 
 impl ScrollbarSyncContext<'_> {
@@ -818,97 +817,97 @@ impl ScrollbarSyncContext<'_> {
             size,
             rect,
             opacity,
-            self.taffy_nodes,
-            self.taffy,
-            self.basic_layouts,
-            self.base_basic_layouts,
-            self.flex_layouts,
-            self.grid_layouts,
-            self.active_masks,
-            self.active_transitions,
-            self.parents,
-            self.interaction_properties,
-            self.visual_properties,
-            self.base_visual_properties,
-            self.scrollbar_styles,
+            self.lay_taffy_nodes,
+            self.lay_taffy,
+            self.lay_basic,
+            self.lay_base_basic,
+            self.lay_flex,
+            self.lay_grid,
+            self.topo_active_masks,
+            self.ren_active_transitions,
+            self.topo_parents,
+            self.ren_interaction,
+            self.ren_visual,
+            self.ren_base_visual,
+            self.lay_scrollbar_styles,
         );
     }
     #[inline]
     pub fn hide_el(&mut self, el_id: EntityId) {
-        LayoutStore::hide_scrollbar_element(el_id, self.basic_layouts, self.base_basic_layouts);
+        LayoutStore::hide_scrollbar_element(el_id, self.lay_basic, self.lay_base_basic);
     }
 }
 
 impl LayoutStore {
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn sync_scrollbar_styles(
-        active_masks: &ActiveMasksSecondary,
-        input_contents: &InputContentsSparseSecondary,
-        text_engine: &TextEngine,
-        text_contents: &TextContentsSparseSecondary,
-        text_spans: &TextSpansSparseSecondary,
-        dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        taffy_nodes: &TaffyNodesSecondary,
-        taffy: &mut TaffyTreeEntityId,
-        basic_layouts: &mut BasicLayoutsSecondary,
-        base_basic_layouts: &mut BaseBasicLayoutsSecondary,
-        flex_layouts: &FlexLayoutsSecondary,
-        grid_layouts: &GridLayoutsSecondary,
-        active_transitions: &ActiveTransitionsSparseSecondary,
-        parents: &ParentsSecondary,
-        children: &ChildrenSecondary,
-        interaction_properties: &InteractionPropertiesSecondary,
-        visual_properties: &mut VisualPropertiesSecondary,
-        base_visual_properties: &mut BaseVisualPropertiesSecondary,
-        scrollbar_styles: &ScrollbarStylesSecondary,
-        rects: &RectsSecondary,
-        scroll_offsets: &ScrollOffsetsSecondary,
-        last_window_size: Option<LayoutSize>,
+        topo_active_masks: &ActiveMasksSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        sys_text_engine: &TextEngine,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_base_basic: &mut BaseBasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_visual: &mut VisualPropertiesSecondary,
+        ren_base_visual: &mut BaseVisualPropertiesSecondary,
+        lay_scrollbar_styles: &ScrollbarStylesSecondary,
+        out_rects: &RectsSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
+        win_last_size: Option<LayoutSize>,
     ) {
-        let scrollbar_ids: Vec<EntityId> = scrollbar_styles.keys().collect();
+        let scrollbar_ids: Vec<EntityId> = lay_scrollbar_styles.keys().collect();
 
         for id in scrollbar_ids {
-            let sb_state = scrollbar_styles.get(id).cloned().unwrap();
-            let container_rect = rects[id];
+            let sb_state = lay_scrollbar_styles.get(id).cloned().unwrap();
+            let container_rect = out_rects[id];
             let scroll_size = OutputStore::get_scroll_size(
                 id,
-                active_masks,
-                input_contents,
-                text_engine,
-                text_contents,
-                visual_properties,
-                text_spans,
-                dwrite_layouts,
-                basic_layouts,
-                flex_layouts,
-                grid_layouts,
-                active_transitions,
-                parents,
-                children,
-                interaction_properties,
-                rects,
-                scrollbar_styles,
-                scroll_offsets,
+                topo_active_masks,
+                cont_input_contents,
+                sys_text_engine,
+                cont_text_contents,
+                ren_visual,
+                cont_text_spans,
+                sys_dwrite_layouts,
+                lay_basic,
+                lay_flex,
+                lay_grid,
+                ren_active_transitions,
+                topo_parents,
+                topo_children,
+                ren_interaction,
+                out_rects,
+                lay_scrollbar_styles,
+                out_scroll_offsets,
             );
-            let current_scroll = scroll_offsets.get(id).copied().unwrap_or_default();
+            let current_scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
             let (basic, _, _) = LayoutStore::resolve_active_layouts(
                 id,
-                basic_layouts,
-                flex_layouts,
-                grid_layouts,
-                active_masks,
-                active_transitions,
-                parents,
-                interaction_properties,
-                visual_properties,
+                lay_basic,
+                lay_flex,
+                lay_grid,
+                topo_active_masks,
+                ren_active_transitions,
+                topo_parents,
+                ren_interaction,
+                ren_visual,
             );
-            let rect = OutputStore::rect(id, rects).unwrap_or_default();
+            let rect = OutputStore::rect(id, out_rects).unwrap_or_default();
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
             let visible_size =
-                WindowStore::calculate_visible_size(last_window_size, container_rect);
+                WindowStore::calculate_visible_size(win_last_size, container_rect);
             let content_size =
                 LayoutStore::calculate_inner_content_size(visible_size, border, padding);
 
@@ -932,19 +931,19 @@ impl LayoutStore {
             );
 
             let mut ctx = ScrollbarSyncContext {
-                taffy_nodes,
-                taffy,
-                basic_layouts,
-                base_basic_layouts,
-                flex_layouts,
-                grid_layouts,
-                active_masks,
-                active_transitions,
-                parents,
-                interaction_properties,
-                visual_properties,
-                base_visual_properties,
-                scrollbar_styles,
+                lay_taffy_nodes,
+                lay_taffy,
+                lay_basic,
+                lay_base_basic,
+                lay_flex,
+                lay_grid,
+                topo_active_masks,
+                ren_active_transitions,
+                topo_parents,
+                ren_interaction,
+                ren_visual,
+                ren_base_visual,
+                lay_scrollbar_styles,
             };
 
             // 縦トラック (V-Track) の同期
@@ -1224,24 +1223,24 @@ impl Context {
     #[inline]
     pub(crate) fn mark_layout_dirty(&mut self, id: EntityId) {
         let LayoutStore {
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_dirty_entities,
             ..
         } = &mut self.layouts;
         let TopologyStore {
-            active_masks,
-            parents,
+            topo_active_masks,
+            topo_parents,
             ..
         } = &mut self.topology;
 
         LayoutStore::mark_layout_dirty(
             id,
-            taffy_nodes,
-            taffy,
-            active_masks,
-            dirty_layout_entities,
-            parents,
+            lay_taffy_nodes,
+            lay_taffy,
+            topo_active_masks,
+            lay_dirty_entities,
+            topo_parents,
         );
     }
 
@@ -1252,33 +1251,33 @@ impl Context {
         id: EntityId,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
         let LayoutStore {
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
+            lay_basic,
+            lay_flex,
+            lay_grid,
             ..
         } = &self.layouts;
         let TopologyStore {
-            active_masks,
-            parents,
+            topo_active_masks,
+            topo_parents,
             ..
         } = &self.topology;
         let RenderStore {
-            active_transitions,
-            interaction_properties,
-            visual_properties,
+            ren_active_transitions,
+            ren_interaction,
+            ren_visual,
             ..
         } = &self.renders;
 
         LayoutStore::resolve_active_layouts(
             id,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_masks,
-            active_transitions,
-            parents,
-            interaction_properties,
-            visual_properties,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            topo_active_masks,
+            ren_active_transitions,
+            topo_parents,
+            ren_interaction,
+            ren_visual,
         )
     }
 
@@ -1288,15 +1287,13 @@ impl Context {
         id: EntityId,
         target: StyleTarget,
     ) -> Option<&mut BasicLayout> {
-        let LayoutStore {
-            base_basic_layouts, ..
-        } = &mut self.layouts;
+        let LayoutStore { lay_base_basic, .. } = &mut self.layouts;
         let RenderStore {
-            interaction_properties,
+            ren_interaction,
             ..
         } = &mut self.renders;
 
-        LayoutStore::get_basic_layout_mut(id, base_basic_layouts, interaction_properties, target)
+        LayoutStore::get_basic_layout_mut(id, lay_base_basic, ren_interaction, target)
     }
 
     #[inline]
@@ -1305,13 +1302,13 @@ impl Context {
         id: EntityId,
         target: StyleTarget,
     ) -> Option<&mut FlexLayout> {
-        let LayoutStore { flex_layouts, .. } = &mut self.layouts;
+        let LayoutStore { lay_flex, .. } = &mut self.layouts;
         let RenderStore {
-            interaction_properties,
+            ren_interaction,
             ..
         } = &mut self.renders;
 
-        LayoutStore::get_flex_layout_mut(id, target, flex_layouts, interaction_properties)
+        LayoutStore::get_flex_layout_mut(id, target, lay_flex, ren_interaction)
     }
 
     // Taffyスタイルを一括解決するヘルパー
@@ -1324,97 +1321,98 @@ impl Context {
         grid: Option<&GridLayout>,
     ) -> taffy::Style {
         let LayoutStore {
-            scrollbar_styles, ..
+            lay_scrollbar_styles,
+            ..
         } = &self.layouts;
 
-        LayoutStore::resolve_taffy_style(id, scrollbar_styles, basic, flex, grid)
+        LayoutStore::resolve_taffy_style(id, lay_scrollbar_styles, basic, flex, grid)
     }
     // 全スクロールバー関連IDを一括抽出
     #[inline]
     pub(crate) fn scrollbar_el_ids(&self) -> HashSet<EntityId> {
-        LayoutStore::scrollbar_el_ids(&self.layouts.scrollbar_styles)
+        LayoutStore::scrollbar_el_ids(&self.layouts.lay_scrollbar_styles)
     }
 
     #[inline]
     pub(crate) fn sync_scrollbar_styles(&mut self) {
         let TopologyStore {
-            parents,
-            children,
-            active_masks,
+            topo_parents,
+            topo_children,
+            topo_active_masks,
             ..
         } = &mut self.topology;
 
         let LayoutStore {
-            basic_layouts,
-            base_basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            scrollbar_styles,
-            taffy_nodes,
-            taffy,
+            lay_basic,
+            lay_base_basic,
+            lay_flex,
+            lay_grid,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
+            lay_taffy,
             ..
         } = &mut self.layouts;
 
         let RenderStore {
-            visual_properties,
-            interaction_properties,
-            base_visual_properties,
-            dirty_render_entities,
-            active_transitions,
+            ren_visual,
+            ren_interaction,
+            ren_base_visual,
+            ren_dirty_entities,
+            ren_active_transitions,
             ..
         } = &mut self.renders;
 
         let OutputStore {
-            rects,
-            clip_rects,
-            scroll_offsets,
-            prev_rects,
-            prev_clip_rects,
-            selected_rects,
-            text_selections,
-            selection_start_index,
+            out_rects,
+            out_clip_rects,
+            out_scroll_offsets,
+            out_prev_rects,
+            out_prev_clip_rects,
+            out_selected_rects,
+            out_text_selections,
+            out_selection_start_index,
         } = &self.outputs;
 
         let ContentStore {
-            text_contents,
-            text_spans,
-            input_contents,
+            cont_text_contents,
+            cont_text_spans,
+            cont_input_contents,
             ..
         } = &self.contents;
 
         let SystemStore {
-            text_engine,
-            dwrite_layouts,
+            sys_text_engine,
+            sys_dwrite_layouts,
             ..
         } = &self.system;
 
         let WindowStore {
-            last_window_size, ..
+            win_last_size, ..
         } = &self.window;
 
         LayoutStore::sync_scrollbar_styles(
-            active_masks,
-            input_contents,
-            text_engine,
-            text_contents,
-            text_spans,
-            dwrite_layouts,
-            taffy_nodes,
-            taffy,
-            basic_layouts,
-            base_basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_transitions,
-            parents,
-            children,
-            interaction_properties,
-            visual_properties,
-            base_visual_properties,
-            scrollbar_styles,
-            rects,
-            scroll_offsets,
-            *last_window_size,
+            topo_active_masks,
+            cont_input_contents,
+            sys_text_engine,
+            cont_text_contents,
+            cont_text_spans,
+            sys_dwrite_layouts,
+            lay_taffy_nodes,
+            lay_taffy,
+            lay_basic,
+            lay_base_basic,
+            lay_flex,
+            lay_grid,
+            ren_active_transitions,
+            topo_parents,
+            topo_children,
+            ren_interaction,
+            ren_visual,
+            ren_base_visual,
+            lay_scrollbar_styles,
+            out_rects,
+            out_scroll_offsets,
+            *win_last_size,
         );
     }
 }

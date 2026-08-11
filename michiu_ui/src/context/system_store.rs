@@ -60,12 +60,13 @@ pub(crate) type DwriteLayoutsSparseSecondary =
     RefCell<SparseSecondaryMap<EntityId, IDWriteTextLayout>>;
 pub(crate) type UiaPropertiesSparseSecondary = SparseSecondaryMap<EntityId, Vec<(i32, UiaValue)>>;
 
+#[allow(clippy::struct_field_names)]
 pub struct SystemStore {
-    pub(crate) text_engine: TextEngine,
-    pub(crate) dwrite_layouts: DwriteLayoutsSparseSecondary,
-    pub(crate) uia_properties: UiaPropertiesSparseSecondary,
-    pub(crate) task_sender: TaskSender,
-    pub(crate) task_receiver: Receiver<TaskRecv>,
+    pub(crate) sys_text_engine: TextEngine,
+    pub(crate) sys_dwrite_layouts: DwriteLayoutsSparseSecondary,
+    pub(crate) sys_uia_properties: UiaPropertiesSparseSecondary,
+    pub(crate) sys_task_sender: TaskSender,
+    pub(crate) sys_task_receiver: Receiver<TaskRecv>,
 }
 
 pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;
@@ -73,58 +74,58 @@ pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;
 impl SystemStore {
     #[inline]
     #[must_use]
-    pub fn new(task_sender: TaskSender, task_receiver: Receiver<TaskRecv>) -> Self {
+    pub fn new(sys_task_sender: TaskSender, sys_task_receiver: Receiver<TaskRecv>) -> Self {
         Self {
-            text_engine: TextEngine::new(),
-            dwrite_layouts: RefCell::new(SparseSecondaryMap::new()),
-            uia_properties: SparseSecondaryMap::new(),
-            task_sender,
-            task_receiver,
+            sys_text_engine: TextEngine::new(),
+            sys_dwrite_layouts: RefCell::new(SparseSecondaryMap::new()),
+            sys_uia_properties: SparseSecondaryMap::new(),
+            sys_task_sender,
+            sys_task_receiver,
         }
     }
 
     #[inline]
     pub fn clear(&mut self) {
-        self.dwrite_layouts.borrow_mut().clear();
-        self.uia_properties.clear();
-        while self.task_receiver.try_recv().is_ok() {}
+        self.sys_dwrite_layouts.borrow_mut().clear();
+        self.sys_uia_properties.clear();
+        while self.sys_task_receiver.try_recv().is_ok() {}
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
-        self.dwrite_layouts.borrow_mut().remove(id);
-        self.uia_properties.remove(id);
+        self.sys_dwrite_layouts.borrow_mut().remove(id);
+        self.sys_uia_properties.remove(id);
     }
 }
 
 impl SystemStore {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
-    pub(crate) fn clear_layout_cache(id: EntityId, dwrite_layouts: &DwriteLayoutsSparseSecondary) {
-        dwrite_layouts.borrow_mut().remove(id);
+    pub(crate) fn clear_layout_cache(id: EntityId, sys_dwrite_layouts: &DwriteLayoutsSparseSecondary) {
+        sys_dwrite_layouts.borrow_mut().remove(id);
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
     pub(crate) fn get_or_create_layout(
         id: EntityId,
-        text_contents: &TextContentsSparseSecondary,
-        visual_properties: &VisualPropertiesSecondary,
-        dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        text_spans: &TextSpansSparseSecondary,
-        text_engine: &TextEngine,
+        cont_text_contents: &TextContentsSparseSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        sys_text_engine: &TextEngine,
     ) -> Option<IDWriteTextLayout> {
-        if let Some(layout) = dwrite_layouts.borrow().get(id) {
+        if let Some(layout) = sys_dwrite_layouts.borrow().get(id) {
             return Some(layout.clone());
         }
 
-        let text = text_contents.get(id)?;
+        let text = cont_text_contents.get(id)?;
         let (font_size, font_family, font_weight, font_style) =
-            RenderStore::get_font_propery(id, visual_properties);
+            RenderStore::get_font_propery(id, ren_visual);
         let max_width = None;
-        let spans = ContentStore::get_text_span(id, text_spans);
+        let spans = ContentStore::get_text_span(id, cont_text_spans);
 
-        let layout = text_engine.create_layout(
+        let layout = sys_text_engine.create_layout(
             text,
             font_size,
             font_family,
@@ -134,7 +135,7 @@ impl SystemStore {
             spans,
         );
 
-        dwrite_layouts.borrow_mut().insert(id, layout.clone());
+        sys_dwrite_layouts.borrow_mut().insert(id, layout.clone());
         Some(layout)
     }
 
@@ -214,7 +215,7 @@ impl SystemStore {
     }
 
     #[inline]
-    pub(crate) fn unassociate_ime(contents: &InputContents, default_himc: &mut Option<HIMC>) {
+    pub(crate) fn unassociate_ime(contents: &InputContents, win_default_himc: &mut Option<HIMC>) {
         let hwnd = unsafe { GetFocus() };
         if hwnd.is_invalid() {
             return;
@@ -222,8 +223,8 @@ impl SystemStore {
 
         // IMEが有効な場合、コンテキストを元に戻して早期リターン
         if contents.is_ime {
-            if let Some(default_himc) = default_himc {
-                let _ = unsafe { ImmAssociateContext(hwnd, *default_himc) };
+            if let Some(win_default_himc) = win_default_himc {
+                let _ = unsafe { ImmAssociateContext(hwnd, *win_default_himc) };
             }
             return;
         }
@@ -232,26 +233,26 @@ impl SystemStore {
         let old_himc = unsafe { ImmAssociateContext(hwnd, HIMC::default()) };
 
         // 取得した古いコンテキストが無効、またはすでにデフォルト値が保存済みの場合は早期リターン
-        if old_himc.is_invalid() || default_himc.is_some() {
+        if old_himc.is_invalid() || win_default_himc.is_some() {
             return;
         }
 
         // デフォルト値が未保存の場合のみ、ここで新しく保存
-        *default_himc = Some(old_himc);
+        *win_default_himc = Some(old_himc);
     }
 
     #[inline]
-    pub(crate) fn reset_ime_default_state(default_himc: Option<&HIMC>) {
+    pub(crate) fn reset_ime_default_state(win_default_himc: Option<&HIMC>) {
         let hwnd = unsafe { GetFocus() };
         if hwnd.is_invalid() {
             return;
         }
 
-        let Some(default_himc) = default_himc else {
+        let Some(win_default_himc) = win_default_himc else {
             return;
         };
 
-        let _ = unsafe { ImmAssociateContext(hwnd, *default_himc) };
+        let _ = unsafe { ImmAssociateContext(hwnd, *win_default_himc) };
     }
 
     // クリップボード API による UTF-16 読み書きヘルパー
@@ -299,33 +300,31 @@ impl Context {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
     pub(crate) fn clear_layout_cache(&self, id: EntityId) {
-        self.system.dwrite_layouts.borrow_mut().remove(id);
+        self.system.sys_dwrite_layouts.borrow_mut().remove(id);
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
     pub(crate) fn get_or_create_layout(&self, id: EntityId) -> Option<IDWriteTextLayout> {
         let ContentStore {
-            text_contents,
-            text_spans,
+            cont_text_contents,
+            cont_text_spans,
             ..
         } = &self.contents;
         let SystemStore {
-            dwrite_layouts,
-            text_engine,
+            sys_dwrite_layouts,
+            sys_text_engine,
             ..
         } = &self.system;
-        let RenderStore {
-            visual_properties, ..
-        } = &self.renders;
+        let RenderStore { ren_visual, .. } = &self.renders;
 
         SystemStore::get_or_create_layout(
             id,
-            text_contents,
-            visual_properties,
-            dwrite_layouts,
-            text_spans,
-            text_engine,
+            cont_text_contents,
+            ren_visual,
+            sys_dwrite_layouts,
+            cont_text_spans,
+            sys_text_engine,
         )
     }
 }
