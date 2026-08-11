@@ -178,17 +178,17 @@ impl TopologyStore {
             // 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
             LayoutStore::resync_taffy_children_order(
                 old_parent,
-                lay_taffy_nodes,
-                lay_taffy,
                 topo_children,
+                lay_taffy,
+                lay_taffy_nodes,
             );
             LayoutStore::mark_layout_dirty(
                 old_parent,
-                lay_taffy_nodes,
-                lay_taffy,
                 topo_active_masks,
-                lay_dirty_entities,
                 topo_parents,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_taffy_nodes,
             );
         }
 
@@ -210,11 +210,11 @@ impl TopologyStore {
 
         LayoutStore::mark_layout_dirty(
             parent,
-            lay_taffy_nodes,
-            lay_taffy,
             topo_active_masks,
-            lay_dirty_entities,
             topo_parents,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_taffy_nodes,
         );
     }
 
@@ -259,11 +259,11 @@ impl TopologyStore {
 
         LayoutStore::mark_layout_dirty(
             parent,
-            &layouts.lay_taffy_nodes,
-            &mut layouts.lay_taffy,
             &mut topology.topo_active_masks,
-            &mut layouts.lay_dirty_entities,
             &topology.topo_parents,
+            &mut layouts.lay_taffy,
+            &mut layouts.lay_dirty_entities,
+            &layouts.lay_taffy_nodes,
         );
     }
 

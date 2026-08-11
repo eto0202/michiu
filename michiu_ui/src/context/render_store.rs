@@ -790,11 +790,11 @@ impl RenderStore {
         if is_layout_dirty {
             LayoutStore::mark_layout_dirty(
                 id,
-                lay_taffy_nodes,
-                lay_taffy,
                 topo_active_masks,
-                lay_dirty_entities,
                 topo_parents,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_taffy_nodes,
             );
         }
     }
@@ -999,11 +999,11 @@ impl RenderStore {
 
         LayoutStore::mark_layout_dirty(
             id,
-            lay_taffy_nodes,
-            lay_taffy,
             topo_active_masks,
-            lay_dirty_entities,
             topo_parents,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_taffy_nodes,
         );
     }
 
@@ -1655,11 +1655,11 @@ impl RenderStore {
                         }
                         LayoutStore::mark_layout_dirty(
                             id,
-                            lay_taffy_nodes,
-                            lay_taffy,
                             topo_active_masks,
-                            lay_dirty_entities,
                             topo_parents,
+                            lay_taffy,
+                            lay_dirty_entities,
+                            lay_taffy_nodes,
                         );
 
                         // キャッシュを毎フレーム強制バイパスさせるためにマスクを再セット
@@ -1674,11 +1674,11 @@ impl RenderStore {
                         }
                         LayoutStore::mark_layout_dirty(
                             id,
-                            lay_taffy_nodes,
-                            lay_taffy,
                             topo_active_masks,
-                            lay_dirty_entities,
                             topo_parents,
+                            lay_taffy,
+                            lay_dirty_entities,
+                            lay_taffy_nodes,
                         );
 
                         if let Some(mask) = topo_active_masks.get_mut(id) {

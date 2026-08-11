@@ -69,6 +69,21 @@ new_key_type! {
 /// 8. renders (ren_)
 /// 9. outputs (out_)
 pub struct Context {
+    /// ウィンドウ全体の基本状態（DPI、最終境界）の保持。
+    /// ウィンドウリサイズ検知、可視矩形の算出など。
+    pub window: WindowStore,
+    /// OS機能（DWriteレイアウトキャッシュ、IMM32位置、UIAプロパティ）および非同期STAキューの保持。
+    /// IMM32候補窓の物理位置同期、DWriteレイアウト生成など。
+    pub system: SystemStore,
+    /// シグナル・エフェクト実体、プロバイダー依存関係の保持。
+    /// プロバイダー引き当て、エフェクトの初回評価遅延処理など。
+    pub reactive: ReactiveStore,
+    /// ユーザー入力リスナー、およびリサイズ/ドラッグセッション状態の保持。
+    /// リサイズ方向検知、オートスクロールはみ出し距離など。
+    pub events: EventStore,
+    /// ユーザーコンテンツの保持。
+    /// キャレット点滅判定、コンテンツサイズ計測など。
+    pub contents: ContentStore,
     /// ツリー構造の構築、親子関係の管理、DFS走査順序。
     /// despawn 連鎖、DFS配列の構築、子孫/親の状態バブリング走査など。
     pub topology: TopologyStore,
@@ -84,21 +99,6 @@ pub struct Context {
     /// キャレット・テキスト選択範囲の物理領域キャッシュ。
     /// `resolve_val_to_px` (単位の解決)、キャレット矩形の算出など。
     pub outputs: OutputStore,
-    /// ユーザーコンテンツの保持。
-    /// キャレット点滅判定、コンテンツサイズ計測など。
-    pub contents: ContentStore,
-    /// ユーザー入力リスナー、およびリサイズ/ドラッグセッション状態の保持。
-    /// リサイズ方向検知、オートスクロールはみ出し距離など。
-    pub events: EventStore,
-    /// シグナル・エフェクト実体、プロバイダー依存関係の保持。
-    /// プロバイダー引き当て、エフェクトの初回評価遅延処理など。
-    pub reactive: ReactiveStore,
-    /// ウィンドウ全体の基本状態（DPI、最終境界）の保持。
-    /// ウィンドウリサイズ検知、可視矩形の算出など。
-    pub window: WindowStore,
-    /// OS機能（DWriteレイアウトキャッシュ、IMM32位置、UIAプロパティ）および非同期STAキューの保持。
-    /// IMM32候補窓の物理位置同期、DWriteレイアウト生成など。
-    pub system: SystemStore,
 }
 
 impl Default for Context {
@@ -289,30 +289,30 @@ impl Context {
             ..
         } = &mut self.topology;
         let RenderStore {
-            ren_dirty_entities,
-            ..
+            ren_dirty_entities, ..
         } = &mut self.renders;
 
         LayoutStore::mark_layout_dirty(
             id,
-            lay_taffy_nodes,
-            lay_taffy,
             topo_active_masks,
-            lay_dirty_entities,
             topo_parents,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_taffy_nodes,
         );
         RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
     }
 
     #[inline]
     pub fn clear_layout_dirty(&mut self) {
-        let TopologyStore { topo_active_masks, .. } = &mut self.topology;
+        let TopologyStore {
+            topo_active_masks, ..
+        } = &mut self.topology;
         let LayoutStore {
-            lay_dirty_entities,
-            ..
+            lay_dirty_entities, ..
         } = &mut self.layouts;
 
-        LayoutStore::clear_layout_dirty(lay_dirty_entities, topo_active_masks);
+        LayoutStore::clear_layout_dirty(topo_active_masks, lay_dirty_entities);
     }
 
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
@@ -389,9 +389,7 @@ impl Context {
             cont_movie_properties,
             cont_webview_contents,
         } = &mut self.contents;
-        let WindowStore {
-            win_last_size, ..
-        } = &mut self.window;
+        let WindowStore { win_last_size, .. } = &mut self.window;
         let SystemStore {
             sys_text_engine,
             sys_dwrite_layouts,
@@ -518,7 +516,8 @@ impl Context {
             ..
         } = &self.renders;
         let EventStore {
-            evt_interaction_states, ..
+            evt_interaction_states,
+            ..
         } = &self.events;
         let TopologyStore { topo_parents, .. } = &self.topology;
 
@@ -535,10 +534,11 @@ impl Context {
     #[inline]
     pub fn clear_render_dirty(&mut self) {
         let RenderStore {
-            ren_dirty_entities,
-            ..
+            ren_dirty_entities, ..
         } = &mut self.renders;
-        let TopologyStore { topo_active_masks, .. } = &mut self.topology;
+        let TopologyStore {
+            topo_active_masks, ..
+        } = &mut self.topology;
 
         RenderStore::clear_render_dirty(ren_dirty_entities, topo_active_masks);
     }
@@ -559,9 +559,13 @@ impl Context {
         } = &self.events;
         let OutputStore { out_clip_rects, .. } = &self.outputs;
         let LayoutStore {
-            lay_scrollbar_styles, ..
+            lay_scrollbar_styles,
+            ..
         } = &self.layouts;
-        let ContentStore { cont_input_contents, .. } = &self.contents;
+        let ContentStore {
+            cont_input_contents,
+            ..
+        } = &self.contents;
 
         RenderStore::has_active_animations(
             evt_interaction_states,
@@ -828,38 +832,36 @@ impl Context {
             sys_dwrite_layouts,
             ..
         } = &mut self.system;
-        let WindowStore {
-            win_last_size, ..
-        } = &mut self.window;
+        let WindowStore { win_last_size, .. } = &mut self.window;
 
         let Some(id) = evt_interaction_states.pressed else {
             return;
         };
         let (autoscroll_occurred, active_pos) = EventStore::autoscroll_occurred(
             id,
-            *evt_current_pointer_position,
-            out_clip_rects,
-            topo_active_masks,
-            cont_input_contents,
-            sys_text_engine,
-            cont_text_contents,
-            ren_visual,
-            cont_text_spans,
+            *win_last_size,
             sys_dwrite_layouts,
+            sys_text_engine,
+            *evt_current_pointer_position,
+            cont_input_contents,
+            cont_text_spans,
+            cont_text_contents,
+            topo_active_masks,
+            topo_parents,
+            topo_children,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
             lay_basic,
             lay_flex,
             lay_grid,
+            ren_visual,
             ren_active_transitions,
-            topo_parents,
-            topo_children,
             ren_interaction,
-            out_rects,
-            lay_scrollbar_styles,
             out_scroll_offsets,
-            *win_last_size,
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
+            out_rects,
+            out_clip_rects,
         );
 
         if autoscroll_occurred && let Some(pos) = active_pos {
@@ -1007,7 +1009,8 @@ impl Context {
                             .insert(target_id, range.start);
                         self.update_selection_rects(target_id, &dw_layout); // 選択矩形を更新
 
-                        if let Some(contents) = self.contents.cont_input_contents.get_mut(target_id) {
+                        if let Some(contents) = self.contents.cont_input_contents.get_mut(target_id)
+                        {
                             contents.selected_range = range;
                             contents.selection_reversed = false; // キャレットは右端に配置
                             self.update_input_caret_position(target_id);
@@ -1119,7 +1122,9 @@ impl Context {
 
                         self.update_selection_rects(focused_id, &dw_layout);
 
-                        if let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id) {
+                        if let Some(contents) =
+                            self.contents.cont_input_contents.get_mut(focused_id)
+                        {
                             contents.selected_range = full_range;
                             contents.selection_reversed = false;
                             self.update_input_caret_position(focused_id);
@@ -1323,10 +1328,13 @@ impl Context {
             ..
         } = &self.renders;
         let OutputStore {
-            out_rects, out_clip_rects, ..
+            out_rects,
+            out_clip_rects,
+            ..
         } = &self.outputs;
         let EventStore {
-            evt_interaction_states, ..
+            evt_interaction_states,
+            ..
         } = &self.events;
 
         TopologyStore::hit_test(

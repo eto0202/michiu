@@ -106,13 +106,13 @@ impl ContentStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn measure_content(
         id: EntityId,
+        known_dims: taffy::Size<Option<f32>>,
+        sys_text_engine: &TextEngine,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
         topo_active_masks: &ActiveMasksSecondary,
         ren_visual: &VisualPropertiesSecondary,
-        sys_text_engine: &TextEngine,
-        known_dims: taffy::Size<Option<f32>>,
     ) -> taffy::Size<f32> {
         let mask = topo_active_masks.get(id).copied().unwrap_or_default();
 
@@ -180,26 +180,26 @@ impl Context {
         let TopologyStore {
             topo_active_masks, ..
         } = &mut self.topology;
-        let RenderStore {
-            ren_visual, ..
-        } = &self.renders;
+        let RenderStore { ren_visual, .. } = &self.renders;
         let ContentStore {
             cont_input_contents,
             cont_text_contents,
             cont_text_spans,
             ..
         } = &mut self.contents;
-        let SystemStore { sys_text_engine, .. } = &mut self.system;
+        let SystemStore {
+            sys_text_engine, ..
+        } = &mut self.system;
 
         ContentStore::measure_content(
             id,
+            known_dims,
+            sys_text_engine,
             cont_input_contents,
             cont_text_contents,
             cont_text_spans,
             topo_active_masks,
             ren_visual,
-            sys_text_engine,
-            known_dims,
         )
     }
 }

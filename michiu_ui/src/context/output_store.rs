@@ -132,7 +132,7 @@ impl OutputStore {
         window_size: LayoutSize,
     ) -> (LayoutRect, LayoutRect) {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
-        let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy_nodes, lay_taffy);
+        let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy, lay_taffy_nodes);
 
         let parent_info = topo_parents.get(id).copied().flatten().and_then(|p_id| {
             let rect = out_rects.get(p_id).copied()?;
@@ -585,14 +585,14 @@ impl OutputStore {
         // 親要素自体のボーダー・パディング厚を取得
         let (basic, _, _) = LayoutStore::resolve_active_layouts(
             id,
+            topo_active_masks,
+            topo_parents,
             lay_basic,
             lay_flex,
             lay_grid,
-            topo_active_masks,
-            ren_active_transitions,
-            topo_parents,
             ren_interaction,
             ren_visual,
+            ren_active_transitions,
         );
 
         let rect = OutputStore::rect(id, out_rects).unwrap_or_default();
@@ -962,14 +962,14 @@ impl OutputStore {
         // 親コンテナのボーダーおよびパディング厚を取得
         let (basic, _, _) = LayoutStore::resolve_active_layouts(
             id,
+            topo_active_masks,
+            topo_parents,
             lay_basic,
             lay_flex,
             lay_grid,
-            topo_active_masks,
-            ren_active_transitions,
-            topo_parents,
             ren_interaction,
             ren_visual,
+            ren_active_transitions,
         );
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -1002,11 +1002,11 @@ impl OutputStore {
             // オフセット変化に伴い、子孫全体の絶対座標を再同期させる
             LayoutStore::mark_layout_dirty(
                 id,
-                lay_taffy_nodes,
-                lay_taffy,
                 topo_active_masks,
-                lay_dirty_entities,
                 topo_parents,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_taffy_nodes,
             );
             true
         } else {
@@ -1120,14 +1120,14 @@ impl OutputStore {
         };
         let (basic, flex, _) = LayoutStore::resolve_active_layouts(
             id,
+            topo_active_masks,
+            topo_parents,
             lay_basic,
             lay_flex,
             lay_grid,
-            topo_active_masks,
-            ren_active_transitions,
-            topo_parents,
             ren_interaction,
             ren_visual,
+            ren_active_transitions,
         );
         let rect = OutputStore::rect(id, out_rects).unwrap_or_default();
         let (border, padding) =
@@ -1467,11 +1467,7 @@ impl OutputStore {
             let pointer_events = ren_visual
                 .get(id)
                 .and_then(|v| v.pointer_events)
-                .or_else(|| {
-                    ren_base_visual
-                        .get(id)
-                        .and_then(|v| v.pointer_events)
-                })
+                .or_else(|| ren_base_visual.get(id).and_then(|v| v.pointer_events))
                 .unwrap_or_default();
 
             if pointer_events != PointerEvents::None {
@@ -1575,14 +1571,14 @@ impl OutputStore {
 
             let (basic, _, _) = LayoutStore::resolve_active_layouts(
                 id,
+                topo_active_masks,
+                topo_parents,
                 lay_basic,
                 lay_flex,
                 lay_grid,
-                topo_active_masks,
-                ren_active_transitions,
-                topo_parents,
                 ren_interaction,
                 ren_visual,
+                ren_active_transitions,
             );
             let visual = ren_visual.get(id).unwrap_or(&default_visual);
 
@@ -1765,14 +1761,14 @@ impl OutputStore {
                 };
                 let (_, flex, _) = LayoutStore::resolve_active_layouts(
                     id,
+                    topo_active_masks,
+                    topo_parents,
                     lay_basic,
                     lay_flex,
                     lay_grid,
-                    topo_active_masks,
-                    ren_active_transitions,
-                    topo_parents,
                     ren_interaction,
                     ren_visual,
+                    ren_active_transitions,
                 );
 
                 let align_offset = OutputStore::calc_align_offset(
@@ -1967,14 +1963,14 @@ impl OutputStore {
                 };
                 let (_, flex, _) = LayoutStore::resolve_active_layouts(
                     id,
+                    topo_active_masks,
+                    topo_parents,
                     lay_basic,
                     lay_flex,
                     lay_grid,
-                    topo_active_masks,
-                    ren_active_transitions,
-                    topo_parents,
                     ren_interaction,
                     ren_visual,
+                    ren_active_transitions,
                 );
 
                 let align_offset = OutputStore::calc_align_offset(
@@ -2160,9 +2156,7 @@ impl Context {
             cont_input_contents,
             ..
         } = &mut self.contents;
-        let WindowStore {
-            win_last_size, ..
-        } = &mut self.window;
+        let WindowStore { win_last_size, .. } = &mut self.window;
         let SystemStore {
             sys_text_engine,
             sys_dwrite_layouts,
@@ -2265,7 +2259,9 @@ impl Context {
             evt_interaction_states,
             ..
         } = &self.events;
-        let WindowStore { win_scale_factor, .. } = &self.window;
+        let WindowStore {
+            win_scale_factor, ..
+        } = &self.window;
 
         OutputStore::collect_render_data(
             out_rects,

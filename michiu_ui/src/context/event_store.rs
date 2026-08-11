@@ -140,8 +140,8 @@ impl EventStore {
     pub(crate) fn resolve_dnd_placeholder_parent(
         root: EntityId,
         drag_prop: &DndDragProperty,
-        out_rects: &RectsSecondary,
         lay_basic: &BasicLayoutsSecondary,
+        out_rects: &RectsSecondary,
     ) -> PlaceholderAttachment {
         match drag_prop.placeholder_parent {
             DndDragPlaceholderParent::Root => PlaceholderAttachment {
@@ -208,8 +208,8 @@ impl EventStore {
         logical_pos: LayoutPoint,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        out_rects: &RectsSecondary,
         lay_basic: &BasicLayoutsSecondary,
+        out_rects: &RectsSecondary,
     ) -> (Option<EntityId>, Option<(EntityId, ResizeDirection)>) {
         let mut current_id = target_id;
         let mut found_resize_hover = None;
@@ -316,18 +316,16 @@ impl EventStore {
     pub(crate) fn state_pressed_resize_drag(
         id: EntityId,
         dir: ResizeDirection,
-        out_rects: &RectsSecondary,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_base_basic: &mut BaseBasicLayoutsSecondary,
-        topo_parents: &ParentsSecondary,
-        evt_current_pointer_position: Option<LayoutPoint>,
         evt_resizing_state: &mut Option<ResizingState>,
         evt_interaction_states: &mut InteractionStates,
+        evt_current_pointer_position: Option<LayoutPoint>,
+        topo_parents: &ParentsSecondary,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_base_basic: &mut BaseBasicLayoutsSecondary,
+        out_rects: &RectsSecondary,
     ) {
         let rect = out_rects.get(id).copied().unwrap_or_default();
-        let position = lay_basic
-            .get(id)
-            .map_or(Position::Relative, |l| l.position);
+        let position = lay_basic.get(id).map_or(Position::Relative, |l| l.position);
 
         let resolve_length = |length: Length, ref_size: f32| match length {
             Length::Px(v) => v,
@@ -397,17 +395,14 @@ impl EventStore {
         topo_active_masks: &ActiveMasksSecondary,
         ren_visual: &VisualPropertiesSecondary,
     ) -> bool {
-        let focusable = ren_visual
-            .get(id)
-            .and_then(|v| v.focusable)
-            .or_else(|| {
-                let mask = topo_active_masks.get(id).copied().unwrap_or_default();
-                if mask.has_input_content() || mask.has_webveiw2_content() {
-                    Some(Focusable::Inherit(FocusTrigger::Both)) // 未指定時はキーボードフォーカス
-                } else {
-                    None
-                }
-            });
+        let focusable = ren_visual.get(id).and_then(|v| v.focusable).or_else(|| {
+            let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+            if mask.has_input_content() || mask.has_webveiw2_content() {
+                Some(Focusable::Inherit(FocusTrigger::Both)) // 未指定時はキーボードフォーカス
+            } else {
+                None
+            }
+        });
 
         focusable.is_some_and(|f| match f {
             Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger) => {
@@ -447,29 +442,29 @@ impl EventStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn autoscroll_occurred(
         id: EntityId,
-        evt_current_pointer_position: Option<LayoutPoint>,
-        out_clip_rects: &ClipRectsSecondary,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
-        sys_text_engine: &TextEngine,
-        cont_text_contents: &TextContentsSparseSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
+        win_last_size: Option<LayoutSize>,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        sys_text_engine: &TextEngine,
+        evt_current_pointer_position: Option<LayoutPoint>,
+        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
+        ren_visual: &VisualPropertiesSecondary,
         ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         ren_interaction: &InteractionPropertiesSecondary,
-        out_rects: &RectsSecondary,
-        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
-        win_last_size: Option<LayoutSize>,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        out_rects: &RectsSecondary,
+        out_clip_rects: &ClipRectsSecondary,
     ) -> (bool, Option<LayoutPoint>) {
         // ポインタ位置、またはクリップ領域がない場合
         let Some(pointer_pos) = evt_current_pointer_position else {
@@ -534,34 +529,37 @@ impl EventStore {
     pub(crate) fn pressed_local_point(
         pressed_id: EntityId,
         logical_pos: LayoutPoint,
-        out_scroll_offsets: &mut ScrollOffsetsSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
-        out_rects: &RectsSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        topo_active_masks: &ActiveMasksSecondary,
         ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
         ren_interaction: &InteractionPropertiesSecondary,
         ren_visual: &VisualPropertiesSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_rects: &RectsSecondary,
     ) -> LayoutPoint {
         let rect = OutputStore::rect(pressed_id, out_rects).unwrap_or_default();
         let (basic, flex, _) = LayoutStore::resolve_active_layouts(
             pressed_id,
+            topo_active_masks,
+            topo_parents,
             lay_basic,
             lay_flex,
             lay_grid,
-            topo_active_masks,
-            ren_active_transitions,
-            topo_parents,
             ren_interaction,
             ren_visual,
+            ren_active_transitions,
         );
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-        let scroll = out_scroll_offsets.get(pressed_id).copied().unwrap_or_default();
+        let scroll = out_scroll_offsets
+            .get(pressed_id)
+            .copied()
+            .unwrap_or_default();
 
         let text_size = if let Some(contents) = cont_input_contents.get(pressed_id)
             && let Some(layout_rect) = contents.last_layout
@@ -644,12 +642,11 @@ impl EventStore {
             ..
         } = &mut cx.contents;
         let ReactiveStore {
-            react_element_effects, ..
+            react_element_effects,
+            ..
         } = &mut cx.reactive;
         let EventStore { evt_listeners, .. } = &mut cx.events;
-        let WindowStore {
-            win_last_size, ..
-        } = &mut cx.window;
+        let WindowStore { win_last_size, .. } = &mut cx.window;
 
         let Some(mask) = topo_active_masks.get_mut(id) else {
             return;
@@ -721,30 +718,19 @@ impl EventStore {
                         lay_dirty_entities,
                     );
 
-                    if RenderStore::does_state_require_layout(
-                        child_id,
-                        ren_interaction,
-                        state_flag,
-                    ) {
+                    if RenderStore::does_state_require_layout(child_id, ren_interaction, state_flag)
+                    {
                         LayoutStore::mark_layout_dirty(
                             child_id,
-                            lay_taffy_nodes,
-                            lay_taffy,
                             topo_active_masks,
-                            lay_dirty_entities,
                             topo_parents,
+                            lay_taffy,
+                            lay_dirty_entities,
+                            lay_taffy_nodes,
                         );
-                        RenderStore::mark_render_dirty(
-                            id,
-                            topo_active_masks,
-                            ren_dirty_entities,
-                        );
+                        RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
                     } else {
-                        RenderStore::mark_render_dirty(
-                            id,
-                            topo_active_masks,
-                            ren_dirty_entities,
-                        );
+                        RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
                     }
                 }
             }
@@ -789,17 +775,13 @@ impl EventStore {
                     ) {
                         LayoutStore::mark_layout_dirty(
                             parent_id,
-                            lay_taffy_nodes,
-                            lay_taffy,
                             topo_active_masks,
-                            lay_dirty_entities,
                             topo_parents,
+                            lay_taffy,
+                            lay_dirty_entities,
+                            lay_taffy_nodes,
                         );
-                        RenderStore::mark_render_dirty(
-                            id,
-                            topo_active_masks,
-                            ren_dirty_entities,
-                        );
+                        RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
                     } else {
                         RenderStore::mark_render_dirty(
                             parent_id,
@@ -816,11 +798,11 @@ impl EventStore {
         if RenderStore::does_state_require_layout(id, ren_interaction, state_flag) {
             LayoutStore::mark_layout_dirty(
                 id,
-                lay_taffy_nodes,
-                lay_taffy,
                 topo_active_masks,
-                lay_dirty_entities,
                 topo_parents,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_taffy_nodes,
             );
             RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
         } else {
@@ -871,8 +853,6 @@ impl EventStore {
         root: EntityId,
         pressed_id: EntityId,
         drag_prop: &DndDragProperty,
-        out_rects: &RectsSecondary,
-        lay_basic: &BasicLayoutsSecondary,
         topo_entities: &mut EntitiesSlot,
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
@@ -883,10 +863,12 @@ impl EventStore {
         lay_taffy: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_basic: &BasicLayoutsSecondary,
         ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        out_rects: &RectsSecondary,
     ) -> EntityId {
         let placeholder =
-            EventStore::resolve_dnd_placeholder_parent(root, drag_prop, out_rects, lay_basic);
+            EventStore::resolve_dnd_placeholder_parent(root, drag_prop, lay_basic, out_rects);
 
         let placeholder_id = TopologyStore::spawn(
             placeholder.parent_id,
@@ -972,10 +954,10 @@ impl EventStore {
         placeholder_id: EntityId,
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         topo_active_masks: &mut ActiveMasksSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_taffy_nodes: &TaffyNodesSecondary,
     ) {
         let Some(src_children) = topo_children.get(pressed_id).cloned() else {
             return;
@@ -1009,11 +991,11 @@ impl EventStore {
         for id in [pressed_id, placeholder_id] {
             LayoutStore::mark_layout_dirty(
                 id,
-                lay_taffy_nodes,
-                lay_taffy,
                 topo_active_masks,
-                lay_dirty_entities,
                 topo_parents,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_taffy_nodes,
             );
         }
     }
@@ -1045,8 +1027,6 @@ impl EventStore {
             root,
             pressed_id,
             &drag_prop,
-            &cx.outputs.out_rects,
-            &cx.layouts.lay_basic,
             &mut cx.topology.topo_entities,
             &mut cx.topology.topo_parents,
             &mut cx.topology.topo_children,
@@ -1057,7 +1037,9 @@ impl EventStore {
             &mut cx.layouts.lay_taffy,
             &mut cx.layouts.lay_taffy_nodes,
             &mut cx.layouts.lay_dirty_entities,
+            &cx.layouts.lay_basic,
             &mut cx.renders.ren_dirty_entities,
+            &cx.outputs.out_rects,
         );
 
         // プレースホルダーの初期スタイル・透過・状態情報をセットアップ
@@ -1069,10 +1051,10 @@ impl EventStore {
             placeholder_id,
             &mut cx.topology.topo_parents,
             &mut cx.topology.topo_children,
-            &cx.layouts.lay_taffy_nodes,
-            &mut cx.layouts.lay_taffy,
             &mut cx.topology.topo_active_masks,
             &mut cx.layouts.lay_dirty_entities,
+            &mut cx.layouts.lay_taffy,
+            &cx.layouts.lay_taffy_nodes,
         );
 
         // プレースホルダーアタッチ前の、本当の元の親要素のIDを記録
@@ -1132,10 +1114,10 @@ impl EventStore {
     pub(crate) fn calculate_dnd_relative_local(
         root: EntityId,
         drag_prop: &DndDragProperty,
-        out_rects: &RectsSecondary,
         lay_basic: &BasicLayoutsSecondary,
+        out_rects: &RectsSecondary,
     ) -> (LayoutRect, f32, f32) {
-        let p = EventStore::resolve_dnd_placeholder_parent(root, drag_prop, out_rects, lay_basic);
+        let p = EventStore::resolve_dnd_placeholder_parent(root, drag_prop, lay_basic, out_rects);
         (p.rect, p.border_left, p.border_top)
     }
 
@@ -1146,19 +1128,19 @@ impl EventStore {
         logical_pos: LayoutPoint,
         drag_prop: &DndDragProperty,
         drag_state: &ActiveDndDragState,
-        out_rects: &RectsSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
-        topo_active_masks: &mut ActiveMasksSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        topo_parents: &ParentsSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
         ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        out_rects: &RectsSecondary,
     ) {
         // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
         let (parent_rect, b_l, b_t) =
-            EventStore::calculate_dnd_relative_local(root, drag_prop, out_rects, lay_basic);
+            EventStore::calculate_dnd_relative_local(root, drag_prop, lay_basic, out_rects);
 
         // マウスのドラッグ開始時クリックオフセットを用いて、ローカル Top-Left 座標を算出
         let local_x = logical_pos.x - (parent_rect.x + b_l) - drag_state.click_offset.x;
@@ -1179,11 +1161,11 @@ impl EventStore {
 
         LayoutStore::mark_layout_dirty(
             placeholder,
-            lay_taffy_nodes,
-            lay_taffy,
             topo_active_masks,
-            lay_dirty_entities,
             topo_parents,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_taffy_nodes,
         );
         RenderStore::mark_render_dirty(placeholder, topo_active_masks, ren_dirty_entities);
     }
@@ -1193,15 +1175,15 @@ impl EventStore {
         src_id: EntityId,
         placeholder: EntityId,
         logical_pos: LayoutPoint,
+        evt_interaction_states: &InteractionStates,
+        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
+        topo_sorted_entities: &mut SortedEntitiesVec,
         topo_active_entities: &ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         topo_parents: &ParentsSecondary,
-        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
-        topo_sorted_entities: &mut SortedEntitiesVec,
         ren_visual: &VisualPropertiesSecondary,
         ren_base_visual: &BaseVisualPropertiesSecondary,
-        evt_interaction_states: &InteractionStates,
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
     ) -> Option<EntityId> {
@@ -1289,10 +1271,11 @@ impl EventStore {
     pub(crate) fn calculate_text_selection(
         start_pos: usize,
         local: LayoutPoint,
-        sys_text_engine: &TextEngine,
         dw_layout: &IDWriteTextLayout,
+        sys_text_engine: &TextEngine,
     ) -> (std::ops::Range<usize>, bool) {
-        let (current_index, is_trailing) = sys_text_engine.hit_test_point(dw_layout, local.x, local.y);
+        let (current_index, is_trailing) =
+            sys_text_engine.hit_test_point(dw_layout, local.x, local.y);
         let final_index = if is_trailing {
             current_index + 1
         } else {
@@ -1311,32 +1294,32 @@ impl EventStore {
         id: EntityId,
         start_pos: usize,
         local: LayoutPoint,
-        out_rects: &RectsSecondary,
-        out_selected_rects: &mut SelectedRectsSparseSecondary,
+        win_last_size: Option<LayoutSize>,
+        win_scale_factor: f32,
+        sys_text_engine: &TextEngine,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
-        sys_text_engine: &TextEngine,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        topo_children: &ChildrenSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
-        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
-        out_scroll_offsets: &mut ScrollOffsetsSecondary,
-        win_last_size: Option<LayoutSize>,
         lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
         ren_visual: &mut VisualPropertiesSecondary,
-        ren_base_visual: &BaseVisualPropertiesSecondary,
         ren_dirty_entities: &mut DirtyRenderEntitiesVec,
-        win_scale_factor: f32,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_rects: &RectsSecondary,
     ) {
         let Some(dw_layout) = SystemStore::get_or_create_layout(
             id,
@@ -1350,11 +1333,16 @@ impl EventStore {
         };
 
         let (range, is_reversed) =
-            EventStore::calculate_text_selection(start_pos, local, sys_text_engine, &dw_layout);
+            EventStore::calculate_text_selection(start_pos, local, &dw_layout, sys_text_engine);
 
         out_text_selections.insert(id, range.clone());
 
-        OutputStore::update_selection_rects(id, &dw_layout, out_text_selections, out_selected_rects);
+        OutputStore::update_selection_rects(
+            id,
+            &dw_layout,
+            out_text_selections,
+            out_selected_rects,
+        );
 
         if let Some(contents) = cont_input_contents.get_mut(id) {
             contents.selection_reversed = is_reversed;
@@ -1396,12 +1384,12 @@ impl EventStore {
     pub(crate) fn remove_dragged_elemet(
         src_id: EntityId,
         drag_state: &ActiveDndDragState,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         topo_active_masks: &mut ActiveMasksSecondary,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        topo_parents: &ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
+        topo_parents: &ParentsSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
     ) {
         let Some(src_parent_id) = drag_state.original_parent else {
             return;
@@ -1411,14 +1399,19 @@ impl EventStore {
             src_children.retain(|x| *x != src_id);
         }
         // 旧親側の Taffy 順序も再同期
-        LayoutStore::resync_taffy_children_order(src_parent_id, lay_taffy_nodes, lay_taffy, topo_children);
+        LayoutStore::resync_taffy_children_order(
+            src_parent_id,
+            topo_children,
+            lay_taffy,
+            lay_taffy_nodes,
+        );
         LayoutStore::mark_layout_dirty(
             src_parent_id,
-            lay_taffy_nodes,
-            lay_taffy,
             topo_active_masks,
-            lay_dirty_entities,
             topo_parents,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_taffy_nodes,
         );
     }
 
@@ -1433,16 +1426,16 @@ impl EventStore {
             LayoutStore::sync_resizing_drag(
                 logical_pos,
                 state,
+                cx.window.win_last_size.as_ref(),
+                &mut cx.topology.topo_active_masks,
+                &cx.topology.topo_parents,
+                &mut cx.layouts.lay_taffy,
                 &mut cx.layouts.lay_basic,
                 &mut cx.layouts.lay_base_basic,
-                &cx.outputs.out_rects,
-                &cx.topology.topo_parents,
-                cx.window.win_last_size.as_ref(),
-                &cx.layouts.lay_taffy_nodes,
-                &mut cx.layouts.lay_taffy,
-                &mut cx.topology.topo_active_masks,
                 &mut cx.layouts.lay_dirty_entities,
+                &cx.layouts.lay_taffy_nodes,
                 &mut cx.renders.ren_dirty_entities,
+                &cx.outputs.out_rects,
             );
             return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
         }
@@ -1503,8 +1496,8 @@ impl EventStore {
             logical_pos,
             &cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
-            &cx.outputs.out_rects,
             &cx.layouts.lay_basic,
+            &cx.outputs.out_rects,
         );
 
         if let Some((id, dir)) = found_resize_hover {
@@ -1557,11 +1550,14 @@ impl EventStore {
         }
 
         if let Some(pressed_id) = cx.events.evt_interaction_states.pressed {
-            let user_select =
-                EventStore::get_user_select(pressed_id, &cx.renders.ren_visual);
+            let user_select = EventStore::get_user_select(pressed_id, &cx.renders.ren_visual);
 
             if user_select == UserSelect::Text
-                && let Some(start_pos) = cx.outputs.out_selection_start_index.get(pressed_id).copied()
+                && let Some(start_pos) = cx
+                    .outputs
+                    .out_selection_start_index
+                    .get(pressed_id)
+                    .copied()
             {
                 // プレースホルダー選択のドラッグ遮断
                 if let Some(contents) = cx.contents.cont_input_contents.get(pressed_id) {
@@ -1579,48 +1575,48 @@ impl EventStore {
                 let local = EventStore::pressed_local_point(
                     pressed_id,
                     logical_pos,
-                    &mut cx.outputs.out_scroll_offsets,
                     &cx.contents.cont_input_contents,
-                    &cx.outputs.out_rects,
+                    &cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
                     &cx.layouts.lay_basic,
                     &cx.layouts.lay_flex,
                     &cx.layouts.lay_grid,
-                    &cx.topology.topo_active_masks,
                     &cx.renders.ren_active_transitions,
-                    &cx.topology.topo_parents,
                     &cx.renders.ren_interaction,
                     &cx.renders.ren_visual,
+                    &mut cx.outputs.out_scroll_offsets,
+                    &cx.outputs.out_rects,
                 );
                 EventStore::handle_text_selection_click(
                     pressed_id,
                     start_pos,
                     local,
-                    &cx.outputs.out_rects,
-                    &mut cx.outputs.out_selected_rects,
+                    cx.window.win_last_size,
+                    cx.window.win_scale_factor,
+                    &cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
                     &mut cx.contents.cont_input_contents,
                     &mut cx.contents.cont_text_contents,
-                    &mut cx.outputs.out_text_selections,
                     &cx.contents.cont_text_spans,
-                    &cx.system.sys_text_engine,
+                    &mut cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
+                    &cx.topology.topo_children,
+                    &mut cx.layouts.lay_taffy,
+                    &mut cx.layouts.lay_scrollbar_styles,
+                    &mut cx.layouts.lay_dirty_entities,
                     &cx.layouts.lay_basic,
                     &cx.layouts.lay_flex,
                     &cx.layouts.lay_grid,
-                    &mut cx.topology.topo_active_masks,
-                    &cx.topology.topo_children,
-                    &cx.renders.ren_interaction,
-                    &mut cx.layouts.lay_scrollbar_styles,
-                    &mut cx.outputs.out_scroll_offsets,
-                    cx.window.win_last_size,
                     &cx.layouts.lay_taffy_nodes,
-                    &mut cx.layouts.lay_taffy,
-                    &mut cx.layouts.lay_dirty_entities,
-                    &cx.renders.ren_active_transitions,
-                    &cx.topology.topo_parents,
                     &mut cx.renders.ren_visual,
-                    &cx.renders.ren_base_visual,
                     &mut cx.renders.ren_dirty_entities,
-                    cx.window.win_scale_factor,
+                    &cx.renders.ren_base_visual,
+                    &cx.renders.ren_interaction,
+                    &cx.renders.ren_active_transitions,
+                    &mut cx.outputs.out_scroll_offsets,
+                    &mut cx.outputs.out_selected_rects,
+                    &mut cx.outputs.out_text_selections,
+                    &cx.outputs.out_rects,
                 );
             }
         }
@@ -1667,15 +1663,15 @@ impl EventStore {
             logical_pos,
             &drag_prop,
             &drag_state,
-            &cx.outputs.out_rects,
+            &mut cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
             &mut cx.layouts.lay_basic,
             &mut cx.layouts.lay_base_basic,
-            &cx.layouts.lay_taffy_nodes,
             &mut cx.layouts.lay_taffy,
-            &mut cx.topology.topo_active_masks,
             &mut cx.layouts.lay_dirty_entities,
-            &cx.topology.topo_parents,
+            &cx.layouts.lay_taffy_nodes,
             &mut cx.renders.ren_dirty_entities,
+            &cx.outputs.out_rects,
         );
 
         // 現在ホバー侵入中のドロップターゲット要素を検知
@@ -1683,15 +1679,15 @@ impl EventStore {
             src_id,
             placeholder_id,
             logical_pos,
+            &cx.events.evt_interaction_states,
+            &mut cx.topology.topo_effective_z_indices,
+            &mut cx.topology.topo_sorted_entities,
             &cx.topology.topo_active_entities,
             &cx.topology.topo_active_masks,
             &cx.topology.topo_flat_dfs_sequence,
             &cx.topology.topo_parents,
-            &mut cx.topology.topo_effective_z_indices,
-            &mut cx.topology.topo_sorted_entities,
             &cx.renders.ren_visual,
             &cx.renders.ren_base_visual,
-            &cx.events.evt_interaction_states,
             &cx.outputs.out_rects,
             &cx.outputs.out_clip_rects,
         );
@@ -1750,13 +1746,13 @@ impl EventStore {
             EventStore::state_pressed_resize_drag(
                 id,
                 dir,
-                &cx.outputs.out_rects,
-                &mut cx.layouts.lay_basic,
-                &mut cx.layouts.lay_base_basic,
-                &cx.topology.topo_parents,
-                cx.events.evt_current_pointer_position,
                 &mut cx.events.evt_resizing_state,
                 &mut cx.events.evt_interaction_states,
+                cx.events.evt_current_pointer_position,
+                &cx.topology.topo_parents,
+                &mut cx.layouts.lay_basic,
+                &mut cx.layouts.lay_base_basic,
+                &cx.outputs.out_rects,
             );
             RenderStore::mark_render_dirty(
                 id,
@@ -1773,29 +1769,29 @@ impl EventStore {
             let clicked_scrollbar = EventStore::hit_decision_element_scrollbar(
                 target_id,
                 pointer_pos,
-                &cx.contents.cont_input_contents,
+                cx.window.win_last_size,
                 &cx.system.sys_text_engine,
-                &cx.contents.cont_text_contents,
-                &cx.renders.ren_visual,
-                &mut cx.events.evt_interaction_states,
-                &cx.contents.cont_text_spans,
                 &cx.system.sys_dwrite_layouts,
+                &mut cx.events.evt_interaction_states,
+                &cx.contents.cont_input_contents,
+                &cx.contents.cont_text_contents,
+                &cx.contents.cont_text_spans,
+                &mut cx.topology.topo_active_masks,
+                &cx.topology.topo_parents,
+                &cx.topology.topo_children,
+                &mut cx.layouts.lay_taffy,
+                &mut cx.layouts.lay_dirty_entities,
+                &mut cx.layouts.lay_scrollbar_styles,
                 &cx.layouts.lay_basic,
                 &cx.layouts.lay_flex,
                 &cx.layouts.lay_grid,
-                &cx.renders.ren_active_transitions,
-                &cx.topology.topo_parents,
-                &cx.topology.topo_children,
-                &mut cx.topology.topo_active_masks,
-                &mut cx.renders.ren_dirty_entities,
-                &cx.renders.ren_interaction,
-                &cx.outputs.out_rects,
-                &mut cx.layouts.lay_scrollbar_styles,
-                &mut cx.outputs.out_scroll_offsets,
-                cx.window.win_last_size,
                 &cx.layouts.lay_taffy_nodes,
-                &mut cx.layouts.lay_taffy,
-                &mut cx.layouts.lay_dirty_entities,
+                &mut cx.renders.ren_dirty_entities,
+                &cx.renders.ren_visual,
+                &cx.renders.ren_active_transitions,
+                &cx.renders.ren_interaction,
+                &mut cx.outputs.out_scroll_offsets,
+                &cx.outputs.out_rects,
             );
 
             if clicked_scrollbar {
@@ -1827,25 +1823,25 @@ impl EventStore {
                 target_id,
                 pointer_pos,
                 modifiers.shift,
-                &cx.contents.cont_text_contents,
-                &cx.renders.ren_visual,
-                &cx.system.sys_dwrite_layouts,
-                &cx.contents.cont_text_spans,
                 &cx.system.sys_text_engine,
-                &mut cx.outputs.out_scroll_offsets,
+                &cx.system.sys_dwrite_layouts,
                 &cx.contents.cont_input_contents,
-                &cx.outputs.out_rects,
+                &cx.contents.cont_text_contents,
+                &cx.contents.cont_text_spans,
+                &mut cx.topology.topo_active_masks,
+                &cx.topology.topo_parents,
                 &cx.layouts.lay_basic,
                 &cx.layouts.lay_flex,
                 &cx.layouts.lay_grid,
-                &mut cx.topology.topo_active_masks,
-                &cx.renders.ren_active_transitions,
-                &cx.topology.topo_parents,
-                &cx.renders.ren_interaction,
                 &mut cx.renders.ren_dirty_entities,
+                &cx.renders.ren_visual,
+                &cx.renders.ren_interaction,
+                &cx.renders.ren_active_transitions,
+                &mut cx.outputs.out_scroll_offsets,
                 &mut cx.outputs.out_text_selections,
                 &mut cx.outputs.out_selected_rects,
                 &mut cx.outputs.out_selection_start_index,
+                &cx.outputs.out_rects,
             );
         }
 
@@ -1896,12 +1892,12 @@ impl EventStore {
             EventStore::remove_dragged_elemet(
                 src_id,
                 drag_state,
-                &cx.layouts.lay_taffy_nodes,
-                &mut cx.layouts.lay_taffy,
                 &mut cx.topology.topo_active_masks,
-                &mut cx.layouts.lay_dirty_entities,
-                &cx.topology.topo_parents,
                 &mut cx.topology.topo_children,
+                &cx.topology.topo_parents,
+                &mut cx.layouts.lay_taffy,
+                &mut cx.layouts.lay_dirty_entities,
+                &cx.layouts.lay_taffy_nodes,
             );
             EventStore::rewrite_tree_topology(
                 src_id,
@@ -1909,18 +1905,18 @@ impl EventStore {
                 holder,
                 &drag_prop,
                 drag_state,
-                &cx.layouts.lay_flex,
-                &mut cx.layouts.lay_basic,
-                &mut cx.layouts.lay_base_basic,
-                &cx.outputs.out_rects,
                 cx.events.evt_current_pointer_position,
+                &mut cx.topology.topo_active_masks,
                 &mut cx.topology.topo_parents,
                 &mut cx.topology.topo_children,
                 &mut cx.topology.topo_is_structure_dirty,
-                &mut cx.topology.topo_active_masks,
+                &mut cx.layouts.lay_basic,
+                &mut cx.layouts.lay_base_basic,
                 &mut cx.layouts.lay_taffy_nodes,
                 &mut cx.layouts.lay_taffy,
                 &mut cx.layouts.lay_dirty_entities,
+                &cx.layouts.lay_flex,
+                &cx.outputs.out_rects,
             );
             cx.topology.topo_is_structure_dirty = true;
         }
@@ -1943,11 +1939,11 @@ impl EventStore {
             for id in [src_id, holder] {
                 LayoutStore::mark_layout_dirty(
                     id,
-                    &cx.layouts.lay_taffy_nodes,
-                    &mut cx.layouts.lay_taffy,
                     &mut cx.topology.topo_active_masks,
-                    &mut cx.layouts.lay_dirty_entities,
                     &cx.topology.topo_parents,
+                    &mut cx.layouts.lay_taffy,
+                    &mut cx.layouts.lay_dirty_entities,
+                    &cx.layouts.lay_taffy_nodes,
                 );
             }
         }
@@ -2082,29 +2078,29 @@ impl EventStore {
     pub(crate) fn hit_decision_element_scrollbar(
         target_id: EntityId,
         pointer_pos: LayoutPoint,
-        cont_input_contents: &InputContentsSparseSecondary,
+        win_last_size: Option<LayoutSize>,
         sys_text_engine: &TextEngine,
-        cont_text_contents: &TextContentsSparseSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        evt_interaction_states: &mut InteractionStates,
-        cont_text_spans: &TextSpansSparseSecondary,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        evt_interaction_states: &mut InteractionStates,
+        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
-        ren_interaction: &InteractionPropertiesSecondary,
-        out_rects: &RectsSecondary,
-        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
-        out_scroll_offsets: &mut ScrollOffsetsSecondary,
-        win_last_size: Option<LayoutSize>,
         lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_rects: &RectsSecondary,
     ) -> bool {
         let Some((c_id, component)) = lay_scrollbar_styles.iter().find_map(|(c_id, sb_state)| {
             if sb_state.v_thumb_id == Some(target_id) {
@@ -2267,25 +2263,25 @@ impl EventStore {
         id: EntityId,
         pointer_pos: LayoutPoint,
         pressed_shift: bool,
-        cont_text_contents: &TextContentsSparseSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
         sys_text_engine: &TextEngine,
-        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
-        out_rects: &RectsSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
         ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
         out_text_selections: &mut TextSelectionsSparseSecondary,
         out_selected_rects: &mut SelectedRectsSparseSecondary,
         out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        out_rects: &RectsSecondary,
     ) {
         let Some(layout) = SystemStore::get_or_create_layout(
             id,
@@ -2301,19 +2297,20 @@ impl EventStore {
         let local = EventStore::pressed_local_point(
             id,
             pointer_pos,
-            out_scroll_offsets,
             cont_input_contents,
-            out_rects,
+            topo_active_masks,
+            topo_parents,
             lay_basic,
             lay_flex,
             lay_grid,
-            topo_active_masks,
             ren_active_transitions,
-            topo_parents,
             ren_interaction,
             ren_visual,
+            out_scroll_offsets,
+            out_rects,
         );
-        let (clicked_index, is_trailing) = sys_text_engine.hit_test_point(&layout, local.x, local.y);
+        let (clicked_index, is_trailing) =
+            sys_text_engine.hit_test_point(&layout, local.x, local.y);
         let final_index = if is_trailing {
             clicked_index + 1
         } else {
@@ -2335,7 +2332,12 @@ impl EventStore {
                 final_index..anchor
             };
             out_text_selections.insert(id, range);
-            OutputStore::update_selection_rects(id, &layout, out_text_selections, out_selected_rects);
+            OutputStore::update_selection_rects(
+                id,
+                &layout,
+                out_text_selections,
+                out_selected_rects,
+            );
         } else {
             // 共通の通常クリックリセット
             out_selection_start_index.insert(id, final_index);
@@ -2443,18 +2445,18 @@ impl EventStore {
         holder: EntityId,
         drag_prop: &DndDragProperty,
         drag_state: &ActiveDndDragState,
-        lay_flex: &FlexLayoutsSecondary,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_base_basic: &mut BaseBasicLayoutsSecondary,
-        out_rects: &RectsSecondary,
         evt_current_pointer_position: Option<LayoutPoint>,
+        topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
-        topo_active_masks: &mut ActiveMasksSecondary,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_flex: &FlexLayoutsSecondary,
+        out_rects: &RectsSecondary,
     ) {
         // ドラッグ元要素の配置（Position）の取得
         let position = lay_basic
@@ -2528,7 +2530,12 @@ impl EventStore {
             topo_parents.insert(src_id, Some(target_id));
 
             // Taffy 側のノード順序を物理並び替え結果に沿って一括して再同期
-            LayoutStore::resync_taffy_children_order(target_id, lay_taffy_nodes, lay_taffy, topo_children);
+            LayoutStore::resync_taffy_children_order(
+                target_id,
+                topo_children,
+                lay_taffy,
+                lay_taffy_nodes,
+            );
         } else {
             // 自動更新オフの場合は末尾に通常アタッチ
             TopologyStore::add_child(
@@ -2545,11 +2552,11 @@ impl EventStore {
         }
         LayoutStore::mark_layout_dirty(
             target_id,
-            lay_taffy_nodes,
-            lay_taffy,
             topo_active_masks,
-            lay_dirty_entities,
             topo_parents,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_taffy_nodes,
         );
     }
 }
@@ -2571,9 +2578,7 @@ impl Context {
 
     #[inline]
     pub(crate) fn get_user_select(&self, id: EntityId) -> UserSelect {
-        let RenderStore {
-            ren_visual, ..
-        } = &self.renders;
+        let RenderStore { ren_visual, .. } = &self.renders;
 
         EventStore::get_user_select(id, ren_visual)
     }
