@@ -1375,6 +1375,280 @@ impl EventStore {
         }
         RenderStore::mark_render_dirty(id, active_masks, dirty_render_entities);
     }
+
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn pointer_move_inner(cx: &mut Context, logical_pos: LayoutPoint) {
+        let prev_pos = cx.events.current_pointer_position;
+        cx.events.current_pointer_position = Some(logical_pos);
+
+        // リサイズ中のドラッグ同期処理
+        if let Some(ref state) = cx.events.resizing_state {
+            LayoutStore::sync_resizing_drag(
+                logical_pos,
+                state,
+                &mut cx.layouts.basic_layouts,
+                &mut cx.layouts.base_basic_layouts,
+                &cx.outputs.rects,
+                &cx.topology.parents,
+                cx.window.last_window_size.as_ref(),
+                &cx.layouts.taffy_nodes,
+                &mut cx.layouts.taffy,
+                &mut cx.topology.active_masks,
+                &mut cx.layouts.dirty_layout_entities,
+                &mut cx.renders.dirty_render_entities,
+            );
+            return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
+        }
+
+        OutputStore::sync_scrollbar_drag(
+            logical_pos,
+            &mut cx.topology.active_masks,
+            &cx.contents.input_contents,
+            &cx.system.text_engine,
+            &cx.contents.text_contents,
+            &cx.renders.visual_properties,
+            &mut cx.renders.dirty_render_entities,
+            &cx.contents.text_spans,
+            &cx.system.dwrite_layouts,
+            &cx.layouts.basic_layouts,
+            &cx.layouts.flex_layouts,
+            &cx.layouts.grid_layouts,
+            &cx.renders.active_transitions,
+            &cx.topology.parents,
+            &cx.topology.children,
+            &cx.layouts.taffy_nodes,
+            &mut cx.layouts.taffy,
+            &mut cx.layouts.dirty_layout_entities,
+            &cx.renders.interaction_properties,
+            &cx.outputs.rects,
+            &mut cx.layouts.scrollbar_styles,
+            &mut cx.outputs.scroll_offsets,
+            cx.window.last_window_size,
+        );
+
+        // ヒットテストのキャッシュ
+        let hit_id = TopologyStore::hit_test(
+            logical_pos,
+            &cx.topology.active_entities,
+            &cx.topology.active_masks,
+            &cx.topology.flat_dfs_sequence,
+            &cx.topology.parents,
+            &mut cx.topology.effective_z_indices,
+            &mut cx.topology.sorted_entities,
+            &cx.renders.visual_properties,
+            &cx.renders.base_visual_properties,
+            &cx.events.interaction_states,
+            &cx.outputs.rects,
+            &cx.outputs.clip_rects,
+        );
+
+        // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
+        let target_id = cx.events.interaction_states.pressed.or(hit_id);
+
+        // 直前のリサイズホバー対象を退避
+        let prev_resize_hover = cx.events.active_resize_hover;
+        // リサイズホバー情報を一旦リセット
+        cx.events.active_resize_hover = None;
+
+        // ヒットした要素、およびその親先祖に向かってツリーを遡上
+        let (current_id, found_resize_hover) = EventStore::found_resize_hover(
+            target_id,
+            logical_pos,
+            &cx.topology.active_masks,
+            &cx.topology.parents,
+            &cx.outputs.rects,
+            &cx.layouts.basic_layouts,
+        );
+
+        if let Some((id, dir)) = found_resize_hover {
+            cx.events.active_resize_hover = Some((id, dir));
+            let vis = cx.renders.visual_properties.get(id).unwrap();
+            EventStore::apply_resizable_cursor_style(id, dir, &mut cx.renders.visual_properties);
+            RenderStore::mark_render_dirty(
+                id,
+                &mut cx.topology.active_masks,
+                &mut cx.renders.dirty_render_entities,
+            );
+        }
+
+        // 枠線から外れた、または異なる要素に変わった場合
+        if let Some((prev_id, _)) = prev_resize_hover {
+            let now_id = cx.events.active_resize_hover.map(|(id, _)| id);
+
+            // 異なるホバー状態になった場合、旧要素のカーソル上書きを破棄し本来のスタイルに即時強制リセット
+            if Some(prev_id) != now_id {
+                // スタイルの再解決を叩き、上書きされていた vis.cursor を本来のカーソル（通常ホバー/ベース等）へ復旧
+                RenderStore::resolve_element_style_state(
+                    prev_id,
+                    false,
+                    &mut cx.topology.active_masks,
+                    &cx.renders.base_visual_properties,
+                    &cx.renders.interaction_properties,
+                    &mut cx.renders.visual_properties,
+                    &cx.topology.parents,
+                    &cx.topology.entities,
+                    &cx.topology.children,
+                    &cx.contents.input_contents,
+                    &cx.reactive.element_effects,
+                    &mut cx.renders.active_transitions,
+                    &mut cx.renders.active_animations,
+                    &mut cx.renders.dirty_render_entities,
+                    &mut cx.layouts.basic_layouts,
+                    &cx.layouts.base_basic_layouts,
+                    &cx.outputs.rects,
+                    cx.window.last_window_size.as_ref(),
+                    &cx.layouts.taffy_nodes,
+                    &mut cx.layouts.taffy,
+                    &mut cx.layouts.dirty_layout_entities,
+                );
+                RenderStore::mark_render_dirty(
+                    prev_id,
+                    &mut cx.topology.active_masks,
+                    &mut cx.renders.dirty_render_entities,
+                );
+            }
+        }
+
+        if let Some(pressed_id) = cx.events.interaction_states.pressed {
+            let user_select =
+                EventStore::get_user_select(pressed_id, &cx.renders.visual_properties);
+
+            if user_select == UserSelect::Text
+                && let Some(start_pos) = cx.outputs.selection_start_index.get(pressed_id).copied()
+            {
+                // プレースホルダー選択のドラッグ遮断
+                if let Some(contents) = cx.contents.input_contents.get(pressed_id) {
+                    let is_placeholder = contents.text.0.get().is_empty();
+                    let is_ime = contents
+                        .ime_state
+                        .as_ref()
+                        .is_none_or(|s| s.composition_text.is_empty());
+
+                    if is_placeholder && is_ime && !contents.placeholder_select {
+                        return;
+                    }
+                }
+
+                let local = EventStore::pressed_local_point(
+                    pressed_id,
+                    logical_pos,
+                    &mut cx.outputs.scroll_offsets,
+                    &cx.contents.input_contents,
+                    &cx.outputs.rects,
+                    &cx.layouts.basic_layouts,
+                    &cx.layouts.flex_layouts,
+                    &cx.layouts.grid_layouts,
+                    &cx.topology.active_masks,
+                    &cx.renders.active_transitions,
+                    &cx.topology.parents,
+                    &cx.renders.interaction_properties,
+                    &cx.renders.visual_properties,
+                );
+                EventStore::handle_text_selection_click(
+                    pressed_id,
+                    start_pos,
+                    local,
+                    &cx.outputs.rects,
+                    &mut cx.outputs.selected_rects,
+                    &cx.system.dwrite_layouts,
+                    &mut cx.contents.input_contents,
+                    &mut cx.contents.text_contents,
+                    &mut cx.outputs.text_selections,
+                    &cx.contents.text_spans,
+                    &cx.system.text_engine,
+                    &cx.layouts.basic_layouts,
+                    &cx.layouts.flex_layouts,
+                    &cx.layouts.grid_layouts,
+                    &mut cx.topology.active_masks,
+                    &cx.topology.children,
+                    &cx.renders.interaction_properties,
+                    &mut cx.layouts.scrollbar_styles,
+                    &mut cx.outputs.scroll_offsets,
+                    cx.window.last_window_size,
+                    &cx.layouts.taffy_nodes,
+                    &mut cx.layouts.taffy,
+                    &mut cx.layouts.dirty_layout_entities,
+                    &cx.renders.active_transitions,
+                    &cx.topology.parents,
+                    &mut cx.renders.visual_properties,
+                    &cx.renders.base_visual_properties,
+                    &mut cx.renders.dirty_render_entities,
+                    cx.window.scale_factor,
+                );
+            }
+        }
+
+        // ホバー（Enter/Leave）状態の解決
+        if hit_id != cx.events.interaction_states.hovered {
+            EventStore::resolve_hover_state(cx, hit_id);
+        }
+
+        // カーソル移動イベントの伝播
+        EventStore::propagate_cursor_move_events(cx, hit_id, logical_pos);
+
+        // ドラッグイベントの伝播
+        EventStore::propagate_dnd_drag_events(cx, prev_pos, logical_pos);
+
+        // D&D プレースホルダーの移動とドロップ先ホバー検知
+        let Some(ref drag_state) = cx.events.active_dnd_drag_state else {
+            return;
+        };
+
+        // ウィンドウのルート要素を解決
+        let Some(root) = TopologyStore::find_root_entity(
+            &cx.topology.entities,
+            &cx.topology.parents,
+            &cx.topology.flat_dfs_sequence,
+        ) else {
+            return; // TODO: エラー処理
+        };
+
+        let src_id = drag_state.source_entity;
+        let placeholder_id = drag_state.placeholder_entity;
+
+        let drag_prop = cx.events.dnd_drag_properties.get(src_id).copied().unwrap();
+
+        // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従
+        EventStore::update_inset_based_relative_local(
+            root,
+            placeholder_id,
+            logical_pos,
+            &drag_prop,
+            &drag_state,
+            &cx.outputs.rects,
+            &mut cx.layouts.basic_layouts,
+            &mut cx.layouts.base_basic_layouts,
+            &cx.layouts.taffy_nodes,
+            &mut cx.layouts.taffy,
+            &mut cx.topology.active_masks,
+            &mut cx.layouts.dirty_layout_entities,
+            &cx.topology.parents,
+            &mut cx.renders.dirty_render_entities,
+        );
+
+        // 現在ホバー侵入中のドロップターゲット要素を検知
+        let found_drop_target = EventStore::detect_drop_target_during_intrusion(
+            src_id,
+            placeholder_id,
+            logical_pos,
+            &cx.topology.active_entities,
+            &cx.topology.active_masks,
+            &cx.topology.flat_dfs_sequence,
+            &cx.topology.parents,
+            &mut cx.topology.effective_z_indices,
+            &mut cx.topology.sorted_entities,
+            &cx.renders.visual_properties,
+            &cx.renders.base_visual_properties,
+            &cx.events.interaction_states,
+            &cx.outputs.rects,
+            &cx.outputs.clip_rects,
+        );
+
+        // ドロップ先のホバー切り替えイベントを解決（STATE_DRAG_IN の同期）
+        EventStore::sync_state_drag_in(cx, found_drop_target);
+
+        EventStore::callback_drag_prop(cx, src_id, found_drop_target, &drag_prop);
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
