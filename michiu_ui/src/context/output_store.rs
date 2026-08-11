@@ -2084,61 +2084,6 @@ impl Context {
         )
     }
 
-    /// 単位（Px, Percent, Auto）を親要素のサイズまたはウィンドウ基準をベースに f32 (物理ピクセル) へ解決します。
-    #[inline]
-    pub(crate) fn val_to_px(&self, id: EntityId, val: Val, is_width: bool) -> Option<f32> {
-        let TopologyStore { parents, .. } = &self.topology;
-        let OutputStore { rects, .. } = &self.outputs;
-        let WindowStore {
-            last_window_size, ..
-        } = &self.window;
-
-        OutputStore::val_to_px(id, val, is_width, parents, rects, last_window_size.as_ref())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    #[inline]
-    pub(crate) fn calculate_caret_rect(
-        rect: LayoutRect,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        contents: &InputContents,
-        scale: f32,
-        scroll: LayoutPoint,
-        align_offset: LayoutPoint,
-    ) -> LayoutRect {
-        OutputStore::calculate_caret_rect(
-            rect,
-            border,
-            padding,
-            contents,
-            scale,
-            scroll,
-            align_offset,
-        )
-    }
-
-    /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
-    #[inline]
-    pub(crate) fn is_drag_autoscroll_active(&self) -> bool {
-        let RenderStore {
-            visual_properties, ..
-        } = &self.renders;
-        let OutputStore { clip_rects, .. } = &self.outputs;
-        let EventStore {
-            current_pointer_position,
-            interaction_states,
-            ..
-        } = &self.events;
-
-        OutputStore::is_drag_autoscroll_active(
-            interaction_states,
-            current_pointer_position.as_ref(),
-            clip_rects,
-            visual_properties,
-        )
-    }
-
     /// `現在の選択範囲（text_selections）に基づき`、
     /// `描画用の物理選択矩形（selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
     #[inline]
@@ -2150,83 +2095,6 @@ impl Context {
         } = &mut self.outputs;
 
         OutputStore::update_selection_rects(id, layout, text_selections, selected_rects);
-    }
-
-    pub(crate) fn sync_scrollbar_drag(&mut self, logical_pos: LayoutPoint) {
-        let TopologyStore {
-            entities,
-            parents,
-            children,
-            active_masks,
-            active_entities,
-            ..
-        } = &mut self.topology;
-        let LayoutStore {
-            basic_layouts,
-            base_basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            scrollbar_styles,
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
-        } = &mut self.layouts;
-        let RenderStore {
-            visual_properties,
-            interaction_properties,
-            base_visual_properties,
-            dirty_render_entities,
-            active_transitions,
-            active_animations,
-            ..
-        } = &mut self.renders;
-        let OutputStore {
-            rects,
-            scroll_offsets,
-            selected_rects,
-            text_selections,
-            ..
-        } = &mut self.outputs;
-        let ContentStore {
-            text_contents,
-            text_spans,
-            input_contents,
-            ..
-        } = &mut self.contents;
-        let WindowStore {
-            last_window_size, ..
-        } = &mut self.window;
-        let SystemStore {
-            text_engine,
-            dwrite_layouts,
-            ..
-        } = &mut self.system;
-
-        OutputStore::sync_scrollbar_drag(
-            logical_pos,
-            active_masks,
-            input_contents,
-            text_engine,
-            text_contents,
-            visual_properties,
-            dirty_render_entities,
-            text_spans,
-            dwrite_layouts,
-            basic_layouts,
-            flex_layouts,
-            grid_layouts,
-            active_transitions,
-            parents,
-            children,
-            taffy_nodes,
-            taffy,
-            dirty_layout_entities,
-            interaction_properties,
-            rects,
-            scrollbar_styles,
-            scroll_offsets,
-            *last_window_size,
-        );
     }
 
     /// スクロールオフセットを目標位置へクランプした上で代入。
@@ -2330,30 +2198,6 @@ impl Context {
             visual_properties,
             base_visual_properties,
         )
-    }
-
-    #[inline]
-    pub(crate) fn clear_selection_highlight_rect(&mut self, id: EntityId) {
-        let TopologyStore { active_masks, .. } = &mut self.topology;
-        let ContentStore {
-            input_contents,
-            text_spans,
-            ..
-        } = &mut self.contents;
-        let OutputStore {
-            text_selections,
-            selected_rects,
-            ..
-        } = &mut self.outputs;
-
-        OutputStore::clear_selection_highlight_rect(
-            id,
-            active_masks,
-            text_selections,
-            selected_rects,
-            input_contents,
-            text_spans,
-        );
     }
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します

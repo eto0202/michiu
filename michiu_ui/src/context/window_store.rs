@@ -1,4 +1,4 @@
-use crate::{LayoutSize, EntityId, LayoutRect, Context};
+use crate::{Context, EntityId, LayoutRect, LayoutSize};
 use windows::Win32::UI::Input::Ime::HIMC;
 
 pub struct WindowStore {
@@ -83,15 +83,5 @@ impl Context {
         } = &mut self.window;
 
         WindowStore::window_resize_detection(window_size, last_window_size)
-    }
-
-    /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出します。
-    #[inline]
-    pub(crate) fn calculate_visible_size(&self, container_rect: LayoutRect) -> LayoutSize {
-        let WindowStore {
-            last_window_size, ..
-        } = &self.window;
-
-        WindowStore::calculate_visible_size(*last_window_size, container_rect)
     }
 }

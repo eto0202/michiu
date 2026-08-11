@@ -258,18 +258,6 @@ impl ReactiveStore {
 }
 
 impl Context {
-    /// 要素の階層トポロジーを親（Ancestor）に向かって遡り、最初に見つかった型 T の `ReadSignal` を解決して返します
-    #[inline]
-    pub(crate) fn use_provided_from<T: Clone + 'static>(
-        &self,
-        id: EntityId,
-    ) -> Option<ReadSignal<T>> {
-        let ReactiveStore { providers, .. } = &self.reactive;
-        let TopologyStore { parents, .. } = &self.topology;
-
-        ReactiveStore::use_provided_from(id, providers, parents)
-    }
-
     /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録します。
     /// 同一カテゴリのエフェクトが既に存在する場合、自動的に古いエフェクトを破棄してから上書きします。
     #[inline]

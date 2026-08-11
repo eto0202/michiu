@@ -685,6 +685,36 @@ impl TopologyStore {
         }
         None
     }
+
+    #[inline]
+    pub(crate) fn restore_child(
+        src_id: EntityId,
+        holder: EntityId,
+        ph_children: SmallVec<[EntityId; 4]>,
+        parents: &mut ParentsSecondary,
+        children: &mut ChildrenSecondary,
+        taffy: &mut TaffyTreeEntityId,
+        taffy_nodes: &mut TaffyNodesSecondary,
+    ) {
+        for child_id in ph_children {
+            // 子要素の親ポインタを元の要素に書き戻し
+            parents.insert(child_id, Some(src_id));
+
+            // 元の要素の子要素リストへ復旧
+            if let Some(src_children) = children.get_mut(src_id) {
+                src_children.push(child_id);
+            }
+
+            // Taffy 側の親子構造も、元の要素に繋ぎ戻し
+            if let Some(&src_node) = taffy_nodes.get(src_id)
+                && let Some(&ph_node) = taffy_nodes.get(holder)
+                && let Some(&child_node) = taffy_nodes.get(child_id)
+            {
+                let _ = taffy.remove_child(ph_node, child_node);
+                let _ = taffy.add_child(src_node, child_node);
+            }
+        }
+    }
 }
 
 impl Context {
@@ -796,52 +826,6 @@ impl Context {
         TopologyStore::rebuild_dfs_sequence(children, flat_dfs_sequence, is_structure_dirty, root);
     }
 
-    /// 子孫のインタラクション状態走査
-    #[inline]
-    pub(crate) fn has_descendant_with_state(&self, parent: EntityId, state_flag: u128) -> bool {
-        let TopologyStore {
-            entities,
-            children,
-            active_masks,
-            ..
-        } = &self.topology;
-
-        TopologyStore::has_descendant_with_state(
-            entities,
-            children,
-            active_masks,
-            parent,
-            state_flag,
-        )
-    }
-
-    /// 直近の親要素（1世代上）が特定のインタラクション状態を持っているか
-    #[inline]
-    pub(crate) fn has_parent_with_state(&self, id: EntityId, state_flag: u128) -> bool {
-        let TopologyStore {
-            entities,
-            parents,
-            children,
-            active_masks,
-            ..
-        } = &self.topology;
-        TopologyStore::has_parent_with_state(id, parents, entities, active_masks, state_flag)
-    }
-
-    /// ドロップ先コンテナのフレックス方向に基づいて、
-    /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出。
-    pub(crate) fn mouse_drop_insert_element_index(
-        &self,
-        parent: EntityId,
-        logical_pos: LayoutPoint,
-    ) -> usize {
-        let TopologyStore { children, .. } = &self.topology;
-        let LayoutStore { flex_layouts, .. } = &self.layouts;
-        let OutputStore { rects, .. } = &self.outputs;
-
-        TopologyStore::calculate_insert_index(parent, logical_pos, children, flex_layouts, rects)
-    }
-
     // セッションの開始マーカーを取得
     #[inline]
     pub(crate) fn start_session(&mut self) -> usize {
@@ -920,26 +904,5 @@ impl Context {
         } = &self.topology;
 
         TopologyStore::find_root_entity(entities, parents, flat_dfs_sequence)
-    }
-
-    #[inline]
-    pub(crate) fn compute_effective_z_indices(&mut self) {
-        let TopologyStore {
-            parents,
-            active_entities,
-            flat_dfs_sequence,
-            effective_z_indices,
-            ..
-        } = &mut self.topology;
-        let RenderStore {
-            visual_properties, ..
-        } = &self.renders;
-
-        TopologyStore::compute_effective_z_indices(
-            flat_dfs_sequence,
-            visual_properties,
-            parents,
-            effective_z_indices,
-        )
     }
 }

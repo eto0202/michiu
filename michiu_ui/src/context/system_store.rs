@@ -328,18 +328,4 @@ impl Context {
             text_engine,
         )
     }
-
-    #[inline]
-    pub(crate) fn unassociate_ime(&mut self, contents: &InputContents) {
-        let WindowStore { default_himc, .. } = &mut self.window;
-
-        SystemStore::unassociate_ime(contents, default_himc);
-    }
-
-    #[inline]
-    pub(crate) fn reset_ime_default_state(&self) {
-        let WindowStore { default_himc, .. } = &self.window;
-
-        SystemStore::reset_ime_default_state(default_himc.as_ref());
-    }
 }
