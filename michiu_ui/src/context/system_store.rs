@@ -60,7 +60,6 @@ pub(crate) type DwriteLayoutsSparseSecondary =
     RefCell<SparseSecondaryMap<EntityId, IDWriteTextLayout>>;
 pub(crate) type UiaPropertiesSparseSecondary = SparseSecondaryMap<EntityId, Vec<(i32, UiaValue)>>;
 
-#[allow(clippy::struct_field_names)]
 pub struct SystemStore {
     pub(crate) sys_text_engine: TextEngine,
     pub(crate) sys_dwrite_layouts: DwriteLayoutsSparseSecondary,
@@ -101,7 +100,10 @@ impl SystemStore {
 impl SystemStore {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
-    pub(crate) fn clear_layout_cache(id: EntityId, sys_dwrite_layouts: &DwriteLayoutsSparseSecondary) {
+    pub(crate) fn clear_layout_cache(
+        id: EntityId,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+    ) {
         sys_dwrite_layouts.borrow_mut().remove(id);
     }
 
@@ -109,11 +111,11 @@ impl SystemStore {
     #[inline]
     pub(crate) fn get_or_create_layout(
         id: EntityId,
-        cont_text_contents: &TextContentsSparseSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
         sys_text_engine: &TextEngine,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        ren_visual: &VisualPropertiesSecondary,
     ) -> Option<IDWriteTextLayout> {
         if let Some(layout) = sys_dwrite_layouts.borrow().get(id) {
             return Some(layout.clone());
@@ -320,11 +322,11 @@ impl Context {
 
         SystemStore::get_or_create_layout(
             id,
-            cont_text_contents,
-            ren_visual,
-            sys_dwrite_layouts,
-            cont_text_spans,
             sys_text_engine,
+            sys_dwrite_layouts,
+            cont_text_contents,
+            cont_text_spans,
+            ren_visual,
         )
     }
 }

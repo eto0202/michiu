@@ -50,7 +50,6 @@ pub(crate) type ActiveAnimationsSparseSecondary =
     SparseSecondaryMap<EntityId, Vec<ActiveAnimation>>;
 pub(crate) type ActiveWebviewsHashSet = HashSet<EntityId>;
 
-#[allow(clippy::struct_field_names)]
 pub struct RenderStore {
     pub(crate) ren_visual: VisualPropertiesSecondary,
     pub(crate) ren_interaction: InteractionPropertiesSecondary,
@@ -127,6 +126,7 @@ impl RenderStore {
     }
 
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
+    #[inline]
     pub(crate) fn clear_render_dirty(
         topo_active_masks: &mut ActiveMasksSecondary,
         ren_dirty_entities: &mut DirtyRenderEntitiesVec,
@@ -155,6 +155,7 @@ impl RenderStore {
         })
     }
 
+    #[inline]
     pub(crate) fn get_visual_property_mut<'a>(
         id: EntityId,
         target: StyleTarget,
@@ -242,7 +243,6 @@ impl RenderStore {
     }
 
     /// 現在、アクティブに動いているトランジションがあるか判定します
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn has_active_animations(
         evt_interaction_states: &InteractionStates,
         evt_current_pointer_position: Option<&LayoutPoint>,
@@ -386,6 +386,7 @@ impl RenderStore {
         None
     }
 
+    #[inline]
     pub(crate) fn cascade_interaction_flag<'a>(
         id: EntityId,
         interaction: &'a InteractionStyles,
@@ -407,6 +408,7 @@ impl RenderStore {
         ]
     }
 
+    #[inline]
     pub(crate) fn cascade_within_interaction_flag(
         id: EntityId,
         interaction: &InteractionStyles,
@@ -425,6 +427,7 @@ impl RenderStore {
         ]
     }
 
+    #[inline]
     pub(crate) fn cascade_parent_interaction_flag(
         id: EntityId,
         interaction: &InteractionStyles,
@@ -443,6 +446,7 @@ impl RenderStore {
         ]
     }
 
+    #[inline]
     pub(crate) fn cascade_basic_layout(
         id: EntityId,
         target_layout: &mut BasicLayout,
@@ -481,8 +485,8 @@ impl RenderStore {
         id: EntityId,
         target: &mut TargetStyle,
         active_mask: ComponentMask,
-        focused_style_resolved: Option<ThisStyle>,
-        focused_visible_style_resolved: Option<ThisStyle>,
+        focused_style_resolved: Option<&ThisStyle>,
+        focused_visible_style_resolved: Option<&ThisStyle>,
         ren_interaction: &InteractionPropertiesSecondary,
     ) {
         let Some(interaction) = ren_interaction.get(id) else {
@@ -492,8 +496,8 @@ impl RenderStore {
         let cascade = RenderStore::cascade_interaction_flag(
             id,
             interaction,
-            focused_style_resolved.as_ref(),
-            focused_visible_style_resolved.as_ref(),
+            focused_style_resolved,
+            focused_visible_style_resolved,
         );
 
         for (state, style_opt) in cascade {
@@ -509,7 +513,6 @@ impl RenderStore {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn cascade_within_interaction(
         id: EntityId,
@@ -538,11 +541,11 @@ impl RenderStore {
 
             // 子孫要素のいずれかがこの state_flag を満たしているか
             let with_state = TopologyStore::has_descendant_with_state(
-                topo_entities,
-                topo_children,
-                topo_active_masks,
                 id,
                 state,
+                topo_active_masks,
+                topo_entities,
+                topo_children,
             );
 
             if !with_state {
@@ -562,11 +565,11 @@ impl RenderStore {
         };
 
         let any_state = TopologyStore::has_descendant_with_state(
-            topo_entities,
-            topo_children,
-            topo_active_masks,
             id,
             STYLE_ACTIVE_INTERACTION_PROPERTY,
+            topo_active_masks,
+            topo_entities,
+            topo_children,
         );
 
         if !any_state {
@@ -576,7 +579,6 @@ impl RenderStore {
         TargetStyle::apply_visual_property(target, &style.inner.visual_property, style.inner.mask);
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn cascade_parent_interaction(
         id: EntityId,
@@ -605,10 +607,10 @@ impl RenderStore {
             // 直近の親要素がこの state_flag を満たしているか
             let with_state = TopologyStore::has_parent_with_state(
                 id,
-                topo_parents,
-                topo_entities,
-                topo_active_masks,
                 state,
+                topo_active_masks,
+                topo_entities,
+                topo_parents,
             );
 
             if !with_state {
@@ -627,10 +629,10 @@ impl RenderStore {
         };
         let any_state = TopologyStore::has_parent_with_state(
             id,
-            topo_parents,
-            topo_entities,
-            topo_active_masks,
             STYLE_ACTIVE_INTERACTION_PROPERTY,
+            topo_active_masks,
+            topo_entities,
+            topo_parents,
         );
 
         if !any_state {
@@ -640,14 +642,13 @@ impl RenderStore {
         TargetStyle::apply_visual_property(target, &style.inner.visual_property, style.inner.mask);
     }
 
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn apply_interaction_cascades(
         id: EntityId,
         target: &mut TargetStyle,
         active_mask: ComponentMask,
-        focused_style_resolved: Option<ThisStyle>,
-        focused_visible_style_resolved: Option<ThisStyle>,
+        focused_style_resolved: Option<&ThisStyle>,
+        focused_visible_style_resolved: Option<&ThisStyle>,
         topo_active_masks: &ActiveMasksSecondary,
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
@@ -731,7 +732,6 @@ impl RenderStore {
     }
 
     /// 補間されたアニメーション値を `SoA` のアクティブプロパティへ安全に上書きします
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_animation_value(
         id: EntityId,
         property: PropertyList,
@@ -800,7 +800,6 @@ impl RenderStore {
     }
 
     /// 状態の変更を検知しアニメーションが必要な箇所を自動的に開始・制御
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn resolve_element_style_state(
         id: EntityId,
         allow_transition: bool,
@@ -880,7 +879,6 @@ impl RenderStore {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn resolve_layout_styles(
         id: EntityId,
         allow_transition: bool,
@@ -998,7 +996,6 @@ impl RenderStore {
         );
     }
 
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn resolve_visual_styles(
         id: EntityId,
         allow_transition: bool,
@@ -1044,8 +1041,8 @@ impl RenderStore {
             id,
             &mut target,
             active_mask,
-            focused_style_resolved,
-            focused_visible_style_resolved,
+            focused_style_resolved.as_ref(),
+            focused_visible_style_resolved.as_ref(),
             topo_active_masks,
             topo_entities,
             topo_parents,
@@ -1450,7 +1447,6 @@ impl RenderStore {
         (packed_transform, origin)
     }
 
-    #[allow(clippy::cast_precision_loss)]
     #[inline]
     pub(crate) fn get_outline_params(
         visual: &VisualProperty,
@@ -1490,7 +1486,6 @@ impl RenderStore {
     }
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn tick_animations(
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -1572,7 +1567,6 @@ impl RenderStore {
     }
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn tick_transitions(
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -1961,7 +1955,7 @@ impl Context {
     #[inline]
     pub(crate) fn is_keyboard_focusable(&self, id: EntityId) -> bool {
         let TopologyStore {
-            topo_entities: topo_entities,
+            topo_entities,
             topo_active_masks,
             topo_parents,
             ..

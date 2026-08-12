@@ -34,7 +34,6 @@ pub(crate) type PendingElementEffectsVec = Vec<EffectId>;
 pub(crate) type ProvidersSparseSecondary =
     SparseSecondaryMap<EntityId, HashMap<std::any::TypeId, SignalId>>;
 
-#[allow(clippy::struct_field_names)]
 pub struct ReactiveStore {
     pub(crate) react_signals: SignalsSlotMap,
     pub(crate) react_effects: EffectsSlotMap,

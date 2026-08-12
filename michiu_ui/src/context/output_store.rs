@@ -26,7 +26,6 @@ pub(crate) type SelectedRectsSparseSecondary = SparseSecondaryMap<EntityId, Vec<
 pub(crate) type TextSelectionsSparseSecondary = SparseSecondaryMap<EntityId, Range<usize>>;
 pub(crate) type SelectionStartIndexSparseSecondary = SparseSecondaryMap<EntityId, usize>;
 
-#[allow(clippy::struct_field_names)]
 pub struct OutputStore {
     pub(crate) out_rects: RectsSecondary,
     pub(crate) out_clip_rects: ClipRectsSecondary,
@@ -119,7 +118,6 @@ impl OutputStore {
                 .is_some_and(|a| a.has(STATE_QUEUED_LAYOUT))
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn calc_local_rect(
         id: EntityId,
         window_size: LayoutSize,
@@ -351,8 +349,7 @@ impl OutputStore {
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
-    #[must_use]
-    pub fn get_selected_text(
+    pub(crate) fn get_selected_text(
         evt_interaction_states: &InteractionStates,
         cont_text_contents: &TextContentsSparseSecondary,
         ren_visual: &VisualPropertiesSecondary,
@@ -530,7 +527,6 @@ impl OutputStore {
     }
 
     /// 指定された要素の子要素全体のスクロール領域を親ローカル座標系で算出します。
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn get_scroll_size(
         id: EntityId,
         sys_text_engine: &TextEngine,
@@ -569,11 +565,11 @@ impl OutputStore {
             .is_some_and(ComponentMask::has_text_content)
             && let Some(dw_layout) = SystemStore::get_or_create_layout(
                 id,
-                cont_text_contents,
-                ren_visual,
-                sys_dwrite_layouts,
-                cont_text_spans,
                 sys_text_engine,
+                sys_dwrite_layouts,
+                cont_text_contents,
+                cont_text_spans,
+                ren_visual,
             )
         {
             let size = sys_text_engine.get_layout_size(&dw_layout);
@@ -642,7 +638,6 @@ impl OutputStore {
         LayoutSize::new(max_x, max_y)
     }
 
-    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn scroll_ime_info(
         id: EntityId,
@@ -899,7 +894,6 @@ impl OutputStore {
 
     /// スクロールオフセットを目標位置へクランプした上で代入。
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn scroll_to(
         id: EntityId,
         mut x: f32,
@@ -1006,7 +1000,6 @@ impl OutputStore {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn scroll_by(
         id: EntityId,
         dx: f32,
@@ -1065,7 +1058,6 @@ impl OutputStore {
 
     /// 現在のテキスト・IME状態・フォントサイズから、
     /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して `SoA` を更新。
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn update_input_caret_position(
         id: EntityId,
         win_last_size: Option<LayoutSize>,
@@ -1211,8 +1203,8 @@ impl OutputStore {
     pub(crate) fn update_selection_rects(
         id: EntityId,
         layout: &IDWriteTextLayout,
-        out_text_selections: &TextSelectionsSparseSecondary,
         out_selected_rects: &mut SelectedRectsSparseSecondary,
+        out_text_selections: &TextSelectionsSparseSecondary,
     ) {
         if let Some(range) = out_text_selections.get(id).cloned()
             && range.start < range.end
@@ -1225,7 +1217,6 @@ impl OutputStore {
         out_selected_rects.remove(id);
     }
 
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn sync_scrollbar_drag(
         logical_pos: LayoutPoint,
         win_last_size: Option<LayoutSize>,
@@ -1492,7 +1483,6 @@ impl OutputStore {
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
     // TOTO: フラットバッファ ＋ インデックス範囲に変更
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn collect_render_data(
         win_scale_factor: f32,
         cont_input_contents: &InputContentsSparseSecondary,
@@ -1539,12 +1529,12 @@ impl OutputStore {
 
         // 実効 z_index の計算とソートを一括実行
         TopologyStore::prepare_sorted_entities(
+            topo_sorted_entities,
+            topo_effective_z_indices,
             topo_active_entities,
+            topo_parents,
             topo_flat_dfs_sequence,
             ren_visual,
-            topo_parents,
-            topo_effective_z_indices,
-            topo_sorted_entities,
         );
 
         for &id in &*topo_sorted_entities {
@@ -2102,7 +2092,7 @@ impl Context {
             ..
         } = &mut self.outputs;
 
-        OutputStore::update_selection_rects(id, layout, out_text_selections, out_selected_rects);
+        OutputStore::update_selection_rects(id, layout, out_selected_rects, out_text_selections);
     }
 
     /// スクロールオフセットを目標位置へクランプした上で代入。

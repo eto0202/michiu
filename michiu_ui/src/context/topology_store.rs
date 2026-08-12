@@ -20,7 +20,6 @@ pub(crate) type EffectiveZindicesSecondary = SecondaryMap<EntityId, i32>;
 pub(crate) type EffectiveTransformsSecondary = SecondaryMap<EntityId, [[f32; 4]; 4]>;
 pub(crate) type SortedEntitiesVec = Vec<EntityId>;
 
-#[allow(clippy::struct_field_names)]
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
     pub(crate) topo_entities: EntitiesSlot,
@@ -107,7 +106,6 @@ impl TopologyStore {
 
 impl TopologyStore {
     /// 要素を新規に生成
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn spawn(
         parent_id: Option<EntityId>,
@@ -142,7 +140,6 @@ impl TopologyStore {
     }
 
     /// 親子関係の追加
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn add_child(
         parent: EntityId,
@@ -160,10 +157,10 @@ impl TopologyStore {
             && old_parent != parent
         {
             TopologyStore::detach_from_parent(
+                child,
                 topo_parents,
                 topo_children,
                 topo_is_structure_dirty,
-                child,
             );
 
             // 古い親の Taffy ノードから安全にデタッチ
@@ -194,11 +191,11 @@ impl TopologyStore {
 
         // 新しい親へのトポロジーアタッチ
         TopologyStore::attach_to_parent(
+            parent,
+            child,
             topo_parents,
             topo_children,
             topo_is_structure_dirty,
-            parent,
-            child,
         );
 
         // 新しい親の Taffy ツリーの親子関係を永続的に更新
@@ -219,21 +216,20 @@ impl TopologyStore {
     }
 
     /// 親要素の特定の古い子要素を新しい子要素へ直接差し替える
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn replace_child(
         parent: EntityId,
         old_child: EntityId,
         new_child: EntityId,
+        window: &mut WindowStore,
+        system: &mut SystemStore,
+        reactive: &mut ReactiveStore,
+        events: &mut EventStore,
+        contents: &mut ContentStore,
         topology: &mut TopologyStore,
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
-        contents: &mut ContentStore,
-        events: &mut EventStore,
-        reactive: &mut ReactiveStore,
-        window: &mut WindowStore,
-        system: &mut SystemStore,
     ) {
         // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
         if let Some(&parent_node) = layouts.lay_taffy_nodes.get(parent)
@@ -243,18 +239,18 @@ impl TopologyStore {
         }
 
         TopologyStore::replace_child_node(
-            &mut topology.topo_parents,
-            &mut topology.topo_children,
-            &mut topology.topo_is_structure_dirty,
             parent,
             old_child,
             new_child,
+            &mut topology.topo_parents,
+            &mut topology.topo_children,
+            &mut topology.topo_is_structure_dirty,
         );
 
         // 古い子要素（およびその子孫）を完全に安全デスポーン
         TopologyStore::despawn_internal(
-            old_child, topology, layouts, renders, outputs, contents, events, reactive, window,
-            system,
+            old_child, window, system, reactive, events, contents, topology, layouts, renders,
+            outputs,
         );
 
         LayoutStore::mark_layout_dirty(
@@ -268,19 +264,18 @@ impl TopologyStore {
     }
 
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで一掃
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn despawn_internal(
         id: EntityId,
+        window: &mut WindowStore,
+        system: &mut SystemStore,
+        reactive: &mut ReactiveStore,
+        events: &mut EventStore,
+        contents: &mut ContentStore,
         topology: &mut TopologyStore,
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
-        contents: &mut ContentStore,
-        events: &mut EventStore,
-        reactive: &mut ReactiveStore,
-        window: &mut WindowStore,
-        system: &mut SystemStore,
     ) {
         if !topology.topo_entities.contains_key(id) {
             return;
@@ -312,8 +307,8 @@ impl TopologyStore {
         if let Some(children_list) = topology.topo_children.remove(id) {
             for child_id in children_list {
                 TopologyStore::despawn_internal(
-                    child_id, topology, layouts, renders, outputs, contents, events, reactive,
-                    window, system,
+                    child_id, window, system, reactive, events, contents, topology, layouts,
+                    renders, outputs,
                 );
             }
         }
@@ -331,19 +326,18 @@ impl TopologyStore {
     }
 
     /// セッションのクリーンアップを実行
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn end_session(
         start_marker: usize,
+        window: &mut WindowStore,
+        system: &mut SystemStore,
+        reactive: &mut ReactiveStore,
+        events: &mut EventStore,
+        contents: &mut ContentStore,
         topology: &mut TopologyStore,
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
-        contents: &mut ContentStore,
-        events: &mut EventStore,
-        reactive: &mut ReactiveStore,
-        window: &mut WindowStore,
-        system: &mut SystemStore,
     ) {
         // start_marker 以降に生成された要素をスキャン
         let spawned_in_session: Vec<EntityId> = topology
@@ -359,8 +353,8 @@ impl TopologyStore {
 
             if has_no_parent && is_not_root {
                 TopologyStore::despawn_internal(
-                    id, topology, layouts, renders, outputs, contents, events, reactive, window,
-                    system,
+                    id, window, system, reactive, events, contents, topology, layouts, renders,
+                    outputs,
                 );
             }
         }
@@ -371,10 +365,10 @@ impl TopologyStore {
     /// 親トポロジーから子要素をデタッチする
     #[inline]
     pub fn detach_from_parent(
+        child: EntityId,
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
-        child: EntityId,
     ) -> Option<EntityId> {
         let Some(Some(parent_id)) = topo_parents.get(child).copied() else {
             return None;
@@ -390,11 +384,11 @@ impl TopologyStore {
     /// 新しい親子関係を結合する
     #[inline]
     pub fn attach_to_parent(
+        parent: EntityId,
+        child: EntityId,
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
-        parent: EntityId,
-        child: EntityId,
     ) {
         topo_parents.insert(child, Some(parent));
         if let Some(children_list) = topo_children.get_mut(parent)
@@ -408,12 +402,12 @@ impl TopologyStore {
     /// 親要素の特定の古い子要素を、順序を維持したまま新しい子要素へ直接差し替える
     #[inline]
     pub fn replace_child_node(
-        topo_parents: &mut ParentsSecondary,
-        topo_children: &mut ChildrenSecondary,
-        topo_is_structure_dirty: &mut bool,
         parent: EntityId,
         old_child: EntityId,
         new_child: EntityId,
+        topo_parents: &mut ParentsSecondary,
+        topo_children: &mut ChildrenSecondary,
+        topo_is_structure_dirty: &mut bool,
     ) {
         if let Some(children_list) = topo_children.get_mut(parent)
             && let Some(pos) = children_list.iter().position(|&x| x == old_child)
@@ -425,11 +419,12 @@ impl TopologyStore {
     }
 
     /// DFS配列の高速再構築
+    #[inline]
     pub fn rebuild_dfs_sequence(
+        root: EntityId,
         topo_children: &ChildrenSecondary,
         topo_flat_dfs_sequence: &mut FlatDfsSequenceVec,
         topo_is_structure_dirty: &mut bool,
-        root: EntityId,
     ) {
         topo_flat_dfs_sequence.clear();
         let mut stack = Vec::with_capacity(32);
@@ -451,13 +446,14 @@ impl TopologyStore {
     }
 
     /// 子孫要素のインタラクション状態を走査する純粋関連関数
+    #[inline]
     #[must_use]
     pub fn has_descendant_with_state(
-        topo_entities: &EntitiesSlot,
-        topo_children: &ChildrenSecondary,
-        topo_active_masks: &ActiveMasksSecondary,
         parent: EntityId,
         state_flag: u128,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_entities: &EntitiesSlot,
+        topo_children: &ChildrenSecondary,
     ) -> bool {
         let mut stack = SmallVec::<[EntityId; 16]>::new();
 
@@ -505,10 +501,10 @@ impl TopologyStore {
     #[inline]
     pub(crate) fn has_parent_with_state(
         id: EntityId,
-        topo_parents: &ParentsSecondary,
-        topo_entities: &EntitiesSlot,
-        topo_active_masks: &ActiveMasksSecondary,
         state_flag: u128,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_entities: &EntitiesSlot,
+        topo_parents: &ParentsSecondary,
     ) -> bool {
         let Some(Some(parent_id)) = topo_parents.get(id).copied() else {
             return false;
@@ -524,6 +520,7 @@ impl TopologyStore {
 
     /// ドロップ先コンテナのフレックス方向に基づいて、
     /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出。
+    #[inline]
     pub(crate) fn calculate_insert_index(
         parent: EntityId,
         logical_pos: LayoutPoint,
@@ -563,6 +560,7 @@ impl TopologyStore {
     }
 
     /// 指定された要素（target）が、ある親要素（parent）自身、またはその子孫であるかを判定します。
+    #[inline]
     pub(crate) fn is_descendant_of(
         target: EntityId,
         parent: EntityId,
@@ -584,19 +582,19 @@ impl TopologyStore {
     /// 実効 `z_index` の計算と、それに基づく要素のソート
     #[inline]
     pub(crate) fn prepare_sorted_entities(
+        topo_sorted_entities: &mut SortedEntitiesVec,
+        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_active_entities: &ActiveEntitiesVec,
+        topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         ren_visual: &VisualPropertiesSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
-        topo_sorted_entities: &mut SortedEntitiesVec,
     ) {
         // 実効 z_index をカスケード計算
         TopologyStore::compute_effective_z_indices(
+            topo_effective_z_indices,
+            topo_parents,
             topo_flat_dfs_sequence,
             ren_visual,
-            topo_parents,
-            topo_effective_z_indices,
         );
 
         topo_sorted_entities.clear();
@@ -609,10 +607,10 @@ impl TopologyStore {
     /// 各要素の実効 `z_index` を親から子へカスケードして計算
     #[inline]
     pub(crate) fn compute_effective_z_indices(
+        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
+        topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         ren_visual: &VisualPropertiesSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
     ) {
         topo_effective_z_indices.clear();
 
@@ -635,29 +633,28 @@ impl TopologyStore {
 
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
     /// 階層的な早期枝刈りヒットテスト
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn hit_test(
         point: LayoutPoint,
-        topo_active_entities: &ActiveEntitiesVec,
-        topo_active_masks: &ActiveMasksSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        topo_parents: &ParentsSecondary,
-        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
+        evt_interaction_states: &InteractionStates,
         topo_sorted_entities: &mut SortedEntitiesVec,
+        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_active_entities: &ActiveEntitiesVec,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         ren_visual: &VisualPropertiesSecondary,
         ren_base_visual: &BaseVisualPropertiesSecondary,
-        evt_interaction_states: &InteractionStates,
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
     ) -> Option<EntityId> {
         // 実効 z_index の計算とソート
         TopologyStore::prepare_sorted_entities(
+            topo_sorted_entities,
+            topo_effective_z_indices,
             topo_active_entities,
+            topo_parents,
             topo_flat_dfs_sequence,
             ren_visual,
-            topo_parents,
-            topo_effective_z_indices,
-            topo_sorted_entities,
         );
 
         // 最前面の要素から逆順
@@ -690,11 +687,7 @@ impl TopologyStore {
             let pointer_events = ren_visual
                 .get(id)
                 .and_then(|v| v.pointer_events)
-                .or_else(|| {
-                    ren_base_visual
-                        .get(id)
-                        .and_then(|v| v.pointer_events)
-                })
+                .or_else(|| ren_base_visual.get(id).and_then(|v| v.pointer_events))
                 .unwrap_or_default();
 
             if pointer_events == PointerEvents::None {
@@ -759,8 +752,7 @@ impl Context {
         } = &mut self.layouts;
 
         let RenderStore {
-            ren_dirty_entities,
-            ..
+            ren_dirty_entities, ..
         } = &mut self.renders;
 
         TopologyStore::spawn(
@@ -830,8 +822,8 @@ impl Context {
         } = self;
 
         TopologyStore::replace_child(
-            parent, old_child, new_child, topology, layouts, renders, outputs, contents, events,
-            reactive, window, system,
+            parent, old_child, new_child, window, system, reactive, events, contents, topology,
+            layouts, renders, outputs,
         );
     }
 
@@ -846,10 +838,10 @@ impl Context {
         } = &mut self.topology;
 
         TopologyStore::rebuild_dfs_sequence(
+            root,
             topo_children,
             topo_flat_dfs_sequence,
             topo_is_structure_dirty,
-            root,
         );
     }
 
@@ -891,15 +883,15 @@ impl Context {
 
         TopologyStore::end_session(
             start_marker,
+            window,
+            system,
+            reactive,
+            events,
+            contents,
             topology,
             layouts,
             renders,
             outputs,
-            contents,
-            events,
-            reactive,
-            window,
-            system,
         );
     }
 
@@ -919,7 +911,7 @@ impl Context {
         } = self;
 
         TopologyStore::despawn_internal(
-            id, topology, layouts, renders, outputs, contents, events, reactive, window, system,
+            id, window, system, reactive, events, contents, topology, layouts, renders, outputs,
         );
     }
 

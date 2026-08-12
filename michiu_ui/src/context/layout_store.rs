@@ -21,7 +21,6 @@ use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
 use taffy::TaffyTree;
 
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ScrollBarState {
     pub(crate) style: ScrollbarStyle,
@@ -54,7 +53,6 @@ pub(crate) type TaffyNodesSecondary = SecondaryMap<EntityId, taffy::NodeId>;
 pub(crate) type TaffyTreeEntityId = taffy::TaffyTree<EntityId>;
 pub(crate) type DirtyLayoutEntitiesVec = Vec<EntityId>;
 
-#[allow(clippy::struct_field_names)]
 pub struct LayoutStore {
     pub(crate) lay_basic: BasicLayoutsSecondary,
     pub(crate) lay_base_basic: BaseBasicLayoutsSecondary,
@@ -114,7 +112,6 @@ impl LayoutStore {
 
 impl LayoutStore {
     /// 各スタイルの解決を1回のルックアップと1回のカスケード解決ループに統合
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn resolve_active_layouts(
         id: EntityId,
         topo_active_masks: &ActiveMasksSecondary,
@@ -226,7 +223,6 @@ impl LayoutStore {
         (w, h)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn apply_interaction_styles(
         id: EntityId,
         active_mask: &ComponentMask,
@@ -470,7 +466,6 @@ impl LayoutStore {
     }
 
     /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub(crate) fn update_scrollbar_element(
         id: EntityId,
@@ -555,6 +550,7 @@ impl LayoutStore {
         }
     }
 
+    #[inline]
     pub(crate) fn local_rect_from_taffy(
         id: EntityId,
         lay_taffy: &TaffyTreeEntityId,
@@ -578,6 +574,7 @@ impl LayoutStore {
 
     /// 指定された親コンテナにアタッチされている `DComp` / Taffy 側のすべての子ノードの物理順序を
     /// 内部 `SoA` リスト（self.children）の順序に沿って再同期。
+    #[inline]
     pub(crate) fn resync_taffy_children_order(
         parent_id: EntityId,
         topo_children: &ChildrenSecondary,
@@ -607,6 +604,7 @@ impl LayoutStore {
         }
     }
 
+    #[inline]
     pub fn clear_layout_dirty(
         topo_active_masks: &mut ActiveMasksSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
@@ -653,7 +651,6 @@ impl LayoutStore {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn sync_resizing_drag(
         logical_pos: LayoutPoint,
         state: &ResizingState,
@@ -839,7 +836,6 @@ impl ScrollbarSyncContext<'_> {
 }
 
 impl LayoutStore {
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn sync_scrollbar_styles(
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &TextEngine,

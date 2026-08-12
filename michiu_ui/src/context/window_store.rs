@@ -1,7 +1,6 @@
 use crate::{Context, EntityId, LayoutRect, LayoutSize};
 use windows::Win32::UI::Input::Ime::HIMC;
 
-#[allow(clippy::struct_field_names)]
 pub struct WindowStore {
     pub win_scale_factor: f32,
     pub win_is_resizing: bool,

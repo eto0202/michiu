@@ -262,7 +262,17 @@ unsafe extern "system" fn wnd_proc(
                     logo: false,
                 };
 
+                app.context.inject_pointer_button(
+                    MouseButton::Left,
+                    ElementState::Pressed,
+                    modifiers,
+                );
+
                 app.context.inject_pointer_double_click(modifiers);
+
+                app.context
+                    .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
+                app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -553,6 +563,7 @@ pub fn register_class() -> windows_result::Result<(HMODULE, PCWSTR, WNDCLASSW)> 
             lpszClassName: class_name,
             hbrBackground: HBRUSH::default(), // 背景ブラシを完全にクリア（GDIによる描画競合を防止）
             hCursor: HCURSOR::default(),
+            style: CS_DBLCLKS,
             ..Default::default()
         };
         RegisterClassW(&wnd_class);

@@ -17,7 +17,6 @@ pub(crate) type ImageSourcesSparseSecondary = SparseSecondaryMap<EntityId, Image
 pub(crate) type MoviePropertiesSparseSecondary = SparseSecondaryMap<EntityId, MovieProperty>;
 pub(crate) type WebviewContentsSparseSecondary = SparseSecondaryMap<EntityId, WebView2Contents>;
 
-#[allow(clippy::struct_field_names)]
 pub struct ContentStore {
     pub(crate) cont_text_contents: TextContentsSparseSecondary,
     pub(crate) cont_text_spans: TextSpansSparseSecondary,
@@ -103,7 +102,6 @@ impl ContentStore {
     }
 
     /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn measure_content(
         id: EntityId,
         known_dims: taffy::Size<Option<f32>>,

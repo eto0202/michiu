@@ -163,7 +163,7 @@ impl Context {
         } = self;
 
         TopologyStore::despawn_internal(
-            id, topology, layouts, renders, outputs, contents, events, reactive, window, system,
+            id, window, system, reactive, events, contents, topology, layouts, renders, outputs,
         );
     }
 
@@ -960,6 +960,7 @@ impl Context {
         EventStore::pointer_move_inner(self, logical_pos);
     }
 
+    #[inline]
     pub fn inject_pointer_button(
         &mut self,
         button: MouseButton,
@@ -969,76 +970,9 @@ impl Context {
         EventStore::pointer_button_inner(self, button, state, modifiers);
     }
 
-    // ダブルクリック
+    #[inline]
     pub fn inject_pointer_double_click(&mut self, modifiers: Modifiers) {
-        let _context_guard = bind_context(self);
-        let current_hovered = self.events.evt_interaction_states.hovered;
-
-        if let Some(target_id) = current_hovered {
-            let user_select = self.get_user_select(target_id);
-
-            if user_select == UserSelect::Text
-                && let Some(pointer_pos) = self.events.evt_current_pointer_position
-            {
-                if let Some(contents) = self.contents.cont_input_contents.get(target_id) {
-                    let text_val = contents.text.0.get();
-                    let is_placeholder = text_val.is_empty()
-                        && contents
-                            .ime_state
-                            .as_ref()
-                            .is_none_or(|s| s.composition_text.is_empty());
-
-                    if is_placeholder && !contents.placeholder_select {
-                        return;
-                    }
-                }
-
-                let rect = self.rect(target_id).unwrap_or_default();
-                let (basic, _, _) = self.resolve_active_layouts(target_id);
-                let (border, padding) =
-                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-                let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
-                let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
-
-                if let Some(dw_layout) = self.get_or_create_layout(target_id) {
-                    let (clicked_index, is_trailing) = self
-                        .system
-                        .sys_text_engine
-                        .hit_test_point(&dw_layout, local_x, local_y);
-                    let final_index = if is_trailing {
-                        clicked_index + 1
-                    } else {
-                        clicked_index
-                    };
-
-                    if let Some(text) = self.contents.cont_text_contents.get(target_id) {
-                        let text_u16: Vec<u16> = text.encode_utf16().collect();
-
-                        // 高精度な文節境界を抽出
-                        let range = crate::find_word_boundaries(&text_u16, final_index);
-
-                        self.outputs
-                            .out_text_selections
-                            .insert(target_id, range.clone());
-                        // アンカー開始を文節左端にセット
-                        self.outputs
-                            .out_selection_start_index
-                            .insert(target_id, range.start);
-                        self.update_selection_rects(target_id, &dw_layout); // 選択矩形を更新
-
-                        if let Some(contents) = self.contents.cont_input_contents.get_mut(target_id)
-                        {
-                            contents.selected_range = range;
-                            contents.selection_reversed = false; // キャレットは右端に配置
-                            self.update_input_caret_position(target_id);
-                        }
-
-                        self.mark_render_dirty(target_id);
-                    }
-                }
-            }
-        }
+        EventStore::pointer_double_click_inner(self, modifiers);
     }
 
     /// 外部で計算された論理ピクセルスクロール移動量 (`scroll_x`, `scroll_y`) を注入し、
@@ -1371,15 +1305,15 @@ impl Context {
 
         TopologyStore::hit_test(
             point,
-            topo_active_entities,
-            topo_active_masks,
-            topo_flat_dfs_sequence,
-            topo_parents,
-            topo_effective_z_indices,
+            evt_interaction_states,
             topo_sorted_entities,
+            topo_effective_z_indices,
+            topo_active_masks,
+            topo_active_entities,
+            topo_parents,
+            topo_flat_dfs_sequence,
             ren_visual,
             ren_base_visual,
-            evt_interaction_states,
             out_rects,
             out_clip_rects,
         )

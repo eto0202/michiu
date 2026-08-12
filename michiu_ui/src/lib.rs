@@ -1,3 +1,11 @@
+#![allow(
+    clippy::similar_names,
+    clippy::struct_field_names,
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    clippy::struct_excessive_bools
+)]
+
 mod bitmap;
 mod context;
 mod dss;
@@ -39,9 +47,9 @@ pub mod prelude {
         style::ThisStyle,
         types::{
             AnimationCurve, Backdrop, BorderAlignment, BorderStyle, Color, CursorIcon, Display,
-            DndDragPayload, DndDropTarget, ElementState, KeyframeAnimation, LayoutPoint, LayoutRect,
-            LayoutSize, Modifiers, MouseButton, PlaybackCount, PointerEvents, ScrollbarDisplay,
-            ScrollbarMode, ScrollbarStyle, Transform, Transition,
+            DndDragPayload, DndDropTarget, ElementState, KeyframeAnimation, LayoutPoint,
+            LayoutRect, LayoutSize, Modifiers, MouseButton, PlaybackCount, PointerEvents,
+            ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Transform, Transition,
         },
         utils::{
             auto, block_box, blur, create_signal, div, div_d, div_n, dynamic, get_win32_clipboard,

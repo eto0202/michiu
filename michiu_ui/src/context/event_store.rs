@@ -312,7 +312,6 @@ impl EventStore {
         LayoutPoint { x: dx, y: dy }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn state_pressed_resize_drag(
         id: EntityId,
         dir: ResizeDirection,
@@ -439,7 +438,6 @@ impl EventStore {
             .unwrap_or(UserSelect::None)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn autoscroll_occurred(
         id: EntityId,
         win_last_size: Option<LayoutSize>,
@@ -525,7 +523,6 @@ impl EventStore {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn pressed_local_point(
         pressed_id: EntityId,
         logical_pos: LayoutPoint,
@@ -607,7 +604,6 @@ impl EventStore {
     }
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
-    #[allow(clippy::too_many_lines)]
     pub(crate) fn update_state(cx: &mut Context, id: EntityId, state_flag: u128, active: bool) {
         let mut was_active = false;
         let mut state_changed = false;
@@ -848,7 +844,6 @@ impl EventStore {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn spawn_dnd_placeholder(
         root: EntityId,
         pressed_id: EntityId,
@@ -948,7 +943,6 @@ impl EventStore {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn transfer_children_to_placeholder(
         pressed_id: EntityId,
         placeholder_id: EntityId,
@@ -1000,7 +994,6 @@ impl EventStore {
         }
     }
 
-    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     fn start_dnd_drag_session(cx: &mut Context, pressed_id: EntityId, logical_pos: LayoutPoint) {
         let drag_prop = cx
             .events
@@ -1080,7 +1073,6 @@ impl EventStore {
         );
     }
 
-    #[allow(clippy::too_many_lines)]
     pub(crate) fn propagate_dnd_drag_events(
         cx: &mut Context,
         prev_pos: Option<LayoutPoint>,
@@ -1121,7 +1113,6 @@ impl EventStore {
         (p.rect, p.border_left, p.border_top)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn update_inset_based_relative_local(
         root: EntityId,
         placeholder: EntityId,
@@ -1170,7 +1161,6 @@ impl EventStore {
         RenderStore::mark_render_dirty(placeholder, topo_active_masks, ren_dirty_entities);
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn detect_drop_target_during_intrusion(
         src_id: EntityId,
         placeholder: EntityId,
@@ -1189,15 +1179,15 @@ impl EventStore {
     ) -> Option<EntityId> {
         let hit_id = TopologyStore::hit_test(
             logical_pos,
-            topo_active_entities,
-            topo_active_masks,
-            topo_flat_dfs_sequence,
-            topo_parents,
-            topo_effective_z_indices,
+            evt_interaction_states,
             topo_sorted_entities,
+            topo_effective_z_indices,
+            topo_active_masks,
+            topo_active_entities,
+            topo_parents,
+            topo_flat_dfs_sequence,
             ren_visual,
             ren_base_visual,
-            evt_interaction_states,
             out_rects,
             out_clip_rects,
         )?;
@@ -1289,7 +1279,6 @@ impl EventStore {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn handle_text_selection_click(
         id: EntityId,
         start_pos: usize,
@@ -1323,11 +1312,11 @@ impl EventStore {
     ) {
         let Some(dw_layout) = SystemStore::get_or_create_layout(
             id,
-            cont_text_contents,
-            ren_visual,
-            sys_dwrite_layouts,
-            cont_text_spans,
             sys_text_engine,
+            sys_dwrite_layouts,
+            cont_text_contents,
+            cont_text_spans,
+            ren_visual,
         ) else {
             return;
         };
@@ -1340,8 +1329,8 @@ impl EventStore {
         OutputStore::update_selection_rects(
             id,
             &dw_layout,
-            out_text_selections,
             out_selected_rects,
+            out_text_selections,
         );
 
         if let Some(contents) = cont_input_contents.get_mut(id) {
@@ -1380,7 +1369,6 @@ impl EventStore {
     }
 
     #[inline]
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn remove_dragged_elemet(
         src_id: EntityId,
         drag_state: &ActiveDndDragState,
@@ -1415,7 +1403,6 @@ impl EventStore {
         );
     }
 
-    #[allow(clippy::too_many_lines)]
     pub(crate) fn pointer_move_inner(cx: &mut Context, logical_pos: LayoutPoint) {
         let _context_guard = bind_context(cx);
         let prev_pos = cx.events.evt_current_pointer_position;
@@ -1469,15 +1456,15 @@ impl EventStore {
         // ヒットテストのキャッシュ
         let hit_id = TopologyStore::hit_test(
             logical_pos,
-            &cx.topology.topo_active_entities,
-            &cx.topology.topo_active_masks,
-            &cx.topology.topo_flat_dfs_sequence,
-            &cx.topology.topo_parents,
-            &mut cx.topology.topo_effective_z_indices,
+            &cx.events.evt_interaction_states,
             &mut cx.topology.topo_sorted_entities,
+            &mut cx.topology.topo_effective_z_indices,
+            &cx.topology.topo_active_masks,
+            &cx.topology.topo_active_entities,
+            &cx.topology.topo_parents,
+            &cx.topology.topo_flat_dfs_sequence,
             &cx.renders.ren_visual,
             &cx.renders.ren_base_visual,
-            &cx.events.evt_interaction_states,
             &cx.outputs.out_rects,
             &cx.outputs.out_clip_rects,
         );
@@ -1735,7 +1722,6 @@ impl EventStore {
         false
     }
 
-    #[allow(clippy::too_many_lines)]
     fn handle_pointer_pressed(cx: &mut Context, button: MouseButton, modifiers: Modifiers) {
         let current_hovered = cx.events.evt_interaction_states.hovered;
 
@@ -1864,7 +1850,6 @@ impl EventStore {
     }
 
     /// ドラッグ＆ドロップの終了・ドロップ確定処理をカプセル化
-    #[allow(clippy::too_many_lines)]
     fn handle_dnd_drop(cx: &mut Context, drag_state: &ActiveDndDragState) {
         let src_id = drag_state.source_entity;
         let holder = drag_state.placeholder_entity;
@@ -1965,15 +1950,15 @@ impl EventStore {
         // プレースホルダー破棄
         TopologyStore::despawn_internal(
             holder,
+            &mut cx.window,
+            &mut cx.system,
+            &mut cx.reactive,
+            &mut cx.events,
+            &mut cx.contents,
             &mut cx.topology,
             &mut cx.layouts,
             &mut cx.renders,
             &mut cx.outputs,
-            &mut cx.contents,
-            &mut cx.events,
-            &mut cx.reactive,
-            &mut cx.window,
-            &mut cx.system,
         );
 
         if let Some(pos) = cx.events.evt_current_pointer_position {
@@ -2063,6 +2048,139 @@ impl EventStore {
             ElementState::Released => EventStore::handle_pointer_released(cx, button, modifiers),
         }
     }
+
+    pub fn pointer_double_click_inner(cx: &mut Context, modifiers: Modifiers) {
+        let _context_guard = bind_context(cx);
+        let current_hovered = cx.events.evt_interaction_states.hovered;
+
+        let Some(target_id) = current_hovered else {
+            return;
+        };
+
+        let user_select = EventStore::get_user_select(target_id, &cx.renders.ren_visual);
+        if user_select != UserSelect::Text {
+            return;
+        }
+
+        let Some(pointer_pos) = cx.events.evt_current_pointer_position else {
+            return;
+        };
+
+        if let Some(contents) = cx.contents.cont_input_contents.get(target_id) {
+            let text_val = contents.text.0.get();
+            let is_placeholder = text_val.is_empty()
+                && contents
+                    .ime_state
+                    .as_ref()
+                    .is_none_or(|s| s.composition_text.is_empty());
+
+            if is_placeholder && !contents.placeholder_select {
+                return;
+            }
+        }
+
+        let Some(text) = cx.contents.cont_text_contents.get(target_id) else {
+            return;
+        };
+
+        let Some(dw_layout) = SystemStore::get_or_create_layout(
+            target_id,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
+            &cx.renders.ren_visual,
+        ) else {
+            return;
+        };
+
+        let rect = OutputStore::rect(target_id, &cx.outputs.out_rects).unwrap_or_default();
+        let (basic, _, _) = LayoutStore::resolve_active_layouts(
+            target_id,
+            &cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &cx.layouts.lay_basic,
+            &cx.layouts.lay_flex,
+            &cx.layouts.lay_grid,
+            &cx.renders.ren_interaction,
+            &cx.renders.ren_visual,
+            &cx.renders.ren_active_transitions,
+        );
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+        let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
+        let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
+
+        let (clicked_index, is_trailing) = cx
+            .system
+            .sys_text_engine
+            .hit_test_point(&dw_layout, local_x, local_y);
+
+        let final_index = if is_trailing {
+            clicked_index + 1
+        } else {
+            clicked_index
+        };
+
+        let text_u16: Vec<u16> = text.encode_utf16().collect();
+
+        // 高精度な文節境界を抽出
+        let range = crate::find_word_boundaries(&text_u16, final_index);
+
+        cx.outputs
+            .out_text_selections
+            .insert(target_id, range.clone());
+        // アンカー開始を文節左端にセット
+        cx.outputs
+            .out_selection_start_index
+            .insert(target_id, range.start);
+        // 選択矩形を更新
+        OutputStore::update_selection_rects(
+            target_id,
+            &dw_layout,
+            &mut cx.outputs.out_selected_rects,
+            &cx.outputs.out_text_selections,
+        );
+
+        if let Some(contents) = cx.contents.cont_input_contents.get_mut(target_id) {
+            contents.selected_range = range;
+            contents.selection_reversed = false; // キャレットは右端に配置
+            OutputStore::update_input_caret_position(
+                target_id,
+                cx.window.win_last_size,
+                cx.window.win_scale_factor,
+                &cx.system.sys_text_engine,
+                &cx.system.sys_dwrite_layouts,
+                &mut cx.contents.cont_input_contents,
+                &mut cx.contents.cont_text_contents,
+                &cx.contents.cont_text_spans,
+                &mut cx.topology.topo_active_masks,
+                &cx.topology.topo_parents,
+                &cx.topology.topo_children,
+                &mut cx.layouts.lay_taffy,
+                &mut cx.layouts.lay_dirty_entities,
+                &mut cx.layouts.lay_scrollbar_styles,
+                &cx.layouts.lay_taffy_nodes,
+                &cx.layouts.lay_basic,
+                &cx.layouts.lay_flex,
+                &cx.layouts.lay_grid,
+                &mut cx.renders.ren_visual,
+                &cx.renders.ren_base_visual,
+                &cx.renders.ren_interaction,
+                &cx.renders.ren_active_transitions,
+                &mut cx.outputs.out_scroll_offsets,
+                &mut cx.outputs.out_text_selections,
+                &cx.outputs.out_rects,
+            );
+        }
+
+        RenderStore::mark_render_dirty(
+            target_id,
+            &mut cx.topology.topo_active_masks,
+            &mut cx.renders.ren_dirty_entities,
+        );
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -2074,7 +2192,6 @@ enum ScrollbarComponent {
 }
 
 impl EventStore {
-    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     pub(crate) fn hit_decision_element_scrollbar(
         target_id: EntityId,
         pointer_pos: LayoutPoint,
@@ -2258,7 +2375,6 @@ impl EventStore {
         true
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn handle_user_select_text(
         id: EntityId,
         pointer_pos: LayoutPoint,
@@ -2285,11 +2401,11 @@ impl EventStore {
     ) {
         let Some(layout) = SystemStore::get_or_create_layout(
             id,
-            cont_text_contents,
-            ren_visual,
-            sys_dwrite_layouts,
-            cont_text_spans,
             sys_text_engine,
+            sys_dwrite_layouts,
+            cont_text_contents,
+            cont_text_spans,
+            ren_visual,
         ) else {
             return;
         };
@@ -2335,8 +2451,8 @@ impl EventStore {
             OutputStore::update_selection_rects(
                 id,
                 &layout,
-                out_text_selections,
                 out_selected_rects,
+                out_text_selections,
             );
         } else {
             // 共通の通常クリックリセット
@@ -2361,7 +2477,6 @@ impl EventStore {
         EventStore::update_state(cx, id, STATE_FOCUSED, focused);
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn auto_focus_switch_by_trigger(
         cx: &mut Context,
         id: EntityId,
@@ -2438,7 +2553,6 @@ impl EventStore {
         handle_on_blur(cx, old_focus_id);
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn rewrite_tree_topology(
         src_id: EntityId,
         target_id: EntityId,
