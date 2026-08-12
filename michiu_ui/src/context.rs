@@ -334,7 +334,25 @@ impl Context {
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
     #[inline]
     pub fn get_selected_text(&self) -> Option<String> {
-        OutputStore::get_selected_text(&self.events, &self.renders, &self.outputs, &self.contents)
+        let EventStore {
+            evt_interaction_states,
+            ..
+        } = &self.events;
+        let ContentStore {
+            cont_text_contents, ..
+        } = &self.contents;
+        let RenderStore { ren_visual, .. } = &self.renders;
+        let OutputStore {
+            out_text_selections,
+            ..
+        } = &self.outputs;
+
+        OutputStore::get_selected_text(
+            evt_interaction_states,
+            cont_text_contents,
+            ren_visual,
+            out_text_selections,
+        )
     }
 
     /// 現在のスクロール位置から相対移動します。
@@ -401,27 +419,27 @@ impl Context {
             id,
             dx,
             dy,
-            topo_active_masks,
-            cont_input_contents,
+            *win_last_size,
             sys_text_engine,
-            cont_text_contents,
-            ren_visual,
-            cont_text_spans,
             sys_dwrite_layouts,
+            cont_input_contents,
+            cont_text_contents,
+            cont_text_spans,
+            topo_active_masks,
+            topo_parents,
+            topo_children,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
             lay_basic,
             lay_flex,
             lay_grid,
-            ren_active_transitions,
-            topo_parents,
-            topo_children,
+            ren_visual,
             ren_interaction,
+            ren_active_transitions,
             out_rects,
-            lay_scrollbar_styles,
             out_scroll_offsets,
-            *win_last_size,
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
         )
     }
 
@@ -524,9 +542,9 @@ impl Context {
         RenderStore::resolve_cursor(
             hovered_id,
             evt_interaction_states,
+            topo_parents,
             ren_visual,
             ren_base_visual,
-            topo_parents,
         )
     }
 
@@ -540,7 +558,7 @@ impl Context {
             topo_active_masks, ..
         } = &mut self.topology;
 
-        RenderStore::clear_render_dirty(ren_dirty_entities, topo_active_masks);
+        RenderStore::clear_render_dirty(topo_active_masks, ren_dirty_entities);
     }
 
     /// 現在、アクティブに動いているトランジション（wgpuアニメーション）があるか判定します
@@ -570,12 +588,12 @@ impl Context {
         RenderStore::has_active_animations(
             evt_interaction_states,
             evt_current_pointer_position.as_ref(),
-            out_clip_rects,
+            cont_input_contents,
+            lay_scrollbar_styles,
             ren_visual,
             ren_active_transitions,
             ren_active_animations,
-            cont_input_contents,
-            lay_scrollbar_styles,
+            out_clip_rects,
         )
     }
 
@@ -601,15 +619,15 @@ impl Context {
         } = &mut self.layouts;
 
         RenderStore::tick_animations(
-            ren_active_animations,
-            ren_visual,
-            lay_basic,
-            lay_taffy_nodes,
-            lay_taffy,
             topo_active_masks,
-            lay_dirty_entities,
-            ren_dirty_entities,
             topo_parents,
+            lay_taffy,
+            lay_basic,
+            lay_dirty_entities,
+            lay_taffy_nodes,
+            ren_visual,
+            ren_dirty_entities,
+            ren_active_animations,
         );
     }
 
@@ -636,16 +654,16 @@ impl Context {
         } = &mut self.layouts;
 
         RenderStore::tick_transitions(
-            ren_last_tick_time,
-            ren_active_transitions,
-            ren_visual,
-            lay_basic,
-            lay_taffy_nodes,
-            lay_taffy,
             topo_active_masks,
-            lay_dirty_entities,
             topo_parents,
+            lay_taffy,
+            lay_basic,
+            lay_dirty_entities,
+            lay_taffy_nodes,
+            ren_visual,
             ren_dirty_entities,
+            ren_active_transitions,
+            ren_last_tick_time,
         );
     }
 
@@ -755,30 +773,30 @@ impl Context {
 
         OutputStore::update_input_caret_position(
             id,
-            out_rects,
+            *win_last_size,
+            *win_scale_factor,
+            sys_text_engine,
             sys_dwrite_layouts,
             cont_input_contents,
             cont_text_contents,
-            out_text_selections,
             cont_text_spans,
-            sys_text_engine,
+            topo_active_masks,
+            topo_parents,
+            topo_children,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
             lay_basic,
             lay_flex,
             lay_grid,
-            topo_active_masks,
-            topo_children,
-            ren_interaction,
-            lay_scrollbar_styles,
-            out_scroll_offsets,
-            *win_last_size,
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
-            ren_active_transitions,
-            topo_parents,
             ren_visual,
             ren_base_visual,
-            *win_scale_factor,
+            ren_interaction,
+            ren_active_transitions,
+            out_scroll_offsets,
+            out_text_selections,
+            out_rects,
         );
     }
 
@@ -1227,7 +1245,13 @@ impl Context {
             && self.topology.topo_active_masks[focused_id].has_input_content()
             && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
         {
-            OutputStore::inject_paste_internal(focused_id, text, &mut self.outputs, contents);
+            OutputStore::inject_paste_internal(
+                focused_id,
+                text,
+                contents,
+                &mut self.outputs.out_text_selections,
+                &mut self.outputs.out_selected_rects,
+            );
 
             self.update_input_caret_position(focused_id);
             self.mark_render_dirty(focused_id);
@@ -1247,8 +1271,9 @@ impl Context {
                 focused_id,
                 prev_sel,
                 prev_text,
-                &mut self.outputs,
                 contents,
+                &mut self.outputs.out_text_selections,
+                &mut self.outputs.out_selected_rects,
             );
 
             self.update_input_caret_position(focused_id);
@@ -1269,8 +1294,9 @@ impl Context {
                 focused_id,
                 next_sel,
                 next_text,
-                &mut self.outputs,
                 contents,
+                &mut self.outputs.out_text_selections,
+                &mut self.outputs.out_selected_rects,
             );
 
             self.update_input_caret_position(focused_id);
@@ -1298,7 +1324,13 @@ impl Context {
             if self.topology.topo_active_masks[focused_id].has_input_content()
                 && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
             {
-                OutputStore::inject_cut_internal(focused_id, range, &mut self.outputs, contents);
+                OutputStore::inject_cut_internal(
+                    focused_id,
+                    range,
+                    contents,
+                    &mut self.outputs.out_text_selections,
+                    &mut self.outputs.out_selected_rects,
+                );
 
                 self.update_input_caret_position(focused_id);
                 self.mark_render_dirty(focused_id);

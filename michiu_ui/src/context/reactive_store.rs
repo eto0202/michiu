@@ -160,9 +160,9 @@ impl ReactiveStore {
         category: EffectCategory,
         effect_id: EffectId,
         react_effects: &mut EffectsSlotMap,
+        react_element_effects: &mut ElementEffectsSecondary,
         react_effect_to_element: &mut EffectToElementSecondary,
         react_pending_element_effects: &mut PendingElementEffectsVec,
-        react_element_effects: &mut ElementEffectsSecondary,
     ) {
         // 既に登録済みの場合は、更新処理を行って早期リターン
         if let Some(e) = react_element_effects.get_mut(element_id) {
@@ -184,8 +184,8 @@ impl ReactiveStore {
         element_id: EntityId,
         category: EffectCategory,
         react_effects: &mut EffectsSlotMap,
-        react_effect_to_element: &mut EffectToElementSecondary,
         react_element_effects: &mut ElementEffectsSecondary,
+        react_effect_to_element: &mut EffectToElementSecondary,
         react_pending_element_effects: &mut PendingElementEffectsVec,
         f: F,
     ) -> EffectId
@@ -203,9 +203,9 @@ impl ReactiveStore {
             category,
             effect_id,
             react_effects,
+            react_element_effects,
             react_effect_to_element,
             react_pending_element_effects,
-            react_element_effects,
         );
 
         // 即時実行を廃止。トポロジーが整うまで初回評価を一時保留
@@ -217,8 +217,8 @@ impl ReactiveStore {
     /// ビルド完了後、または同期直前に、溜めてある初回評価を実行
     #[inline]
     pub(crate) fn evaluate_pending_element_effects(
-        react_pending_element_effects: &mut PendingElementEffectsVec,
         react_effects: &mut EffectsSlotMap,
+        react_pending_element_effects: &mut PendingElementEffectsVec,
     ) {
         if react_pending_element_effects.is_empty() {
             return;
@@ -289,9 +289,9 @@ impl Context {
             category,
             effect_id,
             react_effects,
+            react_element_effects,
             react_effect_to_element,
             react_pending_element_effects,
-            react_element_effects,
         );
     }
 
@@ -318,8 +318,8 @@ impl Context {
             element_id,
             category,
             react_effects,
-            react_effect_to_element,
             react_element_effects,
+            react_effect_to_element,
             react_pending_element_effects,
             f,
         )
@@ -335,8 +335,8 @@ impl Context {
         } = &mut self.reactive;
 
         ReactiveStore::evaluate_pending_element_effects(
-            react_pending_element_effects,
             react_effects,
+            react_pending_element_effects,
         );
     }
 

@@ -141,11 +141,11 @@ impl LayoutStore {
             [STATE_FOCUSED, STATE_FOCUSED_VISIBLE].map(|state| {
                 RenderStore::resolv_focus_style(
                     id,
-                    ren_interaction,
-                    ren_visual,
                     &active_mask,
-                    topo_parents,
                     state,
+                    topo_parents,
+                    ren_visual,
+                    ren_interaction,
                 )
             });
 
@@ -500,7 +500,7 @@ impl LayoutStore {
             size,
             inset,
         );
-        RenderStore::update_scrollbar_element_opacity(id, ren_visual, ren_base_visual, opacity);
+        RenderStore::update_scrollbar_element_opacity(id, opacity, ren_visual, ren_base_visual);
 
         let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
             id,
@@ -694,9 +694,9 @@ impl LayoutStore {
                     id,
                     val,
                     is_width,
+                    win_last_size,
                     topo_parents,
                     out_rects,
-                    win_last_size,
                 )
                 .unwrap_or(fallback),
                 Val::Auto => fallback,
@@ -871,22 +871,22 @@ impl LayoutStore {
             let container_rect = out_rects[id];
             let scroll_size = OutputStore::get_scroll_size(
                 id,
-                topo_active_masks,
-                cont_input_contents,
                 sys_text_engine,
-                cont_text_contents,
-                ren_visual,
-                cont_text_spans,
                 sys_dwrite_layouts,
+                cont_input_contents,
+                cont_text_contents,
+                cont_text_spans,
+                topo_active_masks,
+                topo_parents,
+                topo_children,
                 lay_basic,
                 lay_flex,
                 lay_grid,
-                ren_active_transitions,
-                topo_parents,
-                topo_children,
-                ren_interaction,
-                out_rects,
                 lay_scrollbar_styles,
+                ren_visual,
+                ren_interaction,
+                ren_active_transitions,
+                out_rects,
                 out_scroll_offsets,
             );
             let current_scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
@@ -930,19 +930,19 @@ impl LayoutStore {
             );
 
             let mut ctx = ScrollbarSyncContext {
+                topo_active_masks,
+                topo_parents,
                 lay_taffy_nodes,
                 lay_taffy,
                 lay_basic,
                 lay_base_basic,
                 lay_flex,
                 lay_grid,
-                topo_active_masks,
+                lay_scrollbar_styles,
                 ren_active_transitions,
-                topo_parents,
-                ren_interaction,
                 ren_visual,
                 ren_base_visual,
-                lay_scrollbar_styles,
+                ren_interaction,
             };
 
             // 縦トラック (V-Track) の同期

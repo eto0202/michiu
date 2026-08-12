@@ -101,8 +101,8 @@ impl OutputStore {
 
     pub(crate) fn has_parent_changed(
         id: EntityId,
-        topo_parents: &ParentsSecondary,
         topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
         out_rects: &RectsSecondary,
         out_prev_rects: &PrevRectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
@@ -122,14 +122,14 @@ impl OutputStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn calc_local_rect(
         id: EntityId,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &TaffyTreeEntityId,
+        window_size: LayoutSize,
         topo_parents: &ParentsSecondary,
+        lay_taffy: &TaffyTreeEntityId,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
-        lay_basic: &BasicLayoutsSecondary,
         out_scroll_offsets: &ScrollOffsetsSecondary,
-        window_size: LayoutSize,
     ) -> (LayoutRect, LayoutRect) {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
         let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy, lay_taffy_nodes);
@@ -179,9 +179,9 @@ impl OutputStore {
         id: EntityId,
         val: Val,
         is_width: bool,
+        win_last_size: Option<&LayoutSize>,
         topo_parents: &ParentsSecondary,
         out_rects: &RectsSecondary,
-        win_last_size: Option<&LayoutSize>,
     ) -> Option<f32> {
         match val {
             Val::Px(v) => Some(v),
@@ -268,8 +268,8 @@ impl OutputStore {
     pub(crate) fn is_drag_autoscroll_active(
         evt_interaction_states: &InteractionStates,
         evt_current_pointer_position: Option<&LayoutPoint>,
-        out_clip_rects: &ClipRectsSecondary,
         ren_visual: &VisualPropertiesSecondary,
+        out_clip_rects: &ClipRectsSecondary,
     ) -> bool {
         let Some(id) = evt_interaction_states.pressed else {
             return false;
@@ -353,22 +353,21 @@ impl OutputStore {
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
     #[must_use]
     pub fn get_selected_text(
-        events: &EventStore,
-        renders: &RenderStore,
-        outputs: &OutputStore,
-        contents: &ContentStore,
+        evt_interaction_states: &InteractionStates,
+        cont_text_contents: &TextContentsSparseSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        out_text_selections: &TextSelectionsSparseSecondary,
     ) -> Option<String> {
-        let focused_id = events.evt_interaction_states.focused?;
-        let user_select = renders
-            .ren_visual
+        let focused_id = evt_interaction_states.focused?;
+        let user_select = ren_visual
             .get(focused_id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
 
         if user_select == UserSelect::Text {
-            let range = outputs.out_text_selections.get(focused_id)?;
+            let range = out_text_selections.get(focused_id)?;
             if range.start < range.end {
-                let text = contents.cont_text_contents.get(focused_id)?;
+                let text = cont_text_contents.get(focused_id)?;
                 let u16_text: Vec<u16> = text.encode_utf16().collect();
                 let slice =
                     &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
@@ -381,8 +380,9 @@ impl OutputStore {
     pub(crate) fn inject_paste_internal(
         focused_id: EntityId,
         text: &str,
-        outputs: &mut OutputStore,
         contents: &mut InputContents,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
         let text_val = contents.text.0.get();
         let range = contents.selected_range.clone();
@@ -429,10 +429,8 @@ impl OutputStore {
         contents.record_undo(text_val.clone(), range.clone());
 
         contents.selected_range = new_caret..new_caret;
-        outputs
-            .out_text_selections
-            .insert(focused_id, new_caret..new_caret);
-        outputs.out_selected_rects.remove(focused_id);
+        out_text_selections.insert(focused_id, new_caret..new_caret);
+        out_selected_rects.remove(focused_id);
         contents.text.1.set(new_text);
     }
 
@@ -440,16 +438,17 @@ impl OutputStore {
         focused_id: EntityId,
         prev_sel: Range<usize>,
         prev_text: String,
-        outputs: &mut OutputStore,
         contents: &mut InputContents,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
         let current_text = contents.text.0.get();
         let current_sel = contents.selected_range.clone();
         contents.redo_stack.push((current_text, current_sel)); // 現在の状態を Redo 用にセーブ
 
         contents.selected_range = prev_sel.clone();
-        outputs.out_text_selections.insert(focused_id, prev_sel);
-        outputs.out_selected_rects.remove(focused_id);
+        out_text_selections.insert(focused_id, prev_sel);
+        out_selected_rects.remove(focused_id);
         contents.text.1.set(prev_text);
     }
 
@@ -457,24 +456,26 @@ impl OutputStore {
         focused_id: EntityId,
         next_sel: Range<usize>,
         next_text: String,
-        outputs: &mut OutputStore,
         contents: &mut InputContents,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
         let current_text = contents.text.0.get();
         let current_sel = contents.selected_range.clone();
         contents.undo_stack.push((current_text, current_sel)); // 現在の状態を Undo 用に退避
 
         contents.selected_range = next_sel.clone();
-        outputs.out_text_selections.insert(focused_id, next_sel);
-        outputs.out_selected_rects.remove(focused_id);
+        out_text_selections.insert(focused_id, next_sel);
+        out_selected_rects.remove(focused_id);
         contents.text.1.set(next_text);
     }
 
     pub(crate) fn inject_cut_internal(
         focused_id: EntityId,
         range: Range<usize>,
-        outputs: &mut OutputStore,
         contents: &mut InputContents,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
         // 削除前の履歴セーブ
         let current_text = contents.text.0.get();
@@ -488,22 +489,20 @@ impl OutputStore {
 
         let new_text = String::from_utf16_lossy(&left);
         contents.selected_range = range.start..range.start;
-        outputs
-            .out_text_selections
-            .insert(focused_id, range.start..range.start);
-        outputs.out_selected_rects.remove(focused_id);
+        out_text_selections.insert(focused_id, range.start..range.start);
+        out_selected_rects.remove(focused_id);
         contents.text.1.set(new_text);
     }
 
     #[inline]
     pub(crate) fn truncate_unconfirmed_text(
         text_val: &str,
-        cont_input_contents: &InputContents,
+        contents: &InputContents,
         max: usize,
         filtered_comp_text: String,
     ) -> String {
         let text_u16: Vec<u16> = text_val.encode_utf16().collect();
-        let range = &cont_input_contents.selected_range;
+        let range = &contents.selected_range;
         let range_start = range.start.min(text_u16.len());
         let range_end = range.end.min(text_u16.len());
         let deleted_len = range_end - range_start;
@@ -534,22 +533,22 @@ impl OutputStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn get_scroll_size(
         id: EntityId,
-        topo_active_masks: &ActiveMasksSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
         sys_text_engine: &TextEngine,
-        cont_text_contents: &TextContentsSparseSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
-        out_rects: &RectsSecondary,
         lay_scrollbar_styles: &ScrollbarStylesSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        out_rects: &RectsSecondary,
         out_scroll_offsets: &ScrollOffsetsSecondary,
     ) -> LayoutSize {
         let mut max_x = 0.0f32;
@@ -647,210 +646,203 @@ impl OutputStore {
     #[inline]
     pub(crate) fn scroll_ime_info(
         id: EntityId,
+        sys_text_engine: &TextEngine,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
-        sys_text_engine: &TextEngine,
         ren_visual: &mut VisualPropertiesSecondary,
         ren_base_visual: &BaseVisualPropertiesSecondary,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
     ) -> Option<(LayoutRect, f32, bool)> {
-        // (caret_x, caret_y, caret_h, caret_w, caret_offset, is_multiline)
-        let mut scroll_ime_info: Option<(LayoutRect, f32, bool)> = None;
+        let contents = cont_input_contents.get_mut(id)?;
+        // 入力エンジン側の最新カーソル位置を描画SoA側に同期
+        out_text_selections.insert(id, contents.selected_range.clone());
 
-        if let Some(contents) = cont_input_contents.get_mut(id) {
-            // 入力エンジン側の最新カーソル位置を描画SoA側に同期
-            out_text_selections.insert(id, contents.selected_range.clone());
+        let text_val = contents.text.0.get();
+        contents.total_len = text_val.chars().count();
 
-            let text_val = contents.text.0.get();
-            contents.total_len = text_val.chars().count();
-
-            // IME未確定文字列が入力されている際、numeric_only が有効であれば数値を事前にフィルタリング
-            // is_password が有効であればマスク処理を適用した中間文字列を生成
-            let mut filtered_comp_text = if let Some(ref ime) = contents.ime_state
-                && !ime.composition_text.is_empty()
-            {
-                if contents.numeric_only {
-                    let mut s = String::new();
-                    for c in ime.composition_text.chars() {
-                        if c.is_numeric() || c == '.' || c == '-' {
-                            s.push(c);
-                        }
+        // IME未確定文字列が入力されている際、numeric_only が有効であれば数値を事前にフィルタリング
+        // is_password が有効であればマスク処理を適用した中間文字列を生成
+        let mut filtered_comp_text = if let Some(ref ime) = contents.ime_state
+            && !ime.composition_text.is_empty()
+        {
+            if contents.numeric_only {
+                let mut s = String::new();
+                for c in ime.composition_text.chars() {
+                    if c.is_numeric() || c == '.' || c == '-' {
+                        s.push(c);
                     }
-                    s
-                } else {
-                    ime.composition_text.clone()
                 }
+                s
             } else {
-                String::new()
-            };
-
-            // 文字数制限（max_length）による未確定文字列の事前切り詰め
-            if let Some(max) = contents.max_length
-                && !filtered_comp_text.is_empty()
-            {
-                filtered_comp_text = OutputStore::truncate_unconfirmed_text(
-                    &text_val,
-                    contents,
-                    max,
-                    filtered_comp_text,
-                );
+                ime.composition_text.clone()
             }
+        } else {
+            String::new()
+        };
 
-            if contents.is_password && !filtered_comp_text.is_empty() {
-                let mask = contents.mask_text.as_deref().unwrap_or("●");
-                filtered_comp_text = mask.repeat(filtered_comp_text.chars().count());
-            }
-
-            // is_password が true の場合、未確定中であっても
-            // すでに確定されている文字列部分が一時的に生テキストとして露出してしまわないよう
-            // マスクを維持した一時文字列を生成してベースとして使用
-            let text_val_for_display = if contents.is_password {
-                let mask = contents.mask_text.as_deref().unwrap_or("●");
-                mask.repeat(text_val.chars().count())
-            } else {
-                text_val.clone()
-            };
-
-            // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
-            let display_text = if !filtered_comp_text.is_empty() {
-                crate::input_get_display_text(
-                    &text_val_for_display,
-                    contents.selected_range.start,
-                    &filtered_comp_text,
-                )
-            } else if text_val.is_empty() {
-                contents
-                    .placeholder
-                    .as_ref()
-                    .map(std::string::ToString::to_string)
-                    .unwrap_or_default()
-            } else if contents.is_password {
-                let mask = contents.mask_text.as_deref().unwrap_or("●");
-                mask.repeat(text_val.chars().count())
-            } else {
-                text_val.clone()
-            };
-
-            let caret_text = if !filtered_comp_text.is_empty() {
-                crate::input_get_display_text(
-                    &text_val_for_display,
-                    contents.selected_range.start,
-                    &filtered_comp_text,
-                )
-            } else if text_val.is_empty() {
-                String::new()
-            } else if contents.is_password {
-                let mask = contents.mask_text.as_deref().unwrap_or("●");
-                mask.repeat(text_val.chars().count())
-            } else {
-                text_val.clone()
-            };
-
-            let (font_size, font_family, font_weight, font_style) =
-                RenderStore::get_font_propery(id, ren_visual);
-
-            let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
-
-            // 描画テキスト全体のレイアウトサイズを Taffy 測定用に設定
-            let display_layout = sys_text_engine.create_layout(
-                &display_text,
-                font_size,
-                font_family,
-                font_weight,
-                font_style,
-                None,
-                spans,
+        // 文字数制限（max_length）による未確定文字列の事前切り詰め
+        if let Some(max) = contents.max_length
+            && !filtered_comp_text.is_empty()
+        {
+            filtered_comp_text = OutputStore::truncate_unconfirmed_text(
+                &text_val,
+                contents,
+                max,
+                filtered_comp_text,
             );
-            let text_size = sys_text_engine.get_layout_size(&display_layout);
-            contents.last_layout =
-                Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
-
-            // キャレット位置測定用のレイアウトをプレースホルダー抜きで作成
-            let caret_layout = sys_text_engine.create_layout(
-                &caret_text,
-                font_size,
-                font_family,
-                font_weight,
-                font_style,
-                None,
-                spans,
-            );
-
-            let composition_offset = if let Some(ref ime) = contents.ime_state
-                && !ime.composition_text.is_empty()
-            {
-                // 組成文字全体の文字数をオフセットとして適用
-                ime.composition_text.encode_utf16().count()
-            } else {
-                0
-            };
-
-            // ドラッグの方向を判定しマウス位置にキャレットを固定
-            let current_caret_relative = if contents.selection_reversed {
-                contents.selected_range.start // 逆方向（左ドラッグ）時は左端がマウス位置
-            } else {
-                contents.selected_range.end // 順方向（右ドラッグ）時は右端がマウス位置
-            };
-
-            let caret_index = current_caret_relative + composition_offset;
-            let u16_len_caret = caret_text.encode_utf16().count();
-
-            // プレースホルダーに干渉されない純粋なキャレット位置を算出
-            let (cx_offset, cy_offset, ch_height) =
-                sys_text_engine.get_caret_position(&caret_layout, caret_index, u16_len_caret);
-
-            contents.measured_caret_x = cx_offset;
-            contents.measured_caret_y = cy_offset;
-            contents.caret_line_height = ch_height;
-
-            let (curr_line, tot_lines) = crate::calculate_line_indices(&display_text, caret_index);
-            contents.current_line_index = curr_line;
-            contents.total_lines = tot_lines;
-
-            // 最終表示用テキストを Context 側に反映
-            cont_text_contents.insert(id, display_text.into());
-
-            if let Some(visual) = ren_visual.get_mut(id) {
-                let is_ime_active = contents
-                    .ime_state
-                    .as_ref()
-                    .is_some_and(|ime| !ime.composition_text.is_empty());
-
-                if text_val.is_empty() && !is_ime_active {
-                    // 確定文字列が空で、かつ未確定文字列も存在しない状態のみグレー表示
-                    visual.text_color = contents.placeholder_color;
-                } else {
-                    let base_color = ren_base_visual
-                        .get(id)
-                        .and_then(|v| v.text_color)
-                        .unwrap_or(Color::WHITE);
-                    visual.text_color = Some(base_color);
-                }
-            }
-
-            scroll_ime_info = Some((
-                LayoutRect {
-                    x: cx_offset,
-                    y: cy_offset,
-                    width: contents.caret_width.unwrap_or(contents.default_caret_width),
-                    height: ch_height,
-                },
-                contents.caret_offset,
-                contents.is_multiline,
-            ));
         }
-        scroll_ime_info
+
+        if contents.is_password && !filtered_comp_text.is_empty() {
+            let mask = contents.mask_text.as_deref().unwrap_or("●");
+            filtered_comp_text = mask.repeat(filtered_comp_text.chars().count());
+        }
+
+        // is_password が true の場合、未確定中であっても
+        // すでに確定されている文字列部分が一時的に生テキストとして露出してしまわないよう
+        // マスクを維持した一時文字列を生成してベースとして使用
+        let text_val_for_display = if contents.is_password {
+            let mask = contents.mask_text.as_deref().unwrap_or("●");
+            mask.repeat(text_val.chars().count())
+        } else {
+            text_val.clone()
+        };
+
+        // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
+        let display_text = if !filtered_comp_text.is_empty() {
+            crate::input_get_display_text(
+                &text_val_for_display,
+                contents.selected_range.start,
+                &filtered_comp_text,
+            )
+        } else if text_val.is_empty() {
+            contents
+                .placeholder
+                .as_ref()
+                .map(std::string::ToString::to_string)
+                .unwrap_or_default()
+        } else if contents.is_password {
+            let mask = contents.mask_text.as_deref().unwrap_or("●");
+            mask.repeat(text_val.chars().count())
+        } else {
+            text_val.clone()
+        };
+
+        let caret_text = if !filtered_comp_text.is_empty() {
+            crate::input_get_display_text(
+                &text_val_for_display,
+                contents.selected_range.start,
+                &filtered_comp_text,
+            )
+        } else if text_val.is_empty() {
+            String::new()
+        } else if contents.is_password {
+            let mask = contents.mask_text.as_deref().unwrap_or("●");
+            mask.repeat(text_val.chars().count())
+        } else {
+            text_val.clone()
+        };
+
+        let (font_size, font_family, font_weight, font_style) =
+            RenderStore::get_font_propery(id, ren_visual);
+
+        let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
+
+        // 描画テキスト全体のレイアウトサイズを Taffy 測定用に設定
+        let display_layout = sys_text_engine.create_layout(
+            &display_text,
+            font_size,
+            font_family,
+            font_weight,
+            font_style,
+            None,
+            spans,
+        );
+        let text_size = sys_text_engine.get_layout_size(&display_layout);
+        contents.last_layout = Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
+
+        // キャレット位置測定用のレイアウトをプレースホルダー抜きで作成
+        let caret_layout = sys_text_engine.create_layout(
+            &caret_text,
+            font_size,
+            font_family,
+            font_weight,
+            font_style,
+            None,
+            spans,
+        );
+
+        let composition_offset = if let Some(ref ime) = contents.ime_state
+            && !ime.composition_text.is_empty()
+        {
+            // 組成文字全体の文字数をオフセットとして適用
+            ime.composition_text.encode_utf16().count()
+        } else {
+            0
+        };
+
+        // ドラッグの方向を判定しマウス位置にキャレットを固定
+        let current_caret_relative = if contents.selection_reversed {
+            contents.selected_range.start // 逆方向（左ドラッグ）時は左端がマウス位置
+        } else {
+            contents.selected_range.end // 順方向（右ドラッグ）時は右端がマウス位置
+        };
+
+        let caret_index = current_caret_relative + composition_offset;
+        let u16_len_caret = caret_text.encode_utf16().count();
+
+        // プレースホルダーに干渉されない純粋なキャレット位置を算出
+        let (cx_offset, cy_offset, ch_height) =
+            sys_text_engine.get_caret_position(&caret_layout, caret_index, u16_len_caret);
+
+        contents.measured_caret_x = cx_offset;
+        contents.measured_caret_y = cy_offset;
+        contents.caret_line_height = ch_height;
+
+        let (curr_line, tot_lines) = crate::calculate_line_indices(&display_text, caret_index);
+        contents.current_line_index = curr_line;
+        contents.total_lines = tot_lines;
+
+        // 最終表示用テキストを Context 側に反映
+        cont_text_contents.insert(id, display_text.into());
+
+        let visual = ren_visual.get_mut(id)?;
+        let is_ime_active = contents
+            .ime_state
+            .as_ref()
+            .is_some_and(|ime| !ime.composition_text.is_empty());
+
+        if text_val.is_empty() && !is_ime_active {
+            // 確定文字列が空で、かつ未確定文字列も存在しない状態のみグレー表示
+            visual.text_color = contents.placeholder_color;
+        } else {
+            let base_color = ren_base_visual
+                .get(id)
+                .and_then(|v| v.text_color)
+                .unwrap_or(Color::WHITE);
+            visual.text_color = Some(base_color);
+        }
+
+        Some((
+            LayoutRect {
+                x: cx_offset,
+                y: cy_offset,
+                width: contents.caret_width.unwrap_or(contents.default_caret_width),
+                height: ch_height,
+            },
+            contents.caret_offset,
+            contents.is_multiline,
+        ))
     }
 
     #[inline]
     pub(crate) fn clear_selection_highlight_rect(
         id: EntityId,
         topo_active_masks: &mut ActiveMasksSecondary,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
-        out_selected_rects: &mut SelectedRectsSparseSecondary,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_spans: &mut TextSpansSparseSecondary,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
         out_text_selections.remove(id);
         out_selected_rects.remove(id);
@@ -912,27 +904,27 @@ impl OutputStore {
         id: EntityId,
         mut x: f32,
         mut y: f32,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        win_last_size: Option<LayoutSize>,
         sys_text_engine: &TextEngine,
-        cont_text_contents: &TextContentsSparseSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
+        ren_visual: &VisualPropertiesSecondary,
         ren_interaction: &InteractionPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
         out_rects: &RectsSecondary,
-        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
-        win_last_size: Option<LayoutSize>,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
     ) -> bool {
         let Some(rect) = OutputStore::rect(id, out_rects) else {
             return false;
@@ -940,22 +932,22 @@ impl OutputStore {
 
         let scroll_size = OutputStore::get_scroll_size(
             id,
-            topo_active_masks,
-            cont_input_contents,
             sys_text_engine,
-            cont_text_contents,
-            ren_visual,
-            cont_text_spans,
             sys_dwrite_layouts,
+            cont_input_contents,
+            cont_text_contents,
+            cont_text_spans,
+            topo_active_masks,
+            topo_parents,
+            topo_children,
             lay_basic,
             lay_flex,
             lay_grid,
-            ren_active_transitions,
-            topo_parents,
-            topo_children,
-            ren_interaction,
-            out_rects,
             lay_scrollbar_styles,
+            ren_visual,
+            ren_interaction,
+            ren_active_transitions,
+            out_rects,
             out_scroll_offsets,
         );
 
@@ -1019,27 +1011,27 @@ impl OutputStore {
         id: EntityId,
         dx: f32,
         dy: f32,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        win_last_size: Option<LayoutSize>,
         sys_text_engine: &TextEngine,
-        cont_text_contents: &TextContentsSparseSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
+        ren_visual: &VisualPropertiesSecondary,
         ren_interaction: &InteractionPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
         out_rects: &RectsSecondary,
-        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
-        win_last_size: Option<LayoutSize>,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
     ) -> bool {
         let current = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
@@ -1047,27 +1039,27 @@ impl OutputStore {
             id,
             current.x + dx,
             current.y + dy,
-            topo_active_masks,
-            cont_input_contents,
+            win_last_size,
             sys_text_engine,
-            cont_text_contents,
-            ren_visual,
-            cont_text_spans,
             sys_dwrite_layouts,
+            cont_input_contents,
+            cont_text_contents,
+            cont_text_spans,
+            topo_active_masks,
+            topo_parents,
+            topo_children,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
             lay_basic,
             lay_flex,
             lay_grid,
-            ren_active_transitions,
-            topo_parents,
-            topo_children,
+            ren_visual,
             ren_interaction,
+            ren_active_transitions,
             out_rects,
-            lay_scrollbar_styles,
             out_scroll_offsets,
-            win_last_size,
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
         )
     }
 
@@ -1076,43 +1068,43 @@ impl OutputStore {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn update_input_caret_position(
         id: EntityId,
-        out_rects: &RectsSecondary,
+        win_last_size: Option<LayoutSize>,
+        win_scale_factor: f32,
+        sys_text_engine: &TextEngine,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
-        sys_text_engine: &TextEngine,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        topo_children: &ChildrenSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
-        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
-        out_scroll_offsets: &mut ScrollOffsetsSecondary,
-        win_last_size: Option<LayoutSize>,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
         ren_visual: &mut VisualPropertiesSecondary,
         ren_base_visual: &BaseVisualPropertiesSecondary,
-        win_scale_factor: f32,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_rects: &RectsSecondary,
     ) {
         // IMEやタイピング中の古いキャッシュを破棄
         SystemStore::clear_layout_cache(id, sys_dwrite_layouts);
 
         let scroll_ime_info = OutputStore::scroll_ime_info(
             id,
+            sys_text_engine,
             cont_input_contents,
             cont_text_contents,
-            out_text_selections,
             cont_text_spans,
-            sys_text_engine,
             ren_visual,
             ren_base_visual,
+            out_text_selections,
         );
 
         let Some((caret, caret_offset, is_multiline)) = scroll_ime_info else {
@@ -1177,27 +1169,27 @@ impl OutputStore {
                 id,
                 scroll.x,
                 scroll.y,
-                topo_active_masks,
-                cont_input_contents,
+                win_last_size,
                 sys_text_engine,
-                cont_text_contents,
-                ren_visual,
-                cont_text_spans,
                 sys_dwrite_layouts,
+                cont_input_contents,
+                cont_text_contents,
+                cont_text_spans,
+                topo_active_masks,
+                topo_parents,
+                topo_children,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_scrollbar_styles,
+                lay_taffy_nodes,
                 lay_basic,
                 lay_flex,
                 lay_grid,
-                ren_active_transitions,
-                topo_parents,
-                topo_children,
+                ren_visual,
                 ren_interaction,
+                ren_active_transitions,
                 out_rects,
-                lay_scrollbar_styles,
                 out_scroll_offsets,
-                win_last_size,
-                lay_taffy_nodes,
-                lay_taffy,
-                lay_dirty_entities,
             );
         }
 
@@ -1236,28 +1228,28 @@ impl OutputStore {
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn sync_scrollbar_drag(
         logical_pos: LayoutPoint,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        win_last_size: Option<LayoutSize>,
         sys_text_engine: &TextEngine,
-        cont_text_contents: &TextContentsSparseSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
-        cont_text_spans: &TextSpansSparseSecondary,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        ren_visual: &VisualPropertiesSecondary,
         ren_interaction: &InteractionPropertiesSecondary,
-        out_rects: &RectsSecondary,
-        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
-        win_last_size: Option<LayoutSize>,
+        out_rects: &RectsSecondary,
     ) {
         #[derive(Clone, Copy, PartialEq, Eq)]
         pub(crate) enum DragDirection {
@@ -1284,22 +1276,22 @@ impl OutputStore {
             let container_rect = OutputStore::rect(current_id, out_rects).unwrap_or_default();
             let scroll_size = OutputStore::get_scroll_size(
                 current_id,
-                topo_active_masks,
-                cont_input_contents,
                 sys_text_engine,
-                cont_text_contents,
-                ren_visual,
-                cont_text_spans,
                 sys_dwrite_layouts,
+                cont_input_contents,
+                cont_text_contents,
+                cont_text_spans,
+                topo_active_masks,
+                topo_parents,
+                topo_children,
                 lay_basic,
                 lay_flex,
                 lay_grid,
-                ren_active_transitions,
-                topo_parents,
-                topo_children,
-                ren_interaction,
-                out_rects,
                 lay_scrollbar_styles,
+                ren_visual,
+                ren_interaction,
+                ren_active_transitions,
+                out_rects,
                 out_scroll_offsets,
             );
             (sb_state, container_rect, scroll_size)
@@ -1397,27 +1389,27 @@ impl OutputStore {
                 current_id,
                 target_x,
                 target_y,
-                topo_active_masks,
-                cont_input_contents,
+                win_last_size,
                 sys_text_engine,
-                cont_text_contents,
-                ren_visual,
-                cont_text_spans,
                 sys_dwrite_layouts,
+                cont_input_contents,
+                cont_text_contents,
+                cont_text_spans,
+                topo_active_masks,
+                topo_parents,
+                topo_children,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_scrollbar_styles,
+                lay_taffy_nodes,
                 lay_basic,
                 lay_flex,
                 lay_grid,
-                ren_active_transitions,
-                topo_parents,
-                topo_children,
+                ren_visual,
                 ren_interaction,
+                ren_active_transitions,
                 out_rects,
-                lay_scrollbar_styles,
                 out_scroll_offsets,
-                win_last_size,
-                lay_taffy_nodes,
-                lay_taffy,
-                lay_dirty_entities,
             );
         }
 
@@ -1428,11 +1420,11 @@ impl OutputStore {
     pub(crate) fn hit_test_recursive(
         id: EntityId,
         point: LayoutPoint,
-        out_rects: &RectsSecondary,
-        out_clip_rects: &ClipRectsSecondary,
         topo_children: &ChildrenSecondary,
         ren_visual: &VisualPropertiesSecondary,
         ren_base_visual: &BaseVisualPropertiesSecondary,
+        out_rects: &RectsSecondary,
+        out_clip_rects: &ClipRectsSecondary,
     ) -> Option<EntityId> {
         // 親などの overflow: hidden 等でクリップされている表示範囲をチェック
         // クリップ領域外であれば、この要素もそのすべての子孫要素も画面上に見えていないためをスキップ
@@ -1448,11 +1440,11 @@ impl OutputStore {
                 if let Some(hit) = OutputStore::hit_test_recursive(
                     child_id,
                     point,
-                    out_rects,
-                    out_clip_rects,
                     topo_children,
                     ren_visual,
                     ren_base_visual,
+                    out_rects,
+                    out_clip_rects,
                 ) {
                     return Some(hit);
                 }
@@ -1502,28 +1494,28 @@ impl OutputStore {
     // TOTO: フラットバッファ ＋ インデックス範囲に変更
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn collect_render_data(
-        out_rects: &RectsSecondary,
-        out_clip_rects: &ClipRectsSecondary,
-        lay_basic: &BasicLayoutsSecondary,
-        lay_flex: &FlexLayoutsSecondary,
-        lay_grid: &GridLayoutsSecondary,
-        topo_active_masks: &ActiveMasksSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        topo_active_entities: &ActiveEntitiesVec,
-        ren_interaction: &InteractionPropertiesSecondary,
-        ren_base_visual: &BaseVisualPropertiesSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        ren_active_webviews: &ActiveWebviewsHashSet,
-        out_selected_rects: &SelectedRectsSparseSecondary,
-        out_scroll_offsets: &ScrollOffsetsSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
         win_scale_factor: f32,
+        cont_input_contents: &InputContentsSparseSecondary,
         evt_interaction_states: &InteractionStates,
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_effective_transforms: &mut EffectiveTransformsSecondary,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
+        topo_active_entities: &ActiveEntitiesVec,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        ren_active_webviews: &ActiveWebviewsHashSet,
+        out_rects: &RectsSecondary,
+        out_clip_rects: &ClipRectsSecondary,
+        out_selected_rects: &SelectedRectsSparseSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
     ) -> RenderData {
         let mut batches = Vec::new();
         let mut current_instances = Vec::new();
@@ -1538,11 +1530,11 @@ impl OutputStore {
 
         // 各要素の実効トランスフォーム行列を DFS 順にカスケード累積
         RenderStore::accumulate_transform_matrix(
+            topo_effective_transforms,
+            topo_active_entities,
+            topo_parents,
             topo_flat_dfs_sequence,
             ren_visual,
-            topo_parents,
-            topo_active_entities,
-            topo_effective_transforms,
         );
 
         // 実効 z_index の計算とソートを一括実行
@@ -2058,8 +2050,8 @@ impl Context {
 
         OutputStore::has_parent_changed(
             id,
-            topo_parents,
             topo_active_masks,
+            topo_parents,
             out_rects,
             out_prev_rects,
             out_clip_rects,
@@ -2089,14 +2081,14 @@ impl Context {
 
         OutputStore::calc_local_rect(
             id,
-            lay_taffy_nodes,
-            lay_taffy,
+            window_size,
             topo_parents,
+            lay_taffy,
+            lay_taffy_nodes,
+            lay_basic,
             out_rects,
             out_clip_rects,
-            lay_basic,
             out_scroll_offsets,
-            window_size,
         )
     }
 
@@ -2117,7 +2109,7 @@ impl Context {
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
     pub(crate) fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
         let TopologyStore {
-            topo_entities: topo_entities,
+            topo_entities,
             topo_parents,
             topo_children,
             topo_active_masks,
@@ -2167,27 +2159,27 @@ impl Context {
             id,
             x,
             y,
-            topo_active_masks,
-            cont_input_contents,
+            *win_last_size,
             sys_text_engine,
-            cont_text_contents,
-            ren_visual,
-            cont_text_spans,
             sys_dwrite_layouts,
+            cont_input_contents,
+            cont_text_contents,
+            cont_text_spans,
+            topo_active_masks,
+            topo_parents,
+            topo_children,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
             lay_basic,
             lay_flex,
             lay_grid,
-            ren_active_transitions,
-            topo_parents,
-            topo_children,
+            ren_visual,
             ren_interaction,
+            ren_active_transitions,
             out_rects,
-            lay_scrollbar_styles,
             out_scroll_offsets,
-            *win_last_size,
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
         )
     }
 
@@ -2208,11 +2200,11 @@ impl Context {
         OutputStore::hit_test_recursive(
             id,
             point,
-            out_rects,
-            out_clip_rects,
             topo_children,
             ren_visual,
             ren_base_visual,
+            out_rects,
+            out_clip_rects,
         )
     }
 
@@ -2264,28 +2256,28 @@ impl Context {
         } = &self.window;
 
         OutputStore::collect_render_data(
-            out_rects,
-            out_clip_rects,
-            lay_basic,
-            lay_flex,
-            lay_grid,
-            topo_active_masks,
-            ren_active_transitions,
-            topo_parents,
-            topo_flat_dfs_sequence,
-            topo_active_entities,
-            ren_interaction,
-            ren_base_visual,
-            ren_visual,
-            ren_active_webviews,
-            out_selected_rects,
-            out_scroll_offsets,
-            cont_input_contents,
             *win_scale_factor,
+            cont_input_contents,
             evt_interaction_states,
             topo_sorted_entities,
             topo_effective_transforms,
             topo_effective_z_indices,
+            topo_active_entities,
+            topo_active_masks,
+            topo_parents,
+            topo_flat_dfs_sequence,
+            lay_basic,
+            lay_flex,
+            lay_grid,
+            ren_visual,
+            ren_base_visual,
+            ren_interaction,
+            ren_active_transitions,
+            ren_active_webviews,
+            out_rects,
+            out_clip_rects,
+            out_selected_rects,
+            out_scroll_offsets,
         )
     }
 }

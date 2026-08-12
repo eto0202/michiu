@@ -128,8 +128,8 @@ impl RenderStore {
 
     /// 描画（レンダー）ダーティ状態として登録された要素をすべてクリアします。
     pub(crate) fn clear_render_dirty(
-        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
         topo_active_masks: &mut ActiveMasksSecondary,
+        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
     ) {
         for id in ren_dirty_entities.drain(..) {
             let Some(mask) = topo_active_masks.get_mut(id) else {
@@ -145,16 +145,14 @@ impl RenderStore {
         id: EntityId,
         ren_visual: &VisualPropertiesSecondary,
     ) -> (f32, Option<&str>, Option<u32>, Option<u32>) {
-        ren_visual
-            .get(id)
-            .map_or((16.0, None, None, None), |v| {
-                (
-                    v.font_size.unwrap_or(16.0),
-                    v.font_family.as_deref(),
-                    v.font_weight,
-                    v.font_style,
-                )
-            })
+        ren_visual.get(id).map_or((16.0, None, None, None), |v| {
+            (
+                v.font_size.unwrap_or(16.0),
+                v.font_family.as_deref(),
+                v.font_weight,
+                v.font_style,
+            )
+        })
     }
 
     pub(crate) fn get_visual_property_mut<'a>(
@@ -169,7 +167,7 @@ impl RenderStore {
             if !ren_interaction.contains_key(id) {
                 ren_interaction.insert(id, InteractionStyles::default());
             }
-            let styles = ren_interaction.get_mut(id).unwrap();
+            let styles = ren_interaction.get_mut(id)?;
             let style_ref = styles.get_style_target_mut(target);
             Some(&mut Arc::make_mut(&mut style_ref.inner).visual_property)
         }
@@ -179,14 +177,11 @@ impl RenderStore {
     #[inline]
     pub(crate) fn update_scrollbar_element_opacity(
         id: EntityId,
+        opacity: f32,
         ren_visual: &mut VisualPropertiesSecondary,
         ren_base_visual: &mut BaseVisualPropertiesSecondary,
-        opacity: f32,
     ) {
-        let visuals = [
-            ren_visual.get_mut(id),
-            ren_base_visual.get_mut(id),
-        ];
+        let visuals = [ren_visual.get_mut(id), ren_base_visual.get_mut(id)];
 
         for vis in visuals.into_iter().flatten() {
             vis.opacity = Some(opacity);
@@ -195,8 +190,8 @@ impl RenderStore {
 
     pub(crate) fn trigger_keyframe_animations_if_needed(
         id: EntityId,
-        ren_visual: &VisualPropertiesSecondary,
         ren_active_animations: &mut ActiveAnimationsSparseSecondary,
+        ren_visual: &VisualPropertiesSecondary,
     ) {
         let Some(visual) = ren_visual.get(id) else {
             return;
@@ -251,19 +246,19 @@ impl RenderStore {
     pub(crate) fn has_active_animations(
         evt_interaction_states: &InteractionStates,
         evt_current_pointer_position: Option<&LayoutPoint>,
-        out_clip_rects: &ClipRectsSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        lay_scrollbar_styles: &ScrollbarStylesSecondary,
         ren_visual: &VisualPropertiesSecondary,
         ren_active_transitions: &ActiveTransitionsSparseSecondary,
         ren_active_animations: &ActiveAnimationsSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
-        lay_scrollbar_styles: &ScrollbarStylesSecondary,
+        out_clip_rects: &ClipRectsSecondary,
     ) -> bool {
         // ドラッグ選択中でポインタが可視境界外にある場合も継続
         let has_drag_autoscroll = OutputStore::is_drag_autoscroll_active(
             evt_interaction_states,
             evt_current_pointer_position,
-            out_clip_rects,
             ren_visual,
+            out_clip_rects,
         );
 
         // トランジションのアクティブ判定
@@ -299,8 +294,8 @@ impl RenderStore {
     /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定。
     pub(crate) fn does_state_require_layout(
         id: EntityId,
-        ren_interaction: &InteractionPropertiesSecondary,
         state_flag: u128,
+        ren_interaction: &InteractionPropertiesSecondary,
     ) -> bool {
         let Some(interaction) = ren_interaction.get(id) else {
             return false;
@@ -334,11 +329,11 @@ impl RenderStore {
 
     pub(crate) fn resolv_focus_style(
         id: EntityId,
-        ren_interaction: &InteractionPropertiesSecondary,
-        ren_visual: &VisualPropertiesSecondary,
         active_mask: &ComponentMask,
-        topo_parents: &SecondaryMap<EntityId, Option<EntityId>>,
         state_flag: u128,
+        topo_parents: &SecondaryMap<EntityId, Option<EntityId>>,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
     ) -> Option<ThisStyle> {
         if !active_mask.has(state_flag) {
             return None;
@@ -450,9 +445,9 @@ impl RenderStore {
 
     pub(crate) fn cascade_basic_layout(
         id: EntityId,
-        ren_interaction: &InteractionPropertiesSecondary,
-        active_mask: ComponentMask,
         target_layout: &mut BasicLayout,
+        active_mask: ComponentMask,
+        ren_interaction: &InteractionPropertiesSecondary,
     ) {
         let Some(interaction) = ren_interaction.get(id) else {
             return;
@@ -484,11 +479,11 @@ impl RenderStore {
     #[inline]
     pub(crate) fn cascade_interaction(
         id: EntityId,
-        active_mask: ComponentMask,
         target: &mut TargetStyle,
-        ren_interaction: &InteractionPropertiesSecondary,
+        active_mask: ComponentMask,
         focused_style_resolved: Option<ThisStyle>,
         focused_visible_style_resolved: Option<ThisStyle>,
+        ren_interaction: &InteractionPropertiesSecondary,
     ) {
         let Some(interaction) = ren_interaction.get(id) else {
             return;
@@ -518,12 +513,12 @@ impl RenderStore {
     #[inline]
     pub(crate) fn cascade_within_interaction(
         id: EntityId,
-        active_mask: ComponentMask,
         target: &mut TargetStyle,
-        ren_interaction: &InteractionPropertiesSecondary,
+        active_mask: ComponentMask,
+        topo_active_masks: &ActiveMasksSecondary,
         topo_entities: &EntitiesSlot,
         topo_children: &ChildrenSecondary,
-        topo_active_masks: &ActiveMasksSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
     ) {
         if !active_mask.has(STYLE_INTERACTION_WITHIN) {
             return;
@@ -585,13 +580,13 @@ impl RenderStore {
     #[inline]
     pub(crate) fn cascade_parent_interaction(
         id: EntityId,
-        active_mask: ComponentMask,
         target: &mut TargetStyle,
-        ren_interaction: &InteractionPropertiesSecondary,
+        active_mask: ComponentMask,
+        topo_active_masks: &ActiveMasksSecondary,
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
-        topo_active_masks: &ActiveMasksSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
     ) {
         if active_mask.has(STYLE_INTERACTION_PARENT) {
             return;
@@ -608,8 +603,13 @@ impl RenderStore {
             };
 
             // 直近の親要素がこの state_flag を満たしているか
-            let with_state =
-                TopologyStore::has_parent_with_state(id, topo_parents, topo_entities, topo_active_masks, state);
+            let with_state = TopologyStore::has_parent_with_state(
+                id,
+                topo_parents,
+                topo_entities,
+                topo_active_masks,
+                state,
+            );
 
             if !with_state {
                 continue;
@@ -644,53 +644,53 @@ impl RenderStore {
     #[inline]
     pub(crate) fn apply_interaction_cascades(
         id: EntityId,
-        active_mask: ComponentMask,
         target: &mut TargetStyle,
-        ren_interaction: &InteractionPropertiesSecondary,
+        active_mask: ComponentMask,
+        focused_style_resolved: Option<ThisStyle>,
+        focused_visible_style_resolved: Option<ThisStyle>,
+        topo_active_masks: &ActiveMasksSecondary,
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
-        topo_active_masks: &ActiveMasksSecondary,
-        focused_style_resolved: Option<ThisStyle>,
-        focused_visible_style_resolved: Option<ThisStyle>,
+        ren_interaction: &InteractionPropertiesSecondary,
     ) {
         RenderStore::cascade_interaction(
             id,
-            active_mask,
             target,
-            ren_interaction,
+            active_mask,
             focused_style_resolved,
             focused_visible_style_resolved,
+            ren_interaction,
         );
         RenderStore::cascade_parent_interaction(
             id,
-            active_mask,
             target,
-            ren_interaction,
+            active_mask,
+            topo_active_masks,
             topo_entities,
             topo_parents,
             topo_children,
-            topo_active_masks,
+            ren_interaction,
         );
         RenderStore::cascade_within_interaction(
             id,
-            active_mask,
             target,
-            ren_interaction,
+            active_mask,
+            topo_active_masks,
             topo_entities,
             topo_children,
-            topo_active_masks,
+            ren_interaction,
         );
     }
 
     /// 対象の要素がキーボードフォーカス可能であるかを検証
     pub(crate) fn is_keyboard_focusable(
         id: EntityId,
-        topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
+        topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
-        ren_visual: &VisualPropertiesSecondary,
         lay_basic: &BasicLayoutsSecondary,
+        ren_visual: &VisualPropertiesSecondary,
     ) -> bool {
         if !topo_entities.contains_key(id) {
             return false;
@@ -736,13 +736,13 @@ impl RenderStore {
         id: EntityId,
         property: PropertyList,
         value: &TransitionValue,
-        ren_visual: &mut VisualPropertiesSecondary,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         topo_active_masks: &mut ActiveMasksSecondary,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         topo_parents: &ParentsSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        ren_visual: &mut VisualPropertiesSecondary,
     ) {
         if !ren_visual.contains_key(id) {
             ren_visual.insert(id, VisualProperty::default());
@@ -804,25 +804,25 @@ impl RenderStore {
     pub(crate) fn resolve_element_style_state(
         id: EntityId,
         allow_transition: bool,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        ren_base_visual: &BaseVisualPropertiesSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
-        ren_visual: &mut VisualPropertiesSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_entities: &EntitiesSlot,
-        topo_children: &ChildrenSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        win_last_size: Option<&LayoutSize>,
         react_element_effects: &ElementEffectsSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_entities: &EntitiesSlot,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_base_basic: &BaseBasicLayoutsSecondary,
+        ren_visual: &mut VisualPropertiesSecondary,
+        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
         ren_active_transitions: &mut ActiveTransitionsSparseSecondary,
         ren_active_animations: &mut ActiveAnimationsSparseSecondary,
-        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_base_basic: &BaseBasicLayoutsSecondary,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
         out_rects: &RectsSecondary,
-        win_last_size: Option<&LayoutSize>,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
     ) {
         let active_mask = topo_active_masks[id];
 
@@ -830,46 +830,42 @@ impl RenderStore {
             id,
             allow_transition,
             active_mask,
-            ren_base_visual,
-            ren_visual,
-            ren_interaction,
+            react_element_effects,
+            cont_input_contents,
+            topo_active_masks,
             topo_entities,
             topo_parents,
             topo_children,
-            topo_active_masks,
-            cont_input_contents,
-            react_element_effects,
-            ren_active_transitions,
+            ren_visual,
             ren_dirty_entities,
+            ren_active_transitions,
+            ren_base_visual,
+            ren_interaction,
         );
 
         RenderStore::resolve_layout_styles(
             id,
             allow_transition,
             active_mask,
-            lay_basic,
-            lay_base_basic,
-            ren_interaction,
-            topo_parents,
-            lay_taffy_nodes,
-            lay_taffy,
-            topo_active_masks,
-            lay_dirty_entities,
-            out_rects,
             win_last_size,
+            react_element_effects,
+            topo_active_masks,
+            topo_parents,
+            lay_taffy,
+            lay_basic,
+            lay_dirty_entities,
+            lay_taffy_nodes,
+            lay_base_basic,
+            ren_active_transitions,
             ren_visual,
             ren_base_visual,
-            react_element_effects,
-            ren_active_transitions,
+            ren_interaction,
+            out_rects,
         );
 
         // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
         // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
-        RenderStore::trigger_keyframe_animations_if_needed(
-            id,
-            ren_visual,
-            ren_active_animations,
-        );
+        RenderStore::trigger_keyframe_animations_if_needed(id, ren_active_animations, ren_visual);
 
         let Some(react_effects) = react_element_effects.get(id) else {
             return;
@@ -889,20 +885,20 @@ impl RenderStore {
         id: EntityId,
         allow_transition: bool,
         active_mask: ComponentMask,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_base_basic: &BaseBasicLayoutsSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
-        topo_parents: &ParentsSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        out_rects: &RectsSecondary,
         win_last_size: Option<&LayoutSize>,
+        react_element_effects: &ElementEffectsSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_base_basic: &BaseBasicLayoutsSecondary,
+        ren_active_transitions: &mut ActiveTransitionsSparseSecondary,
         ren_visual: &VisualPropertiesSecondary,
         ren_base_visual: &BaseVisualPropertiesSecondary,
-        react_element_effects: &ElementEffectsSecondary,
-        ren_active_transitions: &mut ActiveTransitionsSparseSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        out_rects: &RectsSecondary,
     ) {
         let has_base_layout = lay_base_basic.contains_key(id);
         let has_active_layout = lay_basic.contains_key(id);
@@ -915,15 +911,10 @@ impl RenderStore {
         let base_layout = lay_base_basic.get(id).copied().unwrap_or_default();
         let mut target_layout = base_layout;
 
-        RenderStore::cascade_basic_layout(
-            id,
-            ren_interaction,
-            active_mask,
-            &mut target_layout,
-        );
+        RenderStore::cascade_basic_layout(id, &mut target_layout, active_mask, ren_interaction);
 
         let to_px = |val, is_width| {
-            OutputStore::val_to_px(id, val, is_width, topo_parents, out_rects, win_last_size)
+            OutputStore::val_to_px(id, val, is_width, win_last_size, topo_parents, out_rects)
         };
 
         let target_w = to_px(target_layout.size.width, true);
@@ -941,8 +932,8 @@ impl RenderStore {
                 start,
                 end,
                 react_element_effects,
-                ren_base_visual,
                 ren_active_transitions,
+                ren_base_visual,
             )
         };
 
@@ -1012,17 +1003,17 @@ impl RenderStore {
         id: EntityId,
         allow_transition: bool,
         active_mask: ComponentMask,
-        ren_base_visual: &BaseVisualPropertiesSecondary,
-        ren_visual: &mut VisualPropertiesSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
+        react_element_effects: &ElementEffectsSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
-        react_element_effects: &ElementEffectsSecondary,
-        ren_active_transitions: &mut ActiveTransitionsSparseSecondary,
+        ren_visual: &mut VisualPropertiesSecondary,
         ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        ren_active_transitions: &mut ActiveTransitionsSparseSecondary,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
     ) {
         let has_base_visual = ren_base_visual.contains_key(id);
         let has_active_visual = ren_visual.contains_key(id);
@@ -1038,11 +1029,11 @@ impl RenderStore {
         let resolv_focus = |flag| {
             RenderStore::resolv_focus_style(
                 id,
-                ren_interaction,
-                ren_visual,
                 &active_mask,
-                topo_parents,
                 flag,
+                topo_parents,
+                ren_visual,
+                ren_interaction,
             )
         };
 
@@ -1051,15 +1042,15 @@ impl RenderStore {
 
         RenderStore::apply_interaction_cascades(
             id,
-            active_mask,
             &mut target,
-            ren_interaction,
+            active_mask,
+            focused_style_resolved,
+            focused_visible_style_resolved,
+            topo_active_masks,
             topo_entities,
             topo_parents,
             topo_children,
-            topo_active_masks,
-            focused_style_resolved,
-            focused_visible_style_resolved,
+            ren_interaction,
         );
 
         let mut is_placeholder_active = false;
@@ -1113,8 +1104,8 @@ impl RenderStore {
                 start,
                 end,
                 react_element_effects,
-                ren_base_visual,
                 ren_active_transitions,
+                ren_base_visual,
             )
         };
 
@@ -1273,8 +1264,8 @@ impl RenderStore {
         start_value: TransitionValue,
         end_value: TransitionValue,
         react_element_effects: &ElementEffectsSecondary,
-        ren_base_visual: &BaseVisualPropertiesSecondary,
         ren_active_transitions: &mut ActiveTransitionsSparseSecondary,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
     ) -> bool {
         // スタイルの再評価エフェクトの実行中であるか
         let is_style_evaluating = crate::signal::ACTIVE_EFFECT.with(|cell| {
@@ -1358,9 +1349,9 @@ impl RenderStore {
     pub(crate) fn resolve_cursor(
         hovered_id: EntityId,
         evt_interaction_states: &InteractionStates,
+        topo_parents: &ParentsSecondary,
         ren_visual: &VisualPropertiesSecondary,
         ren_base_visual: &BaseVisualPropertiesSecondary,
-        topo_parents: &ParentsSecondary,
     ) -> CursorIcon {
         // 現在プレス中の要素（pressed）があればそれを最優先で探索の基点にする
         let start_id = evt_interaction_states.pressed.unwrap_or(hovered_id);
@@ -1413,11 +1404,11 @@ impl RenderStore {
 
     /// 各要素の実効トランスフォーム行列を累積計算
     pub(crate) fn accumulate_transform_matrix(
+        topo_effective_transforms: &mut EffectiveTransformsSecondary,
+        topo_active_entities: &ActiveEntitiesVec,
+        topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         ren_visual: &VisualPropertiesSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_active_entities: &ActiveEntitiesVec,
-        topo_effective_transforms: &mut EffectiveTransformsSecondary,
     ) {
         topo_effective_transforms.clear();
 
@@ -1501,15 +1492,15 @@ impl RenderStore {
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn tick_animations(
-        ren_active_animations: &mut ActiveAnimationsSparseSecondary,
-        ren_visual: &mut VisualPropertiesSecondary,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         topo_active_masks: &mut ActiveMasksSecondary,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
         topo_parents: &ParentsSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        ren_visual: &mut VisualPropertiesSecondary,
+        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        ren_active_animations: &mut ActiveAnimationsSparseSecondary,
     ) {
         let now = Instant::now();
 
@@ -1534,13 +1525,13 @@ impl RenderStore {
                         id,
                         anim.property,
                         &anim.end_value,
-                        ren_visual,
-                        lay_basic,
-                        lay_taffy_nodes,
-                        lay_taffy,
                         topo_active_masks,
-                        lay_dirty_entities,
                         topo_parents,
+                        lay_taffy,
+                        lay_basic,
+                        lay_dirty_entities,
+                        lay_taffy_nodes,
+                        ren_visual,
                     );
                     return false;
                 }
@@ -1562,13 +1553,13 @@ impl RenderStore {
                     id,
                     anim.property,
                     &current_val,
-                    ren_visual,
-                    lay_basic,
-                    lay_taffy_nodes,
-                    lay_taffy,
                     topo_active_masks,
-                    lay_dirty_entities,
                     topo_parents,
+                    lay_taffy,
+                    lay_basic,
+                    lay_dirty_entities,
+                    lay_taffy_nodes,
+                    ren_visual,
                 );
 
                 RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
@@ -1583,16 +1574,16 @@ impl RenderStore {
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
     pub(crate) fn tick_transitions(
-        ren_last_tick_time: &mut Option<Instant>,
-        ren_active_transitions: &mut ActiveTransitionsSparseSecondary,
-        ren_visual: &mut VisualPropertiesSecondary,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         topo_active_masks: &mut ActiveMasksSecondary,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         topo_parents: &ParentsSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        ren_visual: &mut VisualPropertiesSecondary,
         ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        ren_active_transitions: &mut ActiveTransitionsSparseSecondary,
+        ren_last_tick_time: &mut Option<Instant>,
     ) {
         const FRAME_TIME_120FPS: Duration = Duration::from_nanos(8_333_333);
         let now = Instant::now();
@@ -1941,10 +1932,11 @@ impl TargetStyle {
 impl Context {
     #[inline]
     pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
-        let TopologyStore { topo_active_masks, .. } = &mut self.topology;
+        let TopologyStore {
+            topo_active_masks, ..
+        } = &mut self.topology;
         let RenderStore {
-            ren_dirty_entities,
-            ..
+            ren_dirty_entities, ..
         } = &mut self.renders;
 
         RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
@@ -1962,12 +1954,7 @@ impl Context {
             ..
         } = &mut self.renders;
 
-        RenderStore::get_visual_property_mut(
-            id,
-            target,
-            ren_base_visual,
-            ren_interaction,
-        )
+        RenderStore::get_visual_property_mut(id, target, ren_base_visual, ren_interaction)
     }
 
     /// 対象の要素がキーボードフォーカス可能であるかを総合検証します
@@ -1979,18 +1966,16 @@ impl Context {
             topo_parents,
             ..
         } = &self.topology;
-        let RenderStore {
-            ren_visual, ..
-        } = &self.renders;
+        let RenderStore { ren_visual, .. } = &self.renders;
         let LayoutStore { lay_basic, .. } = &self.layouts;
 
         RenderStore::is_keyboard_focusable(
             id,
-            topo_entities,
             topo_active_masks,
+            topo_entities,
             topo_parents,
-            ren_visual,
             lay_basic,
+            ren_visual,
         )
     }
 
@@ -1998,7 +1983,7 @@ impl Context {
     #[inline]
     pub(crate) fn resolve_element_style_state(&mut self, id: EntityId, allow_transition: bool) {
         let TopologyStore {
-            topo_entities: topo_entities,
+            topo_entities,
             topo_parents,
             topo_children,
             topo_active_masks,
@@ -2027,37 +2012,39 @@ impl Context {
         let OutputStore { out_rects, .. } = &self.outputs;
 
         let ReactiveStore {
-            react_element_effects, ..
+            react_element_effects,
+            ..
         } = &self.reactive;
 
-        let ContentStore { cont_input_contents, .. } = &self.contents;
+        let ContentStore {
+            cont_input_contents,
+            ..
+        } = &self.contents;
 
-        let WindowStore {
-            win_last_size, ..
-        } = &self.window;
+        let WindowStore { win_last_size, .. } = &self.window;
 
         RenderStore::resolve_element_style_state(
             id,
             allow_transition,
-            topo_active_masks,
-            ren_base_visual,
-            ren_interaction,
-            ren_visual,
-            topo_parents,
-            topo_entities,
-            topo_children,
-            cont_input_contents,
+            win_last_size.as_ref(),
             react_element_effects,
+            cont_input_contents,
+            topo_active_masks,
+            topo_entities,
+            topo_parents,
+            topo_children,
+            lay_taffy,
+            lay_basic,
+            lay_dirty_entities,
+            lay_taffy_nodes,
+            lay_base_basic,
+            ren_visual,
+            ren_dirty_entities,
             ren_active_transitions,
             ren_active_animations,
-            ren_dirty_entities,
-            lay_basic,
-            lay_base_basic,
+            ren_base_visual,
+            ren_interaction,
             out_rects,
-            win_last_size.as_ref(),
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
         );
     }
 }
