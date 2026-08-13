@@ -914,9 +914,7 @@ impl Context {
         focused: bool,
         trigger: ActiveFocusTrigger,
     ) {
-        EventStore::update_state(self, id, STATE_FOCUSED, focused);
-        let show_visible = focused && (trigger == ActiveFocusTrigger::Keyboard);
-        EventStore::update_state(self, id, STATE_FOCUSED, focused);
+        EventStore::set_focused_by_trigger(self, id, focused, trigger);
     }
 
     /// プレス（Pressed：クリック押し下げ、タップ中）状態を更新します。
@@ -982,114 +980,20 @@ impl Context {
         EventStore::mouse_wheel_inner(self, scroll_x, scroll_y);
     }
 
+    #[inline]
     pub fn inject_keyboard_key(
         &mut self,
         key: VirtualKey,
         state: ElementState,
         modifiers: Modifiers,
     ) {
-        let _context_guard = bind_context(self);
-
-        // Tabキー押下時は個別のフォーカス対象へのイベント配信前に巡回処理を実行
-        if state == ElementState::Pressed && key == VirtualKey::TAB {
-            self.cycle_keyboard_focus(modifiers.shift);
-            return;
-        }
-
-        if let Some(focused_id) = self.events.evt_interaction_states.focused {
-            // フォーカス中に Enter または Space が押されたら自動的にクリックをエミュレートする
-            if state == ElementState::Pressed
-                && (key == VirtualKey::RETURN || key == VirtualKey::SPACE)
-                && !self.topology.topo_active_masks[focused_id].has_input_content()
-            {
-                handle_on_click(self, focused_id);
-                return;
-            }
-            // 内部で完結する全選択（Ctrl+A）のみを自動処理
-            if state == ElementState::Pressed && modifiers.ctrl {
-                let user_select = self.get_user_select(focused_id);
-
-                if key == VirtualKey::A && user_select == UserSelect::Text {
-                    if let Some(dw_layout) = self.get_or_create_layout(focused_id)
-                        && let Some(text) = self.contents.cont_text_contents.get(focused_id)
-                    {
-                        let u16_len = text.encode_utf16().count();
-                        let full_range = 0..u16_len;
-
-                        self.outputs
-                            .out_text_selections
-                            .insert(focused_id, full_range.clone());
-
-                        self.update_selection_rects(focused_id, &dw_layout);
-
-                        if let Some(contents) =
-                            self.contents.cont_input_contents.get_mut(focused_id)
-                        {
-                            contents.selected_range = full_range;
-                            contents.selection_reversed = false;
-                            self.update_input_caret_position(focused_id);
-                        }
-                        self.mark_render_dirty(focused_id);
-                    }
-                    return;
-                }
-            }
-            handle_on_keyboard_input(self, focused_id, key, modifiers, state);
-        }
+        EventStore::keyboard_key_inner(self, key, state, modifiers);
     }
 
     /// キーボードフォーカスを次の適格な要素へ巡回させます
+    #[inline]
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
-        if self.topology.topo_flat_dfs_sequence.is_empty() {
-            return;
-        }
-
-        let len = self.topology.topo_flat_dfs_sequence.len();
-
-        // 現在フォーカスされている要素のインデックスを特定（無ければ探索方向の末端から開始）
-        let current_focused = self.events.evt_interaction_states.focused;
-        let start_idx = current_focused
-            .and_then(|id| {
-                self.topology
-                    .topo_flat_dfs_sequence
-                    .iter()
-                    .position(|&x| x == id)
-            })
-            .unwrap_or(if reverse { len - 1 } else { 0 });
-
-        let mut idx = start_idx;
-        loop {
-            // インデックスの増減と循環
-            if reverse {
-                idx = if idx == 0 { len - 1 } else { idx - 1 };
-            } else {
-                idx = if idx == len - 1 { 0 } else { idx + 1 };
-            }
-
-            // 1周して元の位置に戻ってきた場合は、他にフォーカス可能な要素がないため終了
-            if idx == start_idx {
-                break;
-            }
-
-            let candidate_id = self.topology.topo_flat_dfs_sequence[idx];
-
-            if self.is_keyboard_focusable(candidate_id) {
-                // 古い要素のフォーカスを外し、新しい要素へフォーカスを設定
-                if let Some(old_id) = self.events.evt_interaction_states.focused {
-                    self.set_focused_by_trigger(old_id, false, ActiveFocusTrigger::Keyboard);
-                }
-                self.set_focused_by_trigger(candidate_id, true, ActiveFocusTrigger::Keyboard);
-                self.events.evt_interaction_states.focused = Some(candidate_id);
-
-                // WebView2 要素だった場合はシステム側にフォーカスをプログラム駆動で移譲
-                if self.topology.topo_active_masks[candidate_id].has_webveiw2_content() {
-                    // 通常のレンダラーから focus_webview を呼び出すためここでは何もしない
-                }
-
-                self.mark_render_dirty(candidate_id);
-                break;
-            }
-        }
+        EventStore::cycle_keyboard_focus_inner(self, reverse);
     }
 
     #[inline]

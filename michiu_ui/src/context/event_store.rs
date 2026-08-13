@@ -24,9 +24,9 @@ use crate::{
     VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur,
     handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start,
     handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
-    handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover, handle_on_mouse_enter,
-    handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click,
-    handle_on_select,
+    handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
+    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
+    handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -2275,6 +2275,236 @@ impl EventStore {
             // 先祖へ伝播
             curr = cx.topology.topo_parents.get(curr_id).copied().flatten();
         }
+    }
+
+    /// 指定されたテキスト要素の内容をすべて選択状態に
+    pub(crate) fn handle_select_all(
+        id: EntityId,
+        win_last_size: Option<LayoutSize>,
+        win_scale_factor: f32,
+        sys_text_engine: &TextEngine,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_text_contents: &mut TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        ren_visual: &mut VisualPropertiesSecondary,
+        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        ren_base_visual: &BaseVisualPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
+        out_rects: &RectsSecondary,
+    ) {
+        let Some(dw_layout) = SystemStore::get_or_create_layout(
+            id,
+            sys_text_engine,
+            sys_dwrite_layouts,
+            cont_text_contents,
+            cont_text_spans,
+            ren_visual,
+        ) else {
+            return;
+        };
+
+        let Some(text) = cont_text_contents.get(id) else {
+            return;
+        };
+
+        let u16_len = text.encode_utf16().count();
+        let full_range = 0..u16_len;
+
+        out_text_selections.insert(id, full_range.clone());
+
+        OutputStore::update_selection_rects(
+            id,
+            &dw_layout,
+            out_selected_rects,
+            out_text_selections,
+        );
+
+        if let Some(contents) = cont_input_contents.get_mut(id) {
+            contents.selected_range = full_range;
+            contents.selection_reversed = false;
+            OutputStore::update_input_caret_position(
+                id,
+                win_last_size,
+                win_scale_factor,
+                sys_text_engine,
+                sys_dwrite_layouts,
+                cont_input_contents,
+                cont_text_contents,
+                cont_text_spans,
+                topo_active_masks,
+                topo_parents,
+                topo_children,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_scrollbar_styles,
+                lay_taffy_nodes,
+                lay_basic,
+                lay_flex,
+                lay_grid,
+                ren_visual,
+                ren_base_visual,
+                ren_interaction,
+                ren_active_transitions,
+                out_scroll_offsets,
+                out_text_selections,
+                out_rects,
+            );
+        }
+
+        RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
+    }
+
+    pub(crate) fn keyboard_key_inner(
+        cx: &mut Context,
+        key: VirtualKey,
+        state: ElementState,
+        modifiers: Modifiers,
+    ) {
+        let _context_guard = bind_context(cx);
+
+        // Tabキー押下時は個別のフォーカス対象へのイベント配信前に巡回処理を実行
+        if state == ElementState::Pressed && key == VirtualKey::TAB {
+            EventStore::cycle_keyboard_focus_inner(cx, modifiers.shift);
+            return;
+        }
+
+        let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+            return;
+        };
+
+        // フォーカス中に Enter または Space が押されたらクリックをエミュレート
+        if state == ElementState::Pressed && (key == VirtualKey::RETURN || key == VirtualKey::SPACE)
+        {
+            let has_input_contents = cx
+                .topology
+                .topo_active_masks
+                .get(focused_id)
+                .is_some_and(ComponentMask::has_input_content);
+
+            if !has_input_contents {
+                handle_on_click(cx, focused_id);
+                return;
+            }
+        }
+        // 内部で完結する全選択（Ctrl+A）のみを自動処理
+        if state == ElementState::Pressed && modifiers.ctrl && key == VirtualKey::A {
+            let user_select = EventStore::get_user_select(focused_id, &cx.renders.ren_visual);
+            if user_select == UserSelect::Text {
+                EventStore::handle_select_all(
+                    focused_id,
+                    cx.window.win_last_size,
+                    cx.window.win_scale_factor,
+                    &cx.system.sys_text_engine,
+                    &cx.system.sys_dwrite_layouts,
+                    &mut cx.contents.cont_input_contents,
+                    &mut cx.contents.cont_text_contents,
+                    &cx.contents.cont_text_spans,
+                    &mut cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
+                    &cx.topology.topo_children,
+                    &mut cx.layouts.lay_taffy,
+                    &mut cx.layouts.lay_dirty_entities,
+                    &mut cx.layouts.lay_scrollbar_styles,
+                    &cx.layouts.lay_taffy_nodes,
+                    &cx.layouts.lay_basic,
+                    &cx.layouts.lay_flex,
+                    &cx.layouts.lay_grid,
+                    &mut cx.renders.ren_visual,
+                    &mut cx.renders.ren_dirty_entities,
+                    &cx.renders.ren_base_visual,
+                    &cx.renders.ren_interaction,
+                    &cx.renders.ren_active_transitions,
+                    &mut cx.outputs.out_scroll_offsets,
+                    &mut cx.outputs.out_text_selections,
+                    &mut cx.outputs.out_selected_rects,
+                    &cx.outputs.out_rects,
+                );
+                return;
+            }
+        }
+        // それ以外の通常のキー入力
+        handle_on_keyboard_input(cx, focused_id, key, modifiers, state);
+    }
+
+    /// キーボードフォーカスを次の適格な要素へ巡回
+    pub(crate) fn cycle_keyboard_focus_inner(cx: &mut Context, reverse: bool) {
+        if cx.topology.topo_flat_dfs_sequence.is_empty() {
+            return;
+        }
+
+        let len = cx.topology.topo_flat_dfs_sequence.len();
+        // 現在フォーカスされている要素のインデックスを特定（無ければ探索方向の末端から開始）
+        let current_focused = cx.events.evt_interaction_states.focused;
+
+        let start_idx = current_focused
+            .and_then(|id| {
+                cx.topology
+                    .topo_flat_dfs_sequence
+                    .iter()
+                    .position(|&x| x == id)
+            })
+            .unwrap_or(if reverse { len - 1 } else { 0 });
+
+        let mut target_id = None;
+
+        for i in 1..len {
+            let idx = if reverse {
+                (start_idx + len - i) % len
+            } else {
+                (start_idx + i) % len
+            };
+            
+            let Some(candidate_id) = cx.topology.topo_flat_dfs_sequence.get(idx).copied() else {
+                continue;
+            };
+
+            if RenderStore::is_keyboard_focusable(
+                candidate_id,
+                &cx.topology.topo_active_masks,
+                &cx.topology.topo_entities,
+                &cx.topology.topo_parents,
+                &cx.layouts.lay_basic,
+                &cx.renders.ren_visual,
+            ) {
+                target_id = Some(candidate_id);
+                break;
+            }
+        }
+
+        // フォーカス対象が見つかった場合のみ状態の遷移処理
+        let Some(candidate_id) = target_id else {
+            return;
+        };
+
+        // 旧フォーカスの解除
+        if let Some(old_id) = cx.events.evt_interaction_states.focused {
+            EventStore::set_focused_by_trigger(cx, old_id, false, ActiveFocusTrigger::Keyboard);
+        }
+
+        // 新フォーカスの設定
+        EventStore::set_focused_by_trigger(cx, candidate_id, true, ActiveFocusTrigger::Keyboard);
+        cx.events.evt_interaction_states.focused = Some(candidate_id);
+
+        RenderStore::mark_render_dirty(
+            candidate_id,
+            &mut cx.topology.topo_active_masks,
+            &mut cx.renders.ren_dirty_entities,
+        );
     }
 }
 
