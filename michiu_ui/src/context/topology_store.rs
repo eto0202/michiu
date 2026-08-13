@@ -745,7 +745,7 @@ impl Context {
             &mut self.topology.topo_is_structure_dirty,
             &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_taffy_nodes,
-            &mut self.renders.ren_dirty_entities,
+            &mut self.renders.rnd_dirty_entities,
         )
     }
 

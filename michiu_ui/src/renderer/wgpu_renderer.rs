@@ -584,7 +584,7 @@ impl WgpuRenderer {
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders
-            .ren_visual
+            .rnd_visual
             .get(entity_id)
             .unwrap_or(&default_visual);
 
@@ -648,7 +648,7 @@ impl WgpuRenderer {
             let mut curr_id = entity_id;
             while let Some(Some(parent_id)) = cx.topology.topo_parents.get(curr_id) {
                 if cx.topology.topo_active_masks[*parent_id].has_webveiw2_content()
-                    && cx.renders.ren_active_webviews.contains(parent_id)
+                    && cx.renders.rnd_active_webviews.contains(parent_id)
                 {
                     has_active_webview_parent = true;
                     break;
@@ -705,7 +705,7 @@ impl WgpuRenderer {
                 let text = &cx.contents.cont_text_contents[entity_id];
                 let visual = cx
                     .renders
-                    .ren_visual
+                    .rnd_visual
                     .get(entity_id)
                     .unwrap_or(&default_visual);
                 let layout = cx.system.sys_text_engine.create_layout(
@@ -761,7 +761,7 @@ impl WgpuRenderer {
 
             let font_size = cx
                 .renders
-                .ren_visual
+                .rnd_visual
                 .get(entity_id)
                 .and_then(|v| v.font_size)
                 .unwrap_or(16.0);
@@ -794,7 +794,7 @@ impl WgpuRenderer {
             } else {
                 // 通常文字入力中はユーザー指定色、無ければ不透明白
                 cx.renders
-                    .ren_visual
+                    .rnd_visual
                     .get(entity_id)
                     .and_then(|v| v.text_color)
                     .unwrap_or(Color::WHITE)
@@ -830,17 +830,17 @@ impl WgpuRenderer {
                 font_size_bits: (font_size * cx.window.win_scale_factor).to_bits(),
                 font_style: cx
                     .renders
-                    .ren_visual
+                    .rnd_visual
                     .get(entity_id)
                     .and_then(|v| v.font_style),
                 font_family: cx
                     .renders
-                    .ren_visual
+                    .rnd_visual
                     .get(entity_id)
                     .and_then(|f| f.font_family.clone()),
                 font_weight: cx
                     .renders
-                    .ren_visual
+                    .rnd_visual
                     .get(entity_id)
                     .and_then(|v| v.font_weight),
                 spans_hash,
@@ -876,15 +876,15 @@ impl WgpuRenderer {
                     &text_clone,
                     physical_font_size,
                     cx.renders
-                        .ren_visual
+                        .rnd_visual
                         .get(entity_id)
                         .and_then(|v| v.font_family.as_deref()),
                     cx.renders
-                        .ren_visual
+                        .rnd_visual
                         .get(entity_id)
                         .and_then(|v| v.font_weight),
                     cx.renders
-                        .ren_visual
+                        .rnd_visual
                         .get(entity_id)
                         .and_then(|v| v.font_style),
                     None,

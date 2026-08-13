@@ -4772,7 +4772,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.renders.ren_base_visual.get_mut(id) {
+                        if let Some(v) = cx.renders.rnd_base_visual.get_mut(id) {
                             v.pointer_events = Some(val);
                         }
                         cx.mark_render_dirty(id);
@@ -4922,7 +4922,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.renders.ren_base_visual.get_mut(id) {
+                        if let Some(v) = cx.renders.rnd_base_visual.get_mut(id) {
                             v.transitions.push(val);
                         }
                         cx.mark_render_dirty(id);
@@ -5007,7 +5007,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.renders.ren_base_visual.get_mut(id) {
+                        if let Some(v) = cx.renders.rnd_base_visual.get_mut(id) {
                             v.keyframe_animations.push(val);
                         }
                         cx.mark_render_dirty(id);
@@ -5445,12 +5445,12 @@ impl ThisStyle {
                     .push(Arc::new(move |cx, id, _parent_target| {
                         let val = getter(); // ThisStyle の動的評価結果
 
-                        if !cx.renders.ren_interaction.contains_key(id) {
+                        if !cx.renders.rnd_interaction.contains_key(id) {
                             cx.renders
-                                .ren_interaction
+                                .rnd_interaction
                                 .insert(id, InteractionStyles::default());
                         }
-                        let styles = cx.renders.ren_interaction.get_mut(id).unwrap();
+                        let styles = cx.renders.rnd_interaction.get_mut(id).unwrap();
 
                         // 動的に解決されたスタイルを対応する疑似フィールドへ上書きマウント
                         match target {

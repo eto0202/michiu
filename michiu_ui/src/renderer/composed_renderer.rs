@@ -214,7 +214,7 @@ impl ComposedRenderer {
 
             // ルート要素（root_node）のスタイルから DWM アクリル効果を自動検出して同期
             if let Some(&root_id) = cx.topology.topo_active_entities.first()
-                && let Some(visual_prop) = cx.renders.ren_visual.get(root_id)
+                && let Some(visual_prop) = cx.renders.rnd_visual.get(root_id)
             {
                 let target_backdrop = visual_prop.backdrop;
 
@@ -239,7 +239,7 @@ impl ComposedRenderer {
                         wgpu_texture.create_view(&wgpu::wgt::TextureViewDescriptor::default());
                     self.wgpu_renderer.webview_static_caches.insert(id, view);
 
-                    cx.renders.ren_active_webviews.remove(&id);
+                    cx.renders.rnd_active_webviews.remove(&id);
 
                     self.pending_dcomp_releases.push(PendingDcompRelease {
                         entity_id: id,
@@ -300,21 +300,29 @@ impl ComposedRenderer {
                     .any(|v| v.entity_id == id && v.is_capturing);
                 // 対象要素が現在サイズ・トランスフォーム等のアニメーション/トランジション中であるか判定
                 let is_transitioning =
-                    cx.renders.ren_active_transitions.get(id).is_some_and(|list| {
-                        list.iter().any(|t| {
-                            t.property_list == PropertyList::Width
-                                || t.property_list == PropertyList::Height
-                                || t.property_list == PropertyList::Size
-                                || t.property_list == PropertyList::Transform
+                    cx.renders
+                        .rnd_active_transitions
+                        .get(id)
+                        .is_some_and(|list| {
+                            list.iter().any(|t| {
+                                t.property_list == PropertyList::Width
+                                    || t.property_list == PropertyList::Height
+                                    || t.property_list == PropertyList::Size
+                                    || t.property_list == PropertyList::Transform
+                            })
                         })
-                    }) || cx.renders.ren_active_animations.get(id).is_some_and(|list| {
-                        list.iter().any(|a| {
-                            a.property == PropertyList::Width
-                                || a.property == PropertyList::Height
-                                || a.property == PropertyList::Size
-                                || a.property == PropertyList::Transform
-                        })
-                    });
+                        || cx
+                            .renders
+                            .rnd_active_animations
+                            .get(id)
+                            .is_some_and(|list| {
+                                list.iter().any(|a| {
+                                    a.property == PropertyList::Width
+                                        || a.property == PropertyList::Height
+                                        || a.property == PropertyList::Size
+                                        || a.property == PropertyList::Transform
+                                })
+                            });
 
                 // 要素の物理サイズが前フレームから微細変動（リサイズドラッグなど）しているか判定
                 let rect = cx.outputs.out_rects[id];
@@ -379,7 +387,7 @@ impl ComposedRenderer {
                             .is_some()
                     {
                         // コントローラーがバインドされた＝初期化完了したため、wgpu 側に穴あけを指示
-                        cx.renders.ren_active_webviews.insert(id);
+                        cx.renders.rnd_active_webviews.insert(id);
 
                         // 実体 WebView2 の表示が可能になった「このフレーム」で初めてキャッシュを解放。
                         if self.wgpu_renderer.webview_static_caches.contains_key(&id) {
@@ -439,21 +447,29 @@ impl ComposedRenderer {
                 let has_no_cache = !self.wgpu_renderer.webview_static_caches.contains_key(&id);
 
                 let is_transitioning =
-                    cx.renders.ren_active_transitions.get(id).is_some_and(|list| {
-                        list.iter().any(|t| {
-                            t.property_list == PropertyList::Width
-                                || t.property_list == PropertyList::Height
-                                || t.property_list == PropertyList::Size
-                                || t.property_list == PropertyList::Transform
+                    cx.renders
+                        .rnd_active_transitions
+                        .get(id)
+                        .is_some_and(|list| {
+                            list.iter().any(|t| {
+                                t.property_list == PropertyList::Width
+                                    || t.property_list == PropertyList::Height
+                                    || t.property_list == PropertyList::Size
+                                    || t.property_list == PropertyList::Transform
+                            })
                         })
-                    }) || cx.renders.ren_active_animations.get(id).is_some_and(|list| {
-                        list.iter().any(|a| {
-                            a.property == PropertyList::Width
-                                || a.property == PropertyList::Height
-                                || a.property == PropertyList::Size
-                                || a.property == PropertyList::Transform
-                        })
-                    });
+                        || cx
+                            .renders
+                            .rnd_active_animations
+                            .get(id)
+                            .is_some_and(|list| {
+                                list.iter().any(|a| {
+                                    a.property == PropertyList::Width
+                                        || a.property == PropertyList::Height
+                                        || a.property == PropertyList::Size
+                                        || a.property == PropertyList::Transform
+                                })
+                            });
 
                 let rect = cx.outputs.out_rects[id];
                 let prev_rect = cx
@@ -589,8 +605,11 @@ impl ComposedRenderer {
                 }
 
                 // トランスフォーム（Transform）が現在トランジション中か判定
-                let has_active_transform_anim =
-                    cx.renders.ren_active_transitions.get(id).is_some_and(|list| {
+                let has_active_transform_anim = cx
+                    .renders
+                    .rnd_active_transitions
+                    .get(id)
+                    .is_some_and(|list| {
                         list.iter()
                             .any(|t| t.property_list == PropertyList::Transform)
                     });
@@ -613,7 +632,7 @@ impl ComposedRenderer {
                 visual.SetOffsetY2(phys_y).unwrap();
 
                 // DComp 側への 2D アフィン変換行列 (Matrix3x2) の同期を追加
-                if let Some(visual_prop) = cx.renders.ren_visual.get(id) {
+                if let Some(visual_prop) = cx.renders.rnd_visual.get(id) {
                     if let Some(m) = visual_prop.transform {
                         let m11 = m[0][0];
                         let m12 = m[0][1];
@@ -660,7 +679,7 @@ impl ComposedRenderer {
                 }
 
                 // DComp の仕様に則り、通常の CreateRectangleClip から角丸設定を行います
-                if let Some(visual_prop) = cx.renders.ren_visual.get(id) {
+                if let Some(visual_prop) = cx.renders.rnd_visual.get(id) {
                     // 1. 通常の RectangleClip オブジェクトをデバイスから生成
                     let dcomp_device = self.dcomp_device.clone();
                     let rectangle_clip = dcomp_device.CreateRectangleClip().unwrap();

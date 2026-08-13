@@ -68,7 +68,7 @@ impl ContentStore {
 }
 
 impl ContentStore {
-    /// キャレットの点滅と描画を行うかを判定します
+    /// キャレットの点滅と描画を行うかを判定
     pub(crate) fn should_show_caret(contents: &InputContents) -> bool {
         let now_instant = Instant::now();
         if let Some(last) = contents.last_interacted_time

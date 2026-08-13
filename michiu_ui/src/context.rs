@@ -111,7 +111,6 @@ impl Context {
     #[must_use]
     pub fn new() -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
-
         Self {
             topology: TopologyStore::new(),
             layouts: LayoutStore::new(),
@@ -132,6 +131,7 @@ impl Context {
     }
 
     /// 一括解放
+    #[inline]
     pub fn clear(&mut self) {
         self.topology.clear();
         self.layouts.clear();
@@ -245,7 +245,7 @@ impl Context {
     /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。
     #[inline]
     pub fn is_render_dirty(&self) -> bool {
-        !self.renders.ren_dirty_entities.is_empty()
+        !self.renders.rnd_dirty_entities.is_empty()
             || !self.layouts.lay_dirty_entities.is_empty()
             || self.topology.topo_is_structure_dirty
     }
@@ -285,7 +285,7 @@ impl Context {
         RenderStore::mark_render_dirty(
             id,
             &mut self.topology.topo_active_masks,
-            &mut self.renders.ren_dirty_entities,
+            &mut self.renders.rnd_dirty_entities,
         );
     }
 
@@ -315,12 +315,13 @@ impl Context {
         OutputStore::get_selected_text(
             &self.events.evt_interaction_states,
             &self.contents.cont_text_contents,
-            &self.renders.ren_visual,
+            &self.renders.rnd_visual,
             &self.outputs.out_text_selections,
         )
     }
 
     /// 現在のスクロール位置から相対移動します。
+    #[inline]
     pub fn scroll_by(&mut self, id: EntityId, dx: f32, dy: f32) -> bool {
         OutputStore::scroll_by(
             id,
@@ -342,9 +343,9 @@ impl Context {
             &self.layouts.lay_basic,
             &self.layouts.lay_flex,
             &self.layouts.lay_grid,
-            &self.renders.ren_visual,
-            &self.renders.ren_interaction,
-            &self.renders.ren_active_transitions,
+            &self.renders.rnd_visual,
+            &self.renders.rnd_interaction,
+            &self.renders.rnd_active_transitions,
             &mut self.outputs.out_scroll_offsets,
             &self.outputs.out_rects,
         )
@@ -421,8 +422,8 @@ impl Context {
             hovered_id,
             &self.events.evt_interaction_states,
             &self.topology.topo_parents,
-            &self.renders.ren_visual,
-            &self.renders.ren_base_visual,
+            &self.renders.rnd_visual,
+            &self.renders.rnd_base_visual,
         )
     }
 
@@ -431,7 +432,7 @@ impl Context {
     pub fn clear_render_dirty(&mut self) {
         RenderStore::clear_render_dirty(
             &mut self.topology.topo_active_masks,
-            &mut self.renders.ren_dirty_entities,
+            &mut self.renders.rnd_dirty_entities,
         );
     }
 
@@ -443,9 +444,9 @@ impl Context {
             self.events.evt_current_pointer_position.as_ref(),
             &self.contents.cont_input_contents,
             &self.layouts.lay_scrollbar_styles,
-            &self.renders.ren_visual,
-            &self.renders.ren_active_transitions,
-            &self.renders.ren_active_animations,
+            &self.renders.rnd_visual,
+            &self.renders.rnd_active_transitions,
+            &self.renders.rnd_active_animations,
             &self.outputs.out_clip_rects,
         )
     }
@@ -459,9 +460,9 @@ impl Context {
             &mut self.layouts.lay_basic,
             &mut self.layouts.lay_dirty_entities,
             &self.layouts.lay_taffy_nodes,
-            &mut self.renders.ren_visual,
-            &mut self.renders.ren_dirty_entities,
-            &mut self.renders.ren_active_animations,
+            &mut self.renders.rnd_visual,
+            &mut self.renders.rnd_dirty_entities,
+            &mut self.renders.rnd_active_animations,
         );
     }
 
@@ -474,10 +475,10 @@ impl Context {
             &mut self.layouts.lay_basic,
             &mut self.layouts.lay_dirty_entities,
             &self.layouts.lay_taffy_nodes,
-            &mut self.renders.ren_visual,
-            &mut self.renders.ren_dirty_entities,
-            &mut self.renders.ren_active_transitions,
-            &mut self.renders.ren_last_tick_time,
+            &mut self.renders.rnd_visual,
+            &mut self.renders.rnd_dirty_entities,
+            &mut self.renders.rnd_active_transitions,
+            &mut self.renders.rnd_last_tick_time,
         );
     }
 
@@ -543,6 +544,7 @@ impl Context {
 
     /// 現在のテキスト・IME状態・フォントサイズから、
     /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して `SoA` を更新。
+    #[inline]
     pub fn update_input_caret_position(&mut self, id: EntityId) {
         OutputStore::update_input_caret_position(
             id,
@@ -563,10 +565,10 @@ impl Context {
             &self.layouts.lay_basic,
             &self.layouts.lay_flex,
             &self.layouts.lay_grid,
-            &mut self.renders.ren_visual,
-            &self.renders.ren_base_visual,
-            &self.renders.ren_interaction,
-            &self.renders.ren_active_transitions,
+            &mut self.renders.rnd_visual,
+            &self.renders.rnd_base_visual,
+            &self.renders.rnd_interaction,
+            &self.renders.rnd_active_transitions,
             &mut self.outputs.out_scroll_offsets,
             &mut self.outputs.out_text_selections,
             &self.outputs.out_rects,
@@ -599,9 +601,9 @@ impl Context {
             &self.layouts.lay_basic,
             &self.layouts.lay_flex,
             &self.layouts.lay_grid,
-            &self.renders.ren_visual,
-            &self.renders.ren_active_transitions,
-            &self.renders.ren_interaction,
+            &self.renders.rnd_visual,
+            &self.renders.rnd_active_transitions,
+            &self.renders.rnd_interaction,
             &mut self.outputs.out_scroll_offsets,
             &self.outputs.out_rects,
             &self.outputs.out_clip_rects,
@@ -615,7 +617,7 @@ impl Context {
             RenderStore::mark_render_dirty(
                 id,
                 &mut self.topology.topo_active_masks,
-                &mut self.renders.ren_dirty_entities,
+                &mut self.renders.rnd_dirty_entities,
             );
         }
     }
@@ -778,6 +780,7 @@ impl Context {
 
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
     /// 階層的な早期枝刈りヒットテスト
+    #[inline]
     pub fn hit_test(&mut self, point: LayoutPoint) -> Option<EntityId> {
         TopologyStore::hit_test(
             point,
@@ -788,8 +791,8 @@ impl Context {
             &self.topology.topo_active_entities,
             &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,
-            &self.renders.ren_visual,
-            &self.renders.ren_base_visual,
+            &self.renders.rnd_visual,
+            &self.renders.rnd_base_visual,
             &self.outputs.out_rects,
             &self.outputs.out_clip_rects,
         )

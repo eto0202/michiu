@@ -51,14 +51,14 @@ pub(crate) type ActiveAnimationsSparseSecondary =
 pub(crate) type ActiveWebviewsHashSet = HashSet<EntityId>;
 
 pub struct RenderStore {
-    pub(crate) ren_visual: VisualPropertiesSecondary,
-    pub(crate) ren_interaction: InteractionPropertiesSecondary,
-    pub(crate) ren_base_visual: BaseVisualPropertiesSecondary,
-    pub(crate) ren_dirty_entities: DirtyRenderEntitiesVec,
-    pub(crate) ren_active_transitions: ActiveTransitionsSparseSecondary,
-    pub(crate) ren_active_animations: ActiveAnimationsSparseSecondary,
-    pub(crate) ren_active_webviews: ActiveWebviewsHashSet,
-    pub(crate) ren_last_tick_time: Option<Instant>,
+    pub(crate) rnd_visual: VisualPropertiesSecondary,
+    pub(crate) rnd_interaction: InteractionPropertiesSecondary,
+    pub(crate) rnd_base_visual: BaseVisualPropertiesSecondary,
+    pub(crate) rnd_dirty_entities: DirtyRenderEntitiesVec,
+    pub(crate) rnd_active_transitions: ActiveTransitionsSparseSecondary,
+    pub(crate) rnd_active_animations: ActiveAnimationsSparseSecondary,
+    pub(crate) rnd_active_webviews: ActiveWebviewsHashSet,
+    pub(crate) rnd_last_tick_time: Option<Instant>,
 }
 
 impl Default for RenderStore {
@@ -72,38 +72,38 @@ impl RenderStore {
     #[inline]
     pub fn new() -> Self {
         Self {
-            ren_visual: SecondaryMap::new(),
-            ren_interaction: SecondaryMap::new(),
-            ren_base_visual: SecondaryMap::new(),
-            ren_dirty_entities: Vec::new(),
-            ren_active_transitions: SparseSecondaryMap::new(),
-            ren_active_animations: SparseSecondaryMap::new(),
-            ren_active_webviews: HashSet::new(),
-            ren_last_tick_time: None,
+            rnd_visual: SecondaryMap::new(),
+            rnd_interaction: SecondaryMap::new(),
+            rnd_base_visual: SecondaryMap::new(),
+            rnd_dirty_entities: Vec::new(),
+            rnd_active_transitions: SparseSecondaryMap::new(),
+            rnd_active_animations: SparseSecondaryMap::new(),
+            rnd_active_webviews: HashSet::new(),
+            rnd_last_tick_time: None,
         }
     }
 
     #[inline]
     pub fn clear(&mut self) {
-        self.ren_visual.clear();
-        self.ren_interaction.clear();
-        self.ren_base_visual.clear();
-        self.ren_dirty_entities.clear();
-        self.ren_active_transitions.clear();
-        self.ren_active_animations.clear();
-        self.ren_active_webviews.clear();
-        self.ren_last_tick_time = None;
+        self.rnd_visual.clear();
+        self.rnd_interaction.clear();
+        self.rnd_base_visual.clear();
+        self.rnd_dirty_entities.clear();
+        self.rnd_active_transitions.clear();
+        self.rnd_active_animations.clear();
+        self.rnd_active_webviews.clear();
+        self.rnd_last_tick_time = None;
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
-        self.ren_visual.remove(id);
-        self.ren_interaction.remove(id);
-        self.ren_base_visual.remove(id);
-        self.ren_dirty_entities.retain(|&x| x != id);
-        self.ren_active_transitions.remove(id);
-        self.ren_active_animations.remove(id);
-        self.ren_active_webviews.remove(&id);
+        self.rnd_visual.remove(id);
+        self.rnd_interaction.remove(id);
+        self.rnd_base_visual.remove(id);
+        self.rnd_dirty_entities.retain(|&x| x != id);
+        self.rnd_active_transitions.remove(id);
+        self.rnd_active_animations.remove(id);
+        self.rnd_active_webviews.remove(&id);
     }
 }
 
@@ -1929,7 +1929,7 @@ impl Context {
         RenderStore::mark_render_dirty(
             id,
             &mut self.topology.topo_active_masks,
-            &mut self.renders.ren_dirty_entities,
+            &mut self.renders.rnd_dirty_entities,
         );
     }
 
@@ -1942,8 +1942,8 @@ impl Context {
         RenderStore::get_visual_property_mut(
             id,
             target,
-            &mut self.renders.ren_base_visual,
-            &mut self.renders.ren_interaction,
+            &mut self.renders.rnd_base_visual,
+            &mut self.renders.rnd_interaction,
         )
     }
 
@@ -1965,12 +1965,12 @@ impl Context {
             &mut self.layouts.lay_dirty_entities,
             &self.layouts.lay_taffy_nodes,
             &self.layouts.lay_base_basic,
-            &mut self.renders.ren_visual,
-            &mut self.renders.ren_dirty_entities,
-            &mut self.renders.ren_active_transitions,
-            &mut self.renders.ren_active_animations,
-            &self.renders.ren_base_visual,
-            &self.renders.ren_interaction,
+            &mut self.renders.rnd_visual,
+            &mut self.renders.rnd_dirty_entities,
+            &mut self.renders.rnd_active_transitions,
+            &mut self.renders.rnd_active_animations,
+            &self.renders.rnd_base_visual,
+            &self.renders.rnd_interaction,
             &self.outputs.out_rects,
         );
     }

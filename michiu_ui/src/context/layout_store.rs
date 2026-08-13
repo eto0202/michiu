@@ -1257,9 +1257,9 @@ impl Context {
             ..
         } = &self.topology;
         let RenderStore {
-            ren_active_transitions,
-            ren_interaction,
-            ren_visual,
+            rnd_active_transitions: ren_active_transitions,
+            rnd_interaction: ren_interaction,
+            rnd_visual: ren_visual,
             ..
         } = &self.renders;
 
@@ -1284,7 +1284,7 @@ impl Context {
     ) -> Option<&mut BasicLayout> {
         let LayoutStore { lay_base_basic, .. } = &mut self.layouts;
         let RenderStore {
-            ren_interaction, ..
+            rnd_interaction: ren_interaction, ..
         } = &mut self.renders;
 
         LayoutStore::get_basic_layout_mut(id, target, lay_base_basic, ren_interaction)
@@ -1298,7 +1298,7 @@ impl Context {
     ) -> Option<&mut FlexLayout> {
         let LayoutStore { lay_flex, .. } = &mut self.layouts;
         let RenderStore {
-            ren_interaction, ..
+            rnd_interaction: ren_interaction, ..
         } = &mut self.renders;
 
         LayoutStore::get_flex_layout_mut(id, target, lay_flex, ren_interaction)

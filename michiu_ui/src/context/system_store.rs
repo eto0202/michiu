@@ -314,7 +314,7 @@ impl Context {
             &self.system.sys_dwrite_layouts,
             &self.contents.cont_text_contents,
             &self.contents.cont_text_spans,
-            &self.renders.ren_visual,
+            &self.renders.rnd_visual,
         )
     }
 }

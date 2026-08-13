@@ -255,11 +255,11 @@ impl Element {
         let has_visual =
             mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
         if has_visual {
-            if merge && let Some(vis) = cx.renders.ren_base_visual.get_mut(id) {
+            if merge && let Some(vis) = cx.renders.rnd_base_visual.get_mut(id) {
                 vis.override_with(&inner.visual_property, mask);
             } else {
                 cx.renders
-                    .ren_base_visual
+                    .rnd_base_visual
                     .insert(id, inner.visual_property.clone());
             }
         }
@@ -269,11 +269,11 @@ impl Element {
             || mask.has(STYLE_INTERACTION_WITHIN)
             || mask.has(STYLE_INTERACTION_PARENT)
         {
-            if merge && let Some(interaction) = cx.renders.ren_interaction.get_mut(id) {
+            if merge && let Some(interaction) = cx.renders.rnd_interaction.get_mut(id) {
                 interaction.override_with(&inner.interaction_styles, mask);
             } else {
                 cx.renders
-                    .ren_interaction
+                    .rnd_interaction
                     .insert(id, inner.interaction_styles.clone());
             }
         }
@@ -944,7 +944,7 @@ impl Element {
                         let default_visual = VisualProperty::default();
                         let visual = cx
                             .renders
-                            .ren_visual
+                            .rnd_visual
                             .get(id)
                             .unwrap_or(&default_visual);
                         let font_size = visual.font_size.unwrap_or(16.0);
@@ -1319,7 +1319,7 @@ impl Element {
                             if contents.is_multiline {
                                 let visual = cx
                                     .renders
-                                    .ren_visual
+                                    .rnd_visual
                                     .get(id)
                                     .unwrap_or(&default_visual);
                                 let font_size = visual.font_size.unwrap_or(16.0);
@@ -1396,7 +1396,7 @@ impl Element {
                         VirtualKey::DOWN if contents.is_multiline => {
                             let visual = cx
                                 .renders
-                                .ren_visual
+                                .rnd_visual
                                 .get(id)
                                 .unwrap_or(&default_visual);
                             let font_size = visual.font_size.unwrap_or(16.0);

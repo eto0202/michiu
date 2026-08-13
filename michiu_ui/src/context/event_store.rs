@@ -625,12 +625,12 @@ impl EventStore {
             ..
         } = &mut cx.layouts;
         let RenderStore {
-            ren_visual,
-            ren_base_visual,
-            ren_interaction,
-            ren_active_transitions,
-            ren_active_animations,
-            ren_dirty_entities,
+            rnd_visual: ren_visual,
+            rnd_base_visual: ren_base_visual,
+            rnd_interaction: ren_interaction,
+            rnd_active_transitions: ren_active_transitions,
+            rnd_active_animations: ren_active_animations,
+            rnd_dirty_entities: ren_dirty_entities,
             ..
         } = &mut cx.renders;
         let OutputStore { out_rects, .. } = &mut cx.outputs;
@@ -908,15 +908,15 @@ impl EventStore {
             cx.layouts.lay_base_basic.insert(placeholder_id, basic);
             cx.layouts.lay_basic.insert(placeholder_id, basic);
         }
-        if let Some(visual) = cx.renders.ren_base_visual.get(pressed_id).cloned() {
+        if let Some(visual) = cx.renders.rnd_base_visual.get(pressed_id).cloned() {
             cx.renders
-                .ren_base_visual
+                .rnd_base_visual
                 .insert(placeholder_id, visual.clone());
-            cx.renders.ren_visual.insert(placeholder_id, visual);
+            cx.renders.rnd_visual.insert(placeholder_id, visual);
         }
-        if let Some(interaction) = cx.renders.ren_interaction.get(pressed_id).cloned() {
+        if let Some(interaction) = cx.renders.rnd_interaction.get(pressed_id).cloned() {
             cx.renders
-                .ren_interaction
+                .rnd_interaction
                 .insert(placeholder_id, interaction);
         }
 
@@ -934,8 +934,8 @@ impl EventStore {
         }
 
         // ヒットテストを透過
-        let visual = cx.renders.ren_visual.get_mut(placeholder_id);
-        let base_visual = cx.renders.ren_base_visual.get_mut(placeholder_id);
+        let visual = cx.renders.rnd_visual.get_mut(placeholder_id);
+        let base_visual = cx.renders.rnd_base_visual.get_mut(placeholder_id);
         for vis in [visual, base_visual].into_iter().flatten() {
             vis.pointer_events = Some(PointerEvents::None);
         }
@@ -1032,7 +1032,7 @@ impl EventStore {
             &mut cx.layouts.lay_taffy_nodes,
             &mut cx.layouts.lay_dirty_entities,
             &cx.layouts.lay_basic,
-            &mut cx.renders.ren_dirty_entities,
+            &mut cx.renders.rnd_dirty_entities,
             &cx.outputs.out_rects,
         );
 
@@ -1422,7 +1422,7 @@ impl EventStore {
                 &mut cx.layouts.lay_base_basic,
                 &mut cx.layouts.lay_dirty_entities,
                 &cx.layouts.lay_taffy_nodes,
-                &mut cx.renders.ren_dirty_entities,
+                &mut cx.renders.rnd_dirty_entities,
                 &cx.outputs.out_rects,
             );
             return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
@@ -1446,10 +1446,10 @@ impl EventStore {
             &cx.layouts.lay_basic,
             &cx.layouts.lay_flex,
             &cx.layouts.lay_grid,
-            &mut cx.renders.ren_dirty_entities,
-            &cx.renders.ren_visual,
-            &cx.renders.ren_interaction,
-            &cx.renders.ren_active_transitions,
+            &mut cx.renders.rnd_dirty_entities,
+            &cx.renders.rnd_visual,
+            &cx.renders.rnd_interaction,
+            &cx.renders.rnd_active_transitions,
             &mut cx.outputs.out_scroll_offsets,
             &cx.outputs.out_rects,
         );
@@ -1464,8 +1464,8 @@ impl EventStore {
             &cx.topology.topo_active_entities,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
-            &cx.renders.ren_visual,
-            &cx.renders.ren_base_visual,
+            &cx.renders.rnd_visual,
+            &cx.renders.rnd_base_visual,
             &cx.outputs.out_rects,
             &cx.outputs.out_clip_rects,
         );
@@ -1490,12 +1490,12 @@ impl EventStore {
 
         if let Some((id, dir)) = found_resize_hover {
             cx.events.evt_active_resize_hover = Some((id, dir));
-            let vis = cx.renders.ren_visual.get(id).unwrap();
-            EventStore::apply_resizable_cursor_style(id, dir, &mut cx.renders.ren_visual);
+            let vis = cx.renders.rnd_visual.get(id).unwrap();
+            EventStore::apply_resizable_cursor_style(id, dir, &mut cx.renders.rnd_visual);
             RenderStore::mark_render_dirty(
                 id,
                 &mut cx.topology.topo_active_masks,
-                &mut cx.renders.ren_dirty_entities,
+                &mut cx.renders.rnd_dirty_entities,
             );
         }
 
@@ -1521,24 +1521,24 @@ impl EventStore {
                     &mut cx.layouts.lay_dirty_entities,
                     &cx.layouts.lay_taffy_nodes,
                     &cx.layouts.lay_base_basic,
-                    &mut cx.renders.ren_visual,
-                    &mut cx.renders.ren_dirty_entities,
-                    &mut cx.renders.ren_active_transitions,
-                    &mut cx.renders.ren_active_animations,
-                    &cx.renders.ren_base_visual,
-                    &cx.renders.ren_interaction,
+                    &mut cx.renders.rnd_visual,
+                    &mut cx.renders.rnd_dirty_entities,
+                    &mut cx.renders.rnd_active_transitions,
+                    &mut cx.renders.rnd_active_animations,
+                    &cx.renders.rnd_base_visual,
+                    &cx.renders.rnd_interaction,
                     &cx.outputs.out_rects,
                 );
                 RenderStore::mark_render_dirty(
                     prev_id,
                     &mut cx.topology.topo_active_masks,
-                    &mut cx.renders.ren_dirty_entities,
+                    &mut cx.renders.rnd_dirty_entities,
                 );
             }
         }
 
         if let Some(pressed_id) = cx.events.evt_interaction_states.pressed {
-            let user_select = EventStore::get_user_select(pressed_id, &cx.renders.ren_visual);
+            let user_select = EventStore::get_user_select(pressed_id, &cx.renders.rnd_visual);
 
             if user_select == UserSelect::Text
                 && let Some(start_pos) = cx
@@ -1569,9 +1569,9 @@ impl EventStore {
                     &cx.layouts.lay_basic,
                     &cx.layouts.lay_flex,
                     &cx.layouts.lay_grid,
-                    &cx.renders.ren_active_transitions,
-                    &cx.renders.ren_interaction,
-                    &cx.renders.ren_visual,
+                    &cx.renders.rnd_active_transitions,
+                    &cx.renders.rnd_interaction,
+                    &cx.renders.rnd_visual,
                     &mut cx.outputs.out_scroll_offsets,
                     &cx.outputs.out_rects,
                 );
@@ -1596,11 +1596,11 @@ impl EventStore {
                     &cx.layouts.lay_flex,
                     &cx.layouts.lay_grid,
                     &cx.layouts.lay_taffy_nodes,
-                    &mut cx.renders.ren_visual,
-                    &mut cx.renders.ren_dirty_entities,
-                    &cx.renders.ren_base_visual,
-                    &cx.renders.ren_interaction,
-                    &cx.renders.ren_active_transitions,
+                    &mut cx.renders.rnd_visual,
+                    &mut cx.renders.rnd_dirty_entities,
+                    &cx.renders.rnd_base_visual,
+                    &cx.renders.rnd_interaction,
+                    &cx.renders.rnd_active_transitions,
                     &mut cx.outputs.out_scroll_offsets,
                     &mut cx.outputs.out_selected_rects,
                     &mut cx.outputs.out_text_selections,
@@ -1658,7 +1658,7 @@ impl EventStore {
             &mut cx.layouts.lay_taffy,
             &mut cx.layouts.lay_dirty_entities,
             &cx.layouts.lay_taffy_nodes,
-            &mut cx.renders.ren_dirty_entities,
+            &mut cx.renders.rnd_dirty_entities,
             &cx.outputs.out_rects,
         );
 
@@ -1674,8 +1674,8 @@ impl EventStore {
             &cx.topology.topo_active_masks,
             &cx.topology.topo_flat_dfs_sequence,
             &cx.topology.topo_parents,
-            &cx.renders.ren_visual,
-            &cx.renders.ren_base_visual,
+            &cx.renders.rnd_visual,
+            &cx.renders.rnd_base_visual,
             &cx.outputs.out_rects,
             &cx.outputs.out_clip_rects,
         );
@@ -1699,7 +1699,7 @@ impl EventStore {
                 && curr_id == target_id
                 && cx
                     .renders
-                    .ren_visual
+                    .rnd_visual
                     .get(curr_id)
                     .and_then(|v| v.prevent_focus_steal)
                     .unwrap_or(false)
@@ -1710,7 +1710,7 @@ impl EventStore {
             if mask.has(STYLE_PREVENT_FOCUS_STEAL_WITHIN)
                 && cx
                     .renders
-                    .ren_visual
+                    .rnd_visual
                     .get(curr_id)
                     .and_then(|v| v.prevent_focus_steal_within)
                     .unwrap_or(false)
@@ -1744,7 +1744,7 @@ impl EventStore {
             RenderStore::mark_render_dirty(
                 id,
                 &mut cx.topology.topo_active_masks,
-                &mut cx.renders.ren_dirty_entities,
+                &mut cx.renders.rnd_dirty_entities,
             );
             return; // リサイズ開始時は以降の処理を完全にスキップ
         }
@@ -1773,10 +1773,10 @@ impl EventStore {
                 &cx.layouts.lay_flex,
                 &cx.layouts.lay_grid,
                 &cx.layouts.lay_taffy_nodes,
-                &mut cx.renders.ren_dirty_entities,
-                &cx.renders.ren_visual,
-                &cx.renders.ren_active_transitions,
-                &cx.renders.ren_interaction,
+                &mut cx.renders.rnd_dirty_entities,
+                &cx.renders.rnd_visual,
+                &cx.renders.rnd_active_transitions,
+                &cx.renders.rnd_interaction,
                 &mut cx.outputs.out_scroll_offsets,
                 &cx.outputs.out_rects,
             );
@@ -1795,7 +1795,7 @@ impl EventStore {
         EventStore::update_state(cx, target_id, STATE_PRESSED, true);
 
         // テキスト選択処理
-        let user_select = EventStore::get_user_select(target_id, &cx.renders.ren_visual);
+        let user_select = EventStore::get_user_select(target_id, &cx.renders.rnd_visual);
         let is_input = cx
             .topology
             .topo_active_masks
@@ -1820,10 +1820,10 @@ impl EventStore {
                 &cx.layouts.lay_basic,
                 &cx.layouts.lay_flex,
                 &cx.layouts.lay_grid,
-                &mut cx.renders.ren_dirty_entities,
-                &cx.renders.ren_visual,
-                &cx.renders.ren_interaction,
-                &cx.renders.ren_active_transitions,
+                &mut cx.renders.rnd_dirty_entities,
+                &cx.renders.rnd_visual,
+                &cx.renders.rnd_interaction,
+                &cx.renders.rnd_active_transitions,
                 &mut cx.outputs.out_scroll_offsets,
                 &mut cx.outputs.out_text_selections,
                 &mut cx.outputs.out_selected_rects,
@@ -1837,7 +1837,7 @@ impl EventStore {
             let is_focusable = EventStore::restrict_focusable_element(
                 target_id,
                 &cx.topology.topo_active_masks,
-                &cx.renders.ren_visual,
+                &cx.renders.rnd_visual,
             );
             if is_focusable {
                 EventStore::auto_focus_switch_by_trigger(cx, target_id, ActiveFocusTrigger::Mouse);
@@ -1969,7 +1969,7 @@ impl EventStore {
         RenderStore::mark_render_dirty(
             src_id,
             &mut cx.topology.topo_active_masks,
-            &mut cx.renders.ren_dirty_entities,
+            &mut cx.renders.rnd_dirty_entities,
         );
     }
 
@@ -1986,7 +1986,7 @@ impl EventStore {
             RenderStore::mark_render_dirty(
                 id,
                 &mut cx.topology.topo_active_masks,
-                &mut cx.renders.ren_dirty_entities,
+                &mut cx.renders.rnd_dirty_entities,
             );
             return;
         }
@@ -2003,7 +2003,7 @@ impl EventStore {
             RenderStore::mark_render_dirty(
                 id,
                 &mut cx.topology.topo_active_masks,
-                &mut cx.renders.ren_dirty_entities,
+                &mut cx.renders.rnd_dirty_entities,
             );
         }
 
@@ -2058,7 +2058,7 @@ impl EventStore {
             return;
         };
 
-        let user_select = EventStore::get_user_select(target_id, &cx.renders.ren_visual);
+        let user_select = EventStore::get_user_select(target_id, &cx.renders.rnd_visual);
         if user_select != UserSelect::Text {
             return;
         }
@@ -2090,7 +2090,7 @@ impl EventStore {
             &cx.system.sys_dwrite_layouts,
             &cx.contents.cont_text_contents,
             &cx.contents.cont_text_spans,
-            &cx.renders.ren_visual,
+            &cx.renders.rnd_visual,
         ) else {
             return;
         };
@@ -2103,9 +2103,9 @@ impl EventStore {
             &cx.layouts.lay_basic,
             &cx.layouts.lay_flex,
             &cx.layouts.lay_grid,
-            &cx.renders.ren_interaction,
-            &cx.renders.ren_visual,
-            &cx.renders.ren_active_transitions,
+            &cx.renders.rnd_interaction,
+            &cx.renders.rnd_visual,
+            &cx.renders.rnd_active_transitions,
         );
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -2166,10 +2166,10 @@ impl EventStore {
                 &cx.layouts.lay_basic,
                 &cx.layouts.lay_flex,
                 &cx.layouts.lay_grid,
-                &mut cx.renders.ren_visual,
-                &cx.renders.ren_base_visual,
-                &cx.renders.ren_interaction,
-                &cx.renders.ren_active_transitions,
+                &mut cx.renders.rnd_visual,
+                &cx.renders.rnd_base_visual,
+                &cx.renders.rnd_interaction,
+                &cx.renders.rnd_active_transitions,
                 &mut cx.outputs.out_scroll_offsets,
                 &mut cx.outputs.out_text_selections,
                 &cx.outputs.out_rects,
@@ -2179,7 +2179,7 @@ impl EventStore {
         RenderStore::mark_render_dirty(
             target_id,
             &mut cx.topology.topo_active_masks,
-            &mut cx.renders.ren_dirty_entities,
+            &mut cx.renders.rnd_dirty_entities,
         );
     }
 
@@ -2216,9 +2216,9 @@ impl EventStore {
                     &cx.layouts.lay_basic,
                     &cx.layouts.lay_flex,
                     &cx.layouts.lay_grid,
-                    &cx.renders.ren_interaction,
-                    &cx.renders.ren_visual,
-                    &cx.renders.ren_active_transitions,
+                    &cx.renders.rnd_interaction,
+                    &cx.renders.rnd_visual,
+                    &cx.renders.rnd_active_transitions,
                 );
 
                 // スクロール可能な軸の移動量
@@ -2261,9 +2261,9 @@ impl EventStore {
                         &cx.layouts.lay_basic,
                         &cx.layouts.lay_flex,
                         &cx.layouts.lay_grid,
-                        &cx.renders.ren_visual,
-                        &cx.renders.ren_interaction,
-                        &cx.renders.ren_active_transitions,
+                        &cx.renders.rnd_visual,
+                        &cx.renders.rnd_interaction,
+                        &cx.renders.rnd_active_transitions,
                         &mut cx.outputs.out_scroll_offsets,
                         &cx.outputs.out_rects,
                     )
@@ -2403,7 +2403,7 @@ impl EventStore {
         }
         // 内部で完結する全選択（Ctrl+A）のみを自動処理
         if state == ElementState::Pressed && modifiers.ctrl && key == VirtualKey::A {
-            let user_select = EventStore::get_user_select(focused_id, &cx.renders.ren_visual);
+            let user_select = EventStore::get_user_select(focused_id, &cx.renders.rnd_visual);
             if user_select == UserSelect::Text {
                 EventStore::handle_select_all(
                     focused_id,
@@ -2424,11 +2424,11 @@ impl EventStore {
                     &cx.layouts.lay_basic,
                     &cx.layouts.lay_flex,
                     &cx.layouts.lay_grid,
-                    &mut cx.renders.ren_visual,
-                    &mut cx.renders.ren_dirty_entities,
-                    &cx.renders.ren_base_visual,
-                    &cx.renders.ren_interaction,
-                    &cx.renders.ren_active_transitions,
+                    &mut cx.renders.rnd_visual,
+                    &mut cx.renders.rnd_dirty_entities,
+                    &cx.renders.rnd_base_visual,
+                    &cx.renders.rnd_interaction,
+                    &cx.renders.rnd_active_transitions,
                     &mut cx.outputs.out_scroll_offsets,
                     &mut cx.outputs.out_text_selections,
                     &mut cx.outputs.out_selected_rects,
@@ -2479,7 +2479,7 @@ impl EventStore {
                 &cx.topology.topo_entities,
                 &cx.topology.topo_parents,
                 &cx.layouts.lay_basic,
-                &cx.renders.ren_visual,
+                &cx.renders.rnd_visual,
             ) {
                 target_id = Some(candidate_id);
                 break;
@@ -2503,7 +2503,7 @@ impl EventStore {
         RenderStore::mark_render_dirty(
             candidate_id,
             &mut cx.topology.topo_active_masks,
-            &mut cx.renders.ren_dirty_entities,
+            &mut cx.renders.rnd_dirty_entities,
         );
     }
 
@@ -2551,10 +2551,10 @@ impl EventStore {
             &cx.layouts.lay_basic,
             &cx.layouts.lay_flex,
             &cx.layouts.lay_grid,
-            &mut cx.renders.ren_visual,
-            &cx.renders.ren_base_visual,
-            &cx.renders.ren_interaction,
-            &cx.renders.ren_active_transitions,
+            &mut cx.renders.rnd_visual,
+            &cx.renders.rnd_base_visual,
+            &cx.renders.rnd_interaction,
+            &cx.renders.rnd_active_transitions,
             &mut cx.outputs.out_scroll_offsets,
             &mut cx.outputs.out_text_selections,
             &cx.outputs.out_rects,
@@ -2562,7 +2562,7 @@ impl EventStore {
         RenderStore::mark_render_dirty(
             focused_id,
             &mut cx.topology.topo_active_masks,
-            &mut cx.renders.ren_dirty_entities,
+            &mut cx.renders.rnd_dirty_entities,
         );
     }
 
@@ -2614,10 +2614,10 @@ impl EventStore {
             &cx.layouts.lay_basic,
             &cx.layouts.lay_flex,
             &cx.layouts.lay_grid,
-            &mut cx.renders.ren_visual,
-            &cx.renders.ren_base_visual,
-            &cx.renders.ren_interaction,
-            &cx.renders.ren_active_transitions,
+            &mut cx.renders.rnd_visual,
+            &cx.renders.rnd_base_visual,
+            &cx.renders.rnd_interaction,
+            &cx.renders.rnd_active_transitions,
             &mut cx.outputs.out_scroll_offsets,
             &mut cx.outputs.out_text_selections,
             &cx.outputs.out_rects,
@@ -2625,7 +2625,7 @@ impl EventStore {
         RenderStore::mark_render_dirty(
             focused_id,
             &mut cx.topology.topo_active_masks,
-            &mut cx.renders.ren_dirty_entities,
+            &mut cx.renders.rnd_dirty_entities,
         );
     }
 
@@ -2676,10 +2676,10 @@ impl EventStore {
             &cx.layouts.lay_basic,
             &cx.layouts.lay_flex,
             &cx.layouts.lay_grid,
-            &mut cx.renders.ren_visual,
-            &cx.renders.ren_base_visual,
-            &cx.renders.ren_interaction,
-            &cx.renders.ren_active_transitions,
+            &mut cx.renders.rnd_visual,
+            &cx.renders.rnd_base_visual,
+            &cx.renders.rnd_interaction,
+            &cx.renders.rnd_active_transitions,
             &mut cx.outputs.out_scroll_offsets,
             &mut cx.outputs.out_text_selections,
             &cx.outputs.out_rects,
@@ -2687,14 +2687,14 @@ impl EventStore {
         RenderStore::mark_render_dirty(
             focused_id,
             &mut cx.topology.topo_active_masks,
-            &mut cx.renders.ren_dirty_entities,
+            &mut cx.renders.rnd_dirty_entities,
         );
     }
 
     pub(crate) fn inject_cut_internal(cx: &mut Context) -> Option<String> {
         let _context_guard = bind_context(cx);
         let focused_id = cx.events.evt_interaction_states.focused?;
-        let user_select = EventStore::get_user_select(focused_id, &cx.renders.ren_visual);
+        let user_select = EventStore::get_user_select(focused_id, &cx.renders.rnd_visual);
 
         if user_select != UserSelect::Text {
             return None;
@@ -2749,10 +2749,10 @@ impl EventStore {
                 &cx.layouts.lay_basic,
                 &cx.layouts.lay_flex,
                 &cx.layouts.lay_grid,
-                &mut cx.renders.ren_visual,
-                &cx.renders.ren_base_visual,
-                &cx.renders.ren_interaction,
-                &cx.renders.ren_active_transitions,
+                &mut cx.renders.rnd_visual,
+                &cx.renders.rnd_base_visual,
+                &cx.renders.rnd_interaction,
+                &cx.renders.rnd_active_transitions,
                 &mut cx.outputs.out_scroll_offsets,
                 &mut cx.outputs.out_text_selections,
                 &cx.outputs.out_rects,
@@ -2760,7 +2760,7 @@ impl EventStore {
             RenderStore::mark_render_dirty(
                 focused_id,
                 &mut cx.topology.topo_active_masks,
-                &mut cx.renders.ren_dirty_entities,
+                &mut cx.renders.rnd_dirty_entities,
             );
         }
         // Input・非Inputに関わらず切り出されたテキストを返す
