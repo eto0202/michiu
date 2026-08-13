@@ -3259,26 +3259,3 @@ impl EventStore {
         );
     }
 }
-
-impl Context {
-    #[inline]
-    pub(crate) fn auto_focus_switch(&mut self, id: EntityId) {
-        self.auto_focus_switch_by_trigger(id, ActiveFocusTrigger::Mouse);
-    }
-
-    #[inline]
-    pub(crate) fn auto_focus_switch_by_trigger(
-        &mut self,
-        id: EntityId,
-        trigger: ActiveFocusTrigger,
-    ) {
-        EventStore::auto_focus_switch_by_trigger(self, id, trigger);
-    }
-
-    #[inline]
-    pub(crate) fn get_user_select(&self, id: EntityId) -> UserSelect {
-        let RenderStore { ren_visual, .. } = &self.renders;
-
-        EventStore::get_user_select(id, ren_visual)
-    }
-}

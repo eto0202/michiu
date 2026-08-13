@@ -1,4 +1,4 @@
-use std::{ops::Range, time::Instant};
+use std::{collections::HashSet, ops::Range, time::Instant};
 
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
@@ -8,11 +8,12 @@ use crate::{
     EdgeInsets, EffectiveTransformsSecondary, EffectiveZindicesSecondary, EntityId, EventStore,
     FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSecondary, InputContents,
     InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, QuadInstance,
-    RenderData, RenderStore, STATE_QUEUED_LAYOUT, STYLE_TEXT_SPANS, ScrollbarStylesSecondary,
-    SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
-    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect,
-    Val, VisualPropertiesSecondary, VisualProperty, WindowStore,
+    LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, PropertyList,
+    QuadInstance, ReactiveStore, RenderData, RenderStore, STATE_QUEUED_LAYOUT, STYLE_OVERFLOW,
+    STYLE_TEXT_SPANS, ScrollbarStylesSecondary, SortedEntitiesVec, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
+    TextSpansSparseSecondary, TopologyStore, UserSelect, Val, VisualPropertiesSecondary,
+    VisualProperty, WindowStore, bind_context, with_context,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
@@ -1461,6 +1462,538 @@ impl OutputStore {
         None
     }
 
+    /// Taffy永続ツリーへのスタイル差分同期
+    fn sync_dirty_styles_to_taffy(
+        scrollbar_el_ids: &HashSet<EntityId>,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        lay_scrollbar_styles: &ScrollbarStylesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+    ) {
+        for &id in lay_dirty_entities {
+            if scrollbar_el_ids.contains(&id) {
+                continue;
+            }
+
+            let (mut basic, flex, grid) = LayoutStore::resolve_active_layouts(
+                id,
+                topo_active_masks,
+                topo_parents,
+                lay_basic,
+                lay_flex,
+                lay_grid,
+                ren_interaction,
+                ren_visual,
+                ren_active_transitions,
+            );
+
+            // トランジション（アニメーション）中プロパティの現在値による上書き
+            if let Some(active_list) = ren_active_transitions.get(id) {
+                for t_state in active_list {
+                    match t_state.property_list {
+                        PropertyList::Width => {
+                            if let Some(layout) = lay_basic.get(id) {
+                                basic.size.width = layout.size.width;
+                            }
+                        }
+                        PropertyList::Height => {
+                            if let Some(layout) = lay_basic.get(id) {
+                                basic.size.height = layout.size.height;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            let taffy_style = LayoutStore::resolve_taffy_style(
+                id,
+                &basic,
+                &flex,
+                grid.as_ref(),
+                lay_scrollbar_styles,
+            );
+
+            if let Some(taffy_node) = lay_taffy_nodes.get(id) {
+                lay_taffy.set_style(*taffy_node, taffy_style).unwrap();
+            }
+        }
+    }
+
+    /// 物理位置を算出して、rects / `clip_rects` と入力状態へマウント
+    fn update_element_output_rect_and_clip(
+        id: EntityId,
+        window_size: LayoutSize,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        topo_active_entities: &mut ActiveEntitiesVec,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        lay_taffy: &TaffyTreeEntityId,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        out_rects: &mut RectsSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
+    ) {
+        let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
+            id,
+            window_size,
+            topo_parents,
+            lay_taffy,
+            lay_taffy_nodes,
+            lay_basic,
+            out_rects,
+            out_clip_rects,
+            out_scroll_offsets,
+        );
+
+        out_rects.insert(id, abs_rect);
+
+        let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+
+        if mask.has_input_content()
+            && let Some(contents) = cont_input_contents.get_mut(id)
+        {
+            contents.last_bounds = Some(abs_rect);
+        }
+
+        let current_clip = if mask.has(STYLE_OVERFLOW) {
+            parent_clip.intersect(&abs_rect)
+        } else {
+            parent_clip
+        };
+
+        out_clip_rects.insert(id, current_clip);
+        topo_active_entities.push(id);
+    }
+
+    /// 1回目の出力領域決定（静的キャッシュバイパス判定含む）
+    fn resolve_first_pass_rects(
+        scrollbar_el_ids: &HashSet<EntityId>,
+        window_size: LayoutSize,
+        window_resized: bool,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        topo_active_entities: &mut ActiveEntitiesVec,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        lay_taffy: &TaffyTreeEntityId,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        out_rects: &mut RectsSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
+        out_prev_rects: &PrevRectsSecondary,
+        out_prev_clip_rects: &PrevClipRectsSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
+    ) {
+        topo_active_entities.clear();
+
+        for &id in topo_flat_dfs_sequence {
+            // スクロールバー専用子要素は手動で物理座標を強制更新するため、この走査ループから完全にスルー
+            if scrollbar_el_ids.contains(&id) {
+                continue;
+            }
+
+            let parent_changed = OutputStore::has_parent_changed(
+                id,
+                topo_active_masks,
+                topo_parents,
+                out_rects,
+                out_prev_rects,
+                out_clip_rects,
+                out_prev_clip_rects,
+            );
+
+            let has_style_changed = topo_active_masks
+                .get(id)
+                .is_some_and(|m| m.has(STATE_QUEUED_LAYOUT));
+
+            // 静的キャッシュの判定と適用
+            // 自分自身のスタイルが変わっておらず、親も動いていない、かつモニターリサイズもされていないならキャッシュ利用
+            if !window_resized
+                && !has_style_changed
+                && !parent_changed
+                && let Some(&cached_rect) = out_prev_rects.get(id)
+                && let Some(&cached_clip) = out_prev_clip_rects.get(id)
+            {
+                out_rects.insert(id, cached_rect);
+                out_clip_rects.insert(id, cached_clip);
+                topo_active_entities.push(id);
+                continue;
+            }
+
+            // キャッシュが無効な場合は、共通ヘルパーで再計算
+            OutputStore::update_element_output_rect_and_clip(
+                id,
+                window_size,
+                cont_input_contents,
+                topo_active_entities,
+                topo_active_masks,
+                topo_parents,
+                lay_taffy,
+                lay_taffy_nodes,
+                lay_basic,
+                out_rects,
+                out_clip_rects,
+                out_scroll_offsets,
+            );
+        }
+    }
+
+    /// 最終的な出力領域決定（スクロールバー要素を含む一括同期）
+    fn resolve_final_pass_rects(
+        window_size: LayoutSize,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        topo_active_entities: &mut ActiveEntitiesVec,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        lay_taffy: &TaffyTreeEntityId,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        out_rects: &mut RectsSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
+    ) {
+        topo_active_entities.clear();
+
+        for &id in topo_flat_dfs_sequence {
+            OutputStore::update_element_output_rect_and_clip(
+                id,
+                window_size,
+                cont_input_contents,
+                topo_active_entities,
+                topo_active_masks,
+                topo_parents,
+                lay_taffy,
+                lay_taffy_nodes,
+                lay_basic,
+                out_rects,
+                out_clip_rects,
+                out_scroll_offsets,
+            );
+        }
+    }
+
+    /// 全アクティブコンテナのスクロールオフセットの自動クランプ同期
+    fn auto_clamp_scroll_offsets(
+        win_last_size: Option<LayoutSize>,
+        sys_text_engine: &TextEngine,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        lay_flex: &FlexLayoutsSecondary,
+        lay_grid: &GridLayoutsSecondary,
+        ren_visual: &VisualPropertiesSecondary,
+        ren_interaction: &InteractionPropertiesSecondary,
+        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        out_rects: &RectsSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+    ) {
+        for &id in topo_flat_dfs_sequence {
+            let Some(current) = out_scroll_offsets.get(id).copied() else {
+                continue;
+            };
+
+            // 枠サイズの変更など、現在のスクロール位置からはみ出していれば自動クランプ調整
+            OutputStore::scroll_to(
+                id,
+                current.x,
+                current.y,
+                win_last_size,
+                sys_text_engine,
+                sys_dwrite_layouts,
+                cont_input_contents,
+                cont_text_contents,
+                cont_text_spans,
+                topo_active_masks,
+                topo_parents,
+                topo_children,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_scrollbar_styles,
+                lay_taffy_nodes,
+                lay_basic,
+                lay_flex,
+                lay_grid,
+                ren_visual,
+                ren_interaction,
+                ren_active_transitions,
+                out_rects,
+                out_scroll_offsets,
+            );
+        }
+    }
+
+    pub(crate) fn sync_layout_and_render_list_internal(
+        cx: &mut Context,
+        root: EntityId,
+        window_size: LayoutSize,
+    ) {
+        // 同期処理の開始時に自身をバインドする
+        let _context_guard = bind_context(cx);
+        // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
+        ReactiveStore::evaluate_pending_element_effects(
+            &mut cx.reactive.react_effects,
+            &mut cx.reactive.react_pending_element_effects,
+        );
+        // ウィンドウサイズの変更検知
+        let window_resized =
+            WindowStore::window_resize_detection(window_size, &mut cx.window.win_last_size);
+
+        // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
+        // すべてスキップして早期リターン。
+        if cx.layouts.lay_dirty_entities.is_empty()
+            && !cx.topology.topo_is_structure_dirty
+            && !window_resized
+            && !cx.outputs.out_rects.is_empty()
+        {
+            return;
+        }
+
+        // DFSツリーシーケンスの再構築
+        if cx.topology.topo_is_structure_dirty {
+            TopologyStore::rebuild_dfs_sequence(
+                root,
+                &mut cx.topology.topo_flat_dfs_sequence,
+                &mut cx.topology.topo_is_structure_dirty,
+                &cx.topology.topo_children,
+            );
+        }
+
+        // 全スクロールバー関連IDを一括抽出
+        let scrollbar_el_ids = LayoutStore::scrollbar_el_ids(&cx.layouts.lay_scrollbar_styles);
+
+        // Taffy永続ツリーへの差分同期
+        OutputStore::sync_dirty_styles_to_taffy(
+            &scrollbar_el_ids,
+            &cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &mut cx.layouts.lay_taffy,
+            &cx.layouts.lay_dirty_entities,
+            &cx.layouts.lay_taffy_nodes,
+            &cx.layouts.lay_basic,
+            &cx.layouts.lay_flex,
+            &cx.layouts.lay_grid,
+            &cx.layouts.lay_scrollbar_styles,
+            &cx.renders.ren_interaction,
+            &cx.renders.ren_visual,
+            &cx.renders.ren_active_transitions,
+        );
+
+        // Taffy 1回目レイアウト計算
+        if let Some(&root_node) = cx.layouts.lay_taffy_nodes.get(root) {
+            // 計測関数をクロージャとして定義
+            let measure_func = |known_dims: taffy::Size<Option<f32>>,
+                                available_space: taffy::Size<taffy::AvailableSpace>,
+                                _node_id: taffy::NodeId,
+                                context: Option<&mut EntityId>,
+                                _style: &taffy::Style|
+             -> taffy::Size<f32> {
+                // 幅と高さの両方がすでにスタイル（known_dims）として解決されている場合はそれを最優先する
+                if let (Some(w), Some(h)) = (known_dims.width, known_dims.height) {
+                    return taffy::Size {
+                        width: w,
+                        height: h,
+                    };
+                }
+
+                // テキスト内容を持っているかチェック
+                // クロージャの外側の Context は直接キャプチャできないため、
+                //  一時的に bind_context されているスレッドローカル経由で取得
+                context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
+                    with_context(|cx| {
+                        ContentStore::measure_content(
+                            id,
+                            known_dims,
+                            &cx.system.sys_text_engine,
+                            &mut cx.contents.cont_input_contents,
+                            &cx.contents.cont_text_contents,
+                            &cx.contents.cont_text_spans,
+                            &cx.topology.topo_active_masks,
+                            &cx.renders.ren_visual,
+                        )
+                    })
+                })
+            };
+
+            let _ = cx.layouts.lay_taffy.compute_layout_with_measure(
+                root_node,
+                taffy::Size {
+                    width: taffy::AvailableSpace::Definite(window_size.width),
+                    height: taffy::AvailableSpace::Definite(window_size.height),
+                },
+                measure_func,
+            );
+        }
+
+        // ダブルバッファをスワップし、1回目の出力座標を決定
+        // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの out_rects のみを確定
+        OutputStore::swap_output_rect(
+            &mut cx.outputs.out_rects,
+            &mut cx.outputs.out_prev_rects,
+            &mut cx.outputs.out_clip_rects,
+            &mut cx.outputs.out_prev_clip_rects,
+        );
+        OutputStore::resolve_first_pass_rects(
+            &scrollbar_el_ids,
+            window_size,
+            window_resized,
+            &mut cx.contents.cont_input_contents,
+            &mut cx.topology.topo_active_entities,
+            &cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &cx.topology.topo_flat_dfs_sequence,
+            &cx.layouts.lay_taffy,
+            &cx.layouts.lay_taffy_nodes,
+            &cx.layouts.lay_basic,
+            &mut cx.outputs.out_rects,
+            &mut cx.outputs.out_clip_rects,
+            &cx.outputs.out_prev_rects,
+            &cx.outputs.out_prev_clip_rects,
+            &cx.outputs.out_scroll_offsets,
+        );
+
+        // スクロールバー要素（Track & Thumb）のサイズ・配置・不透明度を一括同期更新
+        LayoutStore::sync_scrollbar_styles(
+            cx.window.win_last_size,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &cx.contents.cont_input_contents,
+            &cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
+            &cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &cx.topology.topo_children,
+            &mut cx.layouts.lay_taffy,
+            &mut cx.layouts.lay_basic,
+            &mut cx.layouts.lay_base_basic,
+            &cx.layouts.lay_flex,
+            &cx.layouts.lay_grid,
+            &cx.layouts.lay_taffy_nodes,
+            &cx.layouts.lay_scrollbar_styles,
+            &mut cx.renders.ren_visual,
+            &mut cx.renders.ren_base_visual,
+            &cx.renders.ren_active_transitions,
+            &cx.renders.ren_interaction,
+            &cx.outputs.out_rects,
+            &cx.outputs.out_scroll_offsets,
+        );
+
+        // Taffy の 2回目レイアウト計算（スクロールバー配置確定後）
+        if let Some(&root_node) = cx.layouts.lay_taffy_nodes.get(root) {
+            let _ = cx.layouts.lay_taffy.compute_layout_with_measure(
+                root_node,
+                taffy::Size {
+                    width: taffy::AvailableSpace::Definite(window_size.width),
+                    height: taffy::AvailableSpace::Definite(window_size.height),
+                },
+                |known_dims: taffy::Size<Option<f32>>,
+                 _available_space: taffy::Size<taffy::AvailableSpace>,
+                 _node_id: taffy::NodeId,
+                 context: Option<&mut EntityId>,
+                 _style: &taffy::Style|
+                 -> taffy::Size<f32> {
+                    context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
+                        with_context(|cx| {
+                            let is_input = cx
+                                .topology
+                                .topo_active_masks
+                                .get(id)
+                                .is_some_and(ComponentMask::has_input_content);
+
+                            if is_input
+                                && let Some(contents) = cx.contents.cont_input_contents.get(id)
+                                && let Some(layout_rect) = contents.last_layout
+                            {
+                                return taffy::Size {
+                                    width: known_dims.width.unwrap_or(layout_rect.width),
+                                    height: known_dims.height.unwrap_or(layout_rect.height),
+                                };
+                            }
+
+                            // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
+                            cx.outputs
+                                .out_rects
+                                .get(id)
+                                .map_or(taffy::Size::ZERO, |rect| taffy::Size {
+                                    width: known_dims.width.unwrap_or(rect.width),
+                                    height: known_dims.height.unwrap_or(rect.height),
+                                })
+                        })
+                    })
+                },
+            );
+        }
+
+        // スクロールバーも加えた、最終的な出力座標の決定
+        OutputStore::resolve_final_pass_rects(
+            window_size,
+            &mut cx.contents.cont_input_contents,
+            &mut cx.topology.topo_active_entities,
+            &cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &cx.topology.topo_flat_dfs_sequence,
+            &cx.layouts.lay_taffy,
+            &cx.layouts.lay_taffy_nodes,
+            &cx.layouts.lay_basic,
+            &mut cx.outputs.out_rects,
+            &mut cx.outputs.out_clip_rects,
+            &cx.outputs.out_scroll_offsets,
+        );
+
+        // 全アクティブコンテナのスクロールオフセット自動クランプ同期
+        OutputStore::auto_clamp_scroll_offsets(
+            cx.window.win_last_size,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &cx.contents.cont_input_contents,
+            &cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
+            &mut cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &cx.topology.topo_children,
+            &cx.topology.topo_flat_dfs_sequence,
+            &mut cx.layouts.lay_taffy,
+            &mut cx.layouts.lay_dirty_entities,
+            &mut cx.layouts.lay_scrollbar_styles,
+            &cx.layouts.lay_taffy_nodes,
+            &cx.layouts.lay_basic,
+            &cx.layouts.lay_flex,
+            &cx.layouts.lay_grid,
+            &cx.renders.ren_visual,
+            &cx.renders.ren_interaction,
+            &cx.renders.ren_active_transitions,
+            &cx.outputs.out_rects,
+            &mut cx.outputs.out_scroll_offsets,
+        );
+
+        // 全ての座標確定と絶対クリップ範囲の同期が完了した最末尾で、
+        // 一括して Dirty フラグの完全クリアおよびキューリストのリセットを実行
+        LayoutStore::clear_layout_dirty(
+            &mut cx.topology.topo_active_masks,
+            &mut cx.layouts.lay_dirty_entities,
+        );
+    }
+
     // 溜まっているインスタンスを DrawBatch としてフラッシュ
     #[inline]
     fn flush_batch(
@@ -2005,269 +2538,88 @@ impl OutputStore {
 }
 
 impl Context {
-    #[inline]
-    pub(crate) fn swap_output_rect(&mut self) {
-        let OutputStore {
-            out_rects,
-            out_clip_rects,
-            out_prev_rects,
-            out_prev_clip_rects,
-            ..
-        } = &mut self.outputs;
-
-        OutputStore::swap_output_rect(
-            out_rects,
-            out_prev_rects,
-            out_clip_rects,
-            out_prev_clip_rects,
-        );
-    }
-
-    #[inline]
-    pub(crate) fn parent_changed(&self, id: EntityId) -> bool {
-        let TopologyStore {
-            topo_parents,
-            topo_active_masks,
-            ..
-        } = &self.topology;
-        let OutputStore {
-            out_rects,
-            out_clip_rects,
-            out_prev_rects,
-            out_prev_clip_rects,
-            ..
-        } = &self.outputs;
-
-        OutputStore::has_parent_changed(
-            id,
-            topo_active_masks,
-            topo_parents,
-            out_rects,
-            out_prev_rects,
-            out_clip_rects,
-            out_prev_clip_rects,
-        )
-    }
-
-    #[inline]
-    pub(crate) fn calc_local_rect(
-        &self,
-        id: EntityId,
-        window_size: LayoutSize,
-    ) -> (LayoutRect, LayoutRect) {
-        let LayoutStore {
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_basic,
-            ..
-        } = &self.layouts;
-        let TopologyStore { topo_parents, .. } = &self.topology;
-        let OutputStore {
-            out_rects,
-            out_clip_rects,
-            out_scroll_offsets,
-            ..
-        } = &self.outputs;
-
-        OutputStore::calc_local_rect(
-            id,
-            window_size,
-            topo_parents,
-            lay_taffy,
-            lay_taffy_nodes,
-            lay_basic,
-            out_rects,
-            out_clip_rects,
-            out_scroll_offsets,
-        )
-    }
-
     /// `現在の選択範囲（out_text_selections）に基づき`、
     /// `描画用の物理選択矩形（out_selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
     #[inline]
     pub(crate) fn update_selection_rects(&mut self, id: EntityId, layout: &IDWriteTextLayout) {
-        let OutputStore {
-            out_text_selections,
-            out_selected_rects,
-            ..
-        } = &mut self.outputs;
-
-        OutputStore::update_selection_rects(id, layout, out_selected_rects, out_text_selections);
+        OutputStore::update_selection_rects(
+            id,
+            layout,
+            &mut self.outputs.out_selected_rects,
+            &self.outputs.out_text_selections,
+        );
     }
 
     /// スクロールオフセットを目標位置へクランプした上で代入。
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
     pub(crate) fn scroll_to(&mut self, id: EntityId, mut x: f32, mut y: f32) -> bool {
-        let TopologyStore {
-            topo_entities,
-            topo_parents,
-            topo_children,
-            topo_active_masks,
-            topo_active_entities,
-            ..
-        } = &mut self.topology;
-        let LayoutStore {
-            lay_basic,
-            lay_base_basic,
-            lay_flex,
-            lay_grid,
-            lay_scrollbar_styles,
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
-        } = &mut self.layouts;
-        let RenderStore {
-            ren_visual,
-            ren_interaction,
-            ren_base_visual,
-            ren_dirty_entities,
-            ren_active_transitions,
-            ren_active_animations,
-            ..
-        } = &mut self.renders;
-        let OutputStore {
-            out_rects,
-            out_scroll_offsets,
-            out_selected_rects,
-            out_text_selections,
-            ..
-        } = &mut self.outputs;
-        let ContentStore {
-            cont_text_contents,
-            cont_text_spans,
-            cont_input_contents,
-            ..
-        } = &mut self.contents;
-        let WindowStore { win_last_size, .. } = &mut self.window;
-        let SystemStore {
-            sys_text_engine,
-            sys_dwrite_layouts,
-            ..
-        } = &mut self.system;
-
         OutputStore::scroll_to(
             id,
             x,
             y,
-            *win_last_size,
-            sys_text_engine,
-            sys_dwrite_layouts,
-            cont_input_contents,
-            cont_text_contents,
-            cont_text_spans,
-            topo_active_masks,
-            topo_parents,
-            topo_children,
-            lay_taffy,
-            lay_dirty_entities,
-            lay_scrollbar_styles,
-            lay_taffy_nodes,
-            lay_basic,
-            lay_flex,
-            lay_grid,
-            ren_visual,
-            ren_interaction,
-            ren_active_transitions,
-            out_rects,
-            out_scroll_offsets,
+            self.window.win_last_size,
+            &self.system.sys_text_engine,
+            &self.system.sys_dwrite_layouts,
+            &self.contents.cont_input_contents,
+            &self.contents.cont_text_contents,
+            &self.contents.cont_text_spans,
+            &mut self.topology.topo_active_masks,
+            &self.topology.topo_parents,
+            &self.topology.topo_children,
+            &mut self.layouts.lay_taffy,
+            &mut self.layouts.lay_dirty_entities,
+            &mut self.layouts.lay_scrollbar_styles,
+            &self.layouts.lay_taffy_nodes,
+            &self.layouts.lay_basic,
+            &self.layouts.lay_flex,
+            &self.layouts.lay_grid,
+            &self.renders.ren_visual,
+            &self.renders.ren_interaction,
+            &self.renders.ren_active_transitions,
+            &self.outputs.out_rects,
+            &mut self.outputs.out_scroll_offsets,
         )
     }
 
     /// 階層的な境界判定ヘルパー（非対象のブランチをまるごとスキップ）
     pub(crate) fn hit_test_recursive(&self, id: EntityId, point: LayoutPoint) -> Option<EntityId> {
-        let OutputStore {
-            out_rects,
-            out_clip_rects,
-            ..
-        } = &self.outputs;
-        let TopologyStore { topo_children, .. } = &self.topology;
-        let RenderStore {
-            ren_visual,
-            ren_base_visual,
-            ..
-        } = &self.renders;
-
         OutputStore::hit_test_recursive(
             id,
             point,
-            topo_children,
-            ren_visual,
-            ren_base_visual,
-            out_rects,
-            out_clip_rects,
+            &self.topology.topo_children,
+            &self.renders.ren_visual,
+            &self.renders.ren_base_visual,
+            &self.outputs.out_rects,
+            &self.outputs.out_clip_rects,
         )
     }
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
     #[inline]
     pub(crate) fn collect_render_data(&mut self) -> RenderData {
-        let OutputStore {
-            out_rects,
-            out_clip_rects,
-            out_selected_rects,
-            out_scroll_offsets,
-            ..
-        } = &self.outputs;
-        let TopologyStore {
-            topo_active_masks,
-            topo_active_entities,
-            topo_parents,
-            topo_children,
-            topo_flat_dfs_sequence,
-            topo_sorted_entities,
-            topo_effective_transforms,
-            topo_effective_z_indices,
-            ..
-        } = &mut self.topology;
-        let LayoutStore {
-            lay_basic,
-            lay_flex,
-            lay_grid,
-            ..
-        } = &self.layouts;
-        let RenderStore {
-            ren_visual,
-            ren_base_visual,
-            ren_active_webviews,
-            ren_active_transitions,
-            ren_interaction,
-            ..
-        } = &self.renders;
-        let ContentStore {
-            cont_input_contents,
-            ..
-        } = &self.contents;
-        let EventStore {
-            evt_interaction_states,
-            ..
-        } = &self.events;
-        let WindowStore {
-            win_scale_factor, ..
-        } = &self.window;
-
         OutputStore::collect_render_data(
-            *win_scale_factor,
-            cont_input_contents,
-            evt_interaction_states,
-            topo_sorted_entities,
-            topo_effective_transforms,
-            topo_effective_z_indices,
-            topo_active_entities,
-            topo_active_masks,
-            topo_parents,
-            topo_flat_dfs_sequence,
-            lay_basic,
-            lay_flex,
-            lay_grid,
-            ren_visual,
-            ren_base_visual,
-            ren_interaction,
-            ren_active_transitions,
-            ren_active_webviews,
-            out_rects,
-            out_clip_rects,
-            out_selected_rects,
-            out_scroll_offsets,
+            self.window.win_scale_factor,
+            &self.contents.cont_input_contents,
+            &self.events.evt_interaction_states,
+            &mut self.topology.topo_sorted_entities,
+            &mut self.topology.topo_effective_transforms,
+            &mut self.topology.topo_effective_z_indices,
+            &self.topology.topo_active_entities,
+            &self.topology.topo_active_masks,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+            &self.layouts.lay_basic,
+            &self.layouts.lay_flex,
+            &self.layouts.lay_grid,
+            &self.renders.ren_visual,
+            &self.renders.ren_base_visual,
+            &self.renders.ren_interaction,
+            &self.renders.ren_active_transitions,
+            &self.renders.ren_active_webviews,
+            &self.outputs.out_rects,
+            &self.outputs.out_clip_rects,
+            &self.outputs.out_selected_rects,
+            &self.outputs.out_scroll_offsets,
         )
     }
 }

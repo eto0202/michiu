@@ -275,22 +275,14 @@ impl Context {
         category: EffectCategory,
         effect_id: EffectId,
     ) {
-        let ReactiveStore {
-            react_effects,
-            react_element_effects,
-            react_effect_to_element,
-            react_pending_element_effects,
-            ..
-        } = &mut self.reactive;
-
         ReactiveStore::register_element_effect(
             element_id,
             category,
             effect_id,
-            react_effects,
-            react_element_effects,
-            react_effect_to_element,
-            react_pending_element_effects,
+            &mut self.reactive.react_effects,
+            &mut self.reactive.react_element_effects,
+            &mut self.reactive.react_effect_to_element,
+            &mut self.reactive.react_pending_element_effects,
         );
     }
 
@@ -305,21 +297,13 @@ impl Context {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        let ReactiveStore {
-            react_effects,
-            react_effect_to_element,
-            react_element_effects,
-            react_pending_element_effects,
-            ..
-        } = &mut self.reactive;
-
         ReactiveStore::create_element_effect(
             element_id,
             category,
-            react_effects,
-            react_element_effects,
-            react_effect_to_element,
-            react_pending_element_effects,
+            &mut self.reactive.react_effects,
+            &mut self.reactive.react_element_effects,
+            &mut self.reactive.react_effect_to_element,
+            &mut self.reactive.react_pending_element_effects,
             f,
         )
     }
@@ -327,25 +311,15 @@ impl Context {
     /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に安全実行します
     #[inline]
     pub(crate) fn evaluate_pending_element_effects(&mut self) {
-        let ReactiveStore {
-            react_pending_element_effects,
-            react_effects,
-            ..
-        } = &mut self.reactive;
-
         ReactiveStore::evaluate_pending_element_effects(
-            react_effects,
-            react_pending_element_effects,
+            &mut self.reactive.react_effects,
+            &mut self.reactive.react_pending_element_effects,
         );
     }
 
     /// 指定された要素に対してシグナルコンテキストを提供します
     #[inline]
     pub(crate) fn provide_context<T: Send + 'static>(&mut self, id: EntityId, signal_id: SignalId) {
-        let ReactiveStore {
-            react_providers, ..
-        } = &mut self.reactive;
-
-        ReactiveStore::provide_context::<T>(id, signal_id, react_providers);
+        ReactiveStore::provide_context::<T>(id, signal_id, &mut self.reactive.react_providers);
     }
 }

@@ -167,37 +167,3 @@ impl ContentStore {
     }
 }
 
-impl Context {
-    /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
-    #[inline]
-    pub(crate) fn measure_content(
-        &mut self,
-        id: EntityId,
-        known_dims: taffy::Size<Option<f32>>,
-    ) -> taffy::Size<f32> {
-        let TopologyStore {
-            topo_active_masks, ..
-        } = &mut self.topology;
-        let RenderStore { ren_visual, .. } = &self.renders;
-        let ContentStore {
-            cont_input_contents,
-            cont_text_contents,
-            cont_text_spans,
-            ..
-        } = &mut self.contents;
-        let SystemStore {
-            sys_text_engine, ..
-        } = &mut self.system;
-
-        ContentStore::measure_content(
-            id,
-            known_dims,
-            sys_text_engine,
-            cont_input_contents,
-            cont_text_contents,
-            cont_text_spans,
-            topo_active_masks,
-            ren_visual,
-        )
-    }
-}

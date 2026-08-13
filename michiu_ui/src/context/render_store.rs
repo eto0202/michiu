@@ -1926,14 +1926,11 @@ impl TargetStyle {
 impl Context {
     #[inline]
     pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
-        let TopologyStore {
-            topo_active_masks, ..
-        } = &mut self.topology;
-        let RenderStore {
-            ren_dirty_entities, ..
-        } = &mut self.renders;
-
-        RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
+        RenderStore::mark_render_dirty(
+            id,
+            &mut self.topology.topo_active_masks,
+            &mut self.renders.ren_dirty_entities,
+        );
     }
 
     #[inline]
@@ -1942,103 +1939,39 @@ impl Context {
         id: EntityId,
         target: StyleTarget,
     ) -> Option<&mut VisualProperty> {
-        let RenderStore {
-            ren_base_visual,
-            ren_interaction,
-            ..
-        } = &mut self.renders;
-
-        RenderStore::get_visual_property_mut(id, target, ren_base_visual, ren_interaction)
-    }
-
-    /// 対象の要素がキーボードフォーカス可能であるかを総合検証します
-    #[inline]
-    pub(crate) fn is_keyboard_focusable(&self, id: EntityId) -> bool {
-        let TopologyStore {
-            topo_entities,
-            topo_active_masks,
-            topo_parents,
-            ..
-        } = &self.topology;
-        let RenderStore { ren_visual, .. } = &self.renders;
-        let LayoutStore { lay_basic, .. } = &self.layouts;
-
-        RenderStore::is_keyboard_focusable(
+        RenderStore::get_visual_property_mut(
             id,
-            topo_active_masks,
-            topo_entities,
-            topo_parents,
-            lay_basic,
-            ren_visual,
+            target,
+            &mut self.renders.ren_base_visual,
+            &mut self.renders.ren_interaction,
         )
     }
 
     /// 状態の変更を検知し、アニメーション（トランジション）が必要な箇所を自動的に開始・制御します。
     #[inline]
     pub(crate) fn resolve_element_style_state(&mut self, id: EntityId, allow_transition: bool) {
-        let TopologyStore {
-            topo_entities,
-            topo_parents,
-            topo_children,
-            topo_active_masks,
-            ..
-        } = &mut self.topology;
-
-        let LayoutStore {
-            lay_basic,
-            lay_base_basic,
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
-            ..
-        } = &mut self.layouts;
-
-        let RenderStore {
-            ren_visual,
-            ren_interaction,
-            ren_base_visual,
-            ren_dirty_entities,
-            ren_active_transitions,
-            ren_active_animations,
-            ..
-        } = &mut self.renders;
-
-        let OutputStore { out_rects, .. } = &self.outputs;
-
-        let ReactiveStore {
-            react_element_effects,
-            ..
-        } = &self.reactive;
-
-        let ContentStore {
-            cont_input_contents,
-            ..
-        } = &self.contents;
-
-        let WindowStore { win_last_size, .. } = &self.window;
-
         RenderStore::resolve_element_style_state(
             id,
             allow_transition,
-            win_last_size.as_ref(),
-            react_element_effects,
-            cont_input_contents,
-            topo_active_masks,
-            topo_entities,
-            topo_parents,
-            topo_children,
-            lay_taffy,
-            lay_basic,
-            lay_dirty_entities,
-            lay_taffy_nodes,
-            lay_base_basic,
-            ren_visual,
-            ren_dirty_entities,
-            ren_active_transitions,
-            ren_active_animations,
-            ren_base_visual,
-            ren_interaction,
-            out_rects,
+            self.window.win_last_size.as_ref(),
+            &self.reactive.react_element_effects,
+            &self.contents.cont_input_contents,
+            &mut self.topology.topo_active_masks,
+            &self.topology.topo_entities,
+            &self.topology.topo_parents,
+            &self.topology.topo_children,
+            &mut self.layouts.lay_taffy,
+            &mut self.layouts.lay_basic,
+            &mut self.layouts.lay_dirty_entities,
+            &self.layouts.lay_taffy_nodes,
+            &self.layouts.lay_base_basic,
+            &mut self.renders.ren_visual,
+            &mut self.renders.ren_dirty_entities,
+            &mut self.renders.ren_active_transitions,
+            &mut self.renders.ren_active_animations,
+            &self.renders.ren_base_visual,
+            &self.renders.ren_interaction,
+            &self.outputs.out_rects,
         );
     }
 }

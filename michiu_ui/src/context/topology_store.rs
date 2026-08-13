@@ -422,9 +422,9 @@ impl TopologyStore {
     #[inline]
     pub fn rebuild_dfs_sequence(
         root: EntityId,
-        topo_children: &ChildrenSecondary,
         topo_flat_dfs_sequence: &mut FlatDfsSequenceVec,
         topo_is_structure_dirty: &mut bool,
+        topo_children: &ChildrenSecondary,
     ) {
         topo_flat_dfs_sequence.clear();
         let mut stack = Vec::with_capacity(32);
@@ -734,70 +734,34 @@ impl Context {
     /// 要素を新規に生成
     #[inline]
     pub(crate) fn spawn(&mut self, parent_id: Option<EntityId>) -> EntityId {
-        let TopologyStore {
-            topo_entities,
-            topo_active_entities,
-            topo_parents,
-            topo_children,
-            topo_active_masks,
-            topo_session_spawned,
-            topo_is_structure_dirty,
-            ..
-        } = &mut self.topology;
-
-        let LayoutStore {
-            lay_taffy,
-            lay_taffy_nodes,
-            ..
-        } = &mut self.layouts;
-
-        let RenderStore {
-            ren_dirty_entities, ..
-        } = &mut self.renders;
-
         TopologyStore::spawn(
             parent_id,
-            topo_entities,
-            topo_parents,
-            topo_children,
-            topo_active_masks,
-            topo_active_entities,
-            topo_session_spawned,
-            topo_is_structure_dirty,
-            lay_taffy,
-            lay_taffy_nodes,
-            ren_dirty_entities,
+            &mut self.topology.topo_entities,
+            &mut self.topology.topo_parents,
+            &mut self.topology.topo_children,
+            &mut self.topology.topo_active_masks,
+            &mut self.topology.topo_active_entities,
+            &mut self.topology.topo_session_spawned,
+            &mut self.topology.topo_is_structure_dirty,
+            &mut self.layouts.lay_taffy,
+            &mut self.layouts.lay_taffy_nodes,
+            &mut self.renders.ren_dirty_entities,
         )
     }
 
     /// 親子関係の追加
     #[inline]
     pub(crate) fn add_child(&mut self, parent: EntityId, child: EntityId) {
-        let TopologyStore {
-            topo_parents,
-            topo_children,
-            topo_is_structure_dirty,
-            topo_active_masks,
-            ..
-        } = &mut self.topology;
-
-        let LayoutStore {
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
-            ..
-        } = &mut self.layouts;
-
         TopologyStore::add_child(
             parent,
             child,
-            topo_parents,
-            topo_children,
-            topo_is_structure_dirty,
-            topo_active_masks,
-            lay_taffy_nodes,
-            lay_taffy,
-            lay_dirty_entities,
+            &mut self.topology.topo_parents,
+            &mut self.topology.topo_children,
+            &mut self.topology.topo_is_structure_dirty,
+            &mut self.topology.topo_active_masks,
+            &mut self.layouts.lay_taffy_nodes,
+            &mut self.layouts.lay_taffy,
+            &mut self.layouts.lay_dirty_entities,
         );
     }
 
@@ -809,122 +773,75 @@ impl Context {
         old_child: EntityId,
         new_child: EntityId,
     ) {
-        let Context {
-            topology,
-            layouts,
-            renders,
-            outputs,
-            contents,
-            events,
-            reactive,
-            window,
-            system,
-        } = self;
-
         TopologyStore::replace_child(
-            parent, old_child, new_child, window, system, reactive, events, contents, topology,
-            layouts, renders, outputs,
-        );
-    }
-
-    /// 非再帰スタックによるフラットDFS配列の構築
-    #[inline]
-    pub(crate) fn rebuild_topo_flat_dfs_sequence(&mut self, root: EntityId) {
-        let TopologyStore {
-            topo_children,
-            topo_flat_dfs_sequence,
-            topo_is_structure_dirty,
-            ..
-        } = &mut self.topology;
-
-        TopologyStore::rebuild_dfs_sequence(
-            root,
-            topo_children,
-            topo_flat_dfs_sequence,
-            topo_is_structure_dirty,
+            parent,
+            old_child,
+            new_child,
+            &mut self.window,
+            &mut self.system,
+            &mut self.reactive,
+            &mut self.events,
+            &mut self.contents,
+            &mut self.topology,
+            &mut self.layouts,
+            &mut self.renders,
+            &mut self.outputs,
         );
     }
 
     // セッションの開始マーカーを取得
     #[inline]
     pub(crate) fn start_session(&mut self) -> usize {
-        let TopologyStore {
-            topo_session_spawned,
-            ..
-        } = &self.topology;
-
-        topo_session_spawned.len()
+        self.topology.topo_session_spawned.len()
     }
 
     // ルート要素として保護するIDを登録
     #[inline]
     pub(crate) fn register_root(&mut self, id: EntityId) {
-        let TopologyStore {
-            topo_session_roots, ..
-        } = &mut self.topology;
-
-        topo_session_roots.push(id);
+        self.topology.topo_session_roots.push(id);
     }
 
     // セッションのクリーンアップを実行
     #[inline]
     pub(crate) fn end_session(&mut self, start_marker: usize) {
-        let Context {
-            topology,
-            layouts,
-            renders,
-            outputs,
-            contents,
-            events,
-            reactive,
-            window,
-            system,
-        } = self;
-
         TopologyStore::end_session(
             start_marker,
-            window,
-            system,
-            reactive,
-            events,
-            contents,
-            topology,
-            layouts,
-            renders,
-            outputs,
+            &mut self.window,
+            &mut self.system,
+            &mut self.reactive,
+            &mut self.events,
+            &mut self.contents,
+            &mut self.topology,
+            &mut self.layouts,
+            &mut self.renders,
+            &mut self.outputs,
         );
     }
 
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで自動修復・一掃
     #[inline]
     pub(crate) fn despawn_internal(&mut self, id: EntityId) {
-        let Context {
-            topology,
-            layouts,
-            renders,
-            outputs,
-            contents,
-            events,
-            reactive,
-            window,
-            system,
-        } = self;
-
         TopologyStore::despawn_internal(
-            id, window, system, reactive, events, contents, topology, layouts, renders, outputs,
+            id,
+            &mut self.window,
+            &mut self.system,
+            &mut self.reactive,
+            &mut self.events,
+            &mut self.contents,
+            &mut self.topology,
+            &mut self.layouts,
+            &mut self.renders,
+            &mut self.outputs,
         );
     }
 
     /// ウィンドウ内の最上位ルート要素の `EntityId` を自律解決して返します。
     #[inline]
     pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
-        let TopologyStore {
-            topo_entities,
-            topo_parents,
-            topo_flat_dfs_sequence,
-            ..
-        } = &self.topology;
-
-        TopologyStore::find_root_entity(topo_entities, topo_parents, topo_flat_dfs_sequence)
+        TopologyStore::find_root_entity(
+            &self.topology.topo_entities,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+        )
     }
 }

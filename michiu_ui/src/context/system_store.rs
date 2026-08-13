@@ -308,25 +308,13 @@ impl Context {
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
     pub(crate) fn get_or_create_layout(&self, id: EntityId) -> Option<IDWriteTextLayout> {
-        let ContentStore {
-            cont_text_contents,
-            cont_text_spans,
-            ..
-        } = &self.contents;
-        let SystemStore {
-            sys_dwrite_layouts,
-            sys_text_engine,
-            ..
-        } = &self.system;
-        let RenderStore { ren_visual, .. } = &self.renders;
-
         SystemStore::get_or_create_layout(
             id,
-            sys_text_engine,
-            sys_dwrite_layouts,
-            cont_text_contents,
-            cont_text_spans,
-            ren_visual,
+            &self.system.sys_text_engine,
+            &self.system.sys_dwrite_layouts,
+            &self.contents.cont_text_contents,
+            &self.contents.cont_text_spans,
+            &self.renders.ren_visual,
         )
     }
 }

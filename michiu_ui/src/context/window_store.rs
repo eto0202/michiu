@@ -74,14 +74,3 @@ impl WindowStore {
     }
 }
 
-impl Context {
-    /// ウィンドウサイズの変更検知
-    #[inline]
-    pub(crate) fn window_resize_detection(&mut self, window_size: LayoutSize) -> bool {
-        let WindowStore {
-            win_last_size, ..
-        } = &mut self.window;
-
-        WindowStore::window_resize_detection(window_size, win_last_size)
-    }
-}
