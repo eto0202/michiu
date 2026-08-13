@@ -374,7 +374,7 @@ impl OutputStore {
         None
     }
 
-    pub(crate) fn inject_paste_internal(
+    pub(crate) fn handle_paste(
         focused_id: EntityId,
         text: &str,
         contents: &mut InputContents,
@@ -431,7 +431,7 @@ impl OutputStore {
         contents.text.1.set(new_text);
     }
 
-    pub(crate) fn inject_undo_internal(
+    pub(crate) fn handle_undo(
         focused_id: EntityId,
         prev_sel: Range<usize>,
         prev_text: String,
@@ -449,7 +449,7 @@ impl OutputStore {
         contents.text.1.set(prev_text);
     }
 
-    pub(crate) fn inject_redo_internal(
+    pub(crate) fn handle_redo(
         focused_id: EntityId,
         next_sel: Range<usize>,
         next_text: String,

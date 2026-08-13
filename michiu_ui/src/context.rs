@@ -20,9 +20,9 @@ pub use topology_store::*;
 pub use window_store::*;
 
 use crate::{
-    ActiveFocusTrigger, CursorIcon, DndDragPayload, Element, ElementState, ImeState, LayoutPoint,
-    LayoutRect, LayoutSize, Modifiers, MouseButton, Overflow, PlaybackCount, PointerEvents,
-    PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
+    ActiveFocusTrigger, ComponentMask, CursorIcon, DndDragPayload, Element, ElementState, ImeState,
+    LayoutPoint, LayoutRect, LayoutSize, Modifiers, MouseButton, Overflow, PlaybackCount,
+    PointerEvents, PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
     STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
     STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW,
     STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue,
@@ -955,7 +955,7 @@ impl Context {
 
     #[inline]
     pub fn inject_pointer_move(&mut self, logical_pos: LayoutPoint) {
-        EventStore::pointer_move_inner(self, logical_pos);
+        EventStore::inject_pointer_move_internal(self, logical_pos);
     }
 
     #[inline]
@@ -965,19 +965,19 @@ impl Context {
         state: ElementState,
         modifiers: Modifiers,
     ) {
-        EventStore::pointer_button_inner(self, button, state, modifiers);
+        EventStore::inject_pointer_button_internal(self, button, state, modifiers);
     }
 
     #[inline]
     pub fn inject_pointer_double_click(&mut self, modifiers: Modifiers) {
-        EventStore::pointer_double_click_inner(self, modifiers);
+        EventStore::inject_pointer_double_click_internal(self, modifiers);
     }
 
     /// 外部で計算された論理ピクセルスクロール移動量 (`scroll_x`, `scroll_y`) を注入し、
     /// バブリングによる自動スクロール処理、またはユーザーイベントハンドラへの配送を行います。
     #[inline]
     pub fn inject_mouse_wheel(&mut self, scroll_x: f32, scroll_y: f32) {
-        EventStore::mouse_wheel_inner(self, scroll_x, scroll_y);
+        EventStore::inject_mouse_wheel_internal(self, scroll_x, scroll_y);
     }
 
     #[inline]
@@ -987,13 +987,13 @@ impl Context {
         state: ElementState,
         modifiers: Modifiers,
     ) {
-        EventStore::keyboard_key_inner(self, key, state, modifiers);
+        EventStore::inject_keyboard_key_internal(self, key, state, modifiers);
     }
 
     /// キーボードフォーカスを次の適格な要素へ巡回させます
     #[inline]
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
-        EventStore::cycle_keyboard_focus_inner(self, reverse);
+        EventStore::cycle_keyboard_focus_internal(self, reverse);
     }
 
     #[inline]
@@ -1026,106 +1026,25 @@ impl Context {
     /// 外部から提供されたテキストを、現在フォーカスされている入力要素にペーストします。
     #[inline]
     pub fn inject_paste(&mut self, text: &str) {
-        let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.evt_interaction_states.focused
-            && self.topology.topo_active_masks[focused_id].has_input_content()
-            && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
-        {
-            OutputStore::inject_paste_internal(
-                focused_id,
-                text,
-                contents,
-                &mut self.outputs.out_text_selections,
-                &mut self.outputs.out_selected_rects,
-            );
-
-            self.update_input_caret_position(focused_id);
-            self.mark_render_dirty(focused_id);
-        }
+        EventStore::inject_paste_internal(self, text);
     }
 
     /// Undo (元に戻す) のインジェクション
     #[inline]
     pub fn inject_undo(&mut self) {
-        let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.evt_interaction_states.focused
-            && self.topology.topo_active_masks[focused_id].has_input_content()
-            && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
-            && let Some((prev_text, prev_sel)) = contents.undo_stack.pop()
-        {
-            OutputStore::inject_undo_internal(
-                focused_id,
-                prev_sel,
-                prev_text,
-                contents,
-                &mut self.outputs.out_text_selections,
-                &mut self.outputs.out_selected_rects,
-            );
-
-            self.update_input_caret_position(focused_id);
-            self.mark_render_dirty(focused_id);
-        }
+        EventStore::inject_undo_internal(self);
     }
 
     /// Redo (やり直し) のインジェクション
     #[inline]
     pub fn inject_redo(&mut self) {
-        let _context_guard = bind_context(self);
-        if let Some(focused_id) = self.events.evt_interaction_states.focused
-            && self.topology.topo_active_masks[focused_id].has_input_content()
-            && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
-            && let Some((next_text, next_sel)) = contents.redo_stack.pop()
-        {
-            OutputStore::inject_redo_internal(
-                focused_id,
-                next_sel,
-                next_text,
-                contents,
-                &mut self.outputs.out_text_selections,
-                &mut self.outputs.out_selected_rects,
-            );
-
-            self.update_input_caret_position(focused_id);
-            self.mark_render_dirty(focused_id);
-        }
+        EventStore::inject_redo_internal(self);
     }
 
     /// 切り取り (Ctrl+X) の実行と削除後のテキスト取得
     #[inline]
     pub fn inject_cut(&mut self) -> Option<String> {
-        let _context_guard = bind_context(self);
-        let focused_id = self.events.evt_interaction_states.focused?;
-        let user_select = self.get_user_select(focused_id);
-
-        if user_select == UserSelect::Text
-            && let Some(range) = self.outputs.out_text_selections.get(focused_id).cloned()
-            && range.start < range.end
-            && let Some(text) = self.contents.cont_text_contents.get(focused_id)
-        {
-            let u16_text: Vec<u16> = text.encode_utf16().collect();
-            let slice = &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
-            let cut_text = String::from_utf16(slice).ok()?;
-
-            // 対象が Input コントロールである場合のみ、切り取り削除上書きを実行
-            if self.topology.topo_active_masks[focused_id].has_input_content()
-                && let Some(contents) = self.contents.cont_input_contents.get_mut(focused_id)
-            {
-                OutputStore::inject_cut_internal(
-                    focused_id,
-                    range,
-                    contents,
-                    &mut self.outputs.out_text_selections,
-                    &mut self.outputs.out_selected_rects,
-                );
-
-                self.update_input_caret_position(focused_id);
-                self.mark_render_dirty(focused_id);
-            }
-
-            return Some(cut_text);
-        }
-
-        None
+        EventStore::inject_cut_internal(self)
     }
 
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。

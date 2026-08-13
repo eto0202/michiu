@@ -1404,7 +1404,7 @@ impl EventStore {
         );
     }
 
-    pub(crate) fn pointer_move_inner(cx: &mut Context, logical_pos: LayoutPoint) {
+    pub(crate) fn inject_pointer_move_internal(cx: &mut Context, logical_pos: LayoutPoint) {
         let _context_guard = bind_context(cx);
         let prev_pos = cx.events.evt_current_pointer_position;
         cx.events.evt_current_pointer_position = Some(logical_pos);
@@ -1963,7 +1963,7 @@ impl EventStore {
         );
 
         if let Some(pos) = cx.events.evt_current_pointer_position {
-            EventStore::pointer_move_inner(cx, pos);
+            EventStore::inject_pointer_move_internal(cx, pos);
         }
 
         RenderStore::mark_render_dirty(
@@ -1981,7 +1981,7 @@ impl EventStore {
             cx.events.evt_interaction_states.pressed = None;
 
             if let Some(pos) = cx.events.evt_current_pointer_position {
-                EventStore::pointer_move_inner(cx, pos);
+                EventStore::inject_pointer_move_internal(cx, pos);
             }
             RenderStore::mark_render_dirty(
                 id,
@@ -2034,7 +2034,7 @@ impl EventStore {
     }
 
     #[inline]
-    pub(crate) fn pointer_button_inner(
+    pub(crate) fn inject_pointer_button_internal(
         cx: &mut Context,
         button: MouseButton,
         state: ElementState,
@@ -2050,7 +2050,7 @@ impl EventStore {
         }
     }
 
-    pub fn pointer_double_click_inner(cx: &mut Context, modifiers: Modifiers) {
+    pub fn inject_pointer_double_click_internal(cx: &mut Context, modifiers: Modifiers) {
         let _context_guard = bind_context(cx);
         let current_hovered = cx.events.evt_interaction_states.hovered;
 
@@ -2183,7 +2183,7 @@ impl EventStore {
         );
     }
 
-    pub fn mouse_wheel_inner(cx: &mut Context, scroll_x: f32, scroll_y: f32) {
+    pub fn inject_mouse_wheel_internal(cx: &mut Context, scroll_x: f32, scroll_y: f32) {
         let _context_guard = bind_context(cx);
 
         let mut curr = cx.events.evt_interaction_states.hovered;
@@ -2369,7 +2369,7 @@ impl EventStore {
         RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
     }
 
-    pub(crate) fn keyboard_key_inner(
+    pub(crate) fn inject_keyboard_key_internal(
         cx: &mut Context,
         key: VirtualKey,
         state: ElementState,
@@ -2379,7 +2379,7 @@ impl EventStore {
 
         // Tabキー押下時は個別のフォーカス対象へのイベント配信前に巡回処理を実行
         if state == ElementState::Pressed && key == VirtualKey::TAB {
-            EventStore::cycle_keyboard_focus_inner(cx, modifiers.shift);
+            EventStore::cycle_keyboard_focus_internal(cx, modifiers.shift);
             return;
         }
 
@@ -2442,7 +2442,7 @@ impl EventStore {
     }
 
     /// キーボードフォーカスを次の適格な要素へ巡回
-    pub(crate) fn cycle_keyboard_focus_inner(cx: &mut Context, reverse: bool) {
+    pub(crate) fn cycle_keyboard_focus_internal(cx: &mut Context, reverse: bool) {
         if cx.topology.topo_flat_dfs_sequence.is_empty() {
             return;
         }
@@ -2468,7 +2468,7 @@ impl EventStore {
             } else {
                 (start_idx + i) % len
             };
-            
+
             let Some(candidate_id) = cx.topology.topo_flat_dfs_sequence.get(idx).copied() else {
                 continue;
             };
@@ -2505,6 +2505,266 @@ impl EventStore {
             &mut cx.topology.topo_active_masks,
             &mut cx.renders.ren_dirty_entities,
         );
+    }
+
+    pub(crate) fn inject_paste_internal(cx: &mut Context, text: &str) {
+        let _context_guard = bind_context(cx);
+
+        let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+            return;
+        };
+        if !cx
+            .topology
+            .topo_active_masks
+            .get(focused_id)
+            .is_some_and(ComponentMask::has_input_content)
+        {
+            return;
+        }
+        let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) else {
+            return;
+        };
+
+        OutputStore::handle_paste(
+            focused_id,
+            text,
+            contents,
+            &mut cx.outputs.out_text_selections,
+            &mut cx.outputs.out_selected_rects,
+        );
+        OutputStore::update_input_caret_position(
+            focused_id,
+            cx.window.win_last_size,
+            cx.window.win_scale_factor,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &mut cx.contents.cont_input_contents,
+            &mut cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
+            &mut cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &cx.topology.topo_children,
+            &mut cx.layouts.lay_taffy,
+            &mut cx.layouts.lay_dirty_entities,
+            &mut cx.layouts.lay_scrollbar_styles,
+            &cx.layouts.lay_taffy_nodes,
+            &cx.layouts.lay_basic,
+            &cx.layouts.lay_flex,
+            &cx.layouts.lay_grid,
+            &mut cx.renders.ren_visual,
+            &cx.renders.ren_base_visual,
+            &cx.renders.ren_interaction,
+            &cx.renders.ren_active_transitions,
+            &mut cx.outputs.out_scroll_offsets,
+            &mut cx.outputs.out_text_selections,
+            &cx.outputs.out_rects,
+        );
+        RenderStore::mark_render_dirty(
+            focused_id,
+            &mut cx.topology.topo_active_masks,
+            &mut cx.renders.ren_dirty_entities,
+        );
+    }
+
+    pub(crate) fn inject_undo_internal(cx: &mut Context) {
+        let _context_guard = bind_context(cx);
+
+        let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+            return;
+        };
+        if !cx
+            .topology
+            .topo_active_masks
+            .get(focused_id)
+            .is_some_and(ComponentMask::has_input_content)
+        {
+            return;
+        }
+        let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) else {
+            return;
+        };
+        let Some((prev_text, prev_sel)) = contents.undo_stack.pop() else {
+            return;
+        };
+
+        OutputStore::handle_undo(
+            focused_id,
+            prev_sel,
+            prev_text,
+            contents,
+            &mut cx.outputs.out_text_selections,
+            &mut cx.outputs.out_selected_rects,
+        );
+        OutputStore::update_input_caret_position(
+            focused_id,
+            cx.window.win_last_size,
+            cx.window.win_scale_factor,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &mut cx.contents.cont_input_contents,
+            &mut cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
+            &mut cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &cx.topology.topo_children,
+            &mut cx.layouts.lay_taffy,
+            &mut cx.layouts.lay_dirty_entities,
+            &mut cx.layouts.lay_scrollbar_styles,
+            &cx.layouts.lay_taffy_nodes,
+            &cx.layouts.lay_basic,
+            &cx.layouts.lay_flex,
+            &cx.layouts.lay_grid,
+            &mut cx.renders.ren_visual,
+            &cx.renders.ren_base_visual,
+            &cx.renders.ren_interaction,
+            &cx.renders.ren_active_transitions,
+            &mut cx.outputs.out_scroll_offsets,
+            &mut cx.outputs.out_text_selections,
+            &cx.outputs.out_rects,
+        );
+        RenderStore::mark_render_dirty(
+            focused_id,
+            &mut cx.topology.topo_active_masks,
+            &mut cx.renders.ren_dirty_entities,
+        );
+    }
+
+    pub(crate) fn inject_redo_internal(cx: &mut Context) {
+        let _context_guard = bind_context(cx);
+        let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+            return;
+        };
+        if !cx
+            .topology
+            .topo_active_masks
+            .get(focused_id)
+            .is_some_and(ComponentMask::has_input_content)
+        {
+            return;
+        }
+        let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) else {
+            return;
+        };
+        let Some((next_text, next_sel)) = contents.redo_stack.pop() else {
+            return;
+        };
+
+        OutputStore::handle_redo(
+            focused_id,
+            next_sel,
+            next_text,
+            contents,
+            &mut cx.outputs.out_text_selections,
+            &mut cx.outputs.out_selected_rects,
+        );
+        OutputStore::update_input_caret_position(
+            focused_id,
+            cx.window.win_last_size,
+            cx.window.win_scale_factor,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &mut cx.contents.cont_input_contents,
+            &mut cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
+            &mut cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &cx.topology.topo_children,
+            &mut cx.layouts.lay_taffy,
+            &mut cx.layouts.lay_dirty_entities,
+            &mut cx.layouts.lay_scrollbar_styles,
+            &cx.layouts.lay_taffy_nodes,
+            &cx.layouts.lay_basic,
+            &cx.layouts.lay_flex,
+            &cx.layouts.lay_grid,
+            &mut cx.renders.ren_visual,
+            &cx.renders.ren_base_visual,
+            &cx.renders.ren_interaction,
+            &cx.renders.ren_active_transitions,
+            &mut cx.outputs.out_scroll_offsets,
+            &mut cx.outputs.out_text_selections,
+            &cx.outputs.out_rects,
+        );
+        RenderStore::mark_render_dirty(
+            focused_id,
+            &mut cx.topology.topo_active_masks,
+            &mut cx.renders.ren_dirty_entities,
+        );
+    }
+
+    pub(crate) fn inject_cut_internal(cx: &mut Context) -> Option<String> {
+        let _context_guard = bind_context(cx);
+        let focused_id = cx.events.evt_interaction_states.focused?;
+        let user_select = EventStore::get_user_select(focused_id, &cx.renders.ren_visual);
+
+        if user_select != UserSelect::Text {
+            return None;
+        }
+
+        let range = cx.outputs.out_text_selections.get(focused_id)?;
+
+        // 空の選択範囲の場合
+        if range.start >= range.end {
+            return None;
+        }
+
+        let text = cx.contents.cont_text_contents.get(focused_id)?;
+
+        // 選択されたUTF-16テキストの切り出し
+        let u16_text: Vec<u16> = text.encode_utf16().collect();
+        let slice = &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
+        let cut_text = String::from_utf16(slice).ok()?;
+
+        // 対象が Input コントロールである場合のみ書き換え
+        let is_input = cx
+            .topology
+            .topo_active_masks
+            .get(focused_id)
+            .is_some_and(ComponentMask::has_input_content);
+
+        // Input 用のコンテンツが実際に存在する場合のみ実行
+        if is_input && let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) {
+            OutputStore::inject_cut_internal(
+                focused_id,
+                range.clone(),
+                contents,
+                &mut cx.outputs.out_text_selections,
+                &mut cx.outputs.out_selected_rects,
+            );
+            OutputStore::update_input_caret_position(
+                focused_id,
+                cx.window.win_last_size,
+                cx.window.win_scale_factor,
+                &cx.system.sys_text_engine,
+                &cx.system.sys_dwrite_layouts,
+                &mut cx.contents.cont_input_contents,
+                &mut cx.contents.cont_text_contents,
+                &cx.contents.cont_text_spans,
+                &mut cx.topology.topo_active_masks,
+                &cx.topology.topo_parents,
+                &cx.topology.topo_children,
+                &mut cx.layouts.lay_taffy,
+                &mut cx.layouts.lay_dirty_entities,
+                &mut cx.layouts.lay_scrollbar_styles,
+                &cx.layouts.lay_taffy_nodes,
+                &cx.layouts.lay_basic,
+                &cx.layouts.lay_flex,
+                &cx.layouts.lay_grid,
+                &mut cx.renders.ren_visual,
+                &cx.renders.ren_base_visual,
+                &cx.renders.ren_interaction,
+                &cx.renders.ren_active_transitions,
+                &mut cx.outputs.out_scroll_offsets,
+                &mut cx.outputs.out_text_selections,
+                &cx.outputs.out_rects,
+            );
+            RenderStore::mark_render_dirty(
+                focused_id,
+                &mut cx.topology.topo_active_masks,
+                &mut cx.renders.ren_dirty_entities,
+            );
+        }
+        // Input・非Inputに関わらず切り出されたテキストを返す
+        Some(cut_text)
     }
 }
 
