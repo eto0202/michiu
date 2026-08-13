@@ -438,8 +438,8 @@ impl Context {
             ren_visual,
             ren_interaction,
             ren_active_transitions,
-            out_rects,
             out_scroll_offsets,
+            out_rects,
         )
     }
 
@@ -977,61 +977,9 @@ impl Context {
 
     /// 外部で計算された論理ピクセルスクロール移動量 (`scroll_x`, `scroll_y`) を注入し、
     /// バブリングによる自動スクロール処理、またはユーザーイベントハンドラへの配送を行います。
+    #[inline]
     pub fn inject_mouse_wheel(&mut self, scroll_x: f32, scroll_y: f32) {
-        let _context_guard = bind_context(self);
-
-        let mut curr = self.events.evt_interaction_states.hovered;
-        let mut handled = false;
-
-        // イベントバブリング: ホバー要素から親へ辿る
-        while let Some(curr_id) = curr {
-            // 個別に定義された `on_mouse_wheel` ハンドラがあれば最優先実行
-            if let Some(l) = self.events.evt_listeners.get_mut(curr_id)
-                && let Some(mut handler) = l.on_mouse_wheel.take()
-            {
-                let _guard = crate::ActiveElementGuard::new(curr_id);
-                handler(self, scroll_x, scroll_y);
-                if let Some(l) = self.events.evt_listeners.get_mut(curr_id) {
-                    l.on_mouse_wheel = Some(handler);
-                }
-                handled = true; // イベントが消費されたため、これ以降のコンテナスクロールは行わない
-                break;
-            }
-
-            // ユーザーハンドラがない場合、要素がスクロールコンテナであるか判定
-            let mask = self.topology.topo_active_masks[curr_id];
-            if mask.has(STYLE_OVERFLOW) {
-                let (basic, _, _) = self.resolve_active_layouts(curr_id);
-
-                let mut scrolled = false;
-
-                // 縦方向スクロール
-                if scroll_y != 0.0
-                    && (basic.overflow.y == Overflow::Scroll
-                        || basic.overflow.y == Overflow::Hidden)
-                    && self.scroll_by(curr_id, 0.0, scroll_y)
-                {
-                    scrolled = true;
-                }
-
-                // 横方向スクロール
-                if scroll_x != 0.0
-                    && (basic.overflow.x == Overflow::Scroll
-                        || basic.overflow.x == Overflow::Hidden)
-                    && self.scroll_by(curr_id, scroll_x, 0.0)
-                {
-                    scrolled = true;
-                }
-
-                if scrolled {
-                    handled = true;
-                    break; // スクロールを実行したためバブリングを終了
-                }
-            }
-
-            // 先祖へ伝播
-            curr = self.topology.topo_parents.get(curr_id).copied().flatten();
-        }
+        EventStore::mouse_wheel_inner(self, scroll_x, scroll_y);
     }
 
     pub fn inject_keyboard_key(

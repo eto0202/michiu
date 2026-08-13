@@ -10,21 +10,22 @@ use crate::{
     ElementState, EntitiesSlot, EntityId, EventListeners, FlatDfsSequenceVec, FlexLayoutsSecondary,
     FocusTrigger, Focusable, GridLayoutsSecondary, InputContentsSparseSecondary,
     InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, Length, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
-    Position, ReactiveStore, Rect, RectsSecondary, RenderStore, STATE_ACTIVED, STATE_DISABLED,
-    STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED,
-    STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE,
-    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_POINTER_EVENTS,
-    STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE,
-    ScrollOffsetsSecondary, ScrollbarStylesSecondary, SelectedRectsSparseSecondary,
-    SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
-    TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopologyStore, UserSelect, Val,
-    VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active,
-    handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
-    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
-    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
-    handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_right_click,
+    LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary,
+    PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore, STATE_ACTIVED,
+    STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED,
+    STATE_FOCUSED, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, STYLE_DND_DRAGGABLE,
+    STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OVERFLOW,
+    STYLE_POINTER_EVENTS, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN,
+    STYLE_RESIZABLE, ScrollOffsetsSecondary, ScrollbarStylesSecondary,
+    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec,
+    SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
+    TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
+    TextSpansSparseSecondary, TopologyStore, UserSelect, Val, VirtualKey,
+    VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur,
+    handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start,
+    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
+    handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover, handle_on_mouse_enter,
+    handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click,
     handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -512,8 +513,8 @@ impl EventStore {
             ren_visual,
             ren_interaction,
             ren_active_transitions,
-            out_rects,
             out_scroll_offsets,
+            out_rects,
         );
 
         if scroll {
@@ -2180,6 +2181,100 @@ impl EventStore {
             &mut cx.topology.topo_active_masks,
             &mut cx.renders.ren_dirty_entities,
         );
+    }
+
+    pub fn mouse_wheel_inner(cx: &mut Context, scroll_x: f32, scroll_y: f32) {
+        let _context_guard = bind_context(cx);
+
+        let mut curr = cx.events.evt_interaction_states.hovered;
+
+        // ホバー要素から親へ辿る
+        while let Some(curr_id) = curr {
+            // 個別に定義された `on_mouse_wheel` ハンドラがあれば最優先実行
+            let has_listener = cx
+                .events
+                .evt_listeners
+                .get(curr_id)
+                .is_some_and(|l| l.on_mouse_wheel.is_some());
+
+            if has_listener {
+                handle_on_mouse_wheel(cx, curr_id, scroll_x, scroll_y);
+                break; // イベントが消費されたため、これ以上の伝播やコンテナスクロールは行わない
+            }
+
+            // ユーザーハンドラがない場合、要素がスクロールコンテナであるか判定
+            let has_overflow = cx
+                .topology
+                .topo_active_masks
+                .get(curr_id)
+                .is_some_and(|m| m.has(STYLE_OVERFLOW));
+            if has_overflow {
+                let (basic, _, _) = LayoutStore::resolve_active_layouts(
+                    curr_id,
+                    &cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
+                    &cx.layouts.lay_basic,
+                    &cx.layouts.lay_flex,
+                    &cx.layouts.lay_grid,
+                    &cx.renders.ren_interaction,
+                    &cx.renders.ren_visual,
+                    &cx.renders.ren_active_transitions,
+                );
+
+                // スクロール可能な軸の移動量
+                let dy = if scroll_y != 0.0
+                    && (basic.overflow.y == Overflow::Scroll
+                        || basic.overflow.y == Overflow::Hidden)
+                {
+                    scroll_y
+                } else {
+                    0.0
+                };
+
+                let dx = if scroll_x != 0.0
+                    && (basic.overflow.x == Overflow::Scroll
+                        || basic.overflow.x == Overflow::Hidden)
+                {
+                    scroll_x
+                } else {
+                    0.0
+                };
+
+                if (dx != 0.0 || dy != 0.0)
+                    && OutputStore::scroll_by(
+                        curr_id,
+                        dx,
+                        dy,
+                        cx.window.win_last_size,
+                        &cx.system.sys_text_engine,
+                        &cx.system.sys_dwrite_layouts,
+                        &cx.contents.cont_input_contents,
+                        &cx.contents.cont_text_contents,
+                        &cx.contents.cont_text_spans,
+                        &mut cx.topology.topo_active_masks,
+                        &cx.topology.topo_parents,
+                        &cx.topology.topo_children,
+                        &mut cx.layouts.lay_taffy,
+                        &mut cx.layouts.lay_dirty_entities,
+                        &mut cx.layouts.lay_scrollbar_styles,
+                        &cx.layouts.lay_taffy_nodes,
+                        &cx.layouts.lay_basic,
+                        &cx.layouts.lay_flex,
+                        &cx.layouts.lay_grid,
+                        &cx.renders.ren_visual,
+                        &cx.renders.ren_interaction,
+                        &cx.renders.ren_active_transitions,
+                        &mut cx.outputs.out_scroll_offsets,
+                        &cx.outputs.out_rects,
+                    )
+                {
+                    break; // スクロールを実行したためバブリングを終了
+                }
+            }
+
+            // 先祖へ伝播
+            curr = cx.topology.topo_parents.get(curr_id).copied().flatten();
+        }
     }
 }
 

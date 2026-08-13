@@ -1023,8 +1023,8 @@ impl OutputStore {
         ren_visual: &VisualPropertiesSecondary,
         ren_interaction: &InteractionPropertiesSecondary,
         ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        out_rects: &RectsSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_rects: &RectsSecondary,
     ) -> bool {
         let current = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
