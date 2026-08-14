@@ -2102,7 +2102,7 @@ impl OutputStore {
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
             let is_webview_ready = is_webview && rnd_active_webviews.contains(&id);
 
-            let (basic, _, _) = LayoutStore::resolve_active_layouts(
+            let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
                 id,
                 topo_active_masks,
                 topo_parents,
@@ -2117,7 +2117,7 @@ impl OutputStore {
 
             // 共通パラメータの展開
             let (packed_transform, origin) =
-                RenderStore::get_transform_and_origin(id, visual, &topo_effective_transforms);
+                RenderStore::get_transform_and_origin(id, visual, topo_effective_transforms);
             let (o_width, o_color, o_lengths, outline_offset_and_flags) =
                 RenderStore::get_outline_params(visual);
 
@@ -2292,17 +2292,6 @@ impl OutputStore {
                 } else {
                     LayoutSize::ZERO
                 };
-                let (_, flex, _) = LayoutStore::resolve_active_layouts(
-                    id,
-                    topo_active_masks,
-                    topo_parents,
-                    lay_basic,
-                    lay_flex,
-                    lay_grid,
-                    rnd_interaction,
-                    rnd_visual,
-                    rnd_active_transitions,
-                );
 
                 let align_offset = OutputStore::calc_align_offset(
                     rect,
@@ -2494,17 +2483,6 @@ impl OutputStore {
                 } else {
                     LayoutSize::ZERO
                 };
-                let (_, flex, _) = LayoutStore::resolve_active_layouts(
-                    id,
-                    topo_active_masks,
-                    topo_parents,
-                    lay_basic,
-                    lay_flex,
-                    lay_grid,
-                    rnd_interaction,
-                    rnd_visual,
-                    rnd_active_transitions,
-                );
 
                 let align_offset = OutputStore::calc_align_offset(
                     rect,

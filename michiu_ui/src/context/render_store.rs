@@ -1646,11 +1646,6 @@ impl RenderStore {
                             lay_dirty_entities,
                             lay_taffy_nodes,
                         );
-
-                        // キャッシュを毎フレーム強制バイパスさせるためにマスクを再セット
-                        if let Some(mask) = topo_active_masks.get_mut(id) {
-                            mask.set(STATE_QUEUED_LAYOUT);
-                        }
                     }
                     // 縦幅（Height）の毎フレームアニメーション補間
                     TransitionValue::Height(h) => {
@@ -1665,10 +1660,6 @@ impl RenderStore {
                             lay_dirty_entities,
                             lay_taffy_nodes,
                         );
-
-                        if let Some(mask) = topo_active_masks.get_mut(id) {
-                            mask.set(STATE_QUEUED_LAYOUT);
-                        }
                     }
                     // 影（BoxShadow）の毎フレームの書き戻し処理
                     TransitionValue::BoxShadow(shadow) => {

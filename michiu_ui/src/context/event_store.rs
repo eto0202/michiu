@@ -1,32 +1,7 @@
 use std::path::PathBuf;
 
 use crate::{
-    ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
-    ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
-    BasicLayout, BasicLayoutsSecondary, ChildrenSecondary, ClipRectsSecondary, ComponentMask,
-    ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, DndDragPayload, DndDragPlaceholderParent, DndDragProperty,
-    DndDropProperty, DwriteLayoutsSparseSecondary, EffectiveZindicesSecondary, Element,
-    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
-    FlatDfsSequenceVec, FlexLayoutsSecondary, FocusTrigger, Focusable, GridLayoutsSecondary,
-    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow,
-    ParentsSecondary, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore,
-    STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING,
-    STATE_DRAGGED, STATE_FOCUSED, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED,
-    STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
-    STYLE_OVERFLOW, STYLE_POINTER_EVENTS, STYLE_PREVENT_FOCUS_STEAL,
-    STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, ScrollOffsetsSecondary,
-    ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
-    SessionSpawnedVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextAlign, TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
-    TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val, VirtualKey,
-    VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur,
-    handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start,
-    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
-    handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
-    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
-    handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
+    ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, ChildrenSecondary, ClipRectsSecondary, ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPayload, DndDragPlaceholderParent, DndDragProperty, DndDropProperty, DwriteLayoutsSparseSecondary, EffectiveZindicesSecondary, Element, ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners, FlatDfsSequenceVec, FlexLayoutsSecondary, FocusTrigger, Focusable, GridLayoutsSecondary, InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OVERFLOW, STYLE_POINTER_EVENTS, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, ScrollOffsetsSecondary, ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val, VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click, handle_on_select
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -1075,20 +1050,8 @@ impl EventStore {
         src_id: EntityId,
         hit_id: Option<EntityId>,
         placeholder: EntityId,
-        logical_pos: LayoutPoint,
-        evt_interaction_states: &InteractionStates,
-        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
-        topo_sorted_entities: &mut SortedEntitiesVec,
-        topo_dfs_indices: &mut DfsIndicesSecondary,
-        topo_sort_cache: &mut TopoSortCacheVec,
-        topo_active_entities: &ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         topo_parents: &ParentsSecondary,
-        rnd_visual: &VisualPropertiesSecondary,
-        rnd_base_visual: &BaseVisualPropertiesSecondary,
-        out_rects: &RectsSecondary,
-        out_clip_rects: &ClipRectsSecondary,
     ) -> Option<EntityId> {
         let hit_id = hit_id?;
         // ヒットした要素がドラッグ元自身、またはその子孫である場合は、
@@ -1566,20 +1529,8 @@ impl EventStore {
             src_id,
             hit_id,
             placeholder_id,
-            logical_pos,
-            &cx.events.evt_interaction_states,
-            &mut cx.topology.topo_effective_z_indices,
-            &mut cx.topology.topo_sorted_entities,
-            &mut cx.topology.topo_dfs_indices,
-            &mut cx.topology.topo_sort_cache,
-            &cx.topology.topo_active_entities,
             &cx.topology.topo_active_masks,
-            &cx.topology.topo_flat_dfs_sequence,
             &cx.topology.topo_parents,
-            &cx.renders.rnd_visual,
-            &cx.renders.rnd_base_visual,
-            &cx.outputs.out_rects,
-            &cx.outputs.out_clip_rects,
         );
 
         // ドロップ先のホバー切り替えイベントを解決（STATE_DRAG_IN の同期）
@@ -2961,7 +2912,7 @@ impl EventStore {
     ) {
         EventStore::update_state(cx, id, STATE_FOCUSED, focused);
         let show_visible = focused && (trigger == ActiveFocusTrigger::Keyboard);
-        EventStore::update_state(cx, id, STATE_FOCUSED, focused);
+        EventStore::update_state(cx, id, STATE_FOCUSED_VISIBLE, show_visible);
     }
 
     pub(crate) fn auto_focus_switch_by_trigger(

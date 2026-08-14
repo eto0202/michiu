@@ -454,15 +454,6 @@ impl LayoutStore {
             layout.size = size;
             layout.inset = inset;
         }
-
-        // affy 側のノードスタイルも Display::None にして同期
-        let _ = lay_taffy.set_style(
-            lay_taffy_nodes[id],
-            taffy::Style {
-                display: taffy::Display::None,
-                ..Default::default()
-            },
-        );
     }
 
     /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
@@ -540,13 +531,26 @@ impl LayoutStore {
     #[inline]
     pub(crate) fn hide_scrollbar_element(
         id: EntityId,
+        lay_taffy: &mut TaffyTreeEntityId,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
     ) {
         let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
 
         for layout in layouts.into_iter().flatten() {
             layout.display = Display::None;
+        }
+
+        // 非表示パスで、Taffy側ノードスタイルを確実に Display::None にして同期する
+        if let Some(&node_id) = lay_taffy_nodes.get(id) {
+            let _ = lay_taffy.set_style(
+                node_id,
+                taffy::Style {
+                    display: taffy::Display::None,
+                    ..Default::default()
+                },
+            );
         }
     }
 
@@ -830,7 +834,13 @@ impl ScrollbarSyncContext<'_> {
     }
     #[inline]
     pub fn hide_el(&mut self, el_id: EntityId) {
-        LayoutStore::hide_scrollbar_element(el_id, self.lay_basic, self.lay_base_basic);
+        LayoutStore::hide_scrollbar_element(
+            el_id,
+            self.lay_taffy,
+            self.lay_basic,
+            self.lay_base_basic,
+            self.lay_taffy_nodes,
+        );
     }
 }
 
