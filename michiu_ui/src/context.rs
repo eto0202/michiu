@@ -324,17 +324,13 @@ impl Context {
 
     #[inline]
     pub fn mark_dirty(&mut self, id: EntityId) {
-        LayoutStore::mark_layout_dirty(
+        TopologyStore::mark_dirty(
             id,
             &mut self.topology.topo_active_masks,
             &self.topology.topo_parents,
             &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_dirty_entities,
             &self.layouts.lay_taffy_nodes,
-        );
-        RenderStore::mark_render_dirty(
-            id,
-            &mut self.topology.topo_active_masks,
             &mut self.renders.rnd_dirty_entities,
         );
     }

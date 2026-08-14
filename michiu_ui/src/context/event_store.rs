@@ -609,43 +609,7 @@ impl EventStore {
         let mut was_active = false;
         let mut state_changed = false;
 
-        let TopologyStore {
-            topo_active_masks,
-            topo_entities,
-            topo_parents,
-            topo_children,
-            ..
-        } = &mut cx.topology;
-        let LayoutStore {
-            lay_taffy,
-            lay_taffy_nodes,
-            lay_basic,
-            lay_base_basic,
-            lay_dirty_entities,
-            ..
-        } = &mut cx.layouts;
-        let RenderStore {
-            rnd_visual: rnd_visual,
-            rnd_base_visual: rnd_base_visual,
-            rnd_interaction: rnd_interaction,
-            rnd_active_transitions: rnd_active_transitions,
-            rnd_active_animations: rnd_active_animations,
-            rnd_dirty_entities: rnd_dirty_entities,
-            ..
-        } = &mut cx.renders;
-        let OutputStore { out_rects, .. } = &mut cx.outputs;
-        let ContentStore {
-            cont_input_contents,
-            ..
-        } = &mut cx.contents;
-        let ReactiveStore {
-            react_element_effects,
-            ..
-        } = &mut cx.reactive;
-        let EventStore { evt_listeners, .. } = &mut cx.events;
-        let WindowStore { win_last_size, .. } = &mut cx.window;
-
-        let Some(mask) = topo_active_masks.get_mut(id) else {
+        let Some(mask) = cx.topology.topo_active_masks.get_mut(id) else {
             return;
         };
 
@@ -662,149 +626,90 @@ impl EventStore {
             mask.unset(state_flag);
         }
 
+        let mut resolve_element = |cx: &mut Context, id: EntityId| {
+            RenderStore::resolve_element_style_state(
+                id,
+                true,
+                cx.window.win_last_size.as_ref(),
+                &cx.reactive.react_element_effects,
+                &cx.contents.cont_input_contents,
+                &mut cx.topology.topo_active_masks,
+                &cx.topology.topo_entities,
+                &cx.topology.topo_parents,
+                &cx.topology.topo_children,
+                &mut cx.layouts.lay_taffy,
+                &mut cx.layouts.lay_basic,
+                &mut cx.layouts.lay_dirty_entities,
+                &cx.layouts.lay_taffy_nodes,
+                &cx.layouts.lay_base_basic,
+                &mut cx.renders.rnd_visual,
+                &mut cx.renders.rnd_dirty_entities,
+                &mut cx.renders.rnd_active_transitions,
+                &mut cx.renders.rnd_active_animations,
+                &cx.renders.rnd_base_visual,
+                &cx.renders.rnd_interaction,
+                &cx.outputs.out_rects,
+            );
+        };
+
+        let mark_dirty = |cx: &mut Context, id: EntityId| {
+            if RenderStore::does_state_require_layout(id, state_flag, &cx.renders.rnd_interaction) {
+                LayoutStore::mark_layout_dirty(
+                    id,
+                    &mut cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
+                    &mut cx.layouts.lay_taffy,
+                    &mut cx.layouts.lay_dirty_entities,
+                    &cx.layouts.lay_taffy_nodes,
+                );
+            }
+            RenderStore::mark_render_dirty(
+                id,
+                &mut cx.topology.topo_active_masks,
+                &mut cx.renders.rnd_dirty_entities,
+            );
+        };
+
         // 状態変化の発生時に即座に動的なスタイルを解決する
-        RenderStore::resolve_element_style_state(
-            id,
-            true,
-            win_last_size.as_ref(),
-            react_element_effects,
-            cont_input_contents,
-            topo_active_masks,
-            topo_entities,
-            topo_parents,
-            topo_children,
-            lay_taffy,
-            lay_basic,
-            lay_dirty_entities,
-            lay_taffy_nodes,
-            lay_base_basic,
-            rnd_visual,
-            rnd_dirty_entities,
-            rnd_active_transitions,
-            rnd_active_animations,
-            rnd_base_visual,
-            rnd_interaction,
-            out_rects,
-        );
+        resolve_element(cx, id);
 
         // 親から子方向へのスタイル解決の伝播
-        if let Some(child) = topo_children.get(id).cloned() {
+        if let Some(child) = cx.topology.topo_children.get(id).cloned() {
             for child_id in child {
-                if topo_active_masks[child_id].has(STYLE_INTERACTION_PARENT) {
-                    RenderStore::resolve_element_style_state(
-                        child_id,
-                        true,
-                        win_last_size.as_ref(),
-                        react_element_effects,
-                        cont_input_contents,
-                        topo_active_masks,
-                        topo_entities,
-                        topo_parents,
-                        topo_children,
-                        lay_taffy,
-                        lay_basic,
-                        lay_dirty_entities,
-                        lay_taffy_nodes,
-                        lay_base_basic,
-                        rnd_visual,
-                        rnd_dirty_entities,
-                        rnd_active_transitions,
-                        rnd_active_animations,
-                        rnd_base_visual,
-                        rnd_interaction,
-                        out_rects,
-                    );
+                let has_parent = cx
+                    .topology
+                    .topo_active_masks
+                    .get(child_id)
+                    .is_some_and(|m| m.has(STYLE_INTERACTION_PARENT));
 
-                    if RenderStore::does_state_require_layout(child_id, state_flag, rnd_interaction)
-                    {
-                        LayoutStore::mark_layout_dirty(
-                            child_id,
-                            topo_active_masks,
-                            topo_parents,
-                            lay_taffy,
-                            lay_dirty_entities,
-                            lay_taffy_nodes,
-                        );
-                        RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
-                    } else {
-                        RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
-                    }
+                if has_parent {
+                    resolve_element(cx, child_id);
+                    mark_dirty(cx, child_id);
                 }
             }
         }
 
         // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
         let mut curr = id;
-        while let Some(Some(parent_id)) = topo_parents.get(curr).copied() {
-            if topo_entities.contains_key(parent_id) {
-                let parent_mask = topo_active_masks[parent_id];
+        while let Some(parent_id) = cx.topology.topo_parents.get(curr).copied().flatten() {
+            if cx.topology.topo_entities.contains_key(parent_id) {
+                let has_within = cx
+                    .topology
+                    .topo_active_masks
+                    .get(parent_id)
+                    .is_some_and(|m| m.has(STYLE_INTERACTION_WITHIN));
 
                 // 先祖要素が within スタイルを持っている場合のみそのスタイル評価を実行
-                if parent_mask.has(STYLE_INTERACTION_WITHIN) {
-                    RenderStore::resolve_element_style_state(
-                        parent_id,
-                        true,
-                        win_last_size.as_ref(),
-                        react_element_effects,
-                        cont_input_contents,
-                        topo_active_masks,
-                        topo_entities,
-                        topo_parents,
-                        topo_children,
-                        lay_taffy,
-                        lay_basic,
-                        lay_dirty_entities,
-                        lay_taffy_nodes,
-                        lay_base_basic,
-                        rnd_visual,
-                        rnd_dirty_entities,
-                        rnd_active_transitions,
-                        rnd_active_animations,
-                        rnd_base_visual,
-                        rnd_interaction,
-                        out_rects,
-                    );
-
-                    if RenderStore::does_state_require_layout(
-                        parent_id,
-                        state_flag,
-                        rnd_interaction,
-                    ) {
-                        LayoutStore::mark_layout_dirty(
-                            parent_id,
-                            topo_active_masks,
-                            topo_parents,
-                            lay_taffy,
-                            lay_dirty_entities,
-                            lay_taffy_nodes,
-                        );
-                        RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
-                    } else {
-                        RenderStore::mark_render_dirty(
-                            parent_id,
-                            topo_active_masks,
-                            rnd_dirty_entities,
-                        );
-                    }
+                if has_within {
+                    resolve_element(cx, parent_id);
+                    mark_dirty(cx, parent_id);
                 }
             }
             curr = parent_id;
         }
 
         // 状態変化による本要素のレイアウト汚染チェック
-        if RenderStore::does_state_require_layout(id, state_flag, rnd_interaction) {
-            LayoutStore::mark_layout_dirty(
-                id,
-                topo_active_masks,
-                topo_parents,
-                lay_taffy,
-                lay_dirty_entities,
-                lay_taffy_nodes,
-            );
-            RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
-        } else {
-            RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
-        }
+        mark_dirty(cx, id);
 
         if !state_changed {
             return;
@@ -1095,7 +1000,11 @@ impl EventStore {
         cx.events.evt_interaction_states.dragged = Some(pressed_id);
 
         // D&D 設定（STYLE_DRAGGABLE）を持っている場合のセッションのキック
-        if cx.topology.topo_active_masks[pressed_id].has(STYLE_DND_DRAGGABLE)
+        if cx
+            .topology
+            .topo_active_masks
+            .get(pressed_id)
+            .is_some_and(|m| m.has(STYLE_DND_DRAGGABLE))
             && cx.events.evt_active_dnd_drag_state.is_none()
         {
             EventStore::start_dnd_drag_session(cx, pressed_id, logical_pos);
@@ -1164,6 +1073,7 @@ impl EventStore {
 
     pub(crate) fn detect_drop_target_during_intrusion(
         src_id: EntityId,
+        hit_id: Option<EntityId>,
         placeholder: EntityId,
         logical_pos: LayoutPoint,
         evt_interaction_states: &InteractionStates,
@@ -1180,23 +1090,7 @@ impl EventStore {
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
     ) -> Option<EntityId> {
-        let hit_id = TopologyStore::hit_test(
-            logical_pos,
-            evt_interaction_states,
-            topo_sorted_entities,
-            topo_effective_z_indices,
-            topo_dfs_indices,
-            topo_sort_cache,
-            topo_active_masks,
-            topo_active_entities,
-            topo_parents,
-            topo_flat_dfs_sequence,
-            rnd_visual,
-            rnd_base_visual,
-            out_rects,
-            out_clip_rects,
-        )?;
-
+        let hit_id = hit_id?;
         // ヒットした要素がドラッグ元自身、またはその子孫である場合は、
         // 自身のサブツリーをすべてスキップするためにドラッグ元の親から探索を開始
         let is_descendant = TopologyStore::is_descendant_of(hit_id, src_id, topo_parents);
@@ -1496,7 +1390,6 @@ impl EventStore {
 
         if let Some((id, dir)) = found_resize_hover {
             cx.events.evt_active_resize_hover = Some((id, dir));
-            let vis = cx.renders.rnd_visual.get(id).unwrap();
             EventStore::apply_resizable_cursor_style(id, dir, &mut cx.renders.rnd_visual);
             RenderStore::mark_render_dirty(
                 id,
@@ -1656,7 +1549,7 @@ impl EventStore {
             placeholder_id,
             logical_pos,
             &drag_prop,
-            &drag_state,
+            drag_state,
             &mut cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
             &mut cx.layouts.lay_basic,
@@ -1671,6 +1564,7 @@ impl EventStore {
         // 現在ホバー侵入中のドロップターゲット要素を検知
         let found_drop_target = EventStore::detect_drop_target_during_intrusion(
             src_id,
+            hit_id,
             placeholder_id,
             logical_pos,
             &cx.events.evt_interaction_states,

@@ -765,16 +765,15 @@ impl LayoutStore {
             layout.inset.right = Val::Auto;
             layout.inset.bottom = Val::Auto;
         }
-
-        LayoutStore::mark_layout_dirty(
+        TopologyStore::mark_dirty(
             id,
             topo_active_masks,
             topo_parents,
             lay_taffy,
             lay_dirty_entities,
             lay_taffy_nodes,
+            rnd_dirty_entities,
         );
-        RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
     }
 }
 
@@ -1284,7 +1283,8 @@ impl Context {
     ) -> Option<&mut BasicLayout> {
         let LayoutStore { lay_base_basic, .. } = &mut self.layouts;
         let RenderStore {
-            rnd_interaction: rnd_interaction, ..
+            rnd_interaction: rnd_interaction,
+            ..
         } = &mut self.renders;
 
         LayoutStore::get_basic_layout_mut(id, target, lay_base_basic, rnd_interaction)
@@ -1298,7 +1298,8 @@ impl Context {
     ) -> Option<&mut FlexLayout> {
         let LayoutStore { lay_flex, .. } = &mut self.layouts;
         let RenderStore {
-            rnd_interaction: rnd_interaction, ..
+            rnd_interaction: rnd_interaction,
+            ..
         } = &mut self.renders;
 
         LayoutStore::get_flex_layout_mut(id, target, lay_flex, rnd_interaction)

@@ -1245,9 +1245,22 @@ impl OutputStore {
         out_rects: &RectsSecondary,
     ) {
         #[derive(Clone, Copy, PartialEq, Eq)]
-        pub(crate) enum DragDirection {
+        enum DragDirection {
             Vertical,
             Horizontal,
+        }
+
+        #[derive(Clone, Copy, PartialEq)]
+        struct SrcrollbarDate {
+            track_id: EntityId,
+            thumb_id: EntityId,
+            track_len: f32,
+            thumb_len: f32,
+            margin_start: f32,
+            margin_end: f32,
+            delta_mouse: f32,
+            max_scroll_len: f32,
+            start_scroll_offset: f32,
         }
 
         let active_drag_target = lay_scrollbar_styles.iter().find_map(|(id, state)| {
@@ -1265,7 +1278,10 @@ impl OutputStore {
         };
 
         let (sb_state, container_rect, scroll_size) = {
-            let sb_state = lay_scrollbar_styles.get(current_id).cloned().unwrap();
+            let sb_state = lay_scrollbar_styles
+                .get(current_id)
+                .cloned()
+                .unwrap_or_default();
             let container_rect = OutputStore::rect(current_id, out_rects).unwrap_or_default();
             let scroll_size = OutputStore::get_scroll_size(
                 current_id,
@@ -1292,17 +1308,7 @@ impl OutputStore {
 
         let visible_size = WindowStore::calculate_visible_size(win_last_size, container_rect);
 
-        let (
-            track_id,
-            thumb_id,
-            track_len,
-            thumb_len,
-            margin_start,
-            margin_end,
-            delta_mouse,
-            max_scroll_len,
-            start_scroll_offset,
-        ) = match direction {
+        let date = match direction {
             DragDirection::Vertical => {
                 let track_id = sb_state.v_track_id.unwrap();
                 let thumb_id = sb_state.v_thumb_id.unwrap();
@@ -1319,17 +1325,17 @@ impl OutputStore {
                     }
                 }
 
-                (
+                SrcrollbarDate {
                     track_id,
                     thumb_id,
-                    track_rect.height,
-                    thumb_rect.height,
-                    margin_top,
-                    margin_bottom,
-                    logical_pos.y - sb_state.drag_start_mouse.y,
-                    scroll_size.height - visible_size.height,
-                    sb_state.drag_start_offset.y,
-                )
+                    track_len: track_rect.height,
+                    thumb_len: thumb_rect.height,
+                    margin_start: margin_top,
+                    margin_end: margin_bottom,
+                    delta_mouse: logical_pos.y - sb_state.drag_start_mouse.y,
+                    max_scroll_len: scroll_size.height - visible_size.height,
+                    start_scroll_offset: sb_state.drag_start_offset.y,
+                }
             }
             DragDirection::Horizontal => {
                 let track_id = sb_state.h_track_id.unwrap();
@@ -1347,25 +1353,25 @@ impl OutputStore {
                     }
                 }
 
-                (
+                SrcrollbarDate {
                     track_id,
                     thumb_id,
-                    track_rect.width,
-                    thumb_rect.width,
-                    margin_left,
-                    margin_right,
-                    logical_pos.x - sb_state.drag_start_mouse.x,
-                    scroll_size.width - visible_size.width,
-                    sb_state.drag_start_offset.x,
-                )
+                    track_len: track_rect.width,
+                    thumb_len: thumb_rect.width,
+                    margin_start: margin_left,
+                    margin_end: margin_right,
+                    delta_mouse: logical_pos.x - sb_state.drag_start_mouse.x,
+                    max_scroll_len: scroll_size.width - visible_size.width,
+                    start_scroll_offset: sb_state.drag_start_offset.x,
+                }
             }
         };
 
         // スクロール可動域と割合
-        let track_range = track_len - thumb_len - margin_start - margin_end;
+        let track_range = date.track_len - date.thumb_len - date.margin_start - date.margin_end;
         if track_range > 0.0 {
-            let ratio = max_scroll_len / track_range;
-            let target_scroll = start_scroll_offset + delta_mouse * ratio;
+            let ratio = date.max_scroll_len / track_range;
+            let target_scroll = date.start_scroll_offset + date.delta_mouse * ratio;
 
             let (target_x, target_y) = match direction {
                 DragDirection::Vertical => {

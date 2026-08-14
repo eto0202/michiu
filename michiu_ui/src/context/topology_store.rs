@@ -757,6 +757,27 @@ impl TopologyStore {
             }
         }
     }
+
+    #[inline]
+    pub(crate) fn mark_dirty(
+        id: EntityId,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+    ) {
+        LayoutStore::mark_layout_dirty(
+            id,
+            topo_active_masks,
+            topo_parents,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_taffy_nodes,
+        );
+        RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
+    }
 }
 
 impl Context {
