@@ -110,7 +110,7 @@ impl ContentStore {
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
         topo_active_masks: &ActiveMasksSecondary,
-        ren_visual: &VisualPropertiesSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
     ) -> taffy::Size<f32> {
         let mask = topo_active_masks.get(id).copied().unwrap_or_default();
 
@@ -137,7 +137,7 @@ impl ContentStore {
             .get(id)
             .map_or("", std::convert::AsRef::as_ref);
         let (font_size, font_family, font_weight, font_style) =
-            RenderStore::get_font_propery(id, ren_visual);
+            RenderStore::get_font_propery(id, rnd_visual);
         let max_width = None;
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 

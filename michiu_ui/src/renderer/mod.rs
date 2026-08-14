@@ -76,21 +76,41 @@ impl Default for QuadInstance {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BatchType {
+pub(crate) enum BatchType {
     Normal,
     Punchout,
 }
 
-/// 同じクリップ（Scissor）範囲で描画できるインスタンスの塊
+/// 同じクリップ範囲で描画できるインスタンスの塊
 pub struct DrawBatch {
     pub scissor_rect: LayoutRect,
-    pub instances: Vec<QuadInstance>,
-    pub(crate) entity_ids: Vec<EntityId>,
+    // フラットバッファ上のインデックス範囲
+    pub instance_offset: usize,
+    pub instance_count: usize,
     pub(crate) batch_type: BatchType,
 }
 
+#[derive(Default)]
 pub struct RenderData {
     pub batches: Vec<DrawBatch>,
+    // 1フレーム分の全インスタンス
+    pub instances: Vec<QuadInstance>,
+    pub entity_ids: Vec<EntityId>,
+}
+
+impl RenderData {
+    pub fn new() -> Self {
+        Self {
+            batches: Vec::new(),
+            instances: Vec::new(),
+            entity_ids: Vec::new(),
+        }
+    }
+    pub fn clear(&mut self) {
+        self.batches.clear();
+        self.instances.clear();
+        self.entity_ids.clear();
+    }
 }
 
 pub(crate) const IDENTITY_MATRIX: [[f32; 4]; 4] = [

@@ -113,7 +113,7 @@ impl Element {
     #[inline]
     #[must_use]
     pub fn get_children(self) -> Vec<Element> {
-        with_context(|cx| cx.children_list(self).unwrap_or_default())
+        with_context(|cx| cx.childrnd_list(self).unwrap_or_default())
     }
 
     /// 要素に現在設定されている最新の Inset（位置・オフセット）を安全に読み取ります。
@@ -392,10 +392,10 @@ impl Element {
 
     /// プロバイダー `P` から動的に複数の子要素（コレクション）を解決して、
     /// `中間コンテナ（div_n）を挟むことなく、親要素の直下へフラットに一括追加・置換します`。
-    // children_c を持つコンテナには他の静的子要素を混在させない
+    // childrnd_c を持つコンテナには他の静的子要素を混在させない
     #[must_use]
     #[inline]
-    pub fn children_d<P, F, I, E>(self, f: F) -> Self
+    pub fn childrnd_d<P, F, I, E>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> I + Send + Sync + 'static,
@@ -408,7 +408,7 @@ impl Element {
             // 前回の評価でこのスロットによって生成・追加された子要素群のIDを保持するセル
             let current_children: Rc<std::cell::RefCell<Vec<EntityId>>> =
                 Rc::new(std::cell::RefCell::new(Vec::new()));
-            let current_children_clone = current_children.clone();
+            let current_childrnd_clone = current_children.clone();
 
             cx.create_element_effect(parent_id, EffectCategory::Contents, move |cx| {
                 // プロバイダーの値を動的解決
@@ -420,12 +420,12 @@ impl Element {
                     .into_iter()
                     .map(|e| match e.into() {
                         Prop::Static(el) => el,
-                        _ => panic!("Dynamic nested elements inside topo_children_c are not supported"),
+                        _ => panic!("Dynamic nested elements inside topo_childrnd_c are not supported"),
                     })
                     .collect();
 
                 // 前回マウントした古い子要素群を安全に一括破棄（Taffyツリーからのデタッチ含む）
-                let mut old_children = current_children_clone.borrow_mut();
+                let mut old_children = current_childrnd_clone.borrow_mut();
                 for old_id in old_children.drain(..) {
                     cx.despawn_internal(old_id);
                 }
@@ -542,8 +542,8 @@ impl Element {
         }
 
         // 2. 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
-        if let Some(children_list) = cx.topology.topo_children.get(id) {
-            let old_children: Vec<EntityId> = children_list.iter().copied().collect();
+        if let Some(childrnd_list) = cx.topology.topo_children.get(id) {
+            let old_children: Vec<EntityId> = childrnd_list.iter().copied().collect();
             for child_id in old_children {
                 if !scrollbar_ids.contains(&child_id) {
                     cx.despawn_internal(child_id);

@@ -66,7 +66,7 @@ new_key_type! {
 /// 5. contents (cont_)
 /// 6. topology (topo_)
 /// 7. layouts (lay_)
-/// 8. renders (ren_)
+/// 8. renders (rnd_)
 /// 9. outputs (out_)
 pub struct Context {
     /// ウィンドウ全体の基本状態（DPI、最終境界）の保持。
@@ -166,7 +166,7 @@ impl Context {
 
     /// 指定した要素の子要素一覧を取得します。
     #[inline]
-    pub fn children_list(&self, handle: Element) -> Option<Vec<Element>> {
+    pub fn childrnd_list(&self, handle: Element) -> Option<Vec<Element>> {
         self.topology
             .topo_children
             .get(handle.id)
@@ -787,6 +787,8 @@ impl Context {
             &self.events.evt_interaction_states,
             &mut self.topology.topo_sorted_entities,
             &mut self.topology.topo_effective_z_indices,
+            &mut self.topology.topo_dfs_indices,
+            &mut self.topology.topo_sort_cache,
             &self.topology.topo_active_masks,
             &self.topology.topo_active_entities,
             &self.topology.topo_parents,

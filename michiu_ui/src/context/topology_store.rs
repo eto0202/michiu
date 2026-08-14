@@ -19,6 +19,8 @@ pub(crate) type FlatDfsSequenceVec = Vec<EntityId>;
 pub(crate) type EffectiveZindicesSecondary = SecondaryMap<EntityId, i32>;
 pub(crate) type EffectiveTransformsSecondary = SecondaryMap<EntityId, [[f32; 4]; 4]>;
 pub(crate) type SortedEntitiesVec = Vec<EntityId>;
+pub(crate) type DfsIndicesSecondary = SecondaryMap<EntityId, u32>;
+pub(crate) type TopoSortCacheVec = Vec<(EntityId, i32, u32)>;
 
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
@@ -44,6 +46,8 @@ pub struct TopologyStore {
     pub(crate) topo_effective_transforms: EffectiveTransformsSecondary,
     // 実効 z-index の作業用マップ
     pub(crate) topo_effective_z_indices: EffectiveZindicesSecondary,
+    pub(crate) topo_dfs_indices: DfsIndicesSecondary,
+    pub(crate) topo_sort_cache: TopoSortCacheVec,
 }
 
 impl Default for TopologyStore {
@@ -70,6 +74,8 @@ impl TopologyStore {
             topo_sorted_entities: Vec::new(),
             topo_effective_transforms: SecondaryMap::new(),
             topo_effective_z_indices: SecondaryMap::new(),
+            topo_dfs_indices: SecondaryMap::new(),
+            topo_sort_cache: Vec::new(),
         }
     }
 
@@ -85,6 +91,8 @@ impl TopologyStore {
         self.topo_sorted_entities.clear();
         self.topo_effective_transforms.clear();
         self.topo_effective_z_indices.clear();
+        self.topo_dfs_indices.clear();
+        self.topo_sort_cache.clear();
     }
 
     #[inline]
@@ -94,6 +102,7 @@ impl TopologyStore {
         self.topo_active_masks.remove(id);
         self.topo_effective_z_indices.remove(id);
         self.topo_effective_transforms.remove(id);
+        self.topo_dfs_indices.remove(id);
         // ダーティキュー、DFSシーケンス、アクティブ走査用の一時配列から
         // デスポーンされた無効な ID をその場で即時に抹消クリーンアップします。
         self.topo_active_entities.retain(|&x| x != id);
@@ -118,7 +127,7 @@ impl TopologyStore {
         topo_is_structure_dirty: &mut bool,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
-        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
     ) -> EntityId {
         let id = topo_entities.insert(());
         topo_parents.insert(id, parent_id);
@@ -134,7 +143,7 @@ impl TopologyStore {
             .unwrap();
         lay_taffy_nodes.insert(id, node);
 
-        RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
+        RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
 
         id
     }
@@ -173,7 +182,7 @@ impl TopologyStore {
             }
 
             // 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
-            LayoutStore::resync_taffy_children_order(
+            LayoutStore::resync_taffy_childrnd_order(
                 old_parent,
                 topo_children,
                 lay_taffy,
@@ -304,8 +313,8 @@ impl TopologyStore {
         }
 
         // 子要素を再帰的に削除
-        if let Some(children_list) = topology.topo_children.remove(id) {
-            for child_id in children_list {
+        if let Some(childrnd_list) = topology.topo_children.remove(id) {
+            for child_id in childrnd_list {
                 TopologyStore::despawn_internal(
                     child_id, window, system, reactive, events, contents, topology, layouts,
                     renders, outputs,
@@ -373,8 +382,8 @@ impl TopologyStore {
         let Some(Some(parent_id)) = topo_parents.get(child).copied() else {
             return None;
         };
-        if let Some(children_list) = topo_children.get_mut(parent_id) {
-            children_list.retain(|x| *x != child);
+        if let Some(childrnd_list) = topo_children.get_mut(parent_id) {
+            childrnd_list.retain(|x| *x != child);
         }
         topo_parents.insert(child, None);
         *topo_is_structure_dirty = true;
@@ -391,10 +400,10 @@ impl TopologyStore {
         topo_is_structure_dirty: &mut bool,
     ) {
         topo_parents.insert(child, Some(parent));
-        if let Some(children_list) = topo_children.get_mut(parent)
-            && !children_list.contains(&child)
+        if let Some(childrnd_list) = topo_children.get_mut(parent)
+            && !childrnd_list.contains(&child)
         {
-            children_list.push(child);
+            childrnd_list.push(child);
         }
         *topo_is_structure_dirty = true;
     }
@@ -409,10 +418,10 @@ impl TopologyStore {
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
     ) {
-        if let Some(children_list) = topo_children.get_mut(parent)
-            && let Some(pos) = children_list.iter().position(|&x| x == old_child)
+        if let Some(childrnd_list) = topo_children.get_mut(parent)
+            && let Some(pos) = childrnd_list.iter().position(|&x| x == old_child)
         {
-            children_list[pos] = new_child;
+            childrnd_list[pos] = new_child;
         }
         topo_parents.insert(new_child, Some(parent));
         *topo_is_structure_dirty = true;
@@ -433,13 +442,13 @@ impl TopologyStore {
         while let Some(id) = stack.pop() {
             topo_flat_dfs_sequence.push(id);
 
-            let Some(children_list) = topo_children.get(id) else {
+            let Some(childrnd_list) = topo_children.get(id) else {
                 continue;
             };
 
-            let len = children_list.len();
+            let len = childrnd_list.len();
             for i in (0..len).rev() {
-                stack.push(children_list[i]);
+                stack.push(childrnd_list[i]);
             }
         }
         *topo_is_structure_dirty = false;
@@ -584,24 +593,40 @@ impl TopologyStore {
     pub(crate) fn prepare_sorted_entities(
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
+        topo_dfs_indices: &mut DfsIndicesSecondary,
+        topo_sort_cache: &mut TopoSortCacheVec,
         topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        ren_visual: &VisualPropertiesSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
     ) {
         // 実効 z_index をカスケード計算
         TopologyStore::compute_effective_z_indices(
             topo_effective_z_indices,
             topo_parents,
             topo_flat_dfs_sequence,
-            ren_visual,
+            rnd_visual,
         );
 
-        topo_sorted_entities.clear();
-        topo_sorted_entities.extend(topo_active_entities.iter().copied());
+        // 元の DFS 出現順インデックスを作業用バッファに記録
+        topo_dfs_indices.clear();
+        for (index, &id) in topo_flat_dfs_sequence.iter().enumerate() {
+            topo_dfs_indices.insert(id, index as u32);
+        }
 
-        topo_sorted_entities
-            .sort_by_key(|&id| topo_effective_z_indices.get(id).copied().unwrap_or(0));
+        // ソート用キャッシュを構築
+        topo_sort_cache.clear();
+        for &id in topo_active_entities {
+            let z = topo_effective_z_indices.get(id).copied().unwrap_or(0);
+            let dfs = topo_dfs_indices.get(id).copied().unwrap_or(0);
+            topo_sort_cache.push((id, z, dfs));
+        }
+
+        topo_sort_cache.sort_unstable_by_key(|&(_, z, dfs)| (z, dfs));
+
+        // ソート結果から ID 配列を再構成
+        topo_sorted_entities.clear();
+        topo_sorted_entities.extend(topo_sort_cache.iter().map(|&(id, _, _)| id));
     }
 
     /// 各要素の実効 `z_index` を親から子へカスケードして計算
@@ -610,13 +635,13 @@ impl TopologyStore {
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        ren_visual: &VisualPropertiesSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
     ) {
         topo_effective_z_indices.clear();
 
         // topo_flat_dfs_sequence は必ず親から子への順でフラットに並んでいるため、前方1方向の走査で完結
         for &id in topo_flat_dfs_sequence {
-            let self_z = ren_visual.get(id).and_then(|v| v.z_index);
+            let self_z = rnd_visual.get(id).and_then(|v| v.z_index);
 
             let parent_z = topo_parents
                 .get(id)
@@ -638,12 +663,14 @@ impl TopologyStore {
         evt_interaction_states: &InteractionStates,
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
+        topo_dfs_indices: &mut DfsIndicesSecondary,
+        topo_sort_cache: &mut TopoSortCacheVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        ren_visual: &VisualPropertiesSecondary,
-        ren_base_visual: &BaseVisualPropertiesSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
+        rnd_base_visual: &BaseVisualPropertiesSecondary,
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
     ) -> Option<EntityId> {
@@ -651,10 +678,12 @@ impl TopologyStore {
         TopologyStore::prepare_sorted_entities(
             topo_sorted_entities,
             topo_effective_z_indices,
+            topo_dfs_indices,
+            topo_sort_cache,
             topo_active_entities,
             topo_parents,
             topo_flat_dfs_sequence,
-            ren_visual,
+            rnd_visual,
         );
 
         // 最前面の要素から逆順
@@ -684,10 +713,10 @@ impl TopologyStore {
             }
 
             // pointer-events 設定の解決
-            let pointer_events = ren_visual
+            let pointer_events = rnd_visual
                 .get(id)
                 .and_then(|v| v.pointer_events)
-                .or_else(|| ren_base_visual.get(id).and_then(|v| v.pointer_events))
+                .or_else(|| rnd_base_visual.get(id).and_then(|v| v.pointer_events))
                 .unwrap_or_default();
 
             if pointer_events == PointerEvents::None {

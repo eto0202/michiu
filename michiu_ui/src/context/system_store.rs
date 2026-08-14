@@ -115,7 +115,7 @@ impl SystemStore {
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
-        ren_visual: &VisualPropertiesSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
     ) -> Option<IDWriteTextLayout> {
         if let Some(layout) = sys_dwrite_layouts.borrow().get(id) {
             return Some(layout.clone());
@@ -123,7 +123,7 @@ impl SystemStore {
 
         let text = cont_text_contents.get(id)?;
         let (font_size, font_family, font_weight, font_style) =
-            RenderStore::get_font_propery(id, ren_visual);
+            RenderStore::get_font_propery(id, rnd_visual);
         let max_width = None;
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 

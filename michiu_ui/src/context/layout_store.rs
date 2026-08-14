@@ -119,9 +119,9 @@ impl LayoutStore {
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
-        ren_visual: &VisualPropertiesSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_interaction: &InteractionPropertiesSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
         let mut basic = lay_basic.get(id).copied().unwrap_or_default();
         let mut flex = lay_flex.get(id).copied().unwrap_or_default();
@@ -131,7 +131,7 @@ impl LayoutStore {
 
         // 幅・高さ・一括サイズに対して、現在トランジションアニメーションが駆動中であるかを走査
         let (is_width_transitioning, is_height_transitioning) =
-            LayoutStore::is_transition_currently_running(id, ren_active_transitions);
+            LayoutStore::is_transition_currently_running(id, rnd_active_transitions);
 
         // 自身、または親先祖から focused / focus_visible のフォーカス関連スタイルを解決
         let [focused_style_resolved, focused_visible_style_resolved] =
@@ -141,8 +141,8 @@ impl LayoutStore {
                     &active_mask,
                     state,
                     topo_parents,
-                    ren_visual,
-                    ren_interaction,
+                    rnd_visual,
+                    rnd_interaction,
                 )
             });
 
@@ -155,7 +155,7 @@ impl LayoutStore {
             &mut grid,
             &[focused_style_resolved, focused_visible_style_resolved],
             (is_width_transitioning, is_height_transitioning),
-            ren_interaction,
+            rnd_interaction,
         );
 
         (basic, flex, grid)
@@ -166,13 +166,13 @@ impl LayoutStore {
         id: EntityId,
         target: StyleTarget,
         lay_base_basic: &'a mut BaseBasicLayoutsSecondary,
-        ren_interaction: &'a mut InteractionPropertiesSecondary,
+        rnd_interaction: &'a mut InteractionPropertiesSecondary,
     ) -> Option<&'a mut BasicLayout> {
         if target == StyleTarget::Base {
             lay_base_basic.get_mut(id)
         } else {
-            // ren_interaction から該当疑似クラスを安全に解決
-            let styles = ren_interaction.get_mut(id)?;
+            // rnd_interaction から該当疑似クラスを安全に解決
+            let styles = rnd_interaction.get_mut(id)?;
             let style_ref = styles.get_style_target_mut(target);
             Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
         }
@@ -182,15 +182,15 @@ impl LayoutStore {
         id: EntityId,
         target: StyleTarget,
         lay_flex: &'a mut SecondaryMap<EntityId, FlexLayout>,
-        ren_interaction: &'a mut InteractionPropertiesSecondary,
+        rnd_interaction: &'a mut InteractionPropertiesSecondary,
     ) -> Option<&'a mut FlexLayout> {
         if target == StyleTarget::Base {
             lay_flex.get_mut(id)
         } else {
-            if !ren_interaction.contains_key(id) {
-                ren_interaction.insert(id, InteractionStyles::default());
+            if !rnd_interaction.contains_key(id) {
+                rnd_interaction.insert(id, InteractionStyles::default());
             }
-            let styles = ren_interaction.get_mut(id).unwrap();
+            let styles = rnd_interaction.get_mut(id).unwrap();
             let style_ref = styles.get_style_target_mut(target);
             Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
         }
@@ -198,9 +198,9 @@ impl LayoutStore {
 
     pub(crate) fn is_transition_currently_running(
         id: EntityId,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
     ) -> (bool, bool) {
-        let Some(list) = ren_active_transitions.get(id) else {
+        let Some(list) = rnd_active_transitions.get(id) else {
             return (false, false);
         };
 
@@ -231,9 +231,9 @@ impl LayoutStore {
         grid: &mut Option<GridLayout>,
         focused_resolved: &[Option<ThisStyle>; 2],
         is_transitioning: (bool, bool),
-        ren_interaction: &InteractionPropertiesSecondary,
+        rnd_interaction: &InteractionPropertiesSecondary,
     ) {
-        let Some(interaction) = ren_interaction.get(id) else {
+        let Some(interaction) = rnd_interaction.get(id) else {
             return;
         };
 
@@ -481,10 +481,10 @@ impl LayoutStore {
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSecondary,
         lay_scrollbar_styles: &ScrollbarStylesSecondary,
-        ren_visual: &mut VisualPropertiesSecondary,
-        ren_base_visual: &mut BaseVisualPropertiesSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_visual: &mut VisualPropertiesSecondary,
+        rnd_base_visual: &mut BaseVisualPropertiesSecondary,
+        rnd_interaction: &InteractionPropertiesSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
     ) {
         LayoutStore::update_scrollbar_element_layout(
             id,
@@ -495,7 +495,7 @@ impl LayoutStore {
             size,
             inset,
         );
-        RenderStore::update_scrollbar_element_opacity(id, opacity, ren_visual, ren_base_visual);
+        RenderStore::update_scrollbar_element_opacity(id, opacity, rnd_visual, rnd_base_visual);
 
         let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
             id,
@@ -504,9 +504,9 @@ impl LayoutStore {
             lay_basic,
             lay_flex,
             lay_grid,
-            ren_interaction,
-            ren_visual,
-            ren_active_transitions,
+            rnd_interaction,
+            rnd_visual,
+            rnd_active_transitions,
         );
 
         LayoutStore::set_taffy_style(
@@ -575,7 +575,7 @@ impl LayoutStore {
     /// 指定された親コンテナにアタッチされている `DComp` / Taffy 側のすべての子ノードの物理順序を
     /// 内部 `SoA` リスト（self.children）の順序に沿って再同期。
     #[inline]
-    pub(crate) fn resync_taffy_children_order(
+    pub(crate) fn resync_taffy_childrnd_order(
         parent_id: EntityId,
         topo_children: &ChildrenSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
@@ -591,12 +591,12 @@ impl LayoutStore {
             }
         }
         // 最新の並び替え順序リストの存在チェック
-        let Some(children_list) = topo_children.get(parent_id) else {
+        let Some(childrnd_list) = topo_children.get(parent_id) else {
             return;
         };
 
         // 最新の順序に従って、Taffy 側に再アタッチ
-        for &child_id in children_list {
+        for &child_id in childrnd_list {
             let Some(&child_node) = lay_taffy_nodes.get(child_id) else {
                 continue;
             };
@@ -662,7 +662,7 @@ impl LayoutStore {
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_nodes: &TaffyNodesSecondary,
-        ren_dirty_entities: &mut DirtyRenderEntitiesVec,
+        rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         out_rects: &RectsSecondary,
     ) {
         let id = state.entity_id;
@@ -774,7 +774,7 @@ impl LayoutStore {
             lay_dirty_entities,
             lay_taffy_nodes,
         );
-        RenderStore::mark_render_dirty(id, topo_active_masks, ren_dirty_entities);
+        RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
     }
 }
 
@@ -800,10 +800,10 @@ pub(crate) struct ScrollbarSyncContext<'a> {
     pub lay_flex: &'a FlexLayoutsSecondary,
     pub lay_grid: &'a GridLayoutsSecondary,
     pub lay_scrollbar_styles: &'a ScrollbarStylesSecondary,
-    pub ren_active_transitions: &'a ActiveTransitionsSparseSecondary,
-    pub ren_visual: &'a mut VisualPropertiesSecondary,
-    pub ren_base_visual: &'a mut BaseVisualPropertiesSecondary,
-    pub ren_interaction: &'a InteractionPropertiesSecondary,
+    pub rnd_active_transitions: &'a ActiveTransitionsSparseSecondary,
+    pub rnd_visual: &'a mut VisualPropertiesSecondary,
+    pub rnd_base_visual: &'a mut BaseVisualPropertiesSecondary,
+    pub rnd_interaction: &'a InteractionPropertiesSecondary,
 }
 
 impl ScrollbarSyncContext<'_> {
@@ -823,10 +823,10 @@ impl ScrollbarSyncContext<'_> {
             self.lay_flex,
             self.lay_grid,
             self.lay_scrollbar_styles,
-            self.ren_visual,
-            self.ren_base_visual,
-            self.ren_interaction,
-            self.ren_active_transitions,
+            self.rnd_visual,
+            self.rnd_base_visual,
+            self.rnd_interaction,
+            self.rnd_active_transitions,
         );
     }
     #[inline]
@@ -853,10 +853,10 @@ impl LayoutStore {
         lay_grid: &GridLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_scrollbar_styles: &ScrollbarStylesSecondary,
-        ren_visual: &mut VisualPropertiesSecondary,
-        ren_base_visual: &mut BaseVisualPropertiesSecondary,
-        ren_active_transitions: &ActiveTransitionsSparseSecondary,
-        ren_interaction: &InteractionPropertiesSecondary,
+        rnd_visual: &mut VisualPropertiesSecondary,
+        rnd_base_visual: &mut BaseVisualPropertiesSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_interaction: &InteractionPropertiesSecondary,
         out_rects: &RectsSecondary,
         out_scroll_offsets: &ScrollOffsetsSecondary,
     ) {
@@ -879,9 +879,9 @@ impl LayoutStore {
                 lay_flex,
                 lay_grid,
                 lay_scrollbar_styles,
-                ren_visual,
-                ren_interaction,
-                ren_active_transitions,
+                rnd_visual,
+                rnd_interaction,
+                rnd_active_transitions,
                 out_rects,
                 out_scroll_offsets,
             );
@@ -894,9 +894,9 @@ impl LayoutStore {
                 lay_basic,
                 lay_flex,
                 lay_grid,
-                ren_interaction,
-                ren_visual,
-                ren_active_transitions,
+                rnd_interaction,
+                rnd_visual,
+                rnd_active_transitions,
             );
             let rect = OutputStore::rect(id, out_rects).unwrap_or_default();
             let (border, padding) =
@@ -935,10 +935,10 @@ impl LayoutStore {
                 lay_flex,
                 lay_grid,
                 lay_scrollbar_styles,
-                ren_active_transitions,
-                ren_visual,
-                ren_base_visual,
-                ren_interaction,
+                rnd_active_transitions,
+                rnd_visual,
+                rnd_base_visual,
+                rnd_interaction,
             };
 
             // 縦トラック (V-Track) の同期
@@ -1257,9 +1257,9 @@ impl Context {
             ..
         } = &self.topology;
         let RenderStore {
-            rnd_active_transitions: ren_active_transitions,
-            rnd_interaction: ren_interaction,
-            rnd_visual: ren_visual,
+            rnd_active_transitions: rnd_active_transitions,
+            rnd_interaction: rnd_interaction,
+            rnd_visual: rnd_visual,
             ..
         } = &self.renders;
 
@@ -1270,9 +1270,9 @@ impl Context {
             lay_basic,
             lay_flex,
             lay_grid,
-            ren_interaction,
-            ren_visual,
-            ren_active_transitions,
+            rnd_interaction,
+            rnd_visual,
+            rnd_active_transitions,
         )
     }
 
@@ -1284,10 +1284,10 @@ impl Context {
     ) -> Option<&mut BasicLayout> {
         let LayoutStore { lay_base_basic, .. } = &mut self.layouts;
         let RenderStore {
-            rnd_interaction: ren_interaction, ..
+            rnd_interaction: rnd_interaction, ..
         } = &mut self.renders;
 
-        LayoutStore::get_basic_layout_mut(id, target, lay_base_basic, ren_interaction)
+        LayoutStore::get_basic_layout_mut(id, target, lay_base_basic, rnd_interaction)
     }
 
     #[inline]
@@ -1298,9 +1298,9 @@ impl Context {
     ) -> Option<&mut FlexLayout> {
         let LayoutStore { lay_flex, .. } = &mut self.layouts;
         let RenderStore {
-            rnd_interaction: ren_interaction, ..
+            rnd_interaction: rnd_interaction, ..
         } = &mut self.renders;
 
-        LayoutStore::get_flex_layout_mut(id, target, lay_flex, ren_interaction)
+        LayoutStore::get_flex_layout_mut(id, target, lay_flex, rnd_interaction)
     }
 }

@@ -2,8 +2,8 @@
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DrawBatch,
     EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
-    QuadInstance, TextAlign, TextCacheKey, TextCacheValue, TextRasterizer, TextSpan, TextureAtlas,
-    Vertex, VisualProperty,
+    QuadInstance, RenderData, TextAlign, TextCacheKey, TextCacheValue, TextRasterizer, TextSpan,
+    TextureAtlas, Vertex, VisualProperty,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -12,6 +12,7 @@ use slotmap::SecondaryMap;
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
 use wgpu::util::DeviceExt;
+use wgpu::wgt::CommandEncoderDescriptor;
 use wgpu::{CurrentSurfaceTexture, PipelineCompilationOptions};
 use windows::{
     Win32::{
@@ -63,6 +64,8 @@ pub struct WgpuRenderer {
     pub(crate) text_cache: HashMap<TextCacheKey, TextCacheValue>,
     // 非アクティブ状態の WebView2 の静止画キャッシュ
     pub(crate) webview_static_caches: HashMap<EntityId, wgpu::TextureView>,
+
+    pub(crate) render_data: RenderData,
 }
 
 #[repr(C)]
@@ -387,6 +390,7 @@ impl WgpuRenderer {
             temp_uv_map: SecondaryMap::new(),
             text_cache: HashMap::new(),
             webview_static_caches: HashMap::new(),
+            render_data: RenderData::new(),
         })
     }
 
@@ -415,11 +419,13 @@ impl WgpuRenderer {
 
     pub(crate) fn render(&mut self, cx: &mut Context, scale_factor: f32) {
         let _context_guard = crate::bind_context(cx);
-        // 1. 前面と背面に分類されたバッチを Context から引き出す
-        let render_data = cx.collect_render_data();
-        if render_data.batches.is_empty() {
+        // 前面と背面に分類されたバッチを Context から引き出す
+        cx.collect_render_data(&mut self.render_data);
+        if self.render_data.batches.is_empty() {
             return;
         }
+
+        let mut render_data = std::mem::take(&mut self.render_data);
 
         // スワップチェーンから描画先フレームを獲得
         // TODO: エラーハンドリング
@@ -436,15 +442,13 @@ impl WgpuRenderer {
         self.instance_staging.clear();
 
         // インスタンスの組み立て
-        for batch in &render_data.batches {
-            for (i, instance) in batch.instances.iter().enumerate() {
-                let entity_id = batch.entity_ids[i];
-                let inst = self.build_quad_instance_for_entity(cx, entity_id, instance);
-                self.instance_staging.push(inst);
-            }
+        for (i, instance) in render_data.instances.iter().enumerate() {
+            let entity_id = render_data.entity_ids[i];
+            let inst = self.build_quad_instance_for_entity(cx, entity_id, instance);
+            self.instance_staging.push(inst);
         }
 
-        // C. VRAM インスタンスバッファへの一括転送
+        // VRAM インスタンスバッファへの一括転送
         self.ensure_instance_buffer_capacity(self.instance_staging.len());
         self.queue.write_buffer(
             &self.instance_buffer,
@@ -452,8 +456,10 @@ impl WgpuRenderer {
             bytemuck::cast_slice(&self.instance_staging),
         );
 
-        // PASS 1: 背面 (Background) の描画実行
-        let mut encoder = self.device.create_command_encoder(&Default::default());
+        // 背面の描画実行
+        let mut encoder = self
+            .device
+            .create_command_encoder(&CommandEncoderDescriptor::default());
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Background Render Pass"),
@@ -476,21 +482,32 @@ impl WgpuRenderer {
 
             // 背面用バッチの描画 (instance_offset は 0 から開始)
             let mut instance_offset = 0;
+            // 現在アクティブなパイプラインを記録
+            let mut current_pipeline = None;
+
             for batch in &render_data.batches {
-                let count = batch.instances.len() as u32;
+                let offset = batch.instance_offset as u32;
+                let count = batch.instance_count as u32;
                 if count == 0 {
                     continue;
                 }
 
+                // 次のバッチに必要なパイプラインを特定
                 // くり抜きバッチであれば punchout_pipeline (REPLACEブレンド)、
-                // 通常バッチであれば通常の pipeline (PMAブレンド) を設定します。
-                match batch.batch_type {
-                    BatchType::Normal => rpass.set_pipeline(&self.pipeline),
-                    BatchType::Punchout => rpass.set_pipeline(&self.punchout_pipeline),
+                // 通常バッチであれば通常の pipeline (PMAブレンド) を設定。
+                let needed_pipeline = match batch.batch_type {
+                    BatchType::Normal => &self.pipeline,
+                    BatchType::Punchout => &self.punchout_pipeline,
+                };
+
+                // アクティブなパイプラインと異なる場合のみ、wgpu側にコマンドを送信する
+                if current_pipeline != Some(std::ptr::from_ref(needed_pipeline)) {
+                    rpass.set_pipeline(needed_pipeline);
+                    current_pipeline = Some(std::ptr::from_ref(needed_pipeline));
                 }
 
                 // 静止 WebView2 描画時のバインディングの切り替え
-                self.bind_texture_for_batch(&mut rpass, batch);
+                self.bind_texture_for_batch(&mut rpass, batch, &render_data.entity_ids);
 
                 let clip = batch.scissor_rect;
 
@@ -505,10 +522,8 @@ impl WgpuRenderer {
                 let target_h = self.config.height;
 
                 //  物理開始位置がすでに縮小後のバックバッファ外に押し出されている場合、
-                // 描画が不可能であるため、検証エラーを避けるためにこのバッチの描画を安全にスキップ（バイパス）します。
+                // 描画が不可能であるため、検証エラーを避けるためにこのバッチの描画をスキップ
                 if phys_x >= target_w || phys_y >= target_h {
-                    // オフセットだけはスキップされた数分確実に進めます。
-                    instance_offset += count;
                     continue;
                 }
 
@@ -518,28 +533,34 @@ impl WgpuRenderer {
 
                 // wgpu の制約回避のため、クランプ後の幅・高さが 0 の場合も描画をスキップ
                 if clamped_w == 0 || clamped_h == 0 {
-                    instance_offset += count;
                     continue;
                 }
 
                 // 完全に境界内に収まるように安全化された Scissor Rect を適用
                 rpass.set_scissor_rect(phys_x, phys_y, clamped_w, clamped_h);
 
-                rpass.draw_indexed(0..6, 0, instance_offset..(instance_offset + count));
-                instance_offset += count;
+                rpass.draw_indexed(0..6, 0, offset..(offset + count));
             }
         }
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
 
-        // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュする
+        // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュ
         self.device.poll(wgpu::PollType::Poll);
+
+        self.render_data = render_data;
     }
 
-    /// ヘルパー: バッチ内に静止 `WebView2` テクスチャが含まれる場合、バインドグループを動的に切り替える
-    fn bind_texture_for_batch<'a>(&'a self, rpass: &mut wgpu::RenderPass<'a>, batch: &DrawBatch) {
+    /// バッチ内に静止 `WebView2` テクスチャが含まれる場合、バインドグループを動的に切り替える
+    fn bind_texture_for_batch<'a>(
+        &'a self,
+        rpass: &mut wgpu::RenderPass<'a>,
+        batch: &DrawBatch,
+        entity_ids: &[EntityId],
+    ) {
         // バッチに含まれる最初の要素が静止 WebView2 キャッシュを持っているか
-        if let Some(&first_id) = batch.entity_ids.first()
+        // instance_offsetの位置にある要素の ID を取得
+        if let Some(&first_id) = entity_ids.get(batch.instance_offset)
             && let Some(cached_view) = self.webview_static_caches.get(&first_id)
         {
             // 動的にそのテクスチャビューを割り当てたバインドグループを構築
@@ -641,7 +662,7 @@ impl WgpuRenderer {
         // WebView2 がアクティブ（昇格表示）の時は、
         // 透過スナップショットを突き抜けて DComp コンポジターでブレンドされるため、
         // 影の黒さが非線形（ガンマ空間）で強調されて濃く見えてしまう。
-        // これを防ぐため、親要素に COMP_WEBVIEW_CONTENT があり、かつそれが ren_active_webviews (準備完了) に
+        // これを防ぐため、親要素に COMP_WEBVIEW_CONTENT があり、かつそれが rnd_active_webviews (準備完了) に
         // 入っている場合は、影のアルファを 45% に補正して、静止画キャッシュ時と視覚的な濃さを統一。
         if shadow_color != Color::TRANSPARENT {
             let mut has_active_webview_parent = false;
