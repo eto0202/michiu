@@ -182,7 +182,7 @@ impl TopologyStore {
             }
 
             // 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
-            LayoutStore::resync_taffy_childrnd_order(
+            LayoutStore::resync_taffy_children_order(
                 old_parent,
                 topo_children,
                 lay_taffy,
@@ -313,8 +313,8 @@ impl TopologyStore {
         }
 
         // 子要素を再帰的に削除
-        if let Some(childrnd_list) = topology.topo_children.remove(id) {
-            for child_id in childrnd_list {
+        if let Some(children_list) = topology.topo_children.remove(id) {
+            for child_id in children_list {
                 TopologyStore::despawn_internal(
                     child_id, window, system, reactive, events, contents, topology, layouts,
                     renders, outputs,
@@ -382,8 +382,8 @@ impl TopologyStore {
         let Some(Some(parent_id)) = topo_parents.get(child).copied() else {
             return None;
         };
-        if let Some(childrnd_list) = topo_children.get_mut(parent_id) {
-            childrnd_list.retain(|x| *x != child);
+        if let Some(children_list) = topo_children.get_mut(parent_id) {
+            children_list.retain(|x| *x != child);
         }
         topo_parents.insert(child, None);
         *topo_is_structure_dirty = true;
@@ -400,10 +400,10 @@ impl TopologyStore {
         topo_is_structure_dirty: &mut bool,
     ) {
         topo_parents.insert(child, Some(parent));
-        if let Some(childrnd_list) = topo_children.get_mut(parent)
-            && !childrnd_list.contains(&child)
+        if let Some(children_list) = topo_children.get_mut(parent)
+            && !children_list.contains(&child)
         {
-            childrnd_list.push(child);
+            children_list.push(child);
         }
         *topo_is_structure_dirty = true;
     }
@@ -418,10 +418,10 @@ impl TopologyStore {
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
     ) {
-        if let Some(childrnd_list) = topo_children.get_mut(parent)
-            && let Some(pos) = childrnd_list.iter().position(|&x| x == old_child)
+        if let Some(children_list) = topo_children.get_mut(parent)
+            && let Some(pos) = children_list.iter().position(|&x| x == old_child)
         {
-            childrnd_list[pos] = new_child;
+            children_list[pos] = new_child;
         }
         topo_parents.insert(new_child, Some(parent));
         *topo_is_structure_dirty = true;
@@ -442,13 +442,13 @@ impl TopologyStore {
         while let Some(id) = stack.pop() {
             topo_flat_dfs_sequence.push(id);
 
-            let Some(childrnd_list) = topo_children.get(id) else {
+            let Some(children_list) = topo_children.get(id) else {
                 continue;
             };
 
-            let len = childrnd_list.len();
+            let len = children_list.len();
             for i in (0..len).rev() {
-                stack.push(childrnd_list[i]);
+                stack.push(children_list[i]);
             }
         }
         *topo_is_structure_dirty = false;

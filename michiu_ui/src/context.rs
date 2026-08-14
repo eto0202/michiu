@@ -20,15 +20,16 @@ pub use topology_store::*;
 pub use window_store::*;
 
 use crate::{
-    ActiveFocusTrigger, ComponentMask, CursorIcon, DndDragPayload, Element, ElementState, ImeState,
-    LayoutPoint, LayoutRect, LayoutSize, Modifiers, MouseButton, Overflow, PlaybackCount,
-    PointerEvents, PropertyList, ReadSignal, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
-    STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
-    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_OVERFLOW,
-    STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, TextAlign, TransitionValue,
-    UserSelect, Val, VirtualKey, WriteSignal, bind_context, handle_on_char_input, handle_on_click,
-    handle_on_dnd_entity_drop, handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime,
-    handle_on_keyboard_input, handle_on_mouse_input, handle_on_right_click, with_context,
+    ActiveFocusTrigger, BasicLayout, ComponentMask, CursorIcon, DndDragPayload, Element,
+    ElementState, FlexLayout, GridLayout, ImeState, LayoutPoint, LayoutRect, LayoutSize, Modifiers,
+    MouseButton, Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, STATE_ACTIVED,
+    STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED,
+    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT,
+    STATE_SELECTED, STYLE_OVERFLOW, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN,
+    TextAlign, TransitionValue, UserSelect, Val, VirtualKey, VisualProperty, WriteSignal,
+    bind_context, handle_on_char_input, handle_on_click, handle_on_dnd_entity_drop,
+    handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime, handle_on_keyboard_input,
+    handle_on_mouse_input, handle_on_right_click, with_context,
 };
 use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
 use smallvec::SmallVec;
@@ -164,9 +165,18 @@ impl Context {
         );
     }
 
+    /// 指定した要素の親要素を取得します。
+    #[inline]
+    pub fn parent_element(&self, handle: Element) -> Option<Element> {
+        self.topology
+            .topo_parents
+            .get(handle.id)
+            .and_then(|c| c.map(Element::from))
+    }
+
     /// 指定した要素の子要素一覧を取得します。
     #[inline]
-    pub fn childrnd_list(&self, handle: Element) -> Option<Vec<Element>> {
+    pub fn children_list(&self, handle: Element) -> Option<Vec<Element>> {
         self.topology
             .topo_children
             .get(handle.id)
@@ -177,6 +187,46 @@ impl Context {
     #[inline]
     pub fn topo_active_entities_count(&self) -> usize {
         self.topology.topo_active_entities.len()
+    }
+
+    /// 指定された要素に現在設定されている最新の `BasicLayout` を安全に読み取ります。
+    #[inline]
+    #[must_use]
+    pub fn get_basic_layout(&self, id: EntityId) -> BasicLayout {
+        self.layouts
+            .lay_basic
+            .get(id)
+            .map_or_else(BasicLayout::default, |l| *l)
+    }
+
+    /// 指定された要素に現在設定されている最新の `FlexLayout` を安全に読み取ります。
+    #[inline]
+    #[must_use]
+    pub fn get_flex_layout(&self, id: EntityId) -> FlexLayout {
+        self.layouts
+            .lay_flex
+            .get(id)
+            .map_or_else(FlexLayout::default, |l| *l)
+    }
+
+    /// 指定された要素に現在設定されている最新の `GridLayout` を安全に読み取ります。
+    #[inline]
+    #[must_use]
+    pub fn get_grid_layout(&self, id: EntityId) -> GridLayout {
+        self.layouts
+            .lay_grid
+            .get(id)
+            .map_or_else(GridLayout::default, std::clone::Clone::clone)
+    }
+
+    /// 指定された要素に現在設定されている最新の `VisualProperty` を安全に読み取ります。
+    #[inline]
+    #[must_use]
+    pub fn get_visual_property(&self, id: EntityId) -> VisualProperty {
+        self.renders
+            .rnd_visual
+            .get(id)
+            .map_or_else(VisualProperty::default, std::clone::Clone::clone)
     }
 
     /// 指定された要素が現在マウスホバーされているか判定します
@@ -244,7 +294,7 @@ impl Context {
 
     /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。
     #[inline]
-    pub fn is_render_dirty(&self) -> bool {
+    pub fn has_dirty(&self) -> bool {
         !self.renders.rnd_dirty_entities.is_empty()
             || !self.layouts.lay_dirty_entities.is_empty()
             || self.topology.topo_is_structure_dirty
@@ -484,7 +534,7 @@ impl Context {
 
     /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
     #[inline]
-    pub fn sys_task_sender(&self) -> TaskSender {
+    pub fn task_sender(&self) -> TaskSender {
         self.system.sys_task_sender.clone()
     }
 
@@ -540,39 +590,6 @@ impl Context {
     #[inline]
     pub fn auto_focus_switch_by_trigger(&mut self, id: EntityId, trigger: ActiveFocusTrigger) {
         EventStore::auto_focus_switch_by_trigger(self, id, trigger);
-    }
-
-    /// 現在のテキスト・IME状態・フォントサイズから、
-    /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して `SoA` を更新。
-    #[inline]
-    pub fn update_input_caret_position(&mut self, id: EntityId) {
-        OutputStore::update_input_caret_position(
-            id,
-            self.window.win_last_size,
-            self.window.win_scale_factor,
-            &self.system.sys_text_engine,
-            &self.system.sys_dwrite_layouts,
-            &mut self.contents.cont_input_contents,
-            &mut self.contents.cont_text_contents,
-            &self.contents.cont_text_spans,
-            &mut self.topology.topo_active_masks,
-            &self.topology.topo_parents,
-            &self.topology.topo_children,
-            &mut self.layouts.lay_taffy,
-            &mut self.layouts.lay_dirty_entities,
-            &mut self.layouts.lay_scrollbar_styles,
-            &self.layouts.lay_taffy_nodes,
-            &self.layouts.lay_basic,
-            &self.layouts.lay_flex,
-            &self.layouts.lay_grid,
-            &mut self.renders.rnd_visual,
-            &self.renders.rnd_base_visual,
-            &self.renders.rnd_interaction,
-            &self.renders.rnd_active_transitions,
-            &mut self.outputs.out_scroll_offsets,
-            &mut self.outputs.out_text_selections,
-            &self.outputs.out_rects,
-        );
     }
 
     /// 毎フレーム呼び出され、ドラッグ選択中の要素に対するオートスクロールを自律駆動します。

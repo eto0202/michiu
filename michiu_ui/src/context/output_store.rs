@@ -1,7 +1,20 @@
 use std::{collections::HashSet, ops::Range, time::Instant};
 
 use crate::{
-    ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, ActiveWebviewsHashSet, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType, BoxSizing, ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius, DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets, EffectiveTransformsSecondary, EffectiveZindicesSecondary, EntityId, EventStore, FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSecondary, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, PropertyList, QuadInstance, ReactiveStore, RenderData, RenderStore, STATE_QUEUED_LAYOUT, STYLE_OVERFLOW, STYLE_TEXT_SPANS, ScrollbarStylesSecondary, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val, VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context, with_context
+    ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
+    ActiveWebviewsHashSet, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType,
+    BoxSizing, ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius,
+    DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch,
+    DwriteLayoutsSparseSecondary, EdgeInsets, EffectiveTransformsSecondary,
+    EffectiveZindicesSecondary, EntityId, EventStore, FlatDfsSequenceVec, FlexLayoutsSecondary,
+    GridLayoutsSecondary, InputContents, InputContentsSparseSecondary,
+    InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, ParentsSecondary, PointerEvents, Position, PropertyList, QuadInstance,
+    ReactiveStore, RenderData, RenderStore, STATE_QUEUED_LAYOUT, STYLE_OVERFLOW, STYLE_TEXT_SPANS,
+    ScrollbarStylesSecondary, SortedEntitiesVec, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
+    TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val,
+    VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context, with_context,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
@@ -593,8 +606,8 @@ impl OutputStore {
             (None, None)
         };
 
-        if let Some(childrnd_list) = topo_children.get(id) {
-            for &child_id in childrnd_list {
+        if let Some(children_list) = topo_children.get(id) {
+            for &child_id in children_list {
                 // スクロールバーのトラックはサイズ計算から除外
                 if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
                     continue;
@@ -2589,6 +2602,39 @@ impl Context {
             &self.outputs.out_rects,
             &self.outputs.out_clip_rects,
         )
+    }
+
+    /// 現在のテキスト・IME状態・フォントサイズから、
+    /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して `SoA` を更新。
+    #[inline]
+    pub(crate) fn update_input_caret_position(&mut self, id: EntityId) {
+        OutputStore::update_input_caret_position(
+            id,
+            self.window.win_last_size,
+            self.window.win_scale_factor,
+            &self.system.sys_text_engine,
+            &self.system.sys_dwrite_layouts,
+            &mut self.contents.cont_input_contents,
+            &mut self.contents.cont_text_contents,
+            &self.contents.cont_text_spans,
+            &mut self.topology.topo_active_masks,
+            &self.topology.topo_parents,
+            &self.topology.topo_children,
+            &mut self.layouts.lay_taffy,
+            &mut self.layouts.lay_dirty_entities,
+            &mut self.layouts.lay_scrollbar_styles,
+            &self.layouts.lay_taffy_nodes,
+            &self.layouts.lay_basic,
+            &self.layouts.lay_flex,
+            &self.layouts.lay_grid,
+            &mut self.renders.rnd_visual,
+            &self.renders.rnd_base_visual,
+            &self.renders.rnd_interaction,
+            &self.renders.rnd_active_transitions,
+            &mut self.outputs.out_scroll_offsets,
+            &mut self.outputs.out_text_selections,
+            &self.outputs.out_rects,
+        );
     }
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します

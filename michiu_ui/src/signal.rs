@@ -332,7 +332,7 @@ impl<T: Send + 'static> WriteSignal<T> {
     #[must_use]
     pub fn sender(&self) -> SignalSender<T> {
         // スレッドローカルのメインコンテキストから送信端を一時的に解決
-        let sender = with_context(|cx| cx.sys_task_sender());
+        let sender = with_context(|cx| cx.task_sender());
         SignalSender {
             id: self.id,
             sys_task_sender: sender,
@@ -346,7 +346,7 @@ impl<T: Send + 'static> WriteSignal<T> {
     pub fn sender_with_cx(&self, cx: &Context) -> SignalSender<T> {
         SignalSender {
             id: self.id,
-            sys_task_sender: cx.sys_task_sender(),
+            sys_task_sender: cx.task_sender(),
             _marker: PhantomData,
         }
     }

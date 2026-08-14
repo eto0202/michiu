@@ -162,7 +162,7 @@ impl DynamicStyleSheetSetBuilder {
                 }
 
                 // スレッド安全に STA メインスレッドへメッセージを送るための TaskSender をクローン取得
-                let sys_task_sender = cx.sys_task_sender();
+                let sys_task_sender = cx.task_sender();
                 let key_clone = key.clone();
                 let file_path_clone = file_path.clone(); // 目的ファイルの絶対パス
                 let write_sig_clone = write_sig;

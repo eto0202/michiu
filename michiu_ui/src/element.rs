@@ -1,12 +1,13 @@
 use crate::{
     BasicLayout, COMP_IMAGE_CONTENT, COMP_INPUT_CONTENT, COMP_MOVIE_CONTENT, COMP_TEXT_CONTENT,
     COMP_UIA_CONTENT, COMP_WEBVIEW_CONTENT, Context, EffectCategory, ElementState, EntityId,
-    EventListeners, ImageMetadata, ImageSource, ImeState, InputContents, LayoutPoint, LayoutSize,
-    LayoutStore, Modifiers, MouseButton, MovieMetadata, MovieProperty, ReadSignal, Rect,
-    STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_PROPERTY,
-    STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, STYLE_TEXT_SPANS, ScrollBarState, ScrollbarDisplay,
-    ScrollbarStyle, Size, StyleTarget, TextAlign, TextSpan, ThisStyle, UiaValue, UnderlineStyle,
-    Val, VirtualKey, VisualProperty, WebView2Contents, create_effect, div_n,
+    EventListeners, FlexLayout, GridLayout, ImageMetadata, ImageSource, ImeState, InputContents,
+    LayoutPoint, LayoutSize, LayoutStore, Modifiers, MouseButton, MovieMetadata, MovieProperty,
+    ReadSignal, Rect, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT,
+    STYLE_INTERACTION_PROPERTY, STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, STYLE_TEXT_SPANS,
+    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, Size, StyleTarget, TextAlign, TextSpan,
+    ThisStyle, UiaValue, UnderlineStyle, Val, VirtualKey, VisualProperty, WebView2Contents,
+    create_effect, div_n,
 };
 use std::{borrow::Cow, cell::Cell, path::PathBuf, rc::Rc};
 
@@ -109,47 +110,18 @@ impl Element {
         self.id
     }
 
+    /// 要素が現在保持している親要素のハンドルを安全に取得します。
+    #[inline]
+    #[must_use]
+    pub fn parent_element(self) -> Option<Element> {
+        with_context(|cx| cx.parent_element(self))
+    }
+
     /// 要素が現在保持している子要素のハンドルリストを安全に取得します。
     #[inline]
     #[must_use]
-    pub fn get_children(self) -> Vec<Element> {
-        with_context(|cx| cx.childrnd_list(self).unwrap_or_default())
-    }
-
-    /// 要素に現在設定されている最新の Inset（位置・オフセット）を安全に読み取ります。
-    #[inline]
-    #[must_use]
-    pub fn get_inset(self) -> Rect<Val> {
-        with_context(|cx| {
-            cx.layouts
-                .lay_basic
-                .get(self.id)
-                .map_or_else(|| BasicLayout::default().inset, |l| l.inset)
-        })
-    }
-
-    /// 要素に現在設定されている最新の Size（幅・高さ）を安全に読み取ります。
-    #[inline]
-    #[must_use]
-    pub fn get_size(self) -> Size<Val> {
-        with_context(|cx| {
-            cx.layouts
-                .lay_basic
-                .get(self.id)
-                .map_or_else(|| BasicLayout::default().size, |l| l.size)
-        })
-    }
-
-    /// `要素がドラッグ可能なスタイル設定（draggable_root` / `draggable_parent）を持っているか判定します`。
-    #[inline]
-    #[must_use]
-    pub fn is_draggable(self) -> bool {
-        with_context(|cx| {
-            cx.topology
-                .topo_active_masks
-                .get(self.id)
-                .is_some_and(|m| m.has(STYLE_DND_DRAGGABLE))
-        })
+    pub fn children_list(self) -> Option<Vec<Element>> {
+        with_context(|cx| cx.children_list(self))
     }
 
     /// この要素に対して、型 T のコンテキスト（シグナル）を提供（Provide）します。
@@ -392,10 +364,10 @@ impl Element {
 
     /// プロバイダー `P` から動的に複数の子要素（コレクション）を解決して、
     /// `中間コンテナ（div_n）を挟むことなく、親要素の直下へフラットに一括追加・置換します`。
-    // childrnd_c を持つコンテナには他の静的子要素を混在させない
+    // children_c を持つコンテナには他の静的子要素を混在させない
     #[must_use]
     #[inline]
-    pub fn childrnd_d<P, F, I, E>(self, f: F) -> Self
+    pub fn children_d<P, F, I, E>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> I + Send + Sync + 'static,
@@ -408,7 +380,7 @@ impl Element {
             // 前回の評価でこのスロットによって生成・追加された子要素群のIDを保持するセル
             let current_children: Rc<std::cell::RefCell<Vec<EntityId>>> =
                 Rc::new(std::cell::RefCell::new(Vec::new()));
-            let current_childrnd_clone = current_children.clone();
+            let current_children_clone = current_children.clone();
 
             cx.create_element_effect(parent_id, EffectCategory::Contents, move |cx| {
                 // プロバイダーの値を動的解決
@@ -420,12 +392,14 @@ impl Element {
                     .into_iter()
                     .map(|e| match e.into() {
                         Prop::Static(el) => el,
-                        _ => panic!("Dynamic nested elements inside topo_childrnd_c are not supported"),
+                        _ => panic!(
+                            "Dynamic nested elements inside topo_children_c are not supported"
+                        ),
                     })
                     .collect();
 
                 // 前回マウントした古い子要素群を安全に一括破棄（Taffyツリーからのデタッチ含む）
-                let mut old_children = current_childrnd_clone.borrow_mut();
+                let mut old_children = current_children_clone.borrow_mut();
                 for old_id in old_children.drain(..) {
                     cx.despawn_internal(old_id);
                 }
@@ -542,8 +516,8 @@ impl Element {
         }
 
         // 2. 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
-        if let Some(childrnd_list) = cx.topology.topo_children.get(id) {
-            let old_children: Vec<EntityId> = childrnd_list.iter().copied().collect();
+        if let Some(children_list) = cx.topology.topo_children.get(id) {
+            let old_children: Vec<EntityId> = children_list.iter().copied().collect();
             for child_id in old_children {
                 if !scrollbar_ids.contains(&child_id) {
                     cx.despawn_internal(child_id);
@@ -942,11 +916,7 @@ impl Element {
                         };
 
                         let default_visual = VisualProperty::default();
-                        let visual = cx
-                            .renders
-                            .rnd_visual
-                            .get(id)
-                            .unwrap_or(&default_visual);
+                        let visual = cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
                         let font_size = visual.font_size.unwrap_or(16.0);
                         let font_family = visual.font_family.as_deref();
                         let font_weight = visual.font_weight;
@@ -1089,7 +1059,9 @@ impl Element {
                         is_allowed = true;
                     }
 
-                    if is_allowed && let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
+                    if is_allowed
+                        && let Some(contents) = cx.contents.cont_input_contents.get_mut(id)
+                    {
                         contents.last_interacted_time = Some(std::time::Instant::now());
 
                         let text_val = contents.text.0.get();
@@ -1132,7 +1104,9 @@ impl Element {
                         let new_caret = range.start + ch_u16_slice.len();
 
                         contents.selected_range = new_caret..new_caret;
-                        cx.outputs.out_text_selections.insert(id, new_caret..new_caret); // 選択表示をリセット
+                        cx.outputs
+                            .out_text_selections
+                            .insert(id, new_caret..new_caret); // 選択表示をリセット
                         cx.outputs.out_selected_rects.remove(id);
                         // タイピング編集が発生したため古い開始選択アンカーを消去
                         cx.outputs.out_selection_start_index.remove(id);
@@ -1231,7 +1205,9 @@ impl Element {
                                 // 選択範囲をすべて解除し、キャレットを左端（start）に収束
                                 let new_caret = range.start;
                                 contents.selected_range = new_caret..new_caret;
-                                cx.outputs.out_text_selections.insert(id, new_caret..new_caret);
+                                cx.outputs
+                                    .out_text_selections
+                                    .insert(id, new_caret..new_caret);
                                 cx.outputs.out_selected_rects.remove(id);
                                 cx.outputs.out_selection_start_index.remove(id);
                                 contents.selection_reversed = false;
@@ -1263,7 +1239,9 @@ impl Element {
                                 } else {
                                     // Shiftキー非押下：選択解除して単なる移動
                                     contents.selected_range = new_caret..new_caret;
-                                    cx.outputs.out_text_selections.insert(id, new_caret..new_caret);
+                                    cx.outputs
+                                        .out_text_selections
+                                        .insert(id, new_caret..new_caret);
                                     cx.outputs.out_selected_rects.remove(id);
                                     cx.outputs.out_selection_start_index.remove(id);
                                 }
@@ -1277,7 +1255,9 @@ impl Element {
                             if range.start < range.end && !modifiers.shift {
                                 let new_caret = range.end;
                                 contents.selected_range = new_caret..new_caret;
-                                cx.outputs.out_text_selections.insert(id, new_caret..new_caret);
+                                cx.outputs
+                                    .out_text_selections
+                                    .insert(id, new_caret..new_caret);
                                 cx.outputs.out_selected_rects.remove(id);
                                 cx.outputs.out_selection_start_index.remove(id);
                                 contents.selection_reversed = false;
@@ -1307,7 +1287,9 @@ impl Element {
                                     cx.outputs.out_text_selections.insert(id, range);
                                 } else {
                                     contents.selected_range = new_caret..new_caret;
-                                    cx.outputs.out_text_selections.insert(id, new_caret..new_caret);
+                                    cx.outputs
+                                        .out_text_selections
+                                        .insert(id, new_caret..new_caret);
                                     cx.outputs.out_selected_rects.remove(id);
                                     cx.outputs.out_selection_start_index.remove(id);
                                 }
@@ -1317,11 +1299,8 @@ impl Element {
                         }
                         VirtualKey::UP => {
                             if contents.is_multiline {
-                                let visual = cx
-                                    .renders
-                                    .rnd_visual
-                                    .get(id)
-                                    .unwrap_or(&default_visual);
+                                let visual =
+                                    cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
                                 let font_size = visual.font_size.unwrap_or(16.0);
                                 let font_family = visual.font_family.as_deref();
                                 let font_weight = visual.font_weight;
@@ -1394,11 +1373,7 @@ impl Element {
                             }
                         }
                         VirtualKey::DOWN if contents.is_multiline => {
-                            let visual = cx
-                                .renders
-                                .rnd_visual
-                                .get(id)
-                                .unwrap_or(&default_visual);
+                            let visual = cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
                             let font_size = visual.font_size.unwrap_or(16.0);
                             let font_family = visual.font_family.as_deref();
                             let font_weight = visual.font_weight;

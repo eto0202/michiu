@@ -129,7 +129,7 @@ unsafe extern "system" fn wnd_proc(
                 let _ = unsafe { EndPaint(hwnd, &ps) };
 
                 // アニメーション駆動中の場合は Invalidate を自給自足する
-                if app.context.has_active_animations() || app.context.is_render_dirty() {
+                if app.context.has_active_animations() || app.context.has_dirty() {
                     let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
                 return LRESULT(0);
@@ -180,7 +180,7 @@ unsafe extern "system" fn wnd_proc(
                 }
 
                 // インタラクションによる変化（ホバー状態）をリアルタイムに再描画
-                if app.context.is_render_dirty() {
+                if app.context.has_dirty() {
                     let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
                 return LRESULT(0);

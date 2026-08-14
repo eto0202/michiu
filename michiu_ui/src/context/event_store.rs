@@ -944,7 +944,7 @@ impl EventStore {
         }
     }
 
-    fn transfer_childrnd_to_placeholder(
+    fn transfer_children_to_placeholder(
         pressed_id: EntityId,
         placeholder_id: EntityId,
         topo_parents: &mut ParentsSecondary,
@@ -978,8 +978,8 @@ impl EventStore {
         }
 
         // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
-        if let Some(src_childrnd_mut) = topo_children.get_mut(pressed_id) {
-            src_childrnd_mut.clear();
+        if let Some(src_children_mut) = topo_children.get_mut(pressed_id) {
+            src_children_mut.clear();
         }
 
         // 元要素とプレースホルダー要素の両方をダーティマーク
@@ -1040,7 +1040,7 @@ impl EventStore {
         EventStore::setup_placeholder_properties(cx, pressed_id, placeholder_id, start_rect);
 
         // 元の要素から子要素トポロジーをプレースホルダーへ移行
-        EventStore::transfer_childrnd_to_placeholder(
+        EventStore::transfer_children_to_placeholder(
             pressed_id,
             placeholder_id,
             &mut cx.topology.topo_parents,
@@ -1392,7 +1392,7 @@ impl EventStore {
             src_children.retain(|x| *x != src_id);
         }
         // 旧親側の Taffy 順序も再同期
-        LayoutStore::resync_taffy_childrnd_order(
+        LayoutStore::resync_taffy_children_order(
             src_parent_id,
             topo_children,
             lay_taffy,
@@ -1926,8 +1926,8 @@ impl EventStore {
                 &mut cx.layouts.lay_taffy,
                 &mut cx.layouts.lay_taffy_nodes,
             );
-            if let Some(ph_childrnd_mut) = cx.topology.topo_children.get_mut(holder) {
-                ph_childrnd_mut.clear();
+            if let Some(ph_children_mut) = cx.topology.topo_children.get_mut(holder) {
+                ph_children_mut.clear();
             }
 
             for id in [src_id, holder] {
@@ -3237,7 +3237,7 @@ impl EventStore {
             topo_parents.insert(src_id, Some(target_id));
 
             // Taffy 側のノード順序を物理並び替え結果に沿って一括して再同期
-            LayoutStore::resync_taffy_childrnd_order(
+            LayoutStore::resync_taffy_children_order(
                 target_id,
                 topo_children,
                 lay_taffy,

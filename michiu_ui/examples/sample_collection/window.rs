@@ -72,7 +72,7 @@ unsafe extern "system" fn wnd_proc(
                     app.context.process_main_thread_tasks();
 
                     // 消化によってレイアウトや描画に変更があった場合のみ、同期および再描画を実行
-                    if app.context.is_render_dirty() {
+                    if app.context.has_dirty() {
                         app.context
                             .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
                         app.renderer.update_composition_tree(&mut app.context);

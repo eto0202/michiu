@@ -575,7 +575,7 @@ impl LayoutStore {
     /// 指定された親コンテナにアタッチされている `DComp` / Taffy 側のすべての子ノードの物理順序を
     /// 内部 `SoA` リスト（self.children）の順序に沿って再同期。
     #[inline]
-    pub(crate) fn resync_taffy_childrnd_order(
+    pub(crate) fn resync_taffy_children_order(
         parent_id: EntityId,
         topo_children: &ChildrenSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
@@ -591,12 +591,12 @@ impl LayoutStore {
             }
         }
         // 最新の並び替え順序リストの存在チェック
-        let Some(childrnd_list) = topo_children.get(parent_id) else {
+        let Some(children_list) = topo_children.get(parent_id) else {
             return;
         };
 
         // 最新の順序に従って、Taffy 側に再アタッチ
-        for &child_id in childrnd_list {
+        for &child_id in children_list {
             let Some(&child_node) = lay_taffy_nodes.get(child_id) else {
                 continue;
             };

@@ -783,7 +783,7 @@ impl ComposedRenderer {
                     rect,
                     self.scale_factor,
                     self.webview_env.clone(),
-                    cx.sys_task_sender(),
+                    cx.task_sender(),
                 );
             }
 
