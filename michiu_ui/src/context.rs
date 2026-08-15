@@ -374,14 +374,8 @@ impl Context {
             dx,
             dy,
             self.window.win_last_size,
-            &self.system.sys_text_engine,
-            &self.system.sys_dwrite_layouts,
-            &self.contents.cont_input_contents,
-            &self.contents.cont_text_contents,
-            &self.contents.cont_text_spans,
             &mut self.topology.topo_active_masks,
             &self.topology.topo_parents,
-            &self.topology.topo_children,
             &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_dirty_entities,
             &mut self.layouts.lay_scrollbar_styles,
@@ -394,6 +388,7 @@ impl Context {
             &self.renders.rnd_active_transitions,
             &mut self.outputs.out_scroll_offsets,
             &self.outputs.out_rects,
+            &self.outputs.out_scroll_sizes,
         )
     }
 
@@ -620,6 +615,7 @@ impl Context {
             &mut self.outputs.out_scroll_offsets,
             &self.outputs.out_rects,
             &self.outputs.out_clip_rects,
+            &self.outputs.out_scroll_sizes,
         );
 
         if autoscroll_occurred && let Some(pos) = active_pos {

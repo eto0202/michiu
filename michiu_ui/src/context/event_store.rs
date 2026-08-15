@@ -1,7 +1,32 @@
 use std::path::PathBuf;
 
 use crate::{
-    ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, ChildrenSecondary, ClipRectsSecondary, ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPayload, DndDragPlaceholderParent, DndDragProperty, DndDropProperty, DwriteLayoutsSparseSecondary, EffectiveZindicesSecondary, Element, ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners, FlatDfsSequenceVec, FlexLayoutsSecondary, FocusTrigger, Focusable, GridLayoutsSecondary, InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OVERFLOW, STYLE_POINTER_EVENTS, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, ScrollOffsetsSecondary, ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val, VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click, handle_on_select
+    ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
+    ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
+    BasicLayout, BasicLayoutsSecondary, ChildrenSecondary, ClipRectsSecondary, ComponentMask,
+    ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, DndDragPayload, DndDragPlaceholderParent, DndDragProperty,
+    DndDropProperty, DwriteLayoutsSparseSecondary, EffectiveZindicesSecondary, Element,
+    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
+    FlatDfsSequenceVec, FlexLayoutsSecondary, FocusTrigger, Focusable, GridLayoutsSecondary,
+    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
+    LayoutRect, LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow,
+    ParentsSecondary, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore,
+    STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING,
+    STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED,
+    STATE_SELECTED, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT,
+    STYLE_INTERACTION_WITHIN, STYLE_OVERFLOW, STYLE_POINTER_EVENTS, STYLE_PREVENT_FOCUS_STEAL,
+    STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, ScrollOffsetsSecondary,
+    ScrollSizesSecondary, ScrollbarStylesSecondary, SelectedRectsSparseSecondary,
+    SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
+    TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore,
+    UserSelect, Val, VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context,
+    handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
+    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
+    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
+    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
+    handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -439,6 +464,7 @@ impl EventStore {
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) -> (bool, Option<LayoutPoint>) {
         // ポインタ位置、またはクリップ領域がない場合
         let Some(pointer_pos) = evt_current_pointer_position else {
@@ -470,14 +496,8 @@ impl EventStore {
             dx,
             dy,
             win_last_size,
-            sys_text_engine,
-            sys_dwrite_layouts,
-            cont_input_contents,
-            cont_text_contents,
-            cont_text_spans,
             topo_active_masks,
             topo_parents,
-            topo_children,
             lay_taffy,
             lay_dirty_entities,
             lay_scrollbar_styles,
@@ -490,6 +510,7 @@ impl EventStore {
             rnd_active_transitions,
             out_scroll_offsets,
             out_rects,
+            out_scroll_sizes,
         );
 
         if scroll {
@@ -1171,6 +1192,7 @@ impl EventStore {
         out_selected_rects: &mut SelectedRectsSparseSecondary,
         out_text_selections: &mut TextSelectionsSparseSecondary,
         out_rects: &RectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) {
         let Some(dw_layout) = SystemStore::get_or_create_layout(
             id,
@@ -1210,7 +1232,6 @@ impl EventStore {
                 cont_text_spans,
                 topo_active_masks,
                 topo_parents,
-                topo_children,
                 lay_taffy,
                 lay_dirty_entities,
                 lay_scrollbar_styles,
@@ -1225,6 +1246,7 @@ impl EventStore {
                 out_scroll_offsets,
                 out_text_selections,
                 out_rects,
+                out_scroll_sizes,
             );
         }
         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
@@ -1292,14 +1314,8 @@ impl EventStore {
         OutputStore::sync_scrollbar_drag(
             logical_pos,
             cx.window.win_last_size,
-            &cx.system.sys_text_engine,
-            &cx.system.sys_dwrite_layouts,
-            &cx.contents.cont_input_contents,
-            &cx.contents.cont_text_contents,
-            &cx.contents.cont_text_spans,
             &mut cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
-            &cx.topology.topo_children,
             &mut cx.layouts.lay_taffy,
             &mut cx.layouts.lay_dirty_entities,
             &mut cx.layouts.lay_scrollbar_styles,
@@ -1313,6 +1329,7 @@ impl EventStore {
             &cx.renders.rnd_active_transitions,
             &mut cx.outputs.out_scroll_offsets,
             &cx.outputs.out_rects,
+            &cx.outputs.out_scroll_sizes,
         );
 
         // ヒットテストのキャッシュ
@@ -1467,6 +1484,7 @@ impl EventStore {
                     &mut cx.outputs.out_selected_rects,
                     &mut cx.outputs.out_text_selections,
                     &cx.outputs.out_rects,
+                    &cx.outputs.out_scroll_sizes,
                 );
             }
         }
@@ -1632,6 +1650,7 @@ impl EventStore {
                 &cx.renders.rnd_interaction,
                 &mut cx.outputs.out_scroll_offsets,
                 &cx.outputs.out_rects,
+                &cx.outputs.out_scroll_sizes,
             );
 
             if clicked_scrollbar {
@@ -2011,7 +2030,6 @@ impl EventStore {
                 &cx.contents.cont_text_spans,
                 &mut cx.topology.topo_active_masks,
                 &cx.topology.topo_parents,
-                &cx.topology.topo_children,
                 &mut cx.layouts.lay_taffy,
                 &mut cx.layouts.lay_dirty_entities,
                 &mut cx.layouts.lay_scrollbar_styles,
@@ -2026,6 +2044,7 @@ impl EventStore {
                 &mut cx.outputs.out_scroll_offsets,
                 &mut cx.outputs.out_text_selections,
                 &cx.outputs.out_rects,
+                &cx.outputs.out_scroll_sizes,
             );
         }
 
@@ -2099,14 +2118,8 @@ impl EventStore {
                         dx,
                         dy,
                         cx.window.win_last_size,
-                        &cx.system.sys_text_engine,
-                        &cx.system.sys_dwrite_layouts,
-                        &cx.contents.cont_input_contents,
-                        &cx.contents.cont_text_contents,
-                        &cx.contents.cont_text_spans,
                         &mut cx.topology.topo_active_masks,
                         &cx.topology.topo_parents,
-                        &cx.topology.topo_children,
                         &mut cx.layouts.lay_taffy,
                         &mut cx.layouts.lay_dirty_entities,
                         &mut cx.layouts.lay_scrollbar_styles,
@@ -2119,6 +2132,7 @@ impl EventStore {
                         &cx.renders.rnd_active_transitions,
                         &mut cx.outputs.out_scroll_offsets,
                         &cx.outputs.out_rects,
+                        &cx.outputs.out_scroll_sizes,
                     )
                 {
                     break; // スクロールを実行したためバブリングを終了
@@ -2159,6 +2173,7 @@ impl EventStore {
         out_text_selections: &mut TextSelectionsSparseSecondary,
         out_selected_rects: &mut SelectedRectsSparseSecondary,
         out_rects: &RectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) {
         let Some(dw_layout) = SystemStore::get_or_create_layout(
             id,
@@ -2201,7 +2216,6 @@ impl EventStore {
                 cont_text_spans,
                 topo_active_masks,
                 topo_parents,
-                topo_children,
                 lay_taffy,
                 lay_dirty_entities,
                 lay_scrollbar_styles,
@@ -2216,6 +2230,7 @@ impl EventStore {
                 out_scroll_offsets,
                 out_text_selections,
                 out_rects,
+                out_scroll_sizes,
             );
         }
 
@@ -2286,6 +2301,7 @@ impl EventStore {
                     &mut cx.outputs.out_text_selections,
                     &mut cx.outputs.out_selected_rects,
                     &cx.outputs.out_rects,
+                    &cx.outputs.out_scroll_sizes,
                 );
                 return;
             }
@@ -2396,7 +2412,6 @@ impl EventStore {
             &cx.contents.cont_text_spans,
             &mut cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
-            &cx.topology.topo_children,
             &mut cx.layouts.lay_taffy,
             &mut cx.layouts.lay_dirty_entities,
             &mut cx.layouts.lay_scrollbar_styles,
@@ -2411,6 +2426,7 @@ impl EventStore {
             &mut cx.outputs.out_scroll_offsets,
             &mut cx.outputs.out_text_selections,
             &cx.outputs.out_rects,
+            &cx.outputs.out_scroll_sizes,
         );
         RenderStore::mark_render_dirty(
             focused_id,
@@ -2459,7 +2475,6 @@ impl EventStore {
             &cx.contents.cont_text_spans,
             &mut cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
-            &cx.topology.topo_children,
             &mut cx.layouts.lay_taffy,
             &mut cx.layouts.lay_dirty_entities,
             &mut cx.layouts.lay_scrollbar_styles,
@@ -2474,6 +2489,7 @@ impl EventStore {
             &mut cx.outputs.out_scroll_offsets,
             &mut cx.outputs.out_text_selections,
             &cx.outputs.out_rects,
+            &cx.outputs.out_scroll_sizes,
         );
         RenderStore::mark_render_dirty(
             focused_id,
@@ -2521,7 +2537,6 @@ impl EventStore {
             &cx.contents.cont_text_spans,
             &mut cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
-            &cx.topology.topo_children,
             &mut cx.layouts.lay_taffy,
             &mut cx.layouts.lay_dirty_entities,
             &mut cx.layouts.lay_scrollbar_styles,
@@ -2536,6 +2551,7 @@ impl EventStore {
             &mut cx.outputs.out_scroll_offsets,
             &mut cx.outputs.out_text_selections,
             &cx.outputs.out_rects,
+            &cx.outputs.out_scroll_sizes,
         );
         RenderStore::mark_render_dirty(
             focused_id,
@@ -2594,7 +2610,6 @@ impl EventStore {
                 &cx.contents.cont_text_spans,
                 &mut cx.topology.topo_active_masks,
                 &cx.topology.topo_parents,
-                &cx.topology.topo_children,
                 &mut cx.layouts.lay_taffy,
                 &mut cx.layouts.lay_dirty_entities,
                 &mut cx.layouts.lay_scrollbar_styles,
@@ -2609,6 +2624,7 @@ impl EventStore {
                 &mut cx.outputs.out_scroll_offsets,
                 &mut cx.outputs.out_text_selections,
                 &cx.outputs.out_rects,
+                &cx.outputs.out_scroll_sizes,
             );
             RenderStore::mark_render_dirty(
                 focused_id,
@@ -2656,6 +2672,7 @@ impl EventStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) -> bool {
         let Some((c_id, component)) = lay_scrollbar_styles.iter().find_map(|(c_id, sb_state)| {
             if sb_state.v_thumb_id == Some(target_id) {
@@ -2676,26 +2693,7 @@ impl EventStore {
         // 親スクロールコンテナ
         let sb_state = lay_scrollbar_styles.get(c_id).cloned().unwrap();
         let container_rect = OutputStore::rect(c_id, out_rects).unwrap_or_default();
-        let scroll_size = OutputStore::get_scroll_size(
-            c_id,
-            sys_text_engine,
-            sys_dwrite_layouts,
-            cont_input_contents,
-            cont_text_contents,
-            cont_text_spans,
-            topo_active_masks,
-            topo_parents,
-            topo_children,
-            lay_basic,
-            lay_flex,
-            lay_grid,
-            lay_scrollbar_styles,
-            rnd_visual,
-            rnd_interaction,
-            rnd_active_transitions,
-            out_rects,
-            out_scroll_offsets,
-        );
+        let scroll_size = out_scroll_sizes.get(c_id).copied().unwrap_or_default();
         let offset = out_scroll_offsets.get(c_id).copied().unwrap_or_default();
 
         match component {
@@ -2771,14 +2769,8 @@ impl EventStore {
                     target_x,
                     target_y,
                     win_last_size,
-                    sys_text_engine,
-                    sys_dwrite_layouts,
-                    cont_input_contents,
-                    cont_text_contents,
-                    cont_text_spans,
                     topo_active_masks,
                     topo_parents,
-                    topo_children,
                     lay_taffy,
                     lay_dirty_entities,
                     lay_scrollbar_styles,
@@ -2791,6 +2783,7 @@ impl EventStore {
                     rnd_active_transitions,
                     out_rects,
                     out_scroll_offsets,
+                    out_scroll_sizes,
                 );
 
                 let new_offset = out_scroll_offsets.get(c_id).copied().unwrap_or_default();

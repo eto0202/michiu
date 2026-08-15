@@ -5,17 +5,7 @@ use std::{
 };
 
 use crate::{
-    ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary,
-    BasicLayout, ChildrenSecondary, ComponentMask, ContentStore, Context, DirtyRenderEntitiesVec,
-    Display, DwriteLayoutsSparseSecondary, EdgeInsets, EntityId, FlexLayout, GridLayout,
-    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
-    LayoutRect, LayoutSize, Length, OutputStore, ParentsSecondary, Position, PropertyList, Rect,
-    RectsSecondary, RenderStore, ResizeDirection, ResizingState, STATE_ACTIVED, STATE_DISABLED,
-    STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_FOCUSED,
-    STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED,
-    STYLE_SIZE, ScrollOffsetsSecondary, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Size,
-    StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary,
-    ThisStyle, TopologyStore, Val, VisualPropertiesSecondary, WindowStore,
+    ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary, BasicLayout, ChildrenSecondary, ComponentMask, ContentStore, Context, DirtyRenderEntitiesVec, Display, DwriteLayoutsSparseSecondary, EdgeInsets, EntityId, FlexLayout, GridLayout, InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, Length, OutputStore, ParentsSecondary, Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizeDirection, ResizingState, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_SIZE, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Size, StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, ThisStyle, TopologyStore, Val, VisualPropertiesSecondary, WindowStore
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -868,32 +858,14 @@ impl LayoutStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         out_rects: &RectsSecondary,
         out_scroll_offsets: &ScrollOffsetsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) {
         let scrollbar_ids: Vec<EntityId> = lay_scrollbar_styles.keys().collect();
 
         for id in scrollbar_ids {
             let sb_state = lay_scrollbar_styles.get(id).cloned().unwrap();
             let container_rect = out_rects[id];
-            let scroll_size = OutputStore::get_scroll_size(
-                id,
-                sys_text_engine,
-                sys_dwrite_layouts,
-                cont_input_contents,
-                cont_text_contents,
-                cont_text_spans,
-                topo_active_masks,
-                topo_parents,
-                topo_children,
-                lay_basic,
-                lay_flex,
-                lay_grid,
-                lay_scrollbar_styles,
-                rnd_visual,
-                rnd_interaction,
-                rnd_active_transitions,
-                out_rects,
-                out_scroll_offsets,
-            );
+            let scroll_size = out_scroll_sizes.get(id).copied().unwrap_or_default();
             let current_scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
             let (basic, _, _) = LayoutStore::resolve_active_layouts(

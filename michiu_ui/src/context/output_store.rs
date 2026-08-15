@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ops::Range, time::Instant};
+use std::{cell::RefCell, collections::HashSet, ops::Range, time::Instant};
 
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
@@ -22,6 +22,7 @@ use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteText
 pub(crate) type RectsSecondary = SecondaryMap<EntityId, LayoutRect>;
 pub(crate) type ClipRectsSecondary = SecondaryMap<EntityId, LayoutRect>;
 pub(crate) type ScrollOffsetsSecondary = SecondaryMap<EntityId, LayoutPoint>;
+pub(crate) type ScrollSizesSecondary = SecondaryMap<EntityId, LayoutSize>;
 pub(crate) type PrevRectsSecondary = SecondaryMap<EntityId, LayoutRect>;
 pub(crate) type PrevClipRectsSecondary = SecondaryMap<EntityId, LayoutRect>;
 pub(crate) type SelectedRectsSparseSecondary = SparseSecondaryMap<EntityId, Vec<LayoutRect>>;
@@ -32,6 +33,7 @@ pub struct OutputStore {
     pub(crate) out_rects: RectsSecondary,
     pub(crate) out_clip_rects: ClipRectsSecondary,
     pub(crate) out_scroll_offsets: ScrollOffsetsSecondary,
+    pub(crate) out_scroll_sizes: ScrollSizesSecondary,
     pub(crate) out_prev_rects: PrevRectsSecondary,
     pub(crate) out_prev_clip_rects: PrevClipRectsSecondary,
     pub(crate) out_selected_rects: SelectedRectsSparseSecondary,
@@ -53,6 +55,7 @@ impl OutputStore {
             out_rects: SecondaryMap::new(),
             out_clip_rects: SecondaryMap::new(),
             out_scroll_offsets: SecondaryMap::new(),
+            out_scroll_sizes: SecondaryMap::new(),
             out_prev_rects: SecondaryMap::new(),
             out_prev_clip_rects: SecondaryMap::new(),
             out_selected_rects: SparseSecondaryMap::new(),
@@ -66,6 +69,7 @@ impl OutputStore {
         self.out_rects.clear();
         self.out_clip_rects.clear();
         self.out_scroll_offsets.clear();
+        self.out_scroll_sizes.clear();
         self.out_prev_rects.clear();
         self.out_prev_clip_rects.clear();
         self.out_selected_rects.clear();
@@ -78,6 +82,7 @@ impl OutputStore {
         self.out_rects.remove(id);
         self.out_clip_rects.remove(id);
         self.out_scroll_offsets.remove(id);
+        self.out_scroll_sizes.remove(id);
         self.out_prev_rects.remove(id);
         self.out_prev_clip_rects.remove(id);
         self.out_selected_rects.remove(id);
@@ -759,15 +764,20 @@ impl OutputStore {
         contents.last_layout = Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
 
         // キャレット位置測定用のレイアウトをプレースホルダー抜きで作成
-        let caret_layout = sys_text_engine.create_layout(
-            &caret_text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
-            None,
-            spans,
-        );
+        // 文字列が同一であればレイアウトの再生成をスキップ
+        let caret_layout = if display_text == caret_text {
+            &display_layout
+        } else {
+            &sys_text_engine.create_layout(
+                &caret_text,
+                font_size,
+                font_family,
+                font_weight,
+                font_style,
+                None,
+                spans,
+            )
+        };
 
         let composition_offset = if let Some(ref ime) = contents.ime_state
             && !ime.composition_text.is_empty()
@@ -790,7 +800,7 @@ impl OutputStore {
 
         // プレースホルダーに干渉されない純粋なキャレット位置を算出
         let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(&caret_layout, caret_index, u16_len_caret);
+            sys_text_engine.get_caret_position(caret_layout, caret_index, u16_len_caret);
 
         contents.measured_caret_x = cx_offset;
         contents.measured_caret_y = cy_offset;
@@ -901,14 +911,8 @@ impl OutputStore {
         mut x: f32,
         mut y: f32,
         win_last_size: Option<LayoutSize>,
-        sys_text_engine: &TextEngine,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
@@ -921,31 +925,13 @@ impl OutputStore {
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
         out_rects: &RectsSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) -> bool {
         let Some(rect) = OutputStore::rect(id, out_rects) else {
             return false;
         };
 
-        let scroll_size = OutputStore::get_scroll_size(
-            id,
-            sys_text_engine,
-            sys_dwrite_layouts,
-            cont_input_contents,
-            cont_text_contents,
-            cont_text_spans,
-            topo_active_masks,
-            topo_parents,
-            topo_children,
-            lay_basic,
-            lay_flex,
-            lay_grid,
-            lay_scrollbar_styles,
-            rnd_visual,
-            rnd_interaction,
-            rnd_active_transitions,
-            out_rects,
-            out_scroll_offsets,
-        );
+        let scroll_size = out_scroll_sizes.get(id).copied().unwrap_or_default();
 
         // 親コンテナのボーダーおよびパディング厚を取得
         let (basic, _, _) = LayoutStore::resolve_active_layouts(
@@ -1007,14 +993,8 @@ impl OutputStore {
         dx: f32,
         dy: f32,
         win_last_size: Option<LayoutSize>,
-        sys_text_engine: &TextEngine,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
@@ -1027,6 +1007,7 @@ impl OutputStore {
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) -> bool {
         let current = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
@@ -1035,14 +1016,8 @@ impl OutputStore {
             current.x + dx,
             current.y + dy,
             win_last_size,
-            sys_text_engine,
-            sys_dwrite_layouts,
-            cont_input_contents,
-            cont_text_contents,
-            cont_text_spans,
             topo_active_masks,
             topo_parents,
-            topo_children,
             lay_taffy,
             lay_dirty_entities,
             lay_scrollbar_styles,
@@ -1055,6 +1030,7 @@ impl OutputStore {
             rnd_active_transitions,
             out_rects,
             out_scroll_offsets,
+            out_scroll_sizes,
         )
     }
 
@@ -1071,7 +1047,6 @@ impl OutputStore {
         cont_text_spans: &TextSpansSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
@@ -1086,6 +1061,7 @@ impl OutputStore {
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
         out_text_selections: &mut TextSelectionsSparseSecondary,
         out_rects: &RectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) {
         // IMEやタイピング中の古いキャッシュを破棄
         SystemStore::clear_layout_cache(id, sys_dwrite_layouts);
@@ -1164,14 +1140,8 @@ impl OutputStore {
                 scroll.x,
                 scroll.y,
                 win_last_size,
-                sys_text_engine,
-                sys_dwrite_layouts,
-                cont_input_contents,
-                cont_text_contents,
-                cont_text_spans,
                 topo_active_masks,
                 topo_parents,
-                topo_children,
                 lay_taffy,
                 lay_dirty_entities,
                 lay_scrollbar_styles,
@@ -1184,6 +1154,7 @@ impl OutputStore {
                 rnd_active_transitions,
                 out_rects,
                 out_scroll_offsets,
+                out_scroll_sizes,
             );
         }
 
@@ -1222,14 +1193,8 @@ impl OutputStore {
     pub(crate) fn sync_scrollbar_drag(
         logical_pos: LayoutPoint,
         win_last_size: Option<LayoutSize>,
-        sys_text_engine: &TextEngine,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
@@ -1243,6 +1208,7 @@ impl OutputStore {
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) {
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum DragDirection {
@@ -1283,26 +1249,10 @@ impl OutputStore {
                 .cloned()
                 .unwrap_or_default();
             let container_rect = OutputStore::rect(current_id, out_rects).unwrap_or_default();
-            let scroll_size = OutputStore::get_scroll_size(
-                current_id,
-                sys_text_engine,
-                sys_dwrite_layouts,
-                cont_input_contents,
-                cont_text_contents,
-                cont_text_spans,
-                topo_active_masks,
-                topo_parents,
-                topo_children,
-                lay_basic,
-                lay_flex,
-                lay_grid,
-                lay_scrollbar_styles,
-                rnd_visual,
-                rnd_interaction,
-                rnd_active_transitions,
-                out_rects,
-                out_scroll_offsets,
-            );
+            let scroll_size = out_scroll_sizes
+                .get(current_id)
+                .copied()
+                .unwrap_or_default();
             (sb_state, container_rect, scroll_size)
         };
 
@@ -1389,14 +1339,8 @@ impl OutputStore {
                 target_x,
                 target_y,
                 win_last_size,
-                sys_text_engine,
-                sys_dwrite_layouts,
-                cont_input_contents,
-                cont_text_contents,
-                cont_text_spans,
                 topo_active_masks,
                 topo_parents,
-                topo_children,
                 lay_taffy,
                 lay_dirty_entities,
                 lay_scrollbar_styles,
@@ -1409,6 +1353,7 @@ impl OutputStore {
                 rnd_active_transitions,
                 out_rects,
                 out_scroll_offsets,
+                out_scroll_sizes,
             );
         }
 
@@ -1693,14 +1638,8 @@ impl OutputStore {
     /// 全アクティブコンテナのスクロールオフセットの自動クランプ同期
     fn auto_clamp_scroll_offsets(
         win_last_size: Option<LayoutSize>,
-        sys_text_engine: &TextEngine,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
@@ -1712,8 +1651,9 @@ impl OutputStore {
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
-        out_rects: &RectsSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_rects: &RectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
     ) {
         for &id in topo_flat_dfs_sequence {
             let Some(current) = out_scroll_offsets.get(id).copied() else {
@@ -1726,14 +1666,8 @@ impl OutputStore {
                 current.x,
                 current.y,
                 win_last_size,
-                sys_text_engine,
-                sys_dwrite_layouts,
-                cont_input_contents,
-                cont_text_contents,
-                cont_text_spans,
                 topo_active_masks,
                 topo_parents,
-                topo_children,
                 lay_taffy,
                 lay_dirty_entities,
                 lay_scrollbar_styles,
@@ -1746,6 +1680,7 @@ impl OutputStore {
                 rnd_active_transitions,
                 out_rects,
                 out_scroll_offsets,
+                out_scroll_sizes,
             );
         }
     }
@@ -1757,6 +1692,7 @@ impl OutputStore {
     ) {
         // 同期処理の開始時に自身をバインドする
         let _context_guard = bind_context(cx);
+
         // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
         ReactiveStore::evaluate_pending_element_effects(
             &mut cx.reactive.react_effects,
@@ -1879,6 +1815,39 @@ impl OutputStore {
             &cx.outputs.out_scroll_offsets,
         );
 
+        // 全スクロールコンテナの scroll_size を事前計算
+        cx.outputs.out_scroll_sizes.clear();
+        for &id in &cx.topology.topo_flat_dfs_sequence {
+            if cx
+                .topology
+                .topo_active_masks
+                .get(id)
+                .is_some_and(|m| m.has(STYLE_OVERFLOW))
+            {
+                let size = OutputStore::get_scroll_size(
+                    id,
+                    &cx.system.sys_text_engine,
+                    &cx.system.sys_dwrite_layouts,
+                    &cx.contents.cont_input_contents,
+                    &cx.contents.cont_text_contents,
+                    &cx.contents.cont_text_spans,
+                    &cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
+                    &cx.topology.topo_children,
+                    &cx.layouts.lay_basic,
+                    &cx.layouts.lay_flex,
+                    &cx.layouts.lay_grid,
+                    &cx.layouts.lay_scrollbar_styles,
+                    &cx.renders.rnd_visual,
+                    &cx.renders.rnd_interaction,
+                    &cx.renders.rnd_active_transitions,
+                    &cx.outputs.out_rects,
+                    &cx.outputs.out_scroll_offsets,
+                );
+                cx.outputs.out_scroll_sizes.insert(id, size);
+            }
+        }
+
         // スクロールバー要素（Track & Thumb）のサイズ・配置・不透明度を一括同期更新
         LayoutStore::sync_scrollbar_styles(
             cx.window.win_last_size,
@@ -1903,6 +1872,7 @@ impl OutputStore {
             &cx.renders.rnd_interaction,
             &cx.outputs.out_rects,
             &cx.outputs.out_scroll_offsets,
+            &cx.outputs.out_scroll_sizes,
         );
 
         // Taffy の 2回目レイアウト計算（スクロールバー配置確定後）
@@ -1970,14 +1940,8 @@ impl OutputStore {
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
         OutputStore::auto_clamp_scroll_offsets(
             cx.window.win_last_size,
-            &cx.system.sys_text_engine,
-            &cx.system.sys_dwrite_layouts,
-            &cx.contents.cont_input_contents,
-            &cx.contents.cont_text_contents,
-            &cx.contents.cont_text_spans,
             &mut cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
-            &cx.topology.topo_children,
             &cx.topology.topo_flat_dfs_sequence,
             &mut cx.layouts.lay_taffy,
             &mut cx.layouts.lay_dirty_entities,
@@ -1989,8 +1953,9 @@ impl OutputStore {
             &cx.renders.rnd_visual,
             &cx.renders.rnd_interaction,
             &cx.renders.rnd_active_transitions,
-            &cx.outputs.out_rects,
             &mut cx.outputs.out_scroll_offsets,
+            &cx.outputs.out_rects,
+            &cx.outputs.out_scroll_sizes,
         );
 
         // 全ての座標確定と絶対クリップ範囲の同期が完了した最末尾で、
@@ -2552,14 +2517,8 @@ impl Context {
             x,
             y,
             self.window.win_last_size,
-            &self.system.sys_text_engine,
-            &self.system.sys_dwrite_layouts,
-            &self.contents.cont_input_contents,
-            &self.contents.cont_text_contents,
-            &self.contents.cont_text_spans,
             &mut self.topology.topo_active_masks,
             &self.topology.topo_parents,
-            &self.topology.topo_children,
             &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_dirty_entities,
             &mut self.layouts.lay_scrollbar_styles,
@@ -2572,6 +2531,7 @@ impl Context {
             &self.renders.rnd_active_transitions,
             &self.outputs.out_rects,
             &mut self.outputs.out_scroll_offsets,
+            &self.outputs.out_scroll_sizes,
         )
     }
 
@@ -2603,7 +2563,6 @@ impl Context {
             &self.contents.cont_text_spans,
             &mut self.topology.topo_active_masks,
             &self.topology.topo_parents,
-            &self.topology.topo_children,
             &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_dirty_entities,
             &mut self.layouts.lay_scrollbar_styles,
@@ -2618,6 +2577,7 @@ impl Context {
             &mut self.outputs.out_scroll_offsets,
             &mut self.outputs.out_text_selections,
             &self.outputs.out_rects,
+            &self.outputs.out_scroll_sizes,
         );
     }
 
