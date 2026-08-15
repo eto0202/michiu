@@ -42,7 +42,7 @@ where
     StyleValue::Dynamic(Box::new(move || {
         // ここでプロバイダーの ReadSignal に対する `.get()` を実行することで、
         // 呼び出し元のスタイルエフェクトに自動的に依存関係が購読される
-        let signal = use_provided::<P>();
+        let signal = with_context(|cx| cx.use_provided::<P>());
         let val = signal.get();
         selector(&val)
     }))

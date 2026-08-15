@@ -9,24 +9,24 @@ use crate::{
     DndDropProperty, DwriteLayoutsSparseSecondary, EffectiveZindicesSecondary, Element,
     ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
     FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusTrigger, Focusable, GridLayout,
-    GridLayoutsSparseSecondary, InputContentsSparseSecondary, InteractionPropertiesSecondary,
-    InteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, Modifiers,
-    MouseButton, OutputStore, Overflow, ParentsSecondary, PointerEvents, Position, ReactiveStore,
-    Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparseSecondary, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
-    STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
-    STATE_HOVERED, STATE_PRESSED, STATE_SELECTED, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE,
-    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OVERFLOW, STYLE_POINTER_EVENTS,
-    STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSecondary,
-    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec,
-    SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
-    TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
-    TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val, VirtualKey,
-    VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur,
-    handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start,
-    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
-    handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
+    GridLayoutsSparseSecondary, InputContents, InputContentsSparseSecondary,
+    InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary,
+    PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary, STATE_ACTIVED,
+    STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED,
+    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED,
+    STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
+    STYLE_OVERFLOW, STYLE_POINTER_EVENTS, STYLE_PREVENT_FOCUS_STEAL,
+    STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, ScrollOffsetsSecondary,
+    ScrollSizesSecondary, ScrollbarStylesSecondary, SelectedRectsSparseSecondary,
+    SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
+    TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore,
+    UserSelect, Val, VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context,
+    handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
+    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
+    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
     handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
     handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
 };
@@ -525,7 +525,7 @@ impl EventStore {
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_visual: &VisualPropertiesSecondary,
-        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
     ) -> LayoutPoint {
         let rect = out_rects.get(id).copied().unwrap_or_default();
@@ -1459,7 +1459,7 @@ impl EventStore {
                     &cx.renders.rnd_active_transitions,
                     &cx.renders.rnd_interaction,
                     &cx.renders.rnd_visual,
-                    &mut cx.outputs.out_scroll_offsets,
+                    &cx.outputs.out_scroll_offsets,
                     &cx.outputs.out_rects,
                 );
                 EventStore::handle_text_selection_click(
@@ -1702,11 +1702,11 @@ impl EventStore {
                 &cx.renders.rnd_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
-                &mut cx.outputs.out_scroll_offsets,
                 &mut cx.outputs.out_text_selections,
                 &mut cx.outputs.out_selected_rects,
                 &mut cx.outputs.out_selection_start_index,
                 &cx.outputs.out_rects,
+                &cx.outputs.out_scroll_offsets,
             );
         }
 
@@ -1975,7 +1975,12 @@ impl EventStore {
             return;
         };
 
-        let rect = cx.outputs.out_rects.get(target_id).copied().unwrap_or_default();
+        let rect = cx
+            .outputs
+            .out_rects
+            .get(target_id)
+            .copied()
+            .unwrap_or_default();
         let basic = &cx
             .layouts
             .lay_resolved_basic
@@ -2001,8 +2006,8 @@ impl EventStore {
 
         let text_u16: Vec<u16> = text.encode_utf16().collect();
 
-        // 高精度な文節境界を抽出
-        let range = crate::find_word_boundaries(&text_u16, final_index);
+        // 文節境界を抽出
+        let range = InputContents::find_word_boundaries(&text_u16, final_index);
 
         cx.outputs
             .out_text_selections
@@ -2816,11 +2821,11 @@ impl EventStore {
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
-        out_scroll_offsets: &mut ScrollOffsetsSecondary,
         out_text_selections: &mut TextSelectionsSparseSecondary,
         out_selected_rects: &mut SelectedRectsSparseSecondary,
         out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
         out_rects: &RectsSecondary,
+        out_scroll_offsets: &ScrollOffsetsSecondary,
     ) {
         let Some(layout) = SystemStore::get_or_create_layout(
             id,

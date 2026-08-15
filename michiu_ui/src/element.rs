@@ -1,15 +1,18 @@
+pub mod handler;
+pub mod input_func;
+
+pub use handler::*;
+pub use input_func::*;
+
 use crate::{
-    BasicLayout, COMP_IMAGE_CONTENT, COMP_INPUT_CONTENT, COMP_MOVIE_CONTENT, COMP_TEXT_CONTENT,
-    COMP_UIA_CONTENT, COMP_WEBVIEW_CONTENT, Context, EffectCategory, ElementState, EntityId,
-    EventListeners, FlexLayout, GridLayout, ImageMetadata, ImageSource, ImeState, InputContents,
-    LayoutPoint, LayoutSize, LayoutStore, Modifiers, MouseButton, MovieMetadata, MovieProperty,
-    ReadSignal, Rect, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT,
-    STYLE_INTERACTION_PROPERTY, STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, STYLE_TEXT_SPANS,
-    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, Size, StyleTarget, TextAlign, TextSpan,
-    ThisStyle, UiaValue, UnderlineStyle, Val, VirtualKey, VisualProperty, WebView2Contents,
+    COMP_IMAGE_CONTENT, COMP_MOVIE_CONTENT, COMP_TEXT_CONTENT, COMP_UIA_CONTENT,
+    COMP_WEBVIEW_CONTENT, Context, EffectCategory, EntityId, ImageSource, MovieProperty,
+    ReadSignal, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT,
+    STYLE_INTERACTION_PROPERTY, STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, ScrollBarState,
+    ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle, UiaValue, Val, WebView2Contents,
     create_effect, div_n,
 };
-use std::{borrow::Cow, cell::Cell, path::PathBuf, rc::Rc};
+use std::{borrow::Cow, cell::Cell, rc::Rc};
 
 thread_local! {
     // 現在構築中のUIコンテキストへの生ポインタを一時的にバインドするグローバルスレッド領域。
@@ -134,6 +137,31 @@ impl Element {
         self
     }
 
+    /// 静的な値、または動的に変化する Prop を、該当する `EffectCategory` を通じて自動バインド
+    fn bind_prop<T: 'static>(
+        self,
+        prop: impl Into<Prop<T>>,
+        category: EffectCategory,
+        mut apply_fn: impl FnMut(&mut Context, EntityId, T) + 'static,
+    ) -> Self {
+        let id = self.id;
+        match prop.into() {
+            Prop::None => {}
+            Prop::Static(val) => {
+                with_context(|cx| apply_fn(cx, id, val));
+            }
+            Prop::Dynamic(f) => {
+                with_context(|cx| {
+                    cx.create_element_effect(id, category, move |cx| {
+                        let val = f();
+                        apply_fn(cx, id, val);
+                    });
+                });
+            }
+        }
+        self
+    }
+
     /// スタイルを適用します（静的な値、Signal、またはクロージャ）。
     #[must_use]
     pub fn style(self, style: impl Into<Prop<ThisStyle>>) -> Self {
@@ -154,7 +182,7 @@ impl Element {
                             for setter in &setters {
                                 setter(cx, id, StyleTarget::Base);
                             }
-                            // 状態が変化したため、最後に必ずスタイル解決を走り込ませる
+                            // 状態が変化したため、最後に必ずスタイル解決
                             cx.resolve_element_style_state(id, false);
                         });
                     }
@@ -165,9 +193,8 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Style, move |cx| {
                         let s = f();
-                        // 動的評価された最新スタイルは、蓄積を避けるため置換（merge = false）
-                        // 修正: 動的評価されたスタイルもマージ（true）としてマウントします。
-                        // これにより、v_flex_c 等のColumn構造が破壊されるのを完全に防ぎます。
+                        // 動的評価された最新スタイルは蓄積を避けるため置換（merge = false）
+                        // 修正: 動的評価されたスタイルもマージ（true）としてマウント
                         Element::style_internal(cx, id, &s, true);
 
                         // 動的スタイルが自身の中で動的なプロバイダーを含む場合も評価
@@ -191,9 +218,9 @@ impl Element {
         F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
     {
         // 1引数のクロージャを、プロバイダー探索とシグナル購読（.get()）を内包した
-        // 引数なしの Prop::Dynamic クロージャへラップして既存の style メソッドへ委譲します。
+        // 引数なしの Prop::Dynamic クロージャへラップして既存の style メソッドへ委譲
         let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = crate::use_provided::<P>();
+            let signal = with_context(|cx| cx.use_provided::<P>());
             let val = signal.get();
             f(&val)
         }));
@@ -340,7 +367,7 @@ impl Element {
         F: Fn(&P) -> Element + Send + Sync + 'static,
     {
         let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = crate::use_provided::<P>();
+            let signal = with_context(|cx| cx.use_provided::<P>());
             let val = signal.get();
             f(&val)
         }));
@@ -384,7 +411,7 @@ impl Element {
 
             cx.create_element_effect(parent_id, EffectCategory::Contents, move |cx| {
                 // プロバイダーの値を動的解決
-                let signal = crate::use_provided::<P>();
+                let signal = with_context(|cx| cx.use_provided::<P>());
                 let val = signal.get();
 
                 // 新しい子要素群の生成
@@ -392,9 +419,7 @@ impl Element {
                     .into_iter()
                     .map(|e| match e.into() {
                         Prop::Static(el) => el,
-                        _ => panic!(
-                            "Dynamic nested elements inside topo_children_c are not supported"
-                        ),
+                        _ => panic!("Dynamic nested elements inside children_c are not supported"),
                     })
                     .collect();
 
@@ -447,7 +472,7 @@ impl Element {
     {
         // スタイル側のみ、1引数のクロージャをプロバイダー解決を伴う Prop::Dynamic へラップ
         let style_prop = Prop::Dynamic(Box::new(move || {
-            let signal = crate::use_provided::<P>();
+            let signal = with_context(|cx| cx.use_provided::<P>());
             let val = signal.get();
             style(&val)
         }));
@@ -498,7 +523,7 @@ impl Element {
     fn set_contents_internal(self, cx: &mut Context, new_child: Element) {
         let id = self.id;
 
-        // 1. 親コンテナに紐づくスクロールバー専用要素のIDを安全に抽出
+        // 親コンテナに紐づくスクロールバー専用要素のIDを安全に抽出
         let mut scrollbar_ids = std::collections::HashSet::new();
         if let Some(sb) = cx.layouts.lay_scrollbar_styles.get(id) {
             if let Some(tid) = sb.v_track_id {
@@ -515,7 +540,7 @@ impl Element {
             }
         }
 
-        // 2. 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
+        // 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
         if let Some(children_list) = cx.topology.topo_children.get(id) {
             let old_children: Vec<EntityId> = children_list.iter().copied().collect();
             for child_id in old_children {
@@ -538,31 +563,12 @@ impl Element {
     #[must_use]
     #[inline]
     pub fn text(self, content: impl Into<Prop<Cow<'static, str>>>) -> Self {
-        match content.into() {
-            Prop::None => {}
-            Prop::Static(val) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.contents.cont_text_contents.insert(id, val);
-                    cx.topology.topo_active_masks[id].set(COMP_TEXT_CONTENT);
-                    cx.clear_layout_cache(id);
-                    cx.mark_dirty(id);
-                });
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::Text, move |cx| {
-                        let new_text = f();
-                        cx.contents.cont_text_contents.insert(id, new_text);
-                        cx.topology.topo_active_masks[id].set(COMP_TEXT_CONTENT);
-                        cx.clear_layout_cache(id);
-                        cx.mark_dirty(id);
-                    });
-                });
-            }
-        }
-        self
+        self.bind_prop(content, EffectCategory::Text, |cx, id, val| {
+            cx.contents.cont_text_contents.insert(id, val);
+            cx.topology.topo_active_masks[id].set(COMP_TEXT_CONTENT);
+            cx.clear_layout_cache(id);
+            cx.mark_dirty(id);
+        })
     }
 
     /// プロバイダー `P` から動的にテキストを設定します。
@@ -575,7 +581,7 @@ impl Element {
         S: Into<Cow<'static, str>>,
     {
         let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = crate::use_provided::<P>();
+            let signal = with_context(|cx| cx.use_provided::<P>());
             let val = signal.get();
             f(&val).into()
         }));
@@ -583,43 +589,25 @@ impl Element {
     }
 
     /// 画像を設定します。
+    #[inline]
     #[must_use]
     pub fn image(self, content: impl Into<Prop<ImageSource>>) -> Self {
-        match content.into() {
-            Prop::None => {}
-            Prop::Static(src) => {
-                with_context(|cx| {
-                    cx.contents.cont_image_sources.insert(self.id, src);
-                    cx.topology.topo_active_masks[self.id].set(COMP_IMAGE_CONTENT);
-                    cx.mark_layout_dirty(self.id);
-                    cx.mark_render_dirty(self.id);
-                });
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::Image, move |cx| {
-                        let src = f();
-                        cx.contents.cont_image_sources.insert(id, src);
-                        cx.topology.topo_active_masks[id].set(COMP_IMAGE_CONTENT);
-                        cx.mark_dirty(id);
-                    });
-                });
-            }
-        }
-        self
+        self.bind_prop(content, EffectCategory::Image, |cx, id, src| {
+            cx.contents.cont_image_sources.insert(id, src);
+            cx.topology.topo_active_masks[id].set(COMP_IMAGE_CONTENT);
+            cx.mark_dirty(id);
+        })
     }
 
     /// プロバイダー `P` から動的に画像ソースを解決して設定します。
     #[must_use]
-    #[inline]
     pub fn image_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
         F: Fn(&P) -> ImageSource + Send + Sync + 'static,
     {
         let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = crate::use_provided::<P>();
+            let signal = with_context(|cx| cx.use_provided::<P>());
             let val = signal.get();
             f(&val)
         }));
@@ -627,30 +615,14 @@ impl Element {
     }
 
     /// 動画を設定します。
+    #[inline]
     #[must_use]
     pub fn movie(self, content: impl Into<Prop<MovieProperty>>) -> Self {
-        match content.into() {
-            Prop::None => {}
-            Prop::Static(p) => {
-                with_context(|cx| {
-                    cx.contents.cont_movie_properties.insert(self.id, p);
-                    cx.topology.topo_active_masks[self.id].set(COMP_MOVIE_CONTENT);
-                    cx.mark_dirty(self.id);
-                });
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::Movie, move |cx| {
-                        let p = f();
-                        cx.contents.cont_movie_properties.insert(id, p);
-                        cx.topology.topo_active_masks[id].set(COMP_MOVIE_CONTENT);
-                        cx.mark_dirty(id);
-                    });
-                });
-            }
-        }
-        self
+        self.bind_prop(content, EffectCategory::Movie, |cx, id, src| {
+            cx.contents.cont_movie_properties.insert(id, src);
+            cx.topology.topo_active_masks[id].set(COMP_MOVIE_CONTENT);
+            cx.mark_dirty(id);
+        })
     }
 
     /// プロバイダー `P` から動的に動画ソースを解決して設定します。
@@ -662,7 +634,7 @@ impl Element {
         F: Fn(&P) -> MovieProperty + Send + Sync + 'static,
     {
         let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = crate::use_provided::<P>();
+            let signal = with_context(|cx| cx.use_provided::<P>());
             let val = signal.get();
             f(&val)
         }));
@@ -670,30 +642,14 @@ impl Element {
     }
 
     /// `WebView2` コンポーネントを配置します（静的設定、またはSignal / クロージャに対応）。
+    #[inline]
     #[must_use]
     pub fn webview2(self, contents: impl Into<Prop<WebView2Contents>>) -> Self {
-        match contents.into() {
-            Prop::None => {}
-            Prop::Static(contents) => {
-                with_context(|cx| {
-                    cx.contents.cont_webview_contents.insert(self.id, contents);
-                    cx.topology.topo_active_masks[self.id].set(COMP_WEBVIEW_CONTENT);
-                    cx.mark_dirty(self.id);
-                });
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::WebView2, move |cx| {
-                        let contents = f();
-                        cx.contents.cont_webview_contents.insert(id, contents);
-                        cx.topology.topo_active_masks[id].set(COMP_WEBVIEW_CONTENT);
-                        cx.mark_dirty(id);
-                    });
-                });
-            }
-        }
-        self
+        self.bind_prop(contents, EffectCategory::Movie, |cx, id, src| {
+            cx.contents.cont_webview_contents.insert(id, src);
+            cx.topology.topo_active_masks[id].set(COMP_WEBVIEW_CONTENT);
+            cx.mark_dirty(id);
+        })
     }
 
     /// プロバイダー `P` `から動的にWebView2設定を解決してアタッチします`。
@@ -705,1813 +661,11 @@ impl Element {
         F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
     {
         let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = crate::use_provided::<P>();
+            let signal = with_context(|cx| cx.use_provided::<P>());
             let val = signal.get();
             f(&val)
         }));
         self.webview2(dynamic_prop)
-    }
-
-    /// このコンテナを入力フィールド（テキストボックス）化し、IME制御や入力ロジックをバインドします。
-    #[must_use]
-    pub fn input(self, contents: impl Into<Prop<InputContents>>) -> Self {
-        match contents.into() {
-            Prop::None => {}
-            Prop::Static(c) => {
-                with_context(|cx| self.input_internal(cx, c));
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::Input, move |cx| {
-                        let c = f();
-                        let el = Element { id };
-                        el.input_internal(cx, c);
-                    });
-                });
-            }
-        }
-        self
-    }
-
-    /// プロバイダー `P` から動的に設定を読み込んで入力フィールド化します。
-    #[must_use]
-    #[inline]
-    pub fn input_d<P, F>(self, f: F) -> Self
-    where
-        P: Clone + 'static,
-        F: Fn(&P) -> InputContents + Send + Sync + 'static,
-    {
-        let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = crate::use_provided::<P>();
-            let val = signal.get();
-            f(&val)
-        }));
-        self.input(dynamic_prop)
-    }
-
-    /// 複数行入力（テキストエリア）をバインドします。
-    #[must_use]
-    pub fn input_area(self, contents: impl Into<Prop<InputContents>>) -> Self {
-        match contents.into() {
-            Prop::None => {}
-            Prop::Static(mut c) => {
-                c.is_multiline = true; // マルチライン化を強制
-                with_context(|cx| self.input_internal(cx, c));
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::Input, move |cx| {
-                        let mut c = f();
-                        c.is_multiline = true;
-                        let el = Element { id };
-                        el.input_internal(cx, c);
-                    });
-                });
-            }
-        }
-        self
-    }
-
-    /// プロバイダー `P` から動的に設定を読み込んで複数行入力フィールド化します。
-    #[must_use]
-    #[inline]
-    pub fn input_area_d<P, F>(self, f: F) -> Self
-    where
-        P: Clone + 'static,
-        F: Fn(&P) -> InputContents + Send + Sync + 'static,
-    {
-        let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = crate::use_provided::<P>();
-            let val = signal.get();
-            f(&val)
-        }));
-        self.input_area(dynamic_prop)
-    }
-
-    /// 入力イベント（キー、IME、文字入力、フォーカス）を自動的にマッピングして代行するロジック
-    #[allow(clippy::too_many_lines)]
-    fn input_internal(self, cx: &mut Context, mut c: InputContents) {
-        let id = self.id;
-
-        // シグナル更新やテーマ変更、親コンポーネントの再レンダリングによる
-        // キャレット位置（selected_range）や Undo/Redo 履歴の末尾への強制初期化を防止
-        // 既存の状態を検知した場合はデザイン設定のみを上書き
-        if let Some(existing) = cx.contents.cont_input_contents.get_mut(id) {
-            existing.placeholder = c.placeholder;
-            existing.placeholder_color = c.placeholder_color;
-            existing.caret_color = c.caret_color;
-            existing.caret_width = c.caret_width;
-            existing.caret_height = c.caret_height;
-            existing.caret_offset = c.caret_offset;
-            existing.is_blink = c.is_blink;
-            existing.blink_frequency = c.blink_frequency;
-            existing.has_caret = c.has_caret;
-            existing.placeholder_select = c.placeholder_select;
-            existing.is_multiline = c.is_multiline;
-            existing.is_password = c.is_password;
-            existing.mask_text = c.mask_text;
-
-            // 動的なテキスト長の変更に伴い、既存の選択範囲が枠外へ飛び出さないようクランプ
-            let current_text = existing.text.0.get();
-            let u16_len = current_text.encode_utf16().count();
-            existing.selected_range.start = existing.selected_range.start.min(u16_len);
-            existing.selected_range.end = existing.selected_range.end.min(u16_len);
-
-            // 早期リターンを抜ける前に、最新の文字列状態を SoA / DWrite 側へ即座に同期・反映
-            cx.update_input_caret_position(id);
-            cx.mark_dirty(id);
-
-            // これ以降の初期化を完全にスキップして早期リターン
-            return;
-        }
-
-        // 最初のロード時、シグナルから現在値を取得して内部カーソルを末尾に合わせる
-        let current_text = c.text.0.get();
-        let current_len = current_text.encode_utf16().count();
-        c.selected_range = current_len..current_len;
-
-        cx.contents.cont_input_contents.insert(id, c);
-        cx.topology.topo_active_masks[id].set(COMP_INPUT_CONTENT);
-        cx.topology.topo_active_masks[id].set(COMP_TEXT_CONTENT);
-
-        self.get_or_create_listeners(|l| {
-            let mut existing_mouse = l.on_mouse_input.take();
-            l.on_mouse_input = Some(Box::new(move |cx, button, modifiers, state| {
-                if button == MouseButton::Left
-                    && state == ElementState::Pressed
-                    && let Some(pointer_pos) = cx.events.evt_current_pointer_position
-                {
-                    let rect = cx.rect(id).unwrap_or_default();
-                    // 要素の境界枠（border + padding）を取得してローカル座標を算出
-                    let basic = &cx
-                        .layouts
-                        .lay_resolved_basic
-                        .get(id)
-                        .copied()
-                        .unwrap_or_default();
-                    let flex = &cx
-                        .layouts
-                        .lay_resolved_flex
-                        .get(id)
-                        .copied()
-                        .unwrap_or_default();
-                    let _grid = &cx
-                        .layouts
-                        .lay_resolved_grid
-                        .get(id)
-                        .cloned()
-                        .unwrap_or_default();
-                    let (border, padding) =
-                        LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-                    let scroll = cx
-                        .outputs
-                        .out_scroll_offsets
-                        .get(id)
-                        .copied()
-                        .unwrap_or(LayoutPoint::ZERO);
-
-                    let text_size = if let Some(contents) = cx.contents.cont_input_contents.get(id)
-                        && let Some(layout_rect) = contents.last_layout
-                    {
-                        LayoutSize::new(layout_rect.width, layout_rect.height)
-                    } else {
-                        LayoutSize::ZERO
-                    };
-
-                    let content_w =
-                        (rect.width - border.left - border.right - padding.left - padding.right)
-                            .max(0.0);
-                    let align_offset_x = match flex.text_align {
-                        TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
-                        TextAlign::Right => (content_w - text_size.width).max(0.0),
-                        _ => 0.0,
-                    };
-
-                    let content_h =
-                        (rect.height - border.top - border.bottom - padding.top - padding.bottom)
-                            .max(0.0);
-                    let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
-
-                    // テキスト本来の描画領域に対する相対マウス座標
-                    let local_x = pointer_pos.x
-                        - (rect.x + border.left + padding.left + align_offset_x)
-                        + scroll.x;
-                    let local_y = pointer_pos.y
-                        - (rect.y + border.top + padding.top + align_offset_y)
-                        + scroll.y;
-
-                    let mut update_rects_needed = false;
-
-                    if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
-                        let text_val = contents.text.0.get();
-
-                        // 逆引きレイアウト時もプレースホルダーは含まない
-                        let editable_text_for_caret = if text_val.is_empty() {
-                            if let Some(ref ime) = contents.ime_state
-                                && !ime.composition_text.is_empty()
-                            {
-                                ime.composition_text.clone()
-                            } else {
-                                String::new()
-                            }
-                        } else if contents.is_password {
-                            let mask = contents.mask_text.as_deref().unwrap_or("●");
-                            mask.repeat(text_val.chars().count())
-                        } else if let Some(ref ime) = contents.ime_state
-                            && !ime.composition_text.is_empty()
-                        {
-                            crate::input_get_display_text(
-                                &text_val,
-                                contents.selected_range.start,
-                                &ime.composition_text,
-                            )
-                        } else {
-                            text_val.clone()
-                        };
-
-                        let default_visual = VisualProperty::default();
-                        let visual = cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
-                        let font_size = visual.font_size.unwrap_or(16.0);
-                        let font_family = visual.font_family.as_deref();
-                        let font_weight = visual.font_weight;
-                        let font_style = visual.font_style;
-
-                        let spans = cx
-                            .contents
-                            .cont_text_spans
-                            .get(id)
-                            .map_or(&[][..], Vec::as_slice);
-
-                        let layout = cx.system.sys_text_engine.create_layout(
-                            &editable_text_for_caret,
-                            font_size,
-                            font_family,
-                            font_weight,
-                            font_style,
-                            None,
-                            spans,
-                        );
-
-                        // 物理クリック座標から文字インデックスを逆引き
-                        let (new_caret, is_trailing) = cx
-                            .system
-                            .sys_text_engine
-                            .hit_test_point(&layout, local_x, local_y);
-
-                        let final_caret = if is_trailing {
-                            new_caret + 1
-                        } else {
-                            new_caret
-                        };
-
-                        let editable_len = editable_text_for_caret.encode_utf16().count();
-                        let final_caret_clamped = final_caret.min(editable_len);
-
-                        // プレースホルダーが表示状態にあるか
-                        let is_placeholder = text_val.is_empty()
-                            && contents
-                                .ime_state
-                                .as_ref()
-                                .is_none_or(|s| s.composition_text.is_empty());
-
-                        // プレースホルダーではない、またはプレースホルダー選択が明示許可されていること
-                        let allow_selection = !is_placeholder || contents.placeholder_select;
-
-                        if modifiers.shift && allow_selection {
-                            let anchor = cx
-                                .outputs
-                                .out_selection_start_index
-                                .get(id)
-                                .copied()
-                                .unwrap_or(contents.selected_range.start);
-
-                            if !cx.outputs.out_selection_start_index.contains_key(id) {
-                                cx.outputs
-                                    .out_selection_start_index
-                                    .insert(id, contents.selected_range.start);
-                            }
-
-                            let range = if anchor <= final_caret_clamped {
-                                contents.selection_reversed = false;
-                                anchor..final_caret_clamped
-                            } else {
-                                contents.selection_reversed = true;
-                                final_caret_clamped..anchor
-                            };
-
-                            contents.selected_range = range.clone();
-                            cx.outputs.out_text_selections.insert(id, range);
-                            update_rects_needed = true;
-                        } else {
-                            contents.selected_range = final_caret_clamped..final_caret_clamped;
-                            cx.outputs
-                                .out_text_selections
-                                .insert(id, final_caret_clamped..final_caret_clamped);
-                            cx.outputs
-                                .out_selection_start_index
-                                .insert(id, final_caret_clamped);
-                            cx.outputs.out_selected_rects.remove(id);
-                            contents.selection_reversed = false;
-                        }
-
-                        contents.last_interacted_time = Some(std::time::Instant::now());
-
-                        // キャレットの絶対座標と表示情報を一括更新
-                        cx.update_input_caret_position(id);
-                    }
-
-                    if update_rects_needed {
-                        if let Some(layout) = cx.get_or_create_layout(id) {
-                            cx.update_selection_rects(id, &layout);
-                        }
-                    }
-
-                    cx.mark_render_dirty(id);
-                }
-                if let Some(ref mut ext) = existing_mouse {
-                    ext(cx, button, modifiers, state);
-                }
-            }));
-
-            let mut existing_focus = l.on_focus.take();
-            // フォーカス取得（点滅カーソルの有効化等）
-            l.on_focus = Some(Box::new(move |cx| {
-                if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
-                    contents.is_selecting = false;
-                    // フォーカス獲得時も操作時刻を記録して即座にキャレットを表示
-                    contents.last_interacted_time = Some(std::time::Instant::now());
-                }
-                cx.mark_render_dirty(id);
-
-                if let Some(ref mut ext) = existing_focus {
-                    ext(cx);
-                }
-            }));
-
-            let mut existing_char = l.on_char_input.take();
-            // 確定した1文字の文字入力 (WM_CHAR)
-            l.on_char_input = Some(Box::new(move |cx, mut ch| {
-                // IME未変換の入力中 (composition_textがある間) は文字入力を無視
-                let is_ime_active = cx
-                    .contents
-                    .cont_input_contents
-                    .get(id)
-                    .and_then(|c| c.ime_state.as_ref())
-                    .is_some_and(|s| !s.composition_text.is_empty());
-
-                if !is_ime_active {
-                    let mut is_allowed = !ch.is_control();
-                    let is_multiline = cx
-                        .contents
-                        .cont_input_contents
-                        .get(id)
-                        .is_some_and(|c| c.is_multiline);
-
-                    // 複数行入力時に、Enterキー（'\r' / '\n'）が押された場合は改行コードとして許可
-                    if is_multiline && (ch == '\r' || ch == '\n') {
-                        ch = '\n';
-                        is_allowed = true;
-                    }
-
-                    if is_allowed
-                        && let Some(contents) = cx.contents.cont_input_contents.get_mut(id)
-                    {
-                        contents.last_interacted_time = Some(std::time::Instant::now());
-
-                        let text_val = contents.text.0.get();
-
-                        // 数値制限フィルター
-                        if contents.numeric_only && !ch.is_numeric() && ch != '.' && ch != '-' {
-                            return;
-                        }
-
-                        let range = contents.selected_range.clone();
-
-                        // 変更発生前に現在の状態をセーブ
-                        contents.record_undo(text_val.clone(), range.clone());
-
-                        let u16_text: Vec<u16> = text_val.encode_utf16().collect();
-
-                        // 選択範囲が削除された後の長さ
-                        let u16_len_after_delete = u16_text.len()
-                            - (range.end.min(u16_text.len()) - range.start.min(u16_text.len()));
-                        let mut buf = [0u16; 2];
-                        let ch_u16_slice = ch.encode_utf16(&mut buf);
-
-                        // 文字数制限
-                        if let Some(max) = contents.max_length
-                            && u16_len_after_delete + ch_u16_slice.len() > max
-                        {
-                            return; // 制限を超えるため入力を中断
-                        }
-
-                        contents.last_interacted_time = Some(std::time::Instant::now());
-                        contents.record_undo(text_val.clone(), range.clone());
-
-                        let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
-                        let right = u16_text[range.end.min(u16_text.len())..].to_vec();
-
-                        left.extend_from_slice(ch_u16_slice);
-                        left.extend_from_slice(&right);
-
-                        let new_text = String::from_utf16_lossy(&left);
-                        let new_caret = range.start + ch_u16_slice.len();
-
-                        contents.selected_range = new_caret..new_caret;
-                        cx.outputs
-                            .out_text_selections
-                            .insert(id, new_caret..new_caret); // 選択表示をリセット
-                        cx.outputs.out_selected_rects.remove(id);
-                        // タイピング編集が発生したため古い開始選択アンカーを消去
-                        cx.outputs.out_selection_start_index.remove(id);
-                        contents.text.1.set(new_text);
-                        cx.mark_render_dirty(id);
-                    }
-                }
-                if let Some(ref mut ext) = existing_char {
-                    ext(cx, ch);
-                }
-            }));
-
-            let mut existing_keyboard = l.on_keyboard_input.take();
-            // 物理キーボード操作 (Backspace, Delete, 矢印キー)
-            l.on_keyboard_input = Some(Box::new(move |cx, key, modifiers, state| {
-                if state == ElementState::Pressed
-                    && let Some(contents) = cx.contents.cont_input_contents.get_mut(id)
-                {
-                    let default_visual = VisualProperty::default();
-                    let text_val = contents.text.0.get();
-                    let u16_len = text_val.encode_utf16().count();
-
-                    contents.selected_range = (contents.selected_range.start.min(u16_len))
-                        ..(contents.selected_range.end.min(u16_len));
-
-                    let raw_caret = if contents.selection_reversed {
-                        contents.selected_range.start
-                    } else {
-                        contents.selected_range.end
-                    };
-                    let mut caret = raw_caret.min(u16_len);
-                    let mut changed = false; // 状態変更フラグ
-
-                    match key {
-                        VirtualKey::BACK => {
-                            let range = contents.selected_range.clone();
-                            contents.record_undo(text_val.clone(), range.clone());
-
-                            if range.start < range.end {
-                                // 選択範囲を一撃で消去
-                                let u16_text: Vec<u16> = text_val.encode_utf16().collect();
-                                let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
-                                let right = u16_text[range.end.min(u16_text.len())..].to_vec();
-                                left.extend_from_slice(&right);
-
-                                let new_text = String::from_utf16_lossy(&left);
-                                contents.selected_range = range.start..range.start;
-                                cx.outputs
-                                    .out_text_selections
-                                    .insert(id, range.start..range.start);
-                                cx.outputs.out_selection_start_index.remove(id);
-                                contents.text.1.set(new_text);
-                            } else {
-                                // 通常の1文字バックスペース
-                                let new_text = crate::input_backspace(&text_val, &mut caret);
-                                contents.selected_range = caret..caret;
-                                // Context側の描画SoAにも最新のキャレット位置を強制同期
-                                cx.outputs.out_text_selections.insert(id, caret..caret);
-                                cx.outputs.out_selection_start_index.remove(id);
-                                contents.text.1.set(new_text);
-                            }
-                            contents.last_interacted_time = Some(std::time::Instant::now());
-                            changed = true;
-                        }
-                        VirtualKey::DELETE => {
-                            let range = contents.selected_range.clone();
-                            contents.record_undo(text_val.clone(), range.clone());
-                            if range.start < range.end {
-                                let u16_text: Vec<u16> = text_val.encode_utf16().collect();
-                                let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
-                                let right = u16_text[range.end.min(u16_text.len())..].to_vec();
-                                left.extend_from_slice(&right);
-
-                                let new_text = String::from_utf16_lossy(&left);
-                                contents.selected_range = range.start..range.start;
-                                cx.outputs
-                                    .out_text_selections
-                                    .insert(id, range.start..range.start);
-                                cx.outputs.out_selection_start_index.remove(id);
-                                contents.text.1.set(new_text);
-                            } else {
-                                // 通常の1文字デリート
-                                let new_text = crate::input_delete(&text_val, caret);
-                                contents.selected_range = caret..caret;
-                                cx.outputs.out_text_selections.insert(id, caret..caret);
-                                cx.outputs.out_selection_start_index.remove(id);
-                                contents.text.1.set(new_text);
-                            }
-                            contents.last_interacted_time = Some(std::time::Instant::now());
-                            changed = true;
-                        }
-                        VirtualKey::LEFT => {
-                            let range = contents.selected_range.clone();
-                            // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時
-                            if range.start < range.end && !modifiers.shift {
-                                // 選択範囲をすべて解除し、キャレットを左端（start）に収束
-                                let new_caret = range.start;
-                                contents.selected_range = new_caret..new_caret;
-                                cx.outputs
-                                    .out_text_selections
-                                    .insert(id, new_caret..new_caret);
-                                cx.outputs.out_selected_rects.remove(id);
-                                cx.outputs.out_selection_start_index.remove(id);
-                                contents.selection_reversed = false;
-                                contents.last_interacted_time = Some(std::time::Instant::now());
-                                changed = true;
-                            } else if caret > 0 {
-                                let new_caret = caret - 1;
-
-                                if modifiers.shift {
-                                    // Shiftキー押下中：選択の拡張
-                                    let anchor = cx
-                                        .outputs
-                                        .out_selection_start_index
-                                        .get(id)
-                                        .copied()
-                                        .unwrap_or(caret);
-                                    if !cx.outputs.out_selection_start_index.contains_key(id) {
-                                        cx.outputs.out_selection_start_index.insert(id, caret);
-                                    }
-                                    let range = if anchor <= new_caret {
-                                        contents.selection_reversed = false;
-                                        anchor..new_caret
-                                    } else {
-                                        contents.selection_reversed = true;
-                                        new_caret..anchor
-                                    };
-                                    contents.selected_range = range.clone();
-                                    cx.outputs.out_text_selections.insert(id, range);
-                                } else {
-                                    // Shiftキー非押下：選択解除して単なる移動
-                                    contents.selected_range = new_caret..new_caret;
-                                    cx.outputs
-                                        .out_text_selections
-                                        .insert(id, new_caret..new_caret);
-                                    cx.outputs.out_selected_rects.remove(id);
-                                    cx.outputs.out_selection_start_index.remove(id);
-                                }
-                                contents.last_interacted_time = Some(std::time::Instant::now());
-                                changed = true;
-                            }
-                        }
-                        VirtualKey::RIGHT => {
-                            let range = contents.selected_range.clone();
-                            // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時（全選択中での右移動に完全対応）
-                            if range.start < range.end && !modifiers.shift {
-                                let new_caret = range.end;
-                                contents.selected_range = new_caret..new_caret;
-                                cx.outputs
-                                    .out_text_selections
-                                    .insert(id, new_caret..new_caret);
-                                cx.outputs.out_selected_rects.remove(id);
-                                cx.outputs.out_selection_start_index.remove(id);
-                                contents.selection_reversed = false;
-                                contents.last_interacted_time = Some(std::time::Instant::now());
-                                changed = true;
-                            } else if caret < u16_len {
-                                let new_caret = caret + 1;
-
-                                if modifiers.shift {
-                                    let anchor = cx
-                                        .outputs
-                                        .out_selection_start_index
-                                        .get(id)
-                                        .copied()
-                                        .unwrap_or(caret);
-                                    if !cx.outputs.out_selection_start_index.contains_key(id) {
-                                        cx.outputs.out_selection_start_index.insert(id, caret);
-                                    }
-                                    let range = if anchor <= new_caret {
-                                        contents.selection_reversed = false;
-                                        anchor..new_caret
-                                    } else {
-                                        contents.selection_reversed = true;
-                                        new_caret..anchor
-                                    };
-                                    contents.selected_range = range.clone();
-                                    cx.outputs.out_text_selections.insert(id, range);
-                                } else {
-                                    contents.selected_range = new_caret..new_caret;
-                                    cx.outputs
-                                        .out_text_selections
-                                        .insert(id, new_caret..new_caret);
-                                    cx.outputs.out_selected_rects.remove(id);
-                                    cx.outputs.out_selection_start_index.remove(id);
-                                }
-                                contents.last_interacted_time = Some(std::time::Instant::now());
-                                changed = true;
-                            }
-                        }
-                        VirtualKey::UP => {
-                            if contents.is_multiline {
-                                let visual =
-                                    cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
-                                let font_size = visual.font_size.unwrap_or(16.0);
-                                let font_family = visual.font_family.as_deref();
-                                let font_weight = visual.font_weight;
-                                let font_style = visual.font_style;
-
-                                let spans = cx
-                                    .contents
-                                    .cont_text_spans
-                                    .get(id)
-                                    .map_or(&[][..], Vec::as_slice);
-
-                                let layout = cx.system.sys_text_engine.create_layout(
-                                    &text_val,
-                                    font_size,
-                                    font_family,
-                                    font_weight,
-                                    font_style,
-                                    None,
-                                    spans,
-                                );
-
-                                let (cx_offset, cy_offset, _) = cx
-                                    .system
-                                    .sys_text_engine
-                                    .get_caret_position(&layout, caret, u16_len);
-
-                                let line_height = font_size * 1.3;
-                                let target_y = (cy_offset - line_height * 1.1).max(0.0); // 1行分＋マージン
-
-                                let (new_caret, is_trailing) = cx
-                                    .system
-                                    .sys_text_engine
-                                    .hit_test_point(&layout, cx_offset, target_y);
-                                let final_caret = if is_trailing {
-                                    new_caret + 1
-                                } else {
-                                    new_caret
-                                };
-
-                                if modifiers.shift {
-                                    let anchor = cx
-                                        .outputs
-                                        .out_selection_start_index
-                                        .get(id)
-                                        .copied()
-                                        .unwrap_or(caret);
-                                    if !cx.outputs.out_selection_start_index.contains_key(id) {
-                                        cx.outputs.out_selection_start_index.insert(id, caret);
-                                    }
-                                    let range = if anchor <= final_caret {
-                                        contents.selection_reversed = false;
-                                        anchor..final_caret
-                                    } else {
-                                        contents.selection_reversed = true;
-                                        final_caret..anchor
-                                    };
-                                    contents.selected_range = range.clone();
-                                    cx.outputs.out_text_selections.insert(id, range);
-                                } else {
-                                    contents.selected_range = final_caret..final_caret;
-                                    cx.outputs
-                                        .out_text_selections
-                                        .insert(id, final_caret..final_caret);
-                                    cx.outputs.out_selection_start_index.remove(id);
-                                    contents.selection_reversed = false;
-                                }
-
-                                contents.last_interacted_time = Some(std::time::Instant::now());
-                                changed = true;
-                            }
-                        }
-                        VirtualKey::DOWN if contents.is_multiline => {
-                            let visual = cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
-                            let font_size = visual.font_size.unwrap_or(16.0);
-                            let font_family = visual.font_family.as_deref();
-                            let font_weight = visual.font_weight;
-                            let font_style = visual.font_style;
-
-                            let spans = cx
-                                .contents
-                                .cont_text_spans
-                                .get(id)
-                                .map_or(&[][..], Vec::as_slice);
-
-                            let layout = cx.system.sys_text_engine.create_layout(
-                                &text_val,
-                                font_size,
-                                font_family,
-                                font_weight,
-                                font_style,
-                                None,
-                                spans,
-                            );
-
-                            let (cx_offset, cy_offset, _) = cx
-                                .system
-                                .sys_text_engine
-                                .get_caret_position(&layout, caret, u16_len);
-
-                            let line_height = font_size * 1.3;
-                            let target_y = cy_offset + line_height * 1.5;
-                            let (new_caret, is_trailing) = cx
-                                .system
-                                .sys_text_engine
-                                .hit_test_point(&layout, cx_offset, target_y);
-                            let final_caret = if is_trailing {
-                                new_caret + 1
-                            } else {
-                                new_caret
-                            };
-
-                            if modifiers.shift {
-                                let anchor = cx
-                                    .outputs
-                                    .out_selection_start_index
-                                    .get(id)
-                                    .copied()
-                                    .unwrap_or(caret);
-                                if !cx.outputs.out_selection_start_index.contains_key(id) {
-                                    cx.outputs.out_selection_start_index.insert(id, caret);
-                                }
-                                let range = if anchor <= final_caret {
-                                    contents.selection_reversed = false;
-                                    anchor..final_caret
-                                } else {
-                                    contents.selection_reversed = true;
-                                    final_caret..anchor
-                                };
-                                contents.selected_range = range.clone();
-                                cx.outputs.out_text_selections.insert(id, range);
-                            } else {
-                                contents.selected_range = final_caret..final_caret;
-                                cx.outputs
-                                    .out_text_selections
-                                    .insert(id, final_caret..final_caret);
-                                cx.outputs.out_selection_start_index.remove(id);
-                                contents.selection_reversed = false;
-                            }
-
-                            contents.last_interacted_time = Some(std::time::Instant::now());
-                            changed = true;
-                        }
-                        _ => {}
-                    }
-
-                    if changed {
-                        if let Some(layout) = cx.get_or_create_layout(id) {
-                            cx.update_selection_rects(id, &layout);
-                        }
-                        cx.update_input_caret_position(id);
-                        cx.mark_render_dirty(id);
-                    }
-                }
-                if let Some(ref mut ext) = existing_keyboard {
-                    ext(cx, key, modifiers, state);
-                }
-            }));
-
-            let mut existing_ime = l.on_ime.take();
-            // IME連動
-            l.on_ime = Some(Box::new(move |cx, ime| {
-                if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
-                    contents.last_interacted_time = Some(std::time::Instant::now());
-                    contents.ime_state = Some(ime.clone());
-
-                    // IME 確定文字の書き込み
-                    if !ime.result_text.is_empty() {
-                        let text_val = contents.text.0.get();
-                        let mut caret = contents.selected_range.start;
-
-                        // 確定した文字列を1文字ずつ安全に挿入
-                        let mut temp_text = text_val;
-                        for ch in ime.result_text.chars() {
-                            temp_text = crate::input_insert_char(
-                                &temp_text,
-                                &mut caret,
-                                ch,
-                                contents.max_length,
-                                contents.numeric_only,
-                            );
-                        }
-
-                        contents.selected_range = caret..caret;
-                        contents.text.1.set(temp_text);
-                        contents.marked_range = None;
-                    } else if !ime.composition_text.is_empty() {
-                        // IME 未変換中
-                        let caret = contents.selected_range.start;
-                        let comp_len = ime.composition_text.encode_utf16().count();
-                        contents.marked_range = Some(caret..(caret + comp_len));
-                    } else {
-                        contents.marked_range = None;
-                    }
-
-                    // IME の未確定状態（未確定波線、変換フォーカス太線/細線）を TextSpan に自動マッピング
-                    if ime.composition_text.is_empty() {
-                        cx.contents.cont_text_spans.remove(id);
-                        cx.topology.topo_active_masks[id].unset(STYLE_TEXT_SPANS);
-                    } else {
-                        let mut spans = Vec::new();
-                        let caret = contents.selected_range.start;
-
-                        if ime.composition_attrs.is_empty() {
-                            // 属性が取得できない場合のフォールバック（全体を未確定波線に設定）
-                            let comp_len = ime.composition_text.encode_utf16().count();
-                            spans.push(TextSpan {
-                                range: caret..(caret + comp_len),
-                                underline: Some(UnderlineStyle::Wave),
-                                ..Default::default()
-                            });
-                        } else {
-                            let attrs = &ime.composition_attrs;
-                            let mut start_idx = 0;
-
-                            // 同一のIME属性が連続する境界ごとに TextSpan を分割
-                            while start_idx < attrs.len() {
-                                let attr = attrs[start_idx];
-                                let mut end_idx = start_idx + 1;
-                                while end_idx < attrs.len() && attrs[end_idx] == attr {
-                                    end_idx += 1;
-                                }
-
-                                // Windows IME 属性定数:
-                                // ATTR_INPUT (0): 未変換入力 ➔ 波線 (Wave)
-                                // ATTR_TARGET_CONVERTED (1): フォーカス（ターゲット）文節 ➔ 太実線 (Thick)
-                                // ATTR_CONVERTED (2): 変換済み非フォーカス文節 ➔ 細実線 (Solid)
-                                let underline_style = match attr {
-                                    1 => Some(UnderlineStyle::Thick),
-                                    2 => Some(UnderlineStyle::Solid),
-                                    _ => Some(UnderlineStyle::Wave),
-                                };
-
-                                spans.push(TextSpan {
-                                    range: (caret + start_idx)..(caret + end_idx),
-                                    color: None,
-                                    bg_color: None,
-                                    font_size: None,
-                                    font_family: None,
-                                    font_weight: None,
-                                    font_style: None,
-                                    underline: underline_style,
-                                    underline_color: None,
-                                    strikethrough: None,
-                                    strikethrough_color: None,
-                                    link_id: None,
-                                });
-
-                                start_idx = end_idx;
-                            }
-                        }
-
-                        cx.contents.cont_text_spans.insert(id, spans);
-                        cx.topology.topo_active_masks[id].set(STYLE_TEXT_SPANS);
-                    }
-
-                    // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
-                    cx.update_input_caret_position(id);
-
-                    cx.mark_render_dirty(id);
-                }
-                if let Some(ref mut ext) = existing_ime {
-                    ext(cx, ime);
-                }
-            }));
-        });
-
-        cx.create_element_effect(id, EffectCategory::Text, move |cx| {
-            if let Some(contents) = cx.contents.cont_input_contents.get(id) {
-                let _base_text_val = contents.text.0.get();
-            }
-            cx.update_input_caret_position(id);
-            cx.mark_dirty(id);
-        });
-    }
-
-    /// 内部ヘルパー：この要素に対応する `EventListeners` が `SoA` 上に存在しない場合は新規に作成し、
-    /// 可変参照を取得して渡されたクロージャを実行します。
-    #[inline]
-    fn get_or_create_listeners<R>(&self, f: impl FnOnce(&mut EventListeners) -> R) -> R {
-        with_context(|cx| {
-            // SparseSecondaryMap にキーが存在しない場合は Default (すべて None) で差し込む
-            if !cx.events.evt_listeners.contains_key(self.id) {
-                cx.events
-                    .evt_listeners
-                    .insert(self.id, EventListeners::default());
-            }
-            let listeners = cx.events.evt_listeners.get_mut(self.id).unwrap();
-            f(listeners)
-        })
-    }
-
-    /// 左クリックのリリース（押し下げ ➔ 同一要素上での離し）が成立した際に発火するイベントを登録します。
-    /// 複数回呼ぶとイベントは追加され登録順に実行されます。
-    #[must_use]
-    #[inline]
-    pub fn on_click<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_click_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_click_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_click.take() {
-                let mut f = f;
-                l.on_click = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_click = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 右クリックのリリース（押し下げ ➔ 同一要素上での離し）が成立した際に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_right_click<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_right_click_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_right_click_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_right_click.take() {
-                let mut f = f;
-                l.on_right_click = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_right_click = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// マウスボタンの生入力（押し下げ、または離し）が発生した際に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_mouse_input<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(MouseButton, Modifiers, ElementState) + 'static,
-    {
-        self.on_mouse_input_with(move |_cx, btn, mods, state| f(btn, mods, state))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_mouse_input_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, MouseButton, Modifiers, ElementState) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_mouse_input.take() {
-                let mut f = f;
-                l.on_mouse_input = Some(Box::new(move |cx, btn, mods, state| {
-                    existing(cx, btn, mods, state);
-                    f(cx, btn, mods, state);
-                }));
-            } else {
-                l.on_mouse_input = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// マウスポインタが要素の可視境界内に入った（Enter）際に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_mouse_enter<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_mouse_enter_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_mouse_enter_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_mouse_enter.take() {
-                let mut f = f;
-                l.on_mouse_enter = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_mouse_enter = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// マウスポインタが要素の可視境界から外に出た（Leave）際に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_mouse_leave<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_mouse_leave_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_mouse_leave_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_mouse_leave.take() {
-                let mut f = f;
-                l.on_mouse_leave = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_mouse_leave = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// マウスポインタが要素内で移動した際に発火するイベントを登録します。
-    /// コールバックには、要素の左上を原点 (0, 0) とする論理座標 `LayoutPoint` が伝播します。
-    #[must_use]
-    #[inline]
-    pub fn on_cursor_moved<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(LayoutPoint) + 'static,
-    {
-        self.on_cursor_moved_with(move |_cx, point| f(point))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_cursor_moved_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, LayoutPoint) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_cursor_moved.take() {
-                let mut f = f;
-                l.on_cursor_moved = Some(Box::new(move |cx, p| {
-                    existing(cx, p);
-                    f(cx, p);
-                }));
-            } else {
-                l.on_cursor_moved = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// マウスホイールスクロールがこの要素上で検知された際のイベントをバインドします。
-    /// コールバック引数には、論理ピクセル単位に換算された (`scroll_x`, `scroll_y`) が渡されます。
-    #[must_use]
-    #[inline]
-    pub fn on_mouse_wheel<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(f32, f32) + 'static,
-    {
-        self.on_mouse_wheel_with(move |_cx, sx, sy| f(sx, sy))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_mouse_wheel_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, f32, f32) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_mouse_wheel.take() {
-                let mut f = f;
-                l.on_mouse_wheel = Some(Box::new(move |cx, sx, sy| {
-                    existing(cx, sx, sy);
-                    f(cx, sx, sy);
-                }));
-            } else {
-                l.on_mouse_wheel = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// スクロールコンテナの指定軸方向のオフセット（スクロール位置）を強制変更します。
-    #[inline]
-    #[must_use]
-    pub fn scroll_to(self, x: f32, y: f32) -> Self {
-        with_context(|cx| {
-            cx.scroll_to(self.id, x, y);
-        });
-        self
-    }
-
-    /// スクロールコンテナを指定ピクセル分だけ相対移動させます。
-    #[inline]
-    #[must_use]
-    pub fn scroll_by(self, dx: f32, dy: f32) -> Self {
-        with_context(|cx| {
-            cx.scroll_by(self.id, dx, dy);
-        });
-        self
-    }
-
-    /// このコンテナの現在のスクロール位置 (x, y) を安全に取得します。
-    #[inline]
-    #[must_use]
-    pub fn scroll_offset(self) -> LayoutPoint {
-        with_context(|cx| {
-            cx.outputs
-                .out_scroll_offsets
-                .get(self.id)
-                .copied()
-                .unwrap_or(LayoutPoint::ZERO)
-        })
-    }
-
-    /// 要素のドラッグ（左クリック押し下げ中のマウス移動）が発生した際に発火するイベントを登録します。
-    /// コールバックには、前フレームからの移動差分である `LayoutPoint` が伝播します。
-    #[must_use]
-    #[inline]
-    pub fn on_drag<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(LayoutPoint) + 'static,
-    {
-        self.on_drag_with(move |_cx, delta| f(delta))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_drag_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, LayoutPoint) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_drag.take() {
-                let mut f = f;
-                l.on_drag = Some(Box::new(move |cx, p| {
-                    existing(cx, p);
-                    f(cx, p);
-                }));
-            } else {
-                l.on_drag = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// マウスオーバーされた瞬間（`on_mouse_enter` と同時）に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_hover<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_hover_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_hover_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_hover.take() {
-                let mut f = f;
-                l.on_hover = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_hover = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 物理キーボードキーの操作が発生した際に発火するイベントを登録します（フォーカス獲得時のみ有効）。
-    #[must_use]
-    #[inline]
-    pub fn on_keyboard_input<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(VirtualKey, Modifiers, ElementState) + 'static,
-    {
-        self.on_keyboard_input_with(move |_cx, key, mods, state| f(key, mods, state))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_keyboard_input_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, VirtualKey, Modifiers, ElementState) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_keyboard_input.take() {
-                let mut f = f;
-                l.on_keyboard_input = Some(Box::new(move |cx, key, mods, state| {
-                    existing(cx, key, mods, state);
-                    f(cx, key, mods, state);
-                }));
-            } else {
-                l.on_keyboard_input = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// ローカライズやリピート処理が適用された確定1文字が入力された際に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_char_input<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(char) + 'static,
-    {
-        self.on_char_input_with(move |_cx, c| f(c))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_char_input_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, char) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_char_input.take() {
-                let mut f = f;
-                l.on_char_input = Some(Box::new(move |cx, c| {
-                    existing(cx, c);
-                    f(cx, c);
-                }));
-            } else {
-                l.on_char_input = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// IME（入力文字プロセッサ）による変換テキスト、キャレット、確定文字列の更新を捕捉するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_ime<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(ImeState) + 'static,
-    {
-        self.on_ime_with(move |_cx, state| f(state))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_ime_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, ImeState) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_ime.take() {
-                let mut f = f;
-                l.on_ime = Some(Box::new(move |cx, state| {
-                    existing(cx, state.clone());
-                    f(cx, state);
-                }));
-            } else {
-                l.on_ime = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// OS上からファイルやフォルダーがこの要素へドラッグ＆ドロップされた際のイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_file_dropped<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(Vec<PathBuf>) + 'static,
-    {
-        self.on_file_dropped_with(move |_cx, paths| f(paths))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_file_dropped_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, Vec<PathBuf>) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_file_dropped.take() {
-                let mut f = f;
-                l.on_file_dropped = Some(Box::new(move |cx, paths| {
-                    existing(cx, paths.clone());
-                    f(cx, paths);
-                }));
-            } else {
-                l.on_file_dropped = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// ファイルが要素上にドラッグ侵入した際のイベント（シンプル版）
-    #[must_use]
-    #[inline]
-    pub fn on_file_drag_enter<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_file_drag_enter_with(move |_cx| f())
-    }
-
-    /// ファイルが要素上にドラッグ侵入した際のイベント（エスケープハッチ版）
-    #[must_use]
-    #[inline]
-    pub fn on_file_drag_enter_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_file_drag_enter.take() {
-                let mut f = f;
-                l.on_file_drag_enter = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_file_drag_enter = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// ファイルが要素上からドラッグ離脱した際のイベント（シンプル版）
-    #[must_use]
-    #[inline]
-    pub fn on_file_drag_leave<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_file_drag_leave_with(move |_cx| f())
-    }
-
-    /// ファイルが要素上からドラッグ離脱した際のイベント（エスケープハッチ版）
-    #[must_use]
-    #[inline]
-    pub fn on_file_drag_leave_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_file_drag_leave.take() {
-                let mut f = f;
-                l.on_file_drag_leave = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_file_drag_leave = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 画像ファイルのロードが完了し、
-    /// メタデータ（解像度、フォーマット、アニメーションの有無等）が取得可能になった時のイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_image_loaded<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(ImageMetadata) + 'static,
-    {
-        self.on_image_loaded_with(move |_cx, img| f(img))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_image_loaded_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, ImageMetadata) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_image_loaded.take() {
-                let mut f = f;
-                l.on_image_loaded = Some(Box::new(move |cx, img| {
-                    existing(cx, img.clone());
-                    f(cx, img);
-                }));
-            } else {
-                l.on_image_loaded = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 動画ファイルがロードされ、メタデータ（解像度、FPS、ビットレート等）が取得可能になった時のイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_media_loaded<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(MovieMetadata) + 'static,
-    {
-        self.on_media_loaded_with(move |_cx, movie| f(movie))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_media_loaded_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, MovieMetadata) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_media_loaded.take() {
-                let mut f = f;
-                l.on_media_loaded = Some(Box::new(move |cx, movie| {
-                    existing(cx, movie.clone());
-                    f(cx, movie);
-                }));
-            } else {
-                l.on_media_loaded = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 要素が新しく入力フォーカスを獲得した際に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_focus<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_focus_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_focus_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_focus.take() {
-                let mut f = f;
-                l.on_focus = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_focus = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 他の要素がクリックされるなどして、フォーカスを喪失した際に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_blur<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_blur_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_blur_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_blur.take() {
-                let mut f = f;
-                l.on_blur = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_blur = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 要素が無効化（Disabled）された瞬間に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_disable<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_disable_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_disable_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_disable.take() {
-                let mut f = f;
-                l.on_disable = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_disable = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 要素がアクティブ（Actived）状態になった瞬間に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_active<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_active_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_active_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_active.take() {
-                let mut f = f;
-                l.on_active = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_active = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// チェックボックスやラジオボタンなどで、要素が選択（Selected）された瞬間に発火するイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_select<F>(self, mut f: F) -> Self
-    where
-        F: FnMut() + 'static,
-    {
-        self.on_select_with(move |_cx| f())
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_select_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_select.take() {
-                let mut f = f;
-                l.on_select = Some(Box::new(move |cx| {
-                    existing(cx);
-                    f(cx);
-                }));
-            } else {
-                l.on_select = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 実体（Entity）ドラッグ中に毎フレーム呼び出されるイベントを登録します。
-    /// 引数: (ドラッグ元ID, 現在重なっているドロップ先ID)
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_element_drag<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(Element, Option<Element>) + 'static,
-    {
-        self.on_dnd_element_drag_with(move |_cx, src, dst| f(src, dst))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_element_drag_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, Element, Option<Element>) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            l.on_dnd_entity_drag = Some(Box::new(f));
-        });
-        self
-    }
-
-    /// IDドラッグ中に毎フレーム呼び出されるイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_id_drag<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(EntityId, Option<EntityId>) + 'static,
-    {
-        self.on_dnd_id_drag_with(move |_cx, src, dst| f(src, dst))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_id_drag_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, EntityId, Option<EntityId>) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            l.on_dnd_id_drag = Some(Box::new(f));
-        });
-        self
-    }
-
-    /// ドロップ完了時（成功またはエリア外での失敗時）に呼び出されるイベントを登録します。
-    /// 引数: (ドラッグ元ID, ドロップされた先のID（失敗時はNone）)
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_element_drop<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(Element, Option<Element>) + 'static,
-    {
-        self.on_dnd_element_drop_with(move |_cx, src, dst| f(src, dst))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_element_drop_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, Element, Option<Element>) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            l.on_dnd_entity_drop = Some(Box::new(f));
-        });
-        self
-    }
-
-    /// IDドロップ完了時（成功またはエリア外での失敗時）に呼び出されるイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_id_drop<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(EntityId, Option<EntityId>) + 'static,
-    {
-        self.on_dnd_id_drop_with(move |_cx, src, dst| f(src, dst))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_id_drop_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, EntityId, Option<EntityId>) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            l.on_dnd_id_drop = Some(Box::new(f));
-        });
-        self
-    }
-
-    /// ドラッグ開始時（プレースホルダー生成の瞬間）に呼び出されるイベントを登録します。
-    /// 引数: (元のオリジナル要素, 生成されたプレースホルダー要素)
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_drag_start<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(Element, Element) + 'static,
-    {
-        self.on_dnd_drag_start_with(move |_cx, src, placeholder| f(src, placeholder))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_dnd_drag_start_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, Element, Element) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            l.on_dnd_drag_start = Some(Box::new(f));
-        });
-        self
-    }
-
-    /// シグナルやクロージャに基づいて要素の `STATE_ACTIVED`（アクティブ疑似スタイル）を自動的にマッピングします。
-    #[must_use]
-    pub fn active(self, active: impl Into<Prop<bool>>) -> Self {
-        match active.into() {
-            Prop::None => {}
-            Prop::Static(val) => {
-                with_context(|cx| {
-                    cx.set_actived(self.id, val);
-                });
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::ActiveState, move |cx| {
-                        let active_val = f();
-                        cx.set_actived(id, active_val);
-                    });
-                });
-            }
-        }
-        self
-    }
-
-    /// シグナルやクロージャに基づいて要素の `STATE_SELECTED`（選択疑似スタイル）を自動的にマッピングします。
-    #[must_use]
-    pub fn select(self, selected: impl Into<Prop<bool>>) -> Self {
-        match selected.into() {
-            Prop::None => {}
-            Prop::Static(val) => {
-                with_context(|cx| {
-                    cx.set_selected(self.id, val);
-                });
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::SelectState, move |cx| {
-                        let selected_val = f();
-                        cx.set_selected(id, selected_val);
-                    });
-                });
-            }
-        }
-        self
-    }
-
-    /// シグナルやクロージャに基づいて要素の `STATE_DISABLED`（無効疑似スタイル）を自動的にマッピングします。
-    #[must_use]
-    pub fn disable(self, disabled: impl Into<Prop<bool>>) -> Self {
-        match disabled.into() {
-            Prop::None => {}
-            Prop::Static(val) => {
-                with_context(|cx| {
-                    cx.set_disabled(self.id, val);
-                });
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::DisableState, move |cx| {
-                        let disabled_val = f();
-                        cx.set_disabled(id, disabled_val);
-                    });
-                });
-            }
-        }
-        self
-    }
-
-    /// シグナルやクロージャに基づいて要素の `STATE_FOCUSED`（フォーカス疑似スタイル）を自動的にマッピングします。
-    #[must_use]
-    pub fn focus(self, focused: impl Into<Prop<bool>>) -> Self {
-        match focused.into() {
-            Prop::None => {}
-            Prop::Static(val) => {
-                with_context(|cx| {
-                    cx.set_focused(self.id, val);
-                });
-            }
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::FocusState, move |cx| {
-                        let focused_val = f();
-                        cx.set_focused(id, focused_val);
-                    });
-                });
-            }
-        }
-        self
     }
 
     /// UI Automation のプロパティを生の ID (i32) を指定して直接登録します
@@ -2558,6 +712,7 @@ impl Element {
 
     /// 自動テストフレームワークやデバッグで要素を特定するための「Automation `ID」を設定します（UIA_AutomationIdPropertyId` 互換）。
     #[inline]
+    #[must_use]
     pub fn uia_automation_id(self, id: impl Into<Prop<Cow<'static, str>>>) -> Self {
         match id.into() {
             Prop::None => self,
@@ -2586,7 +741,6 @@ impl Element {
 
     /// スクロールコンテナのスタイル設定に連動し、
     /// トラック・サムに相当する要素（Element）を遅延生成して親子関係にアタッチします。
-    #[must_use]
     #[inline]
     pub(crate) fn ensure_scrollbar_elements(
         cx: &mut Context,

@@ -687,7 +687,7 @@ impl OutputStore {
 
         // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
         let display_text = if !filtered_comp_text.is_empty() {
-            crate::input_get_display_text(
+            InputContents::input_get_display_text(
                 &text_val_for_display,
                 contents.selected_range.start,
                 &filtered_comp_text,
@@ -706,7 +706,7 @@ impl OutputStore {
         };
 
         let caret_text = if !filtered_comp_text.is_empty() {
-            crate::input_get_display_text(
+            InputContents::input_get_display_text(
                 &text_val_for_display,
                 contents.selected_range.start,
                 &filtered_comp_text,
@@ -781,7 +781,8 @@ impl OutputStore {
         contents.measured_caret_y = cy_offset;
         contents.caret_line_height = ch_height;
 
-        let (curr_line, tot_lines) = crate::calculate_line_indices(&display_text, caret_index);
+        let (curr_line, tot_lines) =
+            InputContents::calculate_line_indices(&display_text, caret_index);
         contents.current_line_index = curr_line;
         contents.total_lines = tot_lines;
 
