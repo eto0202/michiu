@@ -845,7 +845,24 @@ impl Element {
                 {
                     let rect = cx.rect(id).unwrap_or_default();
                     // 要素の境界枠（border + padding）を取得してローカル座標を算出
-                    let (basic, flex, _) = cx.resolve_active_layouts(id);
+                    let basic = &cx
+                        .layouts
+                        .lay_resolved_basic
+                        .get(id)
+                        .copied()
+                        .unwrap_or_default();
+                    let flex = &cx
+                        .layouts
+                        .lay_resolved_flex
+                        .get(id)
+                        .copied()
+                        .unwrap_or_default();
+                    let _grid = &cx
+                        .layouts
+                        .lay_resolved_grid
+                        .get(id)
+                        .cloned()
+                        .unwrap_or_default();
                     let (border, padding) =
                         LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -2702,6 +2719,7 @@ impl Element {
         if changed {
             *cx.layouts.lay_scrollbar_styles.get_mut(id).unwrap() = state;
             cx.topology.topo_is_structure_dirty = true; // topo_flat_dfs_sequence の更新契機
+            cx.topology.topo_is_sort_dirty = true;
         }
     }
 }

@@ -40,6 +40,7 @@ pub struct TopologyStore {
     pub(crate) topo_session_roots: SessionRootsVec,
     pub(crate) topo_flat_dfs_sequence: FlatDfsSequenceVec,
     pub(crate) topo_is_structure_dirty: bool,
+    pub(crate) topo_is_sort_dirty: bool,
     // ソート用の作業用配列
     pub(crate) topo_sorted_entities: SortedEntitiesVec,
     // 累積トランスフォーム行列の作業用マップ
@@ -70,6 +71,7 @@ impl TopologyStore {
             topo_session_roots: Vec::new(),
             topo_flat_dfs_sequence: Vec::new(),
             topo_is_structure_dirty: true,
+            topo_is_sort_dirty: true,
             // TODO: 容量確保に関して要検討
             topo_sorted_entities: Vec::new(),
             topo_effective_transforms: SecondaryMap::new(),
@@ -88,6 +90,7 @@ impl TopologyStore {
         self.topo_active_entities.clear();
         self.topo_flat_dfs_sequence.clear();
         self.topo_is_structure_dirty = true;
+        self.topo_is_sort_dirty = true;
         self.topo_sorted_entities.clear();
         self.topo_effective_transforms.clear();
         self.topo_effective_z_indices.clear();
@@ -125,6 +128,7 @@ impl TopologyStore {
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_session_spawned: &mut SessionSpawnedVec,
         topo_is_structure_dirty: &mut bool,
+        topo_is_sort_dirty: &mut bool,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
@@ -136,6 +140,7 @@ impl TopologyStore {
         topo_active_entities.push(id);
         topo_session_spawned.push(id);
         *topo_is_structure_dirty = true;
+        *topo_is_sort_dirty = true;
 
         // Taffyノードとの同期
         let node = lay_taffy
@@ -156,6 +161,7 @@ impl TopologyStore {
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
+        topo_is_sort_dirty: &mut bool,
         topo_active_masks: &mut ActiveMasksSecondary,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
@@ -170,6 +176,7 @@ impl TopologyStore {
                 topo_parents,
                 topo_children,
                 topo_is_structure_dirty,
+                topo_is_sort_dirty,
             );
 
             // 古い親の Taffy ノードから安全にデタッチ
@@ -205,6 +212,7 @@ impl TopologyStore {
             topo_parents,
             topo_children,
             topo_is_structure_dirty,
+            topo_is_sort_dirty,
         );
 
         // 新しい親の Taffy ツリーの親子関係を永続的に更新
@@ -254,6 +262,7 @@ impl TopologyStore {
             &mut topology.topo_parents,
             &mut topology.topo_children,
             &mut topology.topo_is_structure_dirty,
+            &mut topology.topo_is_sort_dirty,
         );
 
         // 古い子要素（およびその子孫）を完全に安全デスポーン
@@ -291,6 +300,7 @@ impl TopologyStore {
         }
 
         topology.topo_is_structure_dirty = true;
+        topology.topo_is_sort_dirty = true;
 
         // 親トポロジーおよび Taffy ツリーからのデタッチ
         if let Some(Some(parent_id)) = topology.topo_parents.get(id) {
@@ -378,6 +388,7 @@ impl TopologyStore {
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
+        topo_is_sort_dirty: &mut bool,
     ) -> Option<EntityId> {
         let Some(Some(parent_id)) = topo_parents.get(child).copied() else {
             return None;
@@ -387,6 +398,7 @@ impl TopologyStore {
         }
         topo_parents.insert(child, None);
         *topo_is_structure_dirty = true;
+        *topo_is_sort_dirty = true;
         Some(parent_id)
     }
 
@@ -398,6 +410,7 @@ impl TopologyStore {
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
+        topo_is_sort_dirty: &mut bool,
     ) {
         topo_parents.insert(child, Some(parent));
         if let Some(children_list) = topo_children.get_mut(parent)
@@ -406,6 +419,7 @@ impl TopologyStore {
             children_list.push(child);
         }
         *topo_is_structure_dirty = true;
+        *topo_is_sort_dirty = true;
     }
 
     /// 親要素の特定の古い子要素を、順序を維持したまま新しい子要素へ直接差し替える
@@ -417,6 +431,7 @@ impl TopologyStore {
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
+        topo_is_sort_dirty: &mut bool,
     ) {
         if let Some(children_list) = topo_children.get_mut(parent)
             && let Some(pos) = children_list.iter().position(|&x| x == old_child)
@@ -425,6 +440,7 @@ impl TopologyStore {
         }
         topo_parents.insert(new_child, Some(parent));
         *topo_is_structure_dirty = true;
+        *topo_is_sort_dirty = true;
     }
 
     /// DFS配列の高速再構築
@@ -595,11 +611,16 @@ impl TopologyStore {
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_dfs_indices: &mut DfsIndicesSecondary,
         topo_sort_cache: &mut TopoSortCacheVec,
+        topo_is_sort_dirty: &mut bool,
         topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         rnd_visual: &VisualPropertiesSecondary,
     ) {
+        if !*topo_is_sort_dirty {
+            return;
+        }
+
         // 実効 z_index をカスケード計算
         TopologyStore::compute_effective_z_indices(
             topo_effective_z_indices,
@@ -627,6 +648,8 @@ impl TopologyStore {
         // ソート結果から ID 配列を再構成
         topo_sorted_entities.clear();
         topo_sorted_entities.extend(topo_sort_cache.iter().map(|&(id, _, _)| id));
+
+        *topo_is_sort_dirty = false;
     }
 
     /// 各要素の実効 `z_index` を親から子へカスケードして計算
@@ -665,6 +688,7 @@ impl TopologyStore {
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_dfs_indices: &mut DfsIndicesSecondary,
         topo_sort_cache: &mut TopoSortCacheVec,
+        topo_is_sort_dirty: &mut bool,
         topo_active_masks: &ActiveMasksSecondary,
         topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,
@@ -680,6 +704,7 @@ impl TopologyStore {
             topo_effective_z_indices,
             topo_dfs_indices,
             topo_sort_cache,
+            topo_is_sort_dirty,
             topo_active_entities,
             topo_parents,
             topo_flat_dfs_sequence,
@@ -698,7 +723,7 @@ impl TopologyStore {
             }
 
             // 物理範囲に含まれているか
-            let Some(rect) = OutputStore::rect(id, out_rects) else {
+            let Some(rect) = out_rects.get(id).copied() else {
                 continue;
             };
             if !rect.contains(point) {
@@ -793,6 +818,7 @@ impl Context {
             &mut self.topology.topo_active_entities,
             &mut self.topology.topo_session_spawned,
             &mut self.topology.topo_is_structure_dirty,
+            &mut self.topology.topo_is_sort_dirty,
             &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_taffy_nodes,
             &mut self.renders.rnd_dirty_entities,
@@ -808,6 +834,7 @@ impl Context {
             &mut self.topology.topo_parents,
             &mut self.topology.topo_children,
             &mut self.topology.topo_is_structure_dirty,
+            &mut self.topology.topo_is_sort_dirty,
             &mut self.topology.topo_active_masks,
             &mut self.layouts.lay_taffy_nodes,
             &mut self.layouts.lay_taffy,

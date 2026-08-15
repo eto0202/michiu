@@ -346,13 +346,13 @@ impl Context {
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
     #[inline]
     pub fn rect(&self, id: EntityId) -> Option<LayoutRect> {
-        OutputStore::rect(id, &self.outputs.out_rects)
+        self.outputs.out_rects.get(id).copied()
     }
 
     /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
     #[inline]
     pub fn clip_rect(&self, id: EntityId) -> Option<LayoutRect> {
-        OutputStore::clip_rect(id, &self.outputs.out_clip_rects)
+        self.outputs.out_clip_rects.get(id).copied()
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
@@ -380,9 +380,7 @@ impl Context {
             &mut self.layouts.lay_dirty_entities,
             &mut self.layouts.lay_scrollbar_styles,
             &self.layouts.lay_taffy_nodes,
-            &self.layouts.lay_basic,
-            &self.layouts.lay_flex,
-            &self.layouts.lay_grid,
+            &self.layouts.lay_resolved_basic,
             &self.renders.rnd_visual,
             &self.renders.rnd_interaction,
             &self.renders.rnd_active_transitions,
@@ -606,9 +604,7 @@ impl Context {
             &mut self.layouts.lay_dirty_entities,
             &mut self.layouts.lay_scrollbar_styles,
             &self.layouts.lay_taffy_nodes,
-            &self.layouts.lay_basic,
-            &self.layouts.lay_flex,
-            &self.layouts.lay_grid,
+            &self.layouts.lay_resolved_basic,
             &self.renders.rnd_visual,
             &self.renders.rnd_active_transitions,
             &self.renders.rnd_interaction,
@@ -798,6 +794,7 @@ impl Context {
             &mut self.topology.topo_effective_z_indices,
             &mut self.topology.topo_dfs_indices,
             &mut self.topology.topo_sort_cache,
+            &mut self.topology.topo_is_sort_dirty,
             &self.topology.topo_active_masks,
             &self.topology.topo_active_entities,
             &self.topology.topo_parents,

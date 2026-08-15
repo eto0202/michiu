@@ -45,6 +45,7 @@ impl SendHwnd {
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
+// cargo build --example sample_collection --release
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();

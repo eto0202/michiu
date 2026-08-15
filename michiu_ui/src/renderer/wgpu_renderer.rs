@@ -601,7 +601,24 @@ impl WgpuRenderer {
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> QuadInstance {
-        let (basic, flex, _) = cx.resolve_active_layouts(entity_id);
+        let basic = &cx
+            .layouts
+            .lay_resolved_basic
+            .get(entity_id)
+            .copied()
+            .unwrap_or_default();
+        let flex = &cx
+            .layouts
+            .lay_resolved_flex
+            .get(entity_id)
+            .copied()
+            .unwrap_or_default();
+        let grid = &cx
+            .layouts
+            .lay_resolved_grid
+            .get(entity_id)
+            .cloned()
+            .unwrap_or_default();
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders
@@ -741,7 +758,7 @@ impl WgpuRenderer {
                 cx.system.sys_text_engine.get_layout_size(&layout)
             };
 
-            let rect = OutputStore::rect(entity_id, &cx.outputs.out_rects).unwrap_or_default();
+            let rect = cx.outputs.out_rects.get(entity_id).copied().unwrap_or_default();
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
