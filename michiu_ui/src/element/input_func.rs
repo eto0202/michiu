@@ -383,13 +383,8 @@ impl Element {
         contents.record_undo(text_val.to_string(), range.clone());
 
         if range.start < range.end {
-            // 選択範囲を一撃で消去
-            let u16_text: Vec<u16> = text_val.encode_utf16().collect();
-            let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
-            let right = u16_text[range.end.min(u16_text.len())..].to_vec();
-            left.extend_from_slice(&right);
+            let new_text = InputContents::remove_utf16_range(text_val, &range);
 
-            let new_text = String::from_utf16_lossy(&left);
             Element::set_caret_position(
                 id,
                 contents,
@@ -426,12 +421,8 @@ impl Element {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.to_string(), range.clone());
         if range.start < range.end {
-            let u16_text: Vec<u16> = text_val.encode_utf16().collect();
-            let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
-            let right = u16_text[range.end.min(u16_text.len())..].to_vec();
-            left.extend_from_slice(&right);
-
-            let new_text = String::from_utf16_lossy(&left);
+            let new_text = InputContents::remove_utf16_range(text_val, &range);
+            
             Element::set_caret_position(
                 id,
                 contents,
@@ -819,12 +810,7 @@ impl Element {
             // Undo履歴に削除前の状態を記録
             contents.record_undo(text_val.clone(), range.clone());
 
-            let u16_text: Vec<u16> = text_val.encode_utf16().collect();
-            let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
-            let right = u16_text[range.end.min(u16_text.len())..].to_vec();
-            left.extend_from_slice(&right);
-
-            let new_text = String::from_utf16_lossy(&left);
+            let new_text = InputContents::remove_utf16_range(&text_val, &range);
             let caret = range.start;
 
             // キャレット・選択範囲を消去開始位置に一度リセットして同期
@@ -944,7 +930,6 @@ impl Element {
     }
 
     /// 入力イベント（キー、IME、文字入力、フォーカス）を自動的にマッピングして代行するロジック
-    #[allow(clippy::too_many_lines)]
     fn input_internal(self, cx: &mut Context, mut c: InputContents) {
         let id = self.id;
 

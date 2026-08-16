@@ -446,6 +446,16 @@ impl InputContents {
 }
 
 impl InputContents {
+    /// 指定されたUTF-16の範囲（Range）を文字列から安全に削除し、新しい文字列を返します
+    #[inline]
+    pub(crate) fn remove_utf16_range(text: &str, range: &Range<usize>) -> String {
+        let u16_text: Vec<u16> = text.encode_utf16().collect();
+        let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
+        let right = u16_text[range.end.min(u16_text.len())..].to_vec();
+        left.extend_from_slice(&right);
+        String::from_utf16_lossy(&left)
+    }
+
     /// キー入力（文字）の挿入をマルチバイト対応で安全に行います
     pub(crate) fn input_insert_char(
         text: &str,
@@ -490,6 +500,7 @@ impl InputContents {
     }
 
     /// Backspace（一文字削除）を実行
+    #[inline]
     pub(crate) fn input_backspace(text: &str, caret_offset: &mut usize) -> String {
         let mut u16_text: Vec<u16> = text.encode_utf16().collect();
         *caret_offset = (*caret_offset).min(u16_text.len());
@@ -502,6 +513,7 @@ impl InputContents {
     }
 
     /// Delete（カーソル右側一文字削除）を実行
+    #[inline]
     pub(crate) fn input_delete(text: &str, caret_offset: usize) -> String {
         let mut u16_text: Vec<u16> = text.encode_utf16().collect();
         let safe_offset = caret_offset.min(u16_text.len());
@@ -568,7 +580,7 @@ impl InputContents {
     }
 
     /// 指定した文字インデックス周辺の文節・単語境界（Range）を安全にスキャンします
-    pub(crate) fn find_word_boundaries(text: &[u16], index: usize) -> std::ops::Range<usize> {
+    pub(crate) fn find_word_boundaries(text: &[u16], index: usize) -> Range<usize> {
         if text.is_empty() {
             return 0..0;
         }

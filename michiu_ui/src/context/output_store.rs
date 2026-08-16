@@ -624,6 +624,7 @@ impl OutputStore {
     pub(crate) fn scroll_ime_info(
         id: EntityId,
         sys_text_engine: &TextEngine,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
@@ -705,54 +706,19 @@ impl OutputStore {
             text_val.clone()
         };
 
-        let caret_text = if !filtered_comp_text.is_empty() {
-            InputContents::input_get_display_text(
-                &text_val_for_display,
-                contents.selected_range.start,
-                &filtered_comp_text,
-            )
-        } else if text_val.is_empty() {
-            String::new()
-        } else if contents.is_password {
-            let mask = contents.mask_text.as_deref().unwrap_or("●");
-            mask.repeat(text_val.chars().count())
-        } else {
-            text_val.clone()
-        };
+        cont_text_contents.insert(id, display_text.clone().into());
 
-        let (font_size, font_family, font_weight, font_style) =
-            RenderStore::get_font_propery(id, rnd_visual);
+        let display_layout = SystemStore::get_or_create_layout(
+            id,
+            sys_text_engine,
+            sys_dwrite_layouts,
+            cont_text_contents,
+            cont_text_spans,
+            rnd_visual,
+        )?;
 
-        let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
-
-        // 描画テキスト全体のレイアウトサイズを Taffy 測定用に設定
-        let display_layout = sys_text_engine.create_layout(
-            &display_text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
-            None,
-            spans,
-        );
         let text_size = sys_text_engine.get_layout_size(&display_layout);
         contents.last_layout = Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
-
-        // キャレット位置測定用のレイアウトをプレースホルダー抜きで作成
-        // 文字列が同一であればレイアウトの再生成をスキップ
-        let caret_layout = if display_text == caret_text {
-            &display_layout
-        } else {
-            &sys_text_engine.create_layout(
-                &caret_text,
-                font_size,
-                font_family,
-                font_weight,
-                font_style,
-                None,
-                spans,
-            )
-        };
 
         let composition_offset = if let Some(ref ime) = contents.ime_state
             && !ime.composition_text.is_empty()
@@ -771,11 +737,11 @@ impl OutputStore {
         };
 
         let caret_index = current_caret_relative + composition_offset;
-        let u16_len_caret = caret_text.encode_utf16().count();
+        let u16_len_display = display_text.encode_utf16().count();
 
         // プレースホルダーに干渉されない純粋なキャレット位置を算出
         let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(caret_layout, caret_index, u16_len_caret);
+            sys_text_engine.get_caret_position(&display_layout, caret_index, u16_len_display);
 
         contents.measured_caret_x = cx_offset;
         contents.measured_caret_y = cy_offset;
@@ -1029,6 +995,7 @@ impl OutputStore {
         let scroll_ime_info = OutputStore::scroll_ime_info(
             id,
             sys_text_engine,
+            sys_dwrite_layouts,
             cont_input_contents,
             cont_text_contents,
             cont_text_spans,
