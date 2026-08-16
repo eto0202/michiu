@@ -2459,7 +2459,7 @@ impl EventStore {
 
         OutputStore::handle_undo(
             focused_id,
-            prev_sel,
+            prev_sel.clone(),
             prev_text,
             contents,
             &mut cx.outputs.out_text_selections,
@@ -2492,6 +2492,26 @@ impl EventStore {
             &cx.outputs.out_rects,
             &cx.outputs.out_scroll_sizes,
         );
+        // テキスト復元によりレイアウトキャッシュが更新された後に、選択ハイライトと開始アンカーを復元
+        if let Some(layout) = SystemStore::get_or_create_layout(
+            focused_id,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
+            &cx.renders.rnd_visual,
+        ) {
+            OutputStore::update_selection_rects(
+                focused_id,
+                &layout,
+                &mut cx.outputs.out_selected_rects,
+                &cx.outputs.out_text_selections,
+            );
+        }
+        cx.outputs
+            .out_selection_start_index
+            .insert(focused_id, prev_sel.start);
+
         RenderStore::mark_render_dirty(
             focused_id,
             &mut cx.topology.topo_active_masks,
@@ -2521,7 +2541,7 @@ impl EventStore {
 
         OutputStore::handle_redo(
             focused_id,
-            next_sel,
+            next_sel.clone(),
             next_text,
             contents,
             &mut cx.outputs.out_text_selections,
@@ -2554,6 +2574,26 @@ impl EventStore {
             &cx.outputs.out_rects,
             &cx.outputs.out_scroll_sizes,
         );
+        // テキスト復元によりレイアウトキャッシュが更新された後に、選択ハイライトと開始アンカーを復元
+        if let Some(layout) = SystemStore::get_or_create_layout(
+            focused_id,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
+            &cx.renders.rnd_visual,
+        ) {
+            OutputStore::update_selection_rects(
+                focused_id,
+                &layout,
+                &mut cx.outputs.out_selected_rects,
+                &cx.outputs.out_text_selections,
+            );
+        }
+        cx.outputs
+            .out_selection_start_index
+            .insert(focused_id, next_sel.start);
+
         RenderStore::mark_render_dirty(
             focused_id,
             &mut cx.topology.topo_active_masks,

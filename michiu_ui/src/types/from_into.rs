@@ -1,3 +1,5 @@
+#![allow(clippy::cast_precision_loss)]
+
 use std::{borrow::Cow, path::PathBuf};
 
 use crate::{

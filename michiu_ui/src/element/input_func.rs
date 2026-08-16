@@ -4,8 +4,8 @@ use crate::{
     COMP_INPUT_CONTENT, COMP_TEXT_CONTENT, Context, EffectCategory, Element, ElementState,
     EntityId, EventStore, ImeState, InputContents, Modifiers, MouseButton, Prop, STYLE_TEXT_SPANS,
     SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SystemStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpan, TextSpansSparseSecondary, UnderlineStyle, VirtualKey,
-    VisualPropertiesSecondary, VisualProperty, with_context,
+    TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey, VisualProperty,
+    with_context,
 };
 
 impl Element {
@@ -110,6 +110,41 @@ impl Element {
         existing.selected_range.end = existing.selected_range.end.min(u16_len);
     }
 
+    /// キャレット位置を単一の点に設定する
+    /// 範囲選択をリセットして解除する処理
+    #[inline]
+    fn set_caret_position(
+        id: EntityId,
+        contents: &mut InputContents,
+        caret: usize,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        out_selected_rects: Option<&mut SelectedRectsSparseSecondary>,
+    ) {
+        contents.selected_range = caret..caret;
+        contents.selection_reversed = false;
+
+        out_text_selections.insert(id, caret..caret);
+        out_selection_start_index.insert(id, caret);
+        if let Some(rects) = out_selected_rects {
+            rects.remove(id);
+        }
+    }
+
+    /// 範囲選択を更新
+    #[inline]
+    fn set_selection_range(
+        id: EntityId,
+        contents: &mut InputContents,
+        range: std::ops::Range<usize>,
+        selection_reversed: bool,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+    ) {
+        contents.selected_range = range.clone();
+        contents.selection_reversed = selection_reversed;
+        out_text_selections.insert(id, range);
+    }
+
     fn handle_input_mouse_pressed(
         cx: &mut Context,
         id: EntityId,
@@ -117,10 +152,7 @@ impl Element {
         mods: Modifiers,
         state: ElementState,
     ) {
-        if btn != MouseButton::Left {
-            return;
-        }
-        if state != ElementState::Pressed {
+        if btn != MouseButton::Left || state != ElementState::Pressed {
             return;
         }
         let Some(pointer_pos) = cx.events.evt_current_pointer_position else {
@@ -143,99 +175,100 @@ impl Element {
             &cx.outputs.out_rects,
         );
 
+        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+            return;
+        };
+
         let mut update_rects_needed = false;
 
-        if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
-            let text_val = contents.text.0.get();
+        let text_val = contents.text.0.get();
 
-            // プレースホルダーが表示状態にあるか
-            let is_placeholder = text_val.is_empty()
-                && contents
-                    .ime_state
-                    .as_ref()
-                    .is_none_or(|s| s.composition_text.is_empty());
+        // プレースホルダーが表示状態にあるか
+        let is_placeholder = text_val.is_empty()
+            && contents
+                .ime_state
+                .as_ref()
+                .is_none_or(|s| s.composition_text.is_empty());
 
-            // プレースホルダー選択が不許可かつプレースホルダー表示中なら、ヒットテストをスキップして 0 をセット
-            if is_placeholder && !contents.placeholder_select {
-                contents.selected_range = 0..0;
-                cx.outputs.out_text_selections.insert(id, 0..0);
-                cx.outputs.out_selection_start_index.insert(id, 0);
-                cx.outputs.out_selected_rects.remove(id);
-                contents.selection_reversed = false;
+        // プレースホルダー選択が不許可かつプレースホルダー表示中なら、ヒットテストをスキップして 0 をセット
+        if is_placeholder && !contents.placeholder_select {
+            Element::set_caret_position(
+                id,
+                contents,
+                0,
+                &mut cx.outputs.out_text_selections,
+                &mut cx.outputs.out_selection_start_index,
+                Some(&mut cx.outputs.out_selected_rects),
+            );
+        } else {
+            let Some(dw_layout) = SystemStore::get_or_create_layout(
+                id,
+                &cx.system.sys_text_engine,
+                &cx.system.sys_dwrite_layouts,
+                &cx.contents.cont_text_contents,
+                &cx.contents.cont_text_spans,
+                &cx.renders.rnd_visual,
+            ) else {
+                return;
+            };
+            // キャッシュ済みのレイアウトをそのまま使って高速にヒットテスト
+            let (new_caret, is_trailing) = cx
+                .system
+                .sys_text_engine
+                .hit_test_point(&dw_layout, local.x, local.y);
+            let final_caret = if is_trailing {
+                new_caret + 1
             } else {
-                let Some(layout) = SystemStore::get_or_create_layout(
+                new_caret
+            };
+
+            let editable_len = if is_placeholder {
+                contents
+                    .placeholder
+                    .as_ref()
+                    .map_or(0, |p| p.encode_utf16().count())
+            } else {
+                // 通常の文字列長
+                text_val.encode_utf16().count()
+            };
+            let final_caret_clamped = final_caret.min(editable_len);
+
+            if mods.shift {
+                let anchor = cx
+                    .outputs
+                    .out_selection_start_index
+                    .entry(id)
+                    .map_or(contents.selected_range.start, |e| {
+                        *e.or_insert(contents.selected_range.start)
+                    });
+
+                let (range, reversed) = if anchor <= final_caret_clamped {
+                    (anchor..final_caret_clamped, false)
+                } else {
+                    (final_caret_clamped..anchor, true)
+                };
+                Element::set_selection_range(
                     id,
-                    &cx.system.sys_text_engine,
-                    &cx.system.sys_dwrite_layouts,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
-                    &cx.renders.rnd_visual,
-                ) else {
-                    return;
-                };
-                // キャッシュ済みのレイアウトをそのまま使って高速にヒットテスト
-                let (new_caret, is_trailing) = cx
-                    .system
-                    .sys_text_engine
-                    .hit_test_point(&layout, local.x, local.y);
-                let final_caret = if is_trailing {
-                    new_caret + 1
-                } else {
-                    new_caret
-                };
-
-                let editable_len = if is_placeholder {
-                    contents
-                        .placeholder
-                        .as_ref()
-                        .map_or(0, |p| p.encode_utf16().count())
-                } else {
-                    // 通常の文字列長
-                    text_val.encode_utf16().count()
-                };
-                let final_caret_clamped = final_caret.min(editable_len);
-
-                if mods.shift {
-                    let anchor = cx
-                        .outputs
-                        .out_selection_start_index
-                        .get(id)
-                        .copied()
-                        .unwrap_or(contents.selected_range.start);
-
-                    if !cx.outputs.out_selection_start_index.contains_key(id) {
-                        cx.outputs
-                            .out_selection_start_index
-                            .insert(id, contents.selected_range.start);
-                    }
-
-                    let range = if anchor <= final_caret_clamped {
-                        contents.selection_reversed = false;
-                        anchor..final_caret_clamped
-                    } else {
-                        contents.selection_reversed = true;
-                        final_caret_clamped..anchor
-                    };
-
-                    contents.selected_range = range.clone();
-                    cx.outputs.out_text_selections.insert(id, range);
-                    update_rects_needed = true;
-                } else {
-                    contents.selected_range = final_caret_clamped..final_caret_clamped;
-                    cx.outputs
-                        .out_text_selections
-                        .insert(id, final_caret_clamped..final_caret_clamped);
-                    cx.outputs
-                        .out_selection_start_index
-                        .insert(id, final_caret_clamped);
-                    cx.outputs.out_selected_rects.remove(id);
-                    contents.selection_reversed = false;
-                }
+                    contents,
+                    range,
+                    reversed,
+                    &mut cx.outputs.out_text_selections,
+                );
+                update_rects_needed = true;
+            } else {
+                Element::set_caret_position(
+                    id,
+                    contents,
+                    final_caret_clamped,
+                    &mut cx.outputs.out_text_selections,
+                    &mut cx.outputs.out_selection_start_index,
+                    Some(&mut cx.outputs.out_selected_rects),
+                );
             }
-            contents.last_interacted_time = Some(std::time::Instant::now());
-            // キャレットの絶対座標と表示情報を一括更新
-            cx.update_input_caret_position(id);
         }
+        contents.last_interacted_time = Some(std::time::Instant::now());
+        // キャレットの絶対座標と表示情報を一括更新
+        cx.update_input_caret_position(id);
 
         if update_rects_needed && let Some(layout) = cx.get_or_create_layout(id) {
             cx.update_selection_rects(id, &layout);
@@ -326,13 +359,14 @@ impl Element {
         let new_text = String::from_utf16_lossy(&left);
         let new_caret = range.start + ch_u16_slice.len();
 
-        contents.selected_range = new_caret..new_caret;
-        cx.outputs
-            .out_text_selections
-            .insert(id, new_caret..new_caret); // 選択表示をリセット
-        cx.outputs.out_selected_rects.remove(id);
-        // タイピング編集が発生したため古い開始選択アンカーを消去
-        cx.outputs.out_selection_start_index.remove(id);
+        Element::set_caret_position(
+            id,
+            contents,
+            new_caret,
+            &mut cx.outputs.out_text_selections,
+            &mut cx.outputs.out_selection_start_index,
+            Some(&mut cx.outputs.out_selected_rects),
+        );
         contents.text.1.set(new_text);
         cx.mark_render_dirty(id);
     }
@@ -356,17 +390,26 @@ impl Element {
             left.extend_from_slice(&right);
 
             let new_text = String::from_utf16_lossy(&left);
-            contents.selected_range = range.start..range.start;
-            out_text_selections.insert(id, range.start..range.start);
-            out_selection_start_index.remove(id);
+            Element::set_caret_position(
+                id,
+                contents,
+                range.start,
+                out_text_selections,
+                out_selection_start_index,
+                None,
+            );
             contents.text.1.set(new_text);
         } else {
             // 通常の1文字バックスペース
             let new_text = InputContents::input_backspace(text_val, caret);
-            contents.selected_range = *caret..*caret;
-            // Context側の描画SoAにも最新のキャレット位置を強制同期
-            out_text_selections.insert(id, *caret..*caret);
-            out_selection_start_index.remove(id);
+            Element::set_caret_position(
+                id,
+                contents,
+                *caret,
+                out_text_selections,
+                out_selection_start_index,
+                None,
+            );
             contents.text.1.set(new_text);
         }
         contents.last_interacted_time = Some(std::time::Instant::now());
@@ -389,16 +432,26 @@ impl Element {
             left.extend_from_slice(&right);
 
             let new_text = String::from_utf16_lossy(&left);
-            contents.selected_range = range.start..range.start;
-            out_text_selections.insert(id, range.start..range.start);
-            out_selection_start_index.remove(id);
+            Element::set_caret_position(
+                id,
+                contents,
+                range.start,
+                out_text_selections,
+                out_selection_start_index,
+                None,
+            );
             contents.text.1.set(new_text);
         } else {
             // 通常の1文字デリート
             let new_text = InputContents::input_delete(text_val, caret);
-            contents.selected_range = caret..caret;
-            out_text_selections.insert(id, caret..caret);
-            out_selection_start_index.remove(id);
+            Element::set_caret_position(
+                id,
+                contents,
+                caret,
+                out_text_selections,
+                out_selection_start_index,
+                None,
+            );
             contents.text.1.set(new_text);
         }
         contents.last_interacted_time = Some(std::time::Instant::now());
@@ -418,11 +471,14 @@ impl Element {
         if range.start < range.end && !mods.shift {
             // 選択範囲をすべて解除し、キャレットを左端（start）に収束
             let new_caret = range.start;
-            contents.selected_range = new_caret..new_caret;
-            out_text_selections.insert(id, new_caret..new_caret);
-            out_selected_rects.remove(id);
-            out_selection_start_index.remove(id);
-            contents.selection_reversed = false;
+            Element::set_caret_position(
+                id,
+                contents,
+                new_caret,
+                out_text_selections,
+                out_selection_start_index,
+                Some(out_selected_rects),
+            );
             contents.last_interacted_time = Some(std::time::Instant::now());
             return true;
         } else if caret > 0 {
@@ -434,21 +490,22 @@ impl Element {
                 if !out_selection_start_index.contains_key(id) {
                     out_selection_start_index.insert(id, caret);
                 }
-                let range = if anchor <= new_caret {
-                    contents.selection_reversed = false;
-                    anchor..new_caret
+                let (range, reversed) = if anchor <= new_caret {
+                    (anchor..new_caret, false)
                 } else {
-                    contents.selection_reversed = true;
-                    new_caret..anchor
+                    (new_caret..anchor, true)
                 };
-                contents.selected_range = range.clone();
-                out_text_selections.insert(id, range);
+                Element::set_selection_range(id, contents, range, reversed, out_text_selections);
             } else {
                 // Shiftキー非押下：選択解除して単なる移動
-                contents.selected_range = new_caret..new_caret;
-                out_text_selections.insert(id, new_caret..new_caret);
-                out_selected_rects.remove(id);
-                out_selection_start_index.remove(id);
+                Element::set_caret_position(
+                    id,
+                    contents,
+                    new_caret,
+                    out_text_selections,
+                    out_selection_start_index,
+                    Some(out_selected_rects),
+                );
             }
             contents.last_interacted_time = Some(std::time::Instant::now());
             return true;
@@ -470,11 +527,14 @@ impl Element {
         // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時（全選択中での右移動に完全対応）
         if range.start < range.end && !mods.shift {
             let new_caret = range.end;
-            contents.selected_range = new_caret..new_caret;
-            out_text_selections.insert(id, new_caret..new_caret);
-            out_selected_rects.remove(id);
-            out_selection_start_index.remove(id);
-            contents.selection_reversed = false;
+            Element::set_caret_position(
+                id,
+                contents,
+                new_caret,
+                out_text_selections,
+                out_selection_start_index,
+                Some(out_selected_rects),
+            );
             contents.last_interacted_time = Some(std::time::Instant::now());
             return true;
         } else if caret < u16_len {
@@ -485,20 +545,21 @@ impl Element {
                 if !out_selection_start_index.contains_key(id) {
                     out_selection_start_index.insert(id, caret);
                 }
-                let range = if anchor <= new_caret {
-                    contents.selection_reversed = false;
-                    anchor..new_caret
+                let (range, reversed) = if anchor <= new_caret {
+                    (anchor..new_caret, false)
                 } else {
-                    contents.selection_reversed = true;
-                    new_caret..anchor
+                    (new_caret..anchor, true)
                 };
-                contents.selected_range = range.clone();
-                out_text_selections.insert(id, range);
+                Element::set_selection_range(id, contents, range, reversed, out_text_selections);
             } else {
-                contents.selected_range = new_caret..new_caret;
-                out_text_selections.insert(id, new_caret..new_caret);
-                out_selected_rects.remove(id);
-                out_selection_start_index.remove(id);
+                Element::set_caret_position(
+                    id,
+                    contents,
+                    new_caret,
+                    out_text_selections,
+                    out_selection_start_index,
+                    Some(out_selected_rects),
+                );
             }
             contents.last_interacted_time = Some(std::time::Instant::now());
             return true;
@@ -541,20 +602,21 @@ impl Element {
             if !out_selection_start_index.contains_key(id) {
                 out_selection_start_index.insert(id, caret);
             }
-            let range = if anchor <= final_caret {
-                contents.selection_reversed = false;
-                anchor..final_caret
+            let (range, reversed) = if anchor <= final_caret {
+                (anchor..final_caret, false)
             } else {
-                contents.selection_reversed = true;
-                final_caret..anchor
+                (final_caret..anchor, true)
             };
-            contents.selected_range = range.clone();
-            out_text_selections.insert(id, range);
+            Element::set_selection_range(id, contents, range, reversed, out_text_selections);
         } else {
-            contents.selected_range = final_caret..final_caret;
-            out_text_selections.insert(id, final_caret..final_caret);
-            out_selection_start_index.remove(id);
-            contents.selection_reversed = false;
+            Element::set_caret_position(
+                id,
+                contents,
+                final_caret,
+                out_text_selections,
+                out_selection_start_index,
+                None,
+            );
         }
 
         contents.last_interacted_time = Some(std::time::Instant::now());
@@ -595,20 +657,21 @@ impl Element {
             if !out_selection_start_index.contains_key(id) {
                 out_selection_start_index.insert(id, caret);
             }
-            let range = if anchor <= final_caret {
-                contents.selection_reversed = false;
-                anchor..final_caret
+            let (range, reversed) = if anchor <= final_caret {
+                (anchor..final_caret, false)
             } else {
-                contents.selection_reversed = true;
-                final_caret..anchor
+                (final_caret..anchor, true)
             };
-            contents.selected_range = range.clone();
-            out_text_selections.insert(id, range);
+            Element::set_selection_range(id, contents, range, reversed, out_text_selections);
         } else {
-            contents.selected_range = final_caret..final_caret;
-            out_text_selections.insert(id, final_caret..final_caret);
-            out_selection_start_index.remove(id);
-            contents.selection_reversed = false;
+            Element::set_caret_position(
+                id,
+                contents,
+                final_caret,
+                out_text_selections,
+                out_selection_start_index,
+                None,
+            );
         }
 
         contents.last_interacted_time = Some(std::time::Instant::now());
@@ -745,9 +808,40 @@ impl Element {
         contents.last_interacted_time = Some(std::time::Instant::now());
         contents.ime_state = Some(ime.clone());
 
+        let mut text_val = contents.text.0.get();
+        let range = contents.selected_range.clone();
+
+        // 選択範囲が存在し、かつIME入力（未変換または確定）が開始される場合、
+        // 文字入力の直前に選択範囲の文字列をあらかじめ消去・置換する
+        if range.start < range.end
+            && (!ime.composition_text.is_empty() || !ime.result_text.is_empty())
+        {
+            // Undo履歴に削除前の状態を記録
+            contents.record_undo(text_val.clone(), range.clone());
+
+            let u16_text: Vec<u16> = text_val.encode_utf16().collect();
+            let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
+            let right = u16_text[range.end.min(u16_text.len())..].to_vec();
+            left.extend_from_slice(&right);
+
+            let new_text = String::from_utf16_lossy(&left);
+            let caret = range.start;
+
+            // キャレット・選択範囲を消去開始位置に一度リセットして同期
+            Element::set_caret_position(
+                id,
+                contents,
+                caret,
+                &mut cx.outputs.out_text_selections,
+                &mut cx.outputs.out_selection_start_index,
+                Some(&mut cx.outputs.out_selected_rects),
+            );
+            contents.text.1.set(new_text.clone());
+            text_val = new_text;
+        }
+
         // IME 確定文字の書き込み
         if !ime.result_text.is_empty() {
-            let text_val = contents.text.0.get();
             let mut caret = contents.selected_range.start;
 
             // 確定した文字列を1文字ずつ安全に挿入
@@ -762,7 +856,16 @@ impl Element {
                 );
             }
 
-            contents.selected_range = caret..caret;
+            // 確定したキャレット位置で SoA 側の選択状態と開始アンカーを同期
+            Element::set_caret_position(
+                id,
+                contents,
+                caret,
+                &mut cx.outputs.out_text_selections,
+                &mut cx.outputs.out_selection_start_index,
+                Some(&mut cx.outputs.out_selected_rects),
+            );
+
             contents.text.1.set(temp_text);
             contents.marked_range = None;
         } else if !ime.composition_text.is_empty() {
