@@ -1,7 +1,7 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, AnimationCurve, Backdrop, BasicLayout, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
-    CursorIcon, Direction, Display, DndDragProperty, DndDragPayload, DndDragPlaceholderParent,
+    CursorIcon, Direction, Display, DndDragPayload, DndDragPlaceholderParent, DndDragProperty,
     DndDropProperty, DndDropTarget, EdgeInsets, EntityId, FlexDirection, FlexLayout, FlexWrap,
     FocusTrigger, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement,
     InteractionName, InteractionStyles, IntoStyleConvert, IntoStyleCornerRadius, IntoStylePoint,
@@ -2242,6 +2242,246 @@ impl ThisStyle {
     #[must_use]
     pub fn outline_double(self, width: impl IntoStyleRect<Length>) -> Self {
         self.outline(BorderStyle::Double, width)
+    }
+
+    /// 上枠線（Outline Top）の種類と太さを個別に設定します。
+    #[inline]
+    #[must_use]
+    pub fn outline_top(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        value: impl IntoStyleConvert<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let v_val = value.into_style_convert();
+
+        match (s_val, v_val) {
+            (StyleValue::Static(s), StyleValue::Static(v)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner
+                    .visual_property
+                    .outline_width
+                    .get_or_insert_default()
+                    .top = v.into();
+                let mut styles = inner
+                    .visual_property
+                    .outline_styles
+                    .unwrap_or([BorderStyle::Solid; 4]);
+                styles[0] = s;
+                inner.visual_property.outline_styles = Some(styles);
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            (s_getter, v_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_v = match v_getter {
+                    StyleValue::Static(v) => {
+                        Box::new(move || v) as Box<dyn Fn() -> Length + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let s = get_s();
+                    let v = get_v();
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.outline_width.get_or_insert_default().top = v.into();
+                        let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+                        styles[0] = s;
+                        vis.outline_styles = Some(styles);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 右枠線（Outline Right）の種類と太さを個別に設定します。
+    #[inline]
+    #[must_use]
+    pub fn outline_right(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        value: impl IntoStyleConvert<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let v_val = value.into_style_convert();
+
+        match (s_val, v_val) {
+            (StyleValue::Static(s), StyleValue::Static(v)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner
+                    .visual_property
+                    .outline_width
+                    .get_or_insert_default()
+                    .right = v.into();
+                let mut styles = inner
+                    .visual_property
+                    .outline_styles
+                    .unwrap_or([BorderStyle::Solid; 4]);
+                styles[1] = s;
+                inner.visual_property.outline_styles = Some(styles);
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            (s_getter, v_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_v = match v_getter {
+                    StyleValue::Static(v) => {
+                        Box::new(move || v) as Box<dyn Fn() -> Length + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let s = get_s();
+                    let v = get_v();
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.outline_width.get_or_insert_default().right = v.into();
+                        let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+                        styles[1] = s;
+                        vis.outline_styles = Some(styles);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 下枠線（Outline Bottom）の種類と太さを個別に設定します。
+    #[inline]
+    #[must_use]
+    pub fn outline_bottom(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        value: impl IntoStyleConvert<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let v_val = value.into_style_convert();
+
+        match (s_val, v_val) {
+            (StyleValue::Static(s), StyleValue::Static(v)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner
+                    .visual_property
+                    .outline_width
+                    .get_or_insert_default()
+                    .bottom = v.into();
+                let mut styles = inner
+                    .visual_property
+                    .outline_styles
+                    .unwrap_or([BorderStyle::Solid; 4]);
+                styles[2] = s;
+                inner.visual_property.outline_styles = Some(styles);
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            (s_getter, v_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_v = match v_getter {
+                    StyleValue::Static(v) => {
+                        Box::new(move || v) as Box<dyn Fn() -> Length + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let s = get_s();
+                    let v = get_v();
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.outline_width.get_or_insert_default().bottom = v.into();
+                        let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+                        styles[2] = s;
+                        vis.outline_styles = Some(styles);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// 左枠線（Outline Left）の種類と太さを個別に設定します。
+    #[inline]
+    #[must_use]
+    pub fn outline_left(
+        mut self,
+        style: impl IntoStyleValue<BorderStyle>,
+        value: impl IntoStyleConvert<Length>,
+    ) -> Self {
+        let s_val = style.into_style_value();
+        let v_val = value.into_style_convert();
+
+        match (s_val, v_val) {
+            (StyleValue::Static(s), StyleValue::Static(v)) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner
+                    .visual_property
+                    .outline_width
+                    .get_or_insert_default()
+                    .left = v.into();
+                let mut styles = inner
+                    .visual_property
+                    .outline_styles
+                    .unwrap_or([BorderStyle::Solid; 4]);
+                styles[3] = s;
+                inner.visual_property.outline_styles = Some(styles);
+                inner.mask.set(STYLE_OUTLINE);
+            }
+            (s_getter, v_getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_OUTLINE);
+
+                let get_s = match s_getter {
+                    StyleValue::Static(s) => {
+                        Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+                let get_v = match v_getter {
+                    StyleValue::Static(v) => {
+                        Box::new(move || v) as Box<dyn Fn() -> Length + Send + Sync>
+                    }
+                    StyleValue::Dynamic(g) => g,
+                };
+
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let s = get_s();
+                    let v = get_v();
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.outline_width.get_or_insert_default().left = v.into();
+                        let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+                        styles[3] = s;
+                        vis.outline_styles = Some(styles);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
     }
 
     /// アウトラインの色を設定します。

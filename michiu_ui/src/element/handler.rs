@@ -6,7 +6,7 @@ use crate::{
 };
 
 impl Element {
-    /// 内部ヘルパー：この要素に対応する `EventListeners` が `SoA` 上に存在しない場合は新規に作成し、
+    /// この要素に対応する `EventListeners` が `SoA` 上に存在しない場合は新規に作成し、
     /// 可変参照を取得して渡されたクロージャを実行。
     #[inline]
     pub(crate) fn get_or_create_listeners<R>(self, f: impl FnOnce(&mut EventListeners) -> R) -> R {

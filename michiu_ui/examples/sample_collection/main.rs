@@ -63,8 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     context.set_waker(move || send_hwnd.wake());
 
-    let css_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/sample_collection/global.css");
+    let css_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/sample_collection/global.css"
+    );
 
     let (styles_sig, _guard) = DssSet::builder()
         .add_sheet(Dss::new("global").from_file(css_path).hot_reload(true))

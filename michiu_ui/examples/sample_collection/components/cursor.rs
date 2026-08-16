@@ -82,10 +82,14 @@ fn global_container() -> Element {
 }
 
 fn custom_container() -> Element {
-    let grab_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/sample_collection/assets/cursor-grab.png");
-    let grabbing_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("examples/sample_collection/assets/cursor-grabbing.png");
+    let grab_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/sample_collection/assets/cursor-grab.png"
+    );
+    let grabbing_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/sample_collection/assets/cursor-grabbing.png"
+    );
 
     let grab_icon = CursorIcon::create_from_path(grab_path, 16, 16).ok();
     let grabbing_icon = CursorIcon::create_from_path(grabbing_path, 16, 16).ok();

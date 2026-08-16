@@ -68,9 +68,8 @@ fn length_container() -> Element {
     let top_only = item(
         "top only",
         true,
-        ts().outline_solid(2.0)
-            .outline_color(Color::RED)
-            .outline_lengths((1.0, 0.0, 0.0, 0.0)),
+        ts().outline_top(BorderStyle::Solid, 2.0)
+            .outline_color(Color::RED),
     );
     let half_all = item(
         "all 50%",
