@@ -139,15 +139,14 @@ impl TopologyStore {
         topo_active_masks.insert(id, ComponentMask::new(0));
         topo_active_entities.push(id);
         topo_session_spawned.push(id);
-        *topo_is_structure_dirty = true;
-        *topo_is_sort_dirty = true;
-
         // Taffyノードとの同期
         let node = lay_taffy
             .new_leaf_with_context(taffy::Style::default(), id)
             .unwrap();
         lay_taffy_nodes.insert(id, node);
 
+        *topo_is_structure_dirty = true;
+        *topo_is_sort_dirty = true;
         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
 
         id
@@ -434,9 +433,9 @@ impl TopologyStore {
         topo_is_sort_dirty: &mut bool,
     ) {
         if let Some(children_list) = topo_children.get_mut(parent)
-            && let Some(pos) = children_list.iter().position(|&x| x == old_child)
+            && let Some(child) = children_list.iter_mut().find(|x| **x == old_child)
         {
-            children_list[pos] = new_child;
+            *child = new_child;
         }
         topo_parents.insert(new_child, Some(parent));
         *topo_is_structure_dirty = true;

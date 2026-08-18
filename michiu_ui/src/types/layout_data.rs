@@ -20,6 +20,21 @@ use crate::{
     UserSelect, Val,
 };
 
+pub struct Layout {
+    /// すべての要素が持つ基本ボックスモデル
+    pub basic: BasicLayout,
+    /// この要素が子要素をどう並べるか
+    pub mode: LayoutMode,
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum LayoutMode {
+    #[default]
+    None,
+    Flex(FlexLayout),
+    Grid(Box<GridLayout>),
+}
+
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BasicLayout {
