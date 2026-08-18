@@ -7,10 +7,10 @@ pub use input_func::*;
 use crate::{
     COMP_IMAGE_CONTENT, COMP_MOVIE_CONTENT, COMP_TEXT_CONTENT, COMP_UIA_CONTENT,
     COMP_WEBVIEW_CONTENT, Context, EffectCategory, EntityId, ImageSource, MovieProperty,
-    ReadSignal, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT,
-    STYLE_INTERACTION_PROPERTY, STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, ScrollBarState,
-    ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle, UiaValue, Val, WebView2Contents,
-    create_effect, div_n,
+    ReadSignal, STYLE_AUTO_WRAP, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_FONT_SIZE,
+    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_PROPERTY, STYLE_INTERACTION_WITHIN,
+    STYLE_SCROLLBAR, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle,
+    UiaValue, Val, WebView2Contents, create_effect, div_n,
 };
 use std::{borrow::Cow, cell::Cell, rc::Rc};
 
@@ -132,7 +132,7 @@ impl Element {
     #[must_use]
     pub fn provide<T: Send + 'static>(self, read_signal: ReadSignal<T>) -> Self {
         with_context(|cx| {
-            cx.provide_context::<T>(self.id, read_signal.id);
+            cx.provide::<T>(Some(self.id), read_signal);
         });
         self
     }
@@ -240,11 +240,11 @@ impl Element {
         cx.topology.topo_active_masks[id].0 |= property_only_mask;
 
         // ベースの基本レイアウトをマージ
-        if mask.has_basic_layout() {
+        if mask.has_basic_layout() || mask.has(STYLE_FONT_SIZE) || mask.has(STYLE_AUTO_WRAP) {
             if merge && let Some(base) = cx.layouts.lay_base_basic.get_mut(id) {
                 base.override_with(&inner.basic_layout, mask);
             } else {
-                // 置換モード：前回の設定蓄積をクリアして完全置換
+                // 前回の設定蓄積をクリアして置換
                 cx.layouts.lay_base_basic.insert(id, inner.basic_layout);
             }
             cx.mark_layout_dirty(id);

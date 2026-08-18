@@ -539,16 +539,26 @@ impl EventStore {
 
         let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
-        let text_size = if let Some(contents) = cont_input_contents.get(id)
+        let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
-            LayoutSize::new(layout_rect.width, layout_rect.height)
+            (
+                LayoutSize::new(layout_rect.width, layout_rect.height),
+                contents.is_multiline,
+            )
         } else {
-            LayoutSize::ZERO
+            (LayoutSize::ZERO, false)
         };
 
-        let align_offset =
-            OutputStore::calc_align_offset(rect, border, padding, text_size, flex.text_align);
+        let align_offset = OutputStore::calc_align_offset(
+            rect,
+            border,
+            padding,
+            text_size,
+            flex.text_align,
+            flex.align_items,
+            is_multiline,
+        );
 
         let local_x =
             logical_pos.x - (rect.x + border.left + padding.left + align_offset.x) + scroll.x;
@@ -1209,7 +1219,9 @@ impl EventStore {
             sys_dwrite_layouts,
             cont_text_contents,
             cont_text_spans,
+            lay_resolved_basic,
             rnd_visual,
+            out_rects,
         ) else {
             return;
         };
@@ -1970,7 +1982,9 @@ impl EventStore {
             &cx.system.sys_dwrite_layouts,
             &cx.contents.cont_text_contents,
             &cx.contents.cont_text_spans,
+            &cx.layouts.lay_resolved_basic,
             &cx.renders.rnd_visual,
+            &cx.outputs.out_rects,
         ) else {
             return;
         };
@@ -2182,7 +2196,9 @@ impl EventStore {
             sys_dwrite_layouts,
             cont_text_contents,
             cont_text_spans,
+            lay_resolved_basic,
             rnd_visual,
+            out_rects,
         ) else {
             return;
         };
@@ -2499,7 +2515,9 @@ impl EventStore {
             &cx.system.sys_dwrite_layouts,
             &cx.contents.cont_text_contents,
             &cx.contents.cont_text_spans,
+            &cx.layouts.lay_resolved_basic,
             &cx.renders.rnd_visual,
+            &cx.outputs.out_rects,
         ) {
             OutputStore::update_selection_rects(
                 focused_id,
@@ -2581,7 +2599,9 @@ impl EventStore {
             &cx.system.sys_dwrite_layouts,
             &cx.contents.cont_text_contents,
             &cx.contents.cont_text_spans,
+            &cx.layouts.lay_resolved_basic,
             &cx.renders.rnd_visual,
+            &cx.outputs.out_rects,
         ) {
             OutputStore::update_selection_rects(
                 focused_id,
@@ -2873,7 +2893,9 @@ impl EventStore {
             sys_dwrite_layouts,
             cont_text_contents,
             cont_text_spans,
+            lay_resolved_basic,
             rnd_visual,
+            out_rects,
         ) else {
             return;
         };

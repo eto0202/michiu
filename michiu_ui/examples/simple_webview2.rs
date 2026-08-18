@@ -366,7 +366,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .allow_interaction(true)
                     .always_active(true),
             )
-            .style(move || {
+            .style({
                 let base = ts()
                     .size_full()
                     .r(2.0)
@@ -377,11 +377,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
                     .pressed(ts().transform(Transform::new().scale(1.01, 1.01)));
 
-                if is_opacity.get() {
-                    base.opacity_50()
-                } else {
-                    base.opacity_100()
-                }
+                is_opacity.get_else(base.clone().opacity_50(), base.opacity_100())
             })
             .on_focus(move || set_is_active.set(false));
 
@@ -389,7 +385,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             wv
         };
 
-        let google_map = webview_element.child(v_flex(move || {
+        let google_map = webview_element.child(v_flex({
             let base = ts()
                 .absolute()
                 .size((300.0, 200.0))
@@ -408,11 +404,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .opacity(0.9),
                 );
 
-            if is_active.get() {
-                base.flex()
-            } else {
-                base.hidden()
-            }
+            is_active.get_else(base.clone().flex(), base.hidden())
         }));
 
         let btn_style = |color: Color| {
@@ -477,7 +469,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )
             .children([
                 div(ts().r(3.0).size(pct(50.0)).bg_color(hsl(0.0, 0.0, 10.0))),
-                v_flex(move || {
+                v_flex({
                     let base = ts()
                         .size_full()
                         .p(10.0)
@@ -489,11 +481,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .left(0.0)
                         .overflow_hidden();
 
-                    if is_open.get() {
-                        base.flex()
-                    } else {
-                        base.hidden()
-                    }
+                    is_open.get_else(base.clone().flex(), base.hidden())
                 })
                 .children([
                     google_map,

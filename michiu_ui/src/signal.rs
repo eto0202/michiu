@@ -341,9 +341,10 @@ impl<T: Send + 'static> WriteSignal<T> {
     }
 
     /// 明示的なコンテキスト指定により、スレッドセーフな送信端を取得します。
-    /// `UI構築スコープ外（ACTIVE_CONTEXT` が設定されていないタイミング）からでも安全に呼び出せます。
+    /// UI構築スコープ外（`ACTIVE_CONTEXT` が設定されていないタイミング）からでも安全に呼び出せます。
     #[inline]
-    pub fn sender_with_cx(&self, cx: &Context) -> SignalSender<T> {
+    #[must_use]
+    pub fn sender_with(&self, cx: &Context) -> SignalSender<T> {
         SignalSender {
             id: self.id,
             sys_task_sender: cx.task_sender(),
@@ -390,7 +391,10 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
         // エフェクトのクロージャを一時的にダミーのプレースホルダと入れ替えて安全に取り出す
         // slotMap のキーやバージョンを完全に維持しつつ、多重借用を回避
         let mut effect_closure = std::mem::replace(
-            cx.reactive.react_effects.get_mut(effect_id).expect("Effect lost"),
+            cx.reactive
+                .react_effects
+                .get_mut(effect_id)
+                .expect("Effect lost"),
             Box::new(move |_| {
                 // このプレースホルダが呼び出されたということは、
                 // 元のクロージャがまだ実行中（返却前）に、同一のエフェクトが再帰トリガーされたことを意味する

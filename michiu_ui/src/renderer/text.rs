@@ -6,6 +6,9 @@ use smallvec::SmallVec;
 use windows::Win32::Graphics::Direct2D::{
     D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, ID2D1RenderTarget,
 };
+use windows::Win32::Graphics::DirectWrite::{
+    DWRITE_WORD_WRAPPING_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_WORD_WRAPPING_WRAP,
+};
 use windows::core::PCWSTR;
 use windows::{
     Win32::{
@@ -15,7 +18,18 @@ use windows::{
                 D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_TYPE_SINGLE_THREADED,
                 D2D1_RENDER_TARGET_PROPERTIES, D2D1CreateFactory, ID2D1Factory1,
             },
-            DirectWrite::{DWRITE_TEXT_RANGE, IDWriteFactory, IDWriteTextFormat, IDWriteRenderingParams, DWriteCreateFactory, DWRITE_FACTORY_TYPE_SHARED, IDWriteFactory_Impl, IDWriteFactory6_Impl, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, IDWriteRenderingParams_Impl, IDWriteFactory1_Impl, IDWriteFactory2_Impl, IDWriteFactory3_Impl, IDWriteTextLayout, IDWriteTextLayout_Impl, IDWriteTextFormat_Impl, IDWriteTextFormat2_Impl, IDWriteTextLayout3_Impl, DWRITE_LINE_SPACING_METHOD_UNIFORM, DWRITE_FONT_WEIGHT, DWRITE_FONT_STYLE, DWRITE_TEXT_METRICS, IDWriteFont_Impl, IDWriteFont1_Impl, IDWriteFontFace_Impl, IDWriteFontFace1_Impl, IDWriteInlineObject_Impl, IDWriteTextLayout2_Impl, DWRITE_HIT_TEST_METRICS, IDWriteBitmapRenderTarget1_Impl},
+            DirectWrite::{
+                DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE,
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_HIT_TEST_METRICS, DWRITE_LINE_SPACING_METHOD_UNIFORM, DWRITE_TEXT_METRICS,
+                DWRITE_TEXT_RANGE, DWriteCreateFactory, IDWriteBitmapRenderTarget1_Impl,
+                IDWriteFactory, IDWriteFactory_Impl, IDWriteFactory1_Impl, IDWriteFactory2_Impl,
+                IDWriteFactory3_Impl, IDWriteFactory6_Impl, IDWriteFont_Impl, IDWriteFont1_Impl,
+                IDWriteFontFace_Impl, IDWriteFontFace1_Impl, IDWriteInlineObject_Impl,
+                IDWriteRenderingParams, IDWriteRenderingParams_Impl, IDWriteTextFormat,
+                IDWriteTextFormat_Impl, IDWriteTextFormat2_Impl, IDWriteTextLayout,
+                IDWriteTextLayout_Impl, IDWriteTextLayout2_Impl, IDWriteTextLayout3_Impl,
+            },
             Imaging::{
                 CLSID_WICImagingFactory, GUID_WICPixelFormat32bppPBGRA, IWICImagingFactory,
                 WICBitmapCacheOnDemand, WICBitmapLockRead,
@@ -88,6 +102,7 @@ impl TextEngine {
         font_weight: Option<u32>, // DWRITE_FONT_WEIGHT (100..900)
         font_style: Option<u32>,  // DWRITE_FONT_STYLE (Normal=0, Italic=2)
         max_width: Option<f32>,
+        auto_wrap: Option<bool>,
         spans: &[crate::TextSpan],
     ) -> IDWriteTextLayout {
         unsafe {
@@ -144,6 +159,21 @@ impl TextEngine {
                     .unwrap();
             }
 
+            // 自動折り返し
+            if auto_wrap.unwrap_or(false) && max_width.is_some() {
+                // DWrite の DWRITE_WORD_WRAPPING_WRAP は単語単位で改行を決定
+                // スペースのない英数字の連続の直後に日本語が密着して続いている場合、
+                // DWrite は英数字＋日本語の一部を一つの巨大な単語と誤判定しコンテナ幅に収める
+                // 結果として、単語の途中で切れるのを避けるために英数字部分を不自然に手前で改行させる
+                layout
+                    .SetWordWrapping(DWRITE_WORD_WRAPPING_CHARACTER)
+                    .unwrap();
+            } else {
+                layout
+                    .SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)
+                    .unwrap();
+            }
+
             for span in spans {
                 let s_pos = span.range.start as u32;
                 let s_len = (span.range.end - span.range.start) as u32;
@@ -185,6 +215,7 @@ impl TextEngine {
         font_weight: Option<u32>,
         font_style: Option<u32>,
         max_width: Option<f32>,
+        auto_wrap: Option<bool>,
         spans: &[crate::TextSpan],
     ) -> LayoutSize {
         if text.is_empty() {
@@ -200,6 +231,7 @@ impl TextEngine {
                 font_weight,
                 font_style,
                 max_width,
+                auto_wrap,
                 spans,
             );
 
@@ -267,7 +299,13 @@ impl TextEngine {
             let mut metrics = DWRITE_HIT_TEST_METRICS::default();
 
             // DirectWrite の HitTestPoint API を呼び出し
-            let _ = layout.HitTestPoint(x, y, &raw mut is_trailing, &raw mut is_inside, &raw mut metrics);
+            let _ = layout.HitTestPoint(
+                x,
+                y,
+                &raw mut is_trailing,
+                &raw mut is_inside,
+                &raw mut metrics,
+            );
 
             // (ヒットした文字インデックス, 文字ブロックの後半部分（右半分）をクリックしたかどうかのフラグ)
             (metrics.textPosition as usize, is_trailing.into())
@@ -357,7 +395,9 @@ impl TextRasterizer {
                 b: 1.0,
                 a: 1.0,
             };
-            let default_brush = target.CreateSolidColorBrush(&raw const default_color, None).unwrap();
+            let default_brush = target
+                .CreateSolidColorBrush(&raw const default_color, None)
+                .unwrap();
 
             for span in spans {
                 if let Some(bg_color) = span.bg_color {
@@ -397,7 +437,9 @@ impl TextRasterizer {
                         b: bg_color.b,
                         a: bg_color.a,
                     };
-                    if let Ok(bg_brush) = target.CreateSolidColorBrush(&raw const d2d_bg_color, None) {
+                    if let Ok(bg_brush) =
+                        target.CreateSolidColorBrush(&raw const d2d_bg_color, None)
+                    {
                         (0..actual_count as usize).for_each(|m_idx| {
                             let metric = &hit_test_metrics[m_idx];
                             let rect = D2D_RECT_F {
@@ -425,7 +467,9 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        if let Ok(span_brush) = target.CreateSolidColorBrush(&raw const d2d_color, None) {
+                        if let Ok(span_brush) =
+                            target.CreateSolidColorBrush(&raw const d2d_color, None)
+                        {
                             let _ = layout.SetDrawingEffect(&span_brush, span_range);
                         }
                     }
@@ -476,7 +520,9 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        target.CreateSolidColorBrush(&raw const d2d_color, None).ok()
+                        target
+                            .CreateSolidColorBrush(&raw const d2d_color, None)
+                            .ok()
                     } else if let Some(color) = span.color {
                         let d2d_color = D2D1_COLOR_F {
                             r: color.r,
@@ -484,7 +530,9 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        target.CreateSolidColorBrush(&raw const d2d_color, None).ok()
+                        target
+                            .CreateSolidColorBrush(&raw const d2d_color, None)
+                            .ok()
                     } else {
                         None
                     };
@@ -522,7 +570,9 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        target.CreateSolidColorBrush(&raw const d2d_color, None).ok()
+                        target
+                            .CreateSolidColorBrush(&raw const d2d_color, None)
+                            .ok()
                     } else if let Some(color) = span.color {
                         let d2d_color = D2D1_COLOR_F {
                             r: color.r,
@@ -530,7 +580,9 @@ impl TextRasterizer {
                             b: color.b,
                             a: color.a,
                         };
-                        target.CreateSolidColorBrush(&raw const d2d_color, None).ok()
+                        target
+                            .CreateSolidColorBrush(&raw const d2d_color, None)
+                            .ok()
                     } else {
                         None
                     };
@@ -690,6 +742,7 @@ pub(crate) struct TextCacheKey {
     pub(crate) font_weight: Option<u32>,
     pub(crate) font_style: Option<u32>,
     pub(crate) spans_hash: u64,
+    pub(crate) max_width_bits: u32,
 }
 
 #[derive(Clone, Debug, Copy)]
@@ -801,4 +854,3 @@ impl TextureAtlas {
         )
     }
 }
-

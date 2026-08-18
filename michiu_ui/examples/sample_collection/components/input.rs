@@ -501,6 +501,7 @@ fn multiline_container() -> Element {
         input_area(InputContents::new((read, write))).style(
             ts().size_full()
                 .font_size(16.0)
+                .text_auto_wrap(true)
                 .text_color(dynamic(|t: &Theme| t.text))
                 .select_text()
                 .cursor_text()

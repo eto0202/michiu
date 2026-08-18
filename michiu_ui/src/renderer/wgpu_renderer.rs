@@ -439,13 +439,29 @@ impl WgpuRenderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.instance_staging.clear();
+        let mut retry_count = 0;
+        loop {
+            let mut atlas_cleared_during_loop = false;
+            self.instance_staging.clear();
 
-        // インスタンスの組み立て
-        for (i, instance) in render_data.instances.iter().enumerate() {
-            let entity_id = render_data.entity_ids[i];
-            let inst = self.build_quad_instance_for_entity(cx, entity_id, instance);
-            self.instance_staging.push(inst);
+            for (i, instance) in render_data.instances.iter().enumerate() {
+                let entity_id = render_data.entity_ids[i];
+
+                // ビルドを実行しアトラスクリアが発生したか検証
+                let (inst, cleared) = self.build_quad_instance_for_entity(cx, entity_id, instance);
+                if cleared {
+                    atlas_cleared_during_loop = true;
+                    break; // ループを直ちに中断してアトラス再構築
+                }
+                self.instance_staging.push(inst);
+            }
+
+            // ループの途中でアトラスがクリアされた場合最初からビルドをやり直す
+            if atlas_cleared_during_loop && retry_count < 2 {
+                retry_count += 1;
+                continue;
+            }
+            break;
         }
 
         // VRAM インスタンスバッファへの一括転送
@@ -600,7 +616,7 @@ impl WgpuRenderer {
         cx: &Context,
         entity_id: EntityId,
         instance: &QuadInstance,
-    ) -> QuadInstance {
+    ) -> (QuadInstance, bool) {
         let basic = &cx
             .layouts
             .lay_resolved_basic
@@ -734,11 +750,15 @@ impl WgpuRenderer {
                 .get(entity_id)
                 .map_or(&[][..], Vec::as_slice);
 
-            let text_size = if cx.topology.topo_active_masks[entity_id].has_input_content()
+            let (text_size, is_multiline) = if cx.topology.topo_active_masks[entity_id]
+                .has_input_content()
                 && let Some(contents) = cx.contents.cont_input_contents.get(entity_id)
                 && let Some(layout_rect) = contents.last_layout
             {
-                LayoutSize::new(layout_rect.width, layout_rect.height)
+                (
+                    LayoutSize::new(layout_rect.width, layout_rect.height),
+                    contents.is_multiline,
+                )
             } else {
                 let text = &cx.contents.cont_text_contents[entity_id];
                 let visual = cx
@@ -746,19 +766,44 @@ impl WgpuRenderer {
                     .rnd_visual
                     .get(entity_id)
                     .unwrap_or(&default_visual);
+                // max_width を逆算
+                let rect = cx
+                    .outputs
+                    .out_rects
+                    .get(entity_id)
+                    .copied()
+                    .unwrap_or_default();
+                let (border, padding) =
+                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+                let max_width =
+                    (rect.width - border.right - border.left - padding.right - padding.left)
+                        .max(0.0);
+                // uto_wrap が有効な場合のみ、計算した最大幅を設定する
+                let max_width_opt = if visual.auto_wrap.unwrap_or(false) {
+                    Some(max_width)
+                } else {
+                    None
+                };
+
                 let layout = cx.system.sys_text_engine.create_layout(
                     text,
                     visual.font_size.unwrap_or(16.0),
                     visual.font_family.as_deref(),
                     visual.font_weight,
                     visual.font_style,
-                    None,
+                    max_width_opt,
+                    visual.auto_wrap,
                     spans,
                 );
-                cx.system.sys_text_engine.get_layout_size(&layout)
+                (cx.system.sys_text_engine.get_layout_size(&layout), false)
             };
 
-            let rect = cx.outputs.out_rects.get(entity_id).copied().unwrap_or_default();
+            let rect = cx
+                .outputs
+                .out_rects
+                .get(entity_id)
+                .copied()
+                .unwrap_or_default();
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -770,8 +815,15 @@ impl WgpuRenderer {
                 .copied()
                 .unwrap_or(LayoutPoint::ZERO);
 
-            let align_offset =
-                OutputStore::calc_align_offset(rect, border, padding, text_size, flex.text_align);
+            let align_offset = OutputStore::calc_align_offset(
+                rect,
+                border,
+                padding,
+                text_size,
+                flex.text_align,
+                flex.align_items,
+                is_multiline,
+            );
 
             // 完全に整数ピクセルサイズにスナップし、にじみとピクピク揺れを完全に阻止
             final_rect = LayoutRect::new(
@@ -781,6 +833,8 @@ impl WgpuRenderer {
                 text_size.height.ceil(),
             );
         }
+
+        let mut atlas_cleared = false;
 
         // 静止 WebView2 キャッシュの引き当て判定
         if !is_decorator && let Some(_cached_view) = self.webview_static_caches.get(&entity_id) {
@@ -838,6 +892,24 @@ impl WgpuRenderer {
                     .unwrap_or(Color::WHITE)
             };
 
+            let rect = cx
+                .outputs
+                .out_rects
+                .get(entity_id)
+                .copied()
+                .unwrap_or_default();
+            let (border, padding) =
+                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+            let max_width =
+                (rect.width - border.right - border.left - padding.right - padding.left).max(0.0);
+            let max_width_phys = max_width * cx.window.win_scale_factor;
+            // コンテナ幅がまだ未確定（0.0以下）の場合は、折り返さずに本来のサイズで計測
+            let max_width_opt = if visual.auto_wrap.unwrap_or(false) && max_width_phys > 0.0 {
+                Some(max_width_phys)
+            } else {
+                None
+            };
+
             let mut spans = cx
                 .contents
                 .cont_text_spans
@@ -882,12 +954,34 @@ impl WgpuRenderer {
                     .get(entity_id)
                     .and_then(|v| v.font_weight),
                 spans_hash,
+                max_width_bits: max_width_opt.unwrap_or(0.0).to_bits(),
             };
 
             let uv = if let Some(cached) = self.text_cache.get(&key) {
                 (cached.uv_min, cached.uv_max)
             } else {
                 let physical_font_size = font_size * cx.window.win_scale_factor;
+
+                // 物理最大幅を解決
+                let rect = cx
+                    .outputs
+                    .out_rects
+                    .get(entity_id)
+                    .copied()
+                    .unwrap_or_default();
+                let (border, padding) =
+                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+                let max_width =
+                    (rect.width - border.right - border.left - padding.right - padding.left)
+                        .max(0.0);
+
+                let max_width_phys = max_width * cx.window.win_scale_factor;
+                // コンテナ幅がまだ未確定の場合は、折り返さずに本来のサイズで計測
+                let max_width_opt = if visual.auto_wrap.unwrap_or(false) && max_width_phys > 0.0 {
+                    Some(max_width_phys)
+                } else {
+                    None
+                };
 
                 let mut spans = cx
                     .contents
@@ -925,7 +1019,11 @@ impl WgpuRenderer {
                         .rnd_visual
                         .get(entity_id)
                         .and_then(|v| v.font_style),
-                    None,
+                    max_width_opt,
+                    cx.renders
+                        .rnd_visual
+                        .get(entity_id)
+                        .and_then(|v| v.auto_wrap),
                     &spans,
                 );
 
@@ -946,6 +1044,7 @@ impl WgpuRenderer {
                     self.atlas.clear();
                     self.text_cache.clear();
                     alloc_res = self.atlas.allocate(width, height);
+                    atlas_cleared = true;
                 }
 
                 let (x, y) = alloc_res.expect("Text exceeds maximum atlas size!");
@@ -987,28 +1086,31 @@ impl WgpuRenderer {
         let packed_transform = instance.transform;
 
         // 完全に 16B 境界にアラインされたインスタンス構造体をビルド
-        QuadInstance {
-            rect: final_rect,
-            transform: packed_transform,
-            transform_origin: origin,
-            color: final_color,
-            corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
-            border_width: instance.border_width,
-            border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
-            border_lengths,
-            opacity_mode_sizing: [opacity, current_mode, box_sizing_val, border_flags as f32],
-            uv_min,
-            uv_max,
-            gradient_end_color: instance.gradient_end_color,
-            gradient_angle: instance.gradient_angle,
-            _padding: 0.0,
-            shadow_color,
-            shadow_params,
-            outline_width: o_width,
-            outline_color: o_color,
-            outline_lengths: o_lengths,
-            outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
-        }
+        (
+            QuadInstance {
+                rect: final_rect,
+                transform: packed_transform,
+                transform_origin: origin,
+                color: final_color,
+                corner_radius: visual.corner_radius.unwrap_or(CornerRadius::ZERO),
+                border_width: instance.border_width,
+                border_color: visual.border_color.unwrap_or(Color::TRANSPARENT),
+                border_lengths,
+                opacity_mode_sizing: [opacity, current_mode, box_sizing_val, border_flags as f32],
+                uv_min,
+                uv_max,
+                gradient_end_color: instance.gradient_end_color,
+                gradient_angle: instance.gradient_angle,
+                _padding: 0.0,
+                shadow_color,
+                shadow_params,
+                outline_width: o_width,
+                outline_color: o_color,
+                outline_lengths: o_lengths,
+                outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
+            },
+            atlas_cleared,
+        )
     }
 
     fn ensure_instance_buffer_capacity(&mut self, total_instances: usize) {

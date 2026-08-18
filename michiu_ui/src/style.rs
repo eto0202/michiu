@@ -10,15 +10,15 @@ use crate::{
     PropertyList, Rect, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER,
     STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED,
     STATE_PRESSED, STATE_SELECTED, STYLE_ALIGN_CONTENT, STYLE_ALIGN_ITEMS, STYLE_ALIGN_SELF,
-    STYLE_ANIMATIONS, STYLE_ASPECT_RATIO, STYLE_BACKDROP, STYLE_BG_COLOR, STYLE_BORDER,
-    STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_BOX_SIZING, STYLE_CORNER_RADIUS, STYLE_CURSOR,
-    STYLE_DIRECTION, STYLE_DISPLAY, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_EXT_PROPERTIES,
-    STYLE_FLEX_BASIS, STYLE_FLEX_DIRECTION, STYLE_FLEX_GROW, STYLE_FLEX_SHRINK, STYLE_FLEX_WRAP,
-    STYLE_FOCUSABLE, STYLE_FONT_SIZE, STYLE_GAP, STYLE_GRID_LAYOUT, STYLE_INSET,
-    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_ITEM_IS_REPLACED,
-    STYLE_ITEM_IS_TABLE, STYLE_JUSTIFY_CONTENT, STYLE_JUSTIFY_ITEMS, STYLE_JUSTIFY_SELF,
-    STYLE_MARGIN, STYLE_MAX_SIZE, STYLE_MIN_SIZE, STYLE_OPACITY, STYLE_OUTLINE, STYLE_OVERFLOW,
-    STYLE_PADDING, STYLE_POINTER_EVENTS, STYLE_POSITION, STYLE_PREVENT_FOCUS_STEAL,
+    STYLE_ANIMATIONS, STYLE_ASPECT_RATIO, STYLE_AUTO_WRAP, STYLE_BACKDROP, STYLE_BG_COLOR,
+    STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_BOX_SIZING, STYLE_CORNER_RADIUS,
+    STYLE_CURSOR, STYLE_DIRECTION, STYLE_DISPLAY, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE,
+    STYLE_EXT_PROPERTIES, STYLE_FLEX_BASIS, STYLE_FLEX_DIRECTION, STYLE_FLEX_GROW,
+    STYLE_FLEX_SHRINK, STYLE_FLEX_WRAP, STYLE_FOCUSABLE, STYLE_FONT_SIZE, STYLE_GAP,
+    STYLE_GRID_LAYOUT, STYLE_INSET, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
+    STYLE_ITEM_IS_REPLACED, STYLE_ITEM_IS_TABLE, STYLE_JUSTIFY_CONTENT, STYLE_JUSTIFY_ITEMS,
+    STYLE_JUSTIFY_SELF, STYLE_MARGIN, STYLE_MAX_SIZE, STYLE_MIN_SIZE, STYLE_OPACITY, STYLE_OUTLINE,
+    STYLE_OVERFLOW, STYLE_PADDING, STYLE_POINTER_EVENTS, STYLE_POSITION, STYLE_PREVENT_FOCUS_STEAL,
     STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, STYLE_SCROLLBAR, STYLE_SIZE,
     STYLE_TEXT_ALIGN, STYLE_TEXT_COLOR, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT,
     STYLE_TRANSITIONS, STYLE_USER_SELECT, STYLE_Z_INDEX, ScrollbarDisplay, ScrollbarMode,
@@ -5375,6 +5375,30 @@ impl ThisStyle {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
                         v.font_style = Some(val);
+                    }
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn text_auto_wrap(mut self, value: impl IntoStyleValue<bool>) -> Self {
+        match value.into_style_value() {
+            StyleValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.auto_wrap = Some(v);
+                inner.mask.set(STYLE_AUTO_WRAP);
+            }
+            StyleValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(STYLE_AUTO_WRAP);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
+                        vis.auto_wrap = Some(val);
                     }
                     cx.mark_render_dirty(id);
                 }));

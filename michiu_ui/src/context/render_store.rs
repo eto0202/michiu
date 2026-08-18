@@ -10,10 +10,10 @@ use crate::{
     ReactiveStore, RectsSecondary, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
     STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
     STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_QUEUED_RENDER, STATE_SELECTED,
-    STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_BG_COLOR, STYLE_BORDER, STYLE_BORDER_COLOR,
-    STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_EXT_PROPERTIES, STYLE_FONT_SIZE,
-    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OPACITY, STYLE_OUTLINE,
-    STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR, STYLE_TRANSFORM,
+    STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_AUTO_WRAP, STYLE_BG_COLOR, STYLE_BORDER,
+    STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_EXT_PROPERTIES,
+    STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OPACITY,
+    STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR, STYLE_TRANSFORM,
     STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay, ScrollbarStylesSecondary,
     StyleTarget, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle, TopologyStore, TransitionValue,
     Val, VisualProperty, WindowStore,
@@ -324,7 +324,11 @@ impl RenderStore {
 
         let mask = style.inner.mask;
         // 基本レイアウト、Flexレイアウト、またはGridレイアウト変更が含まれていれば true
-        mask.has_basic_layout() || mask.has_flex_layout() || mask.has_grid_layout()
+        mask.has_basic_layout()
+            || mask.has_flex_layout()
+            || mask.has_grid_layout()
+            || mask.has(STYLE_FONT_SIZE)
+            || mask.has(STYLE_AUTO_WRAP)
     }
 
     pub(crate) fn resolv_focus_style(
@@ -835,6 +839,9 @@ impl RenderStore {
             topo_entities,
             topo_parents,
             topo_children,
+            lay_taffy,
+            lay_dirty_entities,
+            lay_taffy_nodes,
             rnd_visual,
             rnd_dirty_entities,
             rnd_active_transitions,
@@ -1006,6 +1013,9 @@ impl RenderStore {
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_active_transitions: &mut ActiveTransitionsSparseSecondary,
@@ -1062,16 +1072,16 @@ impl RenderStore {
         }
 
         // 変更評価の計算
-        let target_bg_val = target.bg_color.unwrap_or(Color::TRANSPARENT);
+        let target_bg_val = target.bg_color.unwrap_or_default();
         let bg_changed = current.bg_color != target_bg_val;
 
-        let target_border_val = target.border_color.unwrap_or(Color::TRANSPARENT);
+        let target_border_val = target.border_color.unwrap_or_default();
         let border_changed = current.border_color != target_border_val;
 
-        let target_outline_width_val = target.outline_width.unwrap_or(EdgeInsets::ZERO);
+        let target_outline_width_val = target.outline_width.unwrap_or_default();
         let outline_width_changed = current.outline_width != target_outline_width_val;
 
-        let target_outline_color_val = target.outline_color.unwrap_or(Color::TRANSPARENT);
+        let target_outline_color_val = target.outline_color.unwrap_or_default();
         let outline_color_changed = current.outline_color != target_outline_color_val;
 
         let target_outline_offset_val = target.outline_offset.unwrap_or(0.0);
@@ -1087,10 +1097,10 @@ impl RenderStore {
         let target_transform_origin_val = target.transform_origin.unwrap_or(Point::ORIGIN);
         let transform_origin_changed = current.transform_origin != target_transform_origin_val;
 
-        let target_radius_val = target.corner_radius.unwrap_or(CornerRadius::ZERO);
+        let target_radius_val = target.corner_radius.unwrap_or_default();
         let radius_changed = current.corner_radius != target_radius_val;
 
-        let target_shadow_val = target.shadow_params.unwrap_or(BoxShadow::none());
+        let target_shadow_val = target.shadow_params.unwrap_or_default();
         let shadow_changed = current.shadow_params != target_shadow_val;
 
         // トランジション判定
@@ -1232,6 +1242,19 @@ impl RenderStore {
             active_vis.font_family.clone_from(&target.font_family);
             active_vis.font_weight = target.font_weight;
             active_vis.font_style = target.font_style;
+            active_vis.auto_wrap = target.auto_wrap;
+
+            if active_vis.font_size != target.font_size || active_vis.auto_wrap != target.auto_wrap
+            {
+                LayoutStore::mark_layout_dirty(
+                    id,
+                    topo_active_masks,
+                    topo_parents,
+                    lay_taffy,
+                    lay_dirty_entities,
+                    lay_taffy_nodes,
+                );
+            }
 
             active_vis.pointer_events = target.pointer_events;
 
@@ -1766,6 +1789,7 @@ pub(crate) struct TargetStyle {
     pub(crate) font_family: Option<Cow<'static, str>>,
     pub(crate) font_weight: Option<u32>,
     pub(crate) font_style: Option<u32>,
+    pub(crate) auto_wrap: Option<bool>,
 }
 
 impl RenderStore {
@@ -1806,6 +1830,7 @@ impl RenderStore {
                 font_family: v.font_family.clone(),
                 font_weight: v.font_weight,
                 font_style: v.font_style,
+                auto_wrap: v.auto_wrap,
             })
             .unwrap_or_default()
     }
@@ -1910,6 +1935,9 @@ impl TargetStyle {
             if inner_vis.font_style.is_some() {
                 target.font_style = inner_vis.font_style;
             }
+        }
+        if inner_mask.has(STYLE_AUTO_WRAP) {
+            target.auto_wrap = inner_vis.auto_wrap;
         }
     }
 }

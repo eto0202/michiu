@@ -105,6 +105,7 @@ impl ContentStore {
     pub(crate) fn measure_content(
         id: EntityId,
         known_dims: taffy::Size<Option<f32>>,
+        available_space: taffy::Size<taffy::AvailableSpace>,
         sys_text_engine: &TextEngine,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
@@ -113,20 +114,60 @@ impl ContentStore {
         rnd_visual: &VisualPropertiesSecondary,
     ) -> taffy::Size<f32> {
         let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+        let has_input = mask.has_input_content();
+        let has_text = mask.has_text_content();
 
-        // 入力かつキャッシュが既に存在する場合は即座にそのサイズを早期リターン
-        if mask.has_input_content()
-            && let Some(contents) = cont_input_contents.get(id)
-            && let Some(layout_rect) = contents.last_layout
-        {
+        // キャッシュの取得
+        let layout_rect = if has_input {
+            cont_input_contents.get(id).and_then(|c| c.last_layout)
+        } else {
+            None
+        };
+
+        // キャッシュがなく、かつテキストも持たない場合
+        if layout_rect.is_none() && !has_text {
             return taffy::Size {
-                width: known_dims.width.unwrap_or(layout_rect.width),
-                height: known_dims.height.unwrap_or(layout_rect.height),
+                width: known_dims.width.unwrap_or(0.0),
+                height: known_dims.height.unwrap_or(0.0),
             };
         }
 
-        // テキストを持たない場合は、デフォルト値を早期リターン
-        if !mask.has_text_content() {
+        // 折り返し設定と最大幅
+        let auto_wrap = rnd_visual
+            .get(id)
+            .and_then(|v| v.auto_wrap)
+            .unwrap_or(false);
+
+        let mut max_width = if auto_wrap {
+            known_dims.width.or({
+                if let taffy::AvailableSpace::Definite(w) = available_space.width {
+                    Some(w)
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+
+        // キャッシュが存在し、かつ折り返しによる幅変更の影響がない場合
+        if let Some(layout) = layout_rect {
+            let width_changed = if let Some(mw) = max_width {
+                (layout.width - mw).abs() > 1.0
+            } else {
+                false
+            };
+
+            if !width_changed {
+                return taffy::Size {
+                    width: known_dims.width.unwrap_or(layout.width),
+                    height: known_dims.height.unwrap_or(layout.height),
+                };
+            }
+        }
+
+        // キャッシュが無効（幅が変更された）で、かつテキストを持たない場合
+        if !has_text {
             return taffy::Size {
                 width: known_dims.width.unwrap_or(0.0),
                 height: known_dims.height.unwrap_or(0.0),
@@ -138,7 +179,7 @@ impl ContentStore {
             .map_or("", std::convert::AsRef::as_ref);
         let (font_size, font_family, font_weight, font_style) =
             RenderStore::get_font_propery(id, rnd_visual);
-        let max_width = None;
+
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 
         // DirectWrite を使用して正確なサイズを計測
@@ -149,13 +190,12 @@ impl ContentStore {
             font_weight,
             font_style,
             max_width,
+            Some(auto_wrap),
             spans,
         );
 
         // 計測した文字自体の正確なサイズをここでインプット要素にキャッシュする
-        if mask.has_input_content()
-            && let Some(contents) = cont_input_contents.get_mut(id)
-        {
+        if has_input && let Some(contents) = cont_input_contents.get_mut(id) {
             contents.last_layout = Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
         }
 
@@ -166,4 +206,3 @@ impl ContentStore {
         }
     }
 }
-

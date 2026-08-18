@@ -1,5 +1,6 @@
 use crate::{
-    Context, EffectId, EntityId, ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal,
+    Context, EffectId, EntitiesSlot, EntityId, FlatDfsSequenceVec, ParentsSecondary, ReadSignal,
+    SignalId, TopologyStore, WriteSignal,
 };
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -234,19 +235,34 @@ impl ReactiveStore {
         }
     }
 
-    /// 指定された要素に対してシグナルコンテキストを提供
+    /// 指定された要素もしくはルート要素に対してシグナルコンテキストを提供
     #[inline]
-    pub(crate) fn provide_context<T: Send + 'static>(
-        id: EntityId,
-        signal_id: SignalId,
+    pub(crate) fn provide<T: Send + 'static>(
+        id: Option<EntityId>,
+        read_signal: ReadSignal<T>,
         react_providers: &mut ProvidersSparseSecondary,
+        topo_entities: &EntitiesSlot,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
     ) {
+        let id = if let Some(i) = id {
+            i
+        } else {
+            let Some(i) = TopologyStore::find_root_entity(
+                topo_entities,
+                topo_parents,
+                topo_flat_dfs_sequence,
+            ) else {
+                return;
+            };
+            i
+        };
         let Some(entry) = react_providers.entry(id) else {
             return;
         };
 
         let map = entry.or_default();
-        map.insert(std::any::TypeId::of::<T>(), signal_id);
+        map.insert(std::any::TypeId::of::<T>(), read_signal.id);
     }
 
     /// Context インスタンスから直接シグナルを生成。
@@ -315,11 +331,5 @@ impl Context {
             &mut self.reactive.react_effects,
             &mut self.reactive.react_pending_element_effects,
         );
-    }
-
-    /// 指定された要素に対してシグナルコンテキストを提供します
-    #[inline]
-    pub(crate) fn provide_context<T: Send + 'static>(&mut self, id: EntityId, signal_id: SignalId) {
-        ReactiveStore::provide_context::<T>(id, signal_id, &mut self.reactive.react_providers);
     }
 }

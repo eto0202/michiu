@@ -101,7 +101,6 @@ impl Element {
         existing.is_multiline = c.is_multiline;
         existing.is_password = c.is_password;
         existing.mask_text = c.mask_text;
-        existing.auto_wrap = c.auto_wrap;
 
         // 動的なテキスト長の変更に伴い、既存の選択範囲が枠外へ飛び出さないようクランプ
         let current_text = existing.text.0.get();
@@ -207,7 +206,9 @@ impl Element {
                 &cx.system.sys_dwrite_layouts,
                 &cx.contents.cont_text_contents,
                 &cx.contents.cont_text_spans,
+                &cx.layouts.lay_resolved_basic,
                 &cx.renders.rnd_visual,
+                &cx.outputs.out_rects,
             ) else {
                 return;
             };
@@ -422,7 +423,7 @@ impl Element {
         contents.record_undo(text_val.to_string(), range.clone());
         if range.start < range.end {
             let new_text = InputContents::remove_utf16_range(text_val, &range);
-            
+
             Element::set_caret_position(
                 id,
                 contents,
@@ -577,8 +578,8 @@ impl Element {
         let (cx_offset, cy_offset, _) =
             sys_text_engine.get_caret_position(dw_layout, caret, u16_len);
 
-        let line_height = font_size * 1.3;
-        let target_y = (cy_offset - line_height * 1.1).max(0.0); // 1行分＋マージン
+        let line_height = font_size * 1.2;
+        let target_y = (cy_offset - line_height * 0.5).max(0.0);
 
         let (new_caret, is_trailing) =
             sys_text_engine.hit_test_point(dw_layout, cx_offset, target_y);

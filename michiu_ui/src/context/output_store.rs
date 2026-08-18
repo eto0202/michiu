@@ -2,9 +2,9 @@ use std::{cell::RefCell, collections::HashSet, ops::Range, time::Instant};
 
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
-    ActiveWebviewsHashSet, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType,
-    BoxSizing, ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius,
-    DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch,
+    ActiveWebviewsHashSet, AlignItems, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
+    BatchType, BoxSizing, ChildrenSecondary, Color, ComponentMask, ContentStore, Context,
+    CornerRadius, DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch,
     DwriteLayoutsSparseSecondary, EdgeInsets, EffectiveTransformsSecondary,
     EffectiveZindicesSecondary, EntityId, EventStore, FlatDfsSequenceVec, FlexLayoutsSecondary,
     GridLayoutsSparseSecondary, InputContents, InputContentsSparseSecondary,
@@ -562,7 +562,9 @@ impl OutputStore {
                 sys_dwrite_layouts,
                 cont_text_contents,
                 cont_text_spans,
+                lay_resolved_basic,
                 rnd_visual,
+                out_rects,
             )
         {
             let size = sys_text_engine.get_layout_size(&dw_layout);
@@ -628,9 +630,11 @@ impl OutputStore {
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
+        lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_rects: &RectsSecondary,
     ) -> Option<(LayoutRect, f32, bool)> {
         let contents = cont_input_contents.get_mut(id)?;
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
@@ -714,7 +718,9 @@ impl OutputStore {
             sys_dwrite_layouts,
             cont_text_contents,
             cont_text_spans,
+            lay_resolved_basic,
             rnd_visual,
+            out_rects,
         )?;
 
         let text_size = sys_text_engine.get_layout_size(&display_layout);
@@ -827,6 +833,8 @@ impl OutputStore {
         padding: EdgeInsets,
         text_size: LayoutSize,
         text_align: TextAlign,
+        align_items: Option<AlignItems>,
+        is_multiline: bool,
     ) -> LayoutPoint {
         let content_w =
             (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
@@ -838,7 +846,25 @@ impl OutputStore {
 
         let content_h =
             (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
-        let align_offset_y = ((content_h - text_size.height) * 0.5).max(0.0);
+
+        // 複数行入力時は標準で上端揃え、単一行は標準で中央揃えにフォールバック
+        let align_items_resolved = align_items.unwrap_or(if is_multiline {
+            AlignItems::Start
+        } else {
+            AlignItems::Center
+        });
+
+        let align_offset_y = match align_items_resolved {
+            AlignItems::Start
+            | AlignItems::FlexStart
+            | AlignItems::SafeStart
+            | AlignItems::SafeFlexStart => 0.0,
+            AlignItems::End
+            | AlignItems::FlexEnd
+            | AlignItems::SafeEnd
+            | AlignItems::SafeFlexEnd => (content_h - text_size.height).max(0.0),
+            _ => ((content_h - text_size.height) * 0.5).max(0.0), // Center 等
+        };
 
         LayoutPoint {
             x: align_offset_x,
@@ -999,9 +1025,11 @@ impl OutputStore {
             cont_input_contents,
             cont_text_contents,
             cont_text_spans,
+            lay_resolved_basic,
             rnd_visual,
             rnd_base_visual,
             out_text_selections,
+            out_rects,
         );
 
         let Some((caret, caret_offset, is_multiline)) = scroll_ime_info else {
@@ -1027,8 +1055,15 @@ impl OutputStore {
                 LayoutSize::ZERO
             };
 
-            let align_offset =
-                OutputStore::calc_align_offset(rect, border, padding, text_size, flex.text_align);
+            let align_offset = OutputStore::calc_align_offset(
+                rect,
+                border,
+                padding,
+                text_size,
+                flex.text_align,
+                flex.align_items,
+                is_multiline,
+            );
 
             let aligned_caret_x = caret.x + align_offset.x;
             let aligned_caret_y = caret.y + align_offset.y;
@@ -1668,6 +1703,7 @@ impl OutputStore {
                         ContentStore::measure_content(
                             id,
                             known_dims,
+                            available_space,
                             &cx.system.sys_text_engine,
                             &mut cx.contents.cont_input_contents,
                             &cx.contents.cont_text_contents,
@@ -1838,6 +1874,55 @@ impl OutputStore {
             &mut cx.outputs.out_clip_rects,
             &cx.outputs.out_scroll_offsets,
         );
+
+        // リサイズ追従に伴い、インプットのキャレット・選択ハイライトを同期
+        for &id in &cx.topology.topo_flat_dfs_sequence {
+            if cx
+                .topology
+                .topo_active_masks
+                .get(id)
+                .is_some_and(ComponentMask::has_input_content)
+            {
+                let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
+                let prev_rect = cx
+                    .outputs
+                    .out_prev_rects
+                    .get(id)
+                    .copied()
+                    .unwrap_or_default();
+
+                // 幅が前フレームから変動している場合にのみキャレットとレイアウトを自動同期
+                if (rect.width - prev_rect.width).abs() > 0.01 {
+                    OutputStore::update_input_caret_position(
+                        id,
+                        cx.window.win_last_size,
+                        cx.window.win_scale_factor,
+                        &cx.system.sys_text_engine,
+                        &cx.system.sys_dwrite_layouts,
+                        &mut cx.contents.cont_input_contents,
+                        &mut cx.contents.cont_text_contents,
+                        &cx.contents.cont_text_spans,
+                        &mut cx.topology.topo_active_masks,
+                        &cx.topology.topo_parents,
+                        &mut cx.layouts.lay_taffy,
+                        &mut cx.layouts.lay_dirty_entities,
+                        &mut cx.layouts.lay_scrollbar_styles,
+                        &cx.layouts.lay_taffy_nodes,
+                        &cx.layouts.lay_resolved_basic,
+                        &cx.layouts.lay_resolved_flex,
+                        &cx.layouts.lay_resolved_grid,
+                        &mut cx.renders.rnd_visual,
+                        &cx.renders.rnd_base_visual,
+                        &cx.renders.rnd_interaction,
+                        &cx.renders.rnd_active_transitions,
+                        &mut cx.outputs.out_scroll_offsets,
+                        &mut cx.outputs.out_text_selections,
+                        &cx.outputs.out_rects,
+                        &cx.outputs.out_scroll_sizes,
+                    );
+                }
+            }
+        }
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
         OutputStore::auto_clamp_scroll_offsets(
@@ -2144,12 +2229,15 @@ impl OutputStore {
 
                 let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
-                let text_size = if let Some(contents) = cont_input_contents.get(id)
+                let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.get(id)
                     && let Some(layout_rect) = contents.last_layout
                 {
-                    LayoutSize::new(layout_rect.width, layout_rect.height)
+                    (
+                        LayoutSize::new(layout_rect.width, layout_rect.height),
+                        contents.is_multiline,
+                    )
                 } else {
-                    LayoutSize::ZERO
+                    (LayoutSize::ZERO, false)
                 };
 
                 let align_offset = OutputStore::calc_align_offset(
@@ -2158,6 +2246,8 @@ impl OutputStore {
                     padding,
                     text_size,
                     flex.text_align,
+                    flex.align_items,
+                    is_multiline,
                 );
 
                 for metric_rect in out_rects {
@@ -2337,10 +2427,13 @@ impl OutputStore {
                     LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
                 let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
-                let text_size = if let Some(layout_rect) = contents.last_layout {
-                    LayoutSize::new(layout_rect.width, layout_rect.height)
+                let (text_size, is_multiline) = if let Some(layout_rect) = contents.last_layout {
+                    (
+                        LayoutSize::new(layout_rect.width, layout_rect.height),
+                        contents.is_multiline,
+                    )
                 } else {
-                    LayoutSize::ZERO
+                    (LayoutSize::ZERO, false)
                 };
 
                 let align_offset = OutputStore::calc_align_offset(
@@ -2349,6 +2442,8 @@ impl OutputStore {
                     padding,
                     text_size,
                     flex.text_align,
+                    flex.align_items,
+                    is_multiline,
                 );
 
                 let caret_rect = OutputStore::calculate_caret_rect(

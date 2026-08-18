@@ -26,7 +26,7 @@ use crate::{
     STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED,
     STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT,
     STATE_SELECTED, STYLE_OVERFLOW, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN,
-    TextAlign, TransitionValue, UserSelect, Val, VirtualKey, VisualProperty, WriteSignal,
+    SignalId, TextAlign, TransitionValue, UserSelect, Val, VirtualKey, VisualProperty, WriteSignal,
     bind_context, handle_on_char_input, handle_on_click, handle_on_dnd_entity_drop,
     handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime, handle_on_keyboard_input,
     handle_on_mouse_input, handle_on_right_click, with_context,
@@ -402,6 +402,23 @@ impl Context {
             &mut self.reactive.react_signals,
             &mut self.reactive.react_subscribers,
         )
+    }
+
+    /// 指定された要素もしくはルート要素に対してシグナルコンテキストを提供します
+    #[inline]
+    pub fn provide<T: Send + 'static>(
+        &mut self,
+        id: Option<EntityId>,
+        read_signal: ReadSignal<T>,
+    ) {
+        ReactiveStore::provide::<T>(
+            id,
+            read_signal,
+            &mut self.reactive.react_providers,
+            &self.topology.topo_entities,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+        );
     }
 
     /// 現在のスレッドローカルコンテキストから、

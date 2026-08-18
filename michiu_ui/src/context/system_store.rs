@@ -1,6 +1,7 @@
 use crate::{
-    ContentStore, Context, EdgeInsets, EntityId, InputContents, LayoutPoint, LayoutRect,
-    RenderStore, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, UiaValue,
+    BasicLayoutsSecondary, ContentStore, Context, EdgeInsets, EntityId, InputContents, LayoutPoint,
+    LayoutRect, LayoutStore, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, UiaValue,
     VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -107,7 +108,7 @@ impl SystemStore {
         sys_dwrite_layouts.borrow_mut().remove(id);
     }
 
-    /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
+    /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持。
     #[inline]
     pub(crate) fn get_or_create_layout(
         id: EntityId,
@@ -115,7 +116,9 @@ impl SystemStore {
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
+        lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
+        out_rects: &RectsSecondary,
     ) -> Option<IDWriteTextLayout> {
         if let Some(layout) = sys_dwrite_layouts.borrow().get(id) {
             return Some(layout.clone());
@@ -124,7 +127,36 @@ impl SystemStore {
         let text = cont_text_contents.get(id)?;
         let (font_size, font_family, font_weight, font_style) =
             RenderStore::get_font_propery(id, rnd_visual);
-        let max_width = None;
+
+        let auto_wrap = rnd_visual.get(id).and_then(|v| v.auto_wrap);
+
+        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
+        let rect = out_rects.get(id).copied().unwrap_or_default();
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+        let max_width = rect.width - border.right - border.left - padding.right - padding.left;
+        // 修正：auto_wrap が有効な場合のみ、計算した最大幅を設定する
+        let max_width_opt = if auto_wrap.unwrap_or(false) && max_width > 0.0 {
+            Some(max_width)
+        } else {
+            None
+        };
+
+        // キャッシュ存在時に、現在の幅の制約と一致しているか検証
+        if let Some(layout) = sys_dwrite_layouts.borrow().get(id) {
+            let cached_max_width = unsafe { layout.GetMaxWidth() };
+            let current_max_width = max_width_opt.unwrap_or(f32::MAX);
+
+            // 許容誤差 1e-3 内で一致している場合はそのまま再利用。
+            // リサイズによって幅が変わっている場合はキャッシュを破棄して再ビルドへ進む。
+            if (cached_max_width - current_max_width).abs() < 1e-3 {
+                return Some(layout.clone());
+            }
+
+            sys_dwrite_layouts.borrow_mut().remove(id);
+        }
+
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 
         let layout = sys_text_engine.create_layout(
@@ -133,7 +165,8 @@ impl SystemStore {
             font_family,
             font_weight,
             font_style,
-            max_width,
+            max_width_opt,
+            auto_wrap,
             spans,
         );
 
@@ -274,7 +307,9 @@ impl Context {
             &self.system.sys_dwrite_layouts,
             &self.contents.cont_text_contents,
             &self.contents.cont_text_spans,
+            &self.layouts.lay_resolved_basic,
             &self.renders.rnd_visual,
+            &self.outputs.out_rects,
         )
     }
 }

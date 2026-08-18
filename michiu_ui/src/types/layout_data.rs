@@ -1,6 +1,24 @@
 use std::{borrow::Cow, sync::Arc};
 
-use crate::{Display, BoxSizing, Direction, LayoutOverflow, Position, Rect, Val, Size, Length, ComponentMask, STYLE_DISPLAY, STYLE_ITEM_IS_TABLE, STYLE_ITEM_IS_REPLACED, STYLE_BOX_SIZING, STYLE_DIRECTION, STYLE_OVERFLOW, STYLE_POSITION, STYLE_INSET, STYLE_SIZE, STYLE_MIN_SIZE, STYLE_MAX_SIZE, STYLE_ASPECT_RATIO, STYLE_MARGIN, STYLE_PADDING, STYLE_BORDER, STYLE_RESIZABLE, AlignItems, AlignSelf, AlignContent, JustifyContent, TextAlign, FlexDirection, FlexWrap, STYLE_ALIGN_ITEMS, STYLE_ALIGN_SELF, STYLE_JUSTIFY_ITEMS, STYLE_JUSTIFY_SELF, STYLE_ALIGN_CONTENT, STYLE_JUSTIFY_CONTENT, STYLE_GAP, STYLE_TEXT_ALIGN, STYLE_FLEX_DIRECTION, STYLE_FLEX_WRAP, STYLE_FLEX_BASIS, STYLE_FLEX_GROW, STYLE_FLEX_SHRINK, GridAutoFlow, GridLine, GridPlacement, Color, EdgeInsets, BorderStyle, BorderAlignment, CornerRadius, BoxShadow, Point, CursorIcon, Backdrop, LinearGradient, Transition, KeyframeAnimation, PointerEvents, UserSelect, Focusable, STYLE_BG_COLOR, STYLE_BORDER_COLOR, STYLE_CORNER_RADIUS, STYLE_OPACITY, STYLE_BOX_SHADOW, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_Z_INDEX, STYLE_CURSOR, STYLE_BACKDROP, STYLE_TEXT_COLOR, STYLE_FONT_SIZE, STYLE_EXT_PROPERTIES, STYLE_POINTER_EVENTS, STYLE_USER_SELECT, STYLE_FOCUSABLE, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_OUTLINE, STYLE_TRANSITIONS, STYLE_ANIMATIONS, ThisStyle, StyleTarget, EntityId};
+use crate::{
+    AlignContent, AlignItems, AlignSelf, Backdrop, BorderAlignment, BorderStyle, BoxShadow,
+    BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction, Display, EdgeInsets,
+    EntityId, FlexDirection, FlexWrap, Focusable, GridAutoFlow, GridLine, GridPlacement,
+    JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Point,
+    PointerEvents, Position, Rect, STYLE_ALIGN_CONTENT, STYLE_ALIGN_ITEMS, STYLE_ALIGN_SELF,
+    STYLE_ANIMATIONS, STYLE_ASPECT_RATIO, STYLE_AUTO_WRAP, STYLE_BACKDROP, STYLE_BG_COLOR,
+    STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_BOX_SIZING, STYLE_CORNER_RADIUS,
+    STYLE_CURSOR, STYLE_DIRECTION, STYLE_DISPLAY, STYLE_EXT_PROPERTIES, STYLE_FLEX_BASIS,
+    STYLE_FLEX_DIRECTION, STYLE_FLEX_GROW, STYLE_FLEX_SHRINK, STYLE_FLEX_WRAP, STYLE_FOCUSABLE,
+    STYLE_FONT_SIZE, STYLE_GAP, STYLE_INSET, STYLE_ITEM_IS_REPLACED, STYLE_ITEM_IS_TABLE,
+    STYLE_JUSTIFY_CONTENT, STYLE_JUSTIFY_ITEMS, STYLE_JUSTIFY_SELF, STYLE_MARGIN, STYLE_MAX_SIZE,
+    STYLE_MIN_SIZE, STYLE_OPACITY, STYLE_OUTLINE, STYLE_OVERFLOW, STYLE_PADDING,
+    STYLE_POINTER_EVENTS, STYLE_POSITION, STYLE_PREVENT_FOCUS_STEAL,
+    STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, STYLE_SIZE, STYLE_TEXT_ALIGN,
+    STYLE_TEXT_COLOR, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_TRANSITIONS,
+    STYLE_USER_SELECT, STYLE_Z_INDEX, Size, StyleTarget, TextAlign, ThisStyle, Transition,
+    UserSelect, Val,
+};
 
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -255,6 +273,7 @@ pub struct VisualProperty {
     pub font_family: Option<Cow<'static, str>>,
     pub font_weight: Option<u32>,
     pub font_style: Option<u32>,
+    pub auto_wrap: Option<bool>,
     pub bg_gradient: Option<LinearGradient>,
     pub transitions: Vec<Transition>,
     pub keyframe_animations: Vec<KeyframeAnimation>,
@@ -332,6 +351,9 @@ impl VisualProperty {
             if other.font_style.is_some() {
                 self.font_style = other.font_style;
             }
+        }
+        if mask.has(STYLE_AUTO_WRAP) {
+            self.auto_wrap = other.auto_wrap;
         }
         if mask.has(STYLE_POINTER_EVENTS) {
             self.pointer_events = other.pointer_events;

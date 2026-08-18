@@ -185,8 +185,6 @@ pub struct InputContents {
     pub rounding_mode: Option<RoundingMode>,
     pub is_multiline: bool,
     pub placeholder_select: bool,
-    pub auto_wrap: bool,
-
     // キャレットデザイン
     pub has_caret: bool,
     pub caret_width: Option<f32>,
@@ -243,7 +241,6 @@ impl InputContents {
             rounding_mode: None,
             is_multiline: false,
             placeholder_select: false,
-            auto_wrap: true,
             has_caret: true,
             caret_width: None,
             default_caret_width: 1.5,
@@ -336,12 +333,6 @@ impl InputContents {
     #[must_use]
     pub fn multiline(mut self, enabled: bool) -> Self {
         self.is_multiline = enabled;
-        self
-    }
-    #[inline]
-    #[must_use]
-    pub fn auto_wrap(mut self, enabled: bool) -> Self {
-        self.auto_wrap = enabled;
         self
     }
     #[inline]
