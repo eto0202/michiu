@@ -20,19 +20,30 @@ use crate::{
     UserSelect, Val,
 };
 
-pub struct Layout {
-    /// すべての要素が持つ基本ボックスモデル
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NormalLayout {
     pub basic: BasicLayout,
-    /// この要素が子要素をどう並べるか
-    pub mode: LayoutMode,
+    pub flex: FlexLayout,
 }
 
-#[derive(Clone, Debug, Default)]
-pub enum LayoutMode {
-    #[default]
-    None,
-    Flex(FlexLayout),
-    Grid(Box<GridLayout>),
+impl NormalLayout {
+    #[inline]
+    #[must_use]
+    pub fn split(&self) -> (&BasicLayout, &FlexLayout) {
+        (&self.basic, &self.flex)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn split_mut(&mut self) -> (&mut BasicLayout, &mut FlexLayout) {
+        (&mut self.basic, &mut self.flex)
+    }
+
+    #[inline]
+    pub fn override_with(&mut self, basic: &BasicLayout, flex: &FlexLayout, mask: ComponentMask) {
+        self.basic.override_with(basic, mask);
+        self.flex.override_with(flex, mask);
+    }
 }
 
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
@@ -83,6 +94,7 @@ impl Default for BasicLayout {
 
 impl BasicLayout {
     /// 指定されたプロパティマスクに基づいて、自身を別のレイアウトデータで上書きします。
+    #[inline]
     pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
         if mask.has(STYLE_DISPLAY) {
             self.display = other.display;
@@ -156,6 +168,7 @@ pub struct FlexLayout {
 
 impl FlexLayout {
     /// 指定されたプロパティマスクに基づいて、自身を別のFlexレイアウトデータで上書きします。
+    #[inline]
     pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
         if mask.has(STYLE_ALIGN_ITEMS) {
             self.align_items = other.align_items;

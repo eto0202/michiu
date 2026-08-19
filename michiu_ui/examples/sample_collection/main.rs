@@ -56,7 +56,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let (h_instance, class_name, _wnd_class) = register_class()?;
     let hwnd = create_window(h_instance, class_name)?;
-
     let mut context = Context::new();
 
     let send_hwnd = SendHwnd(hwnd);

@@ -21,6 +21,7 @@ strum = {version = "0.28.0", features = ["derive"] }
 lightningcss = "1.0.0-alpha.71"
 notify = "8.2.0"
 image = "0.25.10"
+windows-core = "0.62.2"
 
 [dependencies.windows]
 version = "0.62.2"
@@ -50,6 +51,7 @@ features = [
     "Win32_UI_Input_Ime",
     "Win32_System_DataExchange",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_DirectWrite",
 ]
 
 [features]

@@ -2516,6 +2516,7 @@ dependencies = [
  "webview2-com",
  "wgpu",
  "windows",
+ "windows-core",
  "windows-numerics",
  "windows-result",
 ]

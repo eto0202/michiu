@@ -8,8 +8,8 @@ use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary,
     BasicLayout, ChildrenSecondary, ComponentMask, ContentStore, Context, DirtyRenderEntitiesVec,
     Display, DwriteLayoutsSparseSecondary, EdgeInsets, EntityId, FlexLayout, GridLayout,
-    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStyles, Layout,
-    LayoutPoint, LayoutRect, LayoutSize, Length, OutputStore, ParentsSecondary, Position,
+    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
+    LayoutRect, LayoutSize, Length, NormalLayout, OutputStore, ParentsSecondary, Position,
     PropertyList, Rect, RectsSecondary, RenderStore, ResizeDirection, ResizingState, STATE_ACTIVED,
     STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_FOCUSED,
     STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED,
@@ -45,8 +45,9 @@ pub(crate) struct ScrollBarState {
     pub(crate) last_scroll_time: Option<std::time::Instant>,
 }
 
-pub(crate) type LayoutsSecondary = SecondaryMap<EntityId, Layout>;
-pub(crate) type ResolvedLayoutsSecondary = SecondaryMap<EntityId, Layout>;
+pub(crate) type LayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
+pub(crate) type BaseLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
+pub(crate) type ResolvedLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 
 pub(crate) type BasicLayoutsSecondary = SecondaryMap<EntityId, BasicLayout>;
 pub(crate) type BaseBasicLayoutsSecondary = SecondaryMap<EntityId, BasicLayout>;
@@ -62,6 +63,7 @@ pub(crate) type ResolvedGridSparseSecondary = SparseSecondaryMap<EntityId, GridL
 
 pub struct LayoutStore {
     pub(crate) lay_layouts: LayoutsSecondary,
+    pub(crate) lay_base: BaseLayoutsSecondary,
     pub(crate) lay_resolved: ResolvedLayoutsSecondary,
 
     pub(crate) lay_basic: BasicLayoutsSecondary,
@@ -90,6 +92,7 @@ impl LayoutStore {
     pub fn new() -> Self {
         Self {
             lay_layouts: SecondaryMap::new(),
+            lay_base: SecondaryMap::new(),
             lay_resolved: SecondaryMap::new(),
 
             lay_basic: SecondaryMap::new(),
@@ -109,6 +112,7 @@ impl LayoutStore {
     #[inline]
     pub fn clear(&mut self) {
         self.lay_layouts.clear();
+        self.lay_base.clear();
         self.lay_resolved.clear();
 
         self.lay_basic.clear();
@@ -127,6 +131,7 @@ impl LayoutStore {
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
         self.lay_layouts.remove(id);
+        self.lay_base.remove(id);
         self.lay_resolved.remove(id);
 
         self.lay_basic.remove(id);
