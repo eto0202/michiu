@@ -104,7 +104,14 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
     // やっぱあり
     let mode = instance.opacity_mode_sizing.y;
     if (mode == 2.0 || mode < -0.5) {
-        abs_phys_pos = round(abs_phys_pos);
+        // 文字の起点（Top-Left）のみを物理ピクセルに
+        let phys_origin = instance.rect.xy * config.scale;
+        // 四角形のサイズを物理ピクセルに切り上げる（アトラスのテクスチャサイズと 1:1 に）
+        let phys_size = ceil(instance.rect.zw * config.scale);
+        // マージンを考慮してローカル位置を計算
+        let local_phys = mix(vec2<f32>(-margin), phys_size + vec2<f32>(margin), vertex.position);
+        // 起点にローカル位置を足すことでボケのない整数グリッドの矩形を作る
+        abs_phys_pos = phys_origin + local_phys;
     }
 
 

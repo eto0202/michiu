@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::collections::HashMap;
 
 use crate::LayoutRect;
 use crate::types::LayoutSize;
@@ -311,6 +312,131 @@ impl TextEngine {
             (metrics.textPosition as usize, is_trailing.into())
         }
     }
+
+    /// 与えられたレイアウトに配置されているすべての文字クラスターの個別位置情報を、
+    /// サロゲートペアを考慮しながら1文字ずつ確実に分離・分解して解決
+    pub(crate) fn get_all_char_metrics(
+        &self,
+        layout: &IDWriteTextLayout,
+        text_u16_len: usize,
+    ) -> Vec<DWRITE_HIT_TEST_METRICS> {
+        if text_u16_len == 0 {
+            return Vec::new();
+        }
+        let mut results = Vec::with_capacity(text_u16_len);
+        let mut idx = 0;
+
+        while idx < text_u16_len {
+            // 1文字分のバッファを確保
+            let mut hit_test_metrics = vec![DWRITE_HIT_TEST_METRICS::default(); 4];
+            let mut actual_count: u32 = 0;
+
+            // 1文字ずつ正確にレンジを切り出して個別に位置を逆算
+            let res = unsafe {
+                layout.HitTestTextRange(
+                    idx as u32,
+                    1, // 1文字制限
+                    0.0,
+                    0.0,
+                    Some(&mut hit_test_metrics),
+                    &raw mut actual_count,
+                )
+            };
+
+            if res.is_ok() && actual_count > 0 {
+                // その文字をピッタリ囲む最初の矩形メトリクスを採用
+                let metric = hit_test_metrics[0];
+                results.push(metric);
+
+                // サロゲートペアや複雑な文字結合を考慮してDWrite が消費した実コードユニット数で安全に進める
+                // 無限ループを防止するためのガード
+                let step = if metric.length > 0 {
+                    metric.length as usize
+                } else {
+                    1
+                };
+                idx += step;
+            } else {
+                idx += 1;
+            }
+        }
+
+        results
+    }
+
+    /// グリフのUV座標を解決
+    /// キャッシュに存在しない場合は指定されたアトラスとラスタライザを用いてテクスチャへ描き込み
+    pub(crate) fn get_or_create_glyph_uv(
+        &self,
+        key: &TextCacheKey,
+        atlas: &mut TextureAtlas,
+        text_rasterizer: &TextRasterizer,
+        text_cache: &mut HashMap<TextCacheKey, TextCacheValue>,
+        queue: &wgpu::Queue,
+    ) -> ([f32; 2], [f32; 2], bool) {
+        if let Some(cached) = text_cache.get(key) {
+            return (cached.uv_min, cached.uv_max, false);
+        }
+
+        let text_str = key.character.to_string();
+        let font_size_phys = f32::from_bits(key.font_size_bits);
+
+        // 1文字用の最小レイアウトを構築
+        let physical_layout = self.create_layout(
+            &text_str,
+            font_size_phys,
+            key.font_family.as_deref(),
+            key.font_weight,
+            key.font_style,
+            None,
+            Some(false),
+            &[],
+        );
+
+        let size = self.get_layout_size(&physical_layout);
+        let r8_pixels =
+            text_rasterizer.rasterize_glyph(&physical_layout, size, &self.rendering_params);
+
+        let width = size.width.ceil() as u32;
+        let height = size.height.ceil() as u32;
+
+        let mut alloc_res = atlas.allocate(width, height);
+        let mut cleared = false;
+
+        if alloc_res.is_none() {
+            atlas.clear();
+            text_cache.clear();
+            alloc_res = atlas.allocate(width, height);
+            cleared = true;
+        }
+
+        let (x, y) = alloc_res.expect("Glyph exceeds maximum atlas size!");
+
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &atlas.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &r8_pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let (uv_min, uv_max) = atlas.texel_to_uv(x, y, width, height);
+        text_cache.insert(key.clone(), TextCacheValue { uv_min, uv_max });
+
+        (uv_min, uv_max, cleared)
+    }
 }
 
 pub(crate) struct TextRasterizer {
@@ -329,12 +455,7 @@ impl TextRasterizer {
         let d2d_factory =
             unsafe { D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None).unwrap() };
         let wic_factory: IWICImagingFactory = unsafe {
-            windows::Win32::System::Com::CoCreateInstance(
-                &CLSID_WICImagingFactory,
-                None,
-                windows::Win32::System::Com::CLSCTX_INPROC_SERVER,
-            )
-            .unwrap()
+            CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).unwrap()
         };
         Self {
             d2d_factory,
@@ -342,343 +463,75 @@ impl TextRasterizer {
         }
     }
 
-    pub(crate) fn rasterize(
+    pub(crate) fn rasterize_glyph(
         &self,
         layout: &IDWriteTextLayout,
         size: LayoutSize,
-        spans: &[crate::TextSpan],
         rendering_params: &IDWriteRenderingParams,
     ) -> Vec<u8> {
-        unsafe {
-            let width = (size.width.ceil() as u32).max(1);
-            let height = (size.height.ceil() as u32).max(1);
+        // 文字の物理ピクセルバッファ境界（最低 1x1 ）
+        let width = (size.width.ceil() as u32).max(1);
+        let height = (size.height.ceil() as u32).max(1);
 
-            // 1. WIC ビットマップの作成 (RGBA8)
-            let wic_bitmap = self
-                .wic_factory
+        let wic_bitmap = unsafe {
+            self.wic_factory
                 .CreateBitmap(
                     width,
                     height,
                     &GUID_WICPixelFormat32bppPBGRA,
                     WICBitmapCacheOnDemand,
                 )
-                .unwrap();
+                .unwrap()
+        };
 
-            // 2. D2D レンダーターゲットの作成
-            // RenderDocなどのグラフィックスツールによるフック時でもクラッシュ(E_NOINTERFACE)を防ぐため、
-            // 明示的にソフトウェアレンダリングを使用するように指示
-            let props = D2D1_RENDER_TARGET_PROPERTIES {
-                r#type: D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-                ..Default::default()
-            };
-            let target = self
-                .d2d_factory
+        let props = D2D1_RENDER_TARGET_PROPERTIES {
+            r#type: D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+            ..Default::default()
+        };
+
+        let target = unsafe {
+            self.d2d_factory
                 .CreateWicBitmapRenderTarget(&wic_bitmap, &raw const props)
-                .unwrap();
+                .unwrap()
+        };
 
+        unsafe {
             target.SetTextRenderingParams(rendering_params);
             target.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
 
             target.BeginDraw();
             target.Clear(None);
+        }
 
-            // 3. ブラシの作成 (白固定、wgpu側で着色するため)
-            let color = D2D1_COLOR_F {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 1.0,
-            };
-            let default_color = D2D1_COLOR_F {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 1.0,
-            };
-            let default_brush = target
-                .CreateSolidColorBrush(&raw const default_color, None)
-                .unwrap();
+        let color = D2D1_COLOR_F {
+            r: 1.0,
+            g: 1.0,
+            b: 1.0,
+            a: 1.0,
+        };
+        let default_brush = unsafe {
+            target
+                .CreateSolidColorBrush(&raw const color, None)
+                .unwrap()
+        };
 
-            for span in spans {
-                if let Some(bg_color) = span.bg_color {
-                    let start = span.range.start as u32;
-                    let len = (span.range.end - span.range.start) as u32;
-                    if len == 0 {
-                        continue;
-                    }
-
-                    let mut hit_test_metrics = vec![DWRITE_HIT_TEST_METRICS::default(); 16];
-                    let mut actual_count: u32 = 0;
-
-                    let res = layout.HitTestTextRange(
-                        start,
-                        len,
-                        0.0,
-                        0.0,
-                        Some(&mut hit_test_metrics),
-                        &raw mut actual_count,
-                    );
-                    if res.is_ok() && actual_count as usize > hit_test_metrics.len() {
-                        hit_test_metrics
-                            .resize(actual_count as usize, DWRITE_HIT_TEST_METRICS::default());
-                        let _ = layout.HitTestTextRange(
-                            start,
-                            len,
-                            0.0,
-                            0.0,
-                            Some(&mut hit_test_metrics),
-                            &raw mut actual_count,
-                        );
-                    }
-
-                    let d2d_bg_color = D2D1_COLOR_F {
-                        r: bg_color.r,
-                        g: bg_color.g,
-                        b: bg_color.b,
-                        a: bg_color.a,
-                    };
-                    if let Ok(bg_brush) =
-                        target.CreateSolidColorBrush(&raw const d2d_bg_color, None)
-                    {
-                        (0..actual_count as usize).for_each(|m_idx| {
-                            let metric = &hit_test_metrics[m_idx];
-                            let rect = D2D_RECT_F {
-                                left: metric.left,
-                                top: metric.top,
-                                right: metric.left + metric.width,
-                                bottom: metric.top + metric.height,
-                            };
-                            target.FillRectangle(&raw const rect, &bg_brush);
-                        });
-                    }
-                }
-
-                if let Some(color) = span.color {
-                    let start = span.range.start as u32;
-                    let len = (span.range.end - span.range.start) as u32;
-                    if len > 0 {
-                        let span_range = DWRITE_TEXT_RANGE {
-                            startPosition: start,
-                            length: len,
-                        };
-                        let d2d_color = D2D1_COLOR_F {
-                            r: color.r,
-                            g: color.g,
-                            b: color.b,
-                            a: color.a,
-                        };
-                        if let Ok(span_brush) =
-                            target.CreateSolidColorBrush(&raw const d2d_color, None)
-                        {
-                            let _ = layout.SetDrawingEffect(&span_brush, span_range);
-                        }
-                    }
-                }
-            }
-
-            let origin = windows_numerics::Vector2 { X: 0.0, Y: 0.0 };
+        // 装飾は wgpu Quad 側で行うため単にレイアウトを描画
+        let origin = Vector2 { X: 0.0, Y: 0.0 };
+        unsafe {
             target.DrawTextLayout(origin, layout, &default_brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
-
-            // TextSpan に基づく下線・波線の上載せ描画
-            for span in spans {
-                let start = span.range.start as u32;
-                let len = (span.range.end - span.range.start) as u32;
-                if len == 0 {
-                    continue;
-                }
-
-                let mut hit_test_metrics = vec![DWRITE_HIT_TEST_METRICS::default(); 16];
-                let mut actual_count: u32 = 0;
-
-                let res = layout.HitTestTextRange(
-                    start,
-                    len,
-                    0.0,
-                    0.0,
-                    Some(&mut hit_test_metrics),
-                    &raw mut actual_count,
-                );
-                if res.is_ok() && actual_count as usize > hit_test_metrics.len() {
-                    hit_test_metrics
-                        .resize(actual_count as usize, DWRITE_HIT_TEST_METRICS::default());
-                    let _ = layout.HitTestTextRange(
-                        start,
-                        len,
-                        0.0,
-                        0.0,
-                        Some(&mut hit_test_metrics),
-                        &raw mut actual_count,
-                    );
-                }
-
-                // A. 取り消し線（strikethrough）の描画
-                if let Some(style) = span.strikethrough {
-                    let st_brush = if let Some(color) = span.strikethrough_color {
-                        let d2d_color = D2D1_COLOR_F {
-                            r: color.r,
-                            g: color.g,
-                            b: color.b,
-                            a: color.a,
-                        };
-                        target
-                            .CreateSolidColorBrush(&raw const d2d_color, None)
-                            .ok()
-                    } else if let Some(color) = span.color {
-                        let d2d_color = D2D1_COLOR_F {
-                            r: color.r,
-                            g: color.g,
-                            b: color.b,
-                            a: color.a,
-                        };
-                        target
-                            .CreateSolidColorBrush(&raw const d2d_color, None)
-                            .ok()
-                    } else {
-                        None
-                    };
-                    let active_st_brush = st_brush.as_ref().unwrap_or(&default_brush);
-                    let stroke_width = match style {
-                        crate::StrikethroughStyle::Solid => 1.0,
-                        crate::StrikethroughStyle::Thick => 2.5,
-                    };
-
-                    (0..actual_count as usize).for_each(|m_idx| {
-                        let metric = &hit_test_metrics[m_idx];
-                        let strikethrough_y = metric.top + metric.height * 0.5;
-
-                        target.DrawLine(
-                            Vector2 {
-                                X: metric.left,
-                                Y: strikethrough_y,
-                            },
-                            Vector2 {
-                                X: metric.left + metric.width,
-                                Y: strikethrough_y,
-                            },
-                            active_st_brush,
-                            stroke_width,
-                            None,
-                        );
-                    });
-                }
-
-                if let Some(style) = span.underline {
-                    let ul_brush = if let Some(color) = span.underline_color {
-                        let d2d_color = D2D1_COLOR_F {
-                            r: color.r,
-                            g: color.g,
-                            b: color.b,
-                            a: color.a,
-                        };
-                        target
-                            .CreateSolidColorBrush(&raw const d2d_color, None)
-                            .ok()
-                    } else if let Some(color) = span.color {
-                        let d2d_color = D2D1_COLOR_F {
-                            r: color.r,
-                            g: color.g,
-                            b: color.b,
-                            a: color.a,
-                        };
-                        target
-                            .CreateSolidColorBrush(&raw const d2d_color, None)
-                            .ok()
-                    } else {
-                        None
-                    };
-                    let active_ul_brush = ul_brush.as_ref().unwrap_or(&default_brush);
-
-                    (0..actual_count as usize).for_each(|m_idx| {
-                        let metric = &hit_test_metrics[m_idx];
-                        let left = metric.left;
-                        let right = metric.left + metric.width;
-                        let underline_y = metric.top + metric.height - 1.0;
-
-                        match style {
-                            crate::UnderlineStyle::Solid => {
-                                target.DrawLine(
-                                    Vector2 {
-                                        X: left,
-                                        Y: underline_y,
-                                    },
-                                    Vector2 {
-                                        X: right,
-                                        Y: underline_y,
-                                    },
-                                    active_ul_brush,
-                                    1.0,
-                                    None,
-                                );
-                            }
-                            crate::UnderlineStyle::Thick => {
-                                target.DrawLine(
-                                    Vector2 {
-                                        X: left,
-                                        Y: underline_y,
-                                    },
-                                    Vector2 {
-                                        X: right,
-                                        Y: underline_y,
-                                    },
-                                    active_ul_brush,
-                                    2.5,
-                                    None,
-                                );
-                            }
-                            crate::UnderlineStyle::Wave => {
-                                let mut x = left;
-                                let mut y_up = false;
-                                let mut prev_x = x;
-                                let mut prev_y = underline_y;
-                                let wave_amplitude = 1.0;
-                                let wave_step = 2.0;
-
-                                while x < right {
-                                    x += wave_step;
-                                    let target_x = x.min(right);
-                                    let target_y = if y_up {
-                                        underline_y - wave_amplitude
-                                    } else {
-                                        underline_y + wave_amplitude
-                                    };
-
-                                    target.DrawLine(
-                                        Vector2 {
-                                            X: prev_x,
-                                            Y: prev_y,
-                                        },
-                                        Vector2 {
-                                            X: target_x,
-                                            Y: target_y,
-                                        },
-                                        active_ul_brush,
-                                        1.0,
-                                        None,
-                                    );
-                                    prev_x = target_x;
-                                    prev_y = target_y;
-                                    y_up = !y_up;
-                                }
-                            }
-                            _ => {}
-                        }
-                    });
-                }
-            }
-
             target.EndDraw(None, None).unwrap();
+        }
 
-            // 5. ピクセルデータの抽出
-            let mut bgra_pixels = vec![0u8; (width * height * 4) as usize];
+        let mut bgra_pixels = vec![0u8; (width * height * 4) as usize];
+        unsafe {
             wic_bitmap
                 .CopyPixels(std::ptr::null(), width * 4, &mut bgra_pixels)
-                .unwrap();
+                .unwrap()
+        };
 
-            //  Alphaだけを集めて、wgpuに書き込む用の1チャネルバッファを作成
-            let r8_pixels: Vec<u8> = bgra_pixels.chunks_exact(4).map(|p| p[3]).collect();
+        let r8_pixels: Vec<u8> = bgra_pixels.chunks_exact(4).map(|p| p[3]).collect();
 
-            r8_pixels
-        }
+        r8_pixels
     }
 }
 
@@ -736,13 +589,11 @@ pub(crate) fn hash_text_spans(spans: &[crate::TextSpan]) -> u64 {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TextCacheKey {
-    pub(crate) text: Cow<'static, str>,
+    pub(crate) character: char,
     pub(crate) font_size_bits: u32,
     pub(crate) font_family: Option<Cow<'static, str>>,
     pub(crate) font_weight: Option<u32>,
     pub(crate) font_style: Option<u32>,
-    pub(crate) spans_hash: u64,
-    pub(crate) max_width_bits: u32,
 }
 
 #[derive(Clone, Debug, Copy)]

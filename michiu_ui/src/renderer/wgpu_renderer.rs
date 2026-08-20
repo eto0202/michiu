@@ -420,7 +420,13 @@ impl WgpuRenderer {
     pub(crate) fn render(&mut self, cx: &mut Context, scale_factor: f32) {
         let _context_guard = crate::bind_context(cx);
         // 前面と背面に分類されたバッチを Context から引き出す
-        cx.collect_render_data(&mut self.render_data);
+        cx.collect_render_data(
+            &mut self.render_data,
+            &mut self.atlas,
+            &self.text_rasterizer,
+            &mut self.text_cache,
+            &self.queue,
+        );
         if self.render_data.batches.is_empty() {
             return;
         }
@@ -439,29 +445,11 @@ impl WgpuRenderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut retry_count = 0;
-        loop {
-            let mut atlas_cleared_during_loop = false;
-            self.instance_staging.clear();
-
-            for (i, instance) in render_data.instances.iter().enumerate() {
-                let entity_id = render_data.entity_ids[i];
-
-                // ビルドを実行しアトラスクリアが発生したか検証
-                let (inst, cleared) = self.build_quad_instance_for_entity(cx, entity_id, instance);
-                if cleared {
-                    atlas_cleared_during_loop = true;
-                    break; // ループを直ちに中断してアトラス再構築
-                }
-                self.instance_staging.push(inst);
-            }
-
-            // ループの途中でアトラスがクリアされた場合最初からビルドをやり直す
-            if atlas_cleared_during_loop && retry_count < 2 {
-                retry_count += 1;
-                continue;
-            }
-            break;
+        self.instance_staging.clear();
+        for (i, instance) in render_data.instances.iter().enumerate() {
+            let entity_id = render_data.entity_ids[i];
+            let (inst, _) = WgpuRenderer::build_quad_instance_for_entity(cx, entity_id, instance);
+            self.instance_staging.push(inst);
         }
 
         // VRAM インスタンスバッファへの一括転送
@@ -610,9 +598,8 @@ impl WgpuRenderer {
         }
     }
 
-    /// ヘルパー: 各 `EntityId` の属性から GPU 用の `QuadInstance` を正確に構築
+    /// `QuadInstance` に静的バインドする
     fn build_quad_instance_for_entity(
-        &mut self,
         cx: &Context,
         entity_id: EntityId,
         instance: &QuadInstance,
@@ -629,7 +616,7 @@ impl WgpuRenderer {
             .get(entity_id)
             .copied()
             .unwrap_or_default();
-        let grid = &cx
+        let _grid = &cx
             .layouts
             .lay_resolved_grid
             .get(entity_id)
@@ -650,7 +637,7 @@ impl WgpuRenderer {
             BoxSizing::ContentBox => 1.0f32,
         };
 
-        // 四辺個別長さの抽出（設定が無ければ 1.0 (100% 描画) とする）
+        // 四辺個別枠線フラグの抽出
         let border_lengths = visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
         let styles = visual.border_styles.unwrap_or([BorderStyle::Solid; 4]);
         let aligns = visual
@@ -659,11 +646,10 @@ impl WgpuRenderer {
 
         let mut border_flags = 0u32;
         for i in 0..4 {
-            let s_val = styles[i] as u32; // 0..3 (2ビット)
-            let a_val = aligns[i] as u32; // 0..2 (2ビット)
-
-            border_flags |= s_val << (i * 4); // スタイル用： bit 0, 4, 8, 12 起点
-            border_flags |= a_val << (i * 4 + 2); // アライメント用： bit 2, 6, 10, 14 起点
+            let s_val = styles[i] as u32;
+            let a_val = aligns[i] as u32;
+            border_flags |= s_val << (i * 4);
+            border_flags |= a_val << (i * 4 + 2);
         }
 
         let o_width = visual.outline_width.unwrap_or_default();
@@ -683,39 +669,30 @@ impl WgpuRenderer {
             outline_flags |= a_val << (i * 4 + 2);
         }
 
-        // 影 (BoxShadow) のデータを選別して適用
-        // テンプレート側が影なしを指定している場合は SoA を無視して完全透明にする
-        let mut shadow_color =
+        // 影のカラーと形状の解決
+        let shadow_color =
             if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
-                visual.shadow_color.unwrap_or_default()
+                let mut color = visual.shadow_color.unwrap_or_default();
+                // WebViewアクティブ（DCompブレンド時）の濃さの補正
+                let mut has_active_webview_parent = false;
+                let mut curr_id = entity_id;
+                while let Some(Some(parent_id)) = cx.topology.topo_parents.get(curr_id) {
+                    if cx.topology.topo_active_masks[*parent_id].has_webveiw2_content()
+                        && cx.renders.rnd_active_webviews.contains(parent_id)
+                    {
+                        has_active_webview_parent = true;
+                        break;
+                    }
+                    curr_id = *parent_id;
+                }
+                if has_active_webview_parent {
+                    color.a *= 0.45;
+                }
+                color
             } else {
-                Color::TRANSPARENT // テンプレートが透明を指定、または SoA に形状が無いなら影を完全無効化
+                Color::TRANSPARENT
             };
 
-        // WebView2 がアクティブ（昇格表示）の時は、
-        // 透過スナップショットを突き抜けて DComp コンポジターでブレンドされるため、
-        // 影の黒さが非線形（ガンマ空間）で強調されて濃く見えてしまう。
-        // これを防ぐため、親要素に COMP_WEBVIEW_CONTENT があり、かつそれが rnd_active_webviews (準備完了) に
-        // 入っている場合は、影のアルファを 45% に補正して、静止画キャッシュ時と視覚的な濃さを統一。
-        if shadow_color != Color::TRANSPARENT {
-            let mut has_active_webview_parent = false;
-            let mut curr_id = entity_id;
-            while let Some(Some(parent_id)) = cx.topology.topo_parents.get(curr_id) {
-                if cx.topology.topo_active_masks[*parent_id].has_webveiw2_content()
-                    && cx.renders.rnd_active_webviews.contains(parent_id)
-                {
-                    has_active_webview_parent = true;
-                    break;
-                }
-                curr_id = *parent_id;
-            }
-
-            if has_active_webview_parent {
-                shadow_color.a *= 0.45;
-            }
-        }
-
-        // 影のパラメータ（形状）も上記カラーが透明なら 0 に落とす
         let shadow_params = if shadow_color == Color::TRANSPARENT {
             [0.0; 4]
         } else {
@@ -725,380 +702,27 @@ impl WgpuRenderer {
             }
         };
 
-        let is_decorator = instance.opacity_mode_sizing[1] < -0.5; // mode == -1.0 なら true
-        let is_text_body = (instance.opacity_mode_sizing[1] - 2.0).abs() < 0.01; // mode == 2.0 なら true
-
-        let mut current_mode = if is_decorator {
-            -1.0f32
-        } else if is_text_body {
-            2.0f32
-        } else if visual.bg_gradient.is_some() {
-            1.0f32
-        } else {
-            0.0f32
-        };
-        let mut uv_min = instance.uv_min; // collect_render_data 側での指定値を維持
-        let mut uv_max = instance.uv_max;
-
-        let mut final_rect = instance.rect;
-        let mut final_color = instance.color;
-
-        if is_text_body && cx.topology.topo_active_masks[entity_id].has_text_content() {
-            let spans = cx
-                .contents
-                .cont_text_spans
-                .get(entity_id)
-                .map_or(&[][..], Vec::as_slice);
-
-            let (text_size, is_multiline) = if cx.topology.topo_active_masks[entity_id]
-                .has_input_content()
-                && let Some(contents) = cx.contents.cont_input_contents.get(entity_id)
-                && let Some(layout_rect) = contents.last_layout
-            {
-                (
-                    LayoutSize::new(layout_rect.width, layout_rect.height),
-                    contents.is_multiline,
-                )
-            } else {
-                let text = &cx.contents.cont_text_contents[entity_id];
-                let visual = cx
-                    .renders
-                    .rnd_visual
-                    .get(entity_id)
-                    .unwrap_or(&default_visual);
-                // max_width を逆算
-                let rect = cx
-                    .outputs
-                    .out_rects
-                    .get(entity_id)
-                    .copied()
-                    .unwrap_or_default();
-                let (border, padding) =
-                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-                let max_width =
-                    (rect.width - border.right - border.left - padding.right - padding.left)
-                        .max(0.0);
-                // uto_wrap が有効な場合のみ、計算した最大幅を設定する
-                let max_width_opt = if visual.auto_wrap.unwrap_or(false) {
-                    Some(max_width)
-                } else {
-                    None
-                };
-
-                let layout = cx.system.sys_text_engine.create_layout(
-                    text,
-                    visual.font_size.unwrap_or(16.0),
-                    visual.font_family.as_deref(),
-                    visual.font_weight,
-                    visual.font_style,
-                    max_width_opt,
-                    visual.auto_wrap,
-                    spans,
-                );
-                (cx.system.sys_text_engine.get_layout_size(&layout), false)
-            };
-
-            let rect = cx
-                .outputs
-                .out_rects
-                .get(entity_id)
-                .copied()
-                .unwrap_or_default();
-            let (border, padding) =
-                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-            // スクロールオフセット
-            let scroll = cx
-                .outputs
-                .out_scroll_offsets
-                .get(entity_id)
-                .copied()
-                .unwrap_or(LayoutPoint::ZERO);
-
-            let align_offset = OutputStore::calc_align_offset(
-                rect,
-                border,
-                padding,
-                text_size,
-                flex.text_align,
-                flex.align_items,
-                is_multiline,
-            );
-
-            // 完全に整数ピクセルサイズにスナップし、にじみとピクピク揺れを完全に阻止
-            final_rect = LayoutRect::new(
-                instance.rect.x + border.left + padding.left + align_offset.x - scroll.x,
-                instance.rect.y + border.top + padding.top + align_offset.y - scroll.y,
-                text_size.width.ceil(),
-                text_size.height.ceil(),
-            );
-        }
-
-        let mut atlas_cleared = false;
-
-        // 静止 WebView2 キャッシュの引き当て判定
-        if !is_decorator && let Some(_cached_view) = self.webview_static_caches.get(&entity_id) {
-            // 描画モードを 3.0f32 (静止 WebView2 サンプリング) にスイッチ
-            current_mode = 3.0;
-            uv_min = [0.0, 0.0];
-            uv_max = [1.0, 1.0];
-        } else if is_text_body && cx.topology.topo_active_masks[entity_id].has_text_content() {
-            // テキスト要素である場合
-            let text = cx
-                .contents
-                .cont_text_contents
-                .get(entity_id)
-                .cloned()
-                .unwrap_or_else(|| "".into());
-
-            let font_size = cx
-                .renders
-                .rnd_visual
-                .get(entity_id)
-                .and_then(|v| v.font_size)
-                .unwrap_or(16.0);
-
-            // IME 未確定テキストが入力中か否かを判定
-            let is_ime_active = cx
-                .contents
-                .cont_input_contents
-                .get(entity_id)
-                .and_then(|c| c.ime_state.as_ref())
-                .is_some_and(|ime| !ime.composition_text.is_empty());
-
-            let base_text_empty = cx
-                .contents
-                .cont_input_contents
-                .get(entity_id)
-                .is_some_and(|c| c.text.0.get().is_empty());
-
-            let placeholder_color = cx
-                .contents
-                .cont_input_contents
-                .get(entity_id)
-                .and_then(|p| p.placeholder_color)
-                .unwrap_or(Color::rgb_f32(0.5, 0.5, 0.5));
-
-            let resolved_color = if base_text_empty && !is_ime_active {
-                // プレースホルダー時は半透明の薄いグレー
-                // 確定文字列が空、かつ IME 未変換も空の場合のみプレースホルダー色
-                placeholder_color
-            } else {
-                // 通常文字入力中はユーザー指定色、無ければ不透明白
-                cx.renders
-                    .rnd_visual
-                    .get(entity_id)
-                    .and_then(|v| v.text_color)
-                    .unwrap_or(Color::WHITE)
-            };
-
-            let rect = cx
-                .outputs
-                .out_rects
-                .get(entity_id)
-                .copied()
-                .unwrap_or_default();
-            let (border, padding) =
-                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-            let max_width =
-                (rect.width - border.right - border.left - padding.right - padding.left).max(0.0);
-            let max_width_phys = max_width * cx.window.win_scale_factor;
-            // コンテナ幅がまだ未確定（0.0以下）の場合は、折り返さずに本来のサイズで計測
-            let max_width_opt = if visual.auto_wrap.unwrap_or(false) && max_width_phys > 0.0 {
-                Some(max_width_phys)
-            } else {
-                None
-            };
-
-            let mut spans = cx
-                .contents
-                .cont_text_spans
-                .get(entity_id)
-                .cloned()
-                .unwrap_or_else(Vec::new);
-
-            // 選択範囲がある場合、ハイライトスパンをキャッシュ判定の前にマージ
-            if let Some(selection) = cx.outputs.out_text_selections.get(entity_id)
-                && selection.start < selection.end
-                && let Some(sel_text) = visual.select_text_color
-            {
-                spans.push(TextSpan {
-                    range: selection.clone(),
-                    color: Some(sel_text), // 文字色の変更がある時だけアトラス側でラスタライズ
-                    bg_color: None,        // 背景色は wgpu-Quad 側に描画させるためここでは None
-                    underline: None,
-                    ..Default::default()
-                });
-            }
-
-            // マージされたスパン全体から正確なキャッシュ用ハッシュ値を算出
-            let spans_hash = crate::hash_text_spans(&spans);
-
-            let text_clone = text.clone();
-            let key = TextCacheKey {
-                text,
-                font_size_bits: (font_size * cx.window.win_scale_factor).to_bits(),
-                font_style: cx
-                    .renders
-                    .rnd_visual
-                    .get(entity_id)
-                    .and_then(|v| v.font_style),
-                font_family: cx
-                    .renders
-                    .rnd_visual
-                    .get(entity_id)
-                    .and_then(|f| f.font_family.clone()),
-                font_weight: cx
-                    .renders
-                    .rnd_visual
-                    .get(entity_id)
-                    .and_then(|v| v.font_weight),
-                spans_hash,
-                max_width_bits: max_width_opt.unwrap_or(0.0).to_bits(),
-            };
-
-            let uv = if let Some(cached) = self.text_cache.get(&key) {
-                (cached.uv_min, cached.uv_max)
-            } else {
-                let physical_font_size = font_size * cx.window.win_scale_factor;
-
-                // 物理最大幅を解決
-                let rect = cx
-                    .outputs
-                    .out_rects
-                    .get(entity_id)
-                    .copied()
-                    .unwrap_or_default();
-                let (border, padding) =
-                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-                let max_width =
-                    (rect.width - border.right - border.left - padding.right - padding.left)
-                        .max(0.0);
-
-                let max_width_phys = max_width * cx.window.win_scale_factor;
-                // コンテナ幅がまだ未確定の場合は、折り返さずに本来のサイズで計測
-                let max_width_opt = if visual.auto_wrap.unwrap_or(false) && max_width_phys > 0.0 {
-                    Some(max_width_phys)
-                } else {
-                    None
-                };
-
-                let mut spans = cx
-                    .contents
-                    .cont_text_spans
-                    .get(entity_id)
-                    .cloned()
-                    .unwrap_or_else(Vec::new);
-
-                // 選択範囲が存在する場合、カラーハイライト用の TextSpan を動的にマージ
-                if let Some(selection) = cx.outputs.out_text_selections.get(entity_id)
-                    && selection.start < selection.end
-                    && let Some(sel_text) = visual.select_text_color
-                {
-                    spans.push(TextSpan {
-                        range: selection.clone(),
-                        color: Some(sel_text),
-                        bg_color: None,
-                        underline: None,
-                        ..Default::default()
-                    });
-                }
-
-                let physical_layout = cx.system.sys_text_engine.create_layout(
-                    &text_clone,
-                    physical_font_size,
-                    cx.renders
-                        .rnd_visual
-                        .get(entity_id)
-                        .and_then(|v| v.font_family.as_deref()),
-                    cx.renders
-                        .rnd_visual
-                        .get(entity_id)
-                        .and_then(|v| v.font_weight),
-                    cx.renders
-                        .rnd_visual
-                        .get(entity_id)
-                        .and_then(|v| v.font_style),
-                    max_width_opt,
-                    cx.renders
-                        .rnd_visual
-                        .get(entity_id)
-                        .and_then(|v| v.auto_wrap),
-                    &spans,
-                );
-
-                let size = cx.system.sys_text_engine.get_layout_size(&physical_layout);
-                let r8_pixels = self.text_rasterizer.rasterize(
-                    &physical_layout,
-                    size,
-                    &spans,
-                    &cx.system.sys_text_engine.rendering_params,
-                );
-
-                let width = size.width.ceil() as u32;
-                let height = size.height.ceil() as u32;
-
-                let mut alloc_res = self.atlas.allocate(width, height);
-
-                if alloc_res.is_none() {
-                    self.atlas.clear();
-                    self.text_cache.clear();
-                    alloc_res = self.atlas.allocate(width, height);
-                    atlas_cleared = true;
-                }
-
-                let (x, y) = alloc_res.expect("Text exceeds maximum atlas size!");
-
-                self.queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &self.atlas.texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d { x, y, z: 0 },
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &r8_pixels,
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(width), // 1ピクセルあたり1バイト
-                        rows_per_image: Some(height),
-                    },
-                    wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                );
-
-                let (uv_min, uv_max) = self.atlas.texel_to_uv(x, y, width, height);
-                self.text_cache
-                    .insert(key, TextCacheValue { uv_min, uv_max });
-                (uv_min, uv_max)
-            };
-
-            current_mode = 2.0; // テキストモード（2.0f32）
-            uv_min = uv.0;
-            uv_max = uv.1;
-
-            final_color = resolved_color;
-        }
-
-        // 解決済みの累積トランスフォーム行列
         let packed_transform = instance.transform;
 
-        // 完全に 16B 境界にアラインされたインスタンス構造体をビルド
+        // モード、座標、UV は呼び出し元で既に決定されているためそのまま転送
         (
             QuadInstance {
-                rect: final_rect,
+                rect: instance.rect,
                 transform: packed_transform,
                 transform_origin: origin,
-                color: final_color,
+                color: instance.color,
                 corner_radius: visual.corner_radius.unwrap_or_default(),
                 border_width: instance.border_width,
                 border_color: visual.border_color.unwrap_or_default(),
                 border_lengths,
-                opacity_mode_sizing: [opacity, current_mode, box_sizing_val, border_flags as f32],
-                uv_min,
-                uv_max,
+                opacity_mode_sizing: [
+                    opacity,
+                    instance.opacity_mode_sizing[1], // mode (背景=0.0/1.0, テキスト=2.0, 静止WebView=3.0 等)
+                    box_sizing_val,
+                    border_flags as f32,
+                ],
+                uv_min: instance.uv_min,
+                uv_max: instance.uv_max,
                 gradient_end_color: instance.gradient_end_color,
                 gradient_angle: instance.gradient_angle,
                 _padding: 0.0,
@@ -1109,7 +733,7 @@ impl WgpuRenderer {
                 outline_lengths: o_lengths,
                 outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
             },
-            atlas_cleared,
+            false, // アトラスを直接操作しないため常に false
         )
     }
 

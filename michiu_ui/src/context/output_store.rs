@@ -1,4 +1,10 @@
-use std::{cell::RefCell, collections::HashSet, ops::Range, time::Instant};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    ops::Range,
+    time::Instant,
+};
 
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
@@ -12,9 +18,10 @@ use crate::{
     LayoutStore, ParentsSecondary, PointerEvents, Position, PropertyList, QuadInstance,
     ReactiveStore, RenderData, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
     ResolvedGridSparseSecondary, STATE_QUEUED_LAYOUT, STYLE_OVERFLOW, STYLE_TEXT_SPANS,
-    ScrollbarStylesSecondary, SortedEntitiesVec, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
-    TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val,
+    ScrollbarStylesSecondary, SortedEntitiesVec, StrikethroughStyle, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextCacheKey, TextCacheValue,
+    TextContentsSparseSecondary, TextEngine, TextRasterizer, TextSpansSparseSecondary,
+    TextureAtlas, TopoSortCacheVec, TopologyStore, UnderlineStyle, UserSelect, Val,
     VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context, with_context,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -1979,8 +1986,16 @@ impl OutputStore {
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
     pub(crate) fn collect_render_data(
         render_data: &mut RenderData,
+        atlas: &mut TextureAtlas,
+        text_rasterizer: &TextRasterizer,
+        text_cache: &mut HashMap<TextCacheKey, TextCacheValue>,
+        queue: &wgpu::Queue,
         win_scale_factor: f32,
+        sys_text_engine: &TextEngine,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
         evt_interaction_states: &InteractionStates,
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_effective_transforms: &mut EffectiveTransformsSecondary,
@@ -2005,18 +2020,96 @@ impl OutputStore {
         out_selected_rects: &SelectedRectsSparseSecondary,
         out_scroll_offsets: &ScrollOffsetsSecondary,
     ) {
-        let mut last_clip = None;
+        // 静的なデフォルト値（一度だけ確保して使い回す）
+        let default_visual = VisualProperty::default();
 
+        // このフレームで描画される全テキストを先行スキャンし
+        // UV 座標登録を事前に確定しアトラスのクリアによるUVの破綻を防止
+        for &id in &*topo_sorted_entities {
+            let is_text = topo_active_masks[id].has_text_content();
+            if is_text {
+                let text = cont_text_contents
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(|| "".into());
+                let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
+
+                let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
+                let rect = out_rects.get(id).copied().unwrap_or_default();
+                let (border, padding) =
+                    LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+                let visual = rnd_visual.get(id).unwrap_or(&default_visual);
+
+                let font_size = visual.font_size.unwrap_or(16.0);
+                let font_family = visual.font_family.as_deref();
+                let font_weight = visual.font_weight;
+                let font_style = visual.font_style;
+
+                let text_u16_vec: Vec<u16> = text.encode_utf16().collect();
+                let mut char_idx = 0;
+                while char_idx < text_u16_vec.len() {
+                    // サロゲートペアを考慮
+                    let u16_chars = if char_idx + 1 < text_u16_vec.len()
+                        && (0xD800..=0xDBFF).contains(&text_u16_vec[char_idx])
+                    {
+                        &text_u16_vec[char_idx..char_idx + 2]
+                    } else {
+                        &text_u16_vec[char_idx..char_idx + 1]
+                    };
+                    let character = String::from_utf16(u16_chars)
+                        .ok()
+                        .and_then(|s| s.chars().next())
+                        .unwrap_or(' ');
+
+                    let span = spans.iter().find(|s| s.range.contains(&char_idx));
+                    let span_font_size = span.and_then(|s| s.font_size).unwrap_or(font_size);
+                    let span_font_family =
+                        span.and_then(|s| s.font_family.as_deref()).or(font_family);
+                    let span_font_weight = span.and_then(|s| s.font_weight).or(font_weight);
+                    let span_font_style = span.and_then(|s| s.font_style).or(font_style);
+
+                    let max_width =
+                        rect.width - border.right - border.left - padding.right - padding.left;
+                    let max_width_phys = max_width * win_scale_factor;
+
+                    let max_width_opt = if visual.auto_wrap.unwrap_or(true) && max_width_phys > 0.0
+                    {
+                        Some(max_width_phys)
+                    } else {
+                        None
+                    };
+
+                    let key = TextCacheKey {
+                        character,
+                        font_size_bits: (span_font_size * win_scale_factor).to_bits(),
+                        font_style: span_font_style,
+                        font_family: span_font_family.map(|f| Cow::Owned(f.to_string())),
+                        font_weight: span_font_weight,
+                    };
+
+                    // この段階でアトラスに 1文字ずつ先行してキャッシュ
+                    let _ = sys_text_engine.get_or_create_glyph_uv(
+                        &key,
+                        atlas,
+                        text_rasterizer,
+                        text_cache,
+                        queue,
+                    );
+
+                    char_idx += u16_chars.len(); // サロゲートペアを考慮してインデックスを進める
+                }
+            }
+        }
+
+        // 全文字のキャッシュヒットが1確定しているため、
+        // アトラスクリアによるUVの途中の破綻は起きない
         render_data.clear();
 
         // フラッシュ済みのオフセット位置を追跡する変数
         let mut last_flushed_offset = 0;
-
         // 現在のバッチの種類 (通常)
         let mut current_batch_type = BatchType::Normal;
-
-        // 静的なデフォルト値（一度だけ確保して使い回す）
-        let default_visual = VisualProperty::default();
+        let mut last_clip = None;
 
         // 各要素の実効トランスフォーム行列を DFS 順にカスケード累積
         RenderStore::accumulate_transform_matrix(
@@ -2045,8 +2138,8 @@ impl OutputStore {
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
-
             let clip = out_clip_rects.get(id).copied().unwrap_or_default();
+
             let is_webview = topo_active_masks
                 .get(id)
                 .is_some_and(ComponentMask::has_webveiw2_content);
@@ -2218,7 +2311,7 @@ impl OutputStore {
                 last_clip = Some(clip);
             }
 
-            // 選択ハイライト背景のwgpu側への差し込み
+            // 選択ハイライト背景
             if let Some(out_rects) = out_selected_rects.get(id) {
                 let (border, padding) =
                     LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -2284,7 +2377,7 @@ impl OutputStore {
                 BoxSizing::ContentBox => 1.0f32,
             };
 
-            if is_text && has_bg {
+            if has_bg {
                 let bg_color = visual.bg_color.unwrap_or_default();
                 let (gradient_end_color, gradient_angle, bg_mode) = match visual.bg_gradient {
                     Some(g) => (g.end_color, g.angle, 1.0f32),
@@ -2325,94 +2418,421 @@ impl OutputStore {
                 render_data.entity_ids.push(id);
             }
 
-            // 通常のテキスト / 背景のレンダリング
-            let color = if is_text {
-                visual.text_color.unwrap_or(Color::BLACK)
-            } else {
-                visual.bg_color.unwrap_or_default()
-            };
-
-            let (gradient_end_color, gradient_angle, mut mode) = match visual.bg_gradient {
-                Some(g) => (g.end_color, g.angle, 1.0f32),
-                None => (color, 0.0, 0.0f32),
-            };
-
             if is_text {
-                mode = 2.0;
+                let text = cont_text_contents
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(|| "".into());
+                let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
+
+                let is_ime_active = cont_input_contents
+                    .get(id)
+                    .and_then(|c| c.ime_state.as_ref())
+                    .is_some_and(|ime| !ime.composition_text.is_empty());
+                let base_text_empty = cont_input_contents
+                    .get(id)
+                    .is_some_and(|c| c.text.0.get().is_empty());
+                let placeholder_color = cont_input_contents
+                    .get(id)
+                    .and_then(|p| p.placeholder_color)
+                    .unwrap_or(Color::rgb_f32(0.5, 0.5, 0.5));
+
+                let resolved_color = if base_text_empty && !is_ime_active {
+                    placeholder_color
+                } else {
+                    visual.text_color.unwrap_or(Color::WHITE)
+                };
+
+                if let Some(dw_layout) = SystemStore::get_or_create_layout(
+                    id,
+                    sys_text_engine,
+                    sys_dwrite_layouts,
+                    cont_text_contents,
+                    cont_text_spans,
+                    lay_resolved_basic,
+                    rnd_visual,
+                    out_rects,
+                ) {
+                    let text_u16_len = text.encode_utf16().count();
+                    let metrics = sys_text_engine.get_all_char_metrics(&dw_layout, text_u16_len);
+
+                    // 背景装飾
+                    for span in spans {
+                        if let Some(bg_color) = span.bg_color {
+                            let rects = OutputStore::calc_selection_rects(
+                                id,
+                                &dw_layout,
+                                span.range.clone(),
+                            );
+                            let (border, padding) = LayoutStore::get_physical_border_padding(
+                                rect,
+                                basic.border,
+                                basic.padding,
+                            );
+                            let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
+
+                            let text_size = cont_input_contents
+                                .get(id)
+                                .and_then(|c| c.last_layout)
+                                .map_or_else(
+                                    || sys_text_engine.get_layout_size(&dw_layout),
+                                    |l| LayoutSize::new(l.width, l.height),
+                                );
+
+                            let align_offset = OutputStore::calc_align_offset(
+                                rect,
+                                border,
+                                padding,
+                                text_size,
+                                flex.text_align,
+                                flex.align_items,
+                                cont_input_contents.get(id).is_some_and(|c| c.is_multiline),
+                            );
+
+                            for metric_rect in rects {
+                                let sel_rect = LayoutRect::new(
+                                    rect.x
+                                        + border.left
+                                        + padding.left
+                                        + align_offset.x
+                                        + metric_rect.x
+                                        - scroll.x,
+                                    rect.y
+                                        + border.top
+                                        + padding.top
+                                        + align_offset.y
+                                        + metric_rect.y
+                                        - scroll.y,
+                                    metric_rect.width,
+                                    metric_rect.height,
+                                );
+
+                                let sel_instance = QuadInstance {
+                                    rect: sel_rect,
+                                    transform: packed_transform,
+                                    color: bg_color,
+                                    opacity_mode_sizing: [
+                                        visual.opacity.unwrap_or(1.0),
+                                        -1.0,
+                                        0.0,
+                                        0.0,
+                                    ],
+                                    ..Default::default()
+                                };
+                                render_data.instances.push(sel_instance);
+                                render_data.entity_ids.push(id);
+                            }
+                        }
+                    }
+
+                    // 文字ごとのインスタンス
+                    let (border, padding) =
+                        LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+                    let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
+                    let text_size = cont_input_contents
+                        .get(id)
+                        .and_then(|c| c.last_layout)
+                        .map_or_else(
+                            || sys_text_engine.get_layout_size(&dw_layout),
+                            |l| LayoutSize::new(l.width, l.height),
+                        );
+
+                    let align_offset = OutputStore::calc_align_offset(
+                        rect,
+                        border,
+                        padding,
+                        text_size,
+                        flex.text_align,
+                        flex.align_items,
+                        cont_input_contents.get(id).is_some_and(|c| c.is_multiline),
+                    );
+
+                    let text_u16_vec: Vec<u16> = text.encode_utf16().collect();
+
+                    for metric in metrics {
+                        let char_idx = metric.textPosition as usize;
+                        if char_idx >= text_u16_vec.len() {
+                            continue;
+                        }
+
+                        // サロゲートペア文字を考慮した1文字文字境界の抽出
+                        let u16_chars = if char_idx + 1 < text_u16_vec.len()
+                            && (0xD800..=0xDBFF).contains(&text_u16_vec[char_idx])
+                        {
+                            &text_u16_vec[char_idx..char_idx + 2]
+                        } else {
+                            &text_u16_vec[char_idx..char_idx + 1]
+                        };
+                        let character = String::from_utf16(u16_chars)
+                            .ok()
+                            .and_then(|s| s.chars().next())
+                            .unwrap_or(' ');
+
+                        // 該当文字に当たるテキストスパンのフォントオーバーライド
+                        let span = spans.iter().find(|s| s.range.contains(&char_idx));
+                        let char_color = span.and_then(|s| s.color).unwrap_or(resolved_color);
+
+                        let font_size = span
+                            .and_then(|s| s.font_size)
+                            .unwrap_or(visual.font_size.unwrap_or(16.0));
+                        let font_family = span
+                            .and_then(|s| s.font_family.as_deref())
+                            .or(visual.font_family.as_deref());
+                        let font_weight = span.and_then(|s| s.font_weight).or(visual.font_weight);
+                        let font_style = span.and_then(|s| s.font_style).or(visual.font_style);
+
+                        // 最大幅
+                        let max_width =
+                            rect.width - border.right - border.left - padding.right - padding.left;
+                        let max_width_phys = max_width * win_scale_factor;
+
+                        let max_width_opt =
+                            if visual.auto_wrap.unwrap_or(true) && max_width_phys > 0.0 {
+                                Some(max_width_phys)
+                            } else {
+                                None
+                            };
+
+                        let key = TextCacheKey {
+                            character,
+                            font_size_bits: (font_size * win_scale_factor).to_bits(),
+                            font_style,
+                            font_family: font_family.map(|f| Cow::Owned(f.to_string())),
+                            font_weight,
+                        };
+
+                        // DWrite リソース解決APIを呼び出して UV を取得
+                        let (uv_min, uv_max, _cleared) = sys_text_engine.get_or_create_glyph_uv(
+                            &key,
+                            atlas,
+                            text_rasterizer,
+                            text_cache,
+                            queue,
+                        );
+
+                        // アトラスに登録された実際の物理テクスチャ解像度を逆算
+                        let tex_phys_w = (uv_max[0] - uv_min[0]) * atlas.size as f32;
+                        let tex_phys_h = (uv_max[1] - uv_min[1]) * atlas.size as f32;
+
+                        // 論理サイズに逆算
+                        let tex_log_w = tex_phys_w / win_scale_factor;
+                        let tex_log_h = tex_phys_h / win_scale_factor;
+
+                        // 文字の配置
+                        let char_rect = LayoutRect::new(
+                            rect.x + border.left + padding.left + align_offset.x + metric.left
+                                - scroll.x,
+                            rect.y + border.top + padding.top + align_offset.y + metric.top
+                                - scroll.y,
+                            tex_log_w,
+                            tex_log_h,
+                        );
+
+                        let glyph_instance = QuadInstance {
+                            rect: char_rect,
+                            transform: packed_transform,
+                            transform_origin: origin,
+                            color: char_color,
+                            opacity_mode_sizing: [
+                                visual.opacity.unwrap_or(1.0),
+                                2.0,
+                                box_sizing_val,
+                                0.0,
+                            ],
+                            uv_min,
+                            uv_max,
+                            ..Default::default()
+                        };
+
+                        render_data.instances.push(glyph_instance);
+                        render_data.entity_ids.push(id);
+                    }
+
+                    // 前面装飾
+                    for span in spans {
+                        let has_ul = span.underline.is_some();
+                        let has_st = span.strikethrough.is_some();
+                        if !has_ul && !has_st {
+                            continue;
+                        }
+
+                        let rects =
+                            OutputStore::calc_selection_rects(id, &dw_layout, span.range.clone());
+                        let (border, padding) = LayoutStore::get_physical_border_padding(
+                            rect,
+                            basic.border,
+                            basic.padding,
+                        );
+                        let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
+
+                        let text_size = cont_input_contents
+                            .get(id)
+                            .and_then(|c| c.last_layout)
+                            .map_or_else(
+                                || sys_text_engine.get_layout_size(&dw_layout),
+                                |l| LayoutSize::new(l.width, l.height),
+                            );
+
+                        let align_offset = OutputStore::calc_align_offset(
+                            rect,
+                            border,
+                            padding,
+                            text_size,
+                            flex.text_align,
+                            flex.align_items,
+                            cont_input_contents.get(id).is_some_and(|c| c.is_multiline),
+                        );
+
+                        for metric_rect in rects {
+                            let start_x = rect.x
+                                + border.left
+                                + padding.left
+                                + align_offset.x
+                                + metric_rect.x
+                                - scroll.x;
+                            let end_x = start_x + metric_rect.width;
+                            let base_y =
+                                rect.y + border.top + padding.top + align_offset.y + metric_rect.y
+                                    - scroll.y;
+
+                            // 打消し線（中線）
+                            if let Some(st_style) = span.strikethrough {
+                                let st_color = span
+                                    .strikethrough_color
+                                    .or(span.color)
+                                    .unwrap_or(resolved_color);
+                                let thickness = match st_style {
+                                    StrikethroughStyle::Solid => 1.0,
+                                    StrikethroughStyle::Thick => 2.5,
+                                };
+                                let st_rect = LayoutRect::new(
+                                    start_x,
+                                    (base_y + metric_rect.height * 0.5 - thickness * 0.5).round(),
+                                    metric_rect.width,
+                                    thickness,
+                                );
+
+                                let st_instance = QuadInstance {
+                                    rect: st_rect,
+                                    transform: packed_transform,
+                                    color: st_color,
+                                    opacity_mode_sizing: [
+                                        visual.opacity.unwrap_or(1.0),
+                                        -1.0,
+                                        0.0,
+                                        0.0,
+                                    ],
+                                    ..Default::default()
+                                };
+                                render_data.instances.push(st_instance);
+                                render_data.entity_ids.push(id);
+                            }
+
+                            // 下線
+                            if let Some(ul_style) = span.underline {
+                                let ul_color = span
+                                    .underline_color
+                                    .or(span.color)
+                                    .unwrap_or(resolved_color);
+                                let thickness = match ul_style {
+                                    UnderlineStyle::Thick => 2.5,
+                                    UnderlineStyle::Solid
+                                    | UnderlineStyle::Wave
+                                    | UnderlineStyle::Double => 1.0,
+                                };
+                                let ul_y = (base_y + metric_rect.height - thickness - 1.0).round();
+
+                                if ul_style == UnderlineStyle::Wave {
+                                    let wave_amplitude = 1.0;
+                                    let wave_step: f32 = 2.0;
+                                    let mut temp_x = start_x;
+                                    let mut y_up = false;
+
+                                    while temp_x < end_x {
+                                        let seg_w = wave_step.min(end_x - temp_x);
+                                        let seg_y = if y_up {
+                                            ul_y - wave_amplitude
+                                        } else {
+                                            ul_y + wave_amplitude
+                                        };
+
+                                        let wave_instance = QuadInstance {
+                                            rect: LayoutRect::new(temp_x, seg_y, seg_w, 1.0),
+                                            transform: packed_transform,
+                                            color: ul_color,
+                                            opacity_mode_sizing: [
+                                                visual.opacity.unwrap_or(1.0),
+                                                -1.0,
+                                                0.0,
+                                                0.0,
+                                            ],
+                                            ..Default::default()
+                                        };
+                                        render_data.instances.push(wave_instance);
+                                        render_data.entity_ids.push(id);
+
+                                        temp_x += wave_step;
+                                        y_up = !y_up;
+                                    }
+                                } else {
+                                    let ul_rect = LayoutRect::new(
+                                        start_x,
+                                        ul_y,
+                                        metric_rect.width,
+                                        thickness,
+                                    );
+
+                                    let ul_instance = QuadInstance {
+                                        rect: ul_rect,
+                                        transform: packed_transform,
+                                        color: ul_color,
+                                        opacity_mode_sizing: [
+                                            visual.opacity.unwrap_or(1.0),
+                                            -1.0,
+                                            0.0,
+                                            0.0,
+                                        ],
+                                        ..Default::default()
+                                    };
+                                    render_data.instances.push(ul_instance);
+                                    render_data.entity_ids.push(id);
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            // テキスト要素で背景を分離描画した場合、テキストレイヤー側の装飾をクリア
-            let bypass_decorations = is_text && has_bg;
-            let border_width = if bypass_decorations {
-                EdgeInsets::ZERO
-            } else {
-                EdgeInsets {
-                    top: basic.border.top.into(),
-                    right: basic.border.right.into(),
-                    bottom: basic.border.bottom.into(),
-                    left: basic.border.left.into(),
-                }
-            };
-            let border_lengths = if bypass_decorations {
-                EdgeInsets::ZERO
-            } else {
-                visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0))
-            };
-            let border_color = if bypass_decorations {
-                Color::TRANSPARENT
-            } else {
-                visual.border_color.unwrap_or_default()
-            };
-            let shadow_color = if bypass_decorations {
-                Color::TRANSPARENT
-            } else {
-                Color::WHITE
-            };
-            let outline_width = if bypass_decorations {
-                EdgeInsets::ZERO
-            } else {
-                o_width
-            };
-            let outline_color = if bypass_decorations {
-                Color::TRANSPARENT
-            } else {
-                o_color
-            };
-            let outline_lengths = if bypass_decorations {
-                EdgeInsets::ZERO
-            } else {
-                o_lengths
-            };
-            let outline_offset_and_flags = if bypass_decorations {
-                [0.0; 4]
-            } else {
-                outline_offset_and_flags
-            };
+            // 通常要素（テキスト以外）の背景マウントは親ループですでに has_bg が完了しているため不要
+            // 背景指定がない場合でもボーダー単体描画等が必要な場合はフォールバック
+            if !is_text && !has_bg {
+                let instance = QuadInstance {
+                    rect,
+                    transform: packed_transform,
+                    transform_origin: origin,
+                    color: Color::TRANSPARENT,
+                    corner_radius: visual.corner_radius.unwrap_or_default(),
+                    border_width: EdgeInsets {
+                        top: basic.border.top.into(),
+                        right: basic.border.right.into(),
+                        bottom: basic.border.bottom.into(),
+                        left: basic.border.left.into(),
+                    },
+                    border_color: visual.border_color.unwrap_or_default(),
+                    border_lengths: visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0)),
+                    opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), 0.0, box_sizing_val, 0.0],
+                    outline_width: o_width,
+                    outline_color: o_color,
+                    outline_lengths: o_lengths,
+                    outline_offset_and_flags,
+                    ..Default::default()
+                };
 
-            let instance = QuadInstance {
-                rect,
-                transform: packed_transform,
-                transform_origin: origin,
-                color,
-                corner_radius: visual.corner_radius.unwrap_or_default(),
-                border_width,
-                border_color,
-                border_lengths,
-                opacity_mode_sizing: [visual.opacity.unwrap_or(1.0), mode, 0.0, 0.0],
-                gradient_end_color,
-                gradient_angle,
-                shadow_color,
-                outline_width,
-                outline_color,
-                outline_lengths,
-                outline_offset_and_flags,
-                ..Default::default()
-            };
+                render_data.instances.push(instance);
+                render_data.entity_ids.push(id);
+            }
 
-            render_data.instances.push(instance);
-            render_data.entity_ids.push(id);
-
-            // インプット要素のキャレット描画
+            // インプット要素のキャレット
             let is_input = topo_active_masks
                 .get(id)
                 .is_some_and(ComponentMask::has_input_content);
@@ -2427,13 +2847,10 @@ impl OutputStore {
                     LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
                 let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
-                let (text_size, is_multiline) = if let Some(layout_rect) = contents.last_layout {
-                    (
-                        LayoutSize::new(layout_rect.width, layout_rect.height),
-                        contents.is_multiline,
-                    )
+                let text_size = if let Some(layout_rect) = contents.last_layout {
+                    LayoutSize::new(layout_rect.width, layout_rect.height)
                 } else {
-                    (LayoutSize::ZERO, false)
+                    LayoutSize::ZERO
                 };
 
                 let align_offset = OutputStore::calc_align_offset(
@@ -2443,7 +2860,7 @@ impl OutputStore {
                     text_size,
                     flex.text_align,
                     flex.align_items,
-                    is_multiline,
+                    contents.is_multiline,
                 );
 
                 let caret_rect = OutputStore::calculate_caret_rect(
@@ -2455,6 +2872,7 @@ impl OutputStore {
                     scroll,
                     align_offset,
                 );
+
                 let c_color = contents
                     .caret_color
                     .or(rnd_base_visual.get(id).and_then(|v| v.text_color))
@@ -2570,11 +2988,26 @@ impl Context {
 
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
     #[inline]
-    pub(crate) fn collect_render_data(&mut self, render_data: &mut RenderData) {
+    pub(crate) fn collect_render_data(
+        &mut self,
+        render_data: &mut RenderData,
+        atlas: &mut TextureAtlas,
+        text_rasterizer: &TextRasterizer,
+        text_cache: &mut HashMap<TextCacheKey, TextCacheValue>,
+        queue: &wgpu::Queue,
+    ) {
         OutputStore::collect_render_data(
             render_data,
+            atlas,
+            text_rasterizer,
+            text_cache,
+            queue,
             self.window.win_scale_factor,
+            &self.system.sys_text_engine,
+            &self.system.sys_dwrite_layouts,
             &self.contents.cont_input_contents,
+            &self.contents.cont_text_contents,
+            &self.contents.cont_text_spans,
             &self.events.evt_interaction_states,
             &mut self.topology.topo_sorted_entities,
             &mut self.topology.topo_effective_transforms,
