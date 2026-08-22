@@ -1,6 +1,6 @@
 #![allow(clippy::pedantic, clippy::restriction, unused_must_use)]
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use michiu_ui::{
     ComposedRenderer, ElementState, ImeState, Modifiers, MouseButton, VirtualKey, prelude::*,
@@ -118,43 +118,71 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_PAINT => {
-                let total_start = std::time::Instant::now();
-                let layout_start = std::time::Instant::now();
+                let frame_start = std::time::Instant::now();
 
-                let mut ps = PAINTSTRUCT::default();
-                let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
-
+                let update_start = std::time::Instant::now();
                 app.context.tick_transitions();
                 app.context.tick_animations();
                 app.context.tick_drag_autoscroll();
+                let update_elapsed = update_start.elapsed();
 
+                let layout_start = std::time::Instant::now();
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
-
                 let layout_elapsed = layout_start.elapsed();
 
+                let comp_start = std::time::Instant::now();
                 app.renderer.update_composition_tree(&mut app.context);
+                let comp_elapsed = comp_start.elapsed();
+
+                let draw_start = std::time::Instant::now();
+                let mut ps = PAINTSTRUCT::default();
+                let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
                 app.renderer.draw(&mut app.context);
                 app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
+                let draw_elapsed = draw_start.elapsed();
 
-                let total_elapsed = total_start.elapsed();
+                let cpu_active_elapsed =
+                    update_elapsed + layout_elapsed + comp_elapsed + draw_elapsed;
+
+                let sync_start = std::time::Instant::now();
+                if app.context.has_active_animations() {
+                    let _ = unsafe { windows::Win32::Graphics::Dwm::DwmFlush() };
+                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                }
+                let sync_elapsed = sync_start.elapsed();
+                let total_elapsed = frame_start.elapsed();
 
                 thread_local! {
                     static LAST_PRINT: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
-                    static MAX_LAYOUT: Cell<f64> = const { Cell::new(0.0) };
-                    static MAX_TOTAL: Cell<f64> = const { Cell::new(0.0) };
-                    static FRAME_COUNT: Cell<u32> = const { Cell::new(0) };
+                    // 1秒間のデータを一時保存するバッファ
+                    static FRAME_DATA: RefCell<Vec<FrameMetrics>> = const { RefCell::new(Vec::new()) };
                 }
 
-                let layout_ms = layout_elapsed.as_secs_f64() * 1000.0;
-                let total_ms = total_elapsed.as_secs_f64() * 1000.0;
+                struct FrameMetrics {
+                    update: f64,
+                    layout: f64,
+                    comp: f64,
+                    draw: f64,
+                    sync: f64,
+                    cpu_active: f64,
+                    total: f64,
+                }
 
-                FRAME_COUNT.with(|c| c.set(c.get() + 1));
-                MAX_LAYOUT.with(|c| c.set(c.get().max(layout_ms)));
-                MAX_TOTAL.with(|c| c.set(c.get().max(total_ms)));
+                FRAME_DATA.with(|data| {
+                    data.borrow_mut().push(FrameMetrics {
+                        update: update_elapsed.as_secs_f64() * 1000.0,
+                        layout: layout_elapsed.as_secs_f64() * 1000.0,
+                        comp: comp_elapsed.as_secs_f64() * 1000.0,
+                        draw: draw_elapsed.as_secs_f64() * 1000.0,
+                        sync: sync_elapsed.as_secs_f64() * 1000.0,
+                        cpu_active: cpu_active_elapsed.as_secs_f64() * 1000.0,
+                        total: total_elapsed.as_secs_f64() * 1000.0,
+                    });
+                });
 
                 let now = std::time::Instant::now();
                 let should_print = LAST_PRINT.with(|c| match c.get() {
@@ -173,19 +201,46 @@ unsafe extern "system" fn wnd_proc(
                 });
 
                 if should_print {
-                    println!(
-                        "[FPS: {:>3}]  Max Layout: {:6.2}ms  |  Max Total CPU: {:6.2}ms",
-                        FRAME_COUNT.with(|c| c.replace(0)),
-                        MAX_LAYOUT.with(|c| c.replace(0.0)),
-                        MAX_TOTAL.with(|c| c.replace(0.0))
-                    );
+                    FRAME_DATA.with(|data| {
+                        let mut frames = data.borrow_mut();
+                        let count = frames.len();
+                        if count > 0 {
+                            // 各メトリクスの平均値
+                            let avg_update = frames.iter().map(|f| f.update).sum::<f64>() / count as f64;
+                            let avg_layout = frames.iter().map(|f| f.layout).sum::<f64>() / count as f64;
+                            let avg_comp = frames.iter().map(|f| f.comp).sum::<f64>() / count as f64;
+                            let avg_draw = frames.iter().map(|f| f.draw).sum::<f64>() / count as f64;
+                            let avg_sync = frames.iter().map(|f| f.sync).sum::<f64>() / count as f64;
+                            let avg_cpu = frames.iter().map(|f| f.cpu_active).sum::<f64>() / count as f64;
+                            let avg_total = frames.iter().map(|f| f.total).sum::<f64>() / count as f64;
+
+                            // P99を計算
+                            frames.sort_by(|a, b| a.cpu_active.partial_cmp(&b.cpu_active).unwrap());
+                            let p99_idx = (count * 99 / 100).min(count - 1);
+                            let p99_cpu = frames[p99_idx].cpu_active;
+                            let max_cpu = frames.last().unwrap().cpu_active;
+
+                            println!(
+                                "[FPS: {:>3}] (Total Frame: {:5.2}ms)\n\
+                                    ├─ Phase Avg:   Upd: {:5.2}ms | Lay: {:5.2}ms | Cmp: {:5.2}ms | Drw: {:5.2}ms | Sync: {:5.2}ms\n\
+                                    └─ CPU Active:  Avg: {:5.2}ms | P99: {:5.2}ms | Max: {:5.2}ms",
+                                count,
+                                avg_total,
+                                avg_update,
+                                avg_layout,
+                                avg_comp,
+                                avg_draw,
+                                avg_sync,
+                                avg_cpu,
+                                p99_cpu,
+                                max_cpu
+                            );
+
+                            frames.clear();
+                        }
+                    });
                 }
 
-                // アニメーションがまだ継続中の場合、次のフレームの再描画要求を自給自足してループさせます
-                if app.context.has_active_animations() {
-                    let _ = unsafe { windows::Win32::Graphics::Dwm::DwmFlush() };
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                }
                 return LRESULT(0);
             }
 
