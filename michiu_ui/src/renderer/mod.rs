@@ -99,6 +99,8 @@ pub struct RenderData {
 }
 
 impl RenderData {
+    #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             batches: Vec::new(),
@@ -106,10 +108,16 @@ impl RenderData {
             entity_ids: Vec::new(),
         }
     }
+    #[inline]
     pub fn clear(&mut self) {
         self.batches.clear();
         self.instances.clear();
         self.entity_ids.clear();
+    }
+    #[inline]
+    pub fn push(&mut self, id: EntityId, instance: QuadInstance) {
+        self.instances.push(instance);
+        self.entity_ids.push(id);
     }
 }
 

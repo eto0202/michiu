@@ -129,6 +129,24 @@ impl ComponentMask {
     pub fn has_movie_content(&self) -> bool {
         self.has(COMP_MOVIE_CONTENT)
     }
+
+    #[inline]
+    #[must_use]
+    pub fn has_queued_layout(&self) -> bool {
+        self.has(STATE_QUEUED_LAYOUT)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn has_queued_render(&self) -> bool {
+        self.has(STATE_QUEUED_RENDER)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn has_queued_layout_or_render(&self) -> bool {
+        self.has(STATE_QUEUED_LAYOUT) || self.has(STATE_QUEUED_RENDER)
+    }
 }
 
 pub(crate) const STYLE_DISPLAY: u128 = 1 << 0;

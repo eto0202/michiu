@@ -1,8 +1,8 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use crate::LayoutRect;
 use crate::types::LayoutSize;
+use crate::{EdgeInsets, LayoutRect, TextSpan, VisualProperty};
 use smallvec::SmallVec;
 use windows::Win32::Graphics::Direct2D::{
     D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, ID2D1RenderTarget,
@@ -594,6 +594,33 @@ pub(crate) struct TextCacheKey {
     pub(crate) font_family: Option<Cow<'static, str>>,
     pub(crate) font_weight: Option<u32>,
     pub(crate) font_style: Option<u32>,
+}
+
+impl TextCacheKey {
+    #[inline]
+    pub(crate) fn new(
+        span: Option<&TextSpan>,
+        visual: &VisualProperty,
+        character: char,
+        scale_factor: f32,
+    ) -> Self {
+        let font_size = span
+            .and_then(|s| s.font_size)
+            .unwrap_or(visual.font_size.unwrap_or(16.0));
+        let font_family = span
+            .and_then(|s| s.font_family.as_deref())
+            .or(visual.font_family.as_deref());
+        let font_weight = span.and_then(|s| s.font_weight).or(visual.font_weight);
+        let font_style = span.and_then(|s| s.font_style).or(visual.font_style);
+
+        TextCacheKey {
+            character,
+            font_size_bits: (font_size * scale_factor).to_bits(),
+            font_style,
+            font_family: font_family.map(|f| Cow::Owned(f.to_string())),
+            font_weight,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Copy)]
