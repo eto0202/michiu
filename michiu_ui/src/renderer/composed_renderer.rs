@@ -108,9 +108,9 @@ impl ComposedRenderer {
         layout_size: LayoutSize,
         scale_factor: f32,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // 1. DirectComposition の構築 (setup_direct_composition を内包)
+        // DirectComposition の構築 (setup_direct_composition を内包)
         let (dcomp_device, dcomp_target, root_visual, wgpu_visual) =
-            unsafe { setup_direct_composition(hwnd) };
+            ComposedRenderer::setup_direct_composition(hwnd)?;
 
         // HINSTANCE（h_instance）の解決
         let h_instance = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None)? };
@@ -882,37 +882,39 @@ impl ComposedRenderer {
             }
         }
     }
-}
 
-// ウィンドウハンドル (HWND) が手元にある状態からスタート
-pub(crate) unsafe fn setup_direct_composition(
-    hwnd: HWND,
-) -> (
-    IDCompositionDesktopDevice,
-    IDCompositionTarget,
-    IDCompositionVisual2, // root_visual
-    IDCompositionVisual2, // wgpu_visual
-) {
-    unsafe {
-        // 1. D3D11 デバイスを作成
-        // グローバルなマネージャーの解決を試みる（失敗時は呼び出し元にエラーを伝播できるよう、後々 Result にするか
-        // ここではひとまず unwrap() などで処理する形にしておきます）
-        let manager =
-            DCompDeviceManager::global().expect("DirectComposition initialization failed");
-        let dcomp_device = manager.dcomp_device.clone();
+    // ウィンドウハンドル (HWND) が手元にある状態からスタート
+    pub(crate) fn setup_direct_composition(
+        hwnd: HWND,
+    ) -> Result<
+        (
+            IDCompositionDesktopDevice,
+            IDCompositionTarget,
+            IDCompositionVisual2, // root_visual
+            IDCompositionVisual2, // wgpu_visual
+        ),
+        Box<dyn std::error::Error>,
+    > {
+        unsafe {
+            // 1. D3D11 デバイスを作成
+            // グローバルなマネージャーの解決を試みる（失敗時は呼び出し元にエラーを伝播できるよう、後々 Result にするか
+            // ここではひとまず unwrap() などで処理する形にしておきます）
+            let manager = DCompDeviceManager::global()?;
+            let dcomp_device = manager.dcomp_device.clone();
 
-        let dcomp_target = dcomp_device.CreateTargetForHwnd(hwnd, true).unwrap();
-        let root_visual = dcomp_device.CreateVisual().unwrap();
-        dcomp_target.SetRoot(&root_visual).unwrap();
+            let dcomp_target = dcomp_device.CreateTargetForHwnd(hwnd, true)?;
+            let root_visual = dcomp_device.CreateVisual()?;
+            dcomp_target.SetRoot(&root_visual)?;
 
-        // wgpu 用のメインビジュアルを1つだけ作成して登録
-        let wgpu_visual = dcomp_device.CreateVisual().unwrap();
-        root_visual.AddVisual(&wgpu_visual, true, None).unwrap();
+            // wgpu 用のメインビジュアルを1つだけ作成して登録
+            let wgpu_visual = dcomp_device.CreateVisual()?;
+            root_visual.AddVisual(&wgpu_visual, true, None)?;
 
-        // 変更をコンポジターにコミットして反映
-        dcomp_device.Commit().unwrap();
+            // 変更をコンポジターにコミットして反映
+            dcomp_device.Commit()?;
 
-        (dcomp_device, dcomp_target, root_visual, wgpu_visual)
+            Ok((dcomp_device, dcomp_target, root_visual, wgpu_visual))
+        }
     }
 }
 

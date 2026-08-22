@@ -2,6 +2,7 @@ use crate::{
     Context, EffectId, EntitiesSlot, EntityId, FlatDfsSequenceVec, ParentsSecondary, ReadSignal,
     SignalId, TopologyStore, WriteSignal,
 };
+use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use smallvec::SmallVec;
 use std::{collections::HashMap, marker::PhantomData};
@@ -33,7 +34,7 @@ pub(crate) type ElementEffectsSecondary =
 pub(crate) type EffectToElementSecondary = SecondaryMap<EffectId, EntityId>;
 pub(crate) type PendingElementEffectsVec = Vec<EffectId>;
 pub(crate) type ProvidersSparseSecondary =
-    SparseSecondaryMap<EntityId, HashMap<std::any::TypeId, SignalId>>;
+    SparseSecondaryMap<EntityId, FxHashMap<std::any::TypeId, SignalId>>;
 
 pub struct ReactiveStore {
     pub(crate) react_signals: SignalsSlotMap,

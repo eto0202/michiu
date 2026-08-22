@@ -18,6 +18,7 @@ use crate::{
     StyleTarget, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle, TopologyStore, TransitionValue,
     Val, VisualProperty, WindowStore,
 };
+use rustc_hash::FxHashSet;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
@@ -48,7 +49,7 @@ pub(crate) type ActiveTransitionsSparseSecondary =
     SparseSecondaryMap<EntityId, Vec<ActiveTransition>>;
 pub(crate) type ActiveAnimationsSparseSecondary =
     SparseSecondaryMap<EntityId, Vec<ActiveAnimation>>;
-pub(crate) type ActiveWebviewsHashSet = HashSet<EntityId>;
+pub(crate) type ActiveWebviewsHashSet = FxHashSet<EntityId>;
 
 pub struct RenderStore {
     pub(crate) rnd_visual: VisualPropertiesSecondary,
@@ -78,7 +79,7 @@ impl RenderStore {
             rnd_dirty_entities: Vec::new(),
             rnd_active_transitions: SparseSecondaryMap::new(),
             rnd_active_animations: SparseSecondaryMap::new(),
-            rnd_active_webviews: HashSet::new(),
+            rnd_active_webviews: FxHashSet::default(),
             rnd_last_tick_time: None,
         }
     }

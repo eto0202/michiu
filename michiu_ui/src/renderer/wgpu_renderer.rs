@@ -82,28 +82,15 @@ impl WgpuRenderer {
         size: LayoutSize,
         scale_factor: f32,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        // 1. インスタンス生成（DX12を明示的に指定）
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::DX12,
-            flags: wgpu::InstanceFlags::empty(),
-            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
-            backend_options: wgpu::BackendOptions {
-                dx12: wgpu::Dx12BackendOptions {
-                    shader_compiler: wgpu::Dx12Compiler::default(),
-                    presentation_system: wgpu::Dx12SwapchainKind::DxgiFromVisual, // // DComp用スワップチェーン
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            display: None,
-        });
+        // インスタンス生成（DX12を明示的に指定）
+        let instance = WgpuRenderer::create_instance();
 
-        // 2. Surface の作成 (CompositionVisual を使用)
-        // create_surface_unsafe を利用して、渡された生ポインタから Surface を構築します
+        // Surface の作成 (CompositionVisual を使用)
+        // create_surface_unsafe を利用して渡された生ポインタから Surface を構築
         let target = unsafe { wgpu::SurfaceTargetUnsafe::CompositionVisual(visual) };
         let surface = unsafe { instance.create_surface_unsafe(target)? };
 
-        // 3. アダプター（GPU）の取得
+        // アダプターの取得
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -113,7 +100,7 @@ impl WgpuRenderer {
             .await
             .map_err(|_| "Failed to find an appropriate adapter")?;
 
-        // 4. デバイスとキューの取得
+        // デバイスとキューの取得
         let mut custom_limits = wgpu::Limits::downlevel_defaults();
         custom_limits.max_non_sampler_bindings = 2048;
         custom_limits.max_bind_groups = 3;
@@ -131,8 +118,98 @@ impl WgpuRenderer {
             })
             .await?;
 
-        // 5. Surface 設定
-        let caps = surface.get_capabilities(&adapter);
+        // Surface 設定
+        let config = WgpuRenderer::surface_config(size, &surface, &adapter);
+        // Surface に設定をアタッチしてスワップチェーンを初期化
+        surface.configure(&device, &config);
+
+        // シェーダーの読み込み
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+
+        // ユニフォームバッファ
+        let config_buffer = WgpuRenderer::create_buffer(size, scale_factor, &device);
+
+        // アトラス初期化
+        let atlas = TextureAtlas::new(&device, 2048);
+
+        let config_bind_group_layout = WgpuRenderer::create_bind_group_layout(&device);
+
+        // パイプライン
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[Some(&config_bind_group_layout)],
+            immediate_size: 0,
+        });
+        let pipeline =
+            WgpuRenderer::create_render_pipeline(&pipeline_layout, &device, &shader, &config);
+        // くり抜き用のパイプライン
+        let punchout_pipeline =
+            WgpuRenderer::create_punchout_pipeline(&pipeline_layout, &device, &shader, &config);
+
+        // 頂点/インデックスバッファ
+        let (vertex_buffer, index_buffer) = WgpuRenderer::create_buffer_init(&device);
+
+        // 初期インスタンスバッファ
+        let buffer_capacity = 64;
+        let instance_buffer = WgpuRenderer::create_instance_buffer(&device, buffer_capacity);
+
+        let config_bind_group = WgpuRenderer::create_bind_group(
+            &device,
+            &config_bind_group_layout,
+            &config_buffer,
+            &instance_buffer,
+            &atlas,
+        );
+
+        Ok(Self {
+            surface,
+            device,
+            queue,
+            config,
+            pipeline,
+            punchout_pipeline,
+            vertex_buffer,
+            index_buffer,
+            instance_buffer,
+            instance_buffer_capacity: buffer_capacity,
+            instance_staging: Vec::with_capacity(64),
+            config_buffer,
+            config_bind_group,
+            config_bind_group_layout,
+            text_rasterizer: TextRasterizer::new(),
+            atlas,
+            temp_uv_map: SecondaryMap::new(),
+            text_cache: HashMap::new(),
+            webview_static_caches: HashMap::new(),
+            render_data: RenderData::new(),
+        })
+    }
+
+    #[inline]
+    fn create_instance() -> wgpu::Instance {
+        wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::DX12,
+            flags: wgpu::InstanceFlags::empty(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+            backend_options: wgpu::BackendOptions {
+                dx12: wgpu::Dx12BackendOptions {
+                    shader_compiler: wgpu::Dx12Compiler::default(),
+                    presentation_system: wgpu::Dx12SwapchainKind::DxgiFromVisual, // // DComp用スワップチェーン
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            display: None,
+        })
+    }
+
+    #[inline]
+    fn surface_config(
+        size: LayoutSize,
+        surface: &wgpu::Surface,
+        adapter: &wgpu::Adapter,
+    ) -> wgpu::SurfaceConfiguration {
+        let caps = surface.get_capabilities(adapter);
         let surface_format = caps
             .formats
             .iter()
@@ -140,7 +217,7 @@ impl WgpuRenderer {
             .find(wgpu::TextureFormat::is_srgb) // SRGBを優先
             .unwrap_or(caps.formats[0]);
 
-        let config = wgpu::SurfaceConfiguration {
+        wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width.max(1.0) as u32,
@@ -149,16 +226,12 @@ impl WgpuRenderer {
             alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
-        };
+        }
+    }
 
-        // Surface に設定をアタッチしてスワップチェーンを初期化
-        surface.configure(&device, &config);
-
-        // 6. シェーダーの読み込み
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
-
-        // 7. ユニフォーム(Config)バッファ
-        let config_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+    #[inline]
+    fn create_buffer(size: LayoutSize, scale_factor: f32, device: &wgpu::Device) -> wgpu::Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Global Config Buffer"),
             contents: bytemuck::cast_slice(&[GlobalConfig {
                 screen_size: [size.width, size.height],
@@ -166,68 +239,68 @@ impl WgpuRenderer {
                 _padding: 0.0,
             }]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        })
+    }
 
-        // アトラス初期化
-        let atlas = TextureAtlas::new(&device, 2048);
+    #[inline]
+    fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Atlas Sampler (Binding 2)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                // Storage (読み取り専用)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+            label: None,
+        })
+    }
 
-        let config_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    // Atlas Sampler (Binding 2)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    // Storage (読み取り専用)
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-                label: None,
-            });
-
-        // 8. パイプライン
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[Some(&config_bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    #[inline]
+    fn create_render_pipeline(
+        pipeline_layout: &wgpu::PipelineLayout,
+        device: &wgpu::Device,
+        shader: &wgpu::ShaderModule,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> wgpu::RenderPipeline {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
-            layout: Some(&pipeline_layout),
+            layout: Some(pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: shader,
                 entry_point: Some("vs_main"),
                 buffers: &[
                     // Vertex Buffer
@@ -244,7 +317,7 @@ impl WgpuRenderer {
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
@@ -258,14 +331,21 @@ impl WgpuRenderer {
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
-        });
+        })
+    }
 
-        // くり抜き用のパイプライン
-        let punchout_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    #[inline]
+    fn create_punchout_pipeline(
+        pipeline_layout: &wgpu::PipelineLayout,
+        device: &wgpu::Device,
+        shader: &wgpu::ShaderModule,
+        config: &wgpu::SurfaceConfiguration,
+    ) -> wgpu::RenderPipeline {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Punchout Render Pipeline"),
-            layout: Some(&pipeline_layout),
+            layout: Some(pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: shader,
                 entry_point: Some("vs_main"),
                 buffers: &[wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
@@ -279,7 +359,7 @@ impl WgpuRenderer {
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: shader,
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
@@ -307,9 +387,11 @@ impl WgpuRenderer {
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
-        });
+        })
+    }
 
-        // 9. 頂点/インデックスバッファの作成 (1x1 Quad)
+    #[inline]
+    fn create_buffer_init(device: &wgpu::Device) -> (wgpu::Buffer, wgpu::Buffer) {
         let vertices = [
             Vertex {
                 position: [0.0, 0.0],
@@ -331,28 +413,40 @@ impl WgpuRenderer {
         });
 
         let indices: [u16; 6] = [0, 1, 2, 2, 3, 0];
+
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
-        // 10. 初期インスタンスバッファ
-        let instance_buffer_capacity = 64;
-        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        (vertex_buffer, index_buffer)
+    }
+
+    #[inline]
+    fn create_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Instance Storage Buffer"),
-            size: (instance_buffer_capacity * std::mem::size_of::<QuadInstance>())
-                as wgpu::BufferAddress,
+            size: (capacity * std::mem::size_of::<QuadInstance>()) as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
-        });
+        })
+    }
 
-        let config_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &config_bind_group_layout,
+    #[inline]
+    fn create_bind_group(
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        config: &wgpu::Buffer,
+        instance: &wgpu::Buffer,
+        atlas: &TextureAtlas,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: config_buffer.as_entire_binding(),
+                    resource: config.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -364,33 +458,10 @@ impl WgpuRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: instance_buffer.as_entire_binding(),
+                    resource: instance.as_entire_binding(),
                 },
             ],
             label: None,
-        });
-
-        Ok(Self {
-            surface,
-            device,
-            queue,
-            config,
-            pipeline,
-            punchout_pipeline,
-            vertex_buffer,
-            index_buffer,
-            instance_buffer,
-            instance_buffer_capacity,
-            instance_staging: Vec::with_capacity(64),
-            config_buffer,
-            config_bind_group,
-            config_bind_group_layout,
-            text_rasterizer: TextRasterizer::new(),
-            atlas,
-            temp_uv_map: SecondaryMap::new(),
-            text_cache: HashMap::new(),
-            webview_static_caches: HashMap::new(),
-            render_data: RenderData::new(),
         })
     }
 

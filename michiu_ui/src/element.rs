@@ -235,11 +235,10 @@ impl Element {
 
         // topo_active_masks にスタイル側のマスクをマージするが、
         // 動的なインタラクション状態フラグ（STYLE_INTERACTION_PROPERTY）は
-        // 実行時にのみ制御されるべきなので、ここでは除外（マスクアウト）する
+        // 実行時にのみ制御されるべきなのでここでは除外する
         let property_only_mask = mask.0 & !STYLE_INTERACTION_PROPERTY;
-        cx.topology.topo_active_masks[id].0 |= property_only_mask;
 
-        // ベースの基本レイアウトをマージ
+        cx.topology.topo_active_masks[id].0 |= property_only_mask;
         if mask.has_basic_layout() || mask.has(STYLE_FONT_SIZE) || mask.has(STYLE_AUTO_WRAP) {
             if merge && let Some(base) = cx.layouts.lay_base_basic.get_mut(id) {
                 base.override_with(&inner.basic_layout, mask);
@@ -250,7 +249,6 @@ impl Element {
             cx.mark_layout_dirty(id);
         }
 
-        // ベースのビジュアルプロパティをマージ
         let has_visual =
             mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
         if has_visual {
@@ -263,7 +261,6 @@ impl Element {
             }
         }
 
-        // 疑似クラス（インタラクションスタイル）をマージ
         if mask.has_interaction_property()
             || mask.has(STYLE_INTERACTION_WITHIN)
             || mask.has(STYLE_INTERACTION_PARENT)
@@ -277,7 +274,6 @@ impl Element {
             }
         }
 
-        // 4. Flexレイアウト
         if mask.has_flex_layout() {
             if merge && let Some(flex) = cx.layouts.lay_flex.get_mut(id) {
                 flex.override_with(&inner.flex_layout, mask);
@@ -287,7 +283,6 @@ impl Element {
             cx.mark_layout_dirty(id);
         }
 
-        // 5. Gridレイアウト
         if mask.has_grid_layout()
             && let Some(ref grid) = inner.grid_layout
         {
@@ -295,7 +290,6 @@ impl Element {
             cx.mark_layout_dirty(id);
         }
 
-        // 6. スクロールバー
         if mask.has(STYLE_SCROLLBAR)
             && let Some(ref sb) = inner.scrollbar_style
         {
@@ -303,7 +297,6 @@ impl Element {
             cx.mark_layout_dirty(id);
         }
 
-        // D&D のコールド SoA スロットへのマウント同期
         if mask.has(STYLE_DND_DRAGGABLE)
             && let Some(dp) = inner.drag_property
         {
