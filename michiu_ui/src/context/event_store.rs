@@ -539,13 +539,11 @@ impl EventStore {
 
         let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
 
-        let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.get(id)
-            && let Some(layout_rect) = contents.last_layout
-        {
-            (
-                LayoutSize::new(layout_rect.width, layout_rect.height),
-                contents.is_multiline,
-            )
+        let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.get(id) {
+            let size = contents
+                .last_layout
+                .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
+            (size, contents.is_multiline)
         } else {
             (LayoutSize::ZERO, false)
         };
@@ -621,6 +619,7 @@ impl EventStore {
                 id,
                 true,
                 cx.window.win_last_size.as_ref(),
+                &cx.system.sys_dwrite_layouts,
                 &cx.reactive.react_element_effects,
                 &cx.contents.cont_input_contents,
                 &mut cx.topology.topo_active_masks,
@@ -1242,8 +1241,9 @@ impl EventStore {
             contents.selection_reversed = is_reversed;
             contents.selected_range = range;
 
-            OutputStore::update_input_caret_position(
+            EventStore::apply_input_update(
                 id,
+                InputOp::MousePress,
                 win_last_size,
                 win_scale_factor,
                 sys_text_engine,
@@ -1261,16 +1261,19 @@ impl EventStore {
                 lay_resolved_flex,
                 lay_resolved_grid,
                 rnd_visual,
+                rnd_dirty_entities,
                 rnd_base_visual,
                 rnd_interaction,
                 rnd_active_transitions,
                 out_scroll_offsets,
                 out_text_selections,
+                out_selected_rects,
                 out_rects,
                 out_scroll_sizes,
             );
+        } else {
+            RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
         }
-        RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
     }
 
     #[inline]
@@ -1409,6 +1412,7 @@ impl EventStore {
                     prev_id,
                     false,
                     cx.window.win_last_size.as_ref(),
+                    &cx.system.sys_dwrite_layouts,
                     &cx.reactive.react_element_effects,
                     &cx.contents.cont_input_contents,
                     &mut cx.topology.topo_active_masks,
@@ -2041,8 +2045,9 @@ impl EventStore {
         if let Some(contents) = cx.contents.cont_input_contents.get_mut(target_id) {
             contents.selected_range = range;
             contents.selection_reversed = false; // キャレットは右端に配置
-            OutputStore::update_input_caret_position(
+            EventStore::apply_input_update(
                 target_id,
+                InputOp::MousePress,
                 cx.window.win_last_size,
                 cx.window.win_scale_factor,
                 &cx.system.sys_text_engine,
@@ -2060,21 +2065,23 @@ impl EventStore {
                 &cx.layouts.lay_resolved_flex,
                 &cx.layouts.lay_resolved_grid,
                 &mut cx.renders.rnd_visual,
+                &mut cx.renders.rnd_dirty_entities,
                 &cx.renders.rnd_base_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
                 &mut cx.outputs.out_scroll_offsets,
                 &mut cx.outputs.out_text_selections,
+                &mut cx.outputs.out_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.outputs.out_scroll_sizes,
             );
+        } else {
+            RenderStore::mark_render_dirty(
+                target_id,
+                &mut cx.topology.topo_active_masks,
+                &mut cx.renders.rnd_dirty_entities,
+            );
         }
-
-        RenderStore::mark_render_dirty(
-            target_id,
-            &mut cx.topology.topo_active_masks,
-            &mut cx.renders.rnd_dirty_entities,
-        );
     }
 
     pub fn inject_mouse_wheel_internal(cx: &mut Context, scroll_x: f32, scroll_y: f32) {
@@ -2222,8 +2229,9 @@ impl EventStore {
         if let Some(contents) = cont_input_contents.get_mut(id) {
             contents.selected_range = full_range;
             contents.selection_reversed = false;
-            OutputStore::update_input_caret_position(
+            EventStore::apply_input_update(
                 id,
+                InputOp::SelectAll,
                 win_last_size,
                 win_scale_factor,
                 sys_text_engine,
@@ -2241,17 +2249,19 @@ impl EventStore {
                 lay_resolved_flex,
                 lay_resolved_grid,
                 rnd_visual,
+                rnd_dirty_entities,
                 rnd_base_visual,
                 rnd_interaction,
                 rnd_active_transitions,
                 out_scroll_offsets,
                 out_text_selections,
+                out_selected_rects,
                 out_rects,
                 out_scroll_sizes,
             );
+        } else {
+            RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
         }
-
-        RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
     }
 
     pub(crate) fn inject_keyboard_key_internal(
@@ -2445,10 +2455,35 @@ impl EventStore {
             &cx.outputs.out_rects,
             &cx.outputs.out_scroll_sizes,
         );
-        RenderStore::mark_render_dirty(
+        EventStore::apply_input_update(
             focused_id,
+            InputOp::Paste,
+            cx.window.win_last_size,
+            cx.window.win_scale_factor,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &mut cx.contents.cont_input_contents,
+            &mut cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
             &mut cx.topology.topo_active_masks,
+            &cx.topology.topo_parents,
+            &mut cx.layouts.lay_taffy,
+            &mut cx.layouts.lay_dirty_entities,
+            &mut cx.layouts.lay_scrollbar_styles,
+            &cx.layouts.lay_taffy_nodes,
+            &cx.layouts.lay_resolved_basic,
+            &cx.layouts.lay_resolved_flex,
+            &cx.layouts.lay_resolved_grid,
+            &mut cx.renders.rnd_visual,
             &mut cx.renders.rnd_dirty_entities,
+            &cx.renders.rnd_base_visual,
+            &cx.renders.rnd_interaction,
+            &cx.renders.rnd_active_transitions,
+            &mut cx.outputs.out_scroll_offsets,
+            &mut cx.outputs.out_text_selections,
+            &mut cx.outputs.out_selected_rects,
+            &cx.outputs.out_rects,
+            &cx.outputs.out_scroll_sizes,
         );
     }
 
@@ -2481,8 +2516,14 @@ impl EventStore {
             &mut cx.outputs.out_text_selections,
             &mut cx.outputs.out_selected_rects,
         );
-        OutputStore::update_input_caret_position(
+
+        cx.outputs
+            .out_selection_start_index
+            .insert(focused_id, prev_sel.start);
+
+        EventStore::apply_input_update(
             focused_id,
+            InputOp::Undo,
             cx.window.win_last_size,
             cx.window.win_scale_factor,
             &cx.system.sys_text_engine,
@@ -2500,40 +2541,15 @@ impl EventStore {
             &cx.layouts.lay_resolved_flex,
             &cx.layouts.lay_resolved_grid,
             &mut cx.renders.rnd_visual,
+            &mut cx.renders.rnd_dirty_entities,
             &cx.renders.rnd_base_visual,
             &cx.renders.rnd_interaction,
             &cx.renders.rnd_active_transitions,
             &mut cx.outputs.out_scroll_offsets,
             &mut cx.outputs.out_text_selections,
+            &mut cx.outputs.out_selected_rects,
             &cx.outputs.out_rects,
             &cx.outputs.out_scroll_sizes,
-        );
-        // テキスト復元によりレイアウトキャッシュが更新された後に、選択ハイライトと開始アンカーを復元
-        if let Some(layout) = SystemStore::get_or_create_layout(
-            focused_id,
-            &cx.system.sys_text_engine,
-            &cx.system.sys_dwrite_layouts,
-            &cx.contents.cont_text_contents,
-            &cx.contents.cont_text_spans,
-            &cx.layouts.lay_resolved_basic,
-            &cx.renders.rnd_visual,
-            &cx.outputs.out_rects,
-        ) {
-            OutputStore::update_selection_rects(
-                focused_id,
-                &layout,
-                &mut cx.outputs.out_selected_rects,
-                &cx.outputs.out_text_selections,
-            );
-        }
-        cx.outputs
-            .out_selection_start_index
-            .insert(focused_id, prev_sel.start);
-
-        RenderStore::mark_render_dirty(
-            focused_id,
-            &mut cx.topology.topo_active_masks,
-            &mut cx.renders.rnd_dirty_entities,
         );
     }
 
@@ -2565,8 +2581,13 @@ impl EventStore {
             &mut cx.outputs.out_text_selections,
             &mut cx.outputs.out_selected_rects,
         );
-        OutputStore::update_input_caret_position(
+        cx.outputs
+            .out_selection_start_index
+            .insert(focused_id, next_sel.start);
+
+        EventStore::apply_input_update(
             focused_id,
+            InputOp::Redo,
             cx.window.win_last_size,
             cx.window.win_scale_factor,
             &cx.system.sys_text_engine,
@@ -2584,40 +2605,15 @@ impl EventStore {
             &cx.layouts.lay_resolved_flex,
             &cx.layouts.lay_resolved_grid,
             &mut cx.renders.rnd_visual,
+            &mut cx.renders.rnd_dirty_entities,
             &cx.renders.rnd_base_visual,
             &cx.renders.rnd_interaction,
             &cx.renders.rnd_active_transitions,
             &mut cx.outputs.out_scroll_offsets,
             &mut cx.outputs.out_text_selections,
+            &mut cx.outputs.out_selected_rects,
             &cx.outputs.out_rects,
             &cx.outputs.out_scroll_sizes,
-        );
-        // テキスト復元によりレイアウトキャッシュが更新された後に、選択ハイライトと開始アンカーを復元
-        if let Some(layout) = SystemStore::get_or_create_layout(
-            focused_id,
-            &cx.system.sys_text_engine,
-            &cx.system.sys_dwrite_layouts,
-            &cx.contents.cont_text_contents,
-            &cx.contents.cont_text_spans,
-            &cx.layouts.lay_resolved_basic,
-            &cx.renders.rnd_visual,
-            &cx.outputs.out_rects,
-        ) {
-            OutputStore::update_selection_rects(
-                focused_id,
-                &layout,
-                &mut cx.outputs.out_selected_rects,
-                &cx.outputs.out_text_selections,
-            );
-        }
-        cx.outputs
-            .out_selection_start_index
-            .insert(focused_id, next_sel.start);
-
-        RenderStore::mark_render_dirty(
-            focused_id,
-            &mut cx.topology.topo_active_masks,
-            &mut cx.renders.rnd_dirty_entities,
         );
     }
 
@@ -2660,8 +2656,9 @@ impl EventStore {
                 &mut cx.outputs.out_text_selections,
                 &mut cx.outputs.out_selected_rects,
             );
-            OutputStore::update_input_caret_position(
+            EventStore::apply_input_update(
                 focused_id,
+                InputOp::Cut,
                 cx.window.win_last_size,
                 cx.window.win_scale_factor,
                 &cx.system.sys_text_engine,
@@ -2679,18 +2676,15 @@ impl EventStore {
                 &cx.layouts.lay_resolved_flex,
                 &cx.layouts.lay_resolved_grid,
                 &mut cx.renders.rnd_visual,
+                &mut cx.renders.rnd_dirty_entities,
                 &cx.renders.rnd_base_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
                 &mut cx.outputs.out_scroll_offsets,
                 &mut cx.outputs.out_text_selections,
+                &mut cx.outputs.out_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.outputs.out_scroll_sizes,
-            );
-            RenderStore::mark_render_dirty(
-                focused_id,
-                &mut cx.topology.topo_active_masks,
-                &mut cx.renders.rnd_dirty_entities,
             );
         }
         // Input・非Inputに関わらず切り出されたテキストを返す
@@ -3164,6 +3158,217 @@ impl EventStore {
             lay_taffy,
             lay_dirty_entities,
             lay_taffy_nodes,
+        );
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputOp {
+    // 初期化用
+    Init,
+    // シグナル監視エフェクト同期用
+    TextEffect,
+    MousePress,
+    ArrowMove,
+    SelectAll,
+    CharTyped,
+    Backspace,
+    Delete,
+    ImeUpdated,
+    Paste,
+    Cut,
+    Undo,
+    Redo,
+}
+
+impl EventStore {
+    pub(crate) fn apply_input_update(
+        id: EntityId,
+        op: InputOp,
+        win_last_size: Option<LayoutSize>,
+        win_scale_factor: f32,
+        sys_text_engine: &TextEngine,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_text_contents: &mut TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        lay_taffy: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_resolved_basic: &ResolvedBasicSecondary,
+        lay_resolved_flex: &ResolvedFlexSecondary,
+        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        rnd_visual: &mut VisualPropertiesSecondary,
+        rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+        rnd_base_visual: &BaseVisualPropertiesSecondary,
+        rnd_interaction: &InteractionPropertiesSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_text_selections: &mut TextSelectionsSparseSecondary,
+        out_selected_rects: &mut SelectedRectsSparseSecondary,
+        out_rects: &RectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
+    ) {
+        // 直前までハイライトが描画されていたか
+        let has_selection_before = out_selected_rects.contains_key(id);
+
+        // 現在（操作後）に範囲選択されているか
+        let has_selection_after = cont_input_contents
+            .get(id)
+            .is_some_and(|c| c.selected_range.start != c.selected_range.end);
+
+        // 選択範囲の描画を更新
+        if (has_selection_before || has_selection_after)
+            && let Some(layout) = SystemStore::get_or_create_layout(
+                id,
+                sys_text_engine,
+                sys_dwrite_layouts,
+                cont_text_contents,
+                cont_text_spans,
+                lay_resolved_basic,
+                rnd_visual,
+                out_rects,
+            )
+        {
+            OutputStore::update_selection_rects(
+                id,
+                &layout,
+                out_selected_rects,
+                out_text_selections,
+            );
+        }
+
+        match op {
+            // コンテンツのサイズに変動がない（Taffyレイアウトの再計算が不要）操作
+            InputOp::MousePress | InputOp::ArrowMove | InputOp::SelectAll => {
+                OutputStore::update_input_caret_position(
+                    id,
+                    win_last_size,
+                    win_scale_factor,
+                    sys_text_engine,
+                    sys_dwrite_layouts,
+                    cont_input_contents,
+                    cont_text_contents,
+                    cont_text_spans,
+                    topo_active_masks,
+                    topo_parents,
+                    lay_taffy,
+                    lay_dirty_entities,
+                    lay_scrollbar_styles,
+                    lay_taffy_nodes,
+                    lay_resolved_basic,
+                    lay_resolved_flex,
+                    lay_resolved_grid,
+                    rnd_visual,
+                    rnd_base_visual,
+                    rnd_interaction,
+                    rnd_active_transitions,
+                    out_scroll_offsets,
+                    out_text_selections,
+                    out_rects,
+                    out_scroll_sizes,
+                );
+                RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
+            }
+
+            // Taffy計算前に表示用テキストの同期が必須
+            // 未確定文字の伸縮時はシグナルが更新されないため ImeUpdated を含める
+            InputOp::Init | InputOp::TextEffect | InputOp::ImeUpdated => {
+                OutputStore::update_input_caret_position(
+                    id,
+                    win_last_size,
+                    win_scale_factor,
+                    sys_text_engine,
+                    sys_dwrite_layouts,
+                    cont_input_contents,
+                    cont_text_contents,
+                    cont_text_spans,
+                    topo_active_masks,
+                    topo_parents,
+                    lay_taffy,
+                    lay_dirty_entities,
+                    lay_scrollbar_styles,
+                    lay_taffy_nodes,
+                    lay_resolved_basic,
+                    lay_resolved_flex,
+                    lay_resolved_grid,
+                    rnd_visual,
+                    rnd_base_visual,
+                    rnd_interaction,
+                    rnd_active_transitions,
+                    out_scroll_offsets,
+                    out_text_selections,
+                    out_rects,
+                    out_scroll_sizes,
+                );
+                TopologyStore::mark_dirty(
+                    id,
+                    topo_active_masks,
+                    topo_parents,
+                    lay_taffy,
+                    lay_dirty_entities,
+                    lay_taffy_nodes,
+                    rnd_dirty_entities,
+                );
+            }
+
+            // シグナルエフェクト側で update_input_caret_position が走るが、
+            // 不具合によってエフェクト自体がスキップされることも考慮してフラグを立てる
+            InputOp::CharTyped
+            | InputOp::Backspace
+            | InputOp::Delete
+            | InputOp::Paste
+            | InputOp::Cut
+            | InputOp::Undo
+            | InputOp::Redo => {
+                TopologyStore::mark_dirty(
+                    id,
+                    topo_active_masks,
+                    topo_parents,
+                    lay_taffy,
+                    lay_dirty_entities,
+                    lay_taffy_nodes,
+                    rnd_dirty_entities,
+                );
+            }
+        }
+    }
+}
+
+impl Context {
+    pub(crate) fn apply_input_update(&mut self, id: EntityId, op: InputOp) {
+        EventStore::apply_input_update(
+            id,
+            op,
+            self.window.win_last_size,
+            self.window.win_scale_factor,
+            &self.system.sys_text_engine,
+            &self.system.sys_dwrite_layouts,
+            &mut self.contents.cont_input_contents,
+            &mut self.contents.cont_text_contents,
+            &self.contents.cont_text_spans,
+            &mut self.topology.topo_active_masks,
+            &self.topology.topo_parents,
+            &mut self.layouts.lay_taffy,
+            &mut self.layouts.lay_dirty_entities,
+            &mut self.layouts.lay_scrollbar_styles,
+            &self.layouts.lay_taffy_nodes,
+            &self.layouts.lay_resolved_basic,
+            &self.layouts.lay_resolved_flex,
+            &self.layouts.lay_resolved_grid,
+            &mut self.renders.rnd_visual,
+            &mut self.renders.rnd_dirty_entities,
+            &self.renders.rnd_base_visual,
+            &self.renders.rnd_interaction,
+            &self.renders.rnd_active_transitions,
+            &mut self.outputs.out_scroll_offsets,
+            &mut self.outputs.out_text_selections,
+            &mut self.outputs.out_selected_rects,
+            &self.outputs.out_rects,
+            &self.outputs.out_scroll_sizes,
         );
     }
 }

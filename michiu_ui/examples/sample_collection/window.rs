@@ -206,13 +206,20 @@ unsafe extern "system" fn wnd_proc(
                         let count = frames.len();
                         if count > 0 {
                             // 各メトリクスの平均値
-                            let avg_update = frames.iter().map(|f| f.update).sum::<f64>() / count as f64;
-                            let avg_layout = frames.iter().map(|f| f.layout).sum::<f64>() / count as f64;
-                            let avg_comp = frames.iter().map(|f| f.comp).sum::<f64>() / count as f64;
-                            let avg_draw = frames.iter().map(|f| f.draw).sum::<f64>() / count as f64;
-                            let avg_sync = frames.iter().map(|f| f.sync).sum::<f64>() / count as f64;
-                            let avg_cpu = frames.iter().map(|f| f.cpu_active).sum::<f64>() / count as f64;
-                            let avg_total = frames.iter().map(|f| f.total).sum::<f64>() / count as f64;
+                            let avg_update =
+                                frames.iter().map(|f| f.update).sum::<f64>() / count as f64;
+                            let avg_layout =
+                                frames.iter().map(|f| f.layout).sum::<f64>() / count as f64;
+                            let avg_comp =
+                                frames.iter().map(|f| f.comp).sum::<f64>() / count as f64;
+                            let avg_draw =
+                                frames.iter().map(|f| f.draw).sum::<f64>() / count as f64;
+                            let avg_sync =
+                                frames.iter().map(|f| f.sync).sum::<f64>() / count as f64;
+                            let avg_cpu =
+                                frames.iter().map(|f| f.cpu_active).sum::<f64>() / count as f64;
+                            let avg_total =
+                                frames.iter().map(|f| f.total).sum::<f64>() / count as f64;
 
                             // P99を計算
                             frames.sort_by(|a, b| a.cpu_active.partial_cmp(&b.cpu_active).unwrap());
@@ -220,22 +227,24 @@ unsafe extern "system" fn wnd_proc(
                             let p99_cpu = frames[p99_idx].cpu_active;
                             let max_cpu = frames.last().unwrap().cpu_active;
 
-                            println!(
-                                "[FPS: {:>3}] (Total Frame: {:5.2}ms)\n\
-                                    ├─ Phase Avg:   Upd: {:5.2}ms | Lay: {:5.2}ms | Cmp: {:5.2}ms | Drw: {:5.2}ms | Sync: {:5.2}ms\n\
-                                    └─ CPU Active:  Avg: {:5.2}ms | P99: {:5.2}ms | Max: {:5.2}ms",
-                                count,
-                                avg_total,
-                                avg_update,
-                                avg_layout,
-                                avg_comp,
-                                avg_draw,
-                                avg_sync,
-                                avg_cpu,
-                                p99_cpu,
-                                max_cpu
-                            );
-
+                            let test = true;
+                            if test {
+                                println!(
+                                    "[Loop Count: {:>3}] (Total Frame: {:5.2}ms)\n\
+                                        ├─ Phase Avg:   Upd: {:5.2}ms | Lay: {:5.2}ms | Cmp: {:5.2}ms | Drw: {:5.2}ms | Sync: {:5.2}ms\n\
+                                        └─ CPU Active:  Avg: {:5.2}ms | P99: {:5.2}ms | Max: {:5.2}ms",
+                                    count,
+                                    avg_total,
+                                    avg_update,
+                                    avg_layout,
+                                    avg_comp,
+                                    avg_draw,
+                                    avg_sync,
+                                    avg_cpu,
+                                    p99_cpu,
+                                    max_cpu
+                                );
+                            }
                             frames.clear();
                         }
                     });

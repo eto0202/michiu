@@ -1884,50 +1884,41 @@ impl OutputStore {
 
         // リサイズ追従に伴い、インプットのキャレット・選択ハイライトを同期
         for &id in &cx.topology.topo_flat_dfs_sequence {
-            if cx
+            let has_input = cx
                 .topology
                 .topo_active_masks
                 .get(id)
-                .is_some_and(ComponentMask::has_input_content)
-            {
-                let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
-                let prev_rect = cx
-                    .outputs
-                    .out_prev_rects
-                    .get(id)
-                    .copied()
-                    .unwrap_or_default();
-
-                // 幅が前フレームから変動している場合にのみキャレットとレイアウトを自動同期
-                if (rect.width - prev_rect.width).abs() > 0.01 {
-                    OutputStore::update_input_caret_position(
-                        id,
-                        cx.window.win_last_size,
-                        cx.window.win_scale_factor,
-                        &cx.system.sys_text_engine,
-                        &cx.system.sys_dwrite_layouts,
-                        &mut cx.contents.cont_input_contents,
-                        &mut cx.contents.cont_text_contents,
-                        &cx.contents.cont_text_spans,
-                        &mut cx.topology.topo_active_masks,
-                        &cx.topology.topo_parents,
-                        &mut cx.layouts.lay_taffy,
-                        &mut cx.layouts.lay_dirty_entities,
-                        &mut cx.layouts.lay_scrollbar_styles,
-                        &cx.layouts.lay_taffy_nodes,
-                        &cx.layouts.lay_resolved_basic,
-                        &cx.layouts.lay_resolved_flex,
-                        &cx.layouts.lay_resolved_grid,
-                        &mut cx.renders.rnd_visual,
-                        &cx.renders.rnd_base_visual,
-                        &cx.renders.rnd_interaction,
-                        &cx.renders.rnd_active_transitions,
-                        &mut cx.outputs.out_scroll_offsets,
-                        &mut cx.outputs.out_text_selections,
-                        &cx.outputs.out_rects,
-                        &cx.outputs.out_scroll_sizes,
-                    );
-                }
+                .is_some_and(ComponentMask::has_input_content);
+            let is_focused = cx.events.evt_interaction_states.focused == Some(id);
+            // フォーカスを得ている入力要素のみ、レイアウト確定後にキャレット・スクロールを同期
+            if has_input && is_focused {
+                OutputStore::update_input_caret_position(
+                    id,
+                    cx.window.win_last_size,
+                    cx.window.win_scale_factor,
+                    &cx.system.sys_text_engine,
+                    &cx.system.sys_dwrite_layouts,
+                    &mut cx.contents.cont_input_contents,
+                    &mut cx.contents.cont_text_contents,
+                    &cx.contents.cont_text_spans,
+                    &mut cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
+                    &mut cx.layouts.lay_taffy,
+                    &mut cx.layouts.lay_dirty_entities,
+                    &mut cx.layouts.lay_scrollbar_styles,
+                    &cx.layouts.lay_taffy_nodes,
+                    &cx.layouts.lay_resolved_basic,
+                    &cx.layouts.lay_resolved_flex,
+                    &cx.layouts.lay_resolved_grid,
+                    &mut cx.renders.rnd_visual,
+                    &cx.renders.rnd_base_visual,
+                    &cx.renders.rnd_interaction,
+                    &cx.renders.rnd_active_transitions,
+                    &mut cx.outputs.out_scroll_offsets,
+                    &mut cx.outputs.out_text_selections,
+                    &cx.outputs.out_rects,
+                    &cx.outputs.out_scroll_sizes,
+                );
             }
         }
 

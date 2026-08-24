@@ -2,21 +2,21 @@ use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransition, AnimationCurve,
     BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
     BoxShadow, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
-    CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display, EdgeInsets, EffectCategory,
-    EffectId, EffectiveTransformsSecondary, ElementEffectsSecondary, EntitiesSlot, EntityId,
-    FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon, IDENTITY_MATRIX,
-    InputContentsSparseSecondary, InteractionStates, InteractionStyles, LayoutPoint, LayoutSize,
-    LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList,
-    ReactiveStore, RectsSecondary, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
-    STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
-    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_QUEUED_RENDER, STATE_SELECTED,
-    STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_AUTO_WRAP, STYLE_BG_COLOR, STYLE_BORDER,
-    STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_EXT_PROPERTIES,
-    STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OPACITY,
-    STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR, STYLE_TRANSFORM,
-    STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay, ScrollbarStylesSecondary,
-    StyleTarget, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle, TopologyStore, TransitionValue,
-    Val, VisualProperty, WindowStore,
+    CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display, DwriteLayoutsSparseSecondary,
+    EdgeInsets, EffectCategory, EffectId, EffectiveTransformsSecondary, ElementEffectsSecondary,
+    EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon,
+    IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStates, InteractionStyles,
+    LayoutPoint, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point,
+    PointerEvents, PropertyList, ReactiveStore, RectsSecondary, STATE_ACTIVED, STATE_DISABLED,
+    STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED,
+    STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_QUEUED_RENDER,
+    STATE_SELECTED, STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_AUTO_WRAP, STYLE_BG_COLOR,
+    STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR,
+    STYLE_EXT_PROPERTIES, STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
+    STYLE_OPACITY, STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR,
+    STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay,
+    ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    ThisStyle, TopologyStore, TransitionValue, Val, VisualProperty, WindowStore,
 };
 use rustc_hash::FxHashSet;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -809,6 +809,7 @@ impl RenderStore {
         id: EntityId,
         allow_transition: bool,
         win_last_size: Option<&LayoutSize>,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
@@ -834,6 +835,7 @@ impl RenderStore {
             id,
             allow_transition,
             active_mask,
+            sys_dwrite_layouts,
             react_element_effects,
             cont_input_contents,
             topo_active_masks,
@@ -873,18 +875,6 @@ impl RenderStore {
         // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
         // 読み込まれていれば、自動的にそのアニメーションの再生を開始する
         RenderStore::trigger_keyframe_animations_if_needed(id, rnd_active_animations, rnd_visual);
-
-        let Some(react_effects) = react_element_effects.get(id) else {
-            return;
-        };
-        let text_effects: Vec<EffectId> = react_effects
-            .iter()
-            .filter(|(cat, _)| *cat == EffectCategory::Text)
-            .map(|(_, eff_id)| *eff_id)
-            .collect();
-        for eff_id in text_effects {
-            crate::execute_effect(eff_id);
-        }
     }
 
     fn resolve_layout_styles(
@@ -1008,6 +998,7 @@ impl RenderStore {
         id: EntityId,
         allow_transition: bool,
         active_mask: ComponentMask,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
@@ -1245,18 +1236,6 @@ impl RenderStore {
             active_vis.font_style = target.font_style;
             active_vis.auto_wrap = target.auto_wrap;
 
-            if active_vis.font_size != target.font_size || active_vis.auto_wrap != target.auto_wrap
-            {
-                LayoutStore::mark_layout_dirty(
-                    id,
-                    topo_active_masks,
-                    topo_parents,
-                    lay_taffy,
-                    lay_dirty_entities,
-                    lay_taffy_nodes,
-                );
-            }
-
             active_vis.pointer_events = target.pointer_events;
 
             if let Some(target_vis) = rnd_base_visual.get(id) {
@@ -1272,6 +1251,23 @@ impl RenderStore {
                 active_vis.prevent_focus_steal_within = target_vis.prevent_focus_steal_within;
                 active_vis.transform_inherit = target.transform_inherit;
                 active_vis.user_select = target_vis.user_select;
+            }
+
+            if active_vis.font_size != target.font_size
+                || active_vis.font_family != target.font_family
+                || active_vis.font_style != target.font_style
+                || active_vis.font_weight != target.font_weight
+                || active_vis.auto_wrap != target.auto_wrap
+            {
+                SystemStore::clear_layout_cache(id, sys_dwrite_layouts);
+                LayoutStore::mark_layout_dirty(
+                    id,
+                    topo_active_masks,
+                    topo_parents,
+                    lay_taffy,
+                    lay_dirty_entities,
+                    lay_taffy_nodes,
+                );
             }
 
             RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
@@ -1974,6 +1970,7 @@ impl Context {
             id,
             allow_transition,
             self.window.win_last_size.as_ref(),
+            &self.system.sys_dwrite_layouts,
             &self.reactive.react_element_effects,
             &self.contents.cont_input_contents,
             &mut self.topology.topo_active_masks,

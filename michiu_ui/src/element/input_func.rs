@@ -2,10 +2,10 @@ use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
 use crate::{
     COMP_INPUT_CONTENT, COMP_TEXT_CONTENT, Context, EffectCategory, Element, ElementState,
-    EntityId, EventStore, ImeState, InputContents, Modifiers, MouseButton, Prop, STYLE_TEXT_SPANS,
-    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SystemStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey, VisualProperty,
-    with_context,
+    EntityId, EventStore, ImeState, InputContents, InputOp, Modifiers, MouseButton, Prop,
+    STYLE_TEXT_SPANS, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
+    SystemStore, TextEngine, TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey,
+    VisualProperty, with_context,
 };
 
 impl Element {
@@ -178,8 +178,6 @@ impl Element {
             return;
         };
 
-        let mut update_rects_needed = false;
-
         let text_val = contents.text.0.get();
 
         // プレースホルダーが表示状態にあるか
@@ -255,7 +253,6 @@ impl Element {
                     reversed,
                     &mut cx.outputs.out_text_selections,
                 );
-                update_rects_needed = true;
             } else {
                 Element::set_caret_position(
                     id,
@@ -269,12 +266,7 @@ impl Element {
         }
         contents.last_interacted_time = Some(std::time::Instant::now());
         // キャレットの絶対座標と表示情報を一括更新
-        cx.update_input_caret_position(id);
-
-        if update_rects_needed && let Some(layout) = cx.get_or_create_layout(id) {
-            cx.update_selection_rects(id, &layout);
-        }
-        cx.mark_render_dirty(id);
+        cx.apply_input_update(id, InputOp::MousePress);
     }
 
     fn handle_input_focus_gained(cx: &mut Context, id: EntityId) {
@@ -369,7 +361,7 @@ impl Element {
             Some(&mut cx.outputs.out_selected_rects),
         );
         contents.text.1.set(new_text);
-        cx.mark_render_dirty(id);
+        cx.apply_input_update(id, InputOp::CharTyped);
     }
 
     fn pressed_back(
@@ -716,7 +708,7 @@ impl Element {
                     &mut cx.outputs.out_text_selections,
                     &mut cx.outputs.out_selection_start_index,
                 );
-                changed = true;
+                cx.apply_input_update(id, InputOp::Backspace);
             }
             VirtualKey::DELETE => {
                 Element::pressed_delete(
@@ -727,7 +719,7 @@ impl Element {
                     &mut cx.outputs.out_text_selections,
                     &mut cx.outputs.out_selection_start_index,
                 );
-                changed = true;
+                cx.apply_input_update(id, InputOp::Delete);
             }
             VirtualKey::LEFT => {
                 changed = Element::pressed_left(
@@ -784,11 +776,7 @@ impl Element {
         }
 
         if changed {
-            if let Some(layout) = cx.get_or_create_layout(id) {
-                cx.update_selection_rects(id, &layout);
-            }
-            cx.update_input_caret_position(id);
-            cx.mark_render_dirty(id);
+            cx.apply_input_update(id, InputOp::ArrowMove);
         }
     }
 
@@ -926,8 +914,7 @@ impl Element {
         }
 
         // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
-        cx.update_input_caret_position(id);
-        cx.mark_render_dirty(id);
+        cx.apply_input_update(id, InputOp::ImeUpdated);
     }
 
     /// 入力イベント（キー、IME、文字入力、フォーカス）を自動的にマッピングして代行するロジック
@@ -940,8 +927,7 @@ impl Element {
         if let Some(existing) = cx.contents.cont_input_contents.get_mut(id) {
             Element::sync_existing_input_properties(existing, c);
             // 早期リターンを抜ける前に、最新の文字列状態を SoA / DWrite 側へ即座に同期・反映
-            cx.update_input_caret_position(id);
-            cx.mark_dirty(id);
+            cx.apply_input_update(id, InputOp::Init);
             // これ以降の初期化を完全にスキップして早期リターン
             return;
         }
@@ -1004,8 +990,7 @@ impl Element {
             if let Some(contents) = cx.contents.cont_input_contents.get(id) {
                 let _base_text_val = contents.text.0.get();
             }
-            cx.update_input_caret_position(id);
-            cx.mark_dirty(id);
+            cx.apply_input_update(id, InputOp::TextEffect);
         });
     }
 }
