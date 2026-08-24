@@ -595,7 +595,7 @@ impl RenderStore {
         topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
-        if active_mask.has(STYLE_INTERACTION_PARENT) {
+        if !active_mask.has(STYLE_INTERACTION_PARENT) {
             return;
         }
         let Some(interaction) = rnd_interaction.get(id) else {
@@ -1095,6 +1095,24 @@ impl RenderStore {
         let target_shadow_val = target.shadow_params.unwrap_or_default();
         let shadow_changed = current.shadow_params != target_shadow_val;
 
+        let target_text_color = target.text_color.unwrap_or(Color::WHITE);
+        let text_color_changed = current.text_color != target_text_color;
+
+        let target_font_size = target.font_size.unwrap_or(16.0);
+        let target_font_family = target.font_family.clone();
+        let target_font_weight = target.font_weight.unwrap_or(400);
+        let target_font_style = target.font_style.unwrap_or(0);
+        let target_auto_wrap = target.auto_wrap.unwrap_or(false);
+
+        let font_changed = (current.font_size - target_font_size).abs() >= 0.001
+            || current.font_family != target_font_family
+            || current.font_weight != target_font_weight
+            || current.font_style != target_font_style
+            || current.auto_wrap != target_auto_wrap;
+
+        let target_pointer_events = target.pointer_events.unwrap_or_default();
+        let pointer_events_changed = current.pointer_events != target_pointer_events;
+
         // トランジション判定
         let mut if_needed = |prop, start, end| {
             RenderStore::trigger_transition_if_needed(
@@ -1178,6 +1196,9 @@ impl RenderStore {
             || outline_width_changed
             || outline_color_changed
             || outline_offset_changed
+            || text_color_changed
+            || font_changed
+            || pointer_events_changed
             || rnd_base_visual.contains_key(id)
         {
             if !rnd_visual.contains_key(id) {
@@ -1238,27 +1259,22 @@ impl RenderStore {
 
             active_vis.pointer_events = target.pointer_events;
 
-            if let Some(target_vis) = rnd_base_visual.get(id) {
-                active_vis.z_index = target_vis.z_index;
-                active_vis.backdrop = target_vis.backdrop;
-                active_vis.bg_gradient = target_vis.bg_gradient;
-                active_vis.transitions.clone_from(&target_vis.transitions);
+            if let Some(base_vis) = rnd_base_visual.get(id) {
+                active_vis.z_index = base_vis.z_index;
+                active_vis.backdrop = base_vis.backdrop;
+                active_vis.bg_gradient = base_vis.bg_gradient;
+                active_vis.transitions.clone_from(&base_vis.transitions);
                 active_vis
                     .keyframe_animations
-                    .clone_from(&target_vis.keyframe_animations);
-                active_vis.focusable = target_vis.focusable;
-                active_vis.prevent_focus_steal = target_vis.prevent_focus_steal;
-                active_vis.prevent_focus_steal_within = target_vis.prevent_focus_steal_within;
+                    .clone_from(&base_vis.keyframe_animations);
+                active_vis.focusable = base_vis.focusable;
+                active_vis.prevent_focus_steal = base_vis.prevent_focus_steal;
+                active_vis.prevent_focus_steal_within = base_vis.prevent_focus_steal_within;
                 active_vis.transform_inherit = target.transform_inherit;
-                active_vis.user_select = target_vis.user_select;
+                active_vis.user_select = base_vis.user_select;
             }
 
-            if active_vis.font_size != target.font_size
-                || active_vis.font_family != target.font_family
-                || active_vis.font_style != target.font_style
-                || active_vis.font_weight != target.font_weight
-                || active_vis.auto_wrap != target.auto_wrap
-            {
+            if font_changed {
                 SystemStore::clear_layout_cache(id, sys_dwrite_layouts);
                 LayoutStore::mark_layout_dirty(
                     id,
@@ -1701,7 +1717,7 @@ impl RenderStore {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct CurrentStyle {
     pub(crate) bg_color: Color,
     pub(crate) border_color: Color,
@@ -1713,6 +1729,13 @@ pub(crate) struct CurrentStyle {
     pub(crate) transform_origin: Point<f32>,
     pub(crate) corner_radius: CornerRadius,
     pub(crate) shadow_params: BoxShadow,
+    pub(crate) text_color: Color,
+    pub(crate) font_size: f32,
+    pub(crate) font_family: Option<Cow<'static, str>>,
+    pub(crate) font_weight: u32,
+    pub(crate) font_style: u32,
+    pub(crate) auto_wrap: bool,
+    pub(crate) pointer_events: PointerEvents,
 }
 
 impl Default for CurrentStyle {
@@ -1728,6 +1751,13 @@ impl Default for CurrentStyle {
             transform_origin: Point::ORIGIN,
             corner_radius: CornerRadius::ZERO,
             shadow_params: BoxShadow::none(),
+            text_color: Color::WHITE,
+            font_size: 16.0,
+            font_family: None,
+            font_weight: 400,
+            font_style: 0,
+            auto_wrap: false,
+            pointer_events: PointerEvents::default(),
         }
     }
 }
@@ -1751,6 +1781,13 @@ impl RenderStore {
                 transform_origin: v.transform_origin.unwrap_or(Point::ORIGIN),
                 corner_radius: v.corner_radius.unwrap_or(CornerRadius::ZERO),
                 shadow_params: v.shadow_params.unwrap_or(BoxShadow::none()),
+                text_color: v.text_color.unwrap_or(Color::WHITE),
+                font_size: v.font_size.unwrap_or(16.0),
+                font_family: v.font_family.clone(),
+                font_weight: v.font_weight.unwrap_or(400),
+                font_style: v.font_style.unwrap_or(0),
+                auto_wrap: v.auto_wrap.unwrap_or(false),
+                pointer_events: v.pointer_events.unwrap_or_default(),
             })
             .unwrap_or_default()
     }
