@@ -3339,6 +3339,7 @@ impl EventStore {
 }
 
 impl Context {
+    #[inline]
     pub(crate) fn apply_input_update(&mut self, id: EntityId, op: InputOp) {
         EventStore::apply_input_update(
             id,

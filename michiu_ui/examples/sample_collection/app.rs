@@ -57,4 +57,5 @@ pub enum ComponentType {
     Cursor,
     Outline,
     Focusable,
+    StressTest,
 }

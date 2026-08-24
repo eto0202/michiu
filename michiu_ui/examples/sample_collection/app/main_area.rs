@@ -2,7 +2,7 @@ use crate::{
     app::{ComponentType, theme::Theme},
     components::{
         background, border, button, color, css, cursor, div, draggable, focusable, hover, input,
-        outline, resizable,
+        outline, resizable, stress_test,
     },
 };
 pub use michiu_ui::prelude::*;
@@ -58,6 +58,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Cursor => wrapper(cursor::container()),
         ComponentType::Outline => wrapper(outline::container()),
         ComponentType::Focusable => wrapper(focusable::container()),
+        ComponentType::StressTest => text("StressTest"),
     }
 }
 
