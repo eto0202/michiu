@@ -505,8 +505,7 @@ fn multiline_container() -> Element {
                 .text_color(dynamic(|t: &Theme| t.text))
                 .select_text()
                 .cursor_text()
-                .overflow_hidden()
-                .debug_border_red(),
+                .overflow_hidden(),
         ),
     );
 

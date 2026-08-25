@@ -406,11 +406,7 @@ impl Context {
 
     /// 指定された要素もしくはルート要素に対してシグナルコンテキストを提供します
     #[inline]
-    pub fn provide<T: Send + 'static>(
-        &mut self,
-        id: Option<EntityId>,
-        read_signal: ReadSignal<T>,
-    ) {
+    pub fn provide<T: Send + 'static>(&mut self, id: Option<EntityId>, read_signal: ReadSignal<T>) {
         ReactiveStore::provide::<T>(
             id,
             read_signal,
@@ -812,7 +808,7 @@ impl Context {
             &mut self.topology.topo_dfs_indices,
             &mut self.topology.topo_sort_cache,
             &mut self.topology.topo_is_sort_dirty,
-            &self.topology.topo_active_masks,
+            &mut self.topology.topo_active_masks,
             &self.topology.topo_active_entities,
             &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,

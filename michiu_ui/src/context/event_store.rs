@@ -1363,7 +1363,7 @@ impl EventStore {
             &mut cx.topology.topo_dfs_indices,
             &mut cx.topology.topo_sort_cache,
             &mut cx.topology.topo_is_sort_dirty,
-            &cx.topology.topo_active_masks,
+            &mut cx.topology.topo_active_masks,
             &cx.topology.topo_active_entities,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,

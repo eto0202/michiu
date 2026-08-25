@@ -2,8 +2,8 @@ use crate::{
     BaseVisualPropertiesSecondary, ClipRectsSecondary, ComponentMask, ContentStore, Context,
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection,
     FlexLayoutsSecondary, InteractionStates, LayoutPoint, LayoutStore, OutputStore, PointerEvents,
-    ReactiveStore, RectsSecondary, RenderStore, STATE_DND_DRAG_OVER, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
+    ReactiveStore, RectsSecondary, RenderStore, STATE_DND_DRAG_OVER, STATE_RENDER_VISIBLE,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -606,6 +606,7 @@ impl TopologyStore {
     /// 実効 `z_index` の計算と、それに基づく要素のソート
     #[inline]
     pub(crate) fn prepare_sorted_entities(
+        topo_active_masks: &mut ActiveMasksSecondary,
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_dfs_indices: &mut DfsIndicesSecondary,
@@ -615,6 +616,8 @@ impl TopologyStore {
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         rnd_visual: &VisualPropertiesSecondary,
+        out_rects: &RectsSecondary,
+        out_clip_rects: &ClipRectsSecondary,
     ) {
         if !*topo_is_sort_dirty {
             return;
@@ -628,18 +631,40 @@ impl TopologyStore {
             rnd_visual,
         );
 
-        // 元の DFS 出現順インデックスを作業用バッファに記録
+        // DFS順配列を使って可視性フラグを高速に伝播、および出現インデックスの記録
         topo_dfs_indices.clear();
         for (index, &id) in topo_flat_dfs_sequence.iter().enumerate() {
+            let parent_id = topo_parents.get(id).copied().flatten();
+            let is_parent_invisible =
+                parent_id.is_some_and(|p| !topo_active_masks[p].has(STATE_RENDER_VISIBLE));
+
+            let rect = out_rects.get(id).copied().unwrap_or_default(); // 追加
+            let clip = out_clip_rects.get(id).copied().unwrap_or_default();
+
+            // rect と clip の交差領域を算出しそのサイズでカリング判定
+            let intersect = rect.intersect(&clip);
+            let is_self_invisible = intersect.width <= 0.0 || intersect.height <= 0.0;
+
+            let is_visible = !is_parent_invisible && !is_self_invisible;
+
+            if is_visible {
+                topo_active_masks[id].set(STATE_RENDER_VISIBLE);
+            } else {
+                topo_active_masks[id].unset(STATE_RENDER_VISIBLE);
+            }
+
+            // 出現インデックスを記録
             topo_dfs_indices.insert(id, index as u32);
         }
 
         // ソート用キャッシュを構築
         topo_sort_cache.clear();
         for &id in topo_active_entities {
-            let z = topo_effective_z_indices.get(id).copied().unwrap_or(0);
-            let dfs = topo_dfs_indices.get(id).copied().unwrap_or(0);
-            topo_sort_cache.push((id, z, dfs));
+            if topo_active_masks[id].has(STATE_RENDER_VISIBLE) {
+                let z = topo_effective_z_indices.get(id).copied().unwrap_or(0);
+                let dfs = topo_dfs_indices.get(id).copied().unwrap_or(0);
+                topo_sort_cache.push((id, z, dfs));
+            }
         }
 
         topo_sort_cache.sort_unstable_by_key(|&(_, z, dfs)| (z, dfs));
@@ -688,7 +713,7 @@ impl TopologyStore {
         topo_dfs_indices: &mut DfsIndicesSecondary,
         topo_sort_cache: &mut TopoSortCacheVec,
         topo_is_sort_dirty: &mut bool,
-        topo_active_masks: &ActiveMasksSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
         topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
@@ -699,6 +724,7 @@ impl TopologyStore {
     ) -> Option<EntityId> {
         // 実効 z_index の計算とソート
         TopologyStore::prepare_sorted_entities(
+            topo_active_masks,
             topo_sorted_entities,
             topo_effective_z_indices,
             topo_dfs_indices,
@@ -708,6 +734,8 @@ impl TopologyStore {
             topo_parents,
             topo_flat_dfs_sequence,
             rnd_visual,
+            out_rects,
+            out_clip_rects,
         );
 
         // 最前面の要素から逆順

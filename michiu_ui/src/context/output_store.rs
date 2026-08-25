@@ -2680,8 +2680,8 @@ impl OutputStore {
         topo_dfs_indices: &mut DfsIndicesSecondary,
         topo_sort_cache: &mut TopoSortCacheVec,
         topo_is_sort_dirty: &mut bool,
+        topo_active_masks: &mut ActiveMasksSecondary,
         topo_active_entities: &ActiveEntitiesVec,
-        topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -2779,6 +2779,7 @@ impl OutputStore {
 
         // 実効 z_index の計算とソート
         TopologyStore::prepare_sorted_entities(
+            topo_active_masks,
             topo_sorted_entities,
             topo_effective_z_indices,
             topo_dfs_indices,
@@ -2788,6 +2789,8 @@ impl OutputStore {
             topo_parents,
             topo_flat_dfs_sequence,
             rnd_visual,
+            out_rects,
+            out_clip_rects,
         );
 
         for &id in &*topo_sorted_entities {
@@ -3164,8 +3167,8 @@ impl Context {
             &mut self.topology.topo_dfs_indices,
             &mut self.topology.topo_sort_cache,
             &mut self.topology.topo_is_sort_dirty,
+            &mut self.topology.topo_active_masks,
             &self.topology.topo_active_entities,
-            &self.topology.topo_active_masks,
             &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,
             &self.layouts.lay_resolved_basic,

@@ -58,7 +58,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Cursor => wrapper(cursor::container()),
         ComponentType::Outline => wrapper(outline::container()),
         ComponentType::Focusable => wrapper(focusable::container()),
-        ComponentType::StressTest => text("StressTest"),
+        ComponentType::StressTest => wrapper(stress_test::container()),
     }
 }
 
