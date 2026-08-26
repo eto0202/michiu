@@ -640,6 +640,7 @@ impl Element {
     pub fn webview2(self, contents: impl Into<Prop<WebView2Contents>>) -> Self {
         self.bind_prop(contents, EffectCategory::Movie, |cx, id, src| {
             cx.contents.cont_webview_contents.insert(id, src);
+            cx.topology.topo_webview_entities.push(id);
             cx.topology.topo_active_masks[id].set(COMP_WEBVIEW_CONTENT);
             cx.mark_dirty(id);
         })

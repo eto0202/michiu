@@ -1,12 +1,20 @@
 use crate::{
     BaseVisualPropertiesSecondary, ClipRectsSecondary, ComponentMask, ContentStore, Context,
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection,
-    FlexLayoutsSecondary, InteractionStates, LayoutPoint, LayoutStore, OutputStore, PointerEvents,
-    ReactiveStore, RectsSecondary, RenderStore, STATE_DND_DRAG_OVER, STATE_RENDER_VISIBLE,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
+    FlexLayoutsSecondary, IDENTITY_MATRIX, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
+    STATE_DND_DRAG_OVER, STATE_RENDER_VISIBLE, STATE_TRANSFORM_ACTIVE, STYLE_OVERFLOW, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
+
+// ソート計算用
+struct StackFrame {
+    id: EntityId,
+    matrix: [[f32; 4]; 4],
+    clip: LayoutRect,
+}
 
 pub(crate) type EntitiesSlot = SlotMap<EntityId, ()>;
 pub(crate) type ParentsSecondary = SecondaryMap<EntityId, Option<EntityId>>;
@@ -17,10 +25,10 @@ pub(crate) type SessionSpawnedVec = Vec<EntityId>;
 pub(crate) type SessionRootsVec = Vec<EntityId>;
 pub(crate) type FlatDfsSequenceVec = Vec<EntityId>;
 pub(crate) type EffectiveZindicesSecondary = SecondaryMap<EntityId, i32>;
-pub(crate) type EffectiveTransformsSecondary = SecondaryMap<EntityId, [[f32; 4]; 4]>;
 pub(crate) type SortedEntitiesVec = Vec<EntityId>;
 pub(crate) type DfsIndicesSecondary = SecondaryMap<EntityId, u32>;
 pub(crate) type TopoSortCacheVec = Vec<(EntityId, i32, u32)>;
+pub(crate) type WebviewEntitiesVec = SmallVec<[EntityId; 4]>;
 
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
@@ -43,12 +51,11 @@ pub struct TopologyStore {
     pub(crate) topo_is_sort_dirty: bool,
     // ソート用の作業用配列
     pub(crate) topo_sorted_entities: SortedEntitiesVec,
-    // 累積トランスフォーム行列の作業用マップ
-    pub(crate) topo_effective_transforms: EffectiveTransformsSecondary,
     // 実効 z-index の作業用マップ
     pub(crate) topo_effective_z_indices: EffectiveZindicesSecondary,
     pub(crate) topo_dfs_indices: DfsIndicesSecondary,
     pub(crate) topo_sort_cache: TopoSortCacheVec,
+    pub(crate) topo_webview_entities: WebviewEntitiesVec,
 }
 
 impl Default for TopologyStore {
@@ -74,10 +81,10 @@ impl TopologyStore {
             topo_is_sort_dirty: true,
             // TODO: 容量確保に関して要検討
             topo_sorted_entities: Vec::new(),
-            topo_effective_transforms: SecondaryMap::new(),
             topo_effective_z_indices: SecondaryMap::new(),
             topo_dfs_indices: SecondaryMap::new(),
             topo_sort_cache: Vec::new(),
+            topo_webview_entities: SmallVec::new(),
         }
     }
 
@@ -92,10 +99,10 @@ impl TopologyStore {
         self.topo_is_structure_dirty = true;
         self.topo_is_sort_dirty = true;
         self.topo_sorted_entities.clear();
-        self.topo_effective_transforms.clear();
         self.topo_effective_z_indices.clear();
         self.topo_dfs_indices.clear();
         self.topo_sort_cache.clear();
+        self.topo_webview_entities.clear();
     }
 
     #[inline]
@@ -104,7 +111,6 @@ impl TopologyStore {
         self.topo_parents.remove(id);
         self.topo_active_masks.remove(id);
         self.topo_effective_z_indices.remove(id);
-        self.topo_effective_transforms.remove(id);
         self.topo_dfs_indices.remove(id);
         // ダーティキュー、DFSシーケンス、アクティブ走査用の一時配列から
         // デスポーンされた無効な ID をその場で即時に抹消クリーンアップします。
@@ -113,6 +119,7 @@ impl TopologyStore {
         self.topo_session_roots.retain(|&x| x != id);
         self.topo_flat_dfs_sequence.retain(|&x| x != id);
         self.topo_sorted_entities.retain(|&x| x != id);
+        self.topo_webview_entities.retain(|x| *x != id);
     }
 }
 
@@ -606,6 +613,7 @@ impl TopologyStore {
     /// 実効 `z_index` の計算と、それに基づく要素のソート
     #[inline]
     pub(crate) fn prepare_sorted_entities(
+        win_last_size: Option<LayoutSize>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
@@ -616,33 +624,94 @@ impl TopologyStore {
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         rnd_visual: &VisualPropertiesSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
-        out_clip_rects: &ClipRectsSecondary,
     ) {
         if !*topo_is_sort_dirty {
             return;
         }
 
-        // 実効 z_index をカスケード計算
-        TopologyStore::compute_effective_z_indices(
-            topo_effective_z_indices,
-            topo_parents,
-            topo_flat_dfs_sequence,
-            rnd_visual,
-        );
+        let mut stack = smallvec::SmallVec::<[StackFrame; 32]>::new();
+        let window_size = win_last_size.unwrap_or_default();
+        let default_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
+
+        topo_effective_z_indices.clear();
+        topo_dfs_indices.clear();
 
         // DFS順配列を使って可視性フラグを高速に伝播、および出現インデックスの記録
-        topo_dfs_indices.clear();
         for (index, &id) in topo_flat_dfs_sequence.iter().enumerate() {
             let parent_id = topo_parents.get(id).copied().flatten();
+
+            // 親がスタックのトップに一致するまで遡る
+            while let Some(top) = stack.last() {
+                if parent_id == Some(top.id) {
+                    break;
+                }
+                stack.pop();
+            }
+
+            // 親から累積された行列とクリップ矩形を引き継ぐ
+            let (parent_matrix, parent_clip) = match stack.last() {
+                Some(top) => (top.matrix, top.clip),
+                None => (IDENTITY_MATRIX, default_clip),
+            };
+
+            // 実効 z_index のカスケード計算
+            let self_z = rnd_visual.get(id).and_then(|v| v.z_index);
+            let parent_z = parent_id.and_then(|pid| topo_effective_z_indices.get(pid).copied());
+            let eff_z = self_z.or(parent_z).unwrap_or(0);
+            topo_effective_z_indices.insert(id, eff_z);
+
+            // トランスフォームのインライン累積
+            let (self_transform, transform_inherit) = match rnd_visual.get(id) {
+                Some(v) => (
+                    v.transform.unwrap_or(IDENTITY_MATRIX),
+                    v.transform_inherit.unwrap_or(false),
+                ),
+                None => (IDENTITY_MATRIX, false),
+            };
+
+            // 親から受け取った parent_matrix を左から掛けることで、
+            // Column-Major カスケード（親の累積 * 自身）と数学的に一致
+            let eff_matrix = if transform_inherit {
+                OutputStore::mul_4x4(&parent_matrix, &self_transform)
+            } else {
+                self_transform
+            };
+
+            // クリップ矩形のインライン累積
+            let is_overflow = topo_active_masks[id].has(STYLE_OVERFLOW);
+            let rect = out_rects.get(id).copied().unwrap_or_default();
+
+            let eff_clip = out_clip_rects.get(id).copied().unwrap_or(default_clip);
+
+            // トランスフォームの適用されているブランチか伝播判定
+            let is_parent_transform =
+                parent_id.is_some_and(|p| topo_active_masks[p].has(STATE_TRANSFORM_ACTIVE));
+            let has_self_transform = rnd_visual.get(id).is_some_and(|v| v.transform.is_some());
+            let is_transform_active = is_parent_transform || has_self_transform;
+
+            if is_transform_active {
+                topo_active_masks[id].set(STATE_TRANSFORM_ACTIVE);
+            } else {
+                topo_active_masks[id].unset(STATE_TRANSFORM_ACTIVE);
+            }
+
+            // カリング判定用の AABB の取得と交差判定
+            let bounding_box = if is_transform_active {
+                // トランスフォームがある場合のみ、親に遡って実効トランスフォームを解決し、
+                // 4頂点アフィン変換を施した正確な AABB を算出
+                RenderStore::calculate_aabb(rect, &eff_matrix)
+            } else {
+                rect // トランスフォームが無い大半の要素は元の rect をそのまま使用
+            };
+
+            // 親の可視性フラグのチェック
             let is_parent_invisible =
                 parent_id.is_some_and(|p| !topo_active_masks[p].has(STATE_RENDER_VISIBLE));
 
-            let rect = out_rects.get(id).copied().unwrap_or_default(); // 追加
-            let clip = out_clip_rects.get(id).copied().unwrap_or_default();
-
-            // rect と clip の交差領域を算出しそのサイズでカリング判定
-            let intersect = rect.intersect(&clip);
+            // Bounding Box と クリップの交差矩形
+            let intersect = bounding_box.intersect(&eff_clip);
             let is_self_invisible = intersect.width <= 0.0 || intersect.height <= 0.0;
 
             let is_visible = !is_parent_invisible && !is_self_invisible;
@@ -653,11 +722,18 @@ impl TopologyStore {
                 topo_active_masks[id].unset(STATE_RENDER_VISIBLE);
             }
 
-            // 出現インデックスを記録
+            // DFS出現順インデックスの記録
             topo_dfs_indices.insert(id, index as u32);
+
+            stack.push(StackFrame {
+                id,
+                matrix: eff_matrix,
+                clip: eff_clip,
+            });
         }
 
-        // ソート用キャッシュを構築
+        // ソート用キャッシュの構築
+        // STATE_RENDER_VISIBLE が立っている要素のみを抽出
         topo_sort_cache.clear();
         for &id in topo_active_entities {
             if topo_active_masks[id].has(STATE_RENDER_VISIBLE) {
@@ -667,6 +743,7 @@ impl TopologyStore {
             }
         }
 
+        // 抽出された可視要素のみを z_index と出現順でソート
         topo_sort_cache.sort_unstable_by_key(|&(_, z, dfs)| (z, dfs));
 
         // ソート結果から ID 配列を再構成
@@ -676,37 +753,11 @@ impl TopologyStore {
         *topo_is_sort_dirty = false;
     }
 
-    /// 各要素の実効 `z_index` を親から子へカスケードして計算
-    #[inline]
-    pub(crate) fn compute_effective_z_indices(
-        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        rnd_visual: &VisualPropertiesSecondary,
-    ) {
-        topo_effective_z_indices.clear();
-
-        // topo_flat_dfs_sequence は必ず親から子への順でフラットに並んでいるため、前方1方向の走査で完結
-        for &id in topo_flat_dfs_sequence {
-            let self_z = rnd_visual.get(id).and_then(|v| v.z_index);
-
-            let parent_z = topo_parents
-                .get(id)
-                .copied()
-                .flatten()
-                .and_then(|pid| topo_effective_z_indices.get(pid).copied());
-
-            // 自身に z_index 指定があればそれを最優先し、
-            // なければ親の実効 z_index を継承する（双方になければデフォルト 0）
-            let eff_z = self_z.or(parent_z).unwrap_or(0);
-            topo_effective_z_indices.insert(id, eff_z);
-        }
-    }
-
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
     /// 階層的な早期枝刈りヒットテスト
     pub(crate) fn hit_test(
         point: LayoutPoint,
+        win_last_size: Option<LayoutSize>,
         evt_interaction_states: &InteractionStates,
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
@@ -719,11 +770,12 @@ impl TopologyStore {
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
-        out_clip_rects: &ClipRectsSecondary,
     ) -> Option<EntityId> {
         // 実効 z_index の計算とソート
         TopologyStore::prepare_sorted_entities(
+            win_last_size,
             topo_active_masks,
             topo_sorted_entities,
             topo_effective_z_indices,
@@ -734,8 +786,8 @@ impl TopologyStore {
             topo_parents,
             topo_flat_dfs_sequence,
             rnd_visual,
-            out_rects,
             out_clip_rects,
+            out_rects,
         );
 
         // 最前面の要素から逆順

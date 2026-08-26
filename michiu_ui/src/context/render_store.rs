@@ -3,20 +3,20 @@ use crate::{
     BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
     BoxShadow, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
     CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display, DwriteLayoutsSparseSecondary,
-    EdgeInsets, EffectCategory, EffectId, EffectiveTransformsSecondary, ElementEffectsSecondary,
-    EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon,
-    IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStates, InteractionStyles,
-    LayoutPoint, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point,
-    PointerEvents, PropertyList, ReactiveStore, RectsSecondary, STATE_ACTIVED, STATE_DISABLED,
-    STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED,
-    STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_QUEUED_RENDER,
-    STATE_SELECTED, STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_AUTO_WRAP, STYLE_BG_COLOR,
-    STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR,
-    STYLE_EXT_PROPERTIES, STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
-    STYLE_OPACITY, STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR,
-    STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay,
-    ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    ThisStyle, TopologyStore, TransitionValue, Val, VisualProperty, WindowStore,
+    EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId,
+    FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon, IDENTITY_MATRIX,
+    InputContentsSparseSecondary, InteractionStates, InteractionStyles, LayoutPoint, LayoutRect,
+    LayoutSize, LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents,
+    PropertyList, ReactiveStore, RectsSecondary, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
+    STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
+    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_QUEUED_RENDER, STATE_SELECTED,
+    STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_AUTO_WRAP, STYLE_BG_COLOR, STYLE_BORDER,
+    STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_EXT_PROPERTIES,
+    STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OPACITY,
+    STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR, STYLE_TRANSFORM,
+    STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay, ScrollbarStylesSecondary,
+    StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle, TopologyStore,
+    TransitionValue, Val, VisualProperty, WindowStore,
 };
 use rustc_hash::FxHashSet;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -813,6 +813,7 @@ impl RenderStore {
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
+        topo_is_sort_dirty: &mut bool,
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
@@ -839,6 +840,7 @@ impl RenderStore {
             react_element_effects,
             cont_input_contents,
             topo_active_masks,
+            topo_is_sort_dirty,
             topo_entities,
             topo_parents,
             topo_children,
@@ -1002,6 +1004,7 @@ impl RenderStore {
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
+        topo_is_sort_dirty: &mut bool,
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
@@ -1286,6 +1289,10 @@ impl RenderStore {
                 );
             }
 
+            if transform_changed || transform_origin_changed {
+                *topo_is_sort_dirty = true;
+            }
+
             RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
         }
     }
@@ -1435,18 +1442,17 @@ impl RenderStore {
         }
     }
 
-    /// 各要素の実効トランスフォーム行列を累積計算
-    pub(crate) fn accumulate_transform_matrix(
-        topo_effective_transforms: &mut EffectiveTransformsSecondary,
-        topo_active_entities: &ActiveEntitiesVec,
+    /// 指定された要素の実効トランスフォームを親に遡りながら動的に解決
+    pub(crate) fn resolve_effective_transform(
+        id: EntityId,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         rnd_visual: &VisualPropertiesSecondary,
-    ) {
-        topo_effective_transforms.clear();
+    ) -> [[f32; 4]; 4] {
+        let mut curr = Some(id);
+        let mut result = IDENTITY_MATRIX;
 
-        for &id in topo_flat_dfs_sequence {
-            let (self_transform, transform_inherit) = match rnd_visual.get(id) {
+        while let Some(curr_id) = curr {
+            let (self_transform, transform_inherit) = match rnd_visual.get(curr_id) {
                 Some(v) => (
                     v.transform.unwrap_or(IDENTITY_MATRIX),
                     v.transform_inherit.unwrap_or(false),
@@ -1454,26 +1460,26 @@ impl RenderStore {
                 None => (IDENTITY_MATRIX, false),
             };
 
-            let mut eff_transform = self_transform;
+            // 子から親へ遡るため、親の行列を左から掛けていくことで、
+            // Column-Major におけるカスケード順序（親の累積 * 自身）と数学的に一致
+            result = OutputStore::mul_4x4(&self_transform, &result);
 
-            if transform_inherit
-                && let Some(parent_id) = topo_parents.get(id).copied().flatten()
-                && let Some(&parent_eff) = topo_effective_transforms.get(parent_id)
-            {
-                // 親の累積トランスフォーム行列 * 自身のトランスフォーム行列 (Column-Major 順)
-                eff_transform = OutputStore::mul_4x4(&parent_eff, &self_transform);
+            // 継承設定があり親が存在する場合のみ上に遡る
+            if transform_inherit {
+                curr = topo_parents.get(curr_id).copied().flatten();
+            } else {
+                break;
             }
-            topo_effective_transforms.insert(id, eff_transform);
         }
+        result
     }
 
     #[inline]
     pub(crate) fn get_transform_and_origin(
         id: EntityId,
         visual: &VisualProperty,
-        transforms: &SecondaryMap<EntityId, [[f32; 4]; 4]>,
+        full_transform: [[f32; 4]; 4],
     ) -> ([[f32; 4]; 3], [f32; 2]) {
-        let full_transform = transforms.get(id).copied().unwrap_or(IDENTITY_MATRIX);
         let packed_transform = [
             full_transform[0], // X軸基底
             full_transform[1], // Y軸基底
@@ -1481,6 +1487,32 @@ impl RenderStore {
         ];
         let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);
         (packed_transform, origin)
+    }
+
+    /// 矩形にアフィン変換行列を適用した後の座標軸に平行な AABB を求める
+    #[inline]
+    pub(crate) fn calculate_aabb(rect: LayoutRect, matrix: &[[f32; 4]; 4]) -> LayoutRect {
+        // 矩形の4頂点
+        let p0 = RenderStore::mul_vector(0.0, 0.0, matrix);
+        let p1 = RenderStore::mul_vector(rect.width, 0.0, matrix);
+        let p2 = RenderStore::mul_vector(rect.width, rect.height, matrix);
+        let p3 = RenderStore::mul_vector(0.0, rect.height, matrix);
+
+        let min_x = p0.0.min(p1.0).min(p2.0).min(p3.0);
+        let max_x = p0.0.max(p1.0).max(p2.0).max(p3.0);
+        let min_y = p0.1.min(p1.1).min(p2.1).min(p3.1);
+        let max_y = p0.1.max(p1.1).max(p2.1).max(p3.1);
+
+        // 親要素の原点からの絶対座標にアライメント
+        LayoutRect::new(rect.x + min_x, rect.y + min_y, max_x - min_x, max_y - min_y)
+    }
+
+    /// 2D頂点に行列を適用
+    #[inline]
+    fn mul_vector(x: f32, y: f32, m: &[[f32; 4]; 4]) -> (f32, f32) {
+        let out_x = m[0][0] * x + m[1][0] * y + m[3][0];
+        let out_y = m[0][1] * x + m[1][1] * y + m[3][1];
+        (out_x, out_y)
     }
 
     #[inline]
@@ -1524,6 +1556,7 @@ impl RenderStore {
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
     pub(crate) fn tick_animations(
         topo_active_masks: &mut ActiveMasksSecondary,
+        topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_basic: &mut BasicLayoutsSecondary,
@@ -1593,6 +1626,10 @@ impl RenderStore {
                     rnd_visual,
                 );
 
+                if anim.property == PropertyList::Transform {
+                    *topo_is_sort_dirty = true;
+                }
+
                 RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
                 true // 継続して保持
             });
@@ -1605,6 +1642,7 @@ impl RenderStore {
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
     pub(crate) fn tick_transitions(
         topo_active_masks: &mut ActiveMasksSecondary,
+        topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
         lay_taffy: &mut TaffyTreeEntityId,
         lay_basic: &mut BasicLayoutsSecondary,
@@ -1662,6 +1700,8 @@ impl RenderStore {
                         if let Some(v) = rnd_visual.get_mut(id) {
                             v.transform = Some(m);
                         }
+                        // トランスフォームが実際に動いているためソート（カリング判定）を汚染
+                        *topo_is_sort_dirty = true;
                         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
                     }
                     TransitionValue::CornerRadius(cr) => {
@@ -2011,6 +2051,7 @@ impl Context {
             &self.reactive.react_element_effects,
             &self.contents.cont_input_contents,
             &mut self.topology.topo_active_masks,
+            &mut self.topology.topo_is_sort_dirty,
             &self.topology.topo_entities,
             &self.topology.topo_parents,
             &self.topology.topo_children,

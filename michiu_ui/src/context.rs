@@ -507,6 +507,7 @@ impl Context {
     pub fn tick_animations(&mut self) {
         RenderStore::tick_animations(
             &mut self.topology.topo_active_masks,
+            &mut self.topology.topo_is_sort_dirty,
             &self.topology.topo_parents,
             &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_basic,
@@ -522,6 +523,7 @@ impl Context {
     pub fn tick_transitions(&mut self) {
         RenderStore::tick_transitions(
             &mut self.topology.topo_active_masks,
+            &mut self.topology.topo_is_sort_dirty,
             &self.topology.topo_parents,
             &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_basic,
@@ -802,6 +804,7 @@ impl Context {
     pub fn hit_test(&mut self, point: LayoutPoint) -> Option<EntityId> {
         TopologyStore::hit_test(
             point,
+            self.window.win_last_size,
             &self.events.evt_interaction_states,
             &mut self.topology.topo_sorted_entities,
             &mut self.topology.topo_effective_z_indices,
@@ -814,8 +817,8 @@ impl Context {
             &self.topology.topo_flat_dfs_sequence,
             &self.renders.rnd_visual,
             &self.renders.rnd_base_visual,
+            &mut self.outputs.out_clip_rects,
             &self.outputs.out_rects,
-            &self.outputs.out_clip_rects,
         )
     }
 

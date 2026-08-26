@@ -623,6 +623,7 @@ impl EventStore {
                 &cx.reactive.react_element_effects,
                 &cx.contents.cont_input_contents,
                 &mut cx.topology.topo_active_masks,
+                &mut cx.topology.topo_is_sort_dirty,
                 &cx.topology.topo_entities,
                 &cx.topology.topo_parents,
                 &cx.topology.topo_children,
@@ -1357,6 +1358,7 @@ impl EventStore {
         // ヒットテストのキャッシュ
         let hit_id = TopologyStore::hit_test(
             logical_pos,
+            cx.window.win_last_size,
             &cx.events.evt_interaction_states,
             &mut cx.topology.topo_sorted_entities,
             &mut cx.topology.topo_effective_z_indices,
@@ -1369,8 +1371,8 @@ impl EventStore {
             &cx.topology.topo_flat_dfs_sequence,
             &cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
+            &mut cx.outputs.out_clip_rects,
             &cx.outputs.out_rects,
-            &cx.outputs.out_clip_rects,
         );
 
         // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
@@ -1416,6 +1418,7 @@ impl EventStore {
                     &cx.reactive.react_element_effects,
                     &cx.contents.cont_input_contents,
                     &mut cx.topology.topo_active_masks,
+                    &mut cx.topology.topo_is_sort_dirty,
                     &cx.topology.topo_entities,
                     &cx.topology.topo_parents,
                     &cx.topology.topo_children,

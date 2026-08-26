@@ -608,8 +608,8 @@ impl TextCacheKey {
             .and_then(|s| s.font_size)
             .unwrap_or(visual.font_size.unwrap_or(16.0));
         let font_family = span
-            .and_then(|s| s.font_family.as_deref())
-            .or(visual.font_family.as_deref());
+            .and_then(|s| s.font_family.clone())
+            .or_else(|| visual.font_family.clone());
         let font_weight = span.and_then(|s| s.font_weight).or(visual.font_weight);
         let font_style = span.and_then(|s| s.font_style).or(visual.font_style);
 
@@ -617,7 +617,7 @@ impl TextCacheKey {
             character,
             font_size_bits: (font_size * scale_factor).to_bits(),
             font_style,
-            font_family: font_family.map(|f| Cow::Owned(f.to_string())),
+            font_family,
             font_weight,
         }
     }

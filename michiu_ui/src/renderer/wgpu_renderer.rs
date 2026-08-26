@@ -620,6 +620,9 @@ impl WgpuRenderer {
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
 
+        // 描画が完了したため蓄積された描画Dirtyをクリア
+        cx.clear_render_dirty();
+
         // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュ
         self.device.poll(wgpu::PollType::Poll);
 

@@ -280,7 +280,7 @@ impl ComposedRenderer {
 
             let mut current_promoted_ids = Vec::new();
 
-            for &id in &cx.topology.topo_active_entities {
+            for &id in &cx.topology.topo_webview_entities {
                 // WebView2 要素を抽出して昇格させる
                 let is_webview = cx.topology.topo_active_masks[id].has_webveiw2_content();
 

@@ -12,17 +12,18 @@ use crate::{
     BasicLayoutsSecondary, BatchType, BoxSizing, ChildrenSecondary, Color, ComponentMask,
     ContentStore, Context, CornerRadius, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets,
-    EffectiveTransformsSecondary, EffectiveZindicesSecondary, EntityId, EventStore,
-    FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, GridLayoutsSparseSecondary,
-    InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position,
-    PropertyList, QuadInstance, ReactiveStore, RenderData, RenderStore, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparseSecondary, STATE_QUEUED_LAYOUT, STYLE_OVERFLOW,
-    STYLE_TEXT_SPANS, ScrollbarStylesSecondary, SortedEntitiesVec, StrikethroughStyle, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextCacheKey, TextCacheValue,
-    TextContentsSparseSecondary, TextEngine, TextRasterizer, TextSpan, TextSpansSparseSecondary,
-    TextureAtlas, TopoSortCacheVec, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
-    VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context, with_context,
+    EffectiveZindicesSecondary, EntityId, EventStore, FlatDfsSequenceVec, FlexLayout,
+    FlexLayoutsSecondary, GridLayoutsSparseSecondary, IDENTITY_MATRIX, InputContents,
+    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
+    LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, PropertyList,
+    QuadInstance, ReactiveStore, RenderData, RenderStore, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparseSecondary, STATE_QUEUED_LAYOUT,
+    STATE_TRANSFORM_ACTIVE, STYLE_OVERFLOW, STYLE_TEXT_SPANS, ScrollbarStylesSecondary,
+    SortedEntitiesVec, StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextAlign, TextCacheKey, TextCacheValue, TextContentsSparseSecondary, TextEngine,
+    TextRasterizer, TextSpan, TextSpansSparseSecondary, TextureAtlas, TopoSortCacheVec,
+    TopologyStore, Transform, UnderlineStyle, UserSelect, Val, VisualPropertiesSecondary,
+    VisualProperty, WindowStore, bind_context, with_context,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
@@ -1616,9 +1617,6 @@ impl OutputStore {
         // 同期処理の開始時に自身をバインドする
         let _context_guard = bind_context(cx);
 
-        // 表示状態が変わる可能性があるため、ソートをDirtyマークする
-        cx.topology.topo_is_sort_dirty = true;
-
         // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
         ReactiveStore::evaluate_pending_element_effects(
             &mut cx.reactive.react_effects,
@@ -1637,6 +1635,11 @@ impl OutputStore {
         {
             return;
         }
+
+        // 実際にレイアウト再計算が発生する時だけマーク。それ以外はキャッシュされたカリング結果を使用。
+        // スクロール時はレイアウト汚染が発生する
+        // トランスフォームはtick_の方でフラグを立てている
+        cx.topology.topo_is_sort_dirty = true;
 
         // DFSツリーシーケンスの再構築
         if cx.topology.topo_is_structure_dirty {
@@ -1973,10 +1976,10 @@ impl CommonParameters {
         rect: LayoutRect,
         basic: &BasicLayout,
         visual: &VisualProperty,
-        topo_effective_transforms: &EffectiveTransformsSecondary,
+        eff_transform: [[f32; 4]; 4],
     ) -> Self {
         let (transform, transform_origin) =
-            RenderStore::get_transform_and_origin(id, visual, topo_effective_transforms);
+            RenderStore::get_transform_and_origin(id, visual, eff_transform);
         let (outline_width, outline_color, outline_lengths, outline_offset_and_flags) =
             RenderStore::get_outline_params(visual);
         let corner_radius = visual.corner_radius.unwrap_or_default();
@@ -2668,6 +2671,7 @@ impl OutputStore {
         text_cache: &mut HashMap<TextCacheKey, TextCacheValue>,
         queue: &wgpu::Queue,
         win_scale_factor: f32,
+        win_last_size: Option<LayoutSize>,
         sys_text_engine: &TextEngine,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
@@ -2675,7 +2679,6 @@ impl OutputStore {
         cont_text_spans: &TextSpansSparseSecondary,
         evt_interaction_states: &InteractionStates,
         topo_sorted_entities: &mut SortedEntitiesVec,
-        topo_effective_transforms: &mut EffectiveTransformsSecondary,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_dfs_indices: &mut DfsIndicesSecondary,
         topo_sort_cache: &mut TopoSortCacheVec,
@@ -2692,12 +2695,29 @@ impl OutputStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
         rnd_active_webviews: &ActiveWebviewsHashSet,
+        out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
-        out_clip_rects: &ClipRectsSecondary,
         out_selected_rects: &SelectedRectsSparseSecondary,
         out_scroll_offsets: &ScrollOffsetsSecondary,
     ) {
         let default_visual = VisualProperty::default();
+
+        // 実効 z_index, 累積トランスフォーム、カリング判定
+        TopologyStore::prepare_sorted_entities(
+            win_last_size,
+            topo_active_masks,
+            topo_sorted_entities,
+            topo_effective_z_indices,
+            topo_dfs_indices,
+            topo_sort_cache,
+            topo_is_sort_dirty,
+            topo_active_entities,
+            topo_parents,
+            topo_flat_dfs_sequence,
+            rnd_visual,
+            out_clip_rects,
+            out_rects,
+        );
 
         // アトラスの再構築が必要か
         let mut force_full_scan = false;
@@ -2768,31 +2788,6 @@ impl OutputStore {
         let mut current_batch_type = BatchType::Normal;
         let mut last_clip = None;
 
-        // 各要素の実効トランスフォーム行列を DFS 順にカスケード累積
-        RenderStore::accumulate_transform_matrix(
-            topo_effective_transforms,
-            topo_active_entities,
-            topo_parents,
-            topo_flat_dfs_sequence,
-            rnd_visual,
-        );
-
-        // 実効 z_index の計算とソート
-        TopologyStore::prepare_sorted_entities(
-            topo_active_masks,
-            topo_sorted_entities,
-            topo_effective_z_indices,
-            topo_dfs_indices,
-            topo_sort_cache,
-            topo_is_sort_dirty,
-            topo_active_entities,
-            topo_parents,
-            topo_flat_dfs_sequence,
-            rnd_visual,
-            out_rects,
-            out_clip_rects,
-        );
-
         for &id in &*topo_sorted_entities {
             let rect = out_rects.get(id).copied().unwrap_or_default();
             if rect.width <= 0.0 || rect.height <= 0.0 {
@@ -2810,7 +2805,15 @@ impl OutputStore {
             let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
             let is_multiline = cont_input_contents.get(id).is_some_and(|c| c.is_multiline);
 
-            let params = CommonParameters::new(id, rect, &basic, visual, topo_effective_transforms);
+            // トランスフォームブランチの場合のみその場で累積を解決
+            // それ以外は IDENTITY_MATRIX
+            let eff_transform = if topo_active_masks[id].has(STATE_TRANSFORM_ACTIVE) {
+                RenderStore::resolve_effective_transform(id, topo_parents, rnd_visual)
+            } else {
+                IDENTITY_MATRIX
+            };
+
+            let params = CommonParameters::new(id, rect, &basic, visual, eff_transform);
 
             let is_webview = topo_active_masks
                 .get(id)
@@ -3155,6 +3158,7 @@ impl Context {
             text_cache,
             queue,
             self.window.win_scale_factor,
+            self.window.win_last_size,
             &self.system.sys_text_engine,
             &self.system.sys_dwrite_layouts,
             &self.contents.cont_input_contents,
@@ -3162,7 +3166,6 @@ impl Context {
             &self.contents.cont_text_spans,
             &self.events.evt_interaction_states,
             &mut self.topology.topo_sorted_entities,
-            &mut self.topology.topo_effective_transforms,
             &mut self.topology.topo_effective_z_indices,
             &mut self.topology.topo_dfs_indices,
             &mut self.topology.topo_sort_cache,
@@ -3179,8 +3182,8 @@ impl Context {
             &self.renders.rnd_interaction,
             &self.renders.rnd_active_transitions,
             &self.renders.rnd_active_webviews,
+            &mut self.outputs.out_clip_rects,
             &self.outputs.out_rects,
-            &self.outputs.out_clip_rects,
             &self.outputs.out_selected_rects,
             &self.outputs.out_scroll_offsets,
         );
