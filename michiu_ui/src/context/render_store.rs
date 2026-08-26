@@ -1,24 +1,24 @@
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransition, AnimationCurve,
     BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
-    BoxShadow, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
-    CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display, DwriteLayoutsSparseSecondary,
-    EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId,
-    FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon, IDENTITY_MATRIX,
-    InputContentsSparseSecondary, InteractionStates, InteractionStyles, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents,
-    PropertyList, ReactiveStore, RectsSecondary, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN,
-    STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE,
-    STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_QUEUED_RENDER, STATE_SELECTED,
-    STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_AUTO_WRAP, STYLE_BG_COLOR, STYLE_BORDER,
-    STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS, STYLE_CURSOR, STYLE_EXT_PROPERTIES,
-    STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN, STYLE_OPACITY,
-    STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE, STYLE_TEXT_COLOR, STYLE_TRANSFORM,
-    STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT, ScrollbarDisplay, ScrollbarStylesSecondary,
-    StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle, TopologyStore,
-    TransitionValue, Val, VisualProperty, WindowStore,
+    BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask,
+    ContentStore, Context, CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display,
+    DwriteLayoutsSparseSecondary, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary,
+    EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon,
+    IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStates, InteractionStyles,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, PlaybackCount,
+    Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, STATE_ACTIVED,
+    STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED,
+    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT,
+    STATE_QUEUED_RENDER, STATE_SELECTED, STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_AUTO_WRAP,
+    STYLE_BG_COLOR, STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS,
+    STYLE_CURSOR, STYLE_EXT_PROPERTIES, STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT,
+    STYLE_INTERACTION_WITHIN, STYLE_OPACITY, STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE,
+    STYLE_TEXT_COLOR, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT,
+    ScrollbarDisplay, ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, ThisStyle, TopologyStore, TransitionValue, Val, VisualProperty, WindowStore,
 };
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
@@ -81,6 +81,24 @@ impl RenderStore {
             rnd_active_animations: SparseSecondaryMap::new(),
             rnd_active_webviews: FxHashSet::default(),
             rnd_last_tick_time: None,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_capacity(c: &CapacityConfig) -> Self {
+        Self {
+            rnd_visual: SecondaryMap::with_capacity(c.rnd_visual),
+            rnd_interaction: SecondaryMap::with_capacity(c.rnd_interaction),
+            rnd_base_visual: SecondaryMap::with_capacity(c.rnd_base_visual),
+            rnd_dirty_entities: Vec::with_capacity(c.rnd_dirty_entities),
+            rnd_active_transitions: SparseSecondaryMap::with_capacity(c.rnd_active_transitions),
+            rnd_active_animations: SparseSecondaryMap::with_capacity(c.rnd_active_animations),
+            rnd_active_webviews: FxHashSet::with_capacity_and_hasher(
+                c.rnd_active_webviews,
+                FxBuildHasher,
+            ),
+            ..Default::default()
         }
     }
 
@@ -977,6 +995,10 @@ impl RenderStore {
             lay_basic.insert(id, BasicLayout::default());
         }
         let active_layout_mut = lay_basic.get_mut(id).unwrap();
+
+        // 解決後の target_layout と 現在の active_layout が異なっているか
+        let is_layout_changed = *active_layout_mut != target_layout;
+
         *active_layout_mut = target_layout;
 
         if width_triggered {
@@ -986,14 +1008,16 @@ impl RenderStore {
             active_layout_mut.size.height = Val::Px(current_h.unwrap());
         }
 
-        LayoutStore::mark_layout_dirty(
-            id,
-            topo_active_masks,
-            topo_parents,
-            lay_taffy,
-            lay_dirty_entities,
-            lay_taffy_nodes,
-        );
+        if is_layout_changed {
+            LayoutStore::mark_layout_dirty(
+                id,
+                topo_active_masks,
+                topo_parents,
+                lay_taffy,
+                lay_dirty_entities,
+                lay_taffy_nodes,
+            );
+        }
     }
 
     fn resolve_visual_styles(

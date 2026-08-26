@@ -1,6 +1,6 @@
 use crate::{
-    BaseVisualPropertiesSecondary, ClipRectsSecondary, ComponentMask, ContentStore, Context,
-    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection,
+    BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary, ComponentMask, ContentStore,
+    Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection,
     FlexLayoutsSecondary, IDENTITY_MATRIX, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
     LayoutStore, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
     STATE_DND_DRAG_OVER, STATE_RENDER_VISIBLE, STATE_TRANSFORM_ACTIVE, STYLE_OVERFLOW, SystemStore,
@@ -79,12 +79,32 @@ impl TopologyStore {
             topo_flat_dfs_sequence: Vec::new(),
             topo_is_structure_dirty: true,
             topo_is_sort_dirty: true,
-            // TODO: 容量確保に関して要検討
             topo_sorted_entities: Vec::new(),
             topo_effective_z_indices: SecondaryMap::new(),
             topo_dfs_indices: SecondaryMap::new(),
             topo_sort_cache: Vec::new(),
             topo_webview_entities: SmallVec::new(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_capacity(c: &CapacityConfig) -> Self {
+        Self {
+            topo_entities: SlotMap::with_capacity_and_key(c.topo_entities),
+            topo_parents: SecondaryMap::with_capacity(c.topo_parents),
+            topo_children: SecondaryMap::with_capacity(c.topo_children),
+            topo_active_masks: SecondaryMap::with_capacity(c.topo_active_masks),
+            topo_active_entities: Vec::with_capacity(c.topo_active_entities),
+            topo_session_spawned: Vec::with_capacity(c.topo_session_spawned),
+            topo_session_roots: Vec::with_capacity(c.topo_session_roots),
+            topo_flat_dfs_sequence: Vec::with_capacity(c.topo_flat_dfs_sequence),
+            topo_sorted_entities: Vec::with_capacity(c.topo_sorted_entities),
+            topo_effective_z_indices: SecondaryMap::with_capacity(c.topo_effective_z_indices),
+            topo_dfs_indices: SecondaryMap::with_capacity(c.topo_dfs_indices),
+            topo_sort_cache: Vec::with_capacity(c.topo_sort_cache),
+            topo_webview_entities: SmallVec::with_capacity(c.topo_webview_entities),
+            ..Default::default()
         }
     }
 
@@ -680,7 +700,6 @@ impl TopologyStore {
             };
 
             // クリップ矩形のインライン累積
-            let is_overflow = topo_active_masks[id].has(STYLE_OVERFLOW);
             let rect = out_rects.get(id).copied().unwrap_or_default();
 
             let eff_clip = out_clip_rects.get(id).copied().unwrap_or(default_clip);

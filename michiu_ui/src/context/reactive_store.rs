@@ -1,6 +1,6 @@
 use crate::{
-    Context, EffectId, EntitiesSlot, EntityId, FlatDfsSequenceVec, ParentsSecondary, ReadSignal,
-    SignalId, TopologyStore, WriteSignal,
+    CapacityConfig, Context, EffectId, EntitiesSlot, EntityId, FlatDfsSequenceVec,
+    ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal,
 };
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
@@ -66,6 +66,20 @@ impl ReactiveStore {
             react_effect_to_element: SecondaryMap::new(),
             react_pending_element_effects: Vec::new(),
             react_providers: SparseSecondaryMap::new(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_capacity(c: &CapacityConfig) -> Self {
+        Self {
+            react_signals: SlotMap::with_capacity_and_key(c.react_signals),
+            react_effects: SlotMap::with_capacity_and_key(c.react_effects),
+            react_subscribers: SecondaryMap::with_capacity(c.react_subscribers),
+            react_element_effects: SecondaryMap::with_capacity(c.react_element_effects),
+            react_effect_to_element: SecondaryMap::with_capacity(c.react_effect_to_element),
+            react_pending_element_effects: Vec::with_capacity(c.react_pending_element_effects),
+            react_providers: SparseSecondaryMap::with_capacity(c.react_providers),
         }
     }
 

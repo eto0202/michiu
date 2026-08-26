@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
-    ActiveMasksSecondary, Context, EntityId, ImageSource, InputContents, LayoutRect, MovieProperty,
-    RenderStore, SystemStore, TextEngine, TextSpan, TopologyStore, VisualPropertiesSecondary,
-    WebView2Contents,
+    ActiveMasksSecondary, CapacityConfig, Context, EntityId, ImageSource, InputContents,
+    LayoutRect, MovieProperty, RenderStore, SystemStore, TextEngine, TextSpan, TopologyStore,
+    VisualPropertiesSecondary, WebView2Contents,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
@@ -43,6 +43,19 @@ impl ContentStore {
             cont_image_sources: SparseSecondaryMap::new(),
             cont_movie_properties: SparseSecondaryMap::new(),
             cont_webview_contents: SparseSecondaryMap::new(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_capacity(c: &CapacityConfig) -> Self {
+        Self {
+            cont_text_contents: SparseSecondaryMap::with_capacity(c.out_text_selections),
+            cont_text_spans: SparseSecondaryMap::with_capacity(c.cont_text_spans),
+            cont_input_contents: SparseSecondaryMap::with_capacity(c.cont_input_contents),
+            cont_image_sources: SparseSecondaryMap::with_capacity(c.cont_image_sources),
+            cont_movie_properties: SparseSecondaryMap::with_capacity(c.cont_movie_properties),
+            cont_webview_contents: SparseSecondaryMap::with_capacity(c.cont_webview_contents),
         }
     }
 

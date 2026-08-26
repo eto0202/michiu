@@ -3,7 +3,7 @@
 use crate::window::{
     client_rect, create_renderer, create_window, message_loop, register_class, show_window,
 };
-use michiu_ui::{ComposedRenderer, Dss, DssSet, EntityId, prelude::*};
+use michiu_ui::{CapacityConfig, ComposedRenderer, Dss, DssSet, EntityId, prelude::*};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let (h_instance, class_name, _wnd_class) = register_class()?;
     let hwnd = create_window(h_instance, class_name)?;
-    let mut context = Context::new();
+    let mut context = Context::with_capacity(&CapacityConfig::from_base_nodes(1024));
 
     let send_hwnd = SendHwnd(hwnd);
 

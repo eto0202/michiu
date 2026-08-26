@@ -9,10 +9,10 @@ use std::{
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
     ActiveWebviewsHashSet, AlignItems, BaseVisualPropertiesSecondary, BasicLayout,
-    BasicLayoutsSecondary, BatchType, BoxSizing, ChildrenSecondary, Color, ComponentMask,
-    ContentStore, Context, CornerRadius, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets,
-    EffectiveZindicesSecondary, EntityId, EventStore, FlatDfsSequenceVec, FlexLayout,
+    BasicLayoutsSecondary, BatchType, BoxSizing, CapacityConfig, ChildrenSecondary, Color,
+    ComponentMask, ContentStore, Context, CornerRadius, DfsIndicesSecondary,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary,
+    EdgeInsets, EffectiveZindicesSecondary, EntityId, EventStore, FlatDfsSequenceVec, FlexLayout,
     FlexLayoutsSecondary, GridLayoutsSparseSecondary, IDENTITY_MATRIX, InputContents,
     InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
     LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, PropertyList,
@@ -70,6 +70,24 @@ impl OutputStore {
             out_selected_rects: SparseSecondaryMap::new(),
             out_text_selections: SparseSecondaryMap::new(),
             out_selection_start_index: SparseSecondaryMap::new(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_capacity(c: &CapacityConfig) -> Self {
+        Self {
+            out_rects: SecondaryMap::with_capacity(c.out_rects),
+            out_clip_rects: SecondaryMap::with_capacity(c.out_clip_rects),
+            out_scroll_offsets: SecondaryMap::with_capacity(c.out_scroll_offsets),
+            out_scroll_sizes: SecondaryMap::with_capacity(c.out_scroll_sizes),
+            out_prev_rects: SecondaryMap::with_capacity(c.out_prev_rects),
+            out_prev_clip_rects: SecondaryMap::with_capacity(c.out_prev_clip_rects),
+            out_selected_rects: SparseSecondaryMap::with_capacity(c.out_selected_rects),
+            out_text_selections: SparseSecondaryMap::with_capacity(c.out_text_selections),
+            out_selection_start_index: SparseSecondaryMap::with_capacity(
+                c.out_selection_start_index,
+            ),
         }
     }
 

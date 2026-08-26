@@ -325,13 +325,13 @@ impl ComposedRenderer {
                             });
 
                 // 要素の物理サイズが前フレームから微細変動（リサイズドラッグなど）しているか判定
-                let rect = cx.outputs.out_rects[id];
+                let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
                 let prev_rect = cx
                     .outputs
                     .out_prev_rects
                     .get(id)
                     .copied()
-                    .unwrap_or(LayoutRect::ZERO);
+                    .unwrap_or_default();
                 let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
                     || (rect.height - prev_rect.height).abs() > 0.01;
 
@@ -471,7 +471,7 @@ impl ComposedRenderer {
                                 })
                             });
 
-                let rect = cx.outputs.out_rects[id];
+                let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
                 let prev_rect = cx
                     .outputs
                     .out_prev_rects
@@ -574,8 +574,14 @@ impl ComposedRenderer {
                 }
 
                 // 2. 生きている要素のサイズを追従（Taffyのレイアウトアニメーションと完全同期）
-                let rect = cx.outputs.out_rects[id];
-                let clip_rect = cx.outputs.out_clip_rects[id]; // 親の overflow 等で制限された表示領域
+                let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
+                // 親の overflow 等で制限された表示領域
+                let clip_rect = cx
+                    .outputs
+                    .out_clip_rects
+                    .get(id)
+                    .copied()
+                    .unwrap_or_default();
                 let visual = &self.promoted_visuals[i].visual;
 
                 // 移動中・リサイズ中におけるDCompスワップチェーンの子の影の点滅を防止するため、
@@ -586,13 +592,13 @@ impl ComposedRenderer {
                     .out_prev_rects
                     .get(id)
                     .copied()
-                    .unwrap_or(LayoutRect::ZERO);
+                    .unwrap_or_default();
                 let prev_clip = cx
                     .outputs
                     .out_prev_clip_rects
                     .get(id)
                     .copied()
-                    .unwrap_or(LayoutRect::ZERO);
+                    .unwrap_or_default();
 
                 // 要素の物理サイズが変化した場合、古いキャッシュテクスチャを即座に破棄（無効化）
                 //  初期サイズ決定時（prev_rect が ZERO の起動時フレーム）を除外
@@ -753,7 +759,7 @@ impl ComposedRenderer {
             let visual = self.dcomp_device.CreateVisual().unwrap();
 
             // 2. 位置とサイズを DComp 側に同期（最初のフレームから物理座標を使い、ジャンプを防ぐ）
-            let rect = cx.outputs.out_rects[id];
+            let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
             let phys_x = rect.x * self.scale_factor;
             let phys_y = rect.y * self.scale_factor;
             visual.SetOffsetX2(phys_x).unwrap();

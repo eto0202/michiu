@@ -1,8 +1,8 @@
 use crate::{
-    BasicLayoutsSecondary, ContentStore, Context, EdgeInsets, EntityId, InputContents, LayoutPoint,
-    LayoutRect, LayoutStore, RectsSecondary, RenderStore, ResolvedBasicSecondary,
-    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, UiaValue,
-    VisualPropertiesSecondary, WindowStore,
+    BasicLayoutsSecondary, CapacityConfig, ContentStore, Context, EdgeInsets, EntityId,
+    InputContents, LayoutPoint, LayoutRect, LayoutStore, RectsSecondary, RenderStore,
+    ResolvedBasicSecondary, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary,
+    UiaValue, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -78,6 +78,24 @@ impl SystemStore {
         Self {
             sys_text_engine: TextEngine::new(),
             sys_dwrite_layouts: RefCell::new(SparseSecondaryMap::new()),
+            sys_uia_properties: SparseSecondaryMap::new(),
+            sys_task_sender,
+            sys_task_receiver,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_capacity(
+        sys_task_sender: TaskSender,
+        sys_task_receiver: Receiver<TaskRecv>,
+        c: &CapacityConfig,
+    ) -> Self {
+        Self {
+            sys_text_engine: TextEngine::new(),
+            sys_dwrite_layouts: RefCell::new(SparseSecondaryMap::with_capacity(
+                c.sys_dwrite_layouts,
+            )),
             sys_uia_properties: SparseSecondaryMap::new(),
             sys_task_sender,
             sys_task_receiver,

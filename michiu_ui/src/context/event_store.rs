@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use crate::{
     ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
     ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
-    BasicLayout, BasicLayoutsSecondary, ChildrenSecondary, ClipRectsSecondary, ComponentMask,
-    ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
+    BasicLayout, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary,
+    ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, DndDragPayload, DndDragPlaceholderParent, DndDragProperty,
     DndDropProperty, DwriteLayoutsSparseSecondary, EffectiveZindicesSecondary, Element,
     ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
@@ -109,6 +109,17 @@ impl EventStore {
             evt_dnd_drag_properties: SparseSecondaryMap::new(),
             evt_dnd_drop_properties: SparseSecondaryMap::new(),
             evt_active_dnd_drag_state: None,
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn with_capacity(c: &CapacityConfig) -> Self {
+        Self {
+            evt_listeners: SparseSecondaryMap::with_capacity(c.evt_listeners),
+            evt_dnd_drag_properties: SparseSecondaryMap::with_capacity(c.evt_dnd_drag_properties),
+            evt_dnd_drop_properties: SparseSecondaryMap::with_capacity(c.evt_dnd_drop_properties),
+            ..Default::default()
         }
     }
 

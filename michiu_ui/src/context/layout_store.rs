@@ -6,17 +6,17 @@ use std::{
 
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary,
-    BasicLayout, ChildrenSecondary, ComponentMask, ContentStore, Context, DirtyRenderEntitiesVec,
-    Display, DwriteLayoutsSparseSecondary, EdgeInsets, EntityId, FlexLayout, GridLayout,
-    InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
-    LayoutRect, LayoutSize, Length, NormalLayout, OutputStore, ParentsSecondary, Position,
-    PropertyList, Rect, RectsSecondary, RenderStore, ResizeDirection, ResizingState, STATE_ACTIVED,
-    STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_FOCUSED,
-    STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT, STATE_SELECTED,
-    STYLE_SIZE, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarDisplay, ScrollbarMode,
-    ScrollbarStyle, Size, StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine,
-    TextSpansSparseSecondary, ThisStyle, TopologyStore, Val, VisualPropertiesSecondary,
-    WindowStore,
+    BasicLayout, CapacityConfig, ChildrenSecondary, ComponentMask, ContentStore, Context,
+    DirtyRenderEntitiesVec, Display, DwriteLayoutsSparseSecondary, EdgeInsets, EntityId,
+    FlexLayout, GridLayout, InputContentsSparseSecondary, InteractionPropertiesSecondary,
+    InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, Length, NormalLayout, OutputStore,
+    ParentsSecondary, Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizeDirection,
+    ResizingState, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER,
+    STATE_DND_DRAGGING, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED,
+    STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_SIZE, ScrollOffsetsSecondary, ScrollSizesSecondary,
+    ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Size, StyleTarget, SystemStore,
+    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, ThisStyle, TopologyStore,
+    Val, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -52,6 +52,7 @@ pub(crate) type ResolvedLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 pub(crate) type BasicLayoutsSecondary = SecondaryMap<EntityId, BasicLayout>;
 pub(crate) type BaseBasicLayoutsSecondary = SecondaryMap<EntityId, BasicLayout>;
 pub(crate) type FlexLayoutsSecondary = SecondaryMap<EntityId, FlexLayout>;
+pub(crate) type BaseFlexLayoutsSecondary = SecondaryMap<EntityId, FlexLayout>;
 pub(crate) type GridLayoutsSparseSecondary = SparseSecondaryMap<EntityId, GridLayout>;
 pub(crate) type ScrollbarStylesSecondary = SparseSecondaryMap<EntityId, ScrollBarState>;
 pub(crate) type TaffyNodesSecondary = SecondaryMap<EntityId, taffy::NodeId>;
@@ -62,13 +63,10 @@ pub(crate) type ResolvedFlexSecondary = SecondaryMap<EntityId, FlexLayout>;
 pub(crate) type ResolvedGridSparseSecondary = SparseSecondaryMap<EntityId, GridLayout>;
 
 pub struct LayoutStore {
-    pub(crate) lay_layouts: LayoutsSecondary,
-    pub(crate) lay_base: BaseLayoutsSecondary,
-    pub(crate) lay_resolved: ResolvedLayoutsSecondary,
-
     pub(crate) lay_basic: BasicLayoutsSecondary,
     pub(crate) lay_base_basic: BaseBasicLayoutsSecondary,
     pub(crate) lay_flex: FlexLayoutsSecondary,
+    pub(crate) lay_base_flex: BaseFlexLayoutsSecondary,
     pub(crate) lay_grid: GridLayoutsSparseSecondary,
     pub(crate) lay_scrollbar_styles: ScrollbarStylesSecondary,
     pub(crate) lay_taffy_nodes: TaffyNodesSecondary,
@@ -91,13 +89,10 @@ impl LayoutStore {
     #[inline]
     pub fn new() -> Self {
         Self {
-            lay_layouts: SecondaryMap::new(),
-            lay_base: SecondaryMap::new(),
-            lay_resolved: SecondaryMap::new(),
-
             lay_basic: SecondaryMap::new(),
             lay_base_basic: SecondaryMap::new(),
             lay_flex: SecondaryMap::new(),
+            lay_base_flex: SecondaryMap::new(),
             lay_grid: SparseSecondaryMap::new(),
             lay_scrollbar_styles: SparseSecondaryMap::new(),
             lay_taffy_nodes: SecondaryMap::new(),
@@ -110,14 +105,30 @@ impl LayoutStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
-        self.lay_layouts.clear();
-        self.lay_base.clear();
-        self.lay_resolved.clear();
+    #[must_use]
+    pub fn with_capacity(c: &CapacityConfig) -> Self {
+        Self {
+            lay_basic: SecondaryMap::with_capacity(c.lay_basic),
+            lay_base_basic: SecondaryMap::with_capacity(c.lay_base_basic),
+            lay_flex: SecondaryMap::with_capacity(c.lay_flex),
+            lay_base_flex: SecondaryMap::with_capacity(c.lay_base_flex),
+            lay_grid: SparseSecondaryMap::with_capacity(c.lay_grid),
+            lay_scrollbar_styles: SparseSecondaryMap::with_capacity(c.lay_scrollbar_styles),
+            lay_taffy_nodes: SecondaryMap::with_capacity(c.lay_taffy_nodes),
+            lay_taffy: TaffyTree::with_capacity(c.lay_taffy),
+            lay_dirty_entities: Vec::with_capacity(c.lay_dirty_entities),
+            lay_resolved_basic: SecondaryMap::with_capacity(c.lay_resolved_basic),
+            lay_resolved_flex: SecondaryMap::with_capacity(c.lay_resolved_flex),
+            lay_resolved_grid: SparseSecondaryMap::with_capacity(c.lay_resolved_grid),
+        }
+    }
 
+    #[inline]
+    pub fn clear(&mut self) {
         self.lay_basic.clear();
         self.lay_base_basic.clear();
         self.lay_flex.clear();
+        self.lay_base_flex.clear();
         self.lay_grid.clear();
         self.lay_scrollbar_styles.clear();
         self.lay_taffy_nodes.clear();
@@ -130,13 +141,10 @@ impl LayoutStore {
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
-        self.lay_layouts.remove(id);
-        self.lay_base.remove(id);
-        self.lay_resolved.remove(id);
-
         self.lay_basic.remove(id);
         self.lay_base_basic.remove(id);
         self.lay_flex.remove(id);
+        self.lay_base_flex.remove(id);
         self.lay_grid.remove(id);
         self.lay_scrollbar_styles.remove(id);
         self.lay_taffy_nodes.remove(id);
