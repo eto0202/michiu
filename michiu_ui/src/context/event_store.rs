@@ -81,7 +81,7 @@ pub(crate) type DndDropPropertiesSparseSecondary = SparseSecondaryMap<EntityId, 
 
 pub struct EventStore {
     pub(crate) evt_listeners: EventListenersSparseSecondary,
-    pub evt_interaction_states: InteractionStates,
+    pub(crate) evt_interaction_states: InteractionStates,
     pub(crate) evt_current_pointer_position: Option<LayoutPoint>,
     pub(crate) evt_resizing_state: Option<ResizingState>,
     pub(crate) evt_active_resize_hover: ActiveResizeHoverOption,

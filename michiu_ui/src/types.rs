@@ -1961,5 +1961,29 @@ pub enum Focusable {
     Inherit(FocusTrigger), // フォーカス可能。自身に focused スタイルが無い場合、親先祖の focused スタイルを自動継承
 }
 
+/// 外部の動画やゲーム等からGUIへ動的にフレームを供給するためのトレイト
+pub trait ExternalTexture: Send + Sync {
+    /// 描画直前に呼び出され、このフレームで描画すべき最新の `TextureView` を返す。
+    fn resolve_view(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView;
+
+    /// 描画方法を制御するメタデータを同期的に取得。
+    fn metadata(&self) -> ExternalTextureMetadata;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExternalTextureMetadata {
+    pub size: LayoutSize,
+    pub alpha_mode: ExternalTextureAlphaMode,
+    pub y_flip: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalTextureAlphaMode {
+    /// 通常（Straight）アルファ。シェーダー内で自動的に PMA（乗算済みアルファ）へ変換。
+    Straight,
+    /// 乗算済み（Premultiplied）。シェーダー内でそのまま合成。
+    Premultiplied,
+}
+
 #[cfg(test)]
 mod tests;

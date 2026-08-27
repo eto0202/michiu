@@ -1,4 +1,5 @@
 use crate::{
+    ALLOW_STRESS_TEST,
     app::{ComponentType, theme::Theme},
     components::{
         background, border, button, color, css, cursor, div, draggable, focusable, hover, input,
@@ -11,14 +12,12 @@ use strum::IntoEnumIterator;
 pub fn main_area() -> Element {
     let main_contents = v_flex(ts().size_full().overflow_hidden().p(20.0));
 
-    let is_stress_test = false;
-
     // 全ての ComponentType の要素を起動時に一度だけ spawn してマウント
     // TODO: 遅延生成用のインターフェース
     // TODO: 専用の keep-alive インターフェースを実装するかも
     let mut children = Vec::new();
     for comp_type in ComponentType::iter() {
-        let child_el = create_component_element(comp_type, is_stress_test);
+        let child_el = create_component_element(comp_type);
 
         // 現在の ComponentType と一致しているか否かを動的に解決
         let styled_child = div_d(move |active: &ComponentType| {
@@ -38,7 +37,7 @@ pub fn main_area() -> Element {
     main_contents.children(children)
 }
 
-fn create_component_element(comp_type: ComponentType, is_stress_test: bool) -> Element {
+fn create_component_element(comp_type: ComponentType) -> Element {
     match comp_type {
         ComponentType::Button => wrapper(button::container()),
         ComponentType::Input => wrapper(input::container()),
@@ -61,7 +60,7 @@ fn create_component_element(comp_type: ComponentType, is_stress_test: bool) -> E
         ComponentType::Outline => wrapper(outline::container()),
         ComponentType::Focusable => wrapper(focusable::container()),
         ComponentType::StressTest => {
-            if is_stress_test {
+            if ALLOW_STRESS_TEST {
                 wrapper(stress_test::container())
             } else {
                 text("StressTest")

@@ -263,6 +263,9 @@ pub(crate) const STATE_RENDER_VISIBLE: u128 = 1 << 78;
 // 累積トランスフォーム用
 pub(crate) const STATE_TRANSFORM_ACTIVE: u128 = 1 << 79;
 
+/// 外部提供テクスチャが有効であることを示す
+pub const COMP_EXTERNAL_TEXTURE_CONTENT: u128 = 1 << 80;
+
 // 基本レイアウト一括判定マスク (STYLE_DISPLAY から STYLE_BORDER まで：ビット0..17)
 /// 基本レイアウトの個別プロパティの「どれか1つでも有効化されているか」を判定するマスク。
 /// (16進数表現：0x3FFFF)

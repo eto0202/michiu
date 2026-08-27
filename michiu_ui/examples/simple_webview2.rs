@@ -298,7 +298,7 @@ unsafe extern "system" fn wnd_proc(
                     // 他ウィンドウにフォーカスが移った瞬間、アプリ内部のフォーカスを強制的に解除
                     if let Some(focused_id) = app.context.entity_id_focused() {
                         app.context.set_focused(focused_id, false);
-                        app.context.events.evt_interaction_states.focused = None;
+                        app.context.set_interaction_states_focused(None);
                     }
 
                     // 非アクティブ移行時のキャプチャプロセスを即時トリガー

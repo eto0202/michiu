@@ -41,6 +41,8 @@ impl SendHwnd {
     }
 }
 
+pub const ALLOW_STRESS_TEST: bool = false;
+
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;

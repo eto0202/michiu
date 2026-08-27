@@ -37,14 +37,19 @@ struct InstanceData {
 @group(0) @binding(3) var<storage, read> instances: array<InstanceData>;
 
 struct VertexInput {
-    @location(0) position: vec2<f32>,
+    @location(0)
+    position: vec2<f32>,
 };
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) local_pos: vec2<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) @interpolate(flat) instance_idx: u32,
+    @builtin(position)
+    clip_position: vec4<f32>,
+    @location(0)
+    local_pos: vec2<f32>,
+    @location(1)
+    uv: vec2<f32>,
+    @location(2) @interpolate(flat)
+    instance_idx: u32,
 };
 
 @vertex
@@ -58,7 +63,7 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
 
     // 影（BoxShadow）による頂点描画境界の自動拡張
     var margin = 0.0;
-    if (instance.shadow_color.a > 0.0) {
+    if instance.shadow_color.a > 0.0 {
         let shadow_offset = instance.shadow_params.xy;
         let shadow_blur = instance.shadow_params.z;
         let shadow_spread = instance.shadow_params.w;
@@ -69,7 +74,7 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
 
     let o_width = instance.outline_width;
     let o_offset = instance.outline_offset_and_flags.x;
-    if (instance.outline_color.a > 0.0 && (o_width.x + o_width.y + o_width.z + o_width.w) > 0.0) {
+    if instance.outline_color.a > 0.0 && (o_width.x + o_width.y + o_width.z + o_width.w) > 0.0 {
         // オフセット + 最大アウトライン太さを物理ピクセルでクランプ
         let max_o_width = max(max(o_width.x, o_width.y), max(o_width.z, o_width.w));
         let outline_margin = max_o_width + max(0.0, o_offset);
@@ -86,7 +91,7 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
         instance.transform_0,
         instance.transform_1,
         vec4<f32>(0.0, 0.0, 1.0, 0.0), // Z軸復元
-        instance.transform_2           // 平行移動部
+        instance.transform_2// 平行移動部
     );
 
     // トランスフォーム中心 (Transform Origin) の考慮
@@ -118,9 +123,9 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
 fn sd_rounded_box(p: vec2<f32>, b: vec2<f32>, r: vec4<f32>) -> f32 {
     // 象限（x, y の符号）に応じて角丸半径 [tl, tr, br, bl] を切り替える
     var rad = r.x; // default: top_left (x<0, y<0)
-    if (p.x >= 0.0 && p.y < 0.0) { rad = r.y; } // top_right
-    if (p.x >= 0.0 && p.y >= 0.0) { rad = r.z; } // bottom_right
-    if (p.x < 0.0 && p.y >= 0.0) { rad = r.w; } // bottom_left
+    if p.x >= 0.0 && p.y < 0.0 { rad = r.y; } // top_right
+    if p.x >= 0.0 && p.y >= 0.0 { rad = r.z; } // bottom_right
+    if p.x < 0.0 && p.y >= 0.0 { rad = r.w; } // bottom_left
 
     let q = abs(p) - b + vec2<f32>(rad);
     return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
@@ -174,7 +179,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 1ピクセル幅のアンチエイリアシング
     var box_alpha = 1.0 - smoothstep(-0.5, 0.5, dist_to_box);
 
-    if (mode < -0.5) {
+    if mode < -0.5 {
         // 装飾・キャレットモード：SDF の 1px 減衰ボケをバイパスし、
         // 描画矩形内にピクセルがある場合はクッキリとした不透明（1.0）にする。
         box_alpha = 1.0;
@@ -182,7 +187,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // ソフトシャドウ（BoxShadow）の描画計算
     var shadow_out = vec4<f32>(0.0);
-    if (shadow_color_linear.a > 0.0) {
+    if shadow_color_linear.a > 0.0 {
         let shadow_offset = instance.shadow_params.xy;
         let shadow_blur = instance.shadow_params.z;
         let shadow_spread = instance.shadow_params.w;
@@ -195,7 +200,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let dist_to_shadow = sd_rounded_box(shadow_pos, shadow_b, shadow_radius);
 
         var shadow_alpha = 0.0;
-        if (shadow_blur > 0.0) {
+        if shadow_blur > 0.0 {
             // ぼかし (blur) のあるソフトシャドウを smoothstep でシミュレート
             shadow_alpha = 1.0 - smoothstep(-shadow_blur, shadow_blur, dist_to_shadow);
         } else {
@@ -216,7 +221,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var border_alpha = 0.0;
     let has_border = border_color_linear.a > 0.0 && (instance.border_width.x + instance.border_width.y + instance.border_width.z + instance.border_width.w) > 0.0;
 
-    if (has_border) {
+    if has_border {
         let b_width = instance.border_width;
 
         let border_center_shift = vec2<f32>(
@@ -243,9 +248,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let min_dist = min(min(dist_to_top, dist_to_bottom), min(dist_to_left, dist_to_right));
 
         var edge_idx = 0u; // 0: top, 1: right, 2: bottom, 3: left
-        if (min_dist == dist_to_right) { edge_idx = 1u; }
-        else if (min_dist == dist_to_bottom) { edge_idx = 2u; }
-        else if (min_dist == dist_to_left) { edge_idx = 3u; }
+        if min_dist == dist_to_right { edge_idx = 1u; }
+        else if min_dist == dist_to_bottom { edge_idx = 2u; }
+        else if min_dist == dist_to_left { edge_idx = 3u; }
 
         // ビットフラグの解凍 (デコード)
         let flags = u32(instance.opacity_mode_sizing.w);
@@ -255,15 +260,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // アライメント基準点に基づく長さトリミングの計算
         let lengths = instance.border_lengths;
         var len_limit = 1.0;
-        if (edge_idx == 0u) { len_limit = lengths.x; }
-        else if (edge_idx == 1u) { len_limit = lengths.y; }
-        else if (edge_idx == 2u) { len_limit = lengths.z; }
+        if edge_idx == 0u { len_limit = lengths.x; }
+        else if edge_idx == 1u { len_limit = lengths.y; }
+        else if edge_idx == 2u { len_limit = lengths.z; }
         else { len_limit = lengths.w; }
 
         // 各辺に沿った横軸/縦軸の進捗比率 t (0.0 -> 1.0)
         var t = 0.0;
         var pos_edge = 0.0; // 物理ピクセル位置（点線等で使用）
-        if (edge_idx == 0u || edge_idx == 2u) {
+        if edge_idx == 0u || edge_idx == 2u {
             t = (local_center.x + b.x) / (b.x * 2.0);
             pos_edge = local_center.x + b.x;
         } else {
@@ -275,11 +280,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         var length_alpha = 1.0;
 
         // 長さ制限が 1.0 (ほぼ100%) の場合はバイパス
-        if (len_limit < 0.999) {
-            if (alignment == 0u) {
+        if len_limit < 0.999 {
+            if alignment == 0u {
                 // Start: 基準点が左端/上端 (tが上限長さを超えたらカット)
                 length_alpha = 1.0 - smoothstep(len_limit - edge_fade, len_limit + edge_fade, t);
-            } else if (alignment == 1u) {
+            } else if alignment == 1u {
                 // End: 基準点が右端/下端 (tが下限に満たなければカット)
                 let lower_bound = 1.0 - len_limit;
                 length_alpha = smoothstep(lower_bound - edge_fade, lower_bound + edge_fade, t);
@@ -298,18 +303,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // 枠線の中心からの相対的な厚み方向割合 (外側 0.0 -> 内側 1.0)
         let thick_t = clamp(-dist_to_box / (-dist_to_box + dist_to_inner), 0.0, 1.0);
 
-        if (style == 1u) {
+        if style == 1u {
             // Dotted (丸点の連続)
             let period = w * 2.2;
             let cycle_t = fract(pos_edge / period) * period - (period * 0.5);
             let radial_dist = length(vec2<f32>(cycle_t, (thick_t - 0.5) * w));
             style_alpha = 1.0 - smoothstep(w * 0.4 - 0.5, w * 0.4 + 0.5, radial_dist);
-        } else if (style == 2u) {
+        } else if style == 2u {
             // Dashed (破線の連続)
             let period = w * 5.0; // 3w長さ、2w隙間
             let cycle_t = fract(pos_edge / period) * period;
             style_alpha = 1.0 - smoothstep(w * 3.0 - 0.5, w * 3.0 + 0.5, cycle_t);
-        } else if (style == 3u) {
+        } else if style == 3u {
             // Double (二重枠線：外側1/3、隙間1/3、内側1/3)
             // 外側（0.0 ~ 0.33）および 内側（0.67 ~ 1.0）の時のみアルファ 1.0
             let is_double_void = smoothstep(0.30, 0.33, thick_t) * (1.0 - smoothstep(0.67, 0.70, thick_t));
@@ -333,7 +338,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let o_width = instance.outline_width;
     let has_outline = outline_color_linear.a > 0.0 && (o_width.x + o_width.y + o_width.z + o_width.w) > 0.0;
 
-    if (has_outline) {
+    if has_outline {
         // ピクセルが属している辺を判定 (o_edge_idx)
         // 太さが0.0の辺を距離判定から除外
         // 修正: 判定時は太さに関わらず純粋な物理距離で最も近い辺を特定
@@ -346,9 +351,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         var o_edge_idx = 0u; // 0: top, 1: right, 2: bottom, 3: left
 
-        if (min_dist_raw == dist_to_right_raw) { o_edge_idx = 1u; }
-        else if (min_dist_raw == dist_to_bottom_raw) { o_edge_idx = 2u; }
-        else if (min_dist_raw == dist_to_left_raw) { o_edge_idx = 3u; }
+        if min_dist_raw == dist_to_right_raw { o_edge_idx = 1u; }
+        else if min_dist_raw == dist_to_bottom_raw { o_edge_idx = 2u; }
+        else if min_dist_raw == dist_to_left_raw { o_edge_idx = 3u; }
 
         let o_w = o_width[o_edge_idx]; // この辺の個別のアウトライン太さ
 
@@ -370,15 +375,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // アライメント基準点に基づく長さトリミング（o_lengths）の計算
         let o_lengths = instance.outline_lengths;
         var o_len_limit = 1.0;
-        if (o_edge_idx == 0u) { o_len_limit = o_lengths.x; }
-        else if (o_edge_idx == 1u) { o_len_limit = o_lengths.y; }
-        else if (o_edge_idx == 2u) { o_len_limit = o_lengths.z; }
+        if o_edge_idx == 0u { o_len_limit = o_lengths.x; }
+        else if o_edge_idx == 1u { o_len_limit = o_lengths.y; }
+        else if o_edge_idx == 2u { o_len_limit = o_lengths.z; }
         else { o_len_limit = o_lengths.w; }
 
         // 辺沿いの進捗比率 t
         var t = 0.0;
         var o_pos_edge = 0.0;
-        if (o_edge_idx == 0u || o_edge_idx == 2u) {
+        if o_edge_idx == 0u || o_edge_idx == 2u {
             t = (local_center.x + b.x) / (b.x * 2.0);
             o_pos_edge = local_center.x + b.x;
         } else {
@@ -390,10 +395,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         var o_length_alpha = 1.0;
 
         // 長さ制限が 1.0 (ほぼ100%) の場合は、外側への飛び出しによるカットをバイパスする
-        if (o_len_limit < 0.999) {
-            if (o_alignment == 0u) {
+        if o_len_limit < 0.999 {
+            if o_alignment == 0u {
                 o_length_alpha = 1.0 - smoothstep(o_len_limit - o_edge_fade, o_len_limit + o_edge_fade, t);
-            } else if (o_alignment == 1u) {
+            } else if o_alignment == 1u {
                 let lower_bound = 1.0 - o_len_limit;
                 o_length_alpha = smoothstep(lower_bound - o_edge_fade, lower_bound + o_edge_fade, t);
             } else {
@@ -409,18 +414,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // アウトラインの中心からの相対的な厚み方向の進捗割合 (0.0 -> 1.0)
         let o_thick_t = clamp(dist_to_inner_o / (dist_to_inner_o - dist_to_outer_o), 0.0, 1.0);
 
-        if (style_o == 1u) {
+        if style_o == 1u {
             // Dotted (丸点)
             let period = o_w * 2.2;
             let cycle_t = fract(o_pos_edge / period) * period - (period * 0.5);
             let radial_dist = length(vec2<f32>(cycle_t, (o_thick_t - 0.5) * o_w));
             o_style_alpha = 1.0 - smoothstep(o_w * 0.4 - 0.5, o_w * 0.4 + 0.5, radial_dist);
-        } else if (style_o == 2u) {
+        } else if style_o == 2u {
             // Dashed (破線)
             let period = o_w * 5.0;
             let cycle_t = fract(o_pos_edge / period) * period;
             o_style_alpha = 1.0 - smoothstep(o_w * 3.0 - 0.5, o_w * 3.0 + 0.5, cycle_t);
-        } else if (style_o == 3u) {
+        } else if style_o == 3u {
             // Double (二重アウトライン)
             let is_double_void = smoothstep(0.30, 0.33, o_thick_t) * (1.0 - smoothstep(0.67, 0.70, o_thick_t));
             o_style_alpha = 1.0 - is_double_void;
@@ -436,24 +441,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 背景色・グラデーション・サンプリングの取得
     var element_color = vec4<f32>(0.0);
 
-    if (mode == 2.0) {
+    if mode == 2.0 {
         // テキスト描画（R8Unormアトラスフォントの Alpha サンプリング、PMA着色）
         let tex_color = textureSample(t_texture, s_sampler, in.uv);
         let alpha = tex_color.r * opacity;
-        // let raw_alpha = pow(tex_color.r, 0.75); 
+        // let raw_alpha = pow(tex_color.r, 0.75);
         // let alpha = raw_alpha * opacity;
         element_color = vec4<f32>(color_linear.rgb * alpha, alpha);
-
-    } else if (mode == 3.0) {
+    } else if mode == 3.0 {
         // 静止画 WebView2 キャッシュ（Bgra8サンプリング、PMA適用）
         let tex_color = textureSample(t_texture, s_sampler, in.uv);
         // 元テクスチャが sRGB/PMA のため、単純に不透明度を乗算
         element_color = tex_color * opacity;
-
     } else {
         // 通常（Solid / グラデーション描画、PMA）
         var base_color = color_linear;
-        if (mode == 1.0) {
+        if mode == 1.0 {
             // 2色グラデーション
             let angle = instance.gradient_angle_and_origin.x;
             let dir = vec2<f32>(cos(angle), sin(angle));
@@ -467,7 +470,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 枠線（Border）と本体背景、および影（BoxShadow）の PMA 合成
     var final_color = vec4<f32>(0.0);
 
-    if (has_border) {
+    if has_border {
         let b_pma = vec4<f32>(border_color_linear.rgb * border_color_linear.a * opacity, border_color_linear.a * opacity);
         // 枠線のピクセル割合に応じて、本体の背景を奥側に押しやる
         element_color = mix(element_color, b_pma, border_alpha);
@@ -477,7 +480,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var base_with_outline = element_color * box_alpha;
 
     // 本体の外枠領域（1.0 - base_with_outline.a）に対して、アウトラインを重ねて合成
-    if (has_outline) {
+    if has_outline {
         let o_pma = vec4<f32>(outline_color_linear.rgb * outline_color_linear.a * opacity, outline_color_linear.a * opacity);
         base_with_outline = base_with_outline + o_pma * outline_alpha * (1.0 - base_with_outline.a);
     }

@@ -330,7 +330,7 @@ impl Context {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub fn with_capacity(capacity: &CapacityConfig) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
         Self {
             window: WindowStore::new(),
@@ -340,15 +340,15 @@ impl Context {
                     waker: None,
                 },
                 rx,
-                c,
+                capacity,
             ),
-            reactive: ReactiveStore::with_capacity(c),
-            events: EventStore::with_capacity(c),
-            contents: ContentStore::with_capacity(c),
-            topology: TopologyStore::with_capacity(c),
-            layouts: LayoutStore::with_capacity(c),
-            renders: RenderStore::with_capacity(c),
-            outputs: OutputStore::with_capacity(c),
+            reactive: ReactiveStore::with_capacity(capacity),
+            events: EventStore::with_capacity(capacity),
+            contents: ContentStore::with_capacity(capacity),
+            topology: TopologyStore::with_capacity(capacity),
+            layouts: LayoutStore::with_capacity(capacity),
+            renders: RenderStore::with_capacity(capacity),
+            outputs: OutputStore::with_capacity(capacity),
         }
     }
 
@@ -919,10 +919,39 @@ impl Context {
         EventStore::update_state(self, id, STATE_DRAGGED, dragged);
     }
 
-    /// `要素のドラッグ・ドロップ擬似状態（STATE_DRAGGING`, `STATE_DRAG_IN`, `STATE_DRAG_OVER）を制御します`。
     #[inline]
-    pub(crate) fn set_drag_state(&mut self, id: EntityId, flag: u128, active: bool) {
-        EventStore::update_state(self, id, flag, active);
+    pub fn set_dnd_drag_in(&mut self, id: EntityId, drag_in: bool) {
+        EventStore::update_state(self, id, STATE_DND_DRAG_IN, drag_in);
+    }
+
+    #[inline]
+    pub fn set_dnd_drag_over(&mut self, id: EntityId, drag_over: bool) {
+        EventStore::update_state(self, id, STATE_DND_DRAG_OVER, drag_over);
+    }
+
+    #[inline]
+    pub fn set_dnd_dragging(&mut self, id: EntityId, dragging: bool) {
+        EventStore::update_state(self, id, STATE_DND_DRAGGING, dragging);
+    }
+
+    #[inline]
+    pub fn set_interaction_states_hovered(&mut self, hovered: Option<EntityId>) {
+        self.events.evt_interaction_states.hovered = hovered;
+    }
+
+    #[inline]
+    pub fn set_interaction_states_pressed(&mut self, pressed: Option<EntityId>) {
+        self.events.evt_interaction_states.pressed = pressed;
+    }
+
+    #[inline]
+    pub fn set_interaction_states_focused(&mut self, focused: Option<EntityId>) {
+        self.events.evt_interaction_states.focused = focused;
+    }
+
+    #[inline]
+    pub fn set_interaction_states_dragged(&mut self, dragged: Option<EntityId>) {
+        self.events.evt_interaction_states.dragged = dragged;
     }
 
     #[inline]
