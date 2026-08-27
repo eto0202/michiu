@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use crate::types::LayoutSize;
 use crate::{EdgeInsets, LayoutRect, TextSpan, VisualProperty};
+use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use windows::Win32::Graphics::Direct2D::{
     D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, ID2D1RenderTarget,
@@ -371,7 +372,7 @@ impl TextEngine {
         key: &TextCacheKey,
         atlas: &mut TextureAtlas,
         text_rasterizer: &TextRasterizer,
-        text_cache: &mut HashMap<TextCacheKey, TextCacheValue>,
+        text_cache: &mut FxHashMap<TextCacheKey, TextCacheValue>,
         queue: &wgpu::Queue,
     ) -> ([f32; 2], [f32; 2], bool) {
         if let Some(cached) = text_cache.get(key) {

@@ -25,6 +25,7 @@ use crate::{
     TopologyStore, Transform, UnderlineStyle, UserSelect, Val, VisualPropertiesSecondary,
     VisualProperty, WindowStore, bind_context, with_context,
 };
+use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
@@ -2082,7 +2083,7 @@ impl OutputStore {
         id: EntityId,
         atlas: &mut TextureAtlas,
         text_rasterizer: &TextRasterizer,
-        text_cache: &mut HashMap<TextCacheKey, TextCacheValue>,
+        text_cache: &mut FxHashMap<TextCacheKey, TextCacheValue>,
         queue: &wgpu::Queue,
         default_visual: &VisualProperty,
         sys_text_engine: &TextEngine,
@@ -2404,7 +2405,7 @@ impl OutputStore {
         render_data: &mut RenderData,
         atlas: &mut TextureAtlas,
         text_rasterizer: &TextRasterizer,
-        text_cache: &mut HashMap<TextCacheKey, TextCacheValue>,
+        text_cache: &mut FxHashMap<TextCacheKey, TextCacheValue>,
         queue: &wgpu::Queue,
         params: &CommonParameters,
         spans: &[TextSpan],
@@ -2686,7 +2687,7 @@ impl OutputStore {
         render_data: &mut RenderData,
         atlas: &mut TextureAtlas,
         text_rasterizer: &TextRasterizer,
-        text_cache: &mut HashMap<TextCacheKey, TextCacheValue>,
+        text_cache: &mut FxHashMap<TextCacheKey, TextCacheValue>,
         queue: &wgpu::Queue,
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
@@ -3166,7 +3167,7 @@ impl Context {
         render_data: &mut RenderData,
         atlas: &mut TextureAtlas,
         text_rasterizer: &TextRasterizer,
-        text_cache: &mut HashMap<TextCacheKey, TextCacheValue>,
+        text_cache: &mut FxHashMap<TextCacheKey, TextCacheValue>,
         queue: &wgpu::Queue,
     ) {
         OutputStore::collect_render_data(

@@ -8,6 +8,7 @@ use crate::{
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
 };
+use rustc_hash::FxHashMap;
 use slotmap::SecondaryMap;
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
@@ -61,11 +62,14 @@ pub struct WgpuRenderer {
     pub(crate) text_rasterizer: TextRasterizer,
     pub(crate) atlas: TextureAtlas,
     pub(crate) temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
-    pub(crate) text_cache: HashMap<TextCacheKey, TextCacheValue>,
+    pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
     // 非アクティブ状態の WebView2 の静止画キャッシュ
-    pub(crate) webview_static_caches: HashMap<EntityId, wgpu::TextureView>,
+    pub(crate) webview_static_caches: FxHashMap<EntityId, wgpu::TextureView>,
 
     pub(crate) render_data: RenderData,
+
+    /// 外部テクスチャ用の `BindGroup` キャッシュ
+    pub(crate) external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
 }
 
 #[repr(C)]
@@ -179,9 +183,10 @@ impl WgpuRenderer {
             text_rasterizer: TextRasterizer::new(),
             atlas,
             temp_uv_map: SecondaryMap::new(),
-            text_cache: HashMap::new(),
-            webview_static_caches: HashMap::new(),
+            text_cache: FxHashMap::default(),
+            webview_static_caches: FxHashMap::default(),
             render_data: RenderData::new(),
+            external_bind_groups: FxHashMap::default(),
         })
     }
 
@@ -490,6 +495,15 @@ impl WgpuRenderer {
 
     pub(crate) fn render(&mut self, cx: &mut Context, scale_factor: f32) {
         let _context_guard = crate::bind_context(cx);
+        // 破棄された要素のキャッシュを解放
+        for id in cx.topology.topo_despawned_queue.drain(..) {
+            self.external_bind_groups.remove(&id);
+            self.webview_static_caches.remove(&id);
+        }
+
+        // 外部テクスチャを事前にキャッシュ
+        self.update_external_texture_bind_groups(cx);
+
         // 前面と背面に分類されたバッチを Context から引き出す
         cx.collect_render_data(
             &mut self.render_data,
@@ -629,6 +643,45 @@ impl WgpuRenderer {
         self.render_data = render_data;
     }
 
+    /// 外部テクスチャが更新された場合のみ、描画ループの外で `BindGroup` を再構築
+    fn update_external_texture_bind_groups(&mut self, cx: &Context) {
+        for (id, provider) in &cx.contents.cont_external_textures {
+            let view = provider.resolve_view(&self.device, &self.queue);
+
+            let need_update = self
+                .external_bind_groups
+                .get(&id)
+                .is_none_or(|(cached_id, _)| *cached_id != view);
+
+            if need_update {
+                let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &self.config_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: self.config_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&self.atlas.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: self.instance_buffer.as_entire_binding(),
+                        },
+                    ],
+                    label: Some("External Texture Bind Group"),
+                });
+
+                self.external_bind_groups.insert(id, (view, bind_group));
+            }
+        }
+    }
+
     /// バッチ内に静止 `WebView2` テクスチャが含まれる場合、バインドグループを動的に切り替える
     fn bind_texture_for_batch<'a>(
         &'a self,
@@ -638,36 +691,41 @@ impl WgpuRenderer {
     ) {
         // バッチに含まれる最初の要素が静止 WebView2 キャッシュを持っているか
         // instance_offsetの位置にある要素の ID を取得
-        if let Some(&first_id) = entity_ids.get(batch.instance_offset)
-            && let Some(cached_view) = self.webview_static_caches.get(&first_id)
-        {
-            // 動的にそのテクスチャビューを割り当てたバインドグループを構築
-            let temp_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.config_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.config_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(cached_view), // アトラスの代わりに静止画を割り当て
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.atlas.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: self.instance_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("Dynamic WebView2 Bind Group"),
-            });
-            // このドローコールの間だけ一時バインドグループをセット
-            rpass.set_bind_group(0, &temp_bind_group, &[]);
-        } else {
-            // 通常はグローバル（標準アトラス）のバインドグループを使用
+        if let Some(&first_id) = entity_ids.get(batch.instance_offset) {
+            // キャッシュが存在する場合
+            if let Some((_, bind_group)) = self.external_bind_groups.get(&first_id) {
+                rpass.set_bind_group(0, bind_group, &[]);
+                return;
+            }
+
+            // WebView2 の静止画キャッシュ
+            if let Some(cached_view) = self.webview_static_caches.get(&first_id) {
+                let temp_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &self.config_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: self.config_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(cached_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&self.atlas.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: self.instance_buffer.as_entire_binding(),
+                        },
+                    ],
+                    label: None,
+                });
+                rpass.set_bind_group(0, &temp_bind_group, &[]);
+                return;
+            }
+            // 通常のアトラス
             rpass.set_bind_group(0, &self.config_bind_group, &[]);
         }
     }
