@@ -1,18 +1,15 @@
 pub mod handler;
 pub mod input_func;
 
-pub use handler::*;
-pub use input_func::*;
-
 use crate::{
-    COMP_IMAGE_CONTENT, COMP_MOVIE_CONTENT, COMP_TEXT_CONTENT, COMP_UIA_CONTENT,
-    COMP_WEBVIEW_CONTENT, Context, EffectCategory, EntityId, ImageSource, MovieProperty,
-    ReadSignal, STYLE_AUTO_WRAP, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_FONT_SIZE,
-    STYLE_INTERACTION_PARENT, STYLE_INTERACTION_PROPERTY, STYLE_INTERACTION_WITHIN,
-    STYLE_SCROLLBAR, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle,
-    UiaValue, Val, WebView2Contents, create_effect, div_n,
+    COMP_EXTERNAL_TEXTURE_CONTENT, COMP_IMAGE_CONTENT, COMP_MOVIE_CONTENT, COMP_TEXT_CONTENT,
+    COMP_UIA_CONTENT, COMP_WEBVIEW_CONTENT, Context, EffectCategory, EntityId, ExternalTexture,
+    ImageSource, MovieProperty, ReadSignal, STYLE_AUTO_WRAP, STYLE_DND_DRAGGABLE,
+    STYLE_DND_DROPPABLE, STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_PROPERTY,
+    STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, ScrollBarState, ScrollbarDisplay, ScrollbarStyle,
+    StyleTarget, ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n,
 };
-use std::{borrow::Cow, cell::Cell, rc::Rc};
+use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
 thread_local! {
     // 現在構築中のUIコンテキストへの生ポインタを一時的にバインドするグローバルスレッド領域。
@@ -632,6 +629,30 @@ impl Element {
             f(&val)
         }));
         self.movie(dynamic_prop)
+    }
+
+    /// 外部画像・動画をwgpuで描画するためのテクスチャプロバイダー（ExternalTexture）をバインド
+    #[inline]
+    #[must_use]
+    pub fn external_texture(self, texture: impl ExternalTexture + 'static) -> Self {
+        let texture_arc = Arc::new(texture);
+        let id = self.id;
+
+        let metadata = texture_arc.metadata();
+
+        with_context(|cx| {
+            cx.contents.cont_external_textures.insert(id, texture_arc);
+            cx.topology.topo_active_masks[id].set(COMP_EXTERNAL_TEXTURE_CONTENT);
+
+            // アスペクト比を同期
+            if let Some(basic) = cx.layouts.lay_base_basic.get_mut(id) {
+                basic.size.width = Val::Px(metadata.size.width);
+                basic.size.height = Val::Px(metadata.size.height);
+            }
+
+            cx.mark_dirty(id);
+        });
+        self
     }
 
     /// `WebView2` コンポーネントを配置します（静的設定、またはSignal / クロージャに対応）。

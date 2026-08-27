@@ -29,6 +29,7 @@ pub(crate) type SortedEntitiesVec = Vec<EntityId>;
 pub(crate) type DfsIndicesSecondary = SecondaryMap<EntityId, u32>;
 pub(crate) type TopoSortCacheVec = Vec<(EntityId, i32, u32)>;
 pub(crate) type WebviewEntitiesVec = SmallVec<[EntityId; 4]>;
+pub(crate) type DespawnedQueueVec = Vec<EntityId>;
 
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
@@ -56,6 +57,7 @@ pub struct TopologyStore {
     pub(crate) topo_dfs_indices: DfsIndicesSecondary,
     pub(crate) topo_sort_cache: TopoSortCacheVec,
     pub(crate) topo_webview_entities: WebviewEntitiesVec,
+    pub(crate) topo_despawned_queue: DespawnedQueueVec,
 }
 
 impl Default for TopologyStore {
@@ -84,6 +86,7 @@ impl TopologyStore {
             topo_dfs_indices: SecondaryMap::new(),
             topo_sort_cache: Vec::new(),
             topo_webview_entities: SmallVec::new(),
+            topo_despawned_queue: Vec::new(),
         }
     }
 
@@ -104,6 +107,7 @@ impl TopologyStore {
             topo_dfs_indices: SecondaryMap::with_capacity(c.topo_dfs_indices),
             topo_sort_cache: Vec::with_capacity(c.topo_sort_cache),
             topo_webview_entities: SmallVec::with_capacity(c.topo_webview_entities),
+            topo_despawned_queue: Vec::with_capacity(c.topo_despawned_queue),
             ..Default::default()
         }
     }
@@ -123,6 +127,7 @@ impl TopologyStore {
         self.topo_dfs_indices.clear();
         self.topo_sort_cache.clear();
         self.topo_webview_entities.clear();
+        self.topo_despawned_queue.clear();
     }
 
     #[inline]
@@ -140,6 +145,7 @@ impl TopologyStore {
         self.topo_flat_dfs_sequence.retain(|&x| x != id);
         self.topo_sorted_entities.retain(|&x| x != id);
         self.topo_webview_entities.retain(|x| *x != id);
+        self.topo_despawned_queue.retain(|&x| x != id);
     }
 }
 
@@ -324,6 +330,9 @@ impl TopologyStore {
         if !topology.topo_entities.contains_key(id) {
             return;
         }
+
+        // キャッシュクリアの遅延処理用にキューに記録
+        topology.topo_despawned_queue.push(id);
 
         topology.topo_is_structure_dirty = true;
         topology.topo_is_sort_dirty = true;

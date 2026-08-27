@@ -15,6 +15,7 @@ pub(crate) enum EffectCategory {
     Input,
     Image,
     Movie,
+    ExternalTexture,
     WebView2,
     Contents,
     UiaName,

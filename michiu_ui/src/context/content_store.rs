@@ -1,12 +1,13 @@
 use std::{
     borrow::Cow,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, Context, EntityId, ImageSource, InputContents,
-    LayoutRect, MovieProperty, RenderStore, SystemStore, TextEngine, TextSpan, TopologyStore,
-    VisualPropertiesSecondary, WebView2Contents,
+    ActiveMasksSecondary, CapacityConfig, Context, EntityId, ExternalTexture, ImageSource,
+    InputContents, LayoutRect, MovieProperty, RenderStore, SystemStore, TextEngine, TextSpan,
+    TopologyStore, VisualPropertiesSecondary, WebView2Contents,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 
@@ -16,6 +17,8 @@ pub(crate) type InputContentsSparseSecondary = SparseSecondaryMap<EntityId, Inpu
 pub(crate) type ImageSourcesSparseSecondary = SparseSecondaryMap<EntityId, ImageSource>;
 pub(crate) type MoviePropertiesSparseSecondary = SparseSecondaryMap<EntityId, MovieProperty>;
 pub(crate) type WebviewContentsSparseSecondary = SparseSecondaryMap<EntityId, WebView2Contents>;
+pub(crate) type ExternalTextureSparseSecondary =
+    SparseSecondaryMap<EntityId, Arc<dyn ExternalTexture>>;
 
 pub struct ContentStore {
     pub(crate) cont_text_contents: TextContentsSparseSecondary,
@@ -24,6 +27,7 @@ pub struct ContentStore {
     pub(crate) cont_image_sources: ImageSourcesSparseSecondary,
     pub(crate) cont_movie_properties: MoviePropertiesSparseSecondary,
     pub(crate) cont_webview_contents: WebviewContentsSparseSecondary,
+    pub(crate) cont_external_textures: ExternalTextureSparseSecondary,
 }
 
 impl Default for ContentStore {
@@ -43,6 +47,7 @@ impl ContentStore {
             cont_image_sources: SparseSecondaryMap::new(),
             cont_movie_properties: SparseSecondaryMap::new(),
             cont_webview_contents: SparseSecondaryMap::new(),
+            cont_external_textures: SparseSecondaryMap::new(),
         }
     }
 
@@ -56,6 +61,7 @@ impl ContentStore {
             cont_image_sources: SparseSecondaryMap::with_capacity(c.cont_image_sources),
             cont_movie_properties: SparseSecondaryMap::with_capacity(c.cont_movie_properties),
             cont_webview_contents: SparseSecondaryMap::with_capacity(c.cont_webview_contents),
+            cont_external_textures: SparseSecondaryMap::with_capacity(c.cont_external_textures),
         }
     }
 
@@ -67,6 +73,7 @@ impl ContentStore {
         self.cont_image_sources.clear();
         self.cont_movie_properties.clear();
         self.cont_webview_contents.clear();
+        self.cont_external_textures.clear();
     }
 
     #[inline]
@@ -77,6 +84,7 @@ impl ContentStore {
         self.cont_image_sources.remove(id);
         self.cont_movie_properties.remove(id);
         self.cont_webview_contents.remove(id);
+        self.cont_external_textures.remove(id);
     }
 }
 

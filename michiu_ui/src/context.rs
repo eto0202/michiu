@@ -123,6 +123,7 @@ pub struct CapacityConfig {
     pub cont_image_sources: usize,
     pub cont_movie_properties: usize,
     pub cont_webview_contents: usize,
+    pub cont_external_textures: usize,
     pub topo_entities: usize,
     pub topo_parents: usize,
     pub topo_children: usize,
@@ -136,6 +137,7 @@ pub struct CapacityConfig {
     pub topo_dfs_indices: usize,
     pub topo_sort_cache: usize,
     pub topo_webview_entities: usize,
+    pub topo_despawned_queue: usize,
     pub lay_basic: usize,
     pub lay_flex: usize,
     pub lay_grid: usize,
@@ -208,6 +210,7 @@ impl CapacityConfig {
             cont_input_contents: base / 20, // 入力欄は少ない
             cont_image_sources: base / 10,
             cont_movie_properties: (base / 1000).max(1),
+            cont_external_textures: base / 10,
 
             lay_flex: base / 2,  // 2つに1つはFlexbox
             lay_grid: base / 10, // Gridは少なめ
@@ -247,6 +250,7 @@ impl CapacityConfig {
             cont_image_sources: 0,
             cont_movie_properties: 0,
             cont_webview_contents: 0,
+            cont_external_textures: 0,
             topo_entities: 0,
             topo_parents: 0,
             topo_children: 0,
@@ -260,6 +264,7 @@ impl CapacityConfig {
             topo_dfs_indices: 0,
             topo_sort_cache: 0,
             topo_webview_entities: 0,
+            topo_despawned_queue: 0,
             lay_basic: 0,
             lay_flex: 0,
             lay_grid: 0,
