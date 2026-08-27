@@ -18,34 +18,34 @@ use bytemuck::{Pod, Zeroable};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct QuadInstance {
-    pub(crate) rect: LayoutRect,            // 16B. offset: 0
-    pub(crate) transform: [[f32; 4]; 3],    // 48B. offset: 16
-    pub(crate) color: Color,                // 16B. offset: 64
-    pub(crate) corner_radius: CornerRadius, // 16B. offset: 80
-    pub(crate) border_width: EdgeInsets,    // 16B. offset: 96
-    pub(crate) border_color: Color,         // 16B. offset: 112
+    pub(crate) rect: LayoutRect,            // 16B
+    pub(crate) transform: [[f32; 4]; 3],    // 48B
+    pub(crate) color: Color,                // 16B.
+    pub(crate) corner_radius: CornerRadius, // 16B
+    pub(crate) border_width: EdgeInsets,    // 16B
+    pub(crate) border_color: Color,         // 16B
 
-    // opacity, mode をパック
-    pub(crate) opacity_mode_sizing: [f32; 4], // 16B. offset: 128
+    pub(crate) opacity_mode_sizing: [f32; 4], // 16B ([opacity, mode, sizing, 0.0])
 
-    pub(crate) uv_min: [f32; 2], // 8B.  offset: 144
-    pub(crate) uv_max: [f32; 2], // 8B.  offset: 152
+    pub(crate) uv_min: [f32; 2], // 8B
+    pub(crate) uv_max: [f32; 2], // 8B
 
-    pub(crate) gradient_end_color: Color, // 16B. offset: 160
+    pub(crate) gradient_end_color: Color, // 16B
 
-    pub(crate) gradient_angle: f32,        // 4B.  offset: 176
-    pub(crate) transform_origin: [f32; 2], // 8B.  offset: 180
-    pub(crate) _padding: f32,              // 4B.  offset: 188
+    pub(crate) gradient_angle: f32,        // 4B
+    pub(crate) transform_origin: [f32; 2], // 8B
+    pub(crate) _padding: f32,              // 4B.
 
-    pub(crate) shadow_color: Color,     // 16B. offset: 192
-    pub(crate) shadow_params: [f32; 4], // 16B. offset: 208
+    pub(crate) shadow_color: Color,     // 16B.
+    pub(crate) shadow_params: [f32; 4], // 16B.
 
-    pub(crate) border_lengths: EdgeInsets, // 16B. offset: 224
+    pub(crate) border_lengths: EdgeInsets, // 16B
 
-    pub(crate) outline_width: EdgeInsets,   // 16B. offset: 240
-    pub(crate) outline_color: Color,        // 16B. offset: 256
-    pub(crate) outline_lengths: EdgeInsets, // 16B. offset: 272
-    pub(crate) outline_offset_and_flags: [f32; 4], // 16B. offset: 288 (flags: [offset, flags, 0.0, 0.0])
+    pub(crate) outline_width: EdgeInsets,          // 16B.
+    pub(crate) outline_color: Color,               // 16B
+    pub(crate) outline_lengths: EdgeInsets,        // 16B
+    pub(crate) outline_offset_and_flags: [f32; 4], // 16B (flags: [offset, flags, 0.0, 0.0])
+    pub(crate) alpha_mode_and_y_flip: [f32; 4],    // 16B ([alpha_mode, y_flip, 0.0, 0.0])
 }
 
 impl Default for QuadInstance {
@@ -71,6 +71,7 @@ impl Default for QuadInstance {
             outline_color: Color::TRANSPARENT,
             outline_lengths: EdgeInsets::ZERO,
             outline_offset_and_flags: [0.0; 4],
+            alpha_mode_and_y_flip: [0.0; 4],
         }
     }
 }

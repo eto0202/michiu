@@ -32,6 +32,7 @@ struct InstanceData {
     outline_color: vec4<f32>,
     outline_lengths: vec4<f32>,
     outline_offset_and_flags: vec4<f32>,
+    alpha_move_and_y_flip: vec4<f32>,
 };
 
 @group(0) @binding(3) var<storage, read> instances: array<InstanceData>;
@@ -60,6 +61,13 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
 
     let width = instance.rect.z;
     let height = instance.rect.w;
+
+    let mode = instance.opacity_mode_sizing.x;
+
+    // mode 4.0 且つ y_flip_val が -1.0 の場合は、UVのY軸を自動反転
+    if mode == 4.0 && instance.alpha_move_and_y_flip.x < 0.0 {
+        out.uv.y = 1.0 - out.uv.y;
+    }
 
     // 影（BoxShadow）による頂点描画境界の自動拡張
     var margin = 0.0;
@@ -453,6 +461,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let tex_color = textureSample(t_texture, s_sampler, in.uv);
         // 元テクスチャが sRGB/PMA のため、単純に不透明度を乗算
         element_color = tex_color * opacity;
+    } else if mode == 4.0 {
+        // 外部テクスチャサンプリング
+        let tex_color = textureSample(t_texture, s_sampler, in.uv);
+
+        let alpha_mode = instance.alpha_move_and_y_flip.w; // 0.0 = Straight, 1.0 = Premultiplied
+
+        if alpha_mode < 0.5 {
+            // Straight Alpha (Rgba8Unorm 等) の場合：動的に PMA へとデガンマ考慮で変換して合成
+            let linear_rgb = srgb_to_linear(tex_color);
+            element_color = vec4<f32>(linear_rgb.rgb * linear_rgb.a * opacity, linear_rgb.a * opacity);
+        } else {
+            // すでに乗算済み（Premultiplied）の場合
+            let linear_pma = srgb_to_linear(tex_color);
+            element_color = linear_pma * opacity;
+        }
     } else {
         // 通常（Solid / グラデーション描画、PMA）
         var base_color = color_linear;

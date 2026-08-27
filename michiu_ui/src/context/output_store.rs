@@ -9,10 +9,11 @@ use std::{
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
     ActiveWebviewsHashSet, AlignItems, BaseVisualPropertiesSecondary, BasicLayout,
-    BasicLayoutsSecondary, BatchType, BoxSizing, CapacityConfig, ChildrenSecondary, Color,
-    ComponentMask, ContentStore, Context, CornerRadius, DfsIndicesSecondary,
-    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary,
-    EdgeInsets, EffectiveZindicesSecondary, EntityId, EventStore, FlatDfsSequenceVec, FlexLayout,
+    BasicLayoutsSecondary, BatchType, BoxSizing, COMP_EXTERNAL_TEXTURE_CONTENT, CapacityConfig,
+    ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius,
+    DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch,
+    DwriteLayoutsSparseSecondary, EdgeInsets, EffectiveZindicesSecondary, EntityId, EventStore,
+    ExternalTextureAlphaMode, ExternalTextureSparseSecondary, FlatDfsSequenceVec, FlexLayout,
     FlexLayoutsSecondary, GridLayoutsSparseSecondary, IDENTITY_MATRIX, InputContents,
     InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStates, LayoutPoint,
     LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, PropertyList,
@@ -2682,6 +2683,40 @@ impl OutputStore {
         render_data.push(id, instance);
     }
 
+    /// 外部テクスチャ用インスタンスを追加
+    #[inline]
+    fn push_external_texture_instance(
+        id: EntityId,
+        render_data: &mut RenderData,
+        params: &CommonParameters,
+        cont_external_textures: &ExternalTextureSparseSecondary,
+    ) {
+        let provider = cont_external_textures.get(id).unwrap();
+        let meta = provider.metadata();
+
+        let mut instance = params;
+
+        let alpha_val = match meta.alpha_mode {
+            ExternalTextureAlphaMode::Straight => 0.0f32,
+            ExternalTextureAlphaMode::Premultiplied => 1.0f32,
+        };
+        let y_flip_val = if meta.y_flip { -1.0f32 } else { 1.0f32 };
+
+        let ex_instance = QuadInstance {
+            rect: instance.rect,
+            transform: instance.transform,
+            transform_origin: instance.transform_origin,
+            corner_radius: instance.corner_radius,
+            opacity_mode_sizing: [instance.opacity, 4.0, 0.0, 0.0], // 外部テクスチャ
+            uv_min: [0.0, 0.0],
+            uv_max: [1.0, 1.0],
+            alpha_mode_and_y_flip: [alpha_val, y_flip_val, 0.0, 0.0],
+            ..Default::default()
+        };
+
+        render_data.push(id, ex_instance);
+    }
+
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
     pub(crate) fn collect_render_data(
         render_data: &mut RenderData,
@@ -2696,6 +2731,7 @@ impl OutputStore {
         cont_input_contents: &InputContentsSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
+        cont_external_textures: &ExternalTextureSparseSecondary,
         evt_interaction_states: &InteractionStates,
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
@@ -2889,6 +2925,40 @@ impl OutputStore {
                 );
 
                 OutputStore::push_static_front_instance(id, render_data, &params);
+                OutputStore::flush_batch(
+                    &mut render_data.batches,
+                    render_data.instances.len(),
+                    &mut last_flushed_offset,
+                    clip,
+                    BatchType::Normal,
+                );
+
+                last_clip = Some(clip);
+                continue;
+            }
+
+            // 外部テクスチャ
+            let is_external_texture = topo_active_masks
+                .get(id)
+                .is_some_and(|m| m.has(COMP_EXTERNAL_TEXTURE_CONTENT));
+            if is_external_texture {
+                // 既存UIインスタンスをフラッシュ
+                OutputStore::flush_batch(
+                    &mut render_data.batches,
+                    render_data.instances.len(),
+                    &mut last_flushed_offset,
+                    last_clip.unwrap_or_default(),
+                    current_batch_type,
+                );
+
+                OutputStore::push_external_texture_instance(
+                    id,
+                    render_data,
+                    &params,
+                    cont_external_textures,
+                );
+
+                // テクスチャが固有に切り替わるため独立してバッチをフラッシュ
                 OutputStore::flush_batch(
                     &mut render_data.batches,
                     render_data.instances.len(),
@@ -3183,6 +3253,7 @@ impl Context {
             &self.contents.cont_input_contents,
             &self.contents.cont_text_contents,
             &self.contents.cont_text_spans,
+            &self.contents.cont_external_textures,
             &self.events.evt_interaction_states,
             &mut self.topology.topo_sorted_entities,
             &mut self.topology.topo_effective_z_indices,
