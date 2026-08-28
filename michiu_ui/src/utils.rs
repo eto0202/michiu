@@ -1,7 +1,7 @@
 use crate::{
-    BoxShadow, Color, Convert, Element, FlexDirection, ImageSource, InputContents, IntoHexColor,
-    IntoLayoutPoint, MovieProperty, Prop, ReadSignal, StyleValue, ThisStyle, WebView2Contents,
-    WriteSignal, with_context,
+    BoxShadow, Color, Convert, Element, ExternalTexture, FlexDirection, ImageSource, InputContents,
+    IntoHexColor, IntoLayoutPoint, MovieProperty, Prop, ReadSignal, StyleValue, ThisStyle,
+    WebView2Contents, WriteSignal, with_context,
 };
 use std::borrow::Cow;
 
@@ -167,6 +167,11 @@ pub fn img(source: impl Into<Prop<ImageSource>>) -> Element {
 #[inline]
 pub fn video(property: impl Into<Prop<MovieProperty>>) -> Element {
     div_n().movie(property)
+}
+
+#[inline]
+pub fn external_texture(texture: impl ExternalTexture + 'static) -> Element {
+    div_n().external_texture(texture)
 }
 
 #[inline]

@@ -2694,8 +2694,6 @@ impl OutputStore {
         let provider = cont_external_textures.get(id).unwrap();
         let meta = provider.metadata();
 
-        let mut instance = params;
-
         let alpha_val = match meta.alpha_mode {
             ExternalTextureAlphaMode::Straight => 0.0f32,
             ExternalTextureAlphaMode::Premultiplied => 1.0f32,
@@ -2703,11 +2701,11 @@ impl OutputStore {
         let y_flip_val = if meta.y_flip { -1.0f32 } else { 1.0f32 };
 
         let ex_instance = QuadInstance {
-            rect: instance.rect,
-            transform: instance.transform,
-            transform_origin: instance.transform_origin,
-            corner_radius: instance.corner_radius,
-            opacity_mode_sizing: [instance.opacity, 4.0, 0.0, 0.0], // 外部テクスチャ
+            rect: params.rect,
+            transform: params.transform,
+            corner_radius: params.corner_radius,
+            opacity_mode_sizing: [params.opacity, 4.0, 0.0, 0.0], // 外部テクスチャ
+            transform_origin: params.transform_origin,
             uv_min: [0.0, 0.0],
             uv_max: [1.0, 1.0],
             alpha_mode_and_y_flip: [alpha_val, y_flip_val, 0.0, 0.0],
@@ -2924,6 +2922,7 @@ impl OutputStore {
                     BatchType::Normal,
                 );
 
+                // 前面インスタンス
                 OutputStore::push_static_front_instance(id, render_data, &params);
                 OutputStore::flush_batch(
                     &mut render_data.batches,
@@ -2957,8 +2956,17 @@ impl OutputStore {
                     &params,
                     cont_external_textures,
                 );
-
                 // テクスチャが固有に切り替わるため独立してバッチをフラッシュ
+                OutputStore::flush_batch(
+                    &mut render_data.batches,
+                    render_data.instances.len(),
+                    &mut last_flushed_offset,
+                    clip,
+                    BatchType::Normal,
+                );
+
+                // 前面インスタンス
+                OutputStore::push_static_front_instance(id, render_data, &params);
                 OutputStore::flush_batch(
                     &mut render_data.batches,
                     render_data.instances.len(),

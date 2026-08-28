@@ -58,4 +58,5 @@ pub enum ComponentType {
     Outline,
     Focusable,
     StressTest,
+    Image,
 }

@@ -17,6 +17,7 @@ pub mod outline;
 pub mod resizable;
 pub mod scrollbar;
 pub mod stress_test;
+pub mod image;
 
 use crate::app::theme::Theme;
 use michiu_ui::prelude::*;

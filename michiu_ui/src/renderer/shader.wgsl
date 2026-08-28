@@ -32,7 +32,7 @@ struct InstanceData {
     outline_color: vec4<f32>,
     outline_lengths: vec4<f32>,
     outline_offset_and_flags: vec4<f32>,
-    alpha_move_and_y_flip: vec4<f32>,
+    alpha_mode_and_y_flip: vec4<f32>,
 };
 
 @group(0) @binding(3) var<storage, read> instances: array<InstanceData>;
@@ -62,12 +62,7 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
     let width = instance.rect.z;
     let height = instance.rect.w;
 
-    let mode = instance.opacity_mode_sizing.x;
-
-    // mode 4.0 且つ y_flip_val が -1.0 の場合は、UVのY軸を自動反転
-    if mode == 4.0 && instance.alpha_move_and_y_flip.x < 0.0 {
-        out.uv.y = 1.0 - out.uv.y;
-    }
+    let mode = instance.opacity_mode_sizing.y;
 
     // 影（BoxShadow）による頂点描画境界の自動拡張
     var margin = 0.0;
@@ -123,6 +118,11 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
 
     // UV の補間 (通常の画像 / テキスト兼用)
     out.uv = mix(instance.uv_range.xy, instance.uv_range.zw, local_ratio);
+
+    // mode 4.0 且つ y_flip_val が -1.0 の場合は、UVのY軸を自動反転
+    if mode == 4.0 && instance.alpha_mode_and_y_flip.y < 0.0 {
+        out.uv.y = 1.0 - out.uv.y;
+    }
 
     out.instance_idx = instance_idx; // インデックスのみをフラグメントに退避
     return out;
@@ -465,7 +465,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // 外部テクスチャサンプリング
         let tex_color = textureSample(t_texture, s_sampler, in.uv);
 
-        let alpha_mode = instance.alpha_move_and_y_flip.w; // 0.0 = Straight, 1.0 = Premultiplied
+        let alpha_mode = instance.alpha_mode_and_y_flip.x; // 0.0 = Straight, 1.0 = Premultiplied
 
         if alpha_mode < 0.5 {
             // Straight Alpha (Rgba8Unorm 等) の場合：動的に PMA へとデガンマ考慮で変換して合成

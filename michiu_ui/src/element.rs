@@ -2,9 +2,9 @@ pub mod handler;
 pub mod input_func;
 
 use crate::{
-    COMP_EXTERNAL_TEXTURE_CONTENT, COMP_IMAGE_CONTENT, COMP_MOVIE_CONTENT, COMP_TEXT_CONTENT,
-    COMP_UIA_CONTENT, COMP_WEBVIEW_CONTENT, Context, EffectCategory, EntityId, ExternalTexture,
-    ImageSource, MovieProperty, ReadSignal, STYLE_AUTO_WRAP, STYLE_DND_DRAGGABLE,
+    BasicLayout, COMP_EXTERNAL_TEXTURE_CONTENT, COMP_IMAGE_CONTENT, COMP_MOVIE_CONTENT,
+    COMP_TEXT_CONTENT, COMP_UIA_CONTENT, COMP_WEBVIEW_CONTENT, Context, EffectCategory, EntityId,
+    ExternalTexture, ImageSource, MovieProperty, ReadSignal, STYLE_AUTO_WRAP, STYLE_DND_DRAGGABLE,
     STYLE_DND_DROPPABLE, STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_PROPERTY,
     STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, ScrollBarState, ScrollbarDisplay, ScrollbarStyle,
     StyleTarget, ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n,
@@ -237,7 +237,8 @@ impl Element {
 
         cx.topology.topo_active_masks[id].0 |= property_only_mask;
         if mask.has_basic_layout() || mask.has(STYLE_FONT_SIZE) || mask.has(STYLE_AUTO_WRAP) {
-            if merge && let Some(base) = cx.layouts.lay_base_basic.get_mut(id) {
+            if merge && cx.layouts.lay_base_basic.contains_key(id) {
+                let base = cx.layouts.lay_base_basic.get_mut(id).unwrap();
                 base.override_with(&inner.basic_layout, mask);
             } else {
                 // 前回の設定蓄積をクリアして置換
@@ -249,7 +250,8 @@ impl Element {
         let has_visual =
             mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
         if has_visual {
-            if merge && let Some(vis) = cx.renders.rnd_base_visual.get_mut(id) {
+            if merge && cx.renders.rnd_base_visual.contains_key(id) {
+                let vis = cx.renders.rnd_base_visual.get_mut(id).unwrap();
                 vis.override_with(&inner.visual_property, mask);
             } else {
                 cx.renders
@@ -262,7 +264,8 @@ impl Element {
             || mask.has(STYLE_INTERACTION_WITHIN)
             || mask.has(STYLE_INTERACTION_PARENT)
         {
-            if merge && let Some(interaction) = cx.renders.rnd_interaction.get_mut(id) {
+            if merge && cx.renders.rnd_interaction.contains_key(id) {
+                let interaction = cx.renders.rnd_interaction.get_mut(id).unwrap();
                 interaction.override_with(&inner.interaction_styles, mask);
             } else {
                 cx.renders
@@ -272,7 +275,8 @@ impl Element {
         }
 
         if mask.has_flex_layout() {
-            if merge && let Some(flex) = cx.layouts.lay_flex.get_mut(id) {
+            if merge && cx.layouts.lay_flex.contains_key(id) {
+                let flex = cx.layouts.lay_flex.get_mut(id).unwrap();
                 flex.override_with(&inner.flex_layout, mask);
             } else {
                 cx.layouts.lay_flex.insert(id, inner.flex_layout);
@@ -631,7 +635,21 @@ impl Element {
         self.movie(dynamic_prop)
     }
 
-    /// 外部画像・動画をwgpuで描画するためのテクスチャプロバイダー（ExternalTexture）をバインド
+    /// 外部画像や動画をwgpuで描画するためのテクスチャプロバイダ（`ExternalTexture`）をバインドします。
+    ///
+    /// ### 動的なテクスチャの更新（動画やゲーム画面など）
+    /// 毎フレームテクスチャの中身が更新されるような動的要件は、描画直前に `ExternalTexture::resolve_view()`
+    /// が毎回呼び出される仕様になっているため、プロバイダの内部処理だけで自動的に完結します。
+    ///
+    /// ### ソース自体の動的な切り替え（動画から静止画への変更など）
+    /// 「動画から静止画へ切り替える」といった、テクスチャのソース自体を動的に変更したい場合は、以下のいずれかの方法を選択してください。
+    ///
+    /// 1. **トポロジーを差し替える**: 対象のUI要素を一度 `despawn` し、新しいソースを指定した要素として再生成する（不要になったリソースをVRAMから安全に解放できます）。
+    /// 2. **プロバイダの内部で切り替える**: `ExternalTexture` を実装したオブジェクト自体は維持し、内部のデコーダ等に命令を送ることで、`resolve_view()` が返すテクスチャ（`TextureView`）を動的に切り替える。
+    ///
+    /// ### 設計上の注意（パフォーマンス）
+    /// `BindGroup` の作成・再生成は処理負荷が高いため、本メソッドは軽量な `Prop<T>`（リアクティブなプロパティ）を介したテクスチャの動的差し替えをサポートしていません。
+    /// 仮に `Prop<T>` による差し替えを可能にすると、リアクティブエフェクト内で毎フレームプロバイダを新規生成するような、パフォーマンスを著しく低下させるコードを容易に記述できてしまうためです。
     #[inline]
     #[must_use]
     pub fn external_texture(self, texture: impl ExternalTexture + 'static) -> Self {
@@ -644,11 +662,12 @@ impl Element {
             cx.contents.cont_external_textures.insert(id, texture_arc);
             cx.topology.topo_active_masks[id].set(COMP_EXTERNAL_TEXTURE_CONTENT);
 
-            // アスペクト比を同期
-            if let Some(basic) = cx.layouts.lay_base_basic.get_mut(id) {
-                basic.size.width = Val::Px(metadata.size.width);
-                basic.size.height = Val::Px(metadata.size.height);
+            if !cx.layouts.lay_base_basic.contains_key(id) {
+                cx.layouts.lay_base_basic.insert(id, BasicLayout::default());
             }
+            let basic = cx.layouts.lay_base_basic.get_mut(id).unwrap();
+            basic.size.width = Val::Px(metadata.size.width);
+            basic.size.height = Val::Px(metadata.size.height);
 
             cx.mark_dirty(id);
         });

@@ -501,9 +501,6 @@ impl WgpuRenderer {
             self.webview_static_caches.remove(&id);
         }
 
-        // 外部テクスチャを事前にキャッシュ
-        self.update_external_texture_bind_groups(cx);
-
         // 前面と背面に分類されたバッチを Context から引き出す
         cx.collect_render_data(
             &mut self.render_data,
@@ -537,8 +534,13 @@ impl WgpuRenderer {
             self.instance_staging.push(inst);
         }
 
-        // VRAM インスタンスバッファへの一括転送
+        // 容量を確定
         self.ensure_instance_buffer_capacity(self.instance_staging.len());
+
+        // 外部テクスチャを事前にキャッシュ
+        self.update_external_texture_bind_groups(cx);
+
+        // VRAM インスタンスバッファへの一括転送
         self.queue.write_buffer(
             &self.instance_buffer,
             0,
@@ -886,6 +888,9 @@ impl WgpuRenderer {
             });
 
             self.instance_buffer_capacity = new_capacity;
+
+            // 古いバッファをバインドしているキャッシュをクリア
+            self.external_bind_groups.clear();
 
             // バッファのアドレスが変わったため、標準の config_bind_group も再構築してキャッシュを同期
             self.config_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
