@@ -45,7 +45,7 @@ pub struct QuadInstance {
     pub(crate) outline_color: Color,               // 16B
     pub(crate) outline_lengths: EdgeInsets,        // 16B
     pub(crate) outline_offset_and_flags: [f32; 4], // 16B (flags: [offset, flags, 0.0, 0.0])
-    pub(crate) alpha_mode_and_y_flip: [f32; 4],    // 16B ([alpha_mode, y_flip, 0.0, 0.0])
+    pub(crate) alpha_mode_y_flip_srgb: [f32; 4],    // 16B ([alpha_mode, y_flip, srbg, 0.0])
 }
 
 impl Default for QuadInstance {
@@ -71,7 +71,7 @@ impl Default for QuadInstance {
             outline_color: Color::TRANSPARENT,
             outline_lengths: EdgeInsets::ZERO,
             outline_offset_and_flags: [0.0; 4],
-            alpha_mode_and_y_flip: [0.0; 4],
+            alpha_mode_y_flip_srgb: [0.0; 4],
         }
     }
 }

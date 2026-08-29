@@ -84,11 +84,11 @@ fn global_container() -> Element {
 fn custom_container() -> Element {
     let grab_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/examples/sample_collection/assets/cursor-grab.png"
+        "/examples/sample_collection/assets/cursor_grab.png"
     );
     let grabbing_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/examples/sample_collection/assets/cursor-grabbing.png"
+        "/examples/sample_collection/assets/cursor_grabbing.png"
     );
 
     let grab_icon = CursorIcon::create_from_path(grab_path, 16, 16).ok();

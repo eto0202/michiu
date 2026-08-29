@@ -133,6 +133,24 @@ impl ThisStyle {
         self.border_solid(1.0).border_color(Color::RED)
     }
 
+    #[inline]
+    #[must_use]
+    pub fn debug_border_blue(self) -> Self {
+        self.border_solid(1.0).border_color(Color::BLUE)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn debug_border_green(self) -> Self {
+        self.border_solid(1.0).border_color(Color::GREEN)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn debug_border_yellow(self) -> Self {
+        self.border_solid(1.0).border_color(Color::YELLOW)
+    }
+
     /// 要素の表示形態（Display）を設定します。
     #[inline]
     #[must_use]

@@ -866,7 +866,7 @@ impl WgpuRenderer {
                 outline_color: o_color,
                 outline_lengths: o_lengths,
                 outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
-                alpha_mode_and_y_flip: instance.alpha_mode_and_y_flip,
+                alpha_mode_y_flip_srgb: instance.alpha_mode_y_flip_srgb,
             },
             false, // アトラスを直接操作しないため常に false
         )

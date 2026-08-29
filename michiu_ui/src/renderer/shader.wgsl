@@ -32,7 +32,7 @@ struct InstanceData {
     outline_color: vec4<f32>,
     outline_lengths: vec4<f32>,
     outline_offset_and_flags: vec4<f32>,
-    alpha_mode_and_y_flip: vec4<f32>,
+    alpha_mode_y_flip_srgb: vec4<f32>,
 };
 
 @group(0) @binding(3) var<storage, read> instances: array<InstanceData>;
@@ -120,7 +120,7 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
     out.uv = mix(instance.uv_range.xy, instance.uv_range.zw, local_ratio);
 
     // mode 4.0 且つ y_flip_val が -1.0 の場合は、UVのY軸を自動反転
-    if mode == 4.0 && instance.alpha_mode_and_y_flip.y < 0.0 {
+    if mode == 4.0 && instance.alpha_mode_y_flip_srgb.y < 0.0 {
         out.uv.y = 1.0 - out.uv.y;
     }
 
@@ -463,18 +463,23 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         element_color = tex_color * opacity;
     } else if mode == 4.0 {
         // 外部テクスチャサンプリング
-        let tex_color = textureSample(t_texture, s_sampler, in.uv);
+        var tex_color = textureSample(t_texture, s_sampler, in.uv);
 
-        let alpha_mode = instance.alpha_mode_and_y_flip.x; // 0.0 = Straight, 1.0 = Premultiplied
+        let alpha_mode = instance.alpha_mode_y_flip_srgb.x; // 0.0 = Straight, 1.0 = Premultiplied
 
+        // srgb_format フラグ（0.0 = 自動変換なし、1.0 = ハード自動変換済み）
+        let srgb_format = instance.alpha_mode_y_flip_srgb.z;
+
+        // ハード自動色空間変換がない場合（0.0）のみ、手動でリニアカラーへデガンマ
+        if srgb_format < 0.5 {
+            tex_color = srgb_to_linear(tex_color);
+        }
+
+        // アルファチャンネルの PMA 合成
         if alpha_mode < 0.5 {
-            // Straight Alpha (Rgba8Unorm 等) の場合：動的に PMA へとデガンマ考慮で変換して合成
-            let linear_rgb = srgb_to_linear(tex_color);
-            element_color = vec4<f32>(linear_rgb.rgb * linear_rgb.a * opacity, linear_rgb.a * opacity);
+            element_color = vec4<f32>(tex_color.rgb * tex_color.a * opacity, tex_color.a * opacity);
         } else {
-            // すでに乗算済み（Premultiplied）の場合
-            let linear_pma = srgb_to_linear(tex_color);
-            element_color = linear_pma * opacity;
+            element_color = tex_color * opacity;
         }
     } else {
         // 通常（Solid / グラデーション描画、PMA）

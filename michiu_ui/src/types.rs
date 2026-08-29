@@ -1975,6 +1975,8 @@ pub struct ExternalTextureMetadata {
     pub size: LayoutSize,
     pub alpha_mode: ExternalTextureAlphaMode,
     pub y_flip: bool,
+    // テクスチャが -Srgb 系統の自動色空間変換フォーマットかどうか
+    pub is_srgb: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

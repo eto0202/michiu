@@ -2699,6 +2699,7 @@ impl OutputStore {
             ExternalTextureAlphaMode::Premultiplied => 1.0f32,
         };
         let y_flip_val = if meta.y_flip { -1.0f32 } else { 1.0f32 };
+        let srgb_val = if meta.is_srgb { 1.0f32 } else { 0.0f32 };
 
         let ex_instance = QuadInstance {
             rect: params.rect,
@@ -2708,7 +2709,7 @@ impl OutputStore {
             transform_origin: params.transform_origin,
             uv_min: [0.0, 0.0],
             uv_max: [1.0, 1.0],
-            alpha_mode_and_y_flip: [alpha_val, y_flip_val, 0.0, 0.0],
+            alpha_mode_y_flip_srgb: [alpha_val, y_flip_val, srgb_val, 0.0],
             ..Default::default()
         };
 

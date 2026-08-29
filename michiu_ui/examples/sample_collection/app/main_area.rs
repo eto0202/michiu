@@ -13,8 +13,6 @@ pub fn main_area() -> Element {
     let main_contents = v_flex(ts().size_full().overflow_hidden().p(20.0));
 
     // 全ての ComponentType の要素を起動時に一度だけ spawn してマウント
-    // TODO: 遅延生成用のインターフェース
-    // TODO: 専用の keep-alive インターフェースを実装するかも
     let mut children = Vec::new();
     for comp_type in ComponentType::iter() {
         let child_el = create_component_element(comp_type);
