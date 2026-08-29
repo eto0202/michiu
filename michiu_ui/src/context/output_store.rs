@@ -378,16 +378,24 @@ impl OutputStore {
         rnd_visual: &VisualPropertiesSecondary,
         out_text_selections: &TextSelectionsSparseSecondary,
     ) -> Option<String> {
-        let focused_id = evt_interaction_states.focused?;
+        // フォーカスされている要素を最優先とし、
+        // 無い場合は現在有効な選択範囲を持つ最初の要素を逆引き
+        let target_id = evt_interaction_states.focused.or_else(|| {
+            out_text_selections
+                .iter()
+                .find(|(_, range)| range.start < range.end)
+                .map(|(id, _)| id)
+        })?;
+
         let user_select = rnd_visual
-            .get(focused_id)
+            .get(target_id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
 
         if user_select == UserSelect::Text {
-            let range = out_text_selections.get(focused_id)?;
+            let range = out_text_selections.get(target_id)?;
             if range.start < range.end {
-                let text = cont_text_contents.get(focused_id)?;
+                let text = cont_text_contents.get(target_id)?;
                 let u16_text: Vec<u16> = text.encode_utf16().collect();
                 let slice =
                     &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
@@ -2270,38 +2278,18 @@ impl OutputStore {
         id: EntityId,
         render_data: &mut RenderData,
         params: &CommonParameters,
-        is_multiline: bool,
-        flex: &FlexLayout,
+        align_offset: LayoutPoint,
         border: EdgeInsets,
         padding: EdgeInsets,
         scroll: LayoutPoint,
+        sel_rects: &Vec<LayoutRect>,
         visual: &VisualProperty,
-        out_rects: &Vec<LayoutRect>,
-        cont_input_contents: &InputContentsSparseSecondary,
     ) {
         let sel_bg = visual
             .select_bg_color
             .unwrap_or(Color::rgba_f32(0.0, 0.47, 0.84, 0.35));
 
-        let text_size = if let Some(contents) = cont_input_contents.get(id)
-            && let Some(layout_rect) = contents.last_layout
-        {
-            LayoutSize::new(layout_rect.width, layout_rect.height)
-        } else {
-            LayoutSize::ZERO
-        };
-
-        let align_offset = OutputStore::calc_align_offset(
-            params.rect,
-            border,
-            padding,
-            text_size,
-            flex.text_align,
-            flex.align_items,
-            is_multiline,
-        );
-
-        for metric_rect in out_rects {
+        for metric_rect in sel_rects {
             let sel_rect = LayoutRect::new(
                 params.rect.x + border.left + padding.left + align_offset.x + metric_rect.x
                     - scroll.x,
@@ -2716,6 +2704,39 @@ impl OutputStore {
         render_data.push(id, ex_instance);
     }
 
+    pub(crate) fn text_size_to_align_offset(
+        id: EntityId,
+        params: &CommonParameters,
+        dw_layout: &IDWriteTextLayout,
+        border: EdgeInsets,
+        padding: EdgeInsets,
+        flex: &FlexLayout,
+        sys_text_engine: &TextEngine,
+        cont_input_contents: &InputContentsSparseSecondary,
+    ) -> LayoutPoint {
+        let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
+            if let Some(l) = c.last_layout {
+                // コンテンツが存在し前回のレイアウトもある場合
+                (LayoutSize::new(l.width, l.height), c.is_multiline)
+            } else {
+                // コンテンツはあるがレイアウトがない場合
+                (sys_text_engine.get_layout_size(dw_layout), c.is_multiline)
+            }
+        } else {
+            // コンテンツ自体が存在しない場合
+            (sys_text_engine.get_layout_size(dw_layout), false)
+        };
+        OutputStore::calc_align_offset(
+            params.rect,
+            border,
+            padding,
+            text_size,
+            flex.text_align,
+            flex.align_items,
+            is_multiline,
+        )
+    }
+
     /// 現在の全アクティブ要素から、wgpu 用の前面・背面描画バッチを生成します
     pub(crate) fn collect_render_data(
         render_data: &mut RenderData,
@@ -2857,7 +2878,6 @@ impl OutputStore {
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
             let scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
-            let is_multiline = cont_input_contents.get(id).is_some_and(|c| c.is_multiline);
 
             // トランスフォームブランチの場合のみその場で累積を解決
             // それ以外は IDENTITY_MATRIX
@@ -2997,19 +3017,39 @@ impl OutputStore {
             }
 
             // 選択ハイライト背景
-            if let Some(out_rects) = out_selected_rects.get(id) {
+            if let Some(sel_rects) = out_selected_rects.get(id)
+                && let Some(dw_layout) = SystemStore::get_or_create_layout(
+                    id,
+                    sys_text_engine,
+                    sys_dwrite_layouts,
+                    cont_text_contents,
+                    cont_text_spans,
+                    lay_resolved_basic,
+                    rnd_visual,
+                    out_rects,
+                )
+            {
+                let align_offset = OutputStore::text_size_to_align_offset(
+                    id,
+                    &params,
+                    &dw_layout,
+                    border,
+                    padding,
+                    &flex,
+                    sys_text_engine,
+                    cont_input_contents,
+                );
+
                 OutputStore::push_selection_highlight_instances(
                     id,
                     render_data,
                     &params,
-                    is_multiline,
-                    &flex,
+                    align_offset,
                     border,
                     padding,
                     scroll,
+                    sel_rects,
                     visual,
-                    out_rects,
-                    cont_input_contents,
                 );
             }
 
@@ -3038,6 +3078,17 @@ impl OutputStore {
                     out_rects,
                 )
             {
+                let align_offset = OutputStore::text_size_to_align_offset(
+                    id,
+                    &params,
+                    &dw_layout,
+                    border,
+                    padding,
+                    &flex,
+                    sys_text_engine,
+                    cont_input_contents,
+                );
+
                 let (metrics, text_u16_vec) = OutputStore::get_metrics_and_u16_vec(
                     id,
                     &dw_layout,
@@ -3046,27 +3097,8 @@ impl OutputStore {
                 );
 
                 let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
-
                 let resolved_color =
                     OutputStore::resolv_text_color(id, visual, cont_input_contents);
-
-                let text_size = cont_input_contents
-                    .get(id)
-                    .and_then(|c| c.last_layout)
-                    .map_or_else(
-                        || sys_text_engine.get_layout_size(&dw_layout),
-                        |l| LayoutSize::new(l.width, l.height),
-                    );
-
-                let align_offset = OutputStore::calc_align_offset(
-                    rect,
-                    border,
-                    padding,
-                    text_size,
-                    flex.text_align,
-                    flex.align_items,
-                    cont_input_contents.get(id).is_some_and(|c| c.is_multiline),
-                );
 
                 OutputStore::push_text_background_instances(
                     id,

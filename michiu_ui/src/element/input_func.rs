@@ -158,9 +158,22 @@ impl Element {
             return;
         };
 
+        let dw_layout = SystemStore::get_or_create_layout(
+            id,
+            &cx.system.sys_text_engine,
+            &cx.system.sys_dwrite_layouts,
+            &cx.contents.cont_text_contents,
+            &cx.contents.cont_text_spans,
+            &cx.layouts.lay_resolved_basic,
+            &cx.renders.rnd_visual,
+            &cx.outputs.out_rects,
+        );
+
         let local = EventStore::pressed_local_point(
             id,
             pointer_pos,
+            dw_layout.as_ref(),
+            &cx.system.sys_text_engine,
             &cx.contents.cont_input_contents,
             &cx.topology.topo_active_masks,
             &cx.topology.topo_parents,

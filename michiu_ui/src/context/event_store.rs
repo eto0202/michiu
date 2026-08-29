@@ -527,6 +527,8 @@ impl EventStore {
     pub(crate) fn pressed_local_point(
         id: EntityId,
         logical_pos: LayoutPoint,
+        dw_layout: Option<&IDWriteTextLayout>,
+        sys_text_engine: &TextEngine,
         cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -555,6 +557,8 @@ impl EventStore {
                 .last_layout
                 .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
             (size, contents.is_multiline)
+        } else if let Some(dw_layout) = dw_layout {
+            (sys_text_engine.get_layout_size(&dw_layout), false)
         } else {
             (LayoutSize::ZERO, false)
         };
@@ -1477,9 +1481,22 @@ impl EventStore {
                     }
                 }
 
+                let dw_layout = SystemStore::get_or_create_layout(
+                    pressed_id,
+                    &cx.system.sys_text_engine,
+                    &cx.system.sys_dwrite_layouts,
+                    &cx.contents.cont_text_contents,
+                    &cx.contents.cont_text_spans,
+                    &cx.layouts.lay_resolved_basic,
+                    &cx.renders.rnd_visual,
+                    &cx.outputs.out_rects,
+                );
+
                 let local = EventStore::pressed_local_point(
                     pressed_id,
                     logical_pos,
+                    dw_layout.as_ref(),
+                    &cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                     &cx.topology.topo_active_masks,
                     &cx.topology.topo_parents,
@@ -2310,6 +2327,7 @@ impl EventStore {
                 return;
             }
         }
+
         // 内部で完結する全選択（Ctrl+A）のみを自動処理
         if state == ElementState::Pressed && modifiers.ctrl && key == VirtualKey::A {
             let user_select = EventStore::get_user_select(focused_id, &cx.renders.rnd_visual);
@@ -2895,7 +2913,7 @@ impl EventStore {
         out_rects: &RectsSecondary,
         out_scroll_offsets: &ScrollOffsetsSecondary,
     ) {
-        let Some(layout) = SystemStore::get_or_create_layout(
+        let Some(dw_layout) = SystemStore::get_or_create_layout(
             id,
             sys_text_engine,
             sys_dwrite_layouts,
@@ -2911,6 +2929,8 @@ impl EventStore {
         let local = EventStore::pressed_local_point(
             id,
             pointer_pos,
+            Some(&dw_layout),
+            sys_text_engine,
             cont_input_contents,
             topo_active_masks,
             topo_parents,
@@ -2924,7 +2944,7 @@ impl EventStore {
             out_rects,
         );
         let (clicked_index, is_trailing) =
-            sys_text_engine.hit_test_point(&layout, local.x, local.y);
+            sys_text_engine.hit_test_point(&dw_layout, local.x, local.y);
         let final_index = if is_trailing {
             clicked_index + 1
         } else {
@@ -2948,7 +2968,7 @@ impl EventStore {
             out_text_selections.insert(id, range);
             OutputStore::update_selection_rects(
                 id,
-                &layout,
+                &dw_layout,
                 out_selected_rects,
                 out_text_selections,
             );
