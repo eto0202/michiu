@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::types::LayoutSize;
-use crate::{EdgeInsets, LayoutRect, TextSpan, VisualProperty};
+use crate::{EdgeInsets, LayoutRect, RendererView, TextSpan, VisualProperty};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use windows::Win32::Graphics::Direct2D::{
@@ -370,12 +370,9 @@ impl TextEngine {
     pub(crate) fn get_or_create_glyph_uv(
         &self,
         key: &TextCacheKey,
-        atlas: &mut TextureAtlas,
-        text_rasterizer: &TextRasterizer,
-        text_cache: &mut FxHashMap<TextCacheKey, TextCacheValue>,
-        queue: &wgpu::Queue,
+        view: &mut RendererView,
     ) -> ([f32; 2], [f32; 2], bool) {
-        if let Some(cached) = text_cache.get(key) {
+        if let Some(cached) = view.text_cache.get(key) {
             return (cached.uv_min, cached.uv_max, false);
         }
 
@@ -396,26 +393,27 @@ impl TextEngine {
 
         let size = self.get_layout_size(&physical_layout);
         let r8_pixels =
-            text_rasterizer.rasterize_glyph(&physical_layout, size, &self.rendering_params);
+            view.text_rasterizer
+                .rasterize_glyph(&physical_layout, size, &self.rendering_params);
 
         let width = size.width.ceil() as u32;
         let height = size.height.ceil() as u32;
 
-        let mut alloc_res = atlas.allocate(width, height);
+        let mut alloc_res = view.atlas.allocate(width, height);
         let mut cleared = false;
 
         if alloc_res.is_none() {
-            atlas.clear();
-            text_cache.clear();
-            alloc_res = atlas.allocate(width, height);
+            view.atlas.clear();
+            view.text_cache.clear();
+            alloc_res = view.atlas.allocate(width, height);
             cleared = true;
         }
 
         let (x, y) = alloc_res.expect("Glyph exceeds maximum atlas size!");
 
-        queue.write_texture(
+        view.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &atlas.texture,
+                texture: &view.atlas.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x, y, z: 0 },
                 aspect: wgpu::TextureAspect::All,
@@ -433,8 +431,9 @@ impl TextEngine {
             },
         );
 
-        let (uv_min, uv_max) = atlas.texel_to_uv(x, y, width, height);
-        text_cache.insert(key.clone(), TextCacheValue { uv_min, uv_max });
+        let (uv_min, uv_max) = view.atlas.texel_to_uv(x, y, width, height);
+        view.text_cache
+            .insert(key.clone(), TextCacheValue { uv_min, uv_max });
 
         (uv_min, uv_max, cleared)
     }

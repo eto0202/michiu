@@ -2,8 +2,8 @@
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DrawBatch,
     EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
-    QuadInstance, RenderData, TextAlign, TextCacheKey, TextCacheValue, TextRasterizer, TextSpan,
-    TextureAtlas, Vertex, VisualProperty,
+    Pipeline, QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue,
+    TextRasterizer, TextSpan, TextureAtlas, Vertex, VisualProperty,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -502,13 +502,17 @@ impl WgpuRenderer {
         }
 
         // 前面と背面に分類されたバッチを Context から引き出す
-        cx.collect_render_data(
-            &mut self.render_data,
-            &mut self.atlas,
-            &self.text_rasterizer,
-            &mut self.text_cache,
-            &self.queue,
+        Pipeline::collect_render_data(
+            cx,
+            &mut RendererView {
+                render_data: &mut self.render_data,
+                atlas: &mut self.atlas,
+                text_rasterizer: &self.text_rasterizer,
+                text_cache: &mut self.text_cache,
+                queue: &self.queue,
+            },
         );
+
         if self.render_data.batches.is_empty() {
             return;
         }

@@ -3,6 +3,7 @@ pub mod content_store;
 pub mod event_store;
 pub mod layout_store;
 pub mod output_store;
+pub mod pipeline;
 pub mod reactive_store;
 pub mod render_store;
 pub mod system_store;
@@ -13,6 +14,7 @@ pub use content_store::*;
 pub use event_store::*;
 pub use layout_store::*;
 pub use output_store::*;
+pub use pipeline::*;
 pub use reactive_store::*;
 pub use render_store::*;
 pub use system_store::*;
@@ -22,10 +24,7 @@ pub use window_store::*;
 use crate::{
     ActiveFocusTrigger, BasicLayout, ComponentMask, CursorIcon, DndDragPayload, Element,
     ElementState, FlexLayout, GridLayout, ImeState, LayoutPoint, LayoutRect, LayoutSize, Modifiers,
-    MouseButton, Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, STATE_ACTIVED,
-    STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED,
-    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT,
-    STATE_SELECTED, STYLE_OVERFLOW, STYLE_PREVENT_FOCUS_STEAL, STYLE_PREVENT_FOCUS_STEAL_WITHIN,
+    MouseButton, Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, RendererView,
     SignalId, TextAlign, TransitionValue, UserSelect, Val, VirtualKey, VisualProperty, WriteSignal,
     bind_context, handle_on_char_input, handle_on_click, handle_on_dnd_entity_drop,
     handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime, handle_on_keyboard_input,
@@ -461,7 +460,7 @@ impl Context {
         self.topology
             .topo_active_masks
             .get(id)
-            .is_some_and(|m| m.has(STATE_HOVERED))
+            .is_some_and(|m| m.has(ComponentMask::STATE_HOVERED))
     }
 
     /// 指定された要素が現在キーボードフォーカスを得ているか判定します
@@ -470,7 +469,7 @@ impl Context {
         self.topology
             .topo_active_masks
             .get(id)
-            .is_some_and(|m| m.has(STATE_FOCUSED))
+            .is_some_and(|m| m.has(ComponentMask::STATE_FOCUSED))
     }
 
     /// 指定された要素が現在マウスやタップで押し下げられているか判定します
@@ -479,7 +478,7 @@ impl Context {
         self.topology
             .topo_active_masks
             .get(id)
-            .is_some_and(|m| m.has(STATE_PRESSED))
+            .is_some_and(|m| m.has(ComponentMask::STATE_PRESSED))
     }
 
     /// 指定された要素が無効化（操作不可）状態にあるか判定します
@@ -488,7 +487,7 @@ impl Context {
         self.topology
             .topo_active_masks
             .get(id)
-            .is_some_and(|m| m.has(STATE_DISABLED))
+            .is_some_and(|m| m.has(ComponentMask::STATE_DISABLED))
     }
 
     /// 指定された要素が現在アクティブ（有効選択など）状態にあるか判定します
@@ -497,7 +496,7 @@ impl Context {
         self.topology
             .topo_active_masks
             .get(id)
-            .is_some_and(|m| m.has(STATE_ACTIVED))
+            .is_some_and(|m| m.has(ComponentMask::STATE_ACTIVED))
     }
 
     /// 指定された要素が現在テキストまたはトグル選択されているか判定します
@@ -506,7 +505,7 @@ impl Context {
         self.topology
             .topo_active_masks
             .get(id)
-            .is_some_and(|m| m.has(STATE_SELECTED))
+            .is_some_and(|m| m.has(ComponentMask::STATE_SELECTED))
     }
 
     /// 指定された要素が現在ドラッグ操作中にあるか判定します
@@ -515,7 +514,7 @@ impl Context {
         self.topology
             .topo_active_masks
             .get(id)
-            .is_some_and(|m| m.has(STATE_DRAGGED))
+            .is_some_and(|m| m.has(ComponentMask::STATE_DRAGGED))
     }
 
     /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。
@@ -614,6 +613,11 @@ impl Context {
             &self.outputs.out_rects,
             &self.outputs.out_scroll_sizes,
         )
+    }
+
+    #[inline]
+    pub fn cut_text(&self) -> Option<Cow<'_, str>> {
+        self.contents.cont_cut_text.clone()
     }
 
     /// Context インスタンスから直接シグナルを生成します。
@@ -730,36 +734,8 @@ impl Context {
     }
 
     /// 毎フレームの描画前に呼び出され、すべてのアクティブなキーフレームアニメーションを 1 Tick 進めます
-    pub fn tick_animations(&mut self) {
-        RenderStore::tick_animations(
-            &mut self.topology.topo_active_masks,
-            &mut self.topology.topo_is_sort_dirty,
-            &self.topology.topo_parents,
-            &mut self.layouts.lay_taffy_tree,
-            &mut self.layouts.lay_dirty_entities,
-            &mut self.layouts.lay_basic,
-            &self.layouts.lay_taffy_nodes,
-            &mut self.renders.rnd_dirty_entities,
-            &mut self.renders.rnd_visual,
-            &mut self.renders.rnd_active_animations,
-        );
-    }
-
-    /// 毎フレームの描画前に呼び出され、すべてのアクティブなトランジションを 1 Tick 進めます
-    pub fn tick_transitions(&mut self) {
-        RenderStore::tick_transitions(
-            &mut self.topology.topo_active_masks,
-            &mut self.topology.topo_is_sort_dirty,
-            &self.topology.topo_parents,
-            &mut self.layouts.lay_dirty_entities,
-            &mut self.layouts.lay_taffy_tree,
-            &mut self.layouts.lay_basic,
-            &self.layouts.lay_taffy_nodes,
-            &mut self.renders.rnd_dirty_entities,
-            &mut self.renders.rnd_visual,
-            &mut self.renders.rnd_active_transitions,
-            &mut self.renders.rnd_last_tick_time,
-        );
+    pub fn tick_system_frame(&mut self, tick: &TickType) {
+        Pipeline::tick_system_frame(self, tick);
     }
 
     /// ワーカースレッドなど、どこからでも安全にクローンしてタスクを送信できるスレッドセーフな送信端を取得します。
@@ -822,59 +798,13 @@ impl Context {
         EventStore::auto_focus_switch_by_trigger(self, id, trigger);
     }
 
-    /// 毎フレーム呼び出され、ドラッグ選択中の要素に対するオートスクロールを自律駆動します。
-    /// ウィンドウメッセージループ等、 `tick_transitions()` を呼び出している箇所と同じ周期で実行する。
-    #[inline]
-    pub fn tick_drag_autoscroll(&mut self) {
-        let Some(id) = self.events.evt_interaction_states.pressed else {
-            return;
-        };
-        let (autoscroll_occurred, active_pos) = EventStore::autoscroll_occurred(
-            id,
-            self.window.win_last_size,
-            &self.system.sys_text_engine,
-            &self.system.sys_dwrite_layouts,
-            self.events.evt_current_pointer_position,
-            &self.contents.cont_text_contents,
-            &self.contents.cont_text_spans,
-            &self.contents.cont_input_contents,
-            &mut self.topology.topo_active_masks,
-            &self.topology.topo_parents,
-            &self.topology.topo_children,
-            &mut self.layouts.lay_dirty_entities,
-            &mut self.layouts.lay_taffy_tree,
-            &mut self.layouts.lay_scrollbar_styles,
-            &self.layouts.lay_taffy_nodes,
-            &self.layouts.lay_resolved_basic,
-            &self.renders.rnd_visual,
-            &self.renders.rnd_interaction,
-            &self.renders.rnd_active_transitions,
-            &mut self.outputs.out_scroll_offsets,
-            &self.outputs.out_rects,
-            &self.outputs.out_clip_rects,
-            &self.outputs.out_scroll_sizes,
-        );
-
-        if autoscroll_occurred && let Some(pos) = active_pos {
-            // スクロールによりテキストが流れたため、
-            // 現在のポインタ座標で仮想的にポインタ移動を再トリガーし、
-            // 選択文字インデックスおよびキャレット位置を同期
-            EventStore::inject_pointer_move_internal(self, pos);
-            RenderStore::mark_render_dirty(
-                id,
-                &mut self.topology.topo_active_masks,
-                &mut self.renders.rnd_dirty_entities,
-            );
-        }
-    }
-
     /// ホバー（Hovered：マウスホバー）状態を更新します。
     ///
     /// ホバースタイル内にレイアウト変更プロパティ（幅やマージン等）が含まれていれば自動的にレイアウト再計算が要求され、
     /// 色や不透明度の変化だけであれば最速の描画更新（ファストパス）として処理されます。
     #[inline]
     pub fn set_hovered(&mut self, id: EntityId, hovered: bool) {
-        EventStore::update_state(self, id, STATE_HOVERED, hovered);
+        EventStore::update_state(self, id, ComponentMask::STATE_HOVERED, hovered);
     }
 
     /// フォーカス（Focused：キーボードタブフォーカス等）状態を更新します。
@@ -897,46 +827,46 @@ impl Context {
     /// プレス（Pressed：クリック押し下げ、タップ中）状態を更新します。
     #[inline]
     pub fn set_pressed(&mut self, id: EntityId, pressed: bool) {
-        EventStore::update_state(self, id, STATE_PRESSED, pressed);
+        EventStore::update_state(self, id, ComponentMask::STATE_PRESSED, pressed);
     }
 
     /// 無効化（Disabled：ボタンの操作不可など）状態を更新します。
     #[inline]
     pub fn set_disabled(&mut self, id: EntityId, disabled: bool) {
-        EventStore::update_state(self, id, STATE_DISABLED, disabled);
+        EventStore::update_state(self, id, ComponentMask::STATE_DISABLED, disabled);
     }
 
     /// アクティブ（Actived：タブのトグル選択中など）状態を更新します。
     #[inline]
     pub fn set_actived(&mut self, id: EntityId, actived: bool) {
-        EventStore::update_state(self, id, STATE_ACTIVED, actived);
+        EventStore::update_state(self, id, ComponentMask::STATE_ACTIVED, actived);
     }
 
     /// セレクト（Selected：チェックボックス、リストなどの選択）状態を更新します。
     #[inline]
     pub fn set_selected(&mut self, id: EntityId, selected: bool) {
-        EventStore::update_state(self, id, STATE_SELECTED, selected);
+        EventStore::update_state(self, id, ComponentMask::STATE_SELECTED, selected);
     }
 
     /// ドラッグ（Dragged：スライダーノブやスプリッターのドラッグ中）状態を更新します。
     #[inline]
     pub fn set_dragged(&mut self, id: EntityId, dragged: bool) {
-        EventStore::update_state(self, id, STATE_DRAGGED, dragged);
+        EventStore::update_state(self, id, ComponentMask::STATE_DRAGGED, dragged);
     }
 
     #[inline]
     pub fn set_dnd_drag_in(&mut self, id: EntityId, drag_in: bool) {
-        EventStore::update_state(self, id, STATE_DND_DRAG_IN, drag_in);
+        EventStore::update_state(self, id, ComponentMask::STATE_DND_DRAG_IN, drag_in);
     }
 
     #[inline]
     pub fn set_dnd_drag_over(&mut self, id: EntityId, drag_over: bool) {
-        EventStore::update_state(self, id, STATE_DND_DRAG_OVER, drag_over);
+        EventStore::update_state(self, id, ComponentMask::STATE_DND_DRAG_OVER, drag_over);
     }
 
     #[inline]
     pub fn set_dnd_dragging(&mut self, id: EntityId, dragging: bool) {
-        EventStore::update_state(self, id, STATE_DND_DRAGGING, dragging);
+        EventStore::update_state(self, id, ComponentMask::STATE_DND_DRAGGING, dragging);
     }
 
     #[inline]
@@ -960,40 +890,8 @@ impl Context {
     }
 
     #[inline]
-    pub fn inject_pointer_move(&mut self, logical_pos: LayoutPoint) {
-        EventStore::inject_pointer_move_internal(self, logical_pos);
-    }
-
-    #[inline]
-    pub fn inject_pointer_button(
-        &mut self,
-        button: MouseButton,
-        state: ElementState,
-        modifiers: Modifiers,
-    ) {
-        EventStore::inject_pointer_button_internal(self, button, state, modifiers);
-    }
-
-    #[inline]
-    pub fn inject_pointer_double_click(&mut self, modifiers: Modifiers) {
-        EventStore::inject_pointer_double_click_internal(self, modifiers);
-    }
-
-    /// 外部で計算された論理ピクセルスクロール移動量 (`scroll_x`, `scroll_y`) を注入し、
-    /// バブリングによる自動スクロール処理、またはユーザーイベントハンドラへの配送を行います。
-    #[inline]
-    pub fn inject_mouse_wheel(&mut self, scroll_x: f32, scroll_y: f32) {
-        EventStore::inject_mouse_wheel_internal(self, scroll_x, scroll_y);
-    }
-
-    #[inline]
-    pub fn inject_keyboard_key(
-        &mut self,
-        key: VirtualKey,
-        state: ElementState,
-        modifiers: Modifiers,
-    ) {
-        EventStore::inject_keyboard_key_internal(self, key, state, modifiers);
+    pub fn inject_user_action(&mut self, action: UserAction) {
+        Pipeline::inject_user_action(self, action);
     }
 
     /// キーボードフォーカスを次の適格な要素へ巡回させます
@@ -1002,87 +900,20 @@ impl Context {
         EventStore::cycle_keyboard_focus_internal(self, reverse);
     }
 
-    #[inline]
-    pub fn inject_character(&mut self, c: char) {
-        let _context_guard = bind_context(self);
-        let Some(focused_id) = self.events.evt_interaction_states.focused else {
-            return;
-        };
-        handle_on_char_input(self, focused_id, c);
-    }
-
-    #[inline]
-    pub fn inject_ime(&mut self, ime_state: ImeState) {
-        let _context_guard = bind_context(self);
-        let Some(focused_id) = self.events.evt_interaction_states.focused else {
-            return;
-        };
-        handle_on_ime(self, focused_id, ime_state);
-    }
-
-    #[inline]
-    pub fn inject_file_dropped(&mut self, paths: Vec<PathBuf>) {
-        let _context_guard = bind_context(self);
-        let Some(target_id) = self.events.evt_interaction_states.hovered else {
-            return;
-        };
-        handle_on_file_dropped(self, target_id, paths);
-    }
-
-    /// 外部から提供されたテキストを、現在フォーカスされている入力要素にペーストします。
-    #[inline]
-    pub fn inject_paste(&mut self, text: &str) {
-        EventStore::inject_paste_internal(self, text);
-    }
-
-    /// Undo (元に戻す) のインジェクション
-    #[inline]
-    pub fn inject_undo(&mut self) {
-        EventStore::inject_undo_internal(self);
-    }
-
-    /// Redo (やり直し) のインジェクション
-    #[inline]
-    pub fn inject_redo(&mut self) {
-        EventStore::inject_redo_internal(self);
-    }
-
-    /// 切り取り (Ctrl+X) の実行と削除後のテキスト取得
-    #[inline]
-    pub fn inject_cut(&mut self) -> Option<String> {
-        EventStore::inject_cut_internal(self)
-    }
-
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
     /// 階層的な早期枝刈りヒットテスト
     #[inline]
     pub fn hit_test(&mut self, point: LayoutPoint) -> Option<EntityId> {
-        TopologyStore::hit_test(
-            point,
-            self.window.win_last_size,
-            &self.events.evt_interaction_states,
-            &mut self.topology.topo_active_masks,
-            &mut self.topology.topo_dfs_indices,
-            &mut self.topology.topo_effective_z_indices,
-            &mut self.topology.topo_sorted_entities,
-            &mut self.topology.topo_sort_cache,
-            &mut self.topology.topo_is_sort_dirty,
-            &self.topology.topo_active_entities,
-            &self.topology.topo_parents,
-            &self.topology.topo_flat_dfs_sequence,
-            &self.renders.rnd_visual,
-            &self.renders.rnd_base_visual,
-            &mut self.outputs.out_clip_rects,
-            &self.outputs.out_rects,
-        )
+        Pipeline::hit_test(self, point)
     }
 
     /// キャッシュコヒーレントな直列DFS同期（1次元直線ループ同期）
     /// Taffy自動計算を完全内包
     #[inline]
     pub fn sync_layout_and_render_list(&mut self, root: EntityId, window_size: LayoutSize) {
-        OutputStore::sync_layout_and_render_list_internal(self, root, window_size);
+        Pipeline::sync_layout_and_render(self, root, window_size);
     }
+
 }
 
 #[cfg(test)]

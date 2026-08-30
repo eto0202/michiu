@@ -7,22 +7,8 @@ use crate::{
     InteractionName, InteractionStyles, IntoStyleConvert, IntoStyleCornerRadius, IntoStylePoint,
     IntoStyleRect, IntoStyleResizable, IntoStyleSize, IntoStyleValue, JustifyContent,
     KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Overflow, PointerEvents, Position,
-    PropertyList, Rect, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER,
-    STATE_DND_DRAGGING, STATE_DRAGGED, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED,
-    STATE_PRESSED, STATE_SELECTED, STYLE_ALIGN_CONTENT, STYLE_ALIGN_ITEMS, STYLE_ALIGN_SELF,
-    STYLE_ANIMATIONS, STYLE_ASPECT_RATIO, STYLE_AUTO_WRAP, STYLE_BACKDROP, STYLE_BG_COLOR,
-    STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_BOX_SIZING, STYLE_CORNER_RADIUS,
-    STYLE_CURSOR, STYLE_DIRECTION, STYLE_DISPLAY, STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE,
-    STYLE_EXT_PROPERTIES, STYLE_FLEX_BASIS, STYLE_FLEX_DIRECTION, STYLE_FLEX_GROW,
-    STYLE_FLEX_SHRINK, STYLE_FLEX_WRAP, STYLE_FOCUSABLE, STYLE_FONT_SIZE, STYLE_GAP,
-    STYLE_GRID_LAYOUT, STYLE_INSET, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
-    STYLE_ITEM_IS_REPLACED, STYLE_ITEM_IS_TABLE, STYLE_JUSTIFY_CONTENT, STYLE_JUSTIFY_ITEMS,
-    STYLE_JUSTIFY_SELF, STYLE_MARGIN, STYLE_MAX_SIZE, STYLE_MIN_SIZE, STYLE_OPACITY, STYLE_OUTLINE,
-    STYLE_OVERFLOW, STYLE_PADDING, STYLE_POINTER_EVENTS, STYLE_POSITION, STYLE_PREVENT_FOCUS_STEAL,
-    STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, STYLE_SCROLLBAR, STYLE_SIZE,
-    STYLE_TEXT_ALIGN, STYLE_TEXT_COLOR, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT,
-    STYLE_TRANSITIONS, STYLE_USER_SELECT, STYLE_Z_INDEX, ScrollbarDisplay, ScrollbarMode,
-    ScrollbarStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, pct,
+    PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TextAlign, Transform,
+    Transition, UserSelect, Val, VisualProperty, auto, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -159,11 +145,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.display = v;
-                inner.mask.set(STYLE_DISPLAY);
+                inner.mask.set(ComponentMask::STYLE_DISPLAY);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_DISPLAY);
+                inner.mask.set(ComponentMask::STYLE_DISPLAY);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -210,11 +196,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.item_is_table = v;
-                inner.mask.set(STYLE_ITEM_IS_TABLE);
+                inner.mask.set(ComponentMask::STYLE_ITEM_IS_TABLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_ITEM_IS_TABLE);
+                inner.mask.set(ComponentMask::STYLE_ITEM_IS_TABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -237,11 +223,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.item_is_replaced = v;
-                inner.mask.set(STYLE_ITEM_IS_REPLACED);
+                inner.mask.set(ComponentMask::STYLE_ITEM_IS_REPLACED);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_ITEM_IS_REPLACED);
+                inner.mask.set(ComponentMask::STYLE_ITEM_IS_REPLACED);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -264,11 +250,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.box_sizing = v;
-                inner.mask.set(STYLE_BOX_SIZING);
+                inner.mask.set(ComponentMask::STYLE_BOX_SIZING);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BOX_SIZING);
+                inner.mask.set(ComponentMask::STYLE_BOX_SIZING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -303,11 +289,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.direction = v;
-                inner.mask.set(STYLE_DIRECTION);
+                inner.mask.set(ComponentMask::STYLE_DIRECTION);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_DIRECTION);
+                inner.mask.set(ComponentMask::STYLE_DIRECTION);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -330,11 +316,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.scrollbar_style = Some(v);
-                inner.mask.set(STYLE_SCROLLBAR);
+                inner.mask.set(ComponentMask::STYLE_SCROLLBAR);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_SCROLLBAR);
+                inner.mask.set(ComponentMask::STYLE_SCROLLBAR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -360,11 +346,11 @@ impl ThisStyle {
                     .scrollbar_style
                     .get_or_insert_with(ScrollbarStyle::default);
                 sb.width = v;
-                inner.mask.set(STYLE_SCROLLBAR);
+                inner.mask.set(ComponentMask::STYLE_SCROLLBAR);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_SCROLLBAR);
+                inner.mask.set(ComponentMask::STYLE_SCROLLBAR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -390,11 +376,11 @@ impl ThisStyle {
                     .scrollbar_style
                     .get_or_insert_with(ScrollbarStyle::default);
                 sb.display = v;
-                inner.mask.set(STYLE_SCROLLBAR);
+                inner.mask.set(ComponentMask::STYLE_SCROLLBAR);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_SCROLLBAR);
+                inner.mask.set(ComponentMask::STYLE_SCROLLBAR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -443,11 +429,11 @@ impl ThisStyle {
                     .scrollbar_style
                     .get_or_insert_with(ScrollbarStyle::default);
                 sb.mode = v;
-                inner.mask.set(STYLE_SCROLLBAR);
+                inner.mask.set(ComponentMask::STYLE_SCROLLBAR);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_SCROLLBAR);
+                inner.mask.set(ComponentMask::STYLE_SCROLLBAR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -470,11 +456,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.overflow = v;
-                inner.mask.set(STYLE_OVERFLOW);
+                inner.mask.set(ComponentMask::STYLE_OVERFLOW);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OVERFLOW);
+                inner.mask.set(ComponentMask::STYLE_OVERFLOW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -533,11 +519,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.overflow.x = v;
-                inner.mask.set(STYLE_OVERFLOW);
+                inner.mask.set(ComponentMask::STYLE_OVERFLOW);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OVERFLOW);
+                inner.mask.set(ComponentMask::STYLE_OVERFLOW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -560,11 +546,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.overflow.y = v;
-                inner.mask.set(STYLE_OVERFLOW);
+                inner.mask.set(ComponentMask::STYLE_OVERFLOW);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OVERFLOW);
+                inner.mask.set(ComponentMask::STYLE_OVERFLOW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -635,11 +621,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.position = v;
-                inner.mask.set(STYLE_POSITION);
+                inner.mask.set(ComponentMask::STYLE_POSITION);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_POSITION);
+                inner.mask.set(ComponentMask::STYLE_POSITION);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -674,11 +660,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.inset = v;
-                inner.mask.set(STYLE_INSET);
+                inner.mask.set(ComponentMask::STYLE_INSET);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_INSET);
+                inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -710,7 +696,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_INSET);
+                inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -736,7 +722,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_INSET);
+                inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -760,7 +746,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_INSET);
+                inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -783,7 +769,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_INSET);
+                inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -806,7 +792,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_INSET);
+                inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -829,7 +815,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_INSET);
+                inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -850,11 +836,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.size = v;
-                inner.mask.set(STYLE_SIZE);
+                inner.mask.set(ComponentMask::STYLE_SIZE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_SIZE);
+                inner.mask.set(ComponentMask::STYLE_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -896,7 +882,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_SIZE);
+                inner.mask.set(ComponentMask::STYLE_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -944,7 +930,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_SIZE);
+                inner.mask.set(ComponentMask::STYLE_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -989,11 +975,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.min_size = v;
-                inner.mask.set(STYLE_MIN_SIZE);
+                inner.mask.set(ComponentMask::STYLE_MIN_SIZE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MIN_SIZE);
+                inner.mask.set(ComponentMask::STYLE_MIN_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1014,11 +1000,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.max_size = v;
-                inner.mask.set(STYLE_MAX_SIZE);
+                inner.mask.set(ComponentMask::STYLE_MAX_SIZE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MAX_SIZE);
+                inner.mask.set(ComponentMask::STYLE_MAX_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1042,7 +1028,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MIN_SIZE);
+                inner.mask.set(ComponentMask::STYLE_MIN_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1066,7 +1052,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MIN_SIZE);
+                inner.mask.set(ComponentMask::STYLE_MIN_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1090,7 +1076,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MAX_SIZE);
+                inner.mask.set(ComponentMask::STYLE_MAX_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1114,7 +1100,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MAX_SIZE);
+                inner.mask.set(ComponentMask::STYLE_MAX_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1146,11 +1132,11 @@ impl ThisStyle {
                 } else {
                     inner.basic_layout.aspect_ratio = Some(w / h);
                 }
-                inner.mask.set(STYLE_ASPECT_RATIO);
+                inner.mask.set(ComponentMask::STYLE_ASPECT_RATIO);
             }
             (w_getter, h_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_ASPECT_RATIO);
+                inner.mask.set(ComponentMask::STYLE_ASPECT_RATIO);
 
                 let get_w = match w_getter {
                     StyleValue::Static(w) => {
@@ -1240,11 +1226,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.margin = v;
-                inner.mask.set(STYLE_MARGIN);
+                inner.mask.set(ComponentMask::STYLE_MARGIN);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MARGIN);
+                inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1287,7 +1273,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MARGIN);
+                inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1313,7 +1299,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MARGIN);
+                inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1337,7 +1323,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MARGIN);
+                inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1360,7 +1346,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MARGIN);
+                inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1383,7 +1369,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MARGIN);
+                inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1406,7 +1392,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_MARGIN);
+                inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1427,11 +1413,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.padding = v;
-                inner.mask.set(STYLE_PADDING);
+                inner.mask.set(ComponentMask::STYLE_PADDING);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_PADDING);
+                inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1468,7 +1454,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_PADDING);
+                inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1494,7 +1480,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_PADDING);
+                inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1518,7 +1504,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_PADDING);
+                inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1541,7 +1527,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_PADDING);
+                inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1564,7 +1550,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_PADDING);
+                inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1587,7 +1573,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_PADDING);
+                inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -1616,11 +1602,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.border = w;
                 inner.visual_property.border_styles = Some([s; 4]);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             (s_getter, w_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
 
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
@@ -1700,11 +1686,11 @@ impl ThisStyle {
                     .unwrap_or([BorderStyle::Solid; 4]);
                 styles[0] = s;
                 inner.visual_property.border_styles = Some(styles);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             (s_getter, v_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
 
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
@@ -1758,11 +1744,11 @@ impl ThisStyle {
                     .unwrap_or([BorderStyle::Solid; 4]);
                 styles[1] = s;
                 inner.visual_property.border_styles = Some(styles);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             (s_getter, v_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
 
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
@@ -1816,11 +1802,11 @@ impl ThisStyle {
                     .unwrap_or([BorderStyle::Solid; 4]);
                 styles[2] = s;
                 inner.visual_property.border_styles = Some(styles);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             (s_getter, v_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
 
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
@@ -1874,11 +1860,11 @@ impl ThisStyle {
                     .unwrap_or([BorderStyle::Solid; 4]);
                 styles[3] = s;
                 inner.visual_property.border_styles = Some(styles);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             (s_getter, v_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
 
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
@@ -1925,11 +1911,11 @@ impl ThisStyle {
                     bottom: v.bottom,
                     left: v.left,
                 });
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let v = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -1959,11 +1945,11 @@ impl ThisStyle {
                     .unwrap_or(EdgeInsets::px_all(1.0));
                 lengths.top = v;
                 inner.visual_property.border_lengths = Some(lengths);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -1990,11 +1976,11 @@ impl ThisStyle {
                     .unwrap_or(EdgeInsets::px_all(1.0));
                 lengths.right = v;
                 inner.visual_property.border_lengths = Some(lengths);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -2021,11 +2007,11 @@ impl ThisStyle {
                     .unwrap_or(EdgeInsets::px_all(1.0));
                 lengths.bottom = v;
                 inner.visual_property.border_lengths = Some(lengths);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -2052,11 +2038,11 @@ impl ThisStyle {
                     .unwrap_or(EdgeInsets::px_all(1.0));
                 lengths.left = v;
                 inner.visual_property.border_lengths = Some(lengths);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -2079,11 +2065,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.border_alignments = Some([v; 4]);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -2104,11 +2090,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.border_alignments = Some(v);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -2135,11 +2121,11 @@ impl ThisStyle {
                     .unwrap_or([BorderAlignment::Start; 4]);
                 aligns[idx] = v;
                 inner.visual_property.border_alignments = Some(aligns);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER);
+                inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -2198,11 +2184,11 @@ impl ThisStyle {
                     left: w.left.into(),
                 });
                 inner.visual_property.outline_styles = Some([s; 4]);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             (s_getter, w_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
                         Box::new(move || s) as Box<dyn Fn() -> BorderStyle + Send + Sync>
@@ -2287,11 +2273,11 @@ impl ThisStyle {
                     .unwrap_or([BorderStyle::Solid; 4]);
                 styles[0] = s;
                 inner.visual_property.outline_styles = Some(styles);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             (s_getter, v_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
 
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
@@ -2347,11 +2333,11 @@ impl ThisStyle {
                     .unwrap_or([BorderStyle::Solid; 4]);
                 styles[1] = s;
                 inner.visual_property.outline_styles = Some(styles);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             (s_getter, v_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
 
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
@@ -2407,11 +2393,11 @@ impl ThisStyle {
                     .unwrap_or([BorderStyle::Solid; 4]);
                 styles[2] = s;
                 inner.visual_property.outline_styles = Some(styles);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             (s_getter, v_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
 
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
@@ -2467,11 +2453,11 @@ impl ThisStyle {
                     .unwrap_or([BorderStyle::Solid; 4]);
                 styles[3] = s;
                 inner.visual_property.outline_styles = Some(styles);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             (s_getter, v_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
 
                 let get_s = match s_getter {
                     StyleValue::Static(s) => {
@@ -2510,11 +2496,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.outline_color = Some(v);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -2535,11 +2521,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.outline_offset = Some(v);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -2565,11 +2551,11 @@ impl ThisStyle {
                     bottom: v.bottom,
                     left: v.left,
                 });
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let v = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -2595,11 +2581,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.outline_alignments = Some([v; 4]);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -2619,11 +2605,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.outline_alignments = Some([v; 4]);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OUTLINE);
+                inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -2644,11 +2630,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.align_items = v;
-                inner.mask.set(STYLE_ALIGN_ITEMS);
+                inner.mask.set(ComponentMask::STYLE_ALIGN_ITEMS);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_ALIGN_ITEMS);
+                inner.mask.set(ComponentMask::STYLE_ALIGN_ITEMS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -2741,11 +2727,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.align_self = v;
-                inner.mask.set(STYLE_ALIGN_SELF);
+                inner.mask.set(ComponentMask::STYLE_ALIGN_SELF);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_ALIGN_SELF);
+                inner.mask.set(ComponentMask::STYLE_ALIGN_SELF);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -2844,11 +2830,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.justify_items = v;
-                inner.mask.set(STYLE_JUSTIFY_ITEMS);
+                inner.mask.set(ComponentMask::STYLE_JUSTIFY_ITEMS);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_JUSTIFY_ITEMS);
+                inner.mask.set(ComponentMask::STYLE_JUSTIFY_ITEMS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -2941,11 +2927,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.justify_self = v;
-                inner.mask.set(STYLE_JUSTIFY_SELF);
+                inner.mask.set(ComponentMask::STYLE_JUSTIFY_SELF);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_JUSTIFY_SELF);
+                inner.mask.set(ComponentMask::STYLE_JUSTIFY_SELF);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3044,11 +3030,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.align_content = v;
-                inner.mask.set(STYLE_ALIGN_CONTENT);
+                inner.mask.set(ComponentMask::STYLE_ALIGN_CONTENT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_ALIGN_CONTENT);
+                inner.mask.set(ComponentMask::STYLE_ALIGN_CONTENT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3153,11 +3139,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.justify_content = v;
-                inner.mask.set(STYLE_JUSTIFY_CONTENT);
+                inner.mask.set(ComponentMask::STYLE_JUSTIFY_CONTENT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_JUSTIFY_CONTENT);
+                inner.mask.set(ComponentMask::STYLE_JUSTIFY_CONTENT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3262,11 +3248,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.gap = v;
-                inner.mask.set(STYLE_GAP);
+                inner.mask.set(ComponentMask::STYLE_GAP);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GAP);
+                inner.mask.set(ComponentMask::STYLE_GAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3302,7 +3288,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GAP);
+                inner.mask.set(ComponentMask::STYLE_GAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3326,7 +3312,7 @@ impl ThisStyle {
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GAP);
+                inner.mask.set(ComponentMask::STYLE_GAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3361,11 +3347,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.text_align = v;
-                inner.mask.set(STYLE_TEXT_ALIGN);
+                inner.mask.set(ComponentMask::STYLE_TEXT_ALIGN);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_TEXT_ALIGN);
+                inner.mask.set(ComponentMask::STYLE_TEXT_ALIGN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3410,11 +3396,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.flex_direction = v;
-                inner.mask.set(STYLE_FLEX_DIRECTION);
+                inner.mask.set(ComponentMask::STYLE_FLEX_DIRECTION);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_FLEX_DIRECTION);
+                inner.mask.set(ComponentMask::STYLE_FLEX_DIRECTION);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -3461,11 +3447,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.flex_wrap = v;
-                inner.mask.set(STYLE_FLEX_WRAP);
+                inner.mask.set(ComponentMask::STYLE_FLEX_WRAP);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_FLEX_WRAP);
+                inner.mask.set(ComponentMask::STYLE_FLEX_WRAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -3506,11 +3492,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.flex_basis = v;
-                inner.mask.set(STYLE_FLEX_BASIS);
+                inner.mask.set(ComponentMask::STYLE_FLEX_BASIS);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_FLEX_BASIS);
+                inner.mask.set(ComponentMask::STYLE_FLEX_BASIS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3550,11 +3536,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.flex_grow = v;
-                inner.mask.set(STYLE_FLEX_GROW);
+                inner.mask.set(ComponentMask::STYLE_FLEX_GROW);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_FLEX_GROW);
+                inner.mask.set(ComponentMask::STYLE_FLEX_GROW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3590,11 +3576,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.flex_layout.flex_shrink = v;
-                inner.mask.set(STYLE_FLEX_SHRINK);
+                inner.mask.set(ComponentMask::STYLE_FLEX_SHRINK);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_FLEX_SHRINK);
+                inner.mask.set(ComponentMask::STYLE_FLEX_SHRINK);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_flex_layout_mut(id, target) {
@@ -3629,11 +3615,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.bg_color = Some(v);
-                inner.mask.set(STYLE_BG_COLOR);
+                inner.mask.set(ComponentMask::STYLE_BG_COLOR);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BG_COLOR);
+                inner.mask.set(ComponentMask::STYLE_BG_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -3654,11 +3640,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.border_color = Some(v);
-                inner.mask.set(STYLE_BORDER_COLOR);
+                inner.mask.set(ComponentMask::STYLE_BORDER_COLOR);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BORDER_COLOR);
+                inner.mask.set(ComponentMask::STYLE_BORDER_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -3679,11 +3665,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.corner_radius = Some(v);
-                inner.mask.set(STYLE_CORNER_RADIUS);
+                inner.mask.set(ComponentMask::STYLE_CORNER_RADIUS);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_CORNER_RADIUS);
+                inner.mask.set(ComponentMask::STYLE_CORNER_RADIUS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -3778,11 +3764,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.opacity = Some(v);
-                inner.mask.set(STYLE_OPACITY);
+                inner.mask.set(ComponentMask::STYLE_OPACITY);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_OPACITY);
+                inner.mask.set(ComponentMask::STYLE_OPACITY);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -3822,11 +3808,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.shadow_params = Some(v);
                 inner.visual_property.shadow_color = Some(v.color);
-                inner.mask.set(STYLE_BOX_SHADOW);
+                inner.mask.set(ComponentMask::STYLE_BOX_SHADOW);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BOX_SHADOW);
+                inner.mask.set(ComponentMask::STYLE_BOX_SHADOW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -3848,11 +3834,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.shadow_color = Some(v);
-                inner.mask.set(STYLE_BOX_SHADOW);
+                inner.mask.set(ComponentMask::STYLE_BOX_SHADOW);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BOX_SHADOW);
+                inner.mask.set(ComponentMask::STYLE_BOX_SHADOW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -3873,11 +3859,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.z_index = Some(v);
-                inner.mask.set(STYLE_Z_INDEX);
+                inner.mask.set(ComponentMask::STYLE_Z_INDEX);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_Z_INDEX);
+                inner.mask.set(ComponentMask::STYLE_Z_INDEX);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -3922,11 +3908,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.cursor = Some(v);
-                inner.mask.set(STYLE_CURSOR);
+                inner.mask.set(ComponentMask::STYLE_CURSOR);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_CURSOR);
+                inner.mask.set(ComponentMask::STYLE_CURSOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -4025,11 +4011,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.backdrop = v;
-                inner.mask.set(STYLE_BACKDROP);
+                inner.mask.set(ComponentMask::STYLE_BACKDROP);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BACKDROP);
+                inner.mask.set(ComponentMask::STYLE_BACKDROP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -4074,11 +4060,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.text_color = Some(v);
-                inner.mask.set(STYLE_TEXT_COLOR);
+                inner.mask.set(ComponentMask::STYLE_TEXT_COLOR);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_TEXT_COLOR);
+                inner.mask.set(ComponentMask::STYLE_TEXT_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -4103,11 +4089,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_template_rows = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4137,11 +4123,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_template_columns = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4168,11 +4154,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_auto_rows = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4202,11 +4188,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_auto_columns = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4233,11 +4219,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_auto_flow = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4267,11 +4253,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_template_areas = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4301,11 +4287,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_template_column_names = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4332,11 +4318,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_template_row_names = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4363,11 +4349,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_row = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4397,11 +4383,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
                 grid.grid_column = v;
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_GRID_LAYOUT);
+                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -4423,56 +4409,60 @@ impl ThisStyle {
     #[inline]
     #[must_use]
     pub fn hovered(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_HOVERED, StyleTarget::Hovered)
+        self.apply_interaction_style(style, ComponentMask::STATE_HOVERED, StyleTarget::Hovered)
     }
 
     /// キーボードタブ移動などで要素にフォーカスが当たった際に適用するスタイルを設定します。
     #[inline]
     #[must_use]
     pub fn focused(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_FOCUSED, StyleTarget::Focused)
+        self.apply_interaction_style(style, ComponentMask::STATE_FOCUSED, StyleTarget::Focused)
     }
 
     /// キーボード経由のフォーカス時のみ（focus-visible相当）適用するスタイルを設定します。
     #[inline]
     #[must_use]
     pub fn focused_visible(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_FOCUSED_VISIBLE, StyleTarget::FocusedVisible)
+        self.apply_interaction_style(
+            style,
+            ComponentMask::STATE_FOCUSED_VISIBLE,
+            StyleTarget::FocusedVisible,
+        )
     }
 
     /// マウスの左ボタンが要素の上で押し下げられた際、またはタップ中に適用するスタイルを設定します。
     #[inline]
     #[must_use]
     pub fn pressed(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_PRESSED, StyleTarget::Pressed)
+        self.apply_interaction_style(style, ComponentMask::STATE_PRESSED, StyleTarget::Pressed)
     }
 
     /// 要素が無効化された際に適用するスタイルを設定します。
     #[inline]
     #[must_use]
     pub fn disabled(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_DISABLED, StyleTarget::Disabled)
+        self.apply_interaction_style(style, ComponentMask::STATE_DISABLED, StyleTarget::Disabled)
     }
 
     /// 要素がアクティブ状態の時に適用するスタイルを設定します。
     #[inline]
     #[must_use]
     pub fn actived(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_ACTIVED, StyleTarget::Actived)
+        self.apply_interaction_style(style, ComponentMask::STATE_ACTIVED, StyleTarget::Actived)
     }
 
     /// 要素がトグル選択された際に適用するスタイルを設定します。
     #[inline]
     #[must_use]
     pub fn selected(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_SELECTED, StyleTarget::Selected)
+        self.apply_interaction_style(style, ComponentMask::STATE_SELECTED, StyleTarget::Selected)
     }
 
     /// 要素が現在ドラッグ操作中にある際に適用するスタイルを設定します。
     #[inline]
     #[must_use]
     pub fn dragged(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_DRAGGED, StyleTarget::Dragged)
+        self.apply_interaction_style(style, ComponentMask::STATE_DRAGGED, StyleTarget::Dragged)
     }
 
     /// 子孫要素のインタラクション状態に連動して自身のスタイルを変化させる伝播設定
@@ -4484,17 +4474,42 @@ impl ThisStyle {
         style: impl IntoStyleValue<ThisStyle>,
     ) -> Self {
         let (state_flag, target) = match name {
-            InteractionName::Hover => (STYLE_INTERACTION_WITHIN, StyleTarget::HoveredWithin),
-            InteractionName::Focus => (STYLE_INTERACTION_WITHIN, StyleTarget::FocusedWithin),
-            InteractionName::FocusVisible => {
-                (STYLE_INTERACTION_WITHIN, StyleTarget::FocusedVisibleWithin)
-            }
-            InteractionName::Press => (STYLE_INTERACTION_WITHIN, StyleTarget::PressedWithin),
-            InteractionName::Disable => (STYLE_INTERACTION_WITHIN, StyleTarget::DisabledWithin),
-            InteractionName::Active => (STYLE_INTERACTION_WITHIN, StyleTarget::ActivedWithin),
-            InteractionName::Select => (STYLE_INTERACTION_WITHIN, StyleTarget::SelectedWithin),
-            InteractionName::Drag => (STYLE_INTERACTION_WITHIN, StyleTarget::DraggedWithin),
-            InteractionName::All => (STYLE_INTERACTION_WITHIN, StyleTarget::AnyWithin),
+            InteractionName::Hover => (
+                ComponentMask::STYLE_INTERACTION_WITHIN,
+                StyleTarget::HoveredWithin,
+            ),
+            InteractionName::Focus => (
+                ComponentMask::STYLE_INTERACTION_WITHIN,
+                StyleTarget::FocusedWithin,
+            ),
+            InteractionName::FocusVisible => (
+                ComponentMask::STYLE_INTERACTION_WITHIN,
+                StyleTarget::FocusedVisibleWithin,
+            ),
+            InteractionName::Press => (
+                ComponentMask::STYLE_INTERACTION_WITHIN,
+                StyleTarget::PressedWithin,
+            ),
+            InteractionName::Disable => (
+                ComponentMask::STYLE_INTERACTION_WITHIN,
+                StyleTarget::DisabledWithin,
+            ),
+            InteractionName::Active => (
+                ComponentMask::STYLE_INTERACTION_WITHIN,
+                StyleTarget::ActivedWithin,
+            ),
+            InteractionName::Select => (
+                ComponentMask::STYLE_INTERACTION_WITHIN,
+                StyleTarget::SelectedWithin,
+            ),
+            InteractionName::Drag => (
+                ComponentMask::STYLE_INTERACTION_WITHIN,
+                StyleTarget::DraggedWithin,
+            ),
+            InteractionName::All => (
+                ComponentMask::STYLE_INTERACTION_WITHIN,
+                StyleTarget::AnyWithin,
+            ),
         };
         self.apply_interaction_style(style, state_flag, target)
     }
@@ -4563,17 +4578,42 @@ impl ThisStyle {
         style: impl IntoStyleValue<ThisStyle>,
     ) -> Self {
         let (state_flag, target) = match name {
-            InteractionName::Hover => (STYLE_INTERACTION_PARENT, StyleTarget::HoveredParent),
-            InteractionName::Focus => (STYLE_INTERACTION_PARENT, StyleTarget::FocusedParent),
-            InteractionName::FocusVisible => {
-                (STYLE_INTERACTION_PARENT, StyleTarget::FocusedVisibleParent)
-            }
-            InteractionName::Press => (STYLE_INTERACTION_PARENT, StyleTarget::PressedParent),
-            InteractionName::Disable => (STYLE_INTERACTION_PARENT, StyleTarget::DisabledParent),
-            InteractionName::Active => (STYLE_INTERACTION_PARENT, StyleTarget::ActivedParent),
-            InteractionName::Select => (STYLE_INTERACTION_PARENT, StyleTarget::SelectedParent),
-            InteractionName::Drag => (STYLE_INTERACTION_PARENT, StyleTarget::DraggedParent),
-            InteractionName::All => (STYLE_INTERACTION_PARENT, StyleTarget::AnyParent),
+            InteractionName::Hover => (
+                ComponentMask::STYLE_INTERACTION_PARENT,
+                StyleTarget::HoveredParent,
+            ),
+            InteractionName::Focus => (
+                ComponentMask::STYLE_INTERACTION_PARENT,
+                StyleTarget::FocusedParent,
+            ),
+            InteractionName::FocusVisible => (
+                ComponentMask::STYLE_INTERACTION_PARENT,
+                StyleTarget::FocusedVisibleParent,
+            ),
+            InteractionName::Press => (
+                ComponentMask::STYLE_INTERACTION_PARENT,
+                StyleTarget::PressedParent,
+            ),
+            InteractionName::Disable => (
+                ComponentMask::STYLE_INTERACTION_PARENT,
+                StyleTarget::DisabledParent,
+            ),
+            InteractionName::Active => (
+                ComponentMask::STYLE_INTERACTION_PARENT,
+                StyleTarget::ActivedParent,
+            ),
+            InteractionName::Select => (
+                ComponentMask::STYLE_INTERACTION_PARENT,
+                StyleTarget::SelectedParent,
+            ),
+            InteractionName::Drag => (
+                ComponentMask::STYLE_INTERACTION_PARENT,
+                StyleTarget::DraggedParent,
+            ),
+            InteractionName::All => (
+                ComponentMask::STYLE_INTERACTION_PARENT,
+                StyleTarget::AnyParent,
+            ),
         };
         self.apply_interaction_style(style, state_flag, target)
     }
@@ -4642,11 +4682,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.resizable = v;
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -4667,11 +4707,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.resizable = [v; 4];
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -4693,11 +4733,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.resizable[1] = v; // right
                 inner.basic_layout.resizable[3] = v; // left
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -4720,11 +4760,11 @@ impl ThisStyle {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.resizable[0] = v; // top
                 inner.basic_layout.resizable[2] = v; // bottom
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -4772,11 +4812,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.basic_layout.resizable[idx] = v;
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_RESIZABLE);
+                inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_basic_layout_mut(id, target) {
@@ -4802,7 +4842,7 @@ impl ThisStyle {
     ) -> Self {
         let inner = Arc::make_mut(&mut self.inner);
         inner.visual_property.resizable_cursor = Some([ns, ew, nesw, nwse]);
-        inner.mask.set(STYLE_RESIZABLE);
+        inner.mask.set(ComponentMask::STYLE_RESIZABLE);
         self
     }
 
@@ -4831,11 +4871,11 @@ impl ThisStyle {
                     drag_mode: m,
                     update_position: u,
                 });
-                inner.mask.set(STYLE_DND_DRAGGABLE);
+                inner.mask.set(ComponentMask::STYLE_DND_DRAGGABLE);
             }
             (m_getter, u_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_DND_DRAGGABLE);
+                inner.mask.set(ComponentMask::STYLE_DND_DRAGGABLE);
 
                 let get_m = match m_getter {
                     StyleValue::Static(m) => {
@@ -4891,11 +4931,11 @@ impl ThisStyle {
                     drag_mode: m,
                     update_position: u,
                 });
-                inner.mask.set(STYLE_DND_DRAGGABLE);
+                inner.mask.set(ComponentMask::STYLE_DND_DRAGGABLE);
             }
             (p_getter, m_getter, u_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_DND_DRAGGABLE);
+                inner.mask.set(ComponentMask::STYLE_DND_DRAGGABLE);
 
                 let get_p = match p_getter {
                     StyleValue::Static(p) => {
@@ -4955,11 +4995,11 @@ impl ThisStyle {
                     target: t,
                     drag_mode: m,
                 });
-                inner.mask.set(STYLE_DND_DROPPABLE);
+                inner.mask.set(ComponentMask::STYLE_DND_DROPPABLE);
             }
             (t_getter, m_getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_DND_DROPPABLE);
+                inner.mask.set(ComponentMask::STYLE_DND_DROPPABLE);
 
                 let get_t = match t_getter {
                     StyleValue::Static(t) => {
@@ -4997,21 +5037,33 @@ impl ThisStyle {
     #[inline]
     #[must_use]
     pub fn dnd_draggable_original(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_DND_DRAGGING, StyleTarget::DndDragging)
+        self.apply_interaction_style(
+            style,
+            ComponentMask::STATE_DND_DRAGGING,
+            StyleTarget::DndDragging,
+        )
     }
 
     /// ドラッグ中のプレースホルダー（ドラッグイメージ）に適用する疑似クラススタイルを指定します。
     #[inline]
     #[must_use]
     pub fn dnd_draggable_placeholder(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_DND_DRAG_OVER, StyleTarget::DndDragOver)
+        self.apply_interaction_style(
+            style,
+            ComponentMask::STATE_DND_DRAG_OVER,
+            StyleTarget::DndDragOver,
+        )
     }
 
     /// ドロップゾーンにドラッグ要素がホバー侵入している際に、ドロップゾーン側に適用するスタイルを指定します。
     #[inline]
     #[must_use]
     pub fn dnd_drag_over(self, style: impl IntoStyleValue<ThisStyle>) -> Self {
-        self.apply_interaction_style(style, STATE_DND_DRAG_IN, StyleTarget::DndDragIn)
+        self.apply_interaction_style(
+            style,
+            ComponentMask::STATE_DND_DRAG_IN,
+            StyleTarget::DndDragIn,
+        )
     }
 
     /// ポインターメッセージ（マウスインタラクションなど）の透過を制御します。
@@ -5022,11 +5074,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.pointer_events = Some(v);
-                inner.mask.set(STYLE_POINTER_EVENTS);
+                inner.mask.set(ComponentMask::STYLE_POINTER_EVENTS);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_POINTER_EVENTS);
+                inner.mask.set(ComponentMask::STYLE_POINTER_EVENTS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -5063,11 +5115,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.transform = Some(v.matrix);
-                inner.mask.set(STYLE_TRANSFORM);
+                inner.mask.set(ComponentMask::STYLE_TRANSFORM);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_TRANSFORM);
+                inner.mask.set(ComponentMask::STYLE_TRANSFORM);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5087,11 +5139,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.transform_origin = Some(v);
-                inner.mask.set(STYLE_TRANSFORM);
+                inner.mask.set(ComponentMask::STYLE_TRANSFORM);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_TRANSFORM);
+                inner.mask.set(ComponentMask::STYLE_TRANSFORM);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5147,11 +5199,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.transform_inherit = Some(v);
-                inner.mask.set(STYLE_TRANSFORM_INHERIT);
+                inner.mask.set(ComponentMask::STYLE_TRANSFORM_INHERIT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_TRANSFORM_INHERIT);
+                inner.mask.set(ComponentMask::STYLE_TRANSFORM_INHERIT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5172,11 +5224,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.transitions.push(v);
-                inner.mask.set(STYLE_TRANSITIONS);
+                inner.mask.set(ComponentMask::STYLE_TRANSITIONS);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_TRANSITIONS);
+                inner.mask.set(ComponentMask::STYLE_TRANSITIONS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -5257,11 +5309,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.keyframe_animations.push(v);
-                inner.mask.set(STYLE_ANIMATIONS);
+                inner.mask.set(ComponentMask::STYLE_ANIMATIONS);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_ANIMATIONS);
+                inner.mask.set(ComponentMask::STYLE_ANIMATIONS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
@@ -5284,11 +5336,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.bg_gradient = Some(v);
-                inner.mask.set(STYLE_BG_COLOR);
+                inner.mask.set(ComponentMask::STYLE_BG_COLOR);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_BG_COLOR);
+                inner.mask.set(ComponentMask::STYLE_BG_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5309,11 +5361,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font_family = Some(v);
-                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5334,11 +5386,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font_weight = Some(v);
-                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5359,11 +5411,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font_size = Some(v);
-                inner.mask.set(STYLE_FONT_SIZE);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_FONT_SIZE);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5384,11 +5436,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font_style = Some(v);
-                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5408,11 +5460,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.auto_wrap = Some(v);
-                inner.mask.set(STYLE_AUTO_WRAP);
+                inner.mask.set(ComponentMask::STYLE_AUTO_WRAP);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_AUTO_WRAP);
+                inner.mask.set(ComponentMask::STYLE_AUTO_WRAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
@@ -5433,11 +5485,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.user_select = Some(v);
-                inner.mask.set(STYLE_USER_SELECT);
+                inner.mask.set(ComponentMask::STYLE_USER_SELECT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_USER_SELECT);
+                inner.mask.set(ComponentMask::STYLE_USER_SELECT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5478,11 +5530,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.select_bg_color = Some(v);
-                inner.mask.set(STYLE_USER_SELECT);
+                inner.mask.set(ComponentMask::STYLE_USER_SELECT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_USER_SELECT);
+                inner.mask.set(ComponentMask::STYLE_USER_SELECT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5502,11 +5554,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.select_text_color = Some(v);
-                inner.mask.set(STYLE_USER_SELECT);
+                inner.mask.set(ComponentMask::STYLE_USER_SELECT);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_USER_SELECT);
+                inner.mask.set(ComponentMask::STYLE_USER_SELECT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5528,11 +5580,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.focusable = Some(v);
-                inner.mask.set(STYLE_FOCUSABLE);
+                inner.mask.set(ComponentMask::STYLE_FOCUSABLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_FOCUSABLE);
+                inner.mask.set(ComponentMask::STYLE_FOCUSABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5607,11 +5659,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.prevent_focus_steal = Some(v);
-                inner.mask.set(STYLE_PREVENT_FOCUS_STEAL);
+                inner.mask.set(ComponentMask::STYLE_PREVENT_FOCUS_STEAL);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_PREVENT_FOCUS_STEAL);
+                inner.mask.set(ComponentMask::STYLE_PREVENT_FOCUS_STEAL);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5632,11 +5684,15 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.prevent_focus_steal_within = Some(v);
-                inner.mask.set(STYLE_PREVENT_FOCUS_STEAL_WITHIN);
+                inner
+                    .mask
+                    .set(ComponentMask::STYLE_PREVENT_FOCUS_STEAL_WITHIN);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(STYLE_PREVENT_FOCUS_STEAL_WITHIN);
+                inner
+                    .mask
+                    .set(ComponentMask::STYLE_PREVENT_FOCUS_STEAL_WITHIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5829,8 +5885,12 @@ impl ThisStyle {
 
         // 5. 疑似クラス（インタラクションプロパティ）のオーバーライド
         if other_inner.mask.has_interaction_property()
-            || other_inner.mask.has(STYLE_INTERACTION_WITHIN)
-            || other_inner.mask.has(STYLE_INTERACTION_PARENT)
+            || other_inner
+                .mask
+                .has(ComponentMask::STYLE_INTERACTION_WITHIN)
+            || other_inner
+                .mask
+                .has(ComponentMask::STYLE_INTERACTION_PARENT)
         {
             inner_mut
                 .interaction_styles

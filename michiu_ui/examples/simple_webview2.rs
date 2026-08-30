@@ -110,8 +110,8 @@ unsafe extern "system" fn wnd_proc(
                 app.context.process_main_thread_tasks();
 
                 // トランジション、およびキーフレームアニメーションを 1 Tick 進める
-                app.context.tick_transitions();
-                app.context.tick_animations();
+                app.context
+                    .tick_system_frame(&TickType::TransitionAndAnimation);
 
                 // 描画（draw）を行う直前に、必ず Taffy のレイアウトツリーの同期・再計算を実行
                 // これにより、クリックによって変化したテキスト要素の「最新の幅」が、
@@ -161,7 +161,8 @@ unsafe extern "system" fn wnd_proc(
                 let logical_pos =
                     LayoutPoint::new(x / app.renderer.scale_factor, y / app.renderer.scale_factor);
 
-                app.context.inject_pointer_move(logical_pos);
+                app.context
+                    .inject_user_action(UserAction::PointerMove(logical_pos));
 
                 // マウス移動メッセージを WebView2 コントローラーへ透過的にフォワード
                 // 最前面にヒットした要素が WebView2 自身である場合のみ、イベントをフォワードする
@@ -188,7 +189,9 @@ unsafe extern "system" fn wnd_proc(
             WM_MOUSELEAVE => {
                 // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
                 app.context
-                    .inject_pointer_move(LayoutPoint::new(-9999.0, -9999.0));
+                    .inject_user_action(UserAction::PointerMove(LayoutPoint::new(
+                        -9999.0, -9999.0,
+                    )));
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -234,8 +237,11 @@ unsafe extern "system" fn wnd_proc(
                     app.context.entity_id_pressed().or(hit_element)
                 };
 
-                app.context
-                    .inject_pointer_button(MouseButton::Left, state, modifiers);
+                app.context.inject_user_action(UserAction::PointerButton {
+                    button: MouseButton::Left,
+                    state,
+                    modifiers,
+                });
 
                 if target_element == Some(app.webview_id) {
                     app.renderer.forward_mouse_input(

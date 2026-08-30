@@ -7,16 +7,9 @@ use crate::{
     EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon,
     IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStates, InteractionStyles,
     LayoutPoint, LayoutRect, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, PlaybackCount,
-    Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, STATE_ACTIVED,
-    STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED,
-    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_QUEUED_LAYOUT,
-    STATE_QUEUED_RENDER, STATE_SELECTED, STYLE_ACTIVE_INTERACTION_PROPERTY, STYLE_AUTO_WRAP,
-    STYLE_BG_COLOR, STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_CORNER_RADIUS,
-    STYLE_CURSOR, STYLE_EXT_PROPERTIES, STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT,
-    STYLE_INTERACTION_WITHIN, STYLE_OPACITY, STYLE_OUTLINE, STYLE_POINTER_EVENTS, STYLE_RESIZABLE,
-    STYLE_TEXT_COLOR, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_USER_SELECT,
-    ScrollbarDisplay, ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, ThisStyle, TopologyStore, TransitionValue, Val, VisualProperty, WindowStore,
+    Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay,
+    ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    ThisStyle, TopologyStore, TransitionValue, Val, VisualProperty, WindowStore,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -136,11 +129,11 @@ impl RenderStore {
         let Some(mask) = topo_active_masks.get_mut(id) else {
             return;
         };
-        if mask.has(STATE_QUEUED_RENDER) {
+        if mask.has(ComponentMask::STATE_QUEUED_RENDER) {
             return;
         }
 
-        mask.set(STATE_QUEUED_RENDER);
+        mask.set(ComponentMask::STATE_QUEUED_RENDER);
         rnd_dirty_entities.push(id);
     }
 
@@ -154,7 +147,7 @@ impl RenderStore {
             let Some(mask) = topo_active_masks.get_mut(id) else {
                 continue;
             };
-            mask.unset(STATE_QUEUED_RENDER);
+            mask.unset(ComponentMask::STATE_QUEUED_RENDER);
         }
         rnd_dirty_entities.clear();
     }
@@ -322,17 +315,17 @@ impl RenderStore {
 
         // 対象となる状態スタイルを取得
         let target_style = match state_flag {
-            STATE_HOVERED => &interaction.hovered,
-            STATE_FOCUSED => &interaction.focused,
-            STATE_FOCUSED_VISIBLE => &interaction.focused_visible,
-            STATE_PRESSED => &interaction.pressed,
-            STATE_DISABLED => &interaction.disabled,
-            STATE_ACTIVED => &interaction.actived,
-            STATE_SELECTED => &interaction.selected,
-            STATE_DRAGGED => &interaction.dragged,
-            STATE_DND_DRAGGING => &interaction.dragging,
-            STATE_DND_DRAG_IN => &interaction.drag_in,
-            STATE_DND_DRAG_OVER => &interaction.drag_over,
+            ComponentMask::STATE_HOVERED => &interaction.hovered,
+            ComponentMask::STATE_FOCUSED => &interaction.focused,
+            ComponentMask::STATE_FOCUSED_VISIBLE => &interaction.focused_visible,
+            ComponentMask::STATE_PRESSED => &interaction.pressed,
+            ComponentMask::STATE_DISABLED => &interaction.disabled,
+            ComponentMask::STATE_ACTIVED => &interaction.actived,
+            ComponentMask::STATE_SELECTED => &interaction.selected,
+            ComponentMask::STATE_DRAGGED => &interaction.dragged,
+            ComponentMask::STATE_DND_DRAGGING => &interaction.dragging,
+            ComponentMask::STATE_DND_DRAG_IN => &interaction.drag_in,
+            ComponentMask::STATE_DND_DRAG_OVER => &interaction.drag_over,
             _ => &None,
         };
 
@@ -346,8 +339,8 @@ impl RenderStore {
         mask.has_basic_layout()
             || mask.has_flex_layout()
             || mask.has_grid_layout()
-            || mask.has(STYLE_FONT_SIZE)
-            || mask.has(STYLE_AUTO_WRAP)
+            || mask.has(ComponentMask::STYLE_FONT_SIZE)
+            || mask.has(ComponentMask::STYLE_AUTO_WRAP)
     }
 
     pub(crate) fn resolv_focus_style(
@@ -362,7 +355,7 @@ impl RenderStore {
             return None;
         }
         let self_style = rnd_interaction.get(id).and_then(|interaction| {
-            if state_flag == STATE_FOCUSED_VISIBLE {
+            if state_flag == ComponentMask::STATE_FOCUSED_VISIBLE {
                 interaction.focused_visible.clone()
             } else {
                 interaction.focused.clone()
@@ -379,8 +372,8 @@ impl RenderStore {
             .unwrap_or_default();
 
         let is_trigger_match = match (state_flag, focus_mode) {
-            (STATE_FOCUSED, Focusable::Inherit(_)) => true,
-            (STATE_FOCUSED_VISIBLE, Focusable::Inherit(trigger)) => {
+            (ComponentMask::STATE_FOCUSED, Focusable::Inherit(_)) => true,
+            (ComponentMask::STATE_FOCUSED_VISIBLE, Focusable::Inherit(trigger)) => {
                 trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
             }
             _ => false,
@@ -394,7 +387,7 @@ impl RenderStore {
         let mut curr = topo_parents.get(id).copied().flatten();
         while let Some(curr_id) = curr {
             if let Some(parent_interaction) = rnd_interaction.get(curr_id) {
-                let parent_style = if state_flag == STATE_FOCUSED_VISIBLE {
+                let parent_style = if state_flag == ComponentMask::STATE_FOCUSED_VISIBLE {
                     &parent_interaction.focused_visible
                 } else {
                     &parent_interaction.focused
@@ -417,17 +410,29 @@ impl RenderStore {
         focused_visible_style_resolved: Option<&'a ThisStyle>,
     ) -> [(u128, Option<&'a ThisStyle>); 11] {
         [
-            (STATE_FOCUSED, focused_style_resolved),
-            (STATE_FOCUSED_VISIBLE, focused_visible_style_resolved),
-            (STATE_SELECTED, interaction.selected.as_ref()),
-            (STATE_ACTIVED, interaction.actived.as_ref()),
-            (STATE_HOVERED, interaction.hovered.as_ref()),
-            (STATE_PRESSED, interaction.pressed.as_ref()),
-            (STATE_DISABLED, interaction.disabled.as_ref()),
-            (STATE_DRAGGED, interaction.dragged.as_ref()),
-            (STATE_DND_DRAGGING, interaction.dragging.as_ref()),
-            (STATE_DND_DRAG_IN, interaction.drag_in.as_ref()),
-            (STATE_DND_DRAG_OVER, interaction.drag_over.as_ref()),
+            (ComponentMask::STATE_FOCUSED, focused_style_resolved),
+            (
+                ComponentMask::STATE_FOCUSED_VISIBLE,
+                focused_visible_style_resolved,
+            ),
+            (ComponentMask::STATE_SELECTED, interaction.selected.as_ref()),
+            (ComponentMask::STATE_ACTIVED, interaction.actived.as_ref()),
+            (ComponentMask::STATE_HOVERED, interaction.hovered.as_ref()),
+            (ComponentMask::STATE_PRESSED, interaction.pressed.as_ref()),
+            (ComponentMask::STATE_DISABLED, interaction.disabled.as_ref()),
+            (ComponentMask::STATE_DRAGGED, interaction.dragged.as_ref()),
+            (
+                ComponentMask::STATE_DND_DRAGGING,
+                interaction.dragging.as_ref(),
+            ),
+            (
+                ComponentMask::STATE_DND_DRAG_IN,
+                interaction.drag_in.as_ref(),
+            ),
+            (
+                ComponentMask::STATE_DND_DRAG_OVER,
+                interaction.drag_over.as_ref(),
+            ),
         ]
     }
 
@@ -437,16 +442,25 @@ impl RenderStore {
         interaction: &InteractionStyles,
     ) -> [(u128, &Option<ThisStyle>); 10] {
         [
-            (STATE_FOCUSED, &interaction.focused_within),
-            (STATE_FOCUSED_VISIBLE, &interaction.focused_visible_within),
-            (STATE_SELECTED, &interaction.selected_within),
-            (STATE_ACTIVED, &interaction.actived_within),
-            (STATE_HOVERED, &interaction.hovered_within),
-            (STATE_PRESSED, &interaction.pressed_within),
-            (STATE_DISABLED, &interaction.disabled_within),
-            (STATE_DRAGGED, &interaction.dragged_within),
-            (STATE_DND_DRAGGING, &interaction.dragged_within),
-            (STATE_DND_DRAG_IN, &interaction.hovered_within),
+            (ComponentMask::STATE_FOCUSED, &interaction.focused_within),
+            (
+                ComponentMask::STATE_FOCUSED_VISIBLE,
+                &interaction.focused_visible_within,
+            ),
+            (ComponentMask::STATE_SELECTED, &interaction.selected_within),
+            (ComponentMask::STATE_ACTIVED, &interaction.actived_within),
+            (ComponentMask::STATE_HOVERED, &interaction.hovered_within),
+            (ComponentMask::STATE_PRESSED, &interaction.pressed_within),
+            (ComponentMask::STATE_DISABLED, &interaction.disabled_within),
+            (ComponentMask::STATE_DRAGGED, &interaction.dragged_within),
+            (
+                ComponentMask::STATE_DND_DRAGGING,
+                &interaction.dragged_within,
+            ),
+            (
+                ComponentMask::STATE_DND_DRAG_IN,
+                &interaction.hovered_within,
+            ),
         ]
     }
 
@@ -456,16 +470,25 @@ impl RenderStore {
         interaction: &InteractionStyles,
     ) -> [(u128, &Option<ThisStyle>); 10] {
         [
-            (STATE_FOCUSED, &interaction.focused_parent),
-            (STATE_FOCUSED_VISIBLE, &interaction.focused_visible_parent),
-            (STATE_SELECTED, &interaction.selected_parent),
-            (STATE_ACTIVED, &interaction.actived_parent),
-            (STATE_HOVERED, &interaction.hovered_parent),
-            (STATE_PRESSED, &interaction.pressed_parent),
-            (STATE_DISABLED, &interaction.disabled_parent),
-            (STATE_DRAGGED, &interaction.dragged_parent),
-            (STATE_DND_DRAGGING, &interaction.dragged_parent),
-            (STATE_DND_DRAG_IN, &interaction.hovered_parent),
+            (ComponentMask::STATE_FOCUSED, &interaction.focused_parent),
+            (
+                ComponentMask::STATE_FOCUSED_VISIBLE,
+                &interaction.focused_visible_parent,
+            ),
+            (ComponentMask::STATE_SELECTED, &interaction.selected_parent),
+            (ComponentMask::STATE_ACTIVED, &interaction.actived_parent),
+            (ComponentMask::STATE_HOVERED, &interaction.hovered_parent),
+            (ComponentMask::STATE_PRESSED, &interaction.pressed_parent),
+            (ComponentMask::STATE_DISABLED, &interaction.disabled_parent),
+            (ComponentMask::STATE_DRAGGED, &interaction.dragged_parent),
+            (
+                ComponentMask::STATE_DND_DRAGGING,
+                &interaction.dragged_parent,
+            ),
+            (
+                ComponentMask::STATE_DND_DRAG_IN,
+                &interaction.hovered_parent,
+            ),
         ]
     }
 
@@ -481,17 +504,20 @@ impl RenderStore {
         };
 
         let cascade = [
-            (STATE_FOCUSED, &interaction.focused),
-            (STATE_FOCUSED_VISIBLE, &interaction.focused_visible),
-            (STATE_SELECTED, &interaction.selected),
-            (STATE_ACTIVED, &interaction.actived),
-            (STATE_HOVERED, &interaction.hovered),
-            (STATE_PRESSED, &interaction.pressed),
-            (STATE_DISABLED, &interaction.disabled),
-            (STATE_DRAGGED, &interaction.dragged),
-            (STATE_DND_DRAGGING, &interaction.dragging),
-            (STATE_DND_DRAG_IN, &interaction.drag_in),
-            (STATE_DND_DRAG_OVER, &interaction.drag_over),
+            (ComponentMask::STATE_FOCUSED, &interaction.focused),
+            (
+                ComponentMask::STATE_FOCUSED_VISIBLE,
+                &interaction.focused_visible,
+            ),
+            (ComponentMask::STATE_SELECTED, &interaction.selected),
+            (ComponentMask::STATE_ACTIVED, &interaction.actived),
+            (ComponentMask::STATE_HOVERED, &interaction.hovered),
+            (ComponentMask::STATE_PRESSED, &interaction.pressed),
+            (ComponentMask::STATE_DISABLED, &interaction.disabled),
+            (ComponentMask::STATE_DRAGGED, &interaction.dragged),
+            (ComponentMask::STATE_DND_DRAGGING, &interaction.dragging),
+            (ComponentMask::STATE_DND_DRAG_IN, &interaction.drag_in),
+            (ComponentMask::STATE_DND_DRAG_OVER, &interaction.drag_over),
         ];
 
         for (state, style_opt) in cascade {
@@ -546,7 +572,7 @@ impl RenderStore {
         topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
-        if !active_mask.has(STYLE_INTERACTION_WITHIN) {
+        if !active_mask.has(ComponentMask::STYLE_INTERACTION_WITHIN) {
             return;
         }
 
@@ -589,7 +615,7 @@ impl RenderStore {
 
         let any_state = TopologyStore::has_descendant_with_state(
             id,
-            STYLE_ACTIVE_INTERACTION_PROPERTY,
+            ComponentMask::STYLE_ACTIVE_INTERACTION_PROPERTY,
             topo_entities,
             topo_active_masks,
             topo_children,
@@ -613,7 +639,7 @@ impl RenderStore {
         topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
-        if !active_mask.has(STYLE_INTERACTION_PARENT) {
+        if !active_mask.has(ComponentMask::STYLE_INTERACTION_PARENT) {
             return;
         }
         let Some(interaction) = rnd_interaction.get(id) else {
@@ -652,7 +678,7 @@ impl RenderStore {
         };
         let any_state = TopologyStore::has_parent_with_state(
             id,
-            STYLE_ACTIVE_INTERACTION_PROPERTY,
+            ComponentMask::STYLE_ACTIVE_INTERACTION_PROPERTY,
             topo_entities,
             topo_active_masks,
             topo_parents,
@@ -721,7 +747,7 @@ impl RenderStore {
         }
         // 無効化（Disabled）状態でないか検証
         let mask = topo_active_masks.get(id).copied().unwrap_or_default();
-        if mask.has(STATE_DISABLED) {
+        if mask.has(ComponentMask::STATE_DISABLED) {
             return false;
         }
 
@@ -1063,8 +1089,8 @@ impl RenderStore {
             )
         };
 
-        let focused_style_resolved = resolv_focus(STATE_FOCUSED);
-        let focused_visible_style_resolved = resolv_focus(STATE_FOCUSED_VISIBLE);
+        let focused_style_resolved = resolv_focus(ComponentMask::STATE_FOCUSED);
+        let focused_visible_style_resolved = resolv_focus(ComponentMask::STATE_FOCUSED_VISIBLE);
 
         RenderStore::apply_interaction_cascades(
             id,
@@ -1941,30 +1967,30 @@ impl TargetStyle {
         inner_vis: &VisualProperty,
         inner_mask: ComponentMask,
     ) {
-        if inner_mask.has(STYLE_BG_COLOR) {
+        if inner_mask.has(ComponentMask::STYLE_BG_COLOR) {
             target.bg_color = inner_vis.bg_color;
         }
-        if inner_mask.has(STYLE_BORDER_COLOR) {
+        if inner_mask.has(ComponentMask::STYLE_BORDER_COLOR) {
             target.border_color = inner_vis.border_color;
         }
-        if inner_mask.has(STYLE_OPACITY) {
+        if inner_mask.has(ComponentMask::STYLE_OPACITY) {
             target.opacity = inner_vis.opacity;
         }
-        if inner_mask.has(STYLE_TRANSFORM) {
+        if inner_mask.has(ComponentMask::STYLE_TRANSFORM) {
             target.transform = inner_vis.transform;
             target.transform_origin = inner_vis.transform_origin;
         }
 
-        if inner_mask.has(STYLE_TRANSFORM_INHERIT) {
+        if inner_mask.has(ComponentMask::STYLE_TRANSFORM_INHERIT) {
             target.transform_inherit = inner_vis.transform_inherit;
         }
-        if inner_mask.has(STYLE_CORNER_RADIUS) {
+        if inner_mask.has(ComponentMask::STYLE_CORNER_RADIUS) {
             target.corner_radius = inner_vis.corner_radius;
         }
-        if inner_mask.has(STYLE_POINTER_EVENTS) {
+        if inner_mask.has(ComponentMask::STYLE_POINTER_EVENTS) {
             target.pointer_events = inner_vis.pointer_events;
         }
-        if inner_mask.has(STYLE_BOX_SHADOW) {
+        if inner_mask.has(ComponentMask::STYLE_BOX_SHADOW) {
             if inner_vis.shadow_params.is_some() {
                 target.shadow_params = inner_vis.shadow_params;
             }
@@ -1972,10 +1998,10 @@ impl TargetStyle {
                 target.shadow_color = inner_vis.shadow_color;
             }
         }
-        if inner_mask.has(STYLE_TEXT_COLOR) {
+        if inner_mask.has(ComponentMask::STYLE_TEXT_COLOR) {
             target.text_color = inner_vis.text_color;
         }
-        if inner_mask.has(STYLE_USER_SELECT) {
+        if inner_mask.has(ComponentMask::STYLE_USER_SELECT) {
             if inner_vis.select_bg_color.is_some() {
                 target.select_bg_color = inner_vis.select_bg_color;
             }
@@ -1983,7 +2009,7 @@ impl TargetStyle {
                 target.select_text_color = inner_vis.select_text_color;
             }
         }
-        if inner_mask.has(STYLE_BORDER) {
+        if inner_mask.has(ComponentMask::STYLE_BORDER) {
             if inner_vis.border_lengths.is_some() {
                 target.border_lengths = inner_vis.border_lengths;
             }
@@ -1994,7 +2020,7 @@ impl TargetStyle {
                 target.border_alignments = inner_vis.border_alignments;
             }
         }
-        if inner_mask.has(STYLE_OUTLINE) {
+        if inner_mask.has(ComponentMask::STYLE_OUTLINE) {
             if inner_vis.outline_width.is_some() {
                 target.outline_width = inner_vis.outline_width;
             }
@@ -2014,16 +2040,16 @@ impl TargetStyle {
                 target.outline_offset = inner_vis.outline_offset;
             }
         }
-        if inner_mask.has(STYLE_CURSOR) {
+        if inner_mask.has(ComponentMask::STYLE_CURSOR) {
             target.cursor = inner_vis.cursor;
         }
-        if inner_mask.has(STYLE_RESIZABLE) {
+        if inner_mask.has(ComponentMask::STYLE_RESIZABLE) {
             target.resizable_cursor = inner_vis.resizable_cursor;
         }
-        if inner_mask.has(STYLE_FONT_SIZE) {
+        if inner_mask.has(ComponentMask::STYLE_FONT_SIZE) {
             target.font_size = inner_vis.font_size;
         }
-        if inner_mask.has(STYLE_EXT_PROPERTIES) {
+        if inner_mask.has(ComponentMask::STYLE_EXT_PROPERTIES) {
             if inner_vis.font_family.is_some() {
                 target.font_family.clone_from(&inner_vis.font_family);
             }
@@ -2034,7 +2060,7 @@ impl TargetStyle {
                 target.font_style = inner_vis.font_style;
             }
         }
-        if inner_mask.has(STYLE_AUTO_WRAP) {
+        if inner_mask.has(ComponentMask::STYLE_AUTO_WRAP) {
             target.auto_wrap = inner_vis.auto_wrap;
         }
     }

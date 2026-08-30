@@ -1,8 +1,6 @@
 #![allow(clippy::pedantic, clippy::restriction, unused_must_use)]
 
-use michiu_ui::{
-    ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, prelude::*,
-};
+use michiu_ui::{ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, prelude::*};
 use std::time::Duration;
 use windows::{
     Win32::{
@@ -101,7 +99,7 @@ unsafe extern "system" fn wnd_proc(
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
                 // トランジション（アニメーション）を1フレーム進める
-                app.context.tick_transitions();
+                app.context.tick_system_frame(&TickType::Transition);
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
@@ -137,7 +135,8 @@ unsafe extern "system" fn wnd_proc(
                 let logical_pos =
                     LayoutPoint::new(x / app.renderer.scale_factor, y / app.renderer.scale_factor);
 
-                app.context.inject_pointer_move(logical_pos);
+                app.context
+                    .inject_user_action(UserAction::PointerMove(logical_pos));
 
                 // インタラクションによる変化（ホバー状態）をリアルタイムに再描画
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -160,8 +159,11 @@ unsafe extern "system" fn wnd_proc(
                     logo: false,
                 };
 
-                app.context
-                    .inject_pointer_button(MouseButton::Left, state, modifiers);
+                app.context.inject_user_action(UserAction::PointerButton {
+                    button: MouseButton::Left,
+                    state,
+                    modifiers,
+                });
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);

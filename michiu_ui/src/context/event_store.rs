@@ -9,28 +9,24 @@ use crate::{
     FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusTrigger, Focusable, GridLayout,
     GridLayoutsSparseSecondary, InputContents, InputContentsSparseSecondary,
     InteractionPropertiesSecondary, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary,
+    LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline,
     PointerEvents, Position, ReactiveStore, Rect, RectsSecondary, RenderStore,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary, STATE_ACTIVED,
-    STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER, STATE_DND_DRAGGING, STATE_DRAGGED,
-    STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED, STATE_SELECTED,
-    STYLE_DND_DRAGGABLE, STYLE_DND_DROPPABLE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_WITHIN,
-    STYLE_OVERFLOW, STYLE_POINTER_EVENTS, STYLE_PREVENT_FOCUS_STEAL,
-    STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, ScrollOffsetsSecondary,
-    ScrollSizesSecondary, ScrollbarStylesSecondary, SelectedRectsSparseSecondary,
-    SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEngine,
-    TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore,
-    UserSelect, Val, VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context,
-    handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
-    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
-    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSecondary,
+    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec,
+    SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
+    TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
+    TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val, VirtualKey,
+    VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur,
+    handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start,
+    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
+    handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
     handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
     handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
-use std::path::PathBuf;
+use std::{borrow::Cow, path::PathBuf};
 use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
 #[derive(Debug, Clone)]
@@ -227,7 +223,7 @@ impl EventStore {
         let mut current_id = target_id;
         let mut found_resize_hover = None;
         while let Some(id) = current_id {
-            if topo_active_masks[id].has(STYLE_RESIZABLE) {
+            if topo_active_masks[id].has(ComponentMask::STYLE_RESIZABLE) {
                 let rect = out_rects.get(id).copied().unwrap_or_default();
                 let resizable_flags = lay_basic.get(id).map_or([false; 4], |l| l.resizable);
 
@@ -557,7 +553,7 @@ impl EventStore {
                 .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
             (size, contents.is_multiline)
         } else if let Some(dw_layout) = dw_layout {
-            (sys_text_engine.get_layout_size(&dw_layout), false)
+            (sys_text_engine.get_layout_size(dw_layout), false)
         } else {
             (LayoutSize::ZERO, false)
         };
@@ -594,19 +590,20 @@ impl EventStore {
 
         // 旧ホバー要素からマウスが去った
         if let Some(old_id) = old_id {
-            EventStore::update_state(cx, old_id, STATE_HOVERED, false);
+            EventStore::update_state(cx, old_id, ComponentMask::STATE_HOVERED, false);
             handle_on_mouse_leave(cx, old_id);
         }
 
         // 新ホバー要素にマウスが入った
         if let Some(new_id) = target_id {
-            EventStore::update_state(cx, new_id, STATE_HOVERED, true);
+            EventStore::update_state(cx, new_id, ComponentMask::STATE_HOVERED, true);
             handle_on_mouse_enter(cx, new_id);
             handle_on_hover(cx, new_id);
         }
     }
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
+    #[inline]
     pub(crate) fn update_state(cx: &mut Context, id: EntityId, state_flag: u128, active: bool) {
         let mut was_active = false;
         let mut state_changed = false;
@@ -700,7 +697,7 @@ impl EventStore {
                     .topology
                     .topo_active_masks
                     .get(child_id)
-                    .is_some_and(|m| m.has(STYLE_INTERACTION_PARENT));
+                    .is_some_and(|m| m.has(ComponentMask::STYLE_INTERACTION_PARENT));
 
                 if has_parent {
                     resolve_element(cx, child_id);
@@ -717,7 +714,7 @@ impl EventStore {
                     .topology
                     .topo_active_masks
                     .get(parent_id)
-                    .is_some_and(|m| m.has(STYLE_INTERACTION_WITHIN));
+                    .is_some_and(|m| m.has(ComponentMask::STYLE_INTERACTION_WITHIN));
 
                 // 先祖要素が within スタイルを持っている場合のみそのスタイル評価を実行
                 if has_within {
@@ -738,9 +735,9 @@ impl EventStore {
         // 残りの状態遷移イベントの解決
         if active {
             match state_flag {
-                STATE_DISABLED => handle_on_disable(cx, id),
-                STATE_ACTIVED => handle_on_active(cx, id),
-                STATE_SELECTED => handle_on_select(cx, id),
+                ComponentMask::STATE_DISABLED => handle_on_disable(cx, id),
+                ComponentMask::STATE_ACTIVED => handle_on_active(cx, id),
+                ComponentMask::STATE_SELECTED => handle_on_select(cx, id),
 
                 _ => {}
             }
@@ -849,8 +846,8 @@ impl EventStore {
         }
 
         // ドラッグ元とプレースホルダーの状態を同期
-        EventStore::update_state(cx, pressed_id, STATE_DND_DRAGGING, true);
-        EventStore::update_state(cx, placeholder_id, STATE_DND_DRAG_OVER, true);
+        EventStore::update_state(cx, pressed_id, ComponentMask::STATE_DND_DRAGGING, true);
+        EventStore::update_state(cx, placeholder_id, ComponentMask::STATE_DND_DRAG_OVER, true);
 
         // プレースホルダー側を Absolute 配置化
         let basic = cx.layouts.lay_basic.get_mut(placeholder_id);
@@ -868,7 +865,7 @@ impl EventStore {
             vis.pointer_events = Some(PointerEvents::None);
         }
         if let Some(mask) = cx.topology.topo_active_masks.get_mut(placeholder_id) {
-            mask.set(STYLE_POINTER_EVENTS);
+            mask.set(ComponentMask::STYLE_POINTER_EVENTS);
         }
     }
 
@@ -1025,7 +1022,7 @@ impl EventStore {
             return;
         }
 
-        EventStore::update_state(cx, pressed_id, STATE_DRAGGED, true);
+        EventStore::update_state(cx, pressed_id, ComponentMask::STATE_DRAGGED, true);
         cx.events.evt_interaction_states.dragged = Some(pressed_id);
 
         // D&D 設定（STYLE_DRAGGABLE）を持っている場合のセッションのキック
@@ -1033,7 +1030,7 @@ impl EventStore {
             .topology
             .topo_active_masks
             .get(pressed_id)
-            .is_some_and(|m| m.has(STYLE_DND_DRAGGABLE))
+            .is_some_and(|m| m.has(ComponentMask::STYLE_DND_DRAGGABLE))
             && cx.events.evt_active_dnd_drag_state.is_none()
         {
             EventStore::start_dnd_drag_session(cx, pressed_id, logical_pos);
@@ -1120,7 +1117,7 @@ impl EventStore {
         while let Some(id) = current_id {
             let is_dnd = topo_active_masks
                 .get(id)
-                .is_some_and(|f| f.has(STYLE_DND_DROPPABLE));
+                .is_some_and(|f| f.has(ComponentMask::STYLE_DND_DROPPABLE));
 
             if id != placeholder && is_dnd {
                 return Some(id); // ドロップ先を見つけたら即座に返す
@@ -1142,10 +1139,10 @@ impl EventStore {
         }
 
         if let Some(old_target) = drag_state.current_drop_target {
-            EventStore::update_state(cx, old_target, STATE_DND_DRAG_IN, false);
+            EventStore::update_state(cx, old_target, ComponentMask::STATE_DND_DRAG_IN, false);
         }
         if let Some(new_target) = found_drop_target {
-            EventStore::update_state(cx, new_target, STATE_DND_DRAG_IN, true);
+            EventStore::update_state(cx, new_target, ComponentMask::STATE_DND_DRAG_IN, true);
         }
 
         drag_state.current_drop_target = found_drop_target;
@@ -1327,7 +1324,6 @@ impl EventStore {
     }
 
     pub(crate) fn inject_pointer_move_internal(cx: &mut Context, logical_pos: LayoutPoint) {
-        let _context_guard = bind_context(cx);
         let prev_pos = cx.events.evt_current_pointer_position;
         cx.events.evt_current_pointer_position = Some(logical_pos);
 
@@ -1370,24 +1366,7 @@ impl EventStore {
         );
 
         // ヒットテストのキャッシュ
-        let hit_id = TopologyStore::hit_test(
-            logical_pos,
-            cx.window.win_last_size,
-            &cx.events.evt_interaction_states,
-            &mut cx.topology.topo_active_masks,
-            &mut cx.topology.topo_dfs_indices,
-            &mut cx.topology.topo_effective_z_indices,
-            &mut cx.topology.topo_sorted_entities,
-            &mut cx.topology.topo_sort_cache,
-            &mut cx.topology.topo_is_sort_dirty,
-            &cx.topology.topo_active_entities,
-            &cx.topology.topo_parents,
-            &cx.topology.topo_flat_dfs_sequence,
-            &cx.renders.rnd_visual,
-            &cx.renders.rnd_base_visual,
-            &mut cx.outputs.out_clip_rects,
-            &cx.outputs.out_rects,
-        );
+        let hit_id = Pipeline::hit_test(cx, logical_pos);
 
         // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
         let target_id = cx.events.evt_interaction_states.pressed.or(hit_id);
@@ -1620,7 +1599,7 @@ impl EventStore {
                 break;
             };
 
-            if mask.has(STYLE_PREVENT_FOCUS_STEAL)
+            if mask.has(ComponentMask::STYLE_PREVENT_FOCUS_STEAL)
                 && curr_id == target_id
                 && cx
                     .renders
@@ -1632,7 +1611,7 @@ impl EventStore {
                 return true;
             }
 
-            if mask.has(STYLE_PREVENT_FOCUS_STEAL_WITHIN)
+            if mask.has(ComponentMask::STYLE_PREVENT_FOCUS_STEAL_WITHIN)
                 && cx
                     .renders
                     .rnd_visual
@@ -1716,7 +1695,7 @@ impl EventStore {
         };
 
         cx.events.evt_interaction_states.pressed = Some(target_id);
-        EventStore::update_state(cx, target_id, STATE_PRESSED, true);
+        EventStore::update_state(cx, target_id, ComponentMask::STATE_PRESSED, true);
 
         // テキスト選択処理
         let user_select = EventStore::get_user_select(target_id, &cx.renders.rnd_visual);
@@ -1784,9 +1763,9 @@ impl EventStore {
         };
 
         // 疑似クラスの解除
-        EventStore::update_state(cx, src_id, STATE_DND_DRAGGING, false);
+        EventStore::update_state(cx, src_id, ComponentMask::STATE_DND_DRAGGING, false);
         if let Some(target_id) = drag_state.current_drop_target {
-            EventStore::update_state(cx, target_id, STATE_DND_DRAG_IN, false);
+            EventStore::update_state(cx, target_id, ComponentMask::STATE_DND_DRAG_IN, false);
         }
 
         cx.events.evt_interaction_states.pressed = None;
@@ -1935,8 +1914,8 @@ impl EventStore {
 
         // 通常要素のリリース
         if let Some(pressed_id) = cx.events.evt_interaction_states.pressed {
-            EventStore::update_state(cx, pressed_id, STATE_PRESSED, false);
-            EventStore::update_state(cx, pressed_id, STATE_DRAGGED, false);
+            EventStore::update_state(cx, pressed_id, ComponentMask::STATE_PRESSED, false);
+            EventStore::update_state(cx, pressed_id, ComponentMask::STATE_DRAGGED, false);
             cx.events.evt_interaction_states.dragged = None;
 
             if let Some(contents) = cx.contents.cont_input_contents.get_mut(pressed_id) {
@@ -1966,8 +1945,6 @@ impl EventStore {
         state: ElementState,
         modifiers: Modifiers,
     ) {
-        let _context_guard = bind_context(cx);
-
         let current_hovered = cx.events.evt_interaction_states.hovered;
 
         match state {
@@ -1977,7 +1954,6 @@ impl EventStore {
     }
 
     pub fn inject_pointer_double_click_internal(cx: &mut Context, modifiers: Modifiers) {
-        let _context_guard = bind_context(cx);
         let current_hovered = cx.events.evt_interaction_states.hovered;
 
         let Some(target_id) = current_hovered else {
@@ -2115,8 +2091,6 @@ impl EventStore {
     }
 
     pub fn inject_mouse_wheel_internal(cx: &mut Context, scroll_x: f32, scroll_y: f32) {
-        let _context_guard = bind_context(cx);
-
         let mut curr = cx.events.evt_interaction_states.hovered;
 
         // ホバー要素から親へ辿る
@@ -2138,7 +2112,7 @@ impl EventStore {
                 .topology
                 .topo_active_masks
                 .get(curr_id)
-                .is_some_and(|m| m.has(STYLE_OVERFLOW));
+                .is_some_and(|m| m.has(ComponentMask::STYLE_OVERFLOW));
             if has_overflow {
                 let basic = &cx
                     .layouts
@@ -2300,8 +2274,6 @@ impl EventStore {
         state: ElementState,
         modifiers: Modifiers,
     ) {
-        let _context_guard = bind_context(cx);
-
         // Tabキー押下時は個別のフォーカス対象へのイベント配信前に巡回処理を実行
         if state == ElementState::Pressed && key == VirtualKey::TAB {
             EventStore::cycle_keyboard_focus_internal(cx, modifiers.shift);
@@ -2435,8 +2407,6 @@ impl EventStore {
     }
 
     pub(crate) fn inject_paste_internal(cx: &mut Context, text: &str) {
-        let _context_guard = bind_context(cx);
-
         let Some(focused_id) = cx.events.evt_interaction_states.focused else {
             return;
         };
@@ -2519,8 +2489,6 @@ impl EventStore {
     }
 
     pub(crate) fn inject_undo_internal(cx: &mut Context) {
-        let _context_guard = bind_context(cx);
-
         let Some(focused_id) = cx.events.evt_interaction_states.focused else {
             return;
         };
@@ -2585,7 +2553,6 @@ impl EventStore {
     }
 
     pub(crate) fn inject_redo_internal(cx: &mut Context) {
-        let _context_guard = bind_context(cx);
         let Some(focused_id) = cx.events.evt_interaction_states.focused else {
             return;
         };
@@ -2648,8 +2615,7 @@ impl EventStore {
         );
     }
 
-    pub(crate) fn inject_cut_internal(cx: &mut Context) -> Option<String> {
-        let _context_guard = bind_context(cx);
+    pub(crate) fn inject_cut_internal(cx: &mut Context) -> Option<Cow<'static, str>> {
         let focused_id = cx.events.evt_interaction_states.focused?;
         let user_select = EventStore::get_user_select(focused_id, &cx.renders.rnd_visual);
 
@@ -2719,7 +2685,7 @@ impl EventStore {
             );
         }
         // Input・非Inputに関わらず切り出されたテキストを返す
-        Some(cut_text)
+        Some(cut_text.into())
     }
 }
 
@@ -2983,15 +2949,15 @@ impl EventStore {
 
     /// 入力トリガー源を考慮してフォーカス状態を更新します。
     #[inline]
-    pub fn set_focused_by_trigger(
+    pub(crate) fn set_focused_by_trigger(
         cx: &mut Context,
         id: EntityId,
         focused: bool,
         trigger: ActiveFocusTrigger,
     ) {
-        EventStore::update_state(cx, id, STATE_FOCUSED, focused);
+        EventStore::update_state(cx, id, ComponentMask::STATE_FOCUSED, focused);
         let show_visible = focused && (trigger == ActiveFocusTrigger::Keyboard);
-        EventStore::update_state(cx, id, STATE_FOCUSED_VISIBLE, show_visible);
+        EventStore::update_state(cx, id, ComponentMask::STATE_FOCUSED_VISIBLE, show_visible);
     }
 
     pub(crate) fn auto_focus_switch_by_trigger(

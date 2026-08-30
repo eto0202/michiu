@@ -1,11 +1,10 @@
 use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
 use crate::{
-    COMP_INPUT_CONTENT, COMP_TEXT_CONTENT, Context, EffectCategory, Element, ElementState,
-    EntityId, EventStore, ImeState, InputContents, InputOp, Modifiers, MouseButton, Prop,
-    STYLE_TEXT_SPANS, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
-    SystemStore, TextEngine, TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey,
-    VisualProperty, with_context,
+    ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, EventStore, ImeState,
+    InputContents, InputOp, Modifiers, MouseButton, Prop, SelectedRectsSparseSecondary,
+    SelectionStartIndexSparseSecondary, SystemStore, TextEngine, TextSelectionsSparseSecondary,
+    TextSpan, UnderlineStyle, VirtualKey, VisualProperty, with_context,
 };
 
 impl Element {
@@ -868,7 +867,7 @@ impl Element {
         // IME の未確定状態（未確定波線、変換フォーカス太線/細線）を TextSpan に自動マッピング
         if ime.composition_text.is_empty() {
             cx.contents.cont_text_spans.remove(id);
-            cx.topology.topo_active_masks[id].unset(STYLE_TEXT_SPANS);
+            cx.topology.topo_active_masks[id].unset(ComponentMask::STYLE_TEXT_SPANS);
         } else {
             let mut spans = Vec::new();
             let caret = contents.selected_range.start;
@@ -923,7 +922,7 @@ impl Element {
             }
 
             cx.contents.cont_text_spans.insert(id, spans);
-            cx.topology.topo_active_masks[id].set(STYLE_TEXT_SPANS);
+            cx.topology.topo_active_masks[id].set(ComponentMask::STYLE_TEXT_SPANS);
         }
 
         // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
@@ -951,7 +950,8 @@ impl Element {
         c.selected_range = current_len..current_len;
 
         cx.contents.cont_input_contents.insert(id, c);
-        cx.topology.topo_active_masks[id].set(COMP_INPUT_CONTENT | COMP_TEXT_CONTENT);
+        cx.topology.topo_active_masks[id]
+            .set(ComponentMask::COMP_INPUT_CONTENT | ComponentMask::COMP_TEXT_CONTENT);
 
         self.get_or_create_listeners(|l| {
             let mut existing_mouse = l.on_mouse_input.take();

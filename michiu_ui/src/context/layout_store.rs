@@ -5,12 +5,10 @@ use crate::{
     FlexLayout, GridLayout, InputContentsSparseSecondary, InteractionPropertiesSecondary,
     InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, Length, NormalLayout, OutputStore,
     ParentsSecondary, Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizeDirection,
-    ResizingState, STATE_ACTIVED, STATE_DISABLED, STATE_DND_DRAG_IN, STATE_DND_DRAG_OVER,
-    STATE_DND_DRAGGING, STATE_FOCUSED, STATE_FOCUSED_VISIBLE, STATE_HOVERED, STATE_PRESSED,
-    STATE_QUEUED_LAYOUT, STATE_SELECTED, STYLE_SIZE, ScrollOffsetsSecondary, ScrollSizesSecondary,
-    ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Size, StyleTarget, SystemStore,
-    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, ThisStyle, TopologyStore,
-    Val, VisualPropertiesSecondary, WindowStore,
+    ResizingState, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarDisplay, ScrollbarMode,
+    ScrollbarStyle, Size, StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine,
+    TextSpansSparseSecondary, ThisStyle, TopologyStore, Val, VisualPropertiesSecondary,
+    WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -178,17 +176,20 @@ impl LayoutStore {
             LayoutStore::is_transition_currently_running(id, rnd_active_transitions);
 
         // 自身、または親先祖から focused / focus_visible のフォーカス関連スタイルを解決
-        let [focused_style_resolved, focused_visible_style_resolved] =
-            [STATE_FOCUSED, STATE_FOCUSED_VISIBLE].map(|state| {
-                RenderStore::resolv_focus_style(
-                    id,
-                    &active_mask,
-                    state,
-                    topo_parents,
-                    rnd_visual,
-                    rnd_interaction,
-                )
-            });
+        let [focused_style_resolved, focused_visible_style_resolved] = [
+            ComponentMask::STATE_FOCUSED,
+            ComponentMask::STATE_FOCUSED_VISIBLE,
+        ]
+        .map(|state| {
+            RenderStore::resolv_focus_style(
+                id,
+                &active_mask,
+                state,
+                topo_parents,
+                rnd_visual,
+                rnd_interaction,
+            )
+        });
 
         // 状態マッピング解決のルックアップとループを1回に集約
         LayoutStore::apply_interaction_styles(
@@ -317,16 +318,16 @@ impl LayoutStore {
         };
 
         let cascade = [
-            (STATE_FOCUSED, &focused_resolved[0]),
-            (STATE_FOCUSED_VISIBLE, &focused_resolved[1]),
-            (STATE_SELECTED, &interaction.selected),
-            (STATE_ACTIVED, &interaction.actived),
-            (STATE_HOVERED, &interaction.hovered),
-            (STATE_PRESSED, &interaction.pressed),
-            (STATE_DISABLED, &interaction.disabled),
-            (STATE_DND_DRAGGING, &interaction.dragging),
-            (STATE_DND_DRAG_IN, &interaction.drag_in),
-            (STATE_DND_DRAG_OVER, &interaction.drag_over),
+            (ComponentMask::STATE_FOCUSED, &focused_resolved[0]),
+            (ComponentMask::STATE_FOCUSED_VISIBLE, &focused_resolved[1]),
+            (ComponentMask::STATE_SELECTED, &interaction.selected),
+            (ComponentMask::STATE_ACTIVED, &interaction.actived),
+            (ComponentMask::STATE_HOVERED, &interaction.hovered),
+            (ComponentMask::STATE_PRESSED, &interaction.pressed),
+            (ComponentMask::STATE_DISABLED, &interaction.disabled),
+            (ComponentMask::STATE_DND_DRAGGING, &interaction.dragging),
+            (ComponentMask::STATE_DND_DRAG_IN, &interaction.drag_in),
+            (ComponentMask::STATE_DND_DRAG_OVER, &interaction.drag_over),
         ];
 
         for (state, style_opt) in cascade {
@@ -339,7 +340,7 @@ impl LayoutStore {
 
             let mut mask = style.inner.mask;
             if is_transitioning.0 || is_transitioning.1 {
-                mask.unset(STYLE_SIZE);
+                mask.unset(ComponentMask::STYLE_SIZE);
             }
 
             basic.override_with(&style.inner.basic_layout, mask);
@@ -705,7 +706,7 @@ impl LayoutStore {
     ) {
         for id in lay_dirty_entities.drain(..) {
             if let Some(mask) = topo_active_masks.get_mut(id) {
-                mask.unset(STATE_QUEUED_LAYOUT);
+                mask.unset(ComponentMask::STATE_QUEUED_LAYOUT);
             }
         }
         lay_dirty_entities.clear();
@@ -730,10 +731,10 @@ impl LayoutStore {
             // マスクが存在する場合のみDirtyマーク
             if let Some(mask) = topo_active_masks.get_mut(curr) {
                 // すでに登録済みなら多重登録を防ぐため探索を早期ブレイク
-                if mask.has(STATE_QUEUED_LAYOUT) {
+                if mask.has(ComponentMask::STATE_QUEUED_LAYOUT) {
                     break;
                 }
-                mask.set(STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
+                mask.set(ComponentMask::STATE_QUEUED_LAYOUT); // 自身を Dirty マーク
                 lay_dirty_entities.push(curr);
             }
 

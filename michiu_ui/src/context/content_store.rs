@@ -23,6 +23,7 @@ pub struct ContentStore {
     pub(crate) cont_input_contents: InputContentsSparseSecondary,
     pub(crate) cont_external_textures: ExternalTextureSparseSecondary,
     pub(crate) cont_webview_contents: WebviewContentsSparseSecondary,
+    pub(crate) cont_cut_text: Option<Cow<'static, str>>,
 }
 
 impl Default for ContentStore {
@@ -41,6 +42,7 @@ impl ContentStore {
             cont_input_contents: SparseSecondaryMap::new(),
             cont_external_textures: SparseSecondaryMap::new(),
             cont_webview_contents: SparseSecondaryMap::new(),
+            cont_cut_text: None,
         }
     }
 
@@ -53,6 +55,7 @@ impl ContentStore {
             cont_input_contents: SparseSecondaryMap::with_capacity(c.cont_input_contents),
             cont_external_textures: SparseSecondaryMap::with_capacity(c.cont_external_textures),
             cont_webview_contents: SparseSecondaryMap::with_capacity(c.cont_webview_contents),
+            ..Default::default()
         }
     }
 
@@ -63,6 +66,7 @@ impl ContentStore {
         self.cont_input_contents.clear();
         self.cont_external_textures.clear();
         self.cont_webview_contents.clear();
+        self.cont_cut_text = None;
     }
 
     #[inline]
@@ -72,6 +76,7 @@ impl ContentStore {
         self.cont_input_contents.remove(id);
         self.cont_external_textures.remove(id);
         self.cont_webview_contents.remove(id);
+        self.cont_cut_text = None;
     }
 }
 

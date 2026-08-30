@@ -3,8 +3,7 @@ use crate::{
     Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection,
     FlexLayoutsSecondary, IDENTITY_MATRIX, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
     LayoutStore, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
-    STATE_DND_DRAG_OVER, STATE_RENDER_VISIBLE, STATE_TRANSFORM_ACTIVE, STYLE_OVERFLOW, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -712,15 +711,15 @@ impl TopologyStore {
             let eff_clip = out_clip_rects.get(id).copied().unwrap_or(default_clip);
 
             // トランスフォームの適用されているブランチか伝播判定
-            let is_parent_transform =
-                parent_id.is_some_and(|p| topo_active_masks[p].has(STATE_TRANSFORM_ACTIVE));
+            let is_parent_transform = parent_id
+                .is_some_and(|p| topo_active_masks[p].has(ComponentMask::STATE_TRANSFORM_ACTIVE));
             let has_self_transform = rnd_visual.get(id).is_some_and(|v| v.transform.is_some());
             let is_transform_active = is_parent_transform || has_self_transform;
 
             if is_transform_active {
-                topo_active_masks[id].set(STATE_TRANSFORM_ACTIVE);
+                topo_active_masks[id].set(ComponentMask::STATE_TRANSFORM_ACTIVE);
             } else {
-                topo_active_masks[id].unset(STATE_TRANSFORM_ACTIVE);
+                topo_active_masks[id].unset(ComponentMask::STATE_TRANSFORM_ACTIVE);
             }
 
             // カリング判定用の AABB の取得と交差判定
@@ -733,8 +732,8 @@ impl TopologyStore {
             };
 
             // 親の可視性フラグのチェック
-            let is_parent_invisible =
-                parent_id.is_some_and(|p| !topo_active_masks[p].has(STATE_RENDER_VISIBLE));
+            let is_parent_invisible = parent_id
+                .is_some_and(|p| !topo_active_masks[p].has(ComponentMask::STATE_RENDER_VISIBLE));
 
             // Bounding Box と クリップの交差矩形
             let intersect = bounding_box.intersect(&eff_clip);
@@ -743,9 +742,9 @@ impl TopologyStore {
             let is_visible = !is_parent_invisible && !is_self_invisible;
 
             if is_visible {
-                topo_active_masks[id].set(STATE_RENDER_VISIBLE);
+                topo_active_masks[id].set(ComponentMask::STATE_RENDER_VISIBLE);
             } else {
-                topo_active_masks[id].unset(STATE_RENDER_VISIBLE);
+                topo_active_masks[id].unset(ComponentMask::STATE_RENDER_VISIBLE);
             }
 
             // DFS出現順インデックスの記録
@@ -762,7 +761,7 @@ impl TopologyStore {
         // STATE_RENDER_VISIBLE が立っている要素のみを抽出
         topo_sort_cache.clear();
         for &id in topo_active_entities {
-            if topo_active_masks[id].has(STATE_RENDER_VISIBLE) {
+            if topo_active_masks[id].has(ComponentMask::STATE_RENDER_VISIBLE) {
                 let z = topo_effective_z_indices.get(id).copied().unwrap_or(0);
                 let dfs = topo_dfs_indices.get(id).copied().unwrap_or(0);
                 topo_sort_cache.push((id, z, dfs));
@@ -777,85 +776,6 @@ impl TopologyStore {
         topo_sorted_entities.extend(topo_sort_cache.iter().map(|&(id, _, _)| id));
 
         *topo_is_sort_dirty = false;
-    }
-
-    /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
-    /// 階層的な早期枝刈りヒットテスト
-    pub(crate) fn hit_test(
-        point: LayoutPoint,
-        win_last_size: Option<LayoutSize>,
-        evt_interaction_states: &InteractionStates,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        topo_dfs_indices: &mut DfsIndicesSecondary,
-        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
-        topo_sorted_entities: &mut SortedEntitiesVec,
-        topo_sort_cache: &mut TopoSortCacheVec,
-        topo_is_sort_dirty: &mut bool,
-        topo_active_entities: &ActiveEntitiesVec,
-        topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        rnd_visual: &VisualPropertiesSecondary,
-        rnd_base_visual: &BaseVisualPropertiesSecondary,
-        out_clip_rects: &mut ClipRectsSecondary,
-        out_rects: &RectsSecondary,
-    ) -> Option<EntityId> {
-        // 実効 z_index の計算とソート
-        TopologyStore::prepare_sorted_entities(
-            win_last_size,
-            topo_active_masks,
-            topo_dfs_indices,
-            topo_effective_z_indices,
-            topo_sorted_entities,
-            topo_sort_cache,
-            topo_is_sort_dirty,
-            topo_active_entities,
-            topo_parents,
-            topo_flat_dfs_sequence,
-            rnd_visual,
-            out_clip_rects,
-            out_rects,
-        );
-
-        // 最前面の要素から逆順
-        for &id in topo_sorted_entities.iter().rev() {
-            let is_drag_over = topo_active_masks
-                .get(id)
-                .is_some_and(|mask| mask.has(STATE_DND_DRAG_OVER));
-
-            // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
-            if Some(id) == evt_interaction_states.dragged || is_drag_over {
-                continue;
-            }
-
-            // 物理範囲に含まれているか
-            let Some(rect) = out_rects.get(id).copied() else {
-                continue;
-            };
-            if !rect.contains(point) {
-                continue;
-            }
-
-            // 親などの overflow 等でクリップされている表示範囲外ならスキップ
-            if let Some(clip) = out_clip_rects.get(id)
-                && !clip.contains(point)
-            {
-                continue;
-            }
-
-            // pointer-events 設定の解決
-            let pointer_events = rnd_visual
-                .get(id)
-                .and_then(|v| v.pointer_events)
-                .or_else(|| rnd_base_visual.get(id).and_then(|v| v.pointer_events))
-                .unwrap_or_default();
-
-            if pointer_events == PointerEvents::None {
-                continue; // 透過設定
-            }
-
-            return Some(id);
-        }
-        None
     }
 
     #[inline]

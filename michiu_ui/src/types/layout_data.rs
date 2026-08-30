@@ -5,19 +5,8 @@ use crate::{
     BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction, Display, EdgeInsets,
     EntityId, FlexDirection, FlexWrap, Focusable, GridAutoFlow, GridLine, GridPlacement,
     JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Point,
-    PointerEvents, Position, Rect, STYLE_ALIGN_CONTENT, STYLE_ALIGN_ITEMS, STYLE_ALIGN_SELF,
-    STYLE_ANIMATIONS, STYLE_ASPECT_RATIO, STYLE_AUTO_WRAP, STYLE_BACKDROP, STYLE_BG_COLOR,
-    STYLE_BORDER, STYLE_BORDER_COLOR, STYLE_BOX_SHADOW, STYLE_BOX_SIZING, STYLE_CORNER_RADIUS,
-    STYLE_CURSOR, STYLE_DIRECTION, STYLE_DISPLAY, STYLE_EXT_PROPERTIES, STYLE_FLEX_BASIS,
-    STYLE_FLEX_DIRECTION, STYLE_FLEX_GROW, STYLE_FLEX_SHRINK, STYLE_FLEX_WRAP, STYLE_FOCUSABLE,
-    STYLE_FONT_SIZE, STYLE_GAP, STYLE_INSET, STYLE_ITEM_IS_REPLACED, STYLE_ITEM_IS_TABLE,
-    STYLE_JUSTIFY_CONTENT, STYLE_JUSTIFY_ITEMS, STYLE_JUSTIFY_SELF, STYLE_MARGIN, STYLE_MAX_SIZE,
-    STYLE_MIN_SIZE, STYLE_OPACITY, STYLE_OUTLINE, STYLE_OVERFLOW, STYLE_PADDING,
-    STYLE_POINTER_EVENTS, STYLE_POSITION, STYLE_PREVENT_FOCUS_STEAL,
-    STYLE_PREVENT_FOCUS_STEAL_WITHIN, STYLE_RESIZABLE, STYLE_SIZE, STYLE_TEXT_ALIGN,
-    STYLE_TEXT_COLOR, STYLE_TRANSFORM, STYLE_TRANSFORM_INHERIT, STYLE_TRANSITIONS,
-    STYLE_USER_SELECT, STYLE_Z_INDEX, Size, StyleTarget, TextAlign, ThisStyle, Transition,
-    UserSelect, Val,
+    PointerEvents, Position, Rect, Size, StyleTarget, TextAlign, ThisStyle, Transition, UserSelect,
+    Val,
 };
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -96,52 +85,52 @@ impl BasicLayout {
     /// 指定されたプロパティマスクに基づいて、自身を別のレイアウトデータで上書きします。
     #[inline]
     pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
-        if mask.has(STYLE_DISPLAY) {
+        if mask.has(ComponentMask::STYLE_DISPLAY) {
             self.display = other.display;
         }
-        if mask.has(STYLE_ITEM_IS_TABLE) {
+        if mask.has(ComponentMask::STYLE_ITEM_IS_TABLE) {
             self.item_is_table = other.item_is_table;
         }
-        if mask.has(STYLE_ITEM_IS_REPLACED) {
+        if mask.has(ComponentMask::STYLE_ITEM_IS_REPLACED) {
             self.item_is_replaced = other.item_is_replaced;
         }
-        if mask.has(STYLE_BOX_SIZING) {
+        if mask.has(ComponentMask::STYLE_BOX_SIZING) {
             self.box_sizing = other.box_sizing;
         }
-        if mask.has(STYLE_DIRECTION) {
+        if mask.has(ComponentMask::STYLE_DIRECTION) {
             self.direction = other.direction;
         }
-        if mask.has(STYLE_OVERFLOW) {
+        if mask.has(ComponentMask::STYLE_OVERFLOW) {
             self.overflow = other.overflow;
         }
-        if mask.has(STYLE_POSITION) {
+        if mask.has(ComponentMask::STYLE_POSITION) {
             self.position = other.position;
         }
-        if mask.has(STYLE_INSET) {
+        if mask.has(ComponentMask::STYLE_INSET) {
             self.inset = other.inset;
         }
-        if mask.has(STYLE_SIZE) {
+        if mask.has(ComponentMask::STYLE_SIZE) {
             self.size = other.size;
         }
-        if mask.has(STYLE_MIN_SIZE) {
+        if mask.has(ComponentMask::STYLE_MIN_SIZE) {
             self.min_size = other.min_size;
         }
-        if mask.has(STYLE_MAX_SIZE) {
+        if mask.has(ComponentMask::STYLE_MAX_SIZE) {
             self.max_size = other.max_size;
         }
-        if mask.has(STYLE_ASPECT_RATIO) {
+        if mask.has(ComponentMask::STYLE_ASPECT_RATIO) {
             self.aspect_ratio = other.aspect_ratio;
         }
-        if mask.has(STYLE_MARGIN) {
+        if mask.has(ComponentMask::STYLE_MARGIN) {
             self.margin = other.margin;
         }
-        if mask.has(STYLE_PADDING) {
+        if mask.has(ComponentMask::STYLE_PADDING) {
             self.padding = other.padding;
         }
-        if mask.has(STYLE_BORDER) {
+        if mask.has(ComponentMask::STYLE_BORDER) {
             self.border = other.border;
         }
-        if mask.has(STYLE_RESIZABLE) {
+        if mask.has(ComponentMask::STYLE_RESIZABLE) {
             self.resizable = other.resizable;
         }
     }
@@ -170,43 +159,43 @@ impl FlexLayout {
     /// 指定されたプロパティマスクに基づいて、自身を別のFlexレイアウトデータで上書きします。
     #[inline]
     pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
-        if mask.has(STYLE_ALIGN_ITEMS) {
+        if mask.has(ComponentMask::STYLE_ALIGN_ITEMS) {
             self.align_items = other.align_items;
         }
-        if mask.has(STYLE_ALIGN_SELF) {
+        if mask.has(ComponentMask::STYLE_ALIGN_SELF) {
             self.align_self = other.align_self;
         }
-        if mask.has(STYLE_JUSTIFY_ITEMS) {
+        if mask.has(ComponentMask::STYLE_JUSTIFY_ITEMS) {
             self.justify_items = other.justify_items;
         }
-        if mask.has(STYLE_JUSTIFY_SELF) {
+        if mask.has(ComponentMask::STYLE_JUSTIFY_SELF) {
             self.justify_self = other.justify_self;
         }
-        if mask.has(STYLE_ALIGN_CONTENT) {
+        if mask.has(ComponentMask::STYLE_ALIGN_CONTENT) {
             self.align_content = other.align_content;
         }
-        if mask.has(STYLE_JUSTIFY_CONTENT) {
+        if mask.has(ComponentMask::STYLE_JUSTIFY_CONTENT) {
             self.justify_content = other.justify_content;
         }
-        if mask.has(STYLE_GAP) {
+        if mask.has(ComponentMask::STYLE_GAP) {
             self.gap = other.gap;
         }
-        if mask.has(STYLE_TEXT_ALIGN) {
+        if mask.has(ComponentMask::STYLE_TEXT_ALIGN) {
             self.text_align = other.text_align;
         }
-        if mask.has(STYLE_FLEX_DIRECTION) {
+        if mask.has(ComponentMask::STYLE_FLEX_DIRECTION) {
             self.flex_direction = other.flex_direction;
         }
-        if mask.has(STYLE_FLEX_WRAP) {
+        if mask.has(ComponentMask::STYLE_FLEX_WRAP) {
             self.flex_wrap = other.flex_wrap;
         }
-        if mask.has(STYLE_FLEX_BASIS) {
+        if mask.has(ComponentMask::STYLE_FLEX_BASIS) {
             self.flex_basis = other.flex_basis;
         }
-        if mask.has(STYLE_FLEX_GROW) {
+        if mask.has(ComponentMask::STYLE_FLEX_GROW) {
             self.flex_grow = other.flex_grow;
         }
-        if mask.has(STYLE_FLEX_SHRINK) {
+        if mask.has(ComponentMask::STYLE_FLEX_SHRINK) {
             self.flex_shrink = other.flex_shrink;
         }
     }
@@ -322,54 +311,54 @@ pub struct VisualProperty {
 
 impl VisualProperty {
     pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
-        if mask.has(STYLE_BG_COLOR) {
+        if mask.has(ComponentMask::STYLE_BG_COLOR) {
             self.bg_color = other.bg_color;
             self.bg_gradient = other.bg_gradient;
         }
-        if mask.has(STYLE_BORDER_COLOR) {
+        if mask.has(ComponentMask::STYLE_BORDER_COLOR) {
             self.border_color = other.border_color;
         }
-        if mask.has(STYLE_BORDER) {
+        if mask.has(ComponentMask::STYLE_BORDER) {
             self.border_lengths = other.border_lengths;
             self.border_styles = other.border_styles;
             self.border_alignments = other.border_alignments;
         }
-        if mask.has(STYLE_CORNER_RADIUS) {
+        if mask.has(ComponentMask::STYLE_CORNER_RADIUS) {
             self.corner_radius = other.corner_radius;
         }
-        if mask.has(STYLE_OPACITY) {
+        if mask.has(ComponentMask::STYLE_OPACITY) {
             self.opacity = other.opacity;
         }
-        if mask.has(STYLE_BOX_SHADOW) {
+        if mask.has(ComponentMask::STYLE_BOX_SHADOW) {
             self.shadow_params = other.shadow_params;
             self.shadow_color = other.shadow_color;
         }
-        if mask.has(STYLE_TRANSFORM) {
+        if mask.has(ComponentMask::STYLE_TRANSFORM) {
             self.transform = other.transform;
             self.transform_origin = other.transform_origin;
         }
-        if mask.has(STYLE_TRANSFORM_INHERIT) {
+        if mask.has(ComponentMask::STYLE_TRANSFORM_INHERIT) {
             self.transform_inherit = other.transform_inherit;
         }
-        if mask.has(STYLE_Z_INDEX) {
+        if mask.has(ComponentMask::STYLE_Z_INDEX) {
             self.z_index = other.z_index;
         }
-        if mask.has(STYLE_CURSOR) {
+        if mask.has(ComponentMask::STYLE_CURSOR) {
             self.cursor = other.cursor;
         }
-        if mask.has(STYLE_RESIZABLE) {
+        if mask.has(ComponentMask::STYLE_RESIZABLE) {
             self.resizable_cursor = other.resizable_cursor;
         }
-        if mask.has(STYLE_BACKDROP) {
+        if mask.has(ComponentMask::STYLE_BACKDROP) {
             self.backdrop = other.backdrop;
         }
-        if mask.has(STYLE_TEXT_COLOR) {
+        if mask.has(ComponentMask::STYLE_TEXT_COLOR) {
             self.text_color = other.text_color;
         }
-        if mask.has(STYLE_FONT_SIZE) {
+        if mask.has(ComponentMask::STYLE_FONT_SIZE) {
             self.font_size = other.font_size;
         }
-        if mask.has(STYLE_EXT_PROPERTIES) {
+        if mask.has(ComponentMask::STYLE_EXT_PROPERTIES) {
             if other.font_family.is_some() {
                 self.font_family.clone_from(&other.font_family);
             }
@@ -380,27 +369,27 @@ impl VisualProperty {
                 self.font_style = other.font_style;
             }
         }
-        if mask.has(STYLE_AUTO_WRAP) {
+        if mask.has(ComponentMask::STYLE_AUTO_WRAP) {
             self.auto_wrap = other.auto_wrap;
         }
-        if mask.has(STYLE_POINTER_EVENTS) {
+        if mask.has(ComponentMask::STYLE_POINTER_EVENTS) {
             self.pointer_events = other.pointer_events;
         }
-        if mask.has(STYLE_USER_SELECT) {
+        if mask.has(ComponentMask::STYLE_USER_SELECT) {
             self.user_select = other.user_select;
             self.select_bg_color = other.select_bg_color;
             self.select_text_color = other.select_text_color;
         }
-        if mask.has(STYLE_FOCUSABLE) {
+        if mask.has(ComponentMask::STYLE_FOCUSABLE) {
             self.focusable = other.focusable;
         }
-        if mask.has(STYLE_PREVENT_FOCUS_STEAL) {
+        if mask.has(ComponentMask::STYLE_PREVENT_FOCUS_STEAL) {
             self.prevent_focus_steal = other.prevent_focus_steal;
         }
-        if mask.has(STYLE_PREVENT_FOCUS_STEAL_WITHIN) {
+        if mask.has(ComponentMask::STYLE_PREVENT_FOCUS_STEAL_WITHIN) {
             self.prevent_focus_steal_within = other.prevent_focus_steal_within;
         }
-        if mask.has(STYLE_OUTLINE) {
+        if mask.has(ComponentMask::STYLE_OUTLINE) {
             self.outline_width = other.outline_width;
             self.outline_color = other.outline_color;
             self.outline_lengths = other.outline_lengths;
@@ -410,10 +399,10 @@ impl VisualProperty {
         }
 
         // 複数追加できるものは破棄せず結合
-        if mask.has(STYLE_TRANSITIONS) {
+        if mask.has(ComponentMask::STYLE_TRANSITIONS) {
             self.transitions.extend(other.transitions.clone());
         }
-        if mask.has(STYLE_ANIMATIONS) {
+        if mask.has(ComponentMask::STYLE_ANIMATIONS) {
             self.keyframe_animations
                 .extend(other.keyframe_animations.clone());
         }

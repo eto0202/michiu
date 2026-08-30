@@ -9,6 +9,7 @@ mod wgpu_renderer;
 pub use composed_renderer::*;
 pub use init_webview2::*;
 pub use interop::*;
+use rustc_hash::FxHashMap;
 pub use text::*;
 pub use wgpu_renderer::*;
 
@@ -45,7 +46,7 @@ pub struct QuadInstance {
     pub(crate) outline_color: Color,               // 16B
     pub(crate) outline_lengths: EdgeInsets,        // 16B
     pub(crate) outline_offset_and_flags: [f32; 4], // 16B (flags: [offset, flags, 0.0, 0.0])
-    pub(crate) alpha_mode_y_flip_srgb: [f32; 4],    // 16B ([alpha_mode, y_flip, srbg, 0.0])
+    pub(crate) alpha_mode_y_flip_srgb: [f32; 4],   // 16B ([alpha_mode, y_flip, srbg, 0.0])
 }
 
 impl Default for QuadInstance {
@@ -89,6 +90,14 @@ pub struct DrawBatch {
     pub instance_offset: usize,
     pub instance_count: usize,
     pub(crate) batch_type: BatchType,
+}
+
+pub(crate) struct RendererView<'a> {
+    pub(crate) render_data: &'a mut RenderData,
+    pub(crate) atlas: &'a mut TextureAtlas,
+    pub(crate) text_rasterizer: &'a TextRasterizer,
+    pub(crate) text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
+    pub(crate) queue: &'a wgpu::Queue,
 }
 
 #[derive(Default)]

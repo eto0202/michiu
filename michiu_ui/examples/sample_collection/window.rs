@@ -121,9 +121,7 @@ unsafe extern "system" fn wnd_proc(
                 let frame_start = std::time::Instant::now();
 
                 let update_start = std::time::Instant::now();
-                app.context.tick_transitions();
-                app.context.tick_animations();
-                app.context.tick_drag_autoscroll();
+                app.context.tick_system_frame(&TickType::All);
                 let update_elapsed = update_start.elapsed();
 
                 let layout_start = std::time::Instant::now();
@@ -261,7 +259,8 @@ unsafe extern "system" fn wnd_proc(
                 let logical_pos =
                     LayoutPoint::new(x / app.renderer.scale_factor, y / app.renderer.scale_factor);
 
-                app.context.inject_pointer_move(logical_pos);
+                app.context
+                    .inject_user_action(UserAction::PointerMove(logical_pos));
 
                 // インタラクションによる変化（ホバー状態）をリアルタイムに再描画
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -288,8 +287,11 @@ unsafe extern "system" fn wnd_proc(
                     logo: false,
                 };
 
-                app.context
-                    .inject_pointer_button(MouseButton::Left, state, modifiers);
+                app.context.inject_user_action(UserAction::PointerButton {
+                    button: MouseButton::Left,
+                    state,
+                    modifiers,
+                });
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
@@ -305,8 +307,11 @@ unsafe extern "system" fn wnd_proc(
                     ElementState::Released
                 };
 
-                app.context
-                    .inject_pointer_button(MouseButton::Right, state, Modifiers::default());
+                app.context.inject_user_action(UserAction::PointerButton {
+                    button: MouseButton::Right,
+                    state,
+                    modifiers: Modifiers::default(),
+                });
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
@@ -326,13 +331,14 @@ unsafe extern "system" fn wnd_proc(
                     logo: false,
                 };
 
-                app.context.inject_pointer_button(
-                    MouseButton::Left,
-                    ElementState::Pressed,
+                app.context.inject_user_action(UserAction::PointerButton {
+                    button: MouseButton::Left,
+                    state: ElementState::Pressed,
                     modifiers,
-                );
+                });
 
-                app.context.inject_pointer_double_click(modifiers);
+                app.context
+                    .inject_user_action(UserAction::PointerDoubleClick { modifiers });
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
@@ -349,7 +355,10 @@ unsafe extern "system" fn wnd_proc(
                 let scroll_y = raw_wheel_delta_to_logical_pixels(raw_delta);
 
                 // 2次元スクロールとして注入 (縦スクロールのため X は 0.0 固定)
-                app.context.inject_mouse_wheel(0.0, scroll_y);
+                app.context.inject_user_action(UserAction::MouseWheel {
+                    scroll_x: 0.0,
+                    scroll_y,
+                });
 
                 // スクロールによって変化した絶対座標と表示制限を瞬時に再計算
                 app.context
@@ -370,7 +379,10 @@ unsafe extern "system" fn wnd_proc(
                 let scroll_x = -raw_wheel_delta_to_logical_pixels(raw_delta);
 
                 // 2次元スクロールとして注入 (横スクロールのため Y は 0.0 固定)
-                app.context.inject_mouse_wheel(scroll_x, 0.0);
+                app.context.inject_user_action(UserAction::MouseWheel {
+                    scroll_x,
+                    scroll_y: 0.0,
+                });
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
@@ -381,7 +393,7 @@ unsafe extern "system" fn wnd_proc(
             }
             WM_CHAR => {
                 if let Some(ch) = std::char::from_u32(wparam.0 as u32) {
-                    app.context.inject_character(ch);
+                    app.context.inject_user_action(UserAction::Character(ch));
 
                     app.context
                         .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
@@ -416,28 +428,30 @@ unsafe extern "system" fn wnd_proc(
                         0x56 => {
                             // 'V' キー
                             if let Some(pasted_text) = get_win32_clipboard() {
-                                app.context.inject_paste(&pasted_text);
+                                app.context
+                                    .inject_user_action(UserAction::Paste(pasted_text.into()));
                             }
                             return LRESULT(0);
                         }
                         // Ctrl + X (切り取り)
                         0x58 => {
                             // 'X'
-                            if let Some(cut_text) = app.context.inject_cut() {
-                                set_win32_clipboard(&cut_text);
+                            app.context.inject_user_action(UserAction::Cut);
+                            if let Some(t) = app.context.cut_text() {
+                                set_win32_clipboard(&t);
                             }
                             return LRESULT(0);
                         }
                         // Ctrl + Z (Undo)
                         0x5A => {
                             // 'Z'
-                            app.context.inject_undo();
+                            app.context.inject_user_action(UserAction::Undo);
                             return LRESULT(0);
                         }
                         // Ctrl + Y (Redo)
                         0x59 => {
                             // 'Y'
-                            app.context.inject_redo();
+                            app.context.inject_user_action(UserAction::Redo);
                             return LRESULT(0);
                         }
                         _ => {}
@@ -461,8 +475,11 @@ unsafe extern "system" fn wnd_proc(
                     _ => VirtualKey::UNKNOWN,
                 };
 
-                app.context
-                    .inject_keyboard_key(key, ElementState::Pressed, modifiers);
+                app.context.inject_user_action(UserAction::KeyboardKey {
+                    key,
+                    state: ElementState::Pressed,
+                    modifiers,
+                });
 
                 app.context
                     .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
@@ -490,7 +507,7 @@ unsafe extern "system" fn wnd_proc(
                     result_text: String::new(),
                     ..Default::default()
                 };
-                app.context.inject_ime(ime_state);
+                app.context.inject_user_action(UserAction::Ime(ime_state));
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(1);
             }
@@ -566,7 +583,7 @@ unsafe extern "system" fn wnd_proc(
                     }
 
                     // IME 情報を入力処理へ注入
-                    app.context.inject_ime(ime_state);
+                    app.context.inject_user_action(UserAction::Ime(ime_state));
 
                     let _ = unsafe { ImmReleaseContext(hwnd, himc) };
                 }

@@ -1,7 +1,6 @@
 use crate::{
-    AnimationCurve, Backdrop, COMP_WEBVIEW_CONTENT, Context, CornerRadius, EntityId, LayoutPoint,
-    LayoutRect, LayoutSize, PlaybackCount, PropertyList, STYLE_ANIMATIONS, WebView2Contents,
-    WgpuRenderer,
+    AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, EntityId, LayoutPoint,
+    LayoutRect, LayoutSize, PlaybackCount, PropertyList, WebView2Contents, WgpuRenderer,
 };
 use std::{
     cell::RefCell,

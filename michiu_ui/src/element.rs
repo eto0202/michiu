@@ -2,12 +2,9 @@ pub mod handler;
 pub mod input_func;
 
 use crate::{
-    BasicLayout, COMP_EXTERNAL_TEXTURE_CONTENT, COMP_IMAGE_CONTENT, COMP_MOVIE_CONTENT,
-    COMP_TEXT_CONTENT, COMP_UIA_CONTENT, COMP_WEBVIEW_CONTENT, Context, EffectCategory, EntityId,
-    ExternalTexture, ImageSource, MovieProperty, ReadSignal, STYLE_AUTO_WRAP, STYLE_DND_DRAGGABLE,
-    STYLE_DND_DROPPABLE, STYLE_FONT_SIZE, STYLE_INTERACTION_PARENT, STYLE_INTERACTION_PROPERTY,
-    STYLE_INTERACTION_WITHIN, STYLE_SCROLLBAR, ScrollBarState, ScrollbarDisplay, ScrollbarStyle,
-    StyleTarget, ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n,
+    BasicLayout, ComponentMask, Context, EffectCategory, EntityId, ExternalTexture, ImageSource,
+    MovieProperty, ReadSignal, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget,
+    ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n,
 };
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -233,10 +230,13 @@ impl Element {
         // topo_active_masks にスタイル側のマスクをマージするが、
         // 動的なインタラクション状態フラグ（STYLE_INTERACTION_PROPERTY）は
         // 実行時にのみ制御されるべきなのでここでは除外する
-        let property_only_mask = mask.0 & !STYLE_INTERACTION_PROPERTY;
+        let property_only_mask = mask.0 & !ComponentMask::STYLE_INTERACTION_PROPERTY;
 
         cx.topology.topo_active_masks[id].0 |= property_only_mask;
-        if mask.has_basic_layout() || mask.has(STYLE_FONT_SIZE) || mask.has(STYLE_AUTO_WRAP) {
+        if mask.has_basic_layout()
+            || mask.has(ComponentMask::STYLE_FONT_SIZE)
+            || mask.has(ComponentMask::STYLE_AUTO_WRAP)
+        {
             if merge && cx.layouts.lay_base_basic.contains_key(id) {
                 let base = cx.layouts.lay_base_basic.get_mut(id).unwrap();
                 base.override_with(&inner.basic_layout, mask);
@@ -261,8 +261,8 @@ impl Element {
         }
 
         if mask.has_interaction_property()
-            || mask.has(STYLE_INTERACTION_WITHIN)
-            || mask.has(STYLE_INTERACTION_PARENT)
+            || mask.has(ComponentMask::STYLE_INTERACTION_WITHIN)
+            || mask.has(ComponentMask::STYLE_INTERACTION_PARENT)
         {
             if merge && cx.renders.rnd_interaction.contains_key(id) {
                 let interaction = cx.renders.rnd_interaction.get_mut(id).unwrap();
@@ -291,19 +291,19 @@ impl Element {
             cx.mark_layout_dirty(id);
         }
 
-        if mask.has(STYLE_SCROLLBAR)
+        if mask.has(ComponentMask::STYLE_SCROLLBAR)
             && let Some(ref sb) = inner.scrollbar_style
         {
             Element::ensure_scrollbar_elements(cx, id, sb, merge);
             cx.mark_layout_dirty(id);
         }
 
-        if mask.has(STYLE_DND_DRAGGABLE)
+        if mask.has(ComponentMask::STYLE_DND_DRAGGABLE)
             && let Some(dp) = inner.drag_property
         {
             cx.events.evt_dnd_drag_properties.insert(id, dp);
         }
-        if mask.has(STYLE_DND_DROPPABLE)
+        if mask.has(ComponentMask::STYLE_DND_DROPPABLE)
             && let Some(dp) = inner.drop_property
         {
             cx.events.evt_dnd_drop_properties.insert(id, dp);
@@ -559,7 +559,7 @@ impl Element {
     pub fn text(self, content: impl Into<Prop<Cow<'static, str>>>) -> Self {
         self.bind_prop(content, EffectCategory::Text, |cx, id, val| {
             cx.contents.cont_text_contents.insert(id, val);
-            cx.topology.topo_active_masks[id].set(COMP_TEXT_CONTENT);
+            cx.topology.topo_active_masks[id].set(ComponentMask::COMP_TEXT_CONTENT);
             cx.clear_layout_cache(id);
             cx.mark_dirty(id);
         })
@@ -607,7 +607,7 @@ impl Element {
 
         with_context(|cx| {
             cx.contents.cont_external_textures.insert(id, texture_arc);
-            cx.topology.topo_active_masks[id].set(COMP_EXTERNAL_TEXTURE_CONTENT);
+            cx.topology.topo_active_masks[id].set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
 
             if !cx.layouts.lay_base_basic.contains_key(id) {
                 cx.layouts.lay_base_basic.insert(id, BasicLayout::default());
@@ -628,7 +628,7 @@ impl Element {
         self.bind_prop(contents, EffectCategory::Movie, |cx, id, src| {
             cx.contents.cont_webview_contents.insert(id, src);
             cx.topology.topo_webview_entities.push(id);
-            cx.topology.topo_active_masks[id].set(COMP_WEBVIEW_CONTENT);
+            cx.topology.topo_active_masks[id].set(ComponentMask::COMP_WEBVIEW_CONTENT);
             cx.mark_dirty(id);
         })
     }
@@ -688,7 +688,7 @@ impl Element {
         } else {
             list.push((property_id, value));
         }
-        cx.topology.topo_active_masks[self.id].set(COMP_UIA_CONTENT);
+        cx.topology.topo_active_masks[self.id].set(ComponentMask::COMP_UIA_CONTENT);
     }
 
     /// 自動テストフレームワークやデバッグで要素を特定するための「Automation `ID」を設定します（UIA_AutomationIdPropertyId` 互換）。
