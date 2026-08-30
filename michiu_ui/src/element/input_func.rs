@@ -180,11 +180,11 @@ impl Element {
             &cx.layouts.lay_resolved_basic,
             &cx.layouts.lay_resolved_flex,
             &cx.layouts.lay_resolved_grid,
-            &cx.renders.rnd_active_transitions,
             &cx.renders.rnd_interaction,
+            &cx.renders.rnd_active_transitions,
             &cx.renders.rnd_visual,
-            &cx.outputs.out_scroll_offsets,
             &cx.outputs.out_rects,
+            &cx.outputs.out_scroll_offsets,
         );
 
         let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {

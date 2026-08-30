@@ -73,4 +73,3 @@ impl WindowStore {
         LayoutSize::new(width, height)
     }
 }
-

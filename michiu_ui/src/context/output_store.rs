@@ -1,11 +1,3 @@
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    ops::Range,
-    time::Instant,
-};
-
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
     ActiveWebviewsHashSet, AlignItems, BaseVisualPropertiesSecondary, BasicLayout,
@@ -28,14 +20,21 @@ use crate::{
 };
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    ops::Range,
+    time::Instant,
+};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
 pub(crate) type RectsSecondary = SecondaryMap<EntityId, LayoutRect>;
 pub(crate) type ClipRectsSecondary = SecondaryMap<EntityId, LayoutRect>;
-pub(crate) type ScrollOffsetsSecondary = SecondaryMap<EntityId, LayoutPoint>;
-pub(crate) type ScrollSizesSecondary = SecondaryMap<EntityId, LayoutSize>;
 pub(crate) type PrevRectsSecondary = SecondaryMap<EntityId, LayoutRect>;
 pub(crate) type PrevClipRectsSecondary = SecondaryMap<EntityId, LayoutRect>;
+pub(crate) type ScrollOffsetsSecondary = SecondaryMap<EntityId, LayoutPoint>;
+pub(crate) type ScrollSizesSecondary = SecondaryMap<EntityId, LayoutSize>;
 pub(crate) type SelectedRectsSparseSecondary = SparseSecondaryMap<EntityId, Vec<LayoutRect>>;
 pub(crate) type TextSelectionsSparseSecondary = SparseSecondaryMap<EntityId, Range<usize>>;
 pub(crate) type SelectionStartIndexSparseSecondary = SparseSecondaryMap<EntityId, usize>;
@@ -43,13 +42,13 @@ pub(crate) type SelectionStartIndexSparseSecondary = SparseSecondaryMap<EntityId
 pub struct OutputStore {
     pub(crate) out_rects: RectsSecondary,
     pub(crate) out_clip_rects: ClipRectsSecondary,
-    pub(crate) out_scroll_offsets: ScrollOffsetsSecondary,
-    pub(crate) out_scroll_sizes: ScrollSizesSecondary,
     pub(crate) out_prev_rects: PrevRectsSecondary,
     pub(crate) out_prev_clip_rects: PrevClipRectsSecondary,
-    pub(crate) out_selected_rects: SelectedRectsSparseSecondary,
+    pub(crate) out_scroll_offsets: ScrollOffsetsSecondary,
+    pub(crate) out_scroll_sizes: ScrollSizesSecondary,
     pub(crate) out_text_selections: TextSelectionsSparseSecondary,
     pub(crate) out_selection_start_index: SelectionStartIndexSparseSecondary,
+    pub(crate) out_selected_rects: SelectedRectsSparseSecondary,
 }
 
 impl Default for OutputStore {
@@ -65,13 +64,13 @@ impl OutputStore {
         Self {
             out_rects: SecondaryMap::new(),
             out_clip_rects: SecondaryMap::new(),
-            out_scroll_offsets: SecondaryMap::new(),
-            out_scroll_sizes: SecondaryMap::new(),
             out_prev_rects: SecondaryMap::new(),
             out_prev_clip_rects: SecondaryMap::new(),
-            out_selected_rects: SparseSecondaryMap::new(),
+            out_scroll_offsets: SecondaryMap::new(),
+            out_scroll_sizes: SecondaryMap::new(),
             out_text_selections: SparseSecondaryMap::new(),
             out_selection_start_index: SparseSecondaryMap::new(),
+            out_selected_rects: SparseSecondaryMap::new(),
         }
     }
 
@@ -81,12 +80,12 @@ impl OutputStore {
         Self {
             out_rects: SecondaryMap::with_capacity(c.out_rects),
             out_clip_rects: SecondaryMap::with_capacity(c.out_clip_rects),
-            out_scroll_offsets: SecondaryMap::with_capacity(c.out_scroll_offsets),
-            out_scroll_sizes: SecondaryMap::with_capacity(c.out_scroll_sizes),
             out_prev_rects: SecondaryMap::with_capacity(c.out_prev_rects),
             out_prev_clip_rects: SecondaryMap::with_capacity(c.out_prev_clip_rects),
-            out_selected_rects: SparseSecondaryMap::with_capacity(c.out_selected_rects),
+            out_scroll_offsets: SecondaryMap::with_capacity(c.out_scroll_offsets),
+            out_scroll_sizes: SecondaryMap::with_capacity(c.out_scroll_sizes),
             out_text_selections: SparseSecondaryMap::with_capacity(c.out_text_selections),
+            out_selected_rects: SparseSecondaryMap::with_capacity(c.out_selected_rects),
             out_selection_start_index: SparseSecondaryMap::with_capacity(
                 c.out_selection_start_index,
             ),
@@ -97,34 +96,34 @@ impl OutputStore {
     pub fn clear(&mut self) {
         self.out_rects.clear();
         self.out_clip_rects.clear();
-        self.out_scroll_offsets.clear();
-        self.out_scroll_sizes.clear();
         self.out_prev_rects.clear();
         self.out_prev_clip_rects.clear();
-        self.out_selected_rects.clear();
+        self.out_scroll_offsets.clear();
+        self.out_scroll_sizes.clear();
         self.out_text_selections.clear();
         self.out_selection_start_index.clear();
+        self.out_selected_rects.clear();
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
         self.out_rects.remove(id);
         self.out_clip_rects.remove(id);
-        self.out_scroll_offsets.remove(id);
-        self.out_scroll_sizes.remove(id);
         self.out_prev_rects.remove(id);
         self.out_prev_clip_rects.remove(id);
-        self.out_selected_rects.remove(id);
+        self.out_scroll_offsets.remove(id);
+        self.out_scroll_sizes.remove(id);
         self.out_text_selections.remove(id);
         self.out_selection_start_index.remove(id);
+        self.out_selected_rects.remove(id);
     }
 }
 
 impl OutputStore {
     pub(crate) fn swap_output_rect(
         out_rects: &mut RectsSecondary,
-        out_prev_rects: &mut PrevRectsSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
+        out_prev_rects: &mut PrevRectsSecondary,
         out_prev_clip_rects: &mut PrevClipRectsSecondary,
     ) {
         std::mem::swap(out_rects, out_prev_rects);
@@ -139,8 +138,8 @@ impl OutputStore {
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         out_rects: &RectsSecondary,
-        out_prev_rects: &PrevRectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
+        out_prev_rects: &PrevRectsSecondary,
         out_prev_clip_rects: &PrevClipRectsSecondary,
     ) -> bool {
         let Some(parent_id) = topo_parents.get(id).copied().flatten() else {
@@ -158,7 +157,7 @@ impl OutputStore {
         id: EntityId,
         window_size: LayoutSize,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &TaffyTreeEntityId,
+        lay_taffy_tree: &TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &RectsSecondary,
@@ -166,7 +165,7 @@ impl OutputStore {
         out_scroll_offsets: &ScrollOffsetsSecondary,
     ) -> (LayoutRect, LayoutRect) {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
-        let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy, lay_taffy_nodes);
+        let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy_tree, lay_taffy_nodes);
 
         let parent_info = topo_parents.get(id).copied().flatten().and_then(|p_id| {
             let rect = out_rects.get(p_id).copied()?;
@@ -379,7 +378,7 @@ impl OutputStore {
         out_text_selections: &TextSelectionsSparseSecondary,
     ) -> Option<String> {
         // フォーカスされている要素を最優先とし、
-        // 無い場合は現在有効な選択範囲を持つ最初の要素を逆引き
+        // 無い場合は現在有効な空ではない選択範囲を持つ最初の要素を逆引き
         let target_id = evt_interaction_states.focused.or_else(|| {
             out_text_selections
                 .iter()
@@ -562,9 +561,9 @@ impl OutputStore {
         id: EntityId,
         sys_text_engine: &TextEngine,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
@@ -663,8 +662,8 @@ impl OutputStore {
         id: EntityId,
         sys_text_engine: &TextEngine,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &mut VisualPropertiesSecondary,
@@ -917,16 +916,16 @@ impl OutputStore {
         win_last_size: Option<LayoutSize>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
-        out_rects: &RectsSecondary,
         out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_rects: &RectsSecondary,
         out_scroll_sizes: &ScrollSizesSecondary,
     ) -> bool {
         let Some(rect) = out_rects.get(id).copied() else {
@@ -970,8 +969,8 @@ impl OutputStore {
                 id,
                 topo_active_masks,
                 topo_parents,
-                lay_taffy,
                 lay_dirty_entities,
+                lay_taffy_tree,
                 lay_taffy_nodes,
             );
             true
@@ -987,8 +986,8 @@ impl OutputStore {
         win_last_size: Option<LayoutSize>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -1008,16 +1007,16 @@ impl OutputStore {
             win_last_size,
             topo_active_masks,
             topo_parents,
-            lay_taffy,
             lay_dirty_entities,
+            lay_taffy_tree,
             lay_scrollbar_styles,
             lay_taffy_nodes,
             lay_resolved_basic,
             rnd_visual,
             rnd_interaction,
             rnd_active_transitions,
-            out_rects,
             out_scroll_offsets,
+            out_rects,
             out_scroll_sizes,
         )
     }
@@ -1026,17 +1025,17 @@ impl OutputStore {
     /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して `SoA` を更新。
     pub(crate) fn update_input_caret_position(
         id: EntityId,
-        win_last_size: Option<LayoutSize>,
         win_scale_factor: f32,
+        win_last_size: Option<LayoutSize>,
         sys_text_engine: &TextEngine,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -1058,8 +1057,8 @@ impl OutputStore {
             id,
             sys_text_engine,
             sys_dwrite_layouts,
-            cont_input_contents,
             cont_text_contents,
+            cont_input_contents,
             cont_text_spans,
             lay_resolved_basic,
             rnd_visual,
@@ -1132,16 +1131,16 @@ impl OutputStore {
                 win_last_size,
                 topo_active_masks,
                 topo_parents,
-                lay_taffy,
                 lay_dirty_entities,
+                lay_taffy_tree,
                 lay_scrollbar_styles,
                 lay_taffy_nodes,
                 lay_resolved_basic,
                 rnd_visual,
                 rnd_interaction,
                 rnd_active_transitions,
-                out_rects,
                 out_scroll_offsets,
+                out_rects,
                 out_scroll_sizes,
             );
         }
@@ -1183,8 +1182,8 @@ impl OutputStore {
         win_last_size: Option<LayoutSize>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -1327,16 +1326,16 @@ impl OutputStore {
                 win_last_size,
                 topo_active_masks,
                 topo_parents,
-                lay_taffy,
                 lay_dirty_entities,
+                lay_taffy_tree,
                 lay_scrollbar_styles,
                 lay_taffy_nodes,
                 lay_resolved_basic,
                 rnd_visual,
                 rnd_interaction,
                 rnd_active_transitions,
-                out_rects,
                 out_scroll_offsets,
+                out_rects,
                 out_scroll_sizes,
             );
         }
@@ -1401,7 +1400,7 @@ impl OutputStore {
     /// Taffy永続ツリーへのスタイル差分同期
     fn sync_dirty_styles_to_taffy(
         scrollbar_el_ids: &HashSet<EntityId>,
-        lay_taffy: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_dirty_entities: &DirtyLayoutEntitiesVec,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -1431,7 +1430,7 @@ impl OutputStore {
             );
 
             if let Some(taffy_node) = lay_taffy_nodes.get(id) {
-                lay_taffy.set_style(*taffy_node, taffy_style).unwrap();
+                lay_taffy_tree.set_style(*taffy_node, taffy_style).unwrap();
             }
         }
     }
@@ -1444,7 +1443,7 @@ impl OutputStore {
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &TaffyTreeEntityId,
+        lay_taffy_tree: &TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &mut RectsSecondary,
@@ -1455,7 +1454,7 @@ impl OutputStore {
             id,
             window_size,
             topo_parents,
-            lay_taffy,
+            lay_taffy_tree,
             lay_taffy_nodes,
             lay_basic,
             out_rects,
@@ -1493,7 +1492,7 @@ impl OutputStore {
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        lay_taffy: &TaffyTreeEntityId,
+        lay_taffy_tree: &TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &mut RectsSecondary,
@@ -1515,8 +1514,8 @@ impl OutputStore {
                 topo_active_masks,
                 topo_parents,
                 out_rects,
-                out_prev_rects,
                 out_clip_rects,
+                out_prev_rects,
                 out_prev_clip_rects,
             );
 
@@ -1546,7 +1545,7 @@ impl OutputStore {
                 topo_active_entities,
                 topo_active_masks,
                 topo_parents,
-                lay_taffy,
+                lay_taffy_tree,
                 lay_taffy_nodes,
                 lay_basic,
                 out_rects,
@@ -1564,7 +1563,7 @@ impl OutputStore {
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        lay_taffy: &TaffyTreeEntityId,
+        lay_taffy_tree: &TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &mut RectsSecondary,
@@ -1581,7 +1580,7 @@ impl OutputStore {
                 topo_active_entities,
                 topo_active_masks,
                 topo_parents,
-                lay_taffy,
+                lay_taffy_tree,
                 lay_taffy_nodes,
                 lay_basic,
                 out_rects,
@@ -1597,8 +1596,8 @@ impl OutputStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -1622,16 +1621,16 @@ impl OutputStore {
                 win_last_size,
                 topo_active_masks,
                 topo_parents,
-                lay_taffy,
                 lay_dirty_entities,
+                lay_taffy_tree,
                 lay_scrollbar_styles,
                 lay_taffy_nodes,
                 lay_resolved_basic,
                 rnd_visual,
                 rnd_interaction,
                 rnd_active_transitions,
-                out_rects,
                 out_scroll_offsets,
+                out_rects,
                 out_scroll_sizes,
             );
         }
@@ -1695,8 +1694,8 @@ impl OutputStore {
                 &cx.layouts.lay_basic,
                 &cx.layouts.lay_flex,
                 &cx.layouts.lay_grid,
-                &cx.renders.rnd_interaction,
                 &cx.renders.rnd_visual,
+                &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
             );
         }
@@ -1707,7 +1706,7 @@ impl OutputStore {
         // Taffy永続ツリーへの差分同期
         OutputStore::sync_dirty_styles_to_taffy(
             &scrollbar_el_ids,
-            &mut cx.layouts.lay_taffy,
+            &mut cx.layouts.lay_taffy_tree,
             &cx.layouts.lay_dirty_entities,
             &cx.layouts.lay_taffy_nodes,
             &cx.layouts.lay_resolved_basic,
@@ -1753,7 +1752,7 @@ impl OutputStore {
                 })
             };
 
-            let _ = cx.layouts.lay_taffy.compute_layout_with_measure(
+            let _ = cx.layouts.lay_taffy_tree.compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
@@ -1767,8 +1766,8 @@ impl OutputStore {
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの out_rects のみを確定
         OutputStore::swap_output_rect(
             &mut cx.outputs.out_rects,
-            &mut cx.outputs.out_prev_rects,
             &mut cx.outputs.out_clip_rects,
+            &mut cx.outputs.out_prev_rects,
             &mut cx.outputs.out_prev_clip_rects,
         );
         OutputStore::resolve_first_pass_rects(
@@ -1780,7 +1779,7 @@ impl OutputStore {
             &cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
-            &cx.layouts.lay_taffy,
+            &cx.layouts.lay_taffy_tree,
             &cx.layouts.lay_taffy_nodes,
             &cx.layouts.lay_basic,
             &mut cx.outputs.out_rects,
@@ -1803,9 +1802,9 @@ impl OutputStore {
                     id,
                     &cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
-                    &cx.contents.cont_input_contents,
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
+                    &cx.contents.cont_input_contents,
                     &cx.topology.topo_active_masks,
                     &cx.topology.topo_parents,
                     &cx.topology.topo_children,
@@ -1826,13 +1825,13 @@ impl OutputStore {
             cx.window.win_last_size,
             &cx.system.sys_text_engine,
             &cx.system.sys_dwrite_layouts,
-            &cx.contents.cont_input_contents,
             &cx.contents.cont_text_contents,
             &cx.contents.cont_text_spans,
+            &cx.contents.cont_input_contents,
             &cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
             &cx.topology.topo_children,
-            &mut cx.layouts.lay_taffy,
+            &mut cx.layouts.lay_taffy_tree,
             &mut cx.layouts.lay_basic,
             &mut cx.layouts.lay_base_basic,
             &mut cx.layouts.lay_resolved_basic,
@@ -1844,8 +1843,8 @@ impl OutputStore {
             &cx.layouts.lay_scrollbar_styles,
             &mut cx.renders.rnd_visual,
             &mut cx.renders.rnd_base_visual,
-            &cx.renders.rnd_active_transitions,
             &cx.renders.rnd_interaction,
+            &cx.renders.rnd_active_transitions,
             &cx.outputs.out_rects,
             &cx.outputs.out_scroll_offsets,
             &cx.outputs.out_scroll_sizes,
@@ -1853,7 +1852,7 @@ impl OutputStore {
 
         // Taffy の 2回目レイアウト計算（スクロールバー配置確定後）
         if let Some(&root_node) = cx.layouts.lay_taffy_nodes.get(root) {
-            let _ = cx.layouts.lay_taffy.compute_layout_with_measure(
+            let _ = cx.layouts.lay_taffy_tree.compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
@@ -1905,7 +1904,7 @@ impl OutputStore {
             &cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
-            &cx.layouts.lay_taffy,
+            &cx.layouts.lay_taffy_tree,
             &cx.layouts.lay_taffy_nodes,
             &cx.layouts.lay_basic,
             &mut cx.outputs.out_rects,
@@ -1925,17 +1924,17 @@ impl OutputStore {
             if has_input && is_focused {
                 OutputStore::update_input_caret_position(
                     id,
-                    cx.window.win_last_size,
                     cx.window.win_scale_factor,
+                    cx.window.win_last_size,
                     &cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
-                    &mut cx.contents.cont_input_contents,
                     &mut cx.contents.cont_text_contents,
+                    &mut cx.contents.cont_input_contents,
                     &cx.contents.cont_text_spans,
                     &mut cx.topology.topo_active_masks,
                     &cx.topology.topo_parents,
-                    &mut cx.layouts.lay_taffy,
                     &mut cx.layouts.lay_dirty_entities,
+                    &mut cx.layouts.lay_taffy_tree,
                     &mut cx.layouts.lay_scrollbar_styles,
                     &cx.layouts.lay_taffy_nodes,
                     &cx.layouts.lay_resolved_basic,
@@ -1959,8 +1958,8 @@ impl OutputStore {
             &mut cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
-            &mut cx.layouts.lay_taffy,
             &mut cx.layouts.lay_dirty_entities,
+            &mut cx.layouts.lay_taffy_tree,
             &mut cx.layouts.lay_scrollbar_styles,
             &cx.layouts.lay_taffy_nodes,
             &cx.layouts.lay_resolved_basic,
@@ -2748,17 +2747,17 @@ impl OutputStore {
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &TextEngine,
         sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
         cont_external_textures: &ExternalTextureSparseSecondary,
         evt_interaction_states: &InteractionStates,
-        topo_sorted_entities: &mut SortedEntitiesVec,
+        topo_active_masks: &mut ActiveMasksSecondary,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_dfs_indices: &mut DfsIndicesSecondary,
+        topo_sorted_entities: &mut SortedEntitiesVec,
         topo_sort_cache: &mut TopoSortCacheVec,
         topo_is_sort_dirty: &mut bool,
-        topo_active_masks: &mut ActiveMasksSecondary,
         topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
@@ -2772,8 +2771,8 @@ impl OutputStore {
         rnd_active_webviews: &ActiveWebviewsHashSet,
         out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
-        out_selected_rects: &SelectedRectsSparseSecondary,
         out_scroll_offsets: &ScrollOffsetsSecondary,
+        out_selected_rects: &SelectedRectsSparseSecondary,
     ) {
         let default_visual = VisualProperty::default();
 
@@ -2781,9 +2780,9 @@ impl OutputStore {
         TopologyStore::prepare_sorted_entities(
             win_last_size,
             topo_active_masks,
-            topo_sorted_entities,
-            topo_effective_z_indices,
             topo_dfs_indices,
+            topo_effective_z_indices,
+            topo_sorted_entities,
             topo_sort_cache,
             topo_is_sort_dirty,
             topo_active_entities,
@@ -3211,16 +3210,16 @@ impl Context {
             self.window.win_last_size,
             &mut self.topology.topo_active_masks,
             &self.topology.topo_parents,
-            &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_dirty_entities,
+            &mut self.layouts.lay_taffy_tree,
             &mut self.layouts.lay_scrollbar_styles,
             &self.layouts.lay_taffy_nodes,
             &self.layouts.lay_resolved_basic,
             &self.renders.rnd_visual,
             &self.renders.rnd_interaction,
             &self.renders.rnd_active_transitions,
-            &self.outputs.out_rects,
             &mut self.outputs.out_scroll_offsets,
+            &self.outputs.out_rects,
             &self.outputs.out_scroll_sizes,
         )
     }
@@ -3244,17 +3243,17 @@ impl Context {
     pub(crate) fn update_input_caret_position(&mut self, id: EntityId) {
         OutputStore::update_input_caret_position(
             id,
-            self.window.win_last_size,
             self.window.win_scale_factor,
+            self.window.win_last_size,
             &self.system.sys_text_engine,
             &self.system.sys_dwrite_layouts,
-            &mut self.contents.cont_input_contents,
             &mut self.contents.cont_text_contents,
+            &mut self.contents.cont_input_contents,
             &self.contents.cont_text_spans,
             &mut self.topology.topo_active_masks,
             &self.topology.topo_parents,
-            &mut self.layouts.lay_taffy,
             &mut self.layouts.lay_dirty_entities,
+            &mut self.layouts.lay_taffy_tree,
             &mut self.layouts.lay_scrollbar_styles,
             &self.layouts.lay_taffy_nodes,
             &self.layouts.lay_resolved_basic,
@@ -3291,17 +3290,17 @@ impl Context {
             self.window.win_last_size,
             &self.system.sys_text_engine,
             &self.system.sys_dwrite_layouts,
-            &self.contents.cont_input_contents,
             &self.contents.cont_text_contents,
             &self.contents.cont_text_spans,
+            &self.contents.cont_input_contents,
             &self.contents.cont_external_textures,
             &self.events.evt_interaction_states,
-            &mut self.topology.topo_sorted_entities,
+            &mut self.topology.topo_active_masks,
             &mut self.topology.topo_effective_z_indices,
             &mut self.topology.topo_dfs_indices,
+            &mut self.topology.topo_sorted_entities,
             &mut self.topology.topo_sort_cache,
             &mut self.topology.topo_is_sort_dirty,
-            &mut self.topology.topo_active_masks,
             &self.topology.topo_active_entities,
             &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,
@@ -3315,8 +3314,8 @@ impl Context {
             &self.renders.rnd_active_webviews,
             &mut self.outputs.out_clip_rects,
             &self.outputs.out_rects,
-            &self.outputs.out_selected_rects,
             &self.outputs.out_scroll_offsets,
+            &self.outputs.out_selected_rects,
         );
     }
 }

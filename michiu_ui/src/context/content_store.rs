@@ -1,33 +1,28 @@
-use std::{
-    borrow::Cow,
-    sync::Arc,
-    time::{Duration, Instant},
-};
-
 use crate::{
     ActiveMasksSecondary, CapacityConfig, Context, EntityId, ExternalTexture, ImageSource,
     InputContents, LayoutRect, MovieProperty, RenderStore, SystemStore, TextEngine, TextSpan,
     TopologyStore, VisualPropertiesSecondary, WebView2Contents,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
+use std::{
+    borrow::Cow,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 pub(crate) type TextContentsSparseSecondary = SparseSecondaryMap<EntityId, Cow<'static, str>>;
 pub(crate) type TextSpansSparseSecondary = SparseSecondaryMap<EntityId, Vec<TextSpan>>;
 pub(crate) type InputContentsSparseSecondary = SparseSecondaryMap<EntityId, InputContents>;
-pub(crate) type ImageSourcesSparseSecondary = SparseSecondaryMap<EntityId, ImageSource>;
-pub(crate) type MoviePropertiesSparseSecondary = SparseSecondaryMap<EntityId, MovieProperty>;
-pub(crate) type WebviewContentsSparseSecondary = SparseSecondaryMap<EntityId, WebView2Contents>;
 pub(crate) type ExternalTextureSparseSecondary =
     SparseSecondaryMap<EntityId, Arc<dyn ExternalTexture>>;
+pub(crate) type WebviewContentsSparseSecondary = SparseSecondaryMap<EntityId, WebView2Contents>;
 
 pub struct ContentStore {
     pub(crate) cont_text_contents: TextContentsSparseSecondary,
     pub(crate) cont_text_spans: TextSpansSparseSecondary,
     pub(crate) cont_input_contents: InputContentsSparseSecondary,
-    pub(crate) cont_image_sources: ImageSourcesSparseSecondary,
-    pub(crate) cont_movie_properties: MoviePropertiesSparseSecondary,
-    pub(crate) cont_webview_contents: WebviewContentsSparseSecondary,
     pub(crate) cont_external_textures: ExternalTextureSparseSecondary,
+    pub(crate) cont_webview_contents: WebviewContentsSparseSecondary,
 }
 
 impl Default for ContentStore {
@@ -44,10 +39,8 @@ impl ContentStore {
             cont_text_contents: SparseSecondaryMap::new(),
             cont_text_spans: SparseSecondaryMap::new(),
             cont_input_contents: SparseSecondaryMap::new(),
-            cont_image_sources: SparseSecondaryMap::new(),
-            cont_movie_properties: SparseSecondaryMap::new(),
-            cont_webview_contents: SparseSecondaryMap::new(),
             cont_external_textures: SparseSecondaryMap::new(),
+            cont_webview_contents: SparseSecondaryMap::new(),
         }
     }
 
@@ -58,10 +51,8 @@ impl ContentStore {
             cont_text_contents: SparseSecondaryMap::with_capacity(c.out_text_selections),
             cont_text_spans: SparseSecondaryMap::with_capacity(c.cont_text_spans),
             cont_input_contents: SparseSecondaryMap::with_capacity(c.cont_input_contents),
-            cont_image_sources: SparseSecondaryMap::with_capacity(c.cont_image_sources),
-            cont_movie_properties: SparseSecondaryMap::with_capacity(c.cont_movie_properties),
-            cont_webview_contents: SparseSecondaryMap::with_capacity(c.cont_webview_contents),
             cont_external_textures: SparseSecondaryMap::with_capacity(c.cont_external_textures),
+            cont_webview_contents: SparseSecondaryMap::with_capacity(c.cont_webview_contents),
         }
     }
 
@@ -70,10 +61,8 @@ impl ContentStore {
         self.cont_text_contents.clear();
         self.cont_text_spans.clear();
         self.cont_input_contents.clear();
-        self.cont_image_sources.clear();
-        self.cont_movie_properties.clear();
-        self.cont_webview_contents.clear();
         self.cont_external_textures.clear();
+        self.cont_webview_contents.clear();
     }
 
     #[inline]
@@ -81,10 +70,8 @@ impl ContentStore {
         self.cont_text_contents.remove(id);
         self.cont_text_spans.remove(id);
         self.cont_input_contents.remove(id);
-        self.cont_image_sources.remove(id);
-        self.cont_movie_properties.remove(id);
-        self.cont_webview_contents.remove(id);
         self.cont_external_textures.remove(id);
+        self.cont_webview_contents.remove(id);
     }
 }
 

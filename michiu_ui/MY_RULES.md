@@ -22,15 +22,23 @@
 
 ## 2. 引数の配置ルール
 
-多引数関数を実装する際は、以下の2つの基準に沿って引数をソート。
+多引数関数を実装する際は、以下の６つの基準に沿って引数をソート。
 
-1. **ストアの優先度順 (1 〜 9)** に並べる。
-2. 同一ストアの引数の中では、**可変参照 (`&mut`) を先、不変参照 (`&`) を後**に配置。
+1. `Context` がある場合は引数名を `cx` に統一。
+2. `EntityId`
+3. 関数に渡す細かいデータ。
+4. 配列は **ストアの優先度順 (1 〜 9)** に並べる。
+5. 同一ストアの引数の中では、**可変参照 (`&mut`) を先、不変参照 (`&`) を後**に配置。
+6. ブロックごとに、各Storeの配列の並び順と対応させる (手遅れ)。
 
 ### 例
 
 ```rust
 pub(crate) fn some_helper_function(
+    id: EntityId,
+    cx: &mut Context,
+    window_size: LayoutSize,
+
     // 6. topology
     topo_active_masks: &mut ActiveMasks, // &mut
     topo_parents: &Parents,              // &
@@ -47,3 +55,5 @@ pub(crate) fn some_helper_function(
     // 実装...
 }
 ```
+
+---

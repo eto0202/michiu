@@ -52,10 +52,10 @@ pub(crate) type ActiveAnimationsSparseSecondary =
 pub(crate) type ActiveWebviewsHashSet = FxHashSet<EntityId>;
 
 pub struct RenderStore {
-    pub(crate) rnd_visual: VisualPropertiesSecondary,
-    pub(crate) rnd_interaction: InteractionPropertiesSecondary,
-    pub(crate) rnd_base_visual: BaseVisualPropertiesSecondary,
     pub(crate) rnd_dirty_entities: DirtyRenderEntitiesVec,
+    pub(crate) rnd_visual: VisualPropertiesSecondary,
+    pub(crate) rnd_base_visual: BaseVisualPropertiesSecondary,
+    pub(crate) rnd_interaction: InteractionPropertiesSecondary,
     pub(crate) rnd_active_transitions: ActiveTransitionsSparseSecondary,
     pub(crate) rnd_active_animations: ActiveAnimationsSparseSecondary,
     pub(crate) rnd_active_webviews: ActiveWebviewsHashSet,
@@ -73,10 +73,10 @@ impl RenderStore {
     #[inline]
     pub fn new() -> Self {
         Self {
-            rnd_visual: SecondaryMap::new(),
-            rnd_interaction: SecondaryMap::new(),
-            rnd_base_visual: SecondaryMap::new(),
             rnd_dirty_entities: Vec::new(),
+            rnd_visual: SecondaryMap::new(),
+            rnd_base_visual: SecondaryMap::new(),
+            rnd_interaction: SecondaryMap::new(),
             rnd_active_transitions: SparseSecondaryMap::new(),
             rnd_active_animations: SparseSecondaryMap::new(),
             rnd_active_webviews: FxHashSet::default(),
@@ -88,10 +88,10 @@ impl RenderStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            rnd_visual: SecondaryMap::with_capacity(c.rnd_visual),
-            rnd_interaction: SecondaryMap::with_capacity(c.rnd_interaction),
-            rnd_base_visual: SecondaryMap::with_capacity(c.rnd_base_visual),
             rnd_dirty_entities: Vec::with_capacity(c.rnd_dirty_entities),
+            rnd_visual: SecondaryMap::with_capacity(c.rnd_visual),
+            rnd_base_visual: SecondaryMap::with_capacity(c.rnd_base_visual),
+            rnd_interaction: SecondaryMap::with_capacity(c.rnd_interaction),
             rnd_active_transitions: SparseSecondaryMap::with_capacity(c.rnd_active_transitions),
             rnd_active_animations: SparseSecondaryMap::with_capacity(c.rnd_active_animations),
             rnd_active_webviews: FxHashSet::with_capacity_and_hasher(
@@ -104,10 +104,10 @@ impl RenderStore {
 
     #[inline]
     pub fn clear(&mut self) {
-        self.rnd_visual.clear();
-        self.rnd_interaction.clear();
-        self.rnd_base_visual.clear();
         self.rnd_dirty_entities.clear();
+        self.rnd_visual.clear();
+        self.rnd_base_visual.clear();
+        self.rnd_interaction.clear();
         self.rnd_active_transitions.clear();
         self.rnd_active_animations.clear();
         self.rnd_active_webviews.clear();
@@ -116,10 +116,10 @@ impl RenderStore {
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
-        self.rnd_visual.remove(id);
-        self.rnd_interaction.remove(id);
-        self.rnd_base_visual.remove(id);
         self.rnd_dirty_entities.retain(|&x| x != id);
+        self.rnd_visual.remove(id);
+        self.rnd_base_visual.remove(id);
+        self.rnd_interaction.remove(id);
         self.rnd_active_transitions.remove(id);
         self.rnd_active_animations.remove(id);
         self.rnd_active_webviews.remove(&id);
@@ -541,8 +541,8 @@ impl RenderStore {
         id: EntityId,
         target: &mut TargetStyle,
         active_mask: ComponentMask,
-        topo_active_masks: &ActiveMasksSecondary,
         topo_entities: &EntitiesSlot,
+        topo_active_masks: &ActiveMasksSecondary,
         topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
@@ -566,8 +566,8 @@ impl RenderStore {
             let with_state = TopologyStore::has_descendant_with_state(
                 id,
                 state,
-                topo_active_masks,
                 topo_entities,
+                topo_active_masks,
                 topo_children,
             );
 
@@ -590,8 +590,8 @@ impl RenderStore {
         let any_state = TopologyStore::has_descendant_with_state(
             id,
             STYLE_ACTIVE_INTERACTION_PROPERTY,
-            topo_active_masks,
             topo_entities,
+            topo_active_masks,
             topo_children,
         );
 
@@ -607,8 +607,8 @@ impl RenderStore {
         id: EntityId,
         target: &mut TargetStyle,
         active_mask: ComponentMask,
-        topo_active_masks: &ActiveMasksSecondary,
         topo_entities: &EntitiesSlot,
+        topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
@@ -631,8 +631,8 @@ impl RenderStore {
             let with_state = TopologyStore::has_parent_with_state(
                 id,
                 state,
-                topo_active_masks,
                 topo_entities,
+                topo_active_masks,
                 topo_parents,
             );
 
@@ -653,8 +653,8 @@ impl RenderStore {
         let any_state = TopologyStore::has_parent_with_state(
             id,
             STYLE_ACTIVE_INTERACTION_PROPERTY,
-            topo_active_masks,
             topo_entities,
+            topo_active_masks,
             topo_parents,
         );
 
@@ -672,8 +672,8 @@ impl RenderStore {
         active_mask: ComponentMask,
         focused_style_resolved: Option<&ThisStyle>,
         focused_visible_style_resolved: Option<&ThisStyle>,
-        topo_active_masks: &ActiveMasksSecondary,
         topo_entities: &EntitiesSlot,
+        topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
@@ -690,8 +690,8 @@ impl RenderStore {
             id,
             target,
             active_mask,
-            topo_active_masks,
             topo_entities,
+            topo_active_masks,
             topo_parents,
             topo_children,
             rnd_interaction,
@@ -700,8 +700,8 @@ impl RenderStore {
             id,
             target,
             active_mask,
-            topo_active_masks,
             topo_entities,
+            topo_active_masks,
             topo_children,
             rnd_interaction,
         );
@@ -710,8 +710,8 @@ impl RenderStore {
     /// 対象の要素がキーボードフォーカス可能であるかを検証
     pub(crate) fn is_keyboard_focusable(
         id: EntityId,
-        topo_active_masks: &ActiveMasksSecondary,
         topo_entities: &EntitiesSlot,
+        topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_basic: &BasicLayoutsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
@@ -761,9 +761,9 @@ impl RenderStore {
         value: &TransitionValue,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_visual: &mut VisualPropertiesSecondary,
     ) {
@@ -815,8 +815,8 @@ impl RenderStore {
                 id,
                 topo_active_masks,
                 topo_parents,
-                lay_taffy,
                 lay_dirty_entities,
+                lay_taffy_tree,
                 lay_taffy_nodes,
             );
         }
@@ -835,13 +835,13 @@ impl RenderStore {
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_base_basic: &BaseBasicLayoutsSecondary,
-        rnd_visual: &mut VisualPropertiesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+        rnd_visual: &mut VisualPropertiesSecondary,
         rnd_active_transitions: &mut ActiveTransitionsSparseSecondary,
         rnd_active_animations: &mut ActiveAnimationsSparseSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
@@ -862,11 +862,11 @@ impl RenderStore {
             topo_entities,
             topo_parents,
             topo_children,
-            lay_taffy,
             lay_dirty_entities,
+            lay_taffy_tree,
             lay_taffy_nodes,
-            rnd_visual,
             rnd_dirty_entities,
+            rnd_visual,
             rnd_active_transitions,
             rnd_base_visual,
             rnd_interaction,
@@ -880,9 +880,9 @@ impl RenderStore {
             react_element_effects,
             topo_active_masks,
             topo_parents,
-            lay_taffy,
-            lay_basic,
             lay_dirty_entities,
+            lay_taffy_tree,
+            lay_basic,
             lay_taffy_nodes,
             lay_base_basic,
             rnd_active_transitions,
@@ -905,9 +905,9 @@ impl RenderStore {
         react_element_effects: &ElementEffectsSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_base_basic: &BaseBasicLayoutsSecondary,
         rnd_active_transitions: &mut ActiveTransitionsSparseSecondary,
@@ -1013,8 +1013,8 @@ impl RenderStore {
                 id,
                 topo_active_masks,
                 topo_parents,
-                lay_taffy,
                 lay_dirty_entities,
+                lay_taffy_tree,
                 lay_taffy_nodes,
             );
         }
@@ -1032,11 +1032,11 @@ impl RenderStore {
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
-        rnd_visual: &mut VisualPropertiesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+        rnd_visual: &mut VisualPropertiesSecondary,
         rnd_active_transitions: &mut ActiveTransitionsSparseSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
@@ -1072,8 +1072,8 @@ impl RenderStore {
             active_mask,
             focused_style_resolved.as_ref(),
             focused_visible_style_resolved.as_ref(),
-            topo_active_masks,
             topo_entities,
+            topo_active_masks,
             topo_parents,
             topo_children,
             rnd_interaction,
@@ -1307,8 +1307,8 @@ impl RenderStore {
                     id,
                     topo_active_masks,
                     topo_parents,
-                    lay_taffy,
                     lay_dirty_entities,
+                    lay_taffy_tree,
                     lay_taffy_nodes,
                 );
             }
@@ -1582,12 +1582,12 @@ impl RenderStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
-        rnd_visual: &mut VisualPropertiesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+        rnd_visual: &mut VisualPropertiesSecondary,
         rnd_active_animations: &mut ActiveAnimationsSparseSecondary,
     ) {
         let now = Instant::now();
@@ -1615,9 +1615,9 @@ impl RenderStore {
                         &anim.end_value,
                         topo_active_masks,
                         topo_parents,
-                        lay_taffy,
-                        lay_basic,
                         lay_dirty_entities,
+                        lay_taffy_tree,
+                        lay_basic,
                         lay_taffy_nodes,
                         rnd_visual,
                     );
@@ -1643,9 +1643,9 @@ impl RenderStore {
                     &current_val,
                     topo_active_masks,
                     topo_parents,
-                    lay_taffy,
-                    lay_basic,
                     lay_dirty_entities,
+                    lay_taffy_tree,
+                    lay_basic,
                     lay_taffy_nodes,
                     rnd_visual,
                 );
@@ -1668,12 +1668,12 @@ impl RenderStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
-        lay_taffy: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
-        rnd_visual: &mut VisualPropertiesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+        rnd_visual: &mut VisualPropertiesSecondary,
         rnd_active_transitions: &mut ActiveTransitionsSparseSecondary,
         rnd_last_tick_time: &mut Option<Instant>,
     ) {
@@ -1742,8 +1742,8 @@ impl RenderStore {
                             id,
                             topo_active_masks,
                             topo_parents,
-                            lay_taffy,
                             lay_dirty_entities,
+                            lay_taffy_tree,
                             lay_taffy_nodes,
                         );
                     }
@@ -1756,8 +1756,8 @@ impl RenderStore {
                             id,
                             topo_active_masks,
                             topo_parents,
-                            lay_taffy,
                             lay_dirty_entities,
+                            lay_taffy_tree,
                             lay_taffy_nodes,
                         );
                     }
@@ -2079,13 +2079,13 @@ impl Context {
             &self.topology.topo_entities,
             &self.topology.topo_parents,
             &self.topology.topo_children,
-            &mut self.layouts.lay_taffy,
-            &mut self.layouts.lay_basic,
             &mut self.layouts.lay_dirty_entities,
+            &mut self.layouts.lay_taffy_tree,
+            &mut self.layouts.lay_basic,
             &self.layouts.lay_taffy_nodes,
             &self.layouts.lay_base_basic,
-            &mut self.renders.rnd_visual,
             &mut self.renders.rnd_dirty_entities,
+            &mut self.renders.rnd_visual,
             &mut self.renders.rnd_active_transitions,
             &mut self.renders.rnd_active_animations,
             &self.renders.rnd_base_visual,

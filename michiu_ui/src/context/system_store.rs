@@ -64,9 +64,9 @@ pub(crate) type UiaPropertiesSparseSecondary = SparseSecondaryMap<EntityId, Vec<
 pub struct SystemStore {
     pub(crate) sys_text_engine: TextEngine,
     pub(crate) sys_dwrite_layouts: DwriteLayoutsSparseSecondary,
-    pub(crate) sys_uia_properties: UiaPropertiesSparseSecondary,
     pub(crate) sys_task_sender: TaskSender,
     pub(crate) sys_task_receiver: Receiver<TaskRecv>,
+    pub(crate) sys_uia_properties: UiaPropertiesSparseSecondary,
 }
 
 pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;
@@ -78,9 +78,9 @@ impl SystemStore {
         Self {
             sys_text_engine: TextEngine::new(),
             sys_dwrite_layouts: RefCell::new(SparseSecondaryMap::new()),
-            sys_uia_properties: SparseSecondaryMap::new(),
             sys_task_sender,
             sys_task_receiver,
+            sys_uia_properties: SparseSecondaryMap::new(),
         }
     }
 
@@ -96,17 +96,17 @@ impl SystemStore {
             sys_dwrite_layouts: RefCell::new(SparseSecondaryMap::with_capacity(
                 c.sys_dwrite_layouts,
             )),
-            sys_uia_properties: SparseSecondaryMap::new(),
             sys_task_sender,
             sys_task_receiver,
+            sys_uia_properties: SparseSecondaryMap::new(),
         }
     }
 
     #[inline]
     pub fn clear(&mut self) {
         self.sys_dwrite_layouts.borrow_mut().clear();
-        self.sys_uia_properties.clear();
         while self.sys_task_receiver.try_recv().is_ok() {}
+        self.sys_uia_properties.clear();
     }
 
     #[inline]

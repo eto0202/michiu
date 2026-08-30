@@ -160,16 +160,6 @@ pub fn input_area(contents: impl Into<Prop<InputContents>>) -> Element {
 }
 
 #[inline]
-pub fn img(source: impl Into<Prop<ImageSource>>) -> Element {
-    div_n().image(source)
-}
-
-#[inline]
-pub fn video(property: impl Into<Prop<MovieProperty>>) -> Element {
-    div_n().movie(property)
-}
-
-#[inline]
 pub fn external_texture(texture: impl ExternalTexture + 'static) -> Element {
     div_n().external_texture(texture)
 }
@@ -244,26 +234,6 @@ where
     F: Fn(&P) -> InputContents + Send + Sync + 'static,
 {
     div_n().input_area_d(f)
-}
-
-/// プロバイダー `P` から動的に解決された画像要素を生成します。
-#[inline]
-pub fn img_d<P, F>(f: F) -> Element
-where
-    P: Clone + 'static,
-    F: Fn(&P) -> ImageSource + Send + Sync + 'static,
-{
-    div_n().image_d(f)
-}
-
-/// プロバイダー `P` から動的に解決されたビデオ再生要素を生成します。
-#[inline]
-pub fn video_d<P, F>(f: F) -> Element
-where
-    P: Clone + 'static,
-    F: Fn(&P) -> MovieProperty + Send + Sync + 'static,
-{
-    div_n().movie_d(f)
 }
 
 /// プロバイダー `P` `から動的に解決されたWebView2要素を生成します`。

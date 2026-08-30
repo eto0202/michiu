@@ -582,59 +582,6 @@ impl Element {
         self.text(dynamic_prop)
     }
 
-    /// 画像を設定します。
-    #[inline]
-    #[must_use]
-    pub fn image(self, content: impl Into<Prop<ImageSource>>) -> Self {
-        self.bind_prop(content, EffectCategory::Image, |cx, id, src| {
-            cx.contents.cont_image_sources.insert(id, src);
-            cx.topology.topo_active_masks[id].set(COMP_IMAGE_CONTENT);
-            cx.mark_dirty(id);
-        })
-    }
-
-    /// プロバイダー `P` から動的に画像ソースを解決して設定します。
-    #[must_use]
-    pub fn image_d<P, F>(self, f: F) -> Self
-    where
-        P: Clone + 'static,
-        F: Fn(&P) -> ImageSource + Send + Sync + 'static,
-    {
-        let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = with_context(|cx| cx.use_provided::<P>());
-            let val = signal.get();
-            f(&val)
-        }));
-        self.image(dynamic_prop)
-    }
-
-    /// 動画を設定します。
-    #[inline]
-    #[must_use]
-    pub fn movie(self, content: impl Into<Prop<MovieProperty>>) -> Self {
-        self.bind_prop(content, EffectCategory::Movie, |cx, id, src| {
-            cx.contents.cont_movie_properties.insert(id, src);
-            cx.topology.topo_active_masks[id].set(COMP_MOVIE_CONTENT);
-            cx.mark_dirty(id);
-        })
-    }
-
-    /// プロバイダー `P` から動的に動画ソースを解決して設定します。
-    #[must_use]
-    #[inline]
-    pub fn movie_d<P, F>(self, f: F) -> Self
-    where
-        P: Clone + 'static,
-        F: Fn(&P) -> MovieProperty + Send + Sync + 'static,
-    {
-        let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = with_context(|cx| cx.use_provided::<P>());
-            let val = signal.get();
-            f(&val)
-        }));
-        self.movie(dynamic_prop)
-    }
-
     /// 外部画像や動画をwgpuで描画するためのテクスチャプロバイダ（`ExternalTexture`）をバインドします。
     ///
     /// ### 動的なテクスチャの更新（動画やゲーム画面など）
