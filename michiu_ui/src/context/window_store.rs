@@ -39,20 +39,11 @@ impl WindowStore {
 }
 
 impl WindowStore {
-    /// ウィンドウサイズの変更検知
-    #[inline]
-    pub(crate) fn window_resize_detection(
-        window_size: LayoutSize,
-        win_last_size: &mut Option<LayoutSize>,
-    ) -> bool {
-        win_last_size.replace(window_size) != Some(window_size)
-    }
-
     /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出
     #[inline]
     pub(crate) fn calculate_visible_size(
-        win_last_size: Option<LayoutSize>,
         container_rect: LayoutRect,
+        win_last_size: Option<LayoutSize>,
     ) -> LayoutSize {
         let window_size = win_last_size.unwrap_or_default();
 

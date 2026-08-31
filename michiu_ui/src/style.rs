@@ -4894,7 +4894,7 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let m = get_m();
                         let u = get_u();
-                        cx.events.evt_dnd_drag_properties.insert(
+                        cx.events.dnd.dnd_drag_properties.insert(
                             id,
                             DndDragProperty {
                                 placeholder_parent: DndDragPlaceholderParent::Root,
@@ -4961,7 +4961,7 @@ impl ThisStyle {
                         let p = get_p();
                         let m = get_m();
                         let u = get_u();
-                        cx.events.evt_dnd_drag_properties.insert(
+                        cx.events.dnd.dnd_drag_properties.insert(
                             id,
                             DndDragProperty {
                                 placeholder_parent: DndDragPlaceholderParent::Custom(p),
@@ -5018,7 +5018,7 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let t = get_t();
                         let m = get_m();
-                        cx.events.evt_dnd_drop_properties.insert(
+                        cx.events.dnd.dnd_drop_properties.insert(
                             id,
                             DndDropProperty {
                                 target: t,

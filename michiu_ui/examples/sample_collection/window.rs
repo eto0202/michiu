@@ -147,7 +147,7 @@ unsafe extern "system" fn wnd_proc(
                     update_elapsed + layout_elapsed + comp_elapsed + draw_elapsed;
 
                 let sync_start = std::time::Instant::now();
-                if app.context.has_active_animations() {
+                if app.context.has_active_frame() {
                     let _ = unsafe { windows::Win32::Graphics::Dwm::DwmFlush() };
                     let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
@@ -607,7 +607,9 @@ unsafe extern "system" fn wnd_proc(
 
                         // 現在ホバーされている要素があるかチェック
                         // なければプレス中ID等の解決は内部の resolve_cursor に
-                        if let Some(hovered_id) = app.context.entity_id_hovered() {
+                        if let Some(hovered_id) =
+                            app.context.interaction_id(InteractionState::Hovered)
+                        {
                             // プレスロック状態、通常ホバー状態、親の Global 指定、リサイズ個別設定から最適な CursorIcon を解決
                             let cursor_icon = app.context.resolve_cursor(hovered_id);
 

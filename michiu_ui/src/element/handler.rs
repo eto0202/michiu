@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use crate::{
     Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImageMetadata,
-    ImeState, LayoutPoint, Modifiers, MouseButton, MovieMetadata, Prop, VirtualKey, with_context,
+    ImeState, LayoutPoint, Modifiers, MouseButton, MovieMetadata, Prop, StateFlag, VirtualKey,
+    with_context,
 };
 
 impl Element {
@@ -834,7 +835,7 @@ impl Element {
     #[must_use]
     pub fn active(self, active: impl Into<Prop<bool>>) -> Self {
         self.bind_prop(active, EffectCategory::ActiveState, |cx, id, val| {
-            cx.set_actived(id, val);
+            cx.set_states(id, &StateFlag::Actived, val);
         })
     }
 
@@ -843,7 +844,7 @@ impl Element {
     #[must_use]
     pub fn select(self, selected: impl Into<Prop<bool>>) -> Self {
         self.bind_prop(selected, EffectCategory::SelectState, |cx, id, val| {
-            cx.set_selected(id, val);
+            cx.set_states(id, &StateFlag::Selected, val);
         })
     }
 
@@ -852,7 +853,7 @@ impl Element {
     #[must_use]
     pub fn disable(self, disabled: impl Into<Prop<bool>>) -> Self {
         self.bind_prop(disabled, EffectCategory::DisableState, |cx, id, val| {
-            cx.set_disabled(id, val);
+            cx.set_states(id, &StateFlag::Disabled, val);
         })
     }
 
@@ -861,7 +862,7 @@ impl Element {
     #[must_use]
     pub fn focus(self, focused: impl Into<Prop<bool>>) -> Self {
         self.bind_prop(focused, EffectCategory::FocusState, |cx, id, val| {
-            cx.set_focused(id, val);
+            cx.set_states(id, &StateFlag::Focused, val);
         })
     }
 }

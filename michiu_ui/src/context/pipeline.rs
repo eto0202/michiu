@@ -191,40 +191,40 @@ impl Pipeline {
     }
 
     #[inline]
-    pub(crate) fn update_state(cx: &mut Context, id: EntityId, flag: &StateFlag, active: bool) {
+    pub(crate) fn update_states(cx: &mut Context, id: EntityId, flag: &StateFlag, actived: bool) {
         match flag {
             StateFlag::Hovered => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_HOVERED, active);
+                EventStore::update_state(cx, id, ComponentMask::STATE_HOVERED, actived);
             }
             StateFlag::Focused => {
-                EventStore::set_focused_by_trigger(cx, id, active, ActiveFocusTrigger::Mouse);
+                EventStore::set_focused_by_trigger(cx, id, actived, ActiveFocusTrigger::Mouse);
             }
             StateFlag::FocusedVisible => {
-                EventStore::set_focused_by_trigger(cx, id, active, ActiveFocusTrigger::Keyboard);
+                EventStore::set_focused_by_trigger(cx, id, actived, ActiveFocusTrigger::Keyboard);
             }
             StateFlag::Pressed => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_PRESSED, active);
+                EventStore::update_state(cx, id, ComponentMask::STATE_PRESSED, actived);
             }
             StateFlag::Disabled => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DISABLED, active);
+                EventStore::update_state(cx, id, ComponentMask::STATE_DISABLED, actived);
             }
             StateFlag::Actived => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_ACTIVED, active);
+                EventStore::update_state(cx, id, ComponentMask::STATE_ACTIVED, actived);
             }
             StateFlag::Selected => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_SELECTED, active);
+                EventStore::update_state(cx, id, ComponentMask::STATE_SELECTED, actived);
             }
             StateFlag::Dragged => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DRAGGED, active);
+                EventStore::update_state(cx, id, ComponentMask::STATE_DRAGGED, actived);
             }
             StateFlag::DndDragging => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DND_DRAGGING, active);
+                EventStore::update_state(cx, id, ComponentMask::STATE_DND_DRAGGING, actived);
             }
             StateFlag::DndDragIn => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DND_DRAG_IN, active);
+                EventStore::update_state(cx, id, ComponentMask::STATE_DND_DRAG_IN, actived);
             }
             StateFlag::DndDragOver => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DND_DRAG_OVER, active);
+                EventStore::update_state(cx, id, ComponentMask::STATE_DND_DRAG_OVER, actived);
             }
         }
     }
@@ -243,8 +243,7 @@ impl Pipeline {
             &mut cx.reactive.react_pending_element_effects,
         );
         // ウィンドウサイズの変更検知
-        let window_resized =
-            WindowStore::window_resize_detection(window_size, &mut cx.window.win_last_size);
+        let window_resized = cx.window.win_last_size.replace(window_size) != Some(window_size);
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // すべてスキップして早期リターン。
@@ -573,37 +572,6 @@ impl Pipeline {
     }
 
     #[inline]
-    pub(crate) fn update_input_caret_position(cx: &mut Context, id: EntityId) {
-        OutputStore::update_input_caret_position(
-            id,
-            cx.window.win_scale_factor,
-            cx.window.win_last_size,
-            &cx.system.sys_text_engine,
-            &cx.system.sys_dwrite_layouts,
-            &mut cx.contents.cont_text_contents,
-            &mut cx.contents.cont_input_contents,
-            &cx.contents.cont_text_spans,
-            &mut cx.topology.topo_active_masks,
-            &cx.topology.topo_parents,
-            &mut cx.layouts.lay_dirty_entities,
-            &mut cx.layouts.lay_taffy_tree,
-            &mut cx.layouts.lay_scrollbar_styles,
-            &cx.layouts.lay_taffy_nodes,
-            &cx.layouts.lay_resolved_basic,
-            &cx.layouts.lay_resolved_flex,
-            &cx.layouts.lay_resolved_grid,
-            &mut cx.renders.rnd_visual,
-            &cx.renders.rnd_base_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
-            &mut cx.outputs.out_scroll_offsets,
-            &mut cx.outputs.out_text_selections,
-            &cx.outputs.out_rects,
-            &cx.outputs.out_scroll_sizes,
-        );
-    }
-
-    #[inline]
     pub(crate) fn tick_system_frame(cx: &mut Context, tick: &TickType) {
         let _context_guard = bind_context(cx);
 
@@ -646,7 +614,7 @@ impl Pipeline {
             let Some(id) = cx.events.evt_interaction_states.pressed else {
                 return;
             };
-            let (autoscroll_occurred, active_pos) = EventStore::autoscroll_occurred(
+            let (autoscroll_occurred, active_pos) = OutputStore::autoscroll_occurred(
                 id,
                 cx.window.win_last_size,
                 &cx.system.sys_text_engine,

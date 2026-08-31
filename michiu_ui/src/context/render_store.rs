@@ -255,7 +255,7 @@ impl RenderStore {
     }
 
     /// 現在、アクティブに動いているトランジションがあるか判定します
-    pub(crate) fn has_active_animations(
+    pub(crate) fn has_active_frame(
         evt_interaction_states: &InteractionStates,
         evt_current_pointer_position: Option<&LayoutPoint>,
         cont_input_contents: &InputContentsSparseSecondary,

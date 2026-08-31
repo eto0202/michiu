@@ -301,12 +301,12 @@ impl Element {
         if mask.has(ComponentMask::STYLE_DND_DRAGGABLE)
             && let Some(dp) = inner.drag_property
         {
-            cx.events.evt_dnd_drag_properties.insert(id, dp);
+            cx.events.dnd.dnd_drag_properties.insert(id, dp);
         }
         if mask.has(ComponentMask::STYLE_DND_DROPPABLE)
             && let Some(dp) = inner.drop_property
         {
-            cx.events.evt_dnd_drop_properties.insert(id, dp);
+            cx.events.dnd.dnd_drop_properties.insert(id, dp);
         }
 
         cx.resolve_element_style_state(id, false);

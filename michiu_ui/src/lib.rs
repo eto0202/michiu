@@ -41,16 +41,17 @@ pub mod prelude {
     pub use crate::{
         bitmap::PropertyList,
         context::{Context, EntityId},
+        dnd::{DndDragPayload, DndDropTarget},
         element::{Element, build_ui},
         input::InputContents,
-        pipeline::{TickType, UserAction},
+        pipeline::{StateFlag, TickType, UserAction},
         signal::{ReadSignal, SignalId, WriteSignal},
         style::ThisStyle,
         types::{
             AnimationCurve, Backdrop, BorderAlignment, BorderStyle, Color, CursorIcon, Display,
-            DndDragPayload, DndDropTarget, ElementState, KeyframeAnimation, LayoutPoint,
-            LayoutRect, LayoutSize, Modifiers, MouseButton, PlaybackCount, PointerEvents,
-            ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, Transform, Transition,
+            ElementState, InteractionState, KeyframeAnimation, LayoutPoint, LayoutRect, LayoutSize,
+            Modifiers, MouseButton, PlaybackCount, PointerEvents, ScrollbarDisplay, ScrollbarMode,
+            ScrollbarStyle, Transform, Transition,
         },
         utils::{
             auto, block_box, blur, create_signal, div, div_d, div_n, dynamic, external_texture,

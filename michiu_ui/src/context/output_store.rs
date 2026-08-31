@@ -938,7 +938,7 @@ impl OutputStore {
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-        let visible_size = WindowStore::calculate_visible_size(win_last_size, rect);
+        let visible_size = WindowStore::calculate_visible_size(rect, win_last_size);
         let content_size = LayoutStore::calculate_inner_content_size(visible_size, border, padding);
 
         // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
@@ -1156,6 +1156,110 @@ impl OutputStore {
         );
     }
 
+    #[inline]
+    pub(crate) fn drag_overhang_distance(
+        pointer_pos: LayoutPoint,
+        clip: &LayoutRect,
+    ) -> LayoutPoint {
+        let mut dx = 0.0f32;
+        let mut dy = 0.0f32;
+
+        // はみ出し距離
+        if pointer_pos.x < clip.x {
+            dx = pointer_pos.x - clip.x; // 左はみ出し：負値
+        } else if pointer_pos.x > clip.x + clip.width {
+            dx = pointer_pos.x - (clip.x + clip.width); // 右はみ出し：正値
+        }
+
+        if pointer_pos.y < clip.y {
+            dy = pointer_pos.y - clip.y;
+        } else if pointer_pos.y > clip.y + clip.height {
+            dy = pointer_pos.y - (clip.y + clip.height);
+        }
+
+        LayoutPoint { x: dx, y: dy }
+    }
+
+    pub(crate) fn autoscroll_occurred(
+        id: EntityId,
+        win_last_size: Option<LayoutSize>,
+        sys_text_engine: &TextEngine,
+        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        evt_current_pointer_position: Option<LayoutPoint>,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
+        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_scrollbar_styles: &mut ScrollbarStylesSecondary,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_resolved_basic: &ResolvedBasicSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
+        rnd_interaction: &InteractionPropertiesSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        out_scroll_offsets: &mut ScrollOffsetsSecondary,
+        out_rects: &RectsSecondary,
+        out_clip_rects: &ClipRectsSecondary,
+        out_scroll_sizes: &ScrollSizesSecondary,
+    ) -> (bool, Option<LayoutPoint>) {
+        // ポインタ位置、またはクリップ領域がない場合
+        let Some(pointer_pos) = evt_current_pointer_position else {
+            return (false, None);
+        };
+        let Some(clip) = out_clip_rects.get(id).copied() else {
+            return (false, None);
+        };
+
+        // テキスト選択状態
+        let user_select = rnd_visual
+            .get(id)
+            .and_then(|v| v.user_select)
+            .unwrap_or_default();
+        if user_select != UserSelect::Text {
+            return (false, None);
+        }
+
+        // はみ出し距離
+        let distance = OutputStore::drag_overhang_distance(pointer_pos, &clip);
+        if distance.x.abs() <= 1.0 && distance.y.abs() <= 1.0 {
+            return (false, None);
+        }
+
+        // オートスクロール実行
+        let speed_factor = 0.15f32;
+        let dx = distance.x * speed_factor;
+        let dy = distance.y * speed_factor;
+
+        let scroll = OutputStore::scroll_by(
+            id,
+            dx,
+            dy,
+            win_last_size,
+            topo_active_masks,
+            topo_parents,
+            lay_dirty_entities,
+            lay_taffy_tree,
+            lay_scrollbar_styles,
+            lay_taffy_nodes,
+            lay_resolved_basic,
+            rnd_visual,
+            rnd_interaction,
+            rnd_active_transitions,
+            out_scroll_offsets,
+            out_rects,
+            out_scroll_sizes,
+        );
+
+        if scroll {
+            (true, Some(pointer_pos))
+        } else {
+            (false, None)
+        }
+    }
+
     /// `現在の選択範囲（out_text_selections）に基づき`、
     /// `描画用の物理選択矩形（out_selected_rects）を自動再計算して` `SoA` キャッシュを更新します。
     #[inline]
@@ -1240,7 +1344,7 @@ impl OutputStore {
             (sb_state, container_rect, scroll_size)
         };
 
-        let visible_size = WindowStore::calculate_visible_size(win_last_size, container_rect);
+        let visible_size = WindowStore::calculate_visible_size(container_rect, win_last_size);
 
         let date = match direction {
             DragDirection::Vertical => {

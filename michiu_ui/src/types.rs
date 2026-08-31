@@ -1893,49 +1893,6 @@ impl ScrollbarStyle {
     }
 }
 
-// types.rs に追加
-
-/// プレースホルダーを挿入してマウントする親先祖の制御方法
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DndDragPlaceholderParent {
-    Root,             // 自動的に最上位ルート要素の子としてアタッチ
-    Custom(EntityId), // ユーザーが指定した特定の親コンテナの子としてアタッチ（範囲制限）
-}
-
-/// ドラッグ＆ドロップ動作の論理形式
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DndDragPayload {
-    /// Element 自体を移動する。
-    /// ドロップ時に UI ツリーが自動的に更新される。
-    Element,
-
-    /// Element が持つ `EntityId` のみをドラッグデータとして転送する。
-    /// UI ツリーは変更されず、アプリケーション側で並び替え等を行う。
-    EntityId,
-}
-
-/// ドラッグ可能な要素が保持するスタイリング・動作設定
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DndDragProperty {
-    pub placeholder_parent: DndDragPlaceholderParent,
-    pub drag_mode: DndDragPayload,
-    // ドラッグ終了時に自動的に配置（相対並び替え／絶対座標）を更新するか
-    pub update_position: bool,
-}
-
-/// ドロップ受け入れ先での取り込み形式
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DndDropTarget {
-    Child,   // ドロップ先の子要素として取り込む
-    Sibling, // ドロップ先の兄弟要素（隣接位置）として取り込む
-}
-
-/// ドロップ受け入れ先（ドロップゾーン）が保持するスタイリング・動作設定
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct DndDropProperty {
-    pub target: DndDropTarget,
-    pub drag_mode: DndDragPayload,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum FocusTrigger {
@@ -1959,6 +1916,14 @@ pub enum Focusable {
     None, // フォーカス不可能
     SelfStyle(FocusTrigger), // フォーカス可能。ただし自身の focused スタイルのみを適用
     Inherit(FocusTrigger), // フォーカス可能。自身に focused スタイルが無い場合、親先祖の focused スタイルを自動継承
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InteractionState {
+    Hovered,
+    Focused,
+    Pressed,
+    Dragged,
 }
 
 /// 外部の動画やゲーム等からGUIへ動的にフレームを供給するためのトレイト

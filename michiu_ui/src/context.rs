@@ -22,8 +22,8 @@ pub use topology_store::*;
 pub use window_store::*;
 
 use crate::{
-    ActiveFocusTrigger, BasicLayout, ComponentMask, CursorIcon, DndDragPayload, Element,
-    ElementState, FlexLayout, GridLayout, ImeState, LayoutPoint, LayoutRect, LayoutSize, Modifiers,
+    ActiveFocusTrigger, BasicLayout, ComponentMask, CursorIcon, Element, ElementState, FlexLayout,
+    GridLayout, ImeState, InteractionState, LayoutPoint, LayoutRect, LayoutSize, Modifiers,
     MouseButton, Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, RendererView,
     SignalId, TextAlign, TransitionValue, UserSelect, Val, VirtualKey, VisualProperty, WriteSignal,
     bind_context, handle_on_char_input, handle_on_click, handle_on_dnd_entity_drop,
@@ -720,8 +720,8 @@ impl Context {
 
     /// 現在、アクティブに動いているトランジション,アニメーションがあるか判定します
     #[inline]
-    pub fn has_active_animations(&self) -> bool {
-        RenderStore::has_active_animations(
+    pub fn has_active_frame(&self) -> bool {
+        RenderStore::has_active_frame(
             &self.events.evt_interaction_states,
             self.events.evt_current_pointer_position.as_ref(),
             &self.contents.cont_input_contents,
@@ -765,23 +765,13 @@ impl Context {
     }
 
     #[inline]
-    pub fn entity_id_focused(&self) -> Option<EntityId> {
-        self.events.evt_interaction_states.focused
-    }
-
-    #[inline]
-    pub fn entity_id_dragged(&self) -> Option<EntityId> {
-        self.events.evt_interaction_states.dragged
-    }
-
-    #[inline]
-    pub fn entity_id_hovered(&self) -> Option<EntityId> {
-        self.events.evt_interaction_states.hovered
-    }
-
-    #[inline]
-    pub fn entity_id_pressed(&self) -> Option<EntityId> {
-        self.events.evt_interaction_states.pressed
+    pub fn interaction_id(&self, interaction: InteractionState) -> Option<EntityId> {
+        match interaction {
+            InteractionState::Hovered => self.events.evt_interaction_states.hovered,
+            InteractionState::Focused => self.events.evt_interaction_states.focused,
+            InteractionState::Pressed => self.events.evt_interaction_states.pressed,
+            InteractionState::Dragged => self.events.evt_interaction_states.dragged,
+        }
     }
 
     /// 指定された要素をプログラム駆動でクリックさせます
@@ -798,95 +788,19 @@ impl Context {
         EventStore::auto_focus_switch_by_trigger(self, id, trigger);
     }
 
-    /// ホバー（Hovered：マウスホバー）状態を更新します。
-    ///
-    /// ホバースタイル内にレイアウト変更プロパティ（幅やマージン等）が含まれていれば自動的にレイアウト再計算が要求され、
-    /// 色や不透明度の変化だけであれば最速の描画更新（ファストパス）として処理されます。
     #[inline]
-    pub fn set_hovered(&mut self, id: EntityId, hovered: bool) {
-        EventStore::update_state(self, id, ComponentMask::STATE_HOVERED, hovered);
-    }
-
-    /// フォーカス（Focused：キーボードタブフォーカス等）状態を更新します。
-    #[inline]
-    pub fn set_focused(&mut self, id: EntityId, focused: bool) {
-        self.set_focused_by_trigger(id, focused, ActiveFocusTrigger::Mouse);
-    }
-
-    /// 入力トリガー源を考慮してフォーカス状態を更新します。
-    #[inline]
-    pub fn set_focused_by_trigger(
-        &mut self,
-        id: EntityId,
-        focused: bool,
-        trigger: ActiveFocusTrigger,
-    ) {
-        EventStore::set_focused_by_trigger(self, id, focused, trigger);
-    }
-
-    /// プレス（Pressed：クリック押し下げ、タップ中）状態を更新します。
-    #[inline]
-    pub fn set_pressed(&mut self, id: EntityId, pressed: bool) {
-        EventStore::update_state(self, id, ComponentMask::STATE_PRESSED, pressed);
-    }
-
-    /// 無効化（Disabled：ボタンの操作不可など）状態を更新します。
-    #[inline]
-    pub fn set_disabled(&mut self, id: EntityId, disabled: bool) {
-        EventStore::update_state(self, id, ComponentMask::STATE_DISABLED, disabled);
-    }
-
-    /// アクティブ（Actived：タブのトグル選択中など）状態を更新します。
-    #[inline]
-    pub fn set_actived(&mut self, id: EntityId, actived: bool) {
-        EventStore::update_state(self, id, ComponentMask::STATE_ACTIVED, actived);
-    }
-
-    /// セレクト（Selected：チェックボックス、リストなどの選択）状態を更新します。
-    #[inline]
-    pub fn set_selected(&mut self, id: EntityId, selected: bool) {
-        EventStore::update_state(self, id, ComponentMask::STATE_SELECTED, selected);
-    }
-
-    /// ドラッグ（Dragged：スライダーノブやスプリッターのドラッグ中）状態を更新します。
-    #[inline]
-    pub fn set_dragged(&mut self, id: EntityId, dragged: bool) {
-        EventStore::update_state(self, id, ComponentMask::STATE_DRAGGED, dragged);
+    pub fn set_states(&mut self, id: EntityId, flag: &StateFlag, actived: bool) {
+        Pipeline::update_states(self, id, flag, actived);
     }
 
     #[inline]
-    pub fn set_dnd_drag_in(&mut self, id: EntityId, drag_in: bool) {
-        EventStore::update_state(self, id, ComponentMask::STATE_DND_DRAG_IN, drag_in);
-    }
-
-    #[inline]
-    pub fn set_dnd_drag_over(&mut self, id: EntityId, drag_over: bool) {
-        EventStore::update_state(self, id, ComponentMask::STATE_DND_DRAG_OVER, drag_over);
-    }
-
-    #[inline]
-    pub fn set_dnd_dragging(&mut self, id: EntityId, dragging: bool) {
-        EventStore::update_state(self, id, ComponentMask::STATE_DND_DRAGGING, dragging);
-    }
-
-    #[inline]
-    pub fn set_interaction_states_hovered(&mut self, hovered: Option<EntityId>) {
-        self.events.evt_interaction_states.hovered = hovered;
-    }
-
-    #[inline]
-    pub fn set_interaction_states_pressed(&mut self, pressed: Option<EntityId>) {
-        self.events.evt_interaction_states.pressed = pressed;
-    }
-
-    #[inline]
-    pub fn set_interaction_states_focused(&mut self, focused: Option<EntityId>) {
-        self.events.evt_interaction_states.focused = focused;
-    }
-
-    #[inline]
-    pub fn set_interaction_states_dragged(&mut self, dragged: Option<EntityId>) {
-        self.events.evt_interaction_states.dragged = dragged;
+    pub fn interaction_states(&mut self, id: Option<EntityId>, interaction: InteractionState) {
+        match interaction {
+            InteractionState::Hovered => self.events.evt_interaction_states.hovered = id,
+            InteractionState::Focused => self.events.evt_interaction_states.focused = id,
+            InteractionState::Pressed => self.events.evt_interaction_states.pressed = id,
+            InteractionState::Dragged => self.events.evt_interaction_states.dragged = id,
+        }
     }
 
     #[inline]
@@ -913,7 +827,6 @@ impl Context {
     pub fn sync_layout_and_render_list(&mut self, root: EntityId, window_size: LayoutSize) {
         Pipeline::sync_layout_and_render(self, root, window_size);
     }
-
 }
 
 #[cfg(test)]

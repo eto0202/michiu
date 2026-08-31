@@ -112,7 +112,7 @@ unsafe extern "system" fn wnd_proc(
                 let _ = unsafe { EndPaint(hwnd, &ps) };
 
                 // アニメーションがまだ継続中の場合、次のフレームの再描画要求を自給自足してループさせます
-                if app.context.has_active_animations() {
+                if app.context.has_active_frame() {
                     let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
                 return LRESULT(0);

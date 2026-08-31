@@ -562,34 +562,3 @@ impl InteractionStyles {
         merge(&mut self.any_parent, &other.any_parent);
     }
 }
-
-/// 実行時にウィンドウ内で現在アクティブ（排他的）になっている、各状態の対象要素（EntityId）を管理します。
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct InteractionStates {
-    pub hovered: Option<EntityId>,
-    pub focused: Option<EntityId>,
-    pub pressed: Option<EntityId>,
-    pub dragged: Option<EntityId>,
-}
-
-impl InteractionStates {
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub(crate) fn clear_entity(&mut self, id: EntityId) {
-        if self.hovered == Some(id) {
-            self.hovered = None;
-        }
-        if self.focused == Some(id) {
-            self.focused = None;
-        }
-        if self.pressed == Some(id) {
-            self.pressed = None;
-        }
-        if self.dragged == Some(id) {
-            self.dragged = None;
-        }
-    }
-}

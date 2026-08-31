@@ -4,9 +4,9 @@ use crate::{
     DirtyRenderEntitiesVec, Display, DwriteLayoutsSparseSecondary, EdgeInsets, EntityId,
     FlexLayout, GridLayout, InputContentsSparseSecondary, InteractionPropertiesSecondary,
     InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, Length, NormalLayout, OutputStore,
-    ParentsSecondary, Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizeDirection,
-    ResizingState, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarDisplay, ScrollbarMode,
-    ScrollbarStyle, Size, StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine,
+    ParentsSecondary, Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizingState,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
+    Size, StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine,
     TextSpansSparseSecondary, ThisStyle, TopologyStore, Val, VisualPropertiesSecondary,
     WindowStore,
 };
@@ -745,131 +745,6 @@ impl LayoutStore {
             curr = parent_id;
         }
     }
-
-    pub(crate) fn sync_resizing_drag(
-        logical_pos: LayoutPoint,
-        state: &ResizingState,
-        win_last_size: Option<&LayoutSize>,
-        topo_active_masks: &mut ActiveMasksSecondary,
-        topo_parents: &ParentsSecondary,
-        lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_base_basic: &mut BaseBasicLayoutsSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
-        out_rects: &RectsSecondary,
-    ) {
-        let id = state.entity_id;
-        let delta_x = logical_pos.x - state.start_mouse_pos.x;
-        let delta_y = logical_pos.y - state.start_mouse_pos.y;
-
-        let start_rect = state.start_rect;
-        let position = lay_basic.get(id).map(|l| l.position).unwrap_or_default();
-
-        // 最小サイズ・最大クランプ値の解決
-        let (min_w, max_w, min_h, max_h) = {
-            let basic = lay_basic.get(id).copied().unwrap_or_default();
-
-            let rect = out_rects.get(id).copied().unwrap_or_default();
-            let (border, padding) =
-                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-            // 枠線と余白を足した、物理的にこれ以上小さくできない限界サイズ
-            let abs_min_w = border.left + border.right + padding.left + padding.right;
-            let abs_min_h = border.top + border.bottom + padding.top + padding.bottom;
-
-            // 指定値を物理ピクセルに解決する
-            let resolve_val = |val: Val, is_width: bool, fallback: f32| match val {
-                Val::Px(v) => v,
-                Val::Percent(_) => OutputStore::val_to_px(
-                    id,
-                    val,
-                    is_width,
-                    win_last_size,
-                    topo_parents,
-                    out_rects,
-                )
-                .unwrap_or(fallback),
-                Val::Auto => fallback,
-            };
-
-            let user_min_w = resolve_val(basic.min_size.width, true, 0.0);
-            let user_min_h = resolve_val(basic.min_size.height, false, 0.0);
-            let user_max_w = resolve_val(basic.max_size.width, true, f32::MAX);
-            let user_max_h = resolve_val(basic.max_size.height, false, f32::MAX);
-
-            (
-                abs_min_w.max(user_min_w).max(10.0), // 最低限 10px は維持
-                user_max_w,
-                abs_min_h.max(user_min_h).max(10.0),
-                user_max_h,
-            )
-        };
-
-        // ドラッグ方向に基づく係数マップ
-        // 1.0 は引っ張り（サイズ増加）、-1.0 は押し込み（サイズ減少）
-        let (h_factor, v_factor) = match state.direction {
-            ResizeDirection::Left => (Some(-1.0), None),
-            ResizeDirection::Right => (Some(1.0), None),
-            ResizeDirection::Top => (None, Some(-1.0)),
-            ResizeDirection::Bottom => (None, Some(1.0)),
-            ResizeDirection::TopLeft => (Some(-1.0), Some(-1.0)),
-            ResizeDirection::TopRight => (Some(1.0), Some(-1.0)),
-            ResizeDirection::BottomLeft => (Some(-1.0), Some(1.0)),
-            ResizeDirection::BottomRight => (Some(1.0), Some(1.0)),
-        };
-
-        let mut new_w = start_rect.width;
-        let mut new_h = start_rect.height;
-        let mut delta_inset_left = 0.0;
-        let mut delta_inset_top = 0.0;
-
-        if let Some(factor) = h_factor {
-            new_w = (start_rect.width + delta_x * factor).clamp(min_w, max_w);
-            // 絶対配置（Absolute）で、左側へサイズを伸ばした（縮めた）場合はインセットを同期補正
-            if position == Position::Absolute && factor < 0.0 {
-                delta_inset_left = start_rect.width - new_w;
-            }
-        }
-
-        if let Some(factor) = v_factor {
-            new_h = (start_rect.height + delta_y * factor).clamp(min_h, max_h);
-            // 絶対配置（Absolute）で、上側へサイズを伸ばした（縮めた）場合はインセットを同期補正
-            if position == Position::Absolute && factor < 0.0 {
-                delta_inset_top = start_rect.height - new_h;
-            }
-        }
-
-        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
-
-        for layout in layouts.into_iter().flatten() {
-            layout.size.width = Val::Px(new_w);
-            layout.size.height = Val::Px(new_h);
-
-            if position != Position::Absolute {
-                continue;
-            }
-
-            if let Val::Px(start_top) = state.start_inset.top {
-                layout.inset.top = Val::Px(start_top + delta_inset_top);
-            }
-            if let Val::Px(start_left) = state.start_inset.left {
-                layout.inset.left = Val::Px(start_left + delta_inset_left);
-            }
-            layout.inset.right = Val::Auto;
-            layout.inset.bottom = Val::Auto;
-        }
-        TopologyStore::mark_dirty(
-            id,
-            topo_active_masks,
-            topo_parents,
-            lay_dirty_entities,
-            lay_taffy_tree,
-            lay_taffy_nodes,
-            rnd_dirty_entities,
-        );
-    }
 }
 
 // つまみ（Thumb）計算用の入力パラメータ
@@ -983,7 +858,7 @@ impl LayoutStore {
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-            let visible_size = WindowStore::calculate_visible_size(win_last_size, container_rect);
+            let visible_size = WindowStore::calculate_visible_size(container_rect, win_last_size);
             let content_size =
                 LayoutStore::calculate_inner_content_size(visible_size, border, padding);
 
@@ -1009,20 +884,20 @@ impl LayoutStore {
             let mut ctx = ScrollbarSyncContext {
                 topo_active_masks,
                 topo_parents,
-                lay_taffy_nodes,
                 lay_taffy_tree,
                 lay_basic,
-                lay_flex,
-                lay_grid,
                 lay_base_basic,
                 lay_resolved_basic,
                 lay_resolved_flex,
                 lay_resolved_grid,
+                lay_taffy_nodes,
+                lay_flex,
+                lay_grid,
                 lay_scrollbar_styles,
-                rnd_active_transitions,
                 rnd_visual,
                 rnd_base_visual,
                 rnd_interaction,
+                rnd_active_transitions,
             };
 
             // 縦トラック (V-Track) の同期
