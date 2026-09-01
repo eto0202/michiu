@@ -1,15 +1,15 @@
 use crate::{
-    ActiveEntitiesVec, ActiveMasksSecondary, ActiveTransition, AnimationCurve,
-    BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
-    BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask,
-    ContentStore, Context, CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display,
-    DwriteLayoutsSparseSecondary, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary,
-    EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon,
-    IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStates, InteractionStyles,
+    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition,
+    AnimationCurve, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment,
+    BorderStyle, BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color,
+    ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DirtyLayoutEntitiesVec,
+    Display, DwriteLayoutsSparseSecondary, EdgeInsets, EffectCategory, EffectId,
+    ElementEffectsSecondary, EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable,
+    GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStyles,
     LayoutPoint, LayoutRect, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, PlaybackCount,
     Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay,
     ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    ThisStyle, TopologyStore, TransitionValue, Val, VisualProperty, WindowStore,
+    ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -186,80 +186,12 @@ impl RenderStore {
         }
     }
 
-    /// スクロールバー用要素の不透明度（解決値と静的ベース値）を同時同期して更新します。
-    #[inline]
-    pub(crate) fn update_scrollbar_element_opacity(
-        id: EntityId,
-        opacity: f32,
-        rnd_visual: &mut VisualPropertiesSecondary,
-        rnd_base_visual: &mut BaseVisualPropertiesSecondary,
-    ) {
-        let visuals = [rnd_visual.get_mut(id), rnd_base_visual.get_mut(id)];
-
-        for vis in visuals.into_iter().flatten() {
-            vis.opacity = Some(opacity);
-        }
-    }
-
-    pub(crate) fn trigger_keyframe_animations_if_needed(
-        id: EntityId,
-        rnd_active_animations: &mut ActiveAnimationsSparseSecondary,
-        rnd_visual: &VisualPropertiesSecondary,
-    ) {
-        let Some(visual) = rnd_visual.get(id) else {
-            return;
-        };
-        if visual.keyframe_animations.is_empty() {
-            return;
-        }
-
-        let now = Instant::now();
-
-        if !rnd_active_animations.contains_key(id) {
-            rnd_active_animations.insert(id, Vec::new());
-        }
-        let active_list = rnd_active_animations.get_mut(id).unwrap();
-
-        for anim in &visual.keyframe_animations {
-            // すでに同じプロパティのアニメーションが駆動中なら重複起動をスルー
-            if active_list.iter().any(|a| a.property == anim.property) {
-                continue;
-            }
-
-            // 初期値（開始値）と目標値（100%キーフレームに相当する値）を設定
-            let (start_val, end_val) = match anim.property {
-                PropertyList::Transform => {
-                    let start = TransitionValue::Transform(IDENTITY_MATRIX);
-                    // Z軸を1周（2PI）回転させる行列を終点にする
-                    let mut end_transform =
-                        crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
-                    let end = TransitionValue::Transform(end_transform.matrix);
-                    (start, end)
-                }
-                PropertyList::Opacity => {
-                    (TransitionValue::Opacity(1.0), TransitionValue::Opacity(0.0)) // フェードアウト等
-                }
-                _ => continue, // TODO: 他プロパティも定義
-            };
-
-            active_list.push(ActiveAnimation {
-                property: anim.property,
-                start_time: now,
-                duration: anim.duration,
-                iteration_count: anim.iteration_count,
-                curve: anim.curve,
-                start_value: start_val,
-                end_value: end_val,
-            });
-        }
-    }
-
     /// 現在、アクティブに動いているトランジションがあるか判定します
     pub(crate) fn has_active_frame(
-        evt_interaction_states: &InteractionStates,
+        evt_interaction_states: &ActiveInteractionStates,
         evt_current_pointer_position: Option<&LayoutPoint>,
         cont_input_contents: &InputContentsSparseSecondary,
-        lay_scrollbar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
         rnd_active_animations: &ActiveAnimationsSparseSecondary,
@@ -288,7 +220,7 @@ impl RenderStore {
             .is_some_and(|c| c.has_caret && c.is_blink);
 
         // 一時的表示スクロールバーのフェード進行中は描画更新ループを継続
-        let has_active_transient_scrollbar = lay_scrollbar_styles.values().any(|sb_state| {
+        let has_active_transient_scrollbar = bar_styles.values().any(|sb_state| {
             sb_state.style.display == ScrollbarDisplay::Transient
                 && sb_state
                     .last_scroll_time
@@ -733,53 +665,6 @@ impl RenderStore {
         );
     }
 
-    /// 対象の要素がキーボードフォーカス可能であるかを検証
-    pub(crate) fn is_keyboard_focusable(
-        id: EntityId,
-        topo_entities: &EntitiesSlot,
-        topo_active_masks: &ActiveMasksSecondary,
-        topo_parents: &ParentsSecondary,
-        lay_basic: &BasicLayoutsSecondary,
-        rnd_visual: &VisualPropertiesSecondary,
-    ) -> bool {
-        if !topo_entities.contains_key(id) {
-            return false;
-        }
-        // 無効化（Disabled）状態でないか検証
-        let mask = topo_active_masks.get(id).copied().unwrap_or_default();
-        if mask.has(ComponentMask::STATE_DISABLED) {
-            return false;
-        }
-
-        // 暗黙的または明示的にキーボードフォーカスを要求しているか
-        let focusable = rnd_visual.get(id).and_then(|v| v.focusable);
-        let is_target = match focusable {
-            // 明示的にフォーカス設定がある場合
-            Some(Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger)) => {
-                matches!(trigger, FocusTrigger::Keyboard | FocusTrigger::Both)
-            }
-            Some(Focusable::None) => false,
-            // 設定がない場合の暗黙的なフォールバック（Input / Webview はデフォルトでフォーカス対象とする）
-            None => mask.has_input_content() || mask.has_webveiw2_content(),
-        };
-
-        if !is_target {
-            return false;
-        }
-
-        // 自分自身、および親先祖ツリーに非表示（Display::None）が1つも含まれていないか検証
-        let mut curr = Some(id);
-        while let Some(curr_id) = curr {
-            if let Some(layout) = lay_basic.get(curr_id)
-                && layout.display == Display::None
-            {
-                return false;
-            }
-            curr = topo_parents.get(curr_id).copied().flatten();
-        }
-        true
-    }
-
     /// 補間されたアニメーション値を `SoA` のアクティブプロパティへ安全に上書きします
     pub(crate) fn apply_animation_value(
         id: EntityId,
@@ -845,6 +730,59 @@ impl RenderStore {
                 lay_taffy_tree,
                 lay_taffy_nodes,
             );
+        }
+    }
+
+    fn trigger_keyframe_animations_if_needed(
+        id: EntityId,
+        rnd_active_animations: &mut ActiveAnimationsSparseSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
+    ) {
+        let Some(visual) = rnd_visual.get(id) else {
+            return;
+        };
+        if visual.keyframe_animations.is_empty() {
+            return;
+        }
+
+        let now = Instant::now();
+
+        if !rnd_active_animations.contains_key(id) {
+            rnd_active_animations.insert(id, Vec::new());
+        }
+        let active_list = rnd_active_animations.get_mut(id).unwrap();
+
+        for anim in &visual.keyframe_animations {
+            // すでに同じプロパティのアニメーションが駆動中なら重複起動をスルー
+            if active_list.iter().any(|a| a.property == anim.property) {
+                continue;
+            }
+
+            // 初期値（開始値）と目標値（100%キーフレームに相当する値）を設定
+            let (start_val, end_val) = match anim.property {
+                PropertyList::Transform => {
+                    let start = TransitionValue::Transform(IDENTITY_MATRIX);
+                    // Z軸を1周（2PI）回転させる行列を終点にする
+                    let mut end_transform =
+                        crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
+                    let end = TransitionValue::Transform(end_transform.matrix);
+                    (start, end)
+                }
+                PropertyList::Opacity => {
+                    (TransitionValue::Opacity(1.0), TransitionValue::Opacity(0.0)) // フェードアウト等
+                }
+                _ => continue, // TODO: 他プロパティも定義
+            };
+
+            active_list.push(ActiveAnimation {
+                property: anim.property,
+                start_time: now,
+                duration: anim.duration,
+                iteration_count: anim.iteration_count,
+                curve: anim.curve,
+                start_value: start_val,
+                end_value: end_val,
+            });
         }
     }
 
@@ -1438,7 +1376,7 @@ impl RenderStore {
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な `CursorIcon` を正確に解決します。
     pub(crate) fn resolve_cursor(
         hovered_id: EntityId,
-        evt_interaction_states: &InteractionStates,
+        evt_interaction_states: &ActiveInteractionStates,
         topo_parents: &ParentsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
@@ -1537,32 +1475,6 @@ impl RenderStore {
         ];
         let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);
         (packed_transform, origin)
-    }
-
-    /// 矩形にアフィン変換行列を適用した後の座標軸に平行な AABB を求める
-    #[inline]
-    pub(crate) fn calculate_aabb(rect: LayoutRect, matrix: &[[f32; 4]; 4]) -> LayoutRect {
-        // 矩形の4頂点
-        let p0 = RenderStore::mul_vector(0.0, 0.0, matrix);
-        let p1 = RenderStore::mul_vector(rect.width, 0.0, matrix);
-        let p2 = RenderStore::mul_vector(rect.width, rect.height, matrix);
-        let p3 = RenderStore::mul_vector(0.0, rect.height, matrix);
-
-        let min_x = p0.0.min(p1.0).min(p2.0).min(p3.0);
-        let max_x = p0.0.max(p1.0).max(p2.0).max(p3.0);
-        let min_y = p0.1.min(p1.1).min(p2.1).min(p3.1);
-        let max_y = p0.1.max(p1.1).max(p2.1).max(p3.1);
-
-        // 親要素の原点からの絶対座標にアライメント
-        LayoutRect::new(rect.x + min_x, rect.y + min_y, max_x - min_x, max_y - min_y)
-    }
-
-    /// 2D頂点に行列を適用
-    #[inline]
-    fn mul_vector(x: f32, y: f32, m: &[[f32; 4]; 4]) -> (f32, f32) {
-        let out_x = m[0][0] * x + m[1][0] * y + m[3][0];
-        let out_y = m[0][1] * x + m[1][1] * y + m[3][1];
-        (out_x, out_y)
     }
 
     #[inline]

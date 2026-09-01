@@ -324,7 +324,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_scrollbar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
                             v.style = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -354,7 +354,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_scrollbar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
                             v.style.width = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -384,7 +384,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_scrollbar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
                             v.style.display = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -437,7 +437,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_scrollbar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
                             v.style.mode = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -4894,7 +4894,7 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let m = get_m();
                         let u = get_u();
-                        cx.events.dnd.dnd_drag_properties.insert(
+                        cx.states.dnd.dnd_drag_properties.insert(
                             id,
                             DndDragProperty {
                                 placeholder_parent: DndDragPlaceholderParent::Root,
@@ -4961,7 +4961,7 @@ impl ThisStyle {
                         let p = get_p();
                         let m = get_m();
                         let u = get_u();
-                        cx.events.dnd.dnd_drag_properties.insert(
+                        cx.states.dnd.dnd_drag_properties.insert(
                             id,
                             DndDragProperty {
                                 placeholder_parent: DndDragPlaceholderParent::Custom(p),
@@ -5018,7 +5018,7 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let t = get_t();
                         let m = get_m();
-                        cx.events.dnd.dnd_drop_properties.insert(
+                        cx.states.dnd.dnd_drop_properties.insert(
                             id,
                             DndDropProperty {
                                 target: t,

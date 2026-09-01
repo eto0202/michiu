@@ -69,7 +69,7 @@ unsafe extern "system" fn wnd_proc(
 
                 // レイアウト再計算
                 app.context
-                    .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -85,8 +85,9 @@ unsafe extern "system" fn wnd_proc(
                     .resize((width, height), app.renderer.scale_factor);
 
                 // Taffy レイアウトツリーの同期と確定座標再計算
+
                 app.context
-                    .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 再描画要求
@@ -102,7 +103,7 @@ unsafe extern "system" fn wnd_proc(
                 app.context.tick_system_frame(&TickType::Transition);
 
                 app.context
-                    .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 描画実行
@@ -166,7 +167,7 @@ unsafe extern "system" fn wnd_proc(
                 });
 
                 app.context
-                    .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // クリックによる再描画を反映
@@ -330,8 +331,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 正確なクライアント領域ピクセルで wgpu ターゲットを設定し、初回のレイアウト計算を確定
     app.renderer.resize((width, height), scale_factor);
+
     app.context
-        .sync_layout_and_render_list(app.root_id, app.renderer.layout_size);
+        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
 
     // 5. ウィンドウを表示して描画
     unsafe {

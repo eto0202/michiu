@@ -1,10 +1,11 @@
 use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
 use crate::{
-    ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, EventStore, ImeState,
-    InputContents, InputOp, Modifiers, MouseButton, Prop, SelectedRectsSparseSecondary,
-    SelectionStartIndexSparseSecondary, SystemStore, TextEngine, TextSelectionsSparseSecondary,
-    TextSpan, UnderlineStyle, VirtualKey, VisualProperty, with_context,
+    ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
+    InputContents, InputOp, Modifiers, MouseButton, OutputStore, Prop,
+    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SystemStore, TextEngine,
+    TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey, VisualProperty,
+    with_context,
 };
 
 impl Element {
@@ -115,16 +116,16 @@ impl Element {
         id: EntityId,
         contents: &mut InputContents,
         caret: usize,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
-        out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        out_selected_rects: Option<&mut SelectedRectsSparseSecondary>,
+        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selected_rects: Option<&mut SelectedRectsSparseSecondary>,
     ) {
         contents.selected_range = caret..caret;
         contents.selection_reversed = false;
 
-        out_text_selections.insert(id, caret..caret);
-        out_selection_start_index.insert(id, caret);
-        if let Some(rects) = out_selected_rects {
+        edit_selections.insert(id, caret..caret);
+        edit_selection_start_index.insert(id, caret);
+        if let Some(rects) = edit_selected_rects {
             rects.remove(id);
         }
     }
@@ -136,11 +137,11 @@ impl Element {
         contents: &mut InputContents,
         range: std::ops::Range<usize>,
         selection_reversed: bool,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparseSecondary,
     ) {
         contents.selected_range = range.clone();
         contents.selection_reversed = selection_reversed;
-        out_text_selections.insert(id, range);
+        edit_selections.insert(id, range);
     }
 
     fn handle_input_mouse_pressed(
@@ -168,7 +169,7 @@ impl Element {
             &cx.outputs.out_rects,
         );
 
-        let local = EventStore::pressed_local_point(
+        let local = OutputStore::pressed_local_point(
             id,
             pointer_pos,
             dw_layout.as_ref(),
@@ -183,7 +184,7 @@ impl Element {
             &cx.renders.rnd_active_transitions,
             &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
-            &cx.outputs.out_scroll_offsets,
+            &cx.states.scroll.sc_offsets,
         );
 
         let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
@@ -205,9 +206,9 @@ impl Element {
                 id,
                 contents,
                 0,
-                &mut cx.outputs.out_text_selections,
-                &mut cx.outputs.out_selection_start_index,
-                Some(&mut cx.outputs.out_selected_rects),
+                &mut cx.states.edit.edit_selections,
+                &mut cx.states.edit.edit_selection_start_index,
+                Some(&mut cx.states.edit.edit_selected_rects),
             );
         } else {
             let Some(dw_layout) = SystemStore::get_or_create_layout(
@@ -246,8 +247,9 @@ impl Element {
 
             if mods.shift {
                 let anchor = cx
-                    .outputs
-                    .out_selection_start_index
+                    .states
+                    .edit
+                    .edit_selection_start_index
                     .entry(id)
                     .map_or(contents.selected_range.start, |e| {
                         *e.or_insert(contents.selected_range.start)
@@ -263,16 +265,16 @@ impl Element {
                     contents,
                     range,
                     reversed,
-                    &mut cx.outputs.out_text_selections,
+                    &mut cx.states.edit.edit_selections,
                 );
             } else {
                 Element::set_caret_position(
                     id,
                     contents,
                     final_caret_clamped,
-                    &mut cx.outputs.out_text_selections,
-                    &mut cx.outputs.out_selection_start_index,
-                    Some(&mut cx.outputs.out_selected_rects),
+                    &mut cx.states.edit.edit_selections,
+                    &mut cx.states.edit.edit_selection_start_index,
+                    Some(&mut cx.states.edit.edit_selected_rects),
                 );
             }
         }
@@ -368,9 +370,9 @@ impl Element {
             id,
             contents,
             new_caret,
-            &mut cx.outputs.out_text_selections,
-            &mut cx.outputs.out_selection_start_index,
-            Some(&mut cx.outputs.out_selected_rects),
+            &mut cx.states.edit.edit_selections,
+            &mut cx.states.edit.edit_selection_start_index,
+            Some(&mut cx.states.edit.edit_selected_rects),
         );
         contents.text.1.set(new_text);
         cx.apply_input_update(id, InputOp::CharTyped);
@@ -381,8 +383,8 @@ impl Element {
         contents: &mut InputContents,
         caret: &mut usize,
         text_val: &str,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
-        out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
     ) {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.to_string(), range.clone());
@@ -394,8 +396,8 @@ impl Element {
                 id,
                 contents,
                 range.start,
-                out_text_selections,
-                out_selection_start_index,
+                edit_selections,
+                edit_selection_start_index,
                 None,
             );
             contents.text.1.set(new_text);
@@ -406,8 +408,8 @@ impl Element {
                 id,
                 contents,
                 *caret,
-                out_text_selections,
-                out_selection_start_index,
+                edit_selections,
+                edit_selection_start_index,
                 None,
             );
             contents.text.1.set(new_text);
@@ -420,8 +422,8 @@ impl Element {
         contents: &mut InputContents,
         caret: usize,
         text_val: &str,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
-        out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
     ) {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.to_string(), range.clone());
@@ -432,8 +434,8 @@ impl Element {
                 id,
                 contents,
                 range.start,
-                out_text_selections,
-                out_selection_start_index,
+                edit_selections,
+                edit_selection_start_index,
                 None,
             );
             contents.text.1.set(new_text);
@@ -444,8 +446,8 @@ impl Element {
                 id,
                 contents,
                 caret,
-                out_text_selections,
-                out_selection_start_index,
+                edit_selections,
+                edit_selection_start_index,
                 None,
             );
             contents.text.1.set(new_text);
@@ -458,9 +460,9 @@ impl Element {
         contents: &mut InputContents,
         caret: usize,
         mods: Modifiers,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
-        out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        out_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selected_rects: &mut SelectedRectsSparseSecondary,
     ) -> bool {
         let range = contents.selected_range.clone();
         // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時
@@ -471,9 +473,9 @@ impl Element {
                 id,
                 contents,
                 new_caret,
-                out_text_selections,
-                out_selection_start_index,
-                Some(out_selected_rects),
+                edit_selections,
+                edit_selection_start_index,
+                Some(edit_selected_rects),
             );
             contents.last_interacted_time = Some(std::time::Instant::now());
             return true;
@@ -482,25 +484,25 @@ impl Element {
 
             if mods.shift {
                 // Shiftキー押下中：選択の拡張
-                let anchor = out_selection_start_index.get(id).copied().unwrap_or(caret);
-                if !out_selection_start_index.contains_key(id) {
-                    out_selection_start_index.insert(id, caret);
+                let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+                if !edit_selection_start_index.contains_key(id) {
+                    edit_selection_start_index.insert(id, caret);
                 }
                 let (range, reversed) = if anchor <= new_caret {
                     (anchor..new_caret, false)
                 } else {
                     (new_caret..anchor, true)
                 };
-                Element::set_selection_range(id, contents, range, reversed, out_text_selections);
+                Element::set_selection_range(id, contents, range, reversed, edit_selections);
             } else {
                 // Shiftキー非押下：選択解除して単なる移動
                 Element::set_caret_position(
                     id,
                     contents,
                     new_caret,
-                    out_text_selections,
-                    out_selection_start_index,
-                    Some(out_selected_rects),
+                    edit_selections,
+                    edit_selection_start_index,
+                    Some(edit_selected_rects),
                 );
             }
             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -515,9 +517,9 @@ impl Element {
         caret: usize,
         u16_len: usize,
         mods: Modifiers,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
-        out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        out_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selected_rects: &mut SelectedRectsSparseSecondary,
     ) -> bool {
         let range = contents.selected_range.clone();
         // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時（全選択中での右移動に完全対応）
@@ -527,9 +529,9 @@ impl Element {
                 id,
                 contents,
                 new_caret,
-                out_text_selections,
-                out_selection_start_index,
-                Some(out_selected_rects),
+                edit_selections,
+                edit_selection_start_index,
+                Some(edit_selected_rects),
             );
             contents.last_interacted_time = Some(std::time::Instant::now());
             return true;
@@ -537,24 +539,24 @@ impl Element {
             let new_caret = caret + 1;
 
             if mods.shift {
-                let anchor = out_selection_start_index.get(id).copied().unwrap_or(caret);
-                if !out_selection_start_index.contains_key(id) {
-                    out_selection_start_index.insert(id, caret);
+                let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+                if !edit_selection_start_index.contains_key(id) {
+                    edit_selection_start_index.insert(id, caret);
                 }
                 let (range, reversed) = if anchor <= new_caret {
                     (anchor..new_caret, false)
                 } else {
                     (new_caret..anchor, true)
                 };
-                Element::set_selection_range(id, contents, range, reversed, out_text_selections);
+                Element::set_selection_range(id, contents, range, reversed, edit_selections);
             } else {
                 Element::set_caret_position(
                     id,
                     contents,
                     new_caret,
-                    out_text_selections,
-                    out_selection_start_index,
-                    Some(out_selected_rects),
+                    edit_selections,
+                    edit_selection_start_index,
+                    Some(edit_selected_rects),
                 );
             }
             contents.last_interacted_time = Some(std::time::Instant::now());
@@ -572,8 +574,8 @@ impl Element {
         u16_len: usize,
         mods: Modifiers,
         sys_text_engine: &TextEngine,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
-        out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
     ) -> bool {
         if !contents.is_multiline {
             return false;
@@ -594,23 +596,23 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = out_selection_start_index.get(id).copied().unwrap_or(caret);
-            if !out_selection_start_index.contains_key(id) {
-                out_selection_start_index.insert(id, caret);
+            let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+            if !edit_selection_start_index.contains_key(id) {
+                edit_selection_start_index.insert(id, caret);
             }
             let (range, reversed) = if anchor <= final_caret {
                 (anchor..final_caret, false)
             } else {
                 (final_caret..anchor, true)
             };
-            Element::set_selection_range(id, contents, range, reversed, out_text_selections);
+            Element::set_selection_range(id, contents, range, reversed, edit_selections);
         } else {
             Element::set_caret_position(
                 id,
                 contents,
                 final_caret,
-                out_text_selections,
-                out_selection_start_index,
+                edit_selections,
+                edit_selection_start_index,
                 None,
             );
         }
@@ -628,8 +630,8 @@ impl Element {
         u16_len: usize,
         mods: Modifiers,
         sys_text_engine: &TextEngine,
-        out_text_selections: &mut TextSelectionsSparseSecondary,
-        out_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
     ) -> bool {
         if !contents.is_multiline {
             return false;
@@ -649,23 +651,23 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = out_selection_start_index.get(id).copied().unwrap_or(caret);
-            if !out_selection_start_index.contains_key(id) {
-                out_selection_start_index.insert(id, caret);
+            let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+            if !edit_selection_start_index.contains_key(id) {
+                edit_selection_start_index.insert(id, caret);
             }
             let (range, reversed) = if anchor <= final_caret {
                 (anchor..final_caret, false)
             } else {
                 (final_caret..anchor, true)
             };
-            Element::set_selection_range(id, contents, range, reversed, out_text_selections);
+            Element::set_selection_range(id, contents, range, reversed, edit_selections);
         } else {
             Element::set_caret_position(
                 id,
                 contents,
                 final_caret,
-                out_text_selections,
-                out_selection_start_index,
+                edit_selections,
+                edit_selection_start_index,
                 None,
             );
         }
@@ -717,8 +719,8 @@ impl Element {
                     contents,
                     &mut caret,
                     &text_val,
-                    &mut cx.outputs.out_text_selections,
-                    &mut cx.outputs.out_selection_start_index,
+                    &mut cx.states.edit.edit_selections,
+                    &mut cx.states.edit.edit_selection_start_index,
                 );
                 cx.apply_input_update(id, InputOp::Backspace);
             }
@@ -728,8 +730,8 @@ impl Element {
                     contents,
                     caret,
                     &text_val,
-                    &mut cx.outputs.out_text_selections,
-                    &mut cx.outputs.out_selection_start_index,
+                    &mut cx.states.edit.edit_selections,
+                    &mut cx.states.edit.edit_selection_start_index,
                 );
                 cx.apply_input_update(id, InputOp::Delete);
             }
@@ -739,9 +741,9 @@ impl Element {
                     contents,
                     caret,
                     mods,
-                    &mut cx.outputs.out_text_selections,
-                    &mut cx.outputs.out_selection_start_index,
-                    &mut cx.outputs.out_selected_rects,
+                    &mut cx.states.edit.edit_selections,
+                    &mut cx.states.edit.edit_selection_start_index,
+                    &mut cx.states.edit.edit_selected_rects,
                 );
             }
             VirtualKey::RIGHT => {
@@ -751,9 +753,9 @@ impl Element {
                     caret,
                     u16_len,
                     mods,
-                    &mut cx.outputs.out_text_selections,
-                    &mut cx.outputs.out_selection_start_index,
-                    &mut cx.outputs.out_selected_rects,
+                    &mut cx.states.edit.edit_selections,
+                    &mut cx.states.edit.edit_selection_start_index,
+                    &mut cx.states.edit.edit_selected_rects,
                 );
             }
             VirtualKey::UP => {
@@ -766,8 +768,8 @@ impl Element {
                     u16_len,
                     mods,
                     &cx.system.sys_text_engine,
-                    &mut cx.outputs.out_text_selections,
-                    &mut cx.outputs.out_selection_start_index,
+                    &mut cx.states.edit.edit_selections,
+                    &mut cx.states.edit.edit_selection_start_index,
                 );
             }
             VirtualKey::DOWN => {
@@ -780,8 +782,8 @@ impl Element {
                     u16_len,
                     mods,
                     &cx.system.sys_text_engine,
-                    &mut cx.outputs.out_text_selections,
-                    &mut cx.outputs.out_selection_start_index,
+                    &mut cx.states.edit.edit_selections,
+                    &mut cx.states.edit.edit_selection_start_index,
                 );
             }
             _ => {}
@@ -819,9 +821,9 @@ impl Element {
                 id,
                 contents,
                 caret,
-                &mut cx.outputs.out_text_selections,
-                &mut cx.outputs.out_selection_start_index,
-                Some(&mut cx.outputs.out_selected_rects),
+                &mut cx.states.edit.edit_selections,
+                &mut cx.states.edit.edit_selection_start_index,
+                Some(&mut cx.states.edit.edit_selected_rects),
             );
             contents.text.1.set(new_text.clone());
             text_val = new_text;
@@ -848,9 +850,9 @@ impl Element {
                 id,
                 contents,
                 caret,
-                &mut cx.outputs.out_text_selections,
-                &mut cx.outputs.out_selection_start_index,
-                Some(&mut cx.outputs.out_selected_rects),
+                &mut cx.states.edit.edit_selections,
+                &mut cx.states.edit.edit_selection_start_index,
+                Some(&mut cx.states.edit.edit_selected_rects),
             );
 
             contents.text.1.set(temp_text);

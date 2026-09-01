@@ -1,4 +1,5 @@
 #![allow(unused)]
+pub mod config;
 pub mod content_store;
 pub mod event_store;
 pub mod layout_store;
@@ -6,10 +7,12 @@ pub mod output_store;
 pub mod pipeline;
 pub mod reactive_store;
 pub mod render_store;
+pub mod state_store;
 pub mod system_store;
 pub mod topology_store;
 pub mod window_store;
 
+pub use config::*;
 pub use content_store::*;
 pub use event_store::*;
 pub use layout_store::*;
@@ -17,15 +20,16 @@ pub use output_store::*;
 pub use pipeline::*;
 pub use reactive_store::*;
 pub use render_store::*;
+pub use state_store::*;
 pub use system_store::*;
 pub use topology_store::*;
 pub use window_store::*;
 
 use crate::{
-    ActiveFocusTrigger, BasicLayout, ComponentMask, CursorIcon, Element, ElementState, FlexLayout,
-    GridLayout, ImeState, InteractionState, LayoutPoint, LayoutRect, LayoutSize, Modifiers,
-    MouseButton, Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, RendererView,
-    SignalId, TextAlign, TransitionValue, UserSelect, Val, VirtualKey, VisualProperty, WriteSignal,
+    BasicLayout, ComponentMask, CursorIcon, Element, ElementState, FlexLayout, GridLayout,
+    ImeState, InteractionState, LayoutPoint, LayoutRect, LayoutSize, Modifiers, MouseButton,
+    Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, RendererView, SignalId,
+    TextAlign, TransitionValue, UserSelect, Val, VirtualKey, VisualProperty, WriteSignal,
     bind_context, handle_on_char_input, handle_on_click, handle_on_dnd_entity_drop,
     handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime, handle_on_keyboard_input,
     handle_on_mouse_input, handle_on_right_click, with_context,
@@ -58,248 +62,17 @@ new_key_type! {
 //    cx: &'a mut Context,
 // }
 
-/// 引数の配置ルールと接頭辞。それぞれ `&mut` を先に配置。
-/// 1. window (win_)
-/// 2. system (sys_)
-/// 3. reactive (react_)
-/// 4. events (evt_)
-/// 5. contents (cont_)
-/// 6. topology (topo_)
-/// 7. layouts (lay_)
-/// 8. renders (rnd_)
-/// 9. outputs (out_)
 pub struct Context {
-    /// ウィンドウ全体の基本状態（DPI、最終境界）の保持。
-    /// ウィンドウリサイズ検知、可視矩形の算出など。
     pub window: WindowStore,
-    /// OS機能（DWriteレイアウトキャッシュ、IMM32位置、UIAプロパティ）および非同期STAキューの保持。
-    /// IMM32候補窓の物理位置同期、DWriteレイアウト生成など。
     pub system: SystemStore,
-    /// シグナル・エフェクト実体、プロバイダー依存関係の保持。
-    /// プロバイダー引き当て、エフェクトの初回評価遅延処理など。
     pub reactive: ReactiveStore,
-    /// ユーザー入力リスナー、およびリサイズ/ドラッグセッション状態の保持。
-    /// リサイズ方向検知、オートスクロールはみ出し距離など。
     pub events: EventStore,
-    /// ユーザーコンテンツの保持。
-    /// キャレット点滅判定、コンテンツサイズ計測など。
     pub contents: ContentStore,
-    /// ツリー構造の構築、親子関係の管理、DFS走査順序。
-    /// despawn 連鎖、DFS配列の構築、子孫/親の状態バブリング走査など。
     pub topology: TopologyStore,
-    /// 解決済み基本/Flex/Gridスタイルデータの保持。
-    /// TaffyTreeの同期、およびスクロールバー用要素のレイアウト。
-    /// `taffy_style` への同期、物理ボーダー/パディング、コンテナ内径サイズの算出など。
+    pub states: StateStore,
     pub layouts: LayoutStore,
-    /// 解決済みビジュアルスタイルの保持。
-    /// DComp/wgpu用アニメーション・トランジションの時間軸Tick駆動、疑似スタイルのカスケード解決。
-    /// `does_state_require_layout` 判定、フォーカス/ホバー等のカスケードマージなど。
     pub renders: RenderStore,
-    /// 計算完了後の物理絶対座標、クリップ範囲の保持。
-    /// キャレット・テキスト選択範囲の物理領域キャッシュ。
-    /// `resolve_val_to_px` (単位の解決)、キャレット矩形の算出など。
     pub outputs: OutputStore,
-}
-
-#[non_exhaustive]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CapacityConfig {
-    pub sys_dwrite_layouts: usize,
-    pub sys_uia_properties: usize,
-    pub react_signals: usize,
-    pub react_effects: usize,
-    pub react_subscribers: usize,
-    pub react_element_effects: usize,
-    pub react_effect_to_element: usize,
-    pub react_pending_element_effects: usize,
-    pub react_providers: usize,
-    pub evt_listeners: usize,
-    pub evt_dnd_drag_properties: usize,
-    pub evt_dnd_drop_properties: usize,
-    pub cont_text_contents: usize,
-    pub cont_text_spans: usize,
-    pub cont_input_contents: usize,
-    pub cont_image_sources: usize,
-    pub cont_movie_properties: usize,
-    pub cont_webview_contents: usize,
-    pub cont_external_textures: usize,
-    pub topo_entities: usize,
-    pub topo_parents: usize,
-    pub topo_children: usize,
-    pub topo_active_masks: usize,
-    pub topo_active_entities: usize,
-    pub topo_session_spawned: usize,
-    pub topo_session_roots: usize,
-    pub topo_flat_dfs_sequence: usize,
-    pub topo_sorted_entities: usize,
-    pub topo_effective_z_indices: usize,
-    pub topo_dfs_indices: usize,
-    pub topo_sort_cache: usize,
-    pub topo_webview_entities: usize,
-    pub topo_despawned_queue: usize,
-    pub lay_basic: usize,
-    pub lay_flex: usize,
-    pub lay_grid: usize,
-    pub lay_base_basic: usize,
-    pub lay_base_flex: usize,
-    pub lay_scrollbar_styles: usize,
-    pub lay_taffy_nodes: usize,
-    pub lay_taffy_tree: usize,
-    pub lay_dirty_entities: usize,
-    pub lay_resolved_basic: usize,
-    pub lay_resolved_flex: usize,
-    pub lay_resolved_grid: usize,
-    pub rnd_visual: usize,
-    pub rnd_interaction: usize,
-    pub rnd_base_visual: usize,
-    pub rnd_dirty_entities: usize,
-    pub rnd_active_transitions: usize,
-    pub rnd_active_animations: usize,
-    pub rnd_active_webviews: usize,
-    pub out_rects: usize,
-    pub out_clip_rects: usize,
-    pub out_scroll_offsets: usize,
-    pub out_scroll_sizes: usize,
-    pub out_prev_rects: usize,
-    pub out_prev_clip_rects: usize,
-    pub out_selected_rects: usize,
-    pub out_text_selections: usize,
-    pub out_selection_start_index: usize,
-}
-
-impl CapacityConfig {
-    #[must_use]
-    #[inline]
-    /// 想定する最大ノード数を基準に、各配列のキャパシティを傾斜配分して生成
-    pub fn from_base_nodes(base: usize) -> Self {
-        Self {
-            // Entity数とほぼ1対1
-            topo_entities: base,
-            topo_parents: base,
-            topo_children: base,
-            topo_active_masks: base,
-            topo_active_entities: base,
-            topo_session_spawned: base,
-            topo_flat_dfs_sequence: base,
-            topo_sorted_entities: base,
-            topo_effective_z_indices: base,
-            topo_dfs_indices: base,
-            topo_sort_cache: base,
-            lay_basic: base,
-            lay_base_basic: base,
-            lay_taffy_nodes: base,
-            lay_taffy_tree: base,
-            rnd_visual: base,
-            rnd_interaction: base,
-            out_rects: base,
-            out_clip_rects: base,
-            out_prev_rects: base,
-
-            react_signals: base * 2,
-            react_effects: base * 2,
-            react_subscribers: base * 4, // 依存関係は掛け算になりやすい
-            react_element_effects: base,
-            react_effect_to_element: base,
-            react_pending_element_effects: base / 10, // 保留中のものは少ない
-
-            evt_listeners: base / 2,
-
-            cont_text_contents: base / 3,   // 3割程度がテキスト表示
-            cont_text_spans: base / 2,      // スパンはテキストよりやや多め
-            cont_input_contents: base / 20, // 入力欄は少ない
-            cont_image_sources: base / 10,
-            cont_movie_properties: (base / 1000).max(1),
-            cont_external_textures: base / 10,
-
-            lay_flex: base / 2,  // 2つに1つはFlexbox
-            lay_grid: base / 10, // Gridは少なめ
-            lay_base_flex: base / 2,
-            lay_resolved_basic: base / 2,
-            lay_resolved_flex: base / 2,
-
-            rnd_active_transitions: base / 10, // アニメーション等は1割程度
-            rnd_active_animations: base / 20,
-
-            sys_dwrite_layouts: base / 3,
-            sys_uia_properties: base / 10,
-
-            ..Self::zero()
-        }
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn zero() -> Self {
-        Self {
-            sys_dwrite_layouts: 0,
-            sys_uia_properties: 0,
-            react_signals: 0,
-            react_effects: 0,
-            react_subscribers: 0,
-            react_element_effects: 0,
-            react_effect_to_element: 0,
-            react_pending_element_effects: 0,
-            react_providers: 0,
-            evt_listeners: 0,
-            evt_dnd_drag_properties: 0,
-            evt_dnd_drop_properties: 0,
-            cont_text_contents: 0,
-            cont_text_spans: 0,
-            cont_input_contents: 0,
-            cont_image_sources: 0,
-            cont_movie_properties: 0,
-            cont_webview_contents: 0,
-            cont_external_textures: 0,
-            topo_entities: 0,
-            topo_parents: 0,
-            topo_children: 0,
-            topo_active_masks: 0,
-            topo_active_entities: 0,
-            topo_session_spawned: 0,
-            topo_session_roots: 0,
-            topo_flat_dfs_sequence: 0,
-            topo_sorted_entities: 0,
-            topo_effective_z_indices: 0,
-            topo_dfs_indices: 0,
-            topo_sort_cache: 0,
-            topo_webview_entities: 0,
-            topo_despawned_queue: 0,
-            lay_basic: 0,
-            lay_flex: 0,
-            lay_grid: 0,
-            lay_base_basic: 0,
-            lay_base_flex: 0,
-            lay_scrollbar_styles: 0,
-            lay_taffy_nodes: 0,
-            lay_taffy_tree: 0,
-            lay_dirty_entities: 0,
-            lay_resolved_basic: 0,
-            lay_resolved_flex: 0,
-            lay_resolved_grid: 0,
-            rnd_visual: 0,
-            rnd_interaction: 0,
-            rnd_base_visual: 0,
-            rnd_dirty_entities: 0,
-            rnd_active_transitions: 0,
-            rnd_active_animations: 0,
-            rnd_active_webviews: 0,
-            out_rects: 0,
-            out_clip_rects: 0,
-            out_scroll_offsets: 0,
-            out_scroll_sizes: 0,
-            out_prev_rects: 0,
-            out_prev_clip_rects: 0,
-            out_selected_rects: 0,
-            out_text_selections: 0,
-            out_selection_start_index: 0,
-        }
-    }
-}
-
-impl Default for CapacityConfig {
-    fn default() -> Self {
-        Self::zero()
-    }
 }
 
 impl Default for Context {
@@ -315,6 +88,7 @@ impl Context {
         let (tx, rx) = std::sync::mpsc::channel();
         Self {
             topology: TopologyStore::new(),
+            states: StateStore::new(),
             layouts: LayoutStore::new(),
             renders: RenderStore::new(),
             outputs: OutputStore::new(),
@@ -350,6 +124,7 @@ impl Context {
             events: EventStore::with_capacity(capacity),
             contents: ContentStore::with_capacity(capacity),
             topology: TopologyStore::with_capacity(capacity),
+            states: StateStore::with_capacity(capacity),
             layouts: LayoutStore::with_capacity(capacity),
             renders: RenderStore::with_capacity(capacity),
             outputs: OutputStore::with_capacity(capacity),
@@ -360,6 +135,7 @@ impl Context {
     #[inline]
     pub fn clear(&mut self) {
         self.topology.clear();
+        self.states.clear();
         self.layouts.clear();
         self.renders.clear();
         self.outputs.clear();
@@ -384,6 +160,7 @@ impl Context {
             &mut self.events,
             &mut self.contents,
             &mut self.topology,
+            &mut self.states,
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
@@ -414,44 +191,32 @@ impl Context {
         self.topology.topo_active_entities.len()
     }
 
-    /// 指定された要素に現在設定されている最新の `BasicLayout` を安全に読み取ります。
+    /// 指定された要素に現在設定されている最新の `BasicLayout` を取得
     #[inline]
     #[must_use]
-    pub fn get_basic_layout(&self, id: EntityId) -> BasicLayout {
-        self.layouts
-            .lay_basic
-            .get(id)
-            .map_or_else(BasicLayout::default, |l| *l)
+    pub fn try_basic_layout(&self, id: EntityId) -> Option<BasicLayout> {
+        self.layouts.lay_basic.get(id).copied()
     }
 
-    /// 指定された要素に現在設定されている最新の `FlexLayout` を安全に読み取ります。
+    /// 指定された要素に現在設定されている最新の `FlexLayout` を取得
     #[inline]
     #[must_use]
-    pub fn get_flex_layout(&self, id: EntityId) -> FlexLayout {
-        self.layouts
-            .lay_flex
-            .get(id)
-            .map_or_else(FlexLayout::default, |l| *l)
+    pub fn get_flex_layout(&self, id: EntityId) -> Option<FlexLayout> {
+        self.layouts.lay_flex.get(id).copied()
     }
 
-    /// 指定された要素に現在設定されている最新の `GridLayout` を安全に読み取ります。
+    /// 指定された要素に現在設定されている最新の `GridLayout` を取得
     #[inline]
     #[must_use]
-    pub fn get_grid_layout(&self, id: EntityId) -> GridLayout {
-        self.layouts
-            .lay_grid
-            .get(id)
-            .map_or_else(GridLayout::default, std::clone::Clone::clone)
+    pub fn get_grid_layout(&self, id: EntityId) -> Option<GridLayout> {
+        self.layouts.lay_grid.get(id).cloned()
     }
 
-    /// 指定された要素に現在設定されている最新の `VisualProperty` を安全に読み取ります。
+    /// 指定された要素に現在設定されている最新の `VisualProperty` を取得
     #[inline]
     #[must_use]
-    pub fn get_visual_property(&self, id: EntityId) -> VisualProperty {
-        self.renders
-            .rnd_visual
-            .get(id)
-            .map_or_else(VisualProperty::default, std::clone::Clone::clone)
+    pub fn get_visual_property(&self, id: EntityId) -> Option<VisualProperty> {
+        self.renders.rnd_visual.get(id).cloned()
     }
 
     /// 指定された要素が現在マウスホバーされているか判定します
@@ -583,18 +348,25 @@ impl Context {
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
     #[inline]
     pub fn get_selected_text(&self) -> Option<String> {
-        OutputStore::get_selected_text(
+        TextEditStore::get_selected_text(
             &self.events.evt_interaction_states,
             &self.contents.cont_text_contents,
             &self.renders.rnd_visual,
-            &self.outputs.out_text_selections,
+            &self.states.edit.edit_selections,
         )
+    }
+
+    /// 現在のスクロール位置 (x, y) を取得
+    #[inline]
+    #[must_use]
+    pub fn scroll_offset(&self, id: EntityId) -> Option<LayoutPoint> {
+        self.states.scroll.sc_offsets.get(id).copied()
     }
 
     /// 現在のスクロール位置から相対移動します。
     #[inline]
     pub fn scroll_by(&mut self, id: EntityId, dx: f32, dy: f32) -> bool {
-        OutputStore::scroll_by(
+        ScrollStore::scroll_by(
             id,
             dx,
             dy,
@@ -603,15 +375,15 @@ impl Context {
             &self.topology.topo_parents,
             &mut self.layouts.lay_dirty_entities,
             &mut self.layouts.lay_taffy_tree,
-            &mut self.layouts.lay_scrollbar_styles,
+            &mut self.layouts.scrollbar.bar_styles,
             &self.layouts.lay_taffy_nodes,
             &self.layouts.lay_resolved_basic,
             &self.renders.rnd_visual,
             &self.renders.rnd_interaction,
             &self.renders.rnd_active_transitions,
-            &mut self.outputs.out_scroll_offsets,
+            &mut self.states.scroll.sc_offsets,
             &self.outputs.out_rects,
-            &self.outputs.out_scroll_sizes,
+            &self.states.scroll.sc_sizes,
         )
     }
 
@@ -725,7 +497,7 @@ impl Context {
             &self.events.evt_interaction_states,
             self.events.evt_current_pointer_position.as_ref(),
             &self.contents.cont_input_contents,
-            &self.layouts.lay_scrollbar_styles,
+            &self.layouts.scrollbar.bar_styles,
             &self.renders.rnd_visual,
             &self.renders.rnd_active_transitions,
             &self.renders.rnd_active_animations,
@@ -785,12 +557,12 @@ impl Context {
 
     #[inline]
     pub fn auto_focus_switch_by_trigger(&mut self, id: EntityId, trigger: ActiveFocusTrigger) {
-        EventStore::auto_focus_switch_by_trigger(self, id, trigger);
+        FocusStore::auto_focus_switch_by_trigger(self, id, trigger);
     }
 
     #[inline]
     pub fn set_states(&mut self, id: EntityId, flag: &StateFlag, actived: bool) {
-        Pipeline::update_states(self, id, flag, actived);
+        Pipeline::set_states(self, id, flag, actived);
     }
 
     #[inline]
@@ -818,13 +590,30 @@ impl Context {
     /// 階層的な早期枝刈りヒットテスト
     #[inline]
     pub fn hit_test(&mut self, point: LayoutPoint) -> Option<EntityId> {
-        Pipeline::hit_test(self, point)
+        TopologyStore::hit_test(
+            point,
+            self.window.win_last_size,
+            &self.events.evt_interaction_states,
+            &mut self.topology.topo_active_masks,
+            &mut self.topology.topo_dfs_indices,
+            &mut self.topology.topo_effective_z_indices,
+            &mut self.topology.topo_sorted_entities,
+            &mut self.topology.topo_sort_cache,
+            &mut self.topology.topo_is_sort_dirty,
+            &self.topology.topo_active_entities,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+            &self.renders.rnd_visual,
+            &self.renders.rnd_base_visual,
+            &mut self.outputs.out_clip_rects,
+            &self.outputs.out_rects,
+        )
     }
 
     /// キャッシュコヒーレントな直列DFS同期（1次元直線ループ同期）
     /// Taffy自動計算を完全内包
     #[inline]
-    pub fn sync_layout_and_render_list(&mut self, root: EntityId, window_size: LayoutSize) {
+    pub fn sync_layout_and_render(&mut self, root: EntityId, window_size: LayoutSize) {
         Pipeline::sync_layout_and_render(self, root, window_size);
     }
 }

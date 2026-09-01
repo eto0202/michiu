@@ -1,7 +1,6 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, Context, EntityId, ExternalTexture, ImageSource,
-    InputContents, LayoutRect, MovieProperty, RenderStore, SystemStore, TextEngine, TextSpan,
-    TopologyStore, VisualPropertiesSecondary, WebView2Contents,
+    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, InputContents, LayoutRect,
+    RenderStore, TextEngine, TextSpan, VisualPropertiesSecondary, WebView2Contents,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -9,6 +8,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
 pub(crate) type TextContentsSparseSecondary = SparseSecondaryMap<EntityId, Cow<'static, str>>;
 pub(crate) type TextSpansSparseSecondary = SparseSecondaryMap<EntityId, Vec<TextSpan>>;
@@ -50,7 +50,7 @@ impl ContentStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            cont_text_contents: SparseSecondaryMap::with_capacity(c.out_text_selections),
+            cont_text_contents: SparseSecondaryMap::with_capacity(c.edit_selections),
             cont_text_spans: SparseSecondaryMap::with_capacity(c.cont_text_spans),
             cont_input_contents: SparseSecondaryMap::with_capacity(c.cont_input_contents),
             cont_external_textures: SparseSecondaryMap::with_capacity(c.cont_external_textures),

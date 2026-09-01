@@ -236,33 +236,6 @@ impl Element {
         self
     }
 
-    /// スクロールコンテナの指定軸方向のオフセット（スクロール位置）を強制変更します。
-    #[inline]
-    #[must_use]
-    pub fn scroll_to(self, x: f32, y: f32) -> Self {
-        with_context(|cx| {
-            cx.scroll_to(self.id, x, y);
-        });
-        self
-    }
-
-    /// スクロールコンテナを指定ピクセル分だけ相対移動させます。
-    #[inline]
-    #[must_use]
-    pub fn scroll_by(self, dx: f32, dy: f32) -> Self {
-        with_context(|cx| {
-            cx.scroll_by(self.id, dx, dy);
-        });
-        self
-    }
-
-    /// このコンテナの現在のスクロール位置 (x, y) を安全に取得します。
-    #[inline]
-    #[must_use]
-    pub fn scroll_offset(self) -> Option<LayoutPoint> {
-        with_context(|cx| cx.outputs.out_scroll_offsets.get(self.id).copied())
-    }
-
     /// 要素のドラッグ（左クリック押し下げ中のマウス移動）が発生した際に発火するイベントを登録します。
     /// コールバックには、前フレームからの移動差分である `LayoutPoint` が伝播します。
     #[must_use]

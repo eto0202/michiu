@@ -1,8 +1,12 @@
 use crate::{
-    BasicLayoutsSecondary, CapacityConfig, ContentStore, Context, EdgeInsets, EntityId,
-    InputContents, LayoutPoint, LayoutRect, LayoutStore, RectsSecondary, RenderStore,
-    ResolvedBasicSecondary, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary,
-    UiaValue, VisualPropertiesSecondary, WindowStore,
+    ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BasicLayoutsSecondary, CapacityConfig,
+    ContentStore, Context, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents,
+    InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint, LayoutRect,
+    LayoutStore, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
+    ScrollOffsetsSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
+    TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
+    TextSpansSparseSecondary, UiaValue, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{

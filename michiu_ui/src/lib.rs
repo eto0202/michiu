@@ -45,13 +45,13 @@ pub mod prelude {
         element::{Element, build_ui},
         input::InputContents,
         pipeline::{StateFlag, TickType, UserAction},
+        scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
         style::ThisStyle,
         types::{
             AnimationCurve, Backdrop, BorderAlignment, BorderStyle, Color, CursorIcon, Display,
             ElementState, InteractionState, KeyframeAnimation, LayoutPoint, LayoutRect, LayoutSize,
-            Modifiers, MouseButton, PlaybackCount, PointerEvents, ScrollbarDisplay, ScrollbarMode,
-            ScrollbarStyle, Transform, Transition,
+            Modifiers, MouseButton, PlaybackCount, PointerEvents, Transform, Transition,
         },
         utils::{
             auto, block_box, blur, create_signal, div, div_d, div_n, dynamic, external_texture,

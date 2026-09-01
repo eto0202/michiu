@@ -1,7 +1,7 @@
 use crate::{
     ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary,
     ComponentMask, CursorIcon, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId,
-    InteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
+    ActiveInteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
     ParentsSecondary, Position, Rect, RectsSecondary, TaffyNodesSecondary, TaffyTreeEntityId,
     TopologyStore, Val, VisualPropertiesSecondary,
 };
@@ -58,6 +58,16 @@ impl ResizeStore {
 }
 
 impl ResizeStore {
+    /// リサイズ方向から対応するカーソル種別へ変換
+    fn resize_direction_to_cursor(dir: ResizeDirection) -> CursorIcon {
+        match dir {
+            ResizeDirection::Top | ResizeDirection::Bottom => CursorIcon::ResizeNs(None),
+            ResizeDirection::Left | ResizeDirection::Right => CursorIcon::ResizeEw(None),
+            ResizeDirection::TopRight | ResizeDirection::BottomLeft => CursorIcon::ResizeNesw(None),
+            ResizeDirection::TopLeft | ResizeDirection::BottomRight => CursorIcon::ResizeNwse(None),
+        }
+    }
+
     pub(crate) fn apply_resizable_cursor_style(
         id: EntityId,
         dir: ResizeDirection,
@@ -83,51 +93,8 @@ impl ResizeStore {
         vis.cursor = Some(cursor);
     }
 
-    pub(crate) fn found_resize_hover(
-        target_id: Option<EntityId>,
-        logical_pos: LayoutPoint,
-        topo_active_masks: &ActiveMasksSecondary,
-        topo_parents: &ParentsSecondary,
-        lay_basic: &BasicLayoutsSecondary,
-        out_rects: &RectsSecondary,
-    ) -> (Option<EntityId>, Option<(EntityId, ResizeDirection)>) {
-        let mut current_id = target_id;
-        let mut found_resize_hover = None;
-        while let Some(id) = current_id {
-            if topo_active_masks[id].has(ComponentMask::STYLE_RESIZABLE) {
-                let rect = out_rects.get(id).copied().unwrap_or_default();
-                let resizable_flags = lay_basic.get(id).map_or([false; 4], |l| l.resizable);
-
-                // 境界外周に 6.0px のあそびを持たせてヒット判定
-                let detect_border = 6.0f32;
-                let direction = ResizeStore::detect_resize_direction(
-                    rect,
-                    resizable_flags,
-                    logical_pos,
-                    detect_border,
-                );
-                if let Some(dir) = direction {
-                    found_resize_hover = Some((id, dir));
-                    break; // 最も前面寄りのリサイズ親要素を優先採用
-                }
-            }
-            current_id = topo_parents.get(id).copied().flatten();
-        }
-        (current_id, found_resize_hover)
-    }
-
-    /// リサイズ方向から対応するカーソル種別へ変換するヘルパー
-    pub(crate) fn resize_direction_to_cursor(dir: ResizeDirection) -> CursorIcon {
-        match dir {
-            ResizeDirection::Top | ResizeDirection::Bottom => CursorIcon::ResizeNs(None),
-            ResizeDirection::Left | ResizeDirection::Right => CursorIcon::ResizeEw(None),
-            ResizeDirection::TopRight | ResizeDirection::BottomLeft => CursorIcon::ResizeNesw(None),
-            ResizeDirection::TopLeft | ResizeDirection::BottomRight => CursorIcon::ResizeNwse(None),
-        }
-    }
-
     /// マウス位置と要素の境界・リサイズ許可フラグから、該当するリサイズ方向を算出するヘルパー
-    pub(crate) fn detect_resize_direction(
+    fn detect_resize_direction(
         rect: LayoutRect,
         resizable: [bool; 4], // [top, right, bottom, left]
         pos: LayoutPoint,
@@ -168,10 +135,43 @@ impl ResizeStore {
         }
     }
 
+    pub(crate) fn found_resize_hover(
+        target_id: Option<EntityId>,
+        logical_pos: LayoutPoint,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        out_rects: &RectsSecondary,
+    ) -> (Option<EntityId>, Option<(EntityId, ResizeDirection)>) {
+        let mut current_id = target_id;
+        let mut found_resize_hover = None;
+        while let Some(id) = current_id {
+            if topo_active_masks[id].has(ComponentMask::STYLE_RESIZABLE) {
+                let rect = out_rects.get(id).copied().unwrap_or_default();
+                let resizable_flags = lay_basic.get(id).map_or([false; 4], |l| l.resizable);
+
+                // 境界外周に 6.0px のあそびを持たせてヒット判定
+                let detect_border = 6.0f32;
+                let direction = ResizeStore::detect_resize_direction(
+                    rect,
+                    resizable_flags,
+                    logical_pos,
+                    detect_border,
+                );
+                if let Some(dir) = direction {
+                    found_resize_hover = Some((id, dir));
+                    break; // 最も前面寄りのリサイズ親要素を優先採用
+                }
+            }
+            current_id = topo_parents.get(id).copied().flatten();
+        }
+        (current_id, found_resize_hover)
+    }
+
     pub(crate) fn state_pressed_resize_drag(
         id: EntityId,
         dir: ResizeDirection,
-        evt_interaction_states: &mut InteractionStates,
+        evt_interaction_states: &mut ActiveInteractionStates,
         res_resizing_state: &mut Option<ResizingState>,
         evt_current_pointer_position: Option<LayoutPoint>,
         topo_parents: &ParentsSecondary,

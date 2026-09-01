@@ -1,6 +1,6 @@
 use crate::{
     CapacityConfig, Context, EffectId, EntitiesSlot, EntityId, FlatDfsSequenceVec,
-    ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal,
+    ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal, execute_effect,
 };
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
@@ -230,27 +230,6 @@ impl ReactiveStore {
         effect_id
     }
 
-    /// ビルド完了後、または同期直前に、溜めてある初回評価を実行
-    #[inline]
-    pub(crate) fn evaluate_pending_element_effects(
-        react_effects: &mut EffectsSlotMap,
-        react_pending_element_effects: &mut PendingElementEffectsVec,
-    ) {
-        if react_pending_element_effects.is_empty() {
-            return;
-        }
-
-        // 評価中に別のネストしたエフェクトが追加されるケースを許容するため、drain で一度排出して処理
-        let pending: Vec<EffectId> = std::mem::take(react_pending_element_effects);
-
-        for effect_id in pending
-            .into_iter()
-            .filter(|&id| react_effects.contains_key(id))
-        {
-            crate::execute_effect(effect_id);
-        }
-    }
-
     /// 指定された要素もしくはルート要素に対してシグナルコンテキストを提供
     #[inline]
     pub(crate) fn provide<T: Send + 'static>(
@@ -294,6 +273,25 @@ impl ReactiveStore {
         react_subscribers.insert(id, SmallVec::new());
 
         (ReadSignal::new(id), WriteSignal::new(id))
+    }
+
+    #[inline]
+    pub(crate) fn evaluate_pending_element_effects(
+        react_pending_element_effects: &mut PendingElementEffectsVec,
+        react_effects: &EffectsSlotMap,
+    ) {
+        // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
+        if react_pending_element_effects.is_empty() {
+            return;
+        }
+
+        let pending: Vec<EffectId> = std::mem::take(react_pending_element_effects);
+        for effect_id in pending
+            .into_iter()
+            .filter(|&id| react_effects.contains_key(id))
+        {
+            execute_effect(effect_id);
+        }
     }
 }
 
@@ -340,12 +338,11 @@ impl Context {
         )
     }
 
-    /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に安全実行します
     #[inline]
     pub(crate) fn evaluate_pending_element_effects(&mut self) {
         ReactiveStore::evaluate_pending_element_effects(
-            &mut self.reactive.react_effects,
             &mut self.reactive.react_pending_element_effects,
+            &self.reactive.react_effects,
         );
     }
 }

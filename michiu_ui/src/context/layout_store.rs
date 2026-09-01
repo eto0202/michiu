@@ -1,3 +1,7 @@
+pub mod scrollbar;
+
+pub use scrollbar::*;
+
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary,
     BasicLayout, CapacityConfig, ChildrenSecondary, ComponentMask, ContentStore, Context,
@@ -5,10 +9,9 @@ use crate::{
     FlexLayout, GridLayout, InputContentsSparseSecondary, InteractionPropertiesSecondary,
     InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, Length, NormalLayout, OutputStore,
     ParentsSecondary, Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizingState,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
-    Size, StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine,
-    TextSpansSparseSecondary, ThisStyle, TopologyStore, Val, VisualPropertiesSecondary,
-    WindowStore,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, Size, StyleTarget, SystemStore,
+    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, ThisStyle, TopologyStore,
+    Val, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -18,29 +21,6 @@ use std::{
     time::{Duration, Instant},
 };
 use taffy::TaffyTree;
-
-#[derive(Debug, Clone, Default)]
-pub(crate) struct ScrollBarState {
-    pub(crate) style: ScrollbarStyle,
-
-    // レイアウトツリーに動的挿入される Element の EntityId
-    pub(crate) v_track_id: Option<EntityId>,
-    pub(crate) v_thumb_id: Option<EntityId>,
-    pub(crate) h_track_id: Option<EntityId>,
-    pub(crate) h_thumb_id: Option<EntityId>,
-
-    // ホバー・ドラッグのランタイム状態
-    pub(crate) v_thumb_hovered: bool,
-    pub(crate) v_thumb_dragged: bool,
-    pub(crate) h_thumb_hovered: bool,
-    pub(crate) h_thumb_dragged: bool,
-
-    pub(crate) drag_start_mouse: LayoutPoint,
-    pub(crate) drag_start_offset: LayoutPoint,
-
-    // 一時表示（Transient）モードの表示制御用
-    pub(crate) last_scroll_time: Option<std::time::Instant>,
-}
 
 pub(crate) type LayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 pub(crate) type BaseLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
@@ -57,9 +37,9 @@ pub(crate) type BaseFlexLayoutsSecondary = SecondaryMap<EntityId, FlexLayout>;
 pub(crate) type ResolvedBasicSecondary = SecondaryMap<EntityId, BasicLayout>;
 pub(crate) type ResolvedFlexSecondary = SecondaryMap<EntityId, FlexLayout>;
 pub(crate) type ResolvedGridSparseSecondary = SparseSecondaryMap<EntityId, GridLayout>;
-pub(crate) type ScrollbarStylesSecondary = SparseSecondaryMap<EntityId, ScrollBarState>;
 
 pub struct LayoutStore {
+    pub(crate) scrollbar: ScrollbarStore,
     pub(crate) lay_dirty_entities: DirtyLayoutEntitiesVec,
     pub(crate) lay_taffy_tree: TaffyTreeEntityId,
     pub(crate) lay_taffy_nodes: TaffyNodesSecondary,
@@ -71,7 +51,6 @@ pub struct LayoutStore {
     pub(crate) lay_resolved_basic: ResolvedBasicSecondary,
     pub(crate) lay_resolved_flex: ResolvedFlexSecondary,
     pub(crate) lay_resolved_grid: ResolvedGridSparseSecondary,
-    pub(crate) lay_scrollbar_styles: ScrollbarStylesSecondary,
 }
 
 impl Default for LayoutStore {
@@ -85,6 +64,7 @@ impl LayoutStore {
     #[inline]
     pub fn new() -> Self {
         Self {
+            scrollbar: ScrollbarStore::new(),
             lay_dirty_entities: Vec::new(),
             lay_taffy_tree: TaffyTree::new(),
             lay_taffy_nodes: SecondaryMap::new(),
@@ -96,7 +76,6 @@ impl LayoutStore {
             lay_resolved_basic: SecondaryMap::new(),
             lay_resolved_flex: SecondaryMap::new(),
             lay_resolved_grid: SparseSecondaryMap::new(),
-            lay_scrollbar_styles: SparseSecondaryMap::new(),
         }
     }
 
@@ -104,6 +83,7 @@ impl LayoutStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
+            scrollbar: ScrollbarStore::with_capacity(c),
             lay_dirty_entities: Vec::with_capacity(c.lay_dirty_entities),
             lay_taffy_tree: TaffyTree::with_capacity(c.lay_taffy_tree),
             lay_taffy_nodes: SecondaryMap::with_capacity(c.lay_taffy_nodes),
@@ -115,12 +95,12 @@ impl LayoutStore {
             lay_resolved_basic: SecondaryMap::with_capacity(c.lay_resolved_basic),
             lay_resolved_flex: SecondaryMap::with_capacity(c.lay_resolved_flex),
             lay_resolved_grid: SparseSecondaryMap::with_capacity(c.lay_resolved_grid),
-            lay_scrollbar_styles: SparseSecondaryMap::with_capacity(c.lay_scrollbar_styles),
         }
     }
 
     #[inline]
     pub fn clear(&mut self) {
+        self.scrollbar.clear();
         self.lay_dirty_entities.clear();
         self.lay_taffy_tree = TaffyTree::new();
         self.lay_taffy_nodes.clear();
@@ -132,11 +112,11 @@ impl LayoutStore {
         self.lay_resolved_basic.clear();
         self.lay_resolved_flex.clear();
         self.lay_resolved_grid.clear();
-        self.lay_scrollbar_styles.clear();
     }
 
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
+        self.scrollbar.despawn(id);
         self.lay_dirty_entities.retain(|&x| x != id);
         self.lay_taffy_nodes.remove(id);
         self.lay_basic.remove(id);
@@ -147,7 +127,6 @@ impl LayoutStore {
         self.lay_resolved_basic.remove(id);
         self.lay_resolved_flex.remove(id);
         self.lay_resolved_grid.remove(id);
-        self.lay_scrollbar_styles.remove(id);
     }
 }
 
@@ -360,9 +339,9 @@ impl LayoutStore {
         basic: &BasicLayout,
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
-        lay_scrollbar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSecondary,
     ) -> taffy::Style {
-        let sb_style = lay_scrollbar_styles.get(id).map(|s| &s.style);
+        let sb_style = bar_styles.get(id).map(|s| &s.style);
 
         let mut style: taffy::Style = taffy::Style {
             display: basic.display.into(),
@@ -456,150 +435,12 @@ impl LayoutStore {
         (border, padding)
     }
 
-    /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出します。
-    #[inline]
-    pub(crate) fn calculate_inner_content_size(
-        visible_size: LayoutSize,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-    ) -> LayoutSize {
-        let content_w =
-            (visible_size.width - border.left - border.right - padding.left - padding.right)
-                .max(0.0);
-        let content_h =
-            (visible_size.height - border.top - border.bottom - padding.top - padding.bottom)
-                .max(0.0);
-
-        LayoutSize::new(content_w, content_h)
-    }
-
-    #[inline]
-    pub(crate) fn calculate_viewport_size(
-        visible_size: LayoutRect,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-    ) -> LayoutSize {
-        let content_w =
-            (visible_size.width - border.left - border.right - padding.left - padding.right)
-                .max(0.0);
-        let content_h =
-            (visible_size.height - border.top - border.bottom - padding.top - padding.bottom)
-                .max(0.0);
-
-        LayoutSize::new(content_w, content_h)
-    }
-
     #[inline]
     fn length_to_px(length: Length, reference: f32) -> f32 {
         match length {
             Length::Px(v) => v,
             Length::Percent(p) => reference * (p / 100.0),
         }
-    }
-
-    // 全スクロールバー関連IDを一括抽出
-    #[inline]
-    pub(crate) fn scrollbar_el_ids(
-        lay_scrollbar_styles: &SparseSecondaryMap<EntityId, ScrollBarState>,
-    ) -> HashSet<EntityId> {
-        lay_scrollbar_styles
-            .values()
-            .flat_map(|sb_state| {
-                [
-                    sb_state.v_track_id,
-                    sb_state.v_thumb_id,
-                    sb_state.h_track_id,
-                    sb_state.h_thumb_id,
-                ]
-                .into_iter()
-                .flatten()
-            })
-            .collect()
-    }
-
-    /// スクロールバー用要素のレイアウト情報を同期して更新。
-    pub(crate) fn update_scrollbar_element_layout(
-        id: EntityId,
-        size: Size<Val>,
-        inset: Rect<Val>,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_base_basic: &mut BaseBasicLayoutsSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-    ) {
-        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
-
-        for layout in layouts.into_iter().flatten() {
-            layout.display = Display::Flex;
-            layout.size = size;
-            layout.inset = inset;
-        }
-    }
-
-    /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
-    #[inline]
-    pub(crate) fn update_scrollbar_element(
-        id: EntityId,
-        size: Size<Val>,
-        inset: Rect<Val>,
-        opacity: f32,
-        topo_active_masks: &ActiveMasksSecondary,
-        topo_parents: &ParentsSecondary,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_base_basic: &mut BaseBasicLayoutsSecondary,
-        lay_resolved_basic: &mut ResolvedBasicSecondary,
-        lay_resolved_flex: &mut ResolvedFlexSecondary,
-        lay_resolved_grid: &mut ResolvedGridSparseSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_flex: &FlexLayoutsSecondary,
-        lay_grid: &GridLayoutsSparseSecondary,
-        lay_scrollbar_styles: &ScrollbarStylesSecondary,
-        rnd_visual: &mut VisualPropertiesSecondary,
-        rnd_base_visual: &mut BaseVisualPropertiesSecondary,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
-    ) {
-        LayoutStore::update_scrollbar_element_layout(
-            id,
-            size,
-            inset,
-            lay_taffy_tree,
-            lay_basic,
-            lay_base_basic,
-            lay_taffy_nodes,
-        );
-        RenderStore::update_scrollbar_element_opacity(id, opacity, rnd_visual, rnd_base_visual);
-
-        // 変更されたスクロールバー要素のキャッシュを更新
-        LayoutStore::update_resolved_active_layout_cache(
-            id,
-            topo_active_masks,
-            topo_parents,
-            lay_resolved_basic,
-            lay_resolved_flex,
-            lay_resolved_grid,
-            lay_basic,
-            lay_flex,
-            lay_grid,
-            rnd_visual,
-            rnd_interaction,
-            rnd_active_transitions,
-        );
-
-        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
-        let flex = lay_resolved_flex.get(id).copied().unwrap_or_default();
-        let grid = lay_resolved_grid.get(id); // Grid実装時用
-
-        LayoutStore::set_taffy_style(
-            id,
-            &basic,
-            &flex,
-            grid,
-            lay_taffy_tree,
-            lay_taffy_nodes,
-            lay_scrollbar_styles,
-        );
     }
 
     /// 解決済みの基本スタイルを `TaffyTree` のノードへ同期して適用。
@@ -611,38 +452,10 @@ impl LayoutStore {
         grid: Option<&GridLayout>,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_scrollbar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSecondary,
     ) {
-        let taffy_style =
-            LayoutStore::resolve_taffy_style(id, basic, flex, grid, lay_scrollbar_styles);
+        let taffy_style = LayoutStore::resolve_taffy_style(id, basic, flex, grid, bar_styles);
         let _ = lay_taffy_tree.set_style(lay_taffy_nodes[id], taffy_style);
-    }
-
-    /// スクロールバー用要素をレイアウト上から安全に隠します。
-    #[inline]
-    pub(crate) fn hide_scrollbar_element(
-        id: EntityId,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_base_basic: &mut BaseBasicLayoutsSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-    ) {
-        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
-
-        for layout in layouts.into_iter().flatten() {
-            layout.display = Display::None;
-        }
-
-        // 非表示パスで、Taffy側ノードスタイルを確実に Display::None にして同期する
-        if let Some(&node_id) = lay_taffy_nodes.get(id) {
-            let _ = lay_taffy_tree.set_style(
-                node_id,
-                taffy::Style {
-                    display: taffy::Display::None,
-                    ..Default::default()
-                },
-            );
-        }
     }
 
     #[inline]
@@ -744,432 +557,6 @@ impl LayoutStore {
             };
             curr = parent_id;
         }
-    }
-}
-
-// つまみ（Thumb）計算用の入力パラメータ
-pub(crate) struct ExtractedThumb {
-    initial_len: f32,
-    min_len: f32,
-    max_len: f32,
-    margin_start: f32,
-    margin_end: f32,
-    pad_start: f32,
-    pad_end: f32,
-    cross_size_override: Option<f32>,
-}
-
-pub(crate) struct ScrollbarSyncContext<'a> {
-    pub topo_active_masks: &'a ActiveMasksSecondary,
-    pub topo_parents: &'a ParentsSecondary,
-    pub lay_taffy_tree: &'a mut TaffyTreeEntityId,
-    pub lay_basic: &'a mut BasicLayoutsSecondary,
-    pub lay_base_basic: &'a mut BaseBasicLayoutsSecondary,
-    pub lay_resolved_basic: &'a mut ResolvedBasicSecondary,
-    pub lay_resolved_flex: &'a mut ResolvedFlexSecondary,
-    pub lay_resolved_grid: &'a mut ResolvedGridSparseSecondary,
-    pub lay_taffy_nodes: &'a TaffyNodesSecondary,
-    pub lay_flex: &'a FlexLayoutsSecondary,
-    pub lay_grid: &'a GridLayoutsSparseSecondary,
-    pub lay_scrollbar_styles: &'a ScrollbarStylesSecondary,
-    pub rnd_visual: &'a mut VisualPropertiesSecondary,
-    pub rnd_base_visual: &'a mut BaseVisualPropertiesSecondary,
-    pub rnd_interaction: &'a InteractionPropertiesSecondary,
-    pub rnd_active_transitions: &'a ActiveTransitionsSparseSecondary,
-}
-
-impl ScrollbarSyncContext<'_> {
-    #[inline]
-    pub fn update_el(&mut self, el_id: EntityId, size: Size<Val>, rect: Rect<Val>, opacity: f32) {
-        LayoutStore::update_scrollbar_element(
-            el_id,
-            size,
-            rect,
-            opacity,
-            self.topo_active_masks,
-            self.topo_parents,
-            self.lay_taffy_tree,
-            self.lay_basic,
-            self.lay_base_basic,
-            self.lay_resolved_basic,
-            self.lay_resolved_flex,
-            self.lay_resolved_grid,
-            self.lay_taffy_nodes,
-            self.lay_flex,
-            self.lay_grid,
-            self.lay_scrollbar_styles,
-            self.rnd_visual,
-            self.rnd_base_visual,
-            self.rnd_interaction,
-            self.rnd_active_transitions,
-        );
-    }
-    #[inline]
-    pub fn hide_el(&mut self, el_id: EntityId) {
-        LayoutStore::hide_scrollbar_element(
-            el_id,
-            self.lay_taffy_tree,
-            self.lay_basic,
-            self.lay_base_basic,
-            self.lay_taffy_nodes,
-        );
-    }
-}
-
-impl LayoutStore {
-    pub(crate) fn sync_scrollbar_styles(
-        win_last_size: Option<LayoutSize>,
-        sys_text_engine: &TextEngine,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
-        topo_active_masks: &ActiveMasksSecondary,
-        topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
-        lay_basic: &mut BasicLayoutsSecondary,
-        lay_base_basic: &mut BaseBasicLayoutsSecondary,
-        lay_resolved_basic: &mut ResolvedBasicSecondary,
-        lay_resolved_flex: &mut ResolvedFlexSecondary,
-        lay_resolved_grid: &mut ResolvedGridSparseSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
-        lay_flex: &FlexLayoutsSecondary,
-        lay_grid: &GridLayoutsSparseSecondary,
-        lay_scrollbar_styles: &ScrollbarStylesSecondary,
-        rnd_visual: &mut VisualPropertiesSecondary,
-        rnd_base_visual: &mut BaseVisualPropertiesSecondary,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
-        out_rects: &RectsSecondary,
-        out_scroll_offsets: &ScrollOffsetsSecondary,
-        out_scroll_sizes: &ScrollSizesSecondary,
-    ) {
-        let scrollbar_ids: Vec<EntityId> = lay_scrollbar_styles.keys().collect();
-
-        for id in scrollbar_ids {
-            let sb_state = lay_scrollbar_styles.get(id).cloned().unwrap();
-            let container_rect = out_rects[id];
-            let scroll_size = out_scroll_sizes.get(id).copied().unwrap_or_default();
-            let current_scroll = out_scroll_offsets.get(id).copied().unwrap_or_default();
-
-            let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
-            let rect = out_rects.get(id).copied().unwrap_or_default();
-            let (border, padding) =
-                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-            let visible_size = WindowStore::calculate_visible_size(container_rect, win_last_size);
-            let content_size =
-                LayoutStore::calculate_inner_content_size(visible_size, border, padding);
-
-            let show_v = scroll_size.height > content_size.height;
-            let show_h = scroll_size.width > content_size.width;
-
-            // トラックデフォルト長の計算
-            let track_h_default = LayoutStore::calculate_track_len(
-                visible_size.height,
-                border.top,
-                border.bottom,
-                show_h,
-                sb_state.style.width,
-            );
-            let track_w = LayoutStore::calculate_track_len(
-                visible_size.width,
-                border.left,
-                border.right,
-                show_v,
-                sb_state.style.width,
-            );
-
-            let mut ctx = ScrollbarSyncContext {
-                topo_active_masks,
-                topo_parents,
-                lay_taffy_tree,
-                lay_basic,
-                lay_base_basic,
-                lay_resolved_basic,
-                lay_resolved_flex,
-                lay_resolved_grid,
-                lay_taffy_nodes,
-                lay_flex,
-                lay_grid,
-                lay_scrollbar_styles,
-                rnd_visual,
-                rnd_base_visual,
-                rnd_interaction,
-                rnd_active_transitions,
-            };
-
-            // 縦トラック (V-Track) の同期
-            if let Some(v_track) = sb_state.v_track_id {
-                let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
-                    sb_state.style.display,
-                    sb_state.last_scroll_time,
-                    show_v,
-                );
-                if visible {
-                    let mut track_h = track_h_default;
-                    if let Some(ref track_style) = sb_state.style.v_track
-                        && let Val::Px(val) = track_style.inner.basic_layout.size.height
-                    {
-                        track_h = val;
-                    }
-                    ctx.update_el(
-                        v_track,
-                        Size::new(Val::Px(sb_state.style.width), Val::Px(track_h)),
-                        Rect::new(Val::Px(0.0), Val::Px(0.0), Val::Auto, Val::Auto),
-                        opacity,
-                    );
-                } else {
-                    ctx.hide_el(v_track);
-                }
-            }
-
-            // 縦つまみ (V-Thumb) の同期
-            if let Some(v_thumb) = sb_state.v_thumb_id {
-                let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
-                    sb_state.style.display,
-                    sb_state.last_scroll_time,
-                    show_v,
-                );
-                if visible {
-                    let mut ext = ExtractedThumb {
-                        initial_len: track_h_default,
-                        min_len: 24.0,
-                        max_len: track_h_default,
-                        margin_start: 0.0,
-                        margin_end: 0.0,
-                        pad_start: 0.0,
-                        pad_end: 0.0,
-                        cross_size_override: None,
-                    };
-
-                    if let Some(ref thumb_style) = sb_state.style.v_thumb {
-                        let layout = &thumb_style.inner.basic_layout;
-                        if let Val::Px(val) = layout.size.height {
-                            ext.initial_len = val;
-                        }
-                        if let Val::Px(val) = layout.min_size.height {
-                            ext.min_len = val;
-                        }
-                        if let Val::Px(val) = layout.max_size.height {
-                            ext.max_len = val;
-                        }
-                        if let Val::Px(val) = layout.margin.top {
-                            ext.margin_start = val;
-                        }
-                        if let Val::Px(val) = layout.margin.bottom {
-                            ext.margin_end = val;
-                        }
-                        if let Length::Px(val) = layout.padding.left {
-                            ext.pad_start = val;
-                        }
-                        if let Length::Px(val) = layout.padding.right {
-                            ext.pad_end = val;
-                        }
-                        if let Val::Px(val) = layout.size.width {
-                            ext.cross_size_override = Some(val);
-                        }
-                    }
-
-                    let (h, y, w, x) = LayoutStore::calculate_thumb_geometry(
-                        track_h_default,
-                        visible_size.height,
-                        scroll_size.height,
-                        current_scroll.y,
-                        sb_state.style.width,
-                        &ext,
-                    );
-
-                    ctx.update_el(
-                        v_thumb,
-                        Size::new(Val::Px(w), Val::Px(h)),
-                        Rect::new(Val::Px(y), Val::Auto, Val::Auto, Val::Px(x)),
-                        opacity,
-                    );
-                } else {
-                    ctx.hide_el(v_thumb);
-                }
-            }
-
-            // 横トラック (H-Track) の同期
-            if let Some(h_track) = sb_state.h_track_id {
-                let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
-                    sb_state.style.display,
-                    sb_state.last_scroll_time,
-                    show_h,
-                );
-                if visible {
-                    ctx.update_el(
-                        h_track,
-                        Size::new(Val::Px(track_w), Val::Px(sb_state.style.width)),
-                        Rect::new(Val::Auto, Val::Auto, Val::Px(0.0), Val::Px(0.0)),
-                        opacity,
-                    );
-                } else {
-                    ctx.hide_el(h_track);
-                }
-            }
-
-            // 横つまみ (H-Thumb) の同期
-            if let Some(h_thumb) = sb_state.h_thumb_id {
-                let (visible, opacity) = LayoutStore::calculate_visibility_opacity(
-                    sb_state.style.display,
-                    sb_state.last_scroll_time,
-                    show_h,
-                );
-                if visible {
-                    let mut ext = ExtractedThumb {
-                        initial_len: track_w,
-                        min_len: 24.0,
-                        max_len: track_w,
-                        margin_start: 0.0,
-                        margin_end: 0.0,
-                        pad_start: 0.0,
-                        pad_end: 0.0,
-                        cross_size_override: None,
-                    };
-
-                    if let Some(ref thumb_style) = sb_state.style.h_thumb {
-                        let layout = &thumb_style.inner.basic_layout;
-                        if let Val::Px(val) = layout.size.width {
-                            ext.initial_len = val;
-                        }
-                        if let Val::Px(val) = layout.min_size.width {
-                            ext.min_len = val;
-                        }
-                        if let Val::Px(val) = layout.max_size.width {
-                            ext.max_len = val;
-                        }
-                        if let Val::Px(val) = layout.margin.left {
-                            ext.margin_start = val;
-                        }
-                        if let Val::Px(val) = layout.margin.right {
-                            ext.margin_end = val;
-                        }
-                        if let Length::Px(val) = layout.padding.top {
-                            ext.pad_start = val;
-                        }
-                        if let Length::Px(val) = layout.padding.bottom {
-                            ext.pad_end = val;
-                        }
-                        if let Val::Px(val) = layout.size.height {
-                            ext.cross_size_override = Some(val);
-                        }
-                    }
-
-                    let (w, x, h, y) = LayoutStore::calculate_thumb_geometry(
-                        track_w,
-                        visible_size.width,
-                        scroll_size.width,
-                        current_scroll.x,
-                        sb_state.style.width,
-                        &ext,
-                    );
-
-                    ctx.update_el(
-                        h_thumb,
-                        Size::new(Val::Px(w), Val::Px(h)),
-                        Rect::new(Val::Px(y), Val::Auto, Val::Auto, Val::Px(x)),
-                        opacity,
-                    );
-                } else {
-                    ctx.hide_el(h_thumb);
-                }
-            }
-        }
-    }
-
-    // 表示状態と不透明度の計算
-    #[inline]
-    fn calculate_visibility_opacity(
-        display: ScrollbarDisplay,
-        last_scroll_time: Option<Instant>,
-        show_bar: bool,
-    ) -> (bool, f32) {
-        if !show_bar || display == ScrollbarDisplay::None {
-            return (false, 1.0);
-        }
-        match display {
-            ScrollbarDisplay::Always | ScrollbarDisplay::Auto => (true, 1.0),
-            ScrollbarDisplay::Transient => {
-                let Some(last) = last_scroll_time else {
-                    return (false, 1.0);
-                };
-
-                let elapsed = last.elapsed();
-                if elapsed < Duration::from_secs(1) {
-                    (true, 1.0)
-                } else if elapsed < Duration::from_millis(1500) {
-                    let opacity = 1.0 - (elapsed.as_secs_f32() - 1.0) / 0.5;
-                    (true, opacity)
-                } else {
-                    (false, 1.0)
-                }
-            }
-            ScrollbarDisplay::None => (false, 1.0),
-        }
-    }
-
-    // トラック有効長の計算
-    #[inline]
-    fn calculate_track_len(
-        visible_dim: f32,
-        border_start: f32,
-        border_end: f32,
-        show_other: bool,
-        scrollbar_width: f32,
-    ) -> f32 {
-        let extra = if show_other { scrollbar_width } else { 0.0 };
-        (visible_dim - border_start - border_end - extra).max(0.0)
-    }
-
-    // つまみの物理サイズと位置の計算
-    #[inline]
-    fn calculate_thumb_geometry(
-        track_len: f32,
-        visible_len: f32,
-        scroll_len: f32,
-        current_scroll_val: f32,
-        scrollbar_width: f32,
-        ext: &ExtractedThumb,
-    ) -> (f32, f32, f32, f32) {
-        let view_ratio = if scroll_len > 0.0 {
-            (visible_len / scroll_len).min(1.0)
-        } else {
-            1.0
-        };
-
-        let calculated_len = ext.initial_len * view_ratio;
-        let thumb_len = calculated_len
-            .max(ext.min_len)
-            .min(ext.max_len)
-            .min(track_len);
-
-        let scroll_ratio = if scroll_len > visible_len {
-            (current_scroll_val / (scroll_len - visible_len)).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-
-        let max_thumb_pos = (track_len - thumb_len - ext.margin_start - ext.margin_end).max(0.0);
-        let thumb_main_pos = max_thumb_pos * scroll_ratio;
-
-        let thumb_cross_len = if let Some(w) = ext.cross_size_override {
-            w.min(scrollbar_width)
-        } else {
-            scrollbar_width
-        };
-
-        let thumb_cross_pos = if ext.pad_end > 0.0 {
-            scrollbar_width - thumb_cross_len - ext.pad_end
-        } else if ext.pad_start > 0.0 {
-            ext.pad_start
-        } else {
-            (scrollbar_width - thumb_cross_len) * 0.5
-        };
-
-        (thumb_len, thumb_main_pos, thumb_cross_len, thumb_cross_pos)
     }
 }
 

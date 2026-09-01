@@ -1,18 +1,25 @@
-use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
-
 use crate::{
-    ActiveFocusTrigger, ActiveMasksSecondary, BaseVisualPropertiesSecondary, BasicLayout,
-    BatchType, BoxSizing, Color, ComponentMask, ContentStore, Context, CornerRadius, DrawBatch,
-    EdgeInsets, ElementState, EntityId, EventStore, ExternalTextureAlphaMode,
-    ExternalTextureSparseSecondary, FlexLayout, IDENTITY_MATRIX, ImeState,
-    InputContentsSparseSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Modifiers,
-    MouseButton, OutputStore, PointerEvents, QuadInstance, ReactiveStore, RenderData, RenderStore,
-    RendererView, StrikethroughStyle, SystemStore, TextCacheKey, TextContentsSparseSecondary,
-    TextEngine, TextSpan, TextSpansSparseSecondary, TopologyStore, UnderlineStyle, VirtualKey,
-    VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context, handle_on_char_input,
-    handle_on_file_dropped, handle_on_ime, with_context,
+    ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseBasicLayoutsSecondary,
+    BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing,
+    ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
+    CornerRadius, DirtyLayoutEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets,
+    EffectId, ElementState, EntityId, EventStore, ExternalTextureAlphaMode,
+    ExternalTextureSparseSecondary, ExtractedThumb, FlatDfsSequenceVec, FlexLayout, FocusStore,
+    IDENTITY_MATRIX, ImeState, InputContentsSparseSecondary, InputOp, LayoutPoint, LayoutRect,
+    LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore, ParentsSecondary,
+    PointerEvents, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore,
+    RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary,
+    ScrollStore, ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextCacheKey, TextContentsSparseSecondary, TextEngine,
+    TextEditStore, TextSpan, TextSpansSparseSecondary, TopologyStore, UnderlineStyle, Val,
+    VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context,
+    execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
+    handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
 };
-use std::{borrow::Cow, path::PathBuf};
+use slotmap::SparseSecondaryMap;
+use std::{borrow::Cow, collections::HashSet, path::PathBuf};
+use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UserAction {
@@ -70,99 +77,30 @@ pub enum StateFlag {
 pub struct Pipeline;
 
 impl Pipeline {
-    /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
-    /// 階層的な早期枝刈りヒットテスト
-    #[inline]
-    pub(crate) fn hit_test(cx: &mut Context, point: LayoutPoint) -> Option<EntityId> {
-        TopologyStore::prepare_sorted_entities(
-            cx.window.win_last_size,
-            &mut cx.topology.topo_active_masks,
-            &mut cx.topology.topo_dfs_indices,
-            &mut cx.topology.topo_effective_z_indices,
-            &mut cx.topology.topo_sorted_entities,
-            &mut cx.topology.topo_sort_cache,
-            &mut cx.topology.topo_is_sort_dirty,
-            &cx.topology.topo_active_entities,
-            &cx.topology.topo_parents,
-            &cx.topology.topo_flat_dfs_sequence,
-            &cx.renders.rnd_visual,
-            &mut cx.outputs.out_clip_rects,
-            &cx.outputs.out_rects,
-        );
-        for &id in cx.topology.topo_sorted_entities.iter().rev() {
-            let is_drag_over = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(|mask| mask.has(ComponentMask::STATE_DND_DRAG_OVER));
-
-            // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
-            if Some(id) == cx.events.evt_interaction_states.dragged || is_drag_over {
-                continue;
-            }
-
-            // 物理範囲に含まれているか
-            let Some(rect) = cx.outputs.out_rects.get(id).copied() else {
-                continue;
-            };
-            if !rect.contains(point) {
-                continue;
-            }
-
-            // 親などの overflow 等でクリップされている表示範囲外ならスキップ
-            if let Some(clip) = cx.outputs.out_clip_rects.get(id)
-                && !clip.contains(point)
-            {
-                continue;
-            }
-
-            // pointer-events 設定の解決
-            let pointer_events = cx
-                .renders
-                .rnd_visual
-                .get(id)
-                .and_then(|v| v.pointer_events)
-                .or_else(|| {
-                    cx.renders
-                        .rnd_base_visual
-                        .get(id)
-                        .and_then(|v| v.pointer_events)
-                })
-                .unwrap_or_default();
-
-            if pointer_events == PointerEvents::None {
-                continue; // 透過設定
-            }
-
-            return Some(id);
-        }
-        None
-    }
-
     #[inline]
     pub(crate) fn inject_user_action(cx: &mut Context, action: UserAction) {
         let _context_guard = bind_context(cx);
 
         match action {
             UserAction::PointerMove(layout_point) => {
-                EventStore::inject_pointer_move_internal(cx, layout_point);
+                EventStore::inject_pointer_move(cx, layout_point);
             }
             UserAction::PointerButton {
                 button,
                 state,
                 modifiers,
-            } => EventStore::inject_pointer_button_internal(cx, button, state, modifiers),
+            } => EventStore::inject_pointer_button(cx, button, state, modifiers),
             UserAction::PointerDoubleClick { modifiers } => {
-                EventStore::inject_pointer_double_click_internal(cx, modifiers);
+                EventStore::inject_pointer_double_click(cx, modifiers);
             }
             UserAction::MouseWheel { scroll_x, scroll_y } => {
-                EventStore::inject_mouse_wheel_internal(cx, scroll_x, scroll_y);
+                EventStore::inject_mouse_wheel(cx, scroll_x, scroll_y);
             }
             UserAction::KeyboardKey {
                 key,
                 state,
                 modifiers,
-            } => EventStore::inject_keyboard_key_internal(cx, key, state, modifiers),
+            } => EventStore::inject_keyboard_key(cx, key, state, modifiers),
             UserAction::Character(c) => {
                 let Some(focused_id) = cx.events.evt_interaction_states.focused else {
                     return;
@@ -181,50 +119,192 @@ impl Pipeline {
                 };
                 handle_on_file_dropped(cx, target_id, path_bufs);
             }
-            UserAction::Paste(text) => EventStore::inject_paste_internal(cx, &text),
+            UserAction::Paste(text) => EventStore::inject_paste(cx, &text),
             UserAction::Cut => {
-                cx.contents.cont_cut_text = EventStore::inject_cut_internal(cx);
+                cx.contents.cont_cut_text = EventStore::inject_cut(cx);
             }
-            UserAction::Undo => EventStore::inject_undo_internal(cx),
-            UserAction::Redo => EventStore::inject_redo_internal(cx),
+            UserAction::Undo => EventStore::inject_undo(cx),
+            UserAction::Redo => EventStore::inject_redo(cx),
+        }
+    }
+
+    /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
+    #[inline]
+    pub(crate) fn update_state(cx: &mut Context, id: EntityId, state_flag: u128, actived: bool) {
+        let mut was_active = false;
+        let mut state_changed = false;
+
+        let Some(mask) = cx.topology.topo_active_masks.get_mut(id) else {
+            return;
+        };
+
+        was_active = mask.has(state_flag);
+        if was_active == actived {
+            return;
+        }
+
+        state_changed = true;
+
+        if actived {
+            mask.set(state_flag);
+        } else {
+            mask.unset(state_flag);
+        }
+
+        let mut resolve_element = |cx: &mut Context, id: EntityId| {
+            RenderStore::resolve_element_style_state(
+                id,
+                true,
+                cx.window.win_last_size.as_ref(),
+                &cx.system.sys_dwrite_layouts,
+                &cx.reactive.react_element_effects,
+                &cx.contents.cont_input_contents,
+                &mut cx.topology.topo_active_masks,
+                &mut cx.topology.topo_is_sort_dirty,
+                &cx.topology.topo_entities,
+                &cx.topology.topo_parents,
+                &cx.topology.topo_children,
+                &mut cx.layouts.lay_dirty_entities,
+                &mut cx.layouts.lay_taffy_tree,
+                &mut cx.layouts.lay_basic,
+                &cx.layouts.lay_taffy_nodes,
+                &cx.layouts.lay_base_basic,
+                &mut cx.renders.rnd_dirty_entities,
+                &mut cx.renders.rnd_visual,
+                &mut cx.renders.rnd_active_transitions,
+                &mut cx.renders.rnd_active_animations,
+                &cx.renders.rnd_base_visual,
+                &cx.renders.rnd_interaction,
+                &cx.outputs.out_rects,
+            );
+
+            // この要素のアクティブレイアウトキャッシュを差分更新
+            LayoutStore::update_resolved_active_layout_cache(
+                id,
+                &cx.topology.topo_active_masks,
+                &cx.topology.topo_parents,
+                &mut cx.layouts.lay_resolved_basic,
+                &mut cx.layouts.lay_resolved_flex,
+                &mut cx.layouts.lay_resolved_grid,
+                &cx.layouts.lay_basic,
+                &cx.layouts.lay_flex,
+                &cx.layouts.lay_grid,
+                &cx.renders.rnd_visual,
+                &cx.renders.rnd_interaction,
+                &cx.renders.rnd_active_transitions,
+            );
+        };
+
+        let mark_dirty = |cx: &mut Context, id: EntityId| {
+            if RenderStore::does_state_require_layout(id, state_flag, &cx.renders.rnd_interaction) {
+                LayoutStore::mark_layout_dirty(
+                    id,
+                    &mut cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
+                    &mut cx.layouts.lay_dirty_entities,
+                    &mut cx.layouts.lay_taffy_tree,
+                    &cx.layouts.lay_taffy_nodes,
+                );
+            }
+            RenderStore::mark_render_dirty(
+                id,
+                &mut cx.topology.topo_active_masks,
+                &mut cx.renders.rnd_dirty_entities,
+            );
+        };
+
+        // 状態変化の発生時に即座に動的なスタイルを解決する
+        resolve_element(cx, id);
+
+        // 親から子方向へのスタイル解決の伝播
+        if let Some(child) = cx.topology.topo_children.get(id).cloned() {
+            for child_id in child {
+                let has_parent = cx
+                    .topology
+                    .topo_active_masks
+                    .get(child_id)
+                    .is_some_and(|m| m.has(ComponentMask::STYLE_INTERACTION_PARENT));
+
+                if has_parent {
+                    resolve_element(cx, child_id);
+                    mark_dirty(cx, child_id);
+                }
+            }
+        }
+
+        // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
+        let mut curr = id;
+        while let Some(parent_id) = cx.topology.topo_parents.get(curr).copied().flatten() {
+            if cx.topology.topo_entities.contains_key(parent_id) {
+                let has_within = cx
+                    .topology
+                    .topo_active_masks
+                    .get(parent_id)
+                    .is_some_and(|m| m.has(ComponentMask::STYLE_INTERACTION_WITHIN));
+
+                // 先祖要素が within スタイルを持っている場合のみそのスタイル評価を実行
+                if has_within {
+                    resolve_element(cx, parent_id);
+                    mark_dirty(cx, parent_id);
+                }
+            }
+            curr = parent_id;
+        }
+
+        // 状態変化による本要素のレイアウト汚染チェック
+        mark_dirty(cx, id);
+
+        if !state_changed {
+            return;
+        }
+
+        // 残りの状態遷移イベントの解決
+        if actived {
+            match state_flag {
+                ComponentMask::STATE_DISABLED => handle_on_disable(cx, id),
+                ComponentMask::STATE_ACTIVED => handle_on_active(cx, id),
+                ComponentMask::STATE_SELECTED => handle_on_select(cx, id),
+
+                _ => {}
+            }
         }
     }
 
     #[inline]
-    pub(crate) fn update_states(cx: &mut Context, id: EntityId, flag: &StateFlag, actived: bool) {
+    pub(crate) fn set_states(cx: &mut Context, id: EntityId, flag: &StateFlag, actived: bool) {
         match flag {
             StateFlag::Hovered => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_HOVERED, actived);
+                Pipeline::update_state(cx, id, ComponentMask::STATE_HOVERED, actived);
             }
             StateFlag::Focused => {
-                EventStore::set_focused_by_trigger(cx, id, actived, ActiveFocusTrigger::Mouse);
+                FocusStore::set_focused_by_trigger(cx, id, actived, ActiveFocusTrigger::Mouse);
             }
             StateFlag::FocusedVisible => {
-                EventStore::set_focused_by_trigger(cx, id, actived, ActiveFocusTrigger::Keyboard);
+                FocusStore::set_focused_by_trigger(cx, id, actived, ActiveFocusTrigger::Keyboard);
             }
             StateFlag::Pressed => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_PRESSED, actived);
+                Pipeline::update_state(cx, id, ComponentMask::STATE_PRESSED, actived);
             }
             StateFlag::Disabled => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DISABLED, actived);
+                Pipeline::update_state(cx, id, ComponentMask::STATE_DISABLED, actived);
             }
             StateFlag::Actived => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_ACTIVED, actived);
+                Pipeline::update_state(cx, id, ComponentMask::STATE_ACTIVED, actived);
             }
             StateFlag::Selected => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_SELECTED, actived);
+                Pipeline::update_state(cx, id, ComponentMask::STATE_SELECTED, actived);
             }
             StateFlag::Dragged => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DRAGGED, actived);
+                Pipeline::update_state(cx, id, ComponentMask::STATE_DRAGGED, actived);
             }
             StateFlag::DndDragging => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DND_DRAGGING, actived);
+                Pipeline::update_state(cx, id, ComponentMask::STATE_DND_DRAGGING, actived);
             }
             StateFlag::DndDragIn => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DND_DRAG_IN, actived);
+                Pipeline::update_state(cx, id, ComponentMask::STATE_DND_DRAG_IN, actived);
             }
             StateFlag::DndDragOver => {
-                EventStore::update_state(cx, id, ComponentMask::STATE_DND_DRAG_OVER, actived);
+                Pipeline::update_state(cx, id, ComponentMask::STATE_DND_DRAG_OVER, actived);
             }
         }
     }
@@ -237,11 +317,12 @@ impl Pipeline {
     ) {
         let _context_guard = bind_context(cx);
 
-        // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
+        /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に実行
         ReactiveStore::evaluate_pending_element_effects(
-            &mut cx.reactive.react_effects,
             &mut cx.reactive.react_pending_element_effects,
+            &cx.reactive.react_effects,
         );
+
         // ウィンドウサイズの変更検知
         let window_resized = cx.window.win_last_size.replace(window_size) != Some(window_size);
 
@@ -293,10 +374,10 @@ impl Pipeline {
         }
 
         // 全スクロールバー関連IDを一括抽出
-        let scrollbar_el_ids = LayoutStore::scrollbar_el_ids(&cx.layouts.lay_scrollbar_styles);
+        let scrollbar_el_ids = Pipeline::scrollbar_el_ids(&cx.layouts.scrollbar.bar_styles);
 
         // Taffy永続ツリーへの差分同期
-        OutputStore::sync_dirty_styles_to_taffy(
+        Pipeline::sync_dirty_styles_to_taffy(
             &scrollbar_el_ids,
             &mut cx.layouts.lay_taffy_tree,
             &cx.layouts.lay_dirty_entities,
@@ -304,7 +385,7 @@ impl Pipeline {
             &cx.layouts.lay_resolved_basic,
             &cx.layouts.lay_resolved_flex,
             &cx.layouts.lay_resolved_grid,
-            &cx.layouts.lay_scrollbar_styles,
+            &cx.layouts.scrollbar.bar_styles,
         );
 
         // Taffy 1回目レイアウト計算
@@ -328,19 +409,17 @@ impl Pipeline {
                 // クロージャの外側の Context は直接キャプチャできないため、
                 //  一時的に bind_context されているスレッドローカル経由で取得
                 context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                    with_context(|cx| {
-                        ContentStore::measure_content(
-                            id,
-                            known_dims,
-                            available_space,
-                            &cx.system.sys_text_engine,
-                            &mut cx.contents.cont_input_contents,
-                            &cx.contents.cont_text_contents,
-                            &cx.contents.cont_text_spans,
-                            &cx.topology.topo_active_masks,
-                            &cx.renders.rnd_visual,
-                        )
-                    })
+                    ContentStore::measure_content(
+                        id,
+                        known_dims,
+                        available_space,
+                        &cx.system.sys_text_engine,
+                        &mut cx.contents.cont_input_contents,
+                        &cx.contents.cont_text_contents,
+                        &cx.contents.cont_text_spans,
+                        &cx.topology.topo_active_masks,
+                        &cx.renders.rnd_visual,
+                    )
                 })
             };
 
@@ -356,13 +435,15 @@ impl Pipeline {
 
         // ダブルバッファをスワップし、1回目の出力座標を決定
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの out_rects のみを確定
-        OutputStore::swap_output_rect(
-            &mut cx.outputs.out_rects,
+        std::mem::swap(&mut cx.outputs.out_rects, &mut cx.outputs.out_prev_rects);
+        std::mem::swap(
             &mut cx.outputs.out_clip_rects,
-            &mut cx.outputs.out_prev_rects,
             &mut cx.outputs.out_prev_clip_rects,
         );
-        OutputStore::resolve_first_pass_rects(
+        cx.outputs.out_rects.clear();
+        cx.outputs.out_clip_rects.clear();
+
+        Pipeline::resolve_first_pass_rects(
             &scrollbar_el_ids,
             window_size,
             window_resized,
@@ -378,11 +459,11 @@ impl Pipeline {
             &mut cx.outputs.out_clip_rects,
             &cx.outputs.out_prev_rects,
             &cx.outputs.out_prev_clip_rects,
-            &cx.outputs.out_scroll_offsets,
+            &cx.states.scroll.sc_offsets,
         );
 
         // 全スクロールコンテナの scroll_size を事前計算
-        cx.outputs.out_scroll_sizes.clear();
+        cx.states.scroll.sc_sizes.clear();
         for &id in &cx.topology.topo_flat_dfs_sequence {
             if cx
                 .topology
@@ -390,7 +471,7 @@ impl Pipeline {
                 .get(id)
                 .is_some_and(|m| m.has(ComponentMask::STYLE_OVERFLOW))
             {
-                let size = OutputStore::get_scroll_size(
+                let size = ScrollStore::get_scroll_size(
                     id,
                     &cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
@@ -401,19 +482,19 @@ impl Pipeline {
                     &cx.topology.topo_parents,
                     &cx.topology.topo_children,
                     &cx.layouts.lay_resolved_basic,
-                    &cx.layouts.lay_scrollbar_styles,
+                    &cx.layouts.scrollbar.bar_styles,
                     &cx.renders.rnd_visual,
                     &cx.renders.rnd_interaction,
                     &cx.renders.rnd_active_transitions,
                     &cx.outputs.out_rects,
-                    &cx.outputs.out_scroll_offsets,
+                    &cx.states.scroll.sc_offsets,
                 );
-                cx.outputs.out_scroll_sizes.insert(id, size);
+                cx.states.scroll.sc_sizes.insert(id, size);
             }
         }
 
         // スクロールバー要素（Track & Thumb）のサイズ・配置・不透明度を一括同期更新
-        LayoutStore::sync_scrollbar_styles(
+        ScrollbarStore::sync_bar_styles(
             cx.window.win_last_size,
             &cx.system.sys_text_engine,
             &cx.system.sys_dwrite_layouts,
@@ -432,14 +513,14 @@ impl Pipeline {
             &cx.layouts.lay_taffy_nodes,
             &cx.layouts.lay_flex,
             &cx.layouts.lay_grid,
-            &cx.layouts.lay_scrollbar_styles,
+            &cx.layouts.scrollbar.bar_styles,
             &mut cx.renders.rnd_visual,
             &mut cx.renders.rnd_base_visual,
             &cx.renders.rnd_interaction,
             &cx.renders.rnd_active_transitions,
             &cx.outputs.out_rects,
-            &cx.outputs.out_scroll_offsets,
-            &cx.outputs.out_scroll_sizes,
+            &cx.states.scroll.sc_offsets,
+            &cx.states.scroll.sc_sizes,
         );
 
         // Taffy の 2回目レイアウト計算（スクロールバー配置確定後）
@@ -457,39 +538,37 @@ impl Pipeline {
                  _style: &taffy::Style|
                  -> taffy::Size<f32> {
                     context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                        with_context(|cx| {
-                            let is_input = cx
-                                .topology
-                                .topo_active_masks
-                                .get(id)
-                                .is_some_and(ComponentMask::has_input_content);
+                        let is_input = cx
+                            .topology
+                            .topo_active_masks
+                            .get(id)
+                            .is_some_and(ComponentMask::has_input_content);
 
-                            if is_input
-                                && let Some(contents) = cx.contents.cont_input_contents.get(id)
-                                && let Some(layout_rect) = contents.last_layout
-                            {
-                                return taffy::Size {
-                                    width: known_dims.width.unwrap_or(layout_rect.width),
-                                    height: known_dims.height.unwrap_or(layout_rect.height),
-                                };
-                            }
+                        if is_input
+                            && let Some(contents) = cx.contents.cont_input_contents.get(id)
+                            && let Some(layout_rect) = contents.last_layout
+                        {
+                            return taffy::Size {
+                                width: known_dims.width.unwrap_or(layout_rect.width),
+                                height: known_dims.height.unwrap_or(layout_rect.height),
+                            };
+                        }
 
-                            // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
-                            cx.outputs
-                                .out_rects
-                                .get(id)
-                                .map_or(taffy::Size::ZERO, |rect| taffy::Size {
-                                    width: known_dims.width.unwrap_or(rect.width),
-                                    height: known_dims.height.unwrap_or(rect.height),
-                                })
-                        })
+                        // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
+                        cx.outputs
+                            .out_rects
+                            .get(id)
+                            .map_or(taffy::Size::ZERO, |rect| taffy::Size {
+                                width: known_dims.width.unwrap_or(rect.width),
+                                height: known_dims.height.unwrap_or(rect.height),
+                            })
                     })
                 },
             );
         }
 
         // スクロールバーも加えた、最終的な出力座標の決定
-        OutputStore::resolve_final_pass_rects(
+        Pipeline::resolve_final_pass_rects(
             window_size,
             &mut cx.contents.cont_input_contents,
             &mut cx.topology.topo_active_entities,
@@ -501,7 +580,7 @@ impl Pipeline {
             &cx.layouts.lay_basic,
             &mut cx.outputs.out_rects,
             &mut cx.outputs.out_clip_rects,
-            &cx.outputs.out_scroll_offsets,
+            &cx.states.scroll.sc_offsets,
         );
 
         // リサイズ追従に伴い、インプットのキャレット・選択ハイライトを同期
@@ -514,7 +593,7 @@ impl Pipeline {
             let is_focused = cx.events.evt_interaction_states.focused == Some(id);
             // フォーカスを得ている入力要素のみ、レイアウト確定後にキャレット・スクロールを同期
             if has_input && is_focused {
-                OutputStore::update_input_caret_position(
+                TextEditStore::update_input_caret_position(
                     id,
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
@@ -527,7 +606,7 @@ impl Pipeline {
                     &cx.topology.topo_parents,
                     &mut cx.layouts.lay_dirty_entities,
                     &mut cx.layouts.lay_taffy_tree,
-                    &mut cx.layouts.lay_scrollbar_styles,
+                    &mut cx.layouts.scrollbar.bar_styles,
                     &cx.layouts.lay_taffy_nodes,
                     &cx.layouts.lay_resolved_basic,
                     &cx.layouts.lay_resolved_flex,
@@ -536,32 +615,40 @@ impl Pipeline {
                     &cx.renders.rnd_base_visual,
                     &cx.renders.rnd_interaction,
                     &cx.renders.rnd_active_transitions,
-                    &mut cx.outputs.out_scroll_offsets,
-                    &mut cx.outputs.out_text_selections,
+                    &mut cx.states.scroll.sc_offsets,
+                    &mut cx.states.edit.edit_selections,
                     &cx.outputs.out_rects,
-                    &cx.outputs.out_scroll_sizes,
+                    &cx.states.scroll.sc_sizes,
                 );
             }
         }
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
-        OutputStore::auto_clamp_scroll_offsets(
-            cx.window.win_last_size,
-            &mut cx.topology.topo_active_masks,
-            &cx.topology.topo_parents,
-            &cx.topology.topo_flat_dfs_sequence,
-            &mut cx.layouts.lay_dirty_entities,
-            &mut cx.layouts.lay_taffy_tree,
-            &mut cx.layouts.lay_scrollbar_styles,
-            &cx.layouts.lay_taffy_nodes,
-            &cx.layouts.lay_resolved_basic,
-            &cx.renders.rnd_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
-            &mut cx.outputs.out_scroll_offsets,
-            &cx.outputs.out_rects,
-            &cx.outputs.out_scroll_sizes,
-        );
+        for &id in &cx.topology.topo_flat_dfs_sequence {
+            let Some(current) = cx.states.scroll.sc_offsets.get(id).copied() else {
+                continue;
+            };
+            // 枠サイズの変更など、現在のスクロール位置からはみ出していれば自動クランプ調整
+            ScrollStore::scroll_to(
+                id,
+                current.x,
+                current.y,
+                cx.window.win_last_size,
+                &mut cx.topology.topo_active_masks,
+                &cx.topology.topo_parents,
+                &mut cx.layouts.lay_dirty_entities,
+                &mut cx.layouts.lay_taffy_tree,
+                &mut cx.layouts.scrollbar.bar_styles,
+                &cx.layouts.lay_taffy_nodes,
+                &cx.layouts.lay_resolved_basic,
+                &cx.renders.rnd_visual,
+                &cx.renders.rnd_interaction,
+                &cx.renders.rnd_active_transitions,
+                &mut cx.states.scroll.sc_offsets,
+                &cx.outputs.out_rects,
+                &cx.states.scroll.sc_sizes,
+            );
+        }
 
         // 全ての座標確定と絶対クリップ範囲の同期が完了した最末尾で、
         // 一括して Dirty フラグの完全クリアおよびキューリストのリセットを実行
@@ -614,7 +701,7 @@ impl Pipeline {
             let Some(id) = cx.events.evt_interaction_states.pressed else {
                 return;
             };
-            let (autoscroll_occurred, active_pos) = OutputStore::autoscroll_occurred(
+            let (autoscroll_occurred, active_pos) = ScrollStore::autoscroll_occurred(
                 id,
                 cx.window.win_last_size,
                 &cx.system.sys_text_engine,
@@ -628,23 +715,23 @@ impl Pipeline {
                 &cx.topology.topo_children,
                 &mut cx.layouts.lay_dirty_entities,
                 &mut cx.layouts.lay_taffy_tree,
-                &mut cx.layouts.lay_scrollbar_styles,
+                &mut cx.layouts.scrollbar.bar_styles,
                 &cx.layouts.lay_taffy_nodes,
                 &cx.layouts.lay_resolved_basic,
                 &cx.renders.rnd_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
-                &mut cx.outputs.out_scroll_offsets,
+                &mut cx.states.scroll.sc_offsets,
                 &cx.outputs.out_rects,
                 &cx.outputs.out_clip_rects,
-                &cx.outputs.out_scroll_sizes,
+                &cx.states.scroll.sc_sizes,
             );
 
             if autoscroll_occurred && let Some(pos) = active_pos {
                 // スクロールによりテキストが流れたため、
                 // 現在のポインタ座標で仮想的にポインタ移動を再トリガーし、
                 // 選択文字インデックスおよびキャレット位置を同期
-                EventStore::inject_pointer_move_internal(cx, pos);
+                EventStore::inject_pointer_move(cx, pos);
                 RenderStore::mark_render_dirty(
                     id,
                     &mut cx.topology.topo_active_masks,
@@ -762,8 +849,9 @@ impl Pipeline {
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
             let scroll = cx
-                .outputs
-                .out_scroll_offsets
+                .states
+                .scroll
+                .sc_offsets
                 .get(id)
                 .copied()
                 .unwrap_or_default();
@@ -915,7 +1003,7 @@ impl Pipeline {
             }
 
             // 選択ハイライト背景
-            if let Some(sel_rects) = cx.outputs.out_selected_rects.get(id)
+            if let Some(sel_rects) = cx.states.edit.edit_selected_rects.get(id)
                 && let Some(dw_layout) = SystemStore::get_or_create_layout(
                     id,
                     &cx.system.sys_text_engine,
@@ -1151,6 +1239,214 @@ impl CommonParameters {
 }
 
 impl Pipeline {
+    // 全スクロールバー関連IDを一括抽出
+    #[inline]
+    fn scrollbar_el_ids(
+        bar_styles: &SparseSecondaryMap<EntityId, ScrollBarState>,
+    ) -> HashSet<EntityId> {
+        bar_styles
+            .values()
+            .flat_map(|sb_state| {
+                [
+                    sb_state.v_track_id,
+                    sb_state.v_thumb_id,
+                    sb_state.h_track_id,
+                    sb_state.h_thumb_id,
+                ]
+                .into_iter()
+                .flatten()
+            })
+            .collect()
+    }
+
+    /// Taffy永続ツリーへのスタイル差分同期
+    fn sync_dirty_styles_to_taffy(
+        scrollbar_el_ids: &HashSet<EntityId>,
+        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_dirty_entities: &DirtyLayoutEntitiesVec,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_resolved_basic: &ResolvedBasicSecondary,
+        lay_resolved_flex: &ResolvedFlexSecondary,
+        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        bar_styles: &ScrollbarStylesSecondary,
+    ) {
+        for &id in lay_dirty_entities {
+            if scrollbar_el_ids.contains(&id) {
+                continue;
+            }
+
+            let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
+            let flex = lay_resolved_flex.get(id).copied().unwrap_or_default();
+            let grid = lay_resolved_grid.get(id).cloned();
+
+            // トランジション（アニメーション）中プロパティの現在値による上書き
+            // 削除：resolve_active_layouts の段階でアニメーション中のサイズが正しく反映されたレイアウト）が返ってくるため
+            // if let Some(active_list) = rnd_active_transitions.get(id) {}
+
+            let taffy_style =
+                LayoutStore::resolve_taffy_style(id, &basic, &flex, grid.as_ref(), bar_styles);
+
+            if let Some(taffy_node) = lay_taffy_nodes.get(id) {
+                lay_taffy_tree.set_style(*taffy_node, taffy_style).unwrap();
+            }
+        }
+    }
+
+    /// 物理位置を算出して、rects / `clip_rects` と入力状態へマウント
+    fn update_element_output_rect_and_clip(
+        id: EntityId,
+        window_size: LayoutSize,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        topo_active_entities: &mut ActiveEntitiesVec,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        lay_taffy_tree: &TaffyTreeEntityId,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        out_rects: &mut RectsSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
+        sc_offsets: &ScrollOffsetsSecondary,
+    ) {
+        let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
+            id,
+            window_size,
+            topo_parents,
+            lay_taffy_tree,
+            lay_taffy_nodes,
+            lay_basic,
+            out_rects,
+            out_clip_rects,
+            sc_offsets,
+        );
+
+        out_rects.insert(id, abs_rect);
+
+        let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+
+        if mask.has_input_content()
+            && let Some(contents) = cont_input_contents.get_mut(id)
+        {
+            contents.last_bounds = Some(abs_rect);
+        }
+
+        let current_clip = if mask.has(ComponentMask::STYLE_OVERFLOW) {
+            parent_clip.intersect(&abs_rect)
+        } else {
+            parent_clip
+        };
+
+        out_clip_rects.insert(id, current_clip);
+        topo_active_entities.push(id);
+    }
+
+    /// 1回目の出力領域決定（静的キャッシュバイパス判定含む）
+    fn resolve_first_pass_rects(
+        scrollbar_el_ids: &HashSet<EntityId>,
+        window_size: LayoutSize,
+        window_resized: bool,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        topo_active_entities: &mut ActiveEntitiesVec,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        lay_taffy_tree: &TaffyTreeEntityId,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        out_rects: &mut RectsSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
+        out_prev_rects: &PrevRectsSecondary,
+        out_prev_clip_rects: &PrevClipRectsSecondary,
+        sc_offsets: &ScrollOffsetsSecondary,
+    ) {
+        topo_active_entities.clear();
+
+        for &id in topo_flat_dfs_sequence {
+            // スクロールバー専用子要素は手動で物理座標を強制更新するため、この走査ループから完全にスルー
+            if scrollbar_el_ids.contains(&id) {
+                continue;
+            }
+
+            let parent_changed = OutputStore::has_parent_changed(
+                id,
+                topo_active_masks,
+                topo_parents,
+                out_rects,
+                out_clip_rects,
+                out_prev_rects,
+                out_prev_clip_rects,
+            );
+
+            let has_style_changed = topo_active_masks
+                .get(id)
+                .is_some_and(|m| m.has(ComponentMask::STATE_QUEUED_LAYOUT));
+
+            // 静的キャッシュの判定と適用
+            // 自分自身のスタイルが変わっておらず、親も動いていない、かつモニターリサイズもされていないならキャッシュ利用
+            if !window_resized
+                && !has_style_changed
+                && !parent_changed
+                && let Some(&cached_rect) = out_prev_rects.get(id)
+                && let Some(&cached_clip) = out_prev_clip_rects.get(id)
+            {
+                out_rects.insert(id, cached_rect);
+                out_clip_rects.insert(id, cached_clip);
+                topo_active_entities.push(id);
+                continue;
+            }
+
+            // キャッシュが無効な場合は、共通ヘルパーで再計算
+            Pipeline::update_element_output_rect_and_clip(
+                id,
+                window_size,
+                cont_input_contents,
+                topo_active_entities,
+                topo_active_masks,
+                topo_parents,
+                lay_taffy_tree,
+                lay_taffy_nodes,
+                lay_basic,
+                out_rects,
+                out_clip_rects,
+                sc_offsets,
+            );
+        }
+    }
+
+    /// 最終的な出力領域決定（スクロールバー要素を含む一括同期）
+    fn resolve_final_pass_rects(
+        window_size: LayoutSize,
+        cont_input_contents: &mut InputContentsSparseSecondary,
+        topo_active_entities: &mut ActiveEntitiesVec,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        lay_taffy_tree: &TaffyTreeEntityId,
+        lay_taffy_nodes: &TaffyNodesSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        out_rects: &mut RectsSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
+        sc_offsets: &ScrollOffsetsSecondary,
+    ) {
+        topo_active_entities.clear();
+
+        for &id in topo_flat_dfs_sequence {
+            Pipeline::update_element_output_rect_and_clip(
+                id,
+                window_size,
+                cont_input_contents,
+                topo_active_entities,
+                topo_active_masks,
+                topo_parents,
+                lay_taffy_tree,
+                lay_taffy_nodes,
+                lay_basic,
+                out_rects,
+                out_clip_rects,
+                sc_offsets,
+            );
+        }
+    }
+
     // 溜まっているインスタンスを DrawBatch としてフラッシュ
     #[inline]
     fn flush_batch(
@@ -1493,7 +1789,7 @@ impl Pipeline {
     ) {
         for span in spans {
             if let Some(bg_color) = span.bg_color {
-                let rects = OutputStore::calc_selection_rects(id, dw_layout, span.range.clone());
+                let rects = TextEditStore::calc_selection_rects(id, dw_layout, span.range.clone());
 
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
@@ -1604,7 +1900,7 @@ impl Pipeline {
                 continue;
             }
 
-            let rects = OutputStore::calc_selection_rects(id, dw_layout, span.range.clone());
+            let rects = TextEditStore::calc_selection_rects(id, dw_layout, span.range.clone());
 
             for metric_rect in rects {
                 let start_x =
@@ -1738,7 +2034,7 @@ impl Pipeline {
             contents.is_multiline,
         );
 
-        let caret_rect = OutputStore::calculate_caret_rect(
+        let caret_rect = TextEditStore::calculate_caret_rect(
             params.rect,
             border,
             padding,

@@ -1,9 +1,10 @@
 use crate::{
-    BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary, ComponentMask, ContentStore,
-    Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection,
-    FlexLayoutsSecondary, IDENTITY_MATRIX, InteractionStates, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
+    ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
+    ComponentMask, ContentStore, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId,
+    EventStore, FlexDirection, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint, LayoutRect,
+    LayoutSize, LayoutStore, OutputStore, PointerEvents, ReactiveStore, RectsSecondary,
+    RenderStore, StateStore, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -273,6 +274,7 @@ impl TopologyStore {
         events: &mut EventStore,
         contents: &mut ContentStore,
         topology: &mut TopologyStore,
+        states: &mut StateStore,
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
@@ -296,8 +298,8 @@ impl TopologyStore {
 
         // 古い子要素（およびその子孫）を完全に安全デスポーン
         TopologyStore::despawn_internal(
-            old_child, window, system, reactive, events, contents, topology, layouts, renders,
-            outputs,
+            old_child, window, system, reactive, events, contents, topology, states, layouts,
+            renders, outputs,
         );
 
         LayoutStore::mark_layout_dirty(
@@ -320,6 +322,7 @@ impl TopologyStore {
         events: &mut EventStore,
         contents: &mut ContentStore,
         topology: &mut TopologyStore,
+        states: &mut StateStore,
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
@@ -358,14 +361,15 @@ impl TopologyStore {
         if let Some(children_list) = topology.topo_children.remove(id) {
             for child_id in children_list {
                 TopologyStore::despawn_internal(
-                    child_id, window, system, reactive, events, contents, topology, layouts,
-                    renders, outputs,
+                    child_id, window, system, reactive, events, contents, topology, states,
+                    layouts, renders, outputs,
                 );
             }
         }
 
         // 各ストアの SoA 配列から自分自身を一掃
         topology.despawn(id);
+        states.despawn(id);
         layouts.despawn(id);
         renders.despawn(id);
         outputs.despawn(id);
@@ -386,6 +390,7 @@ impl TopologyStore {
         events: &mut EventStore,
         contents: &mut ContentStore,
         topology: &mut TopologyStore,
+        states: &mut StateStore,
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
@@ -404,8 +409,8 @@ impl TopologyStore {
 
             if has_no_parent && is_not_root {
                 TopologyStore::despawn_internal(
-                    id, window, system, reactive, events, contents, topology, layouts, renders,
-                    outputs,
+                    id, window, system, reactive, events, contents, topology, states, layouts,
+                    renders, outputs,
                 );
             }
         }
@@ -484,7 +489,7 @@ impl TopologyStore {
         topo_children: &ChildrenSecondary,
     ) {
         topo_flat_dfs_sequence.clear();
-        let mut stack = Vec::with_capacity(32);
+        let mut stack = smallvec::SmallVec::<[EntityId; 32]>::new();
         stack.push(root);
 
         while let Some(id) = stack.pop() {
@@ -502,7 +507,7 @@ impl TopologyStore {
         *topo_is_structure_dirty = false;
     }
 
-    /// 子孫要素のインタラクション状態を走査する純粋関連関数
+    /// 子孫要素のインタラクション状態を走査
     #[inline]
     #[must_use]
     pub fn has_descendant_with_state(
@@ -726,7 +731,7 @@ impl TopologyStore {
             let bounding_box = if is_transform_active {
                 // トランスフォームがある場合のみ、親に遡って実効トランスフォームを解決し、
                 // 4頂点アフィン変換を施した正確な AABB を算出
-                RenderStore::calculate_aabb(rect, &eff_matrix)
+                OutputStore::calc_aabb(rect, &eff_matrix)
             } else {
                 rect // トランスフォームが無い大半の要素は元の rect をそのまま使用
             };
@@ -828,6 +833,83 @@ impl TopologyStore {
         );
         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
     }
+
+    /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
+    /// 階層的な早期枝刈りヒットテスト
+    #[inline]
+    pub(crate) fn hit_test(
+        point: LayoutPoint,
+        win_last_size: Option<LayoutSize>,
+        evt_interaction_states: &ActiveInteractionStates,
+        topo_active_masks: &mut ActiveMasksSecondary,
+        topo_dfs_indices: &mut DfsIndicesSecondary,
+        topo_effective_z_indices: &mut EffectiveZindicesSecondary,
+        topo_sorted_entities: &mut SortedEntitiesVec,
+        topo_sort_cache: &mut TopoSortCacheVec,
+        topo_is_sort_dirty: &mut bool,
+        topo_active_entities: &ActiveEntitiesVec,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        rnd_visual: &VisualPropertiesSecondary,
+        rnd_base_visual: &BaseVisualPropertiesSecondary,
+        out_clip_rects: &mut ClipRectsSecondary,
+        out_rects: &RectsSecondary,
+    ) -> Option<EntityId> {
+        TopologyStore::prepare_sorted_entities(
+            win_last_size,
+            topo_active_masks,
+            topo_dfs_indices,
+            topo_effective_z_indices,
+            topo_sorted_entities,
+            topo_sort_cache,
+            topo_is_sort_dirty,
+            topo_active_entities,
+            topo_parents,
+            topo_flat_dfs_sequence,
+            rnd_visual,
+            out_clip_rects,
+            out_rects,
+        );
+        for &id in topo_sorted_entities.iter().rev() {
+            let is_drag_over = topo_active_masks
+                .get(id)
+                .is_some_and(|mask| mask.has(ComponentMask::STATE_DND_DRAG_OVER));
+
+            // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
+            if Some(id) == evt_interaction_states.dragged || is_drag_over {
+                continue;
+            }
+
+            // 物理範囲に含まれているか
+            let Some(rect) = out_rects.get(id).copied() else {
+                continue;
+            };
+            if !rect.contains(point) {
+                continue;
+            }
+
+            // 親などの overflow 等でクリップされている表示範囲外ならスキップ
+            if let Some(clip) = out_clip_rects.get(id)
+                && !clip.contains(point)
+            {
+                continue;
+            }
+
+            // pointer-events 設定の解決
+            let pointer_events = rnd_visual
+                .get(id)
+                .and_then(|v| v.pointer_events)
+                .or_else(|| rnd_base_visual.get(id).and_then(|v| v.pointer_events))
+                .unwrap_or_default();
+
+            if pointer_events == PointerEvents::None {
+                continue; // 透過設定
+            }
+
+            return Some(id);
+        }
+        None
+    }
 }
 
 impl Context {
@@ -885,6 +967,7 @@ impl Context {
             &mut self.events,
             &mut self.contents,
             &mut self.topology,
+            &mut self.states,
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
@@ -914,6 +997,7 @@ impl Context {
             &mut self.events,
             &mut self.contents,
             &mut self.topology,
+            &mut self.states,
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
@@ -931,6 +1015,7 @@ impl Context {
             &mut self.events,
             &mut self.contents,
             &mut self.topology,
+            &mut self.states,
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,

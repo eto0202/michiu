@@ -2,9 +2,9 @@ pub mod handler;
 pub mod input_func;
 
 use crate::{
-    BasicLayout, ComponentMask, Context, EffectCategory, EntityId, ExternalTexture, ImageSource,
-    MovieProperty, ReadSignal, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget,
-    ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n,
+    BasicLayout, ComponentMask, Context, EffectCategory, EntityId, ExternalTexture, ReadSignal,
+    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle, UiaValue, Val,
+    WebView2Contents, create_effect, div_n,
 };
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -301,12 +301,12 @@ impl Element {
         if mask.has(ComponentMask::STYLE_DND_DRAGGABLE)
             && let Some(dp) = inner.drag_property
         {
-            cx.events.dnd.dnd_drag_properties.insert(id, dp);
+            cx.states.dnd.dnd_drag_properties.insert(id, dp);
         }
         if mask.has(ComponentMask::STYLE_DND_DROPPABLE)
             && let Some(dp) = inner.drop_property
         {
-            cx.events.dnd.dnd_drop_properties.insert(id, dp);
+            cx.states.dnd.dnd_drop_properties.insert(id, dp);
         }
 
         cx.resolve_element_style_state(id, false);
@@ -519,7 +519,7 @@ impl Element {
 
         // 親コンテナに紐づくスクロールバー専用要素のIDを安全に抽出
         let mut scrollbar_ids = std::collections::HashSet::new();
-        if let Some(sb) = cx.layouts.lay_scrollbar_styles.get(id) {
+        if let Some(sb) = cx.layouts.scrollbar.bar_styles.get(id) {
             if let Some(tid) = sb.v_track_id {
                 scrollbar_ids.insert(tid);
             }
@@ -729,8 +729,8 @@ impl Element {
         sb: &ScrollbarStyle,
         merge: bool,
     ) {
-        if !cx.layouts.lay_scrollbar_styles.contains_key(id) {
-            cx.layouts.lay_scrollbar_styles.insert(
+        if !cx.layouts.scrollbar.bar_styles.contains_key(id) {
+            cx.layouts.scrollbar.bar_styles.insert(
                 id,
                 ScrollBarState {
                     style: sb.clone(),
@@ -739,7 +739,7 @@ impl Element {
             );
         }
 
-        let mut state = cx.layouts.lay_scrollbar_styles.get(id).cloned().unwrap();
+        let mut state = cx.layouts.scrollbar.bar_styles.get(id).cloned().unwrap();
         state.style = sb.clone();
         let mut changed = false;
 
@@ -852,7 +852,7 @@ impl Element {
         }
 
         if changed {
-            *cx.layouts.lay_scrollbar_styles.get_mut(id).unwrap() = state;
+            *cx.layouts.scrollbar.bar_styles.get_mut(id).unwrap() = state;
             cx.topology.topo_is_structure_dirty = true; // topo_flat_dfs_sequence の更新契機
             cx.topology.topo_is_sort_dirty = true;
         }

@@ -41,7 +41,7 @@ impl WindowStore {
 impl WindowStore {
     /// 与えられたコンテナ矩形の、現在のウィンドウ領域において実際に画面上に見えている物理的な可視サイズを算出
     #[inline]
-    pub(crate) fn calculate_visible_size(
+    pub(crate) fn calc_visible_size(
         container_rect: LayoutRect,
         win_last_size: Option<LayoutSize>,
     ) -> LayoutSize {
