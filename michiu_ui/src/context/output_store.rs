@@ -419,3 +419,6 @@ impl OutputStore {
         is_out_x || is_out_y
     }
 }
+
+#[cfg(test)]
+mod tests;

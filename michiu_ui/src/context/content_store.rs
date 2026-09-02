@@ -219,3 +219,6 @@ impl ContentStore {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

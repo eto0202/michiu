@@ -1,7 +1,6 @@
 use crate::app::theme::Theme;
 use michiu_ui::prelude::*;
 
-// ここでは再利用しやすいように comsume ではなく引数で Theme を受け取る
 pub fn container() -> Element {
     // false = row, true = col
     let (is_column, set_is_column) = create_signal(false);

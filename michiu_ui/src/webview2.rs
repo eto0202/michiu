@@ -1,9 +1,30 @@
 use std::borrow::Cow;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum WebView2Source {
+    /// 外部のWebサイトやローカルのサーバー
+    Url(Cow<'static, str>),
+    /// 生のHTMLコード
+    Html(Cow<'static, str>),
+}
+
+impl Default for WebView2Source {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WebView2Source {
+    #[inline]
+    pub fn new() -> Self {
+        Self::Url("about:blank".into())
+    }
+}
+
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct WebView2Contents {
-    pub url: String,
+    pub source: WebView2Source,
     /// イベントフォワード（マウス/キーボード入力を受け付けるか）
     pub allow_interaction: bool,
     /// 右クリックのシステムデフォルトメニューを表示するか
@@ -21,7 +42,7 @@ pub struct WebView2Contents {
 impl Default for WebView2Contents {
     fn default() -> Self {
         Self {
-            url: "about:blank".to_string(),
+            source: WebView2Source::new(),
             allow_interaction: true,
             enable_context_menu: false, // デフォルトでは消してアプリ感を出す
             enable_dev_tools: false,    // デフォルトはオフ
@@ -34,17 +55,34 @@ impl Default for WebView2Contents {
 
 impl WebView2Contents {
     #[inline]
-    pub fn new(url: impl Into<String>) -> Self {
+    pub fn new(source: WebView2Source) -> Self {
         Self {
-            url: url.into(),
+            source,
             ..Default::default()
         }
     }
 
     #[inline]
+    pub fn from_url(url: impl Into<Cow<'static, str>>) -> Self {
+        Self::new(WebView2Source::Url(url.into()))
+    }
+
+    #[inline]
+    pub fn from_html(html: impl Into<Cow<'static, str>>) -> Self {
+        Self::new(WebView2Source::Html(html.into()))
+    }
+
+    #[inline]
     #[must_use]
-    pub fn url(mut self, url: impl Into<String>) -> Self {
-        self.url = url.into();
+    pub fn url(mut self, url: impl Into<Cow<'static, str>>) -> Self {
+        self.source = WebView2Source::Url(url.into());
+        self
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn html(mut self, html: impl Into<Cow<'static, str>>) -> Self {
+        self.source = WebView2Source::Html(html.into());
         self
     }
 

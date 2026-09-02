@@ -26,8 +26,9 @@ use windows::{
     },
     core::{Interface, PCWSTR, PWSTR, w},
 };
+use windows_core::HSTRING;
 
-use crate::{LayoutRect, TaskSender, WebView2Contents};
+use crate::{LayoutRect, TaskSender, WebView2Contents, WebView2Source};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn init_webview2_composition(
@@ -149,10 +150,16 @@ pub(crate) unsafe fn init_webview2_composition(
                         webview.add_NavigationCompleted(&nav_handler, &mut 0)?;
                     }
 
-                    let url_u16: Vec<u16> =
-                        settings_clone.url.encode_utf16().chain(Some(0)).collect();
+                    let source_string = match &settings_clone.source {
+                        WebView2Source::Url(url) => HSTRING::from(url.as_ref()),
+                        WebView2Source::Html(html) => HSTRING::from(html.as_ref()),
+                    };
+
                     unsafe {
-                        webview.Navigate(PCWSTR(url_u16.as_ptr()))?;
+                        match &settings_clone.source {
+                            WebView2Source::Url(_) => webview.Navigate(&source_string)?,
+                            WebView2Source::Html(_) => webview.NavigateToString(&source_string)?,
+                        }
                     }
 
                     Ok(())
@@ -255,10 +262,18 @@ pub(crate) unsafe fn init_webview2_composition(
                                 webview.add_NavigationCompleted(&nav_handler, &mut 0)?;
                             }
 
-                            let url_u16: Vec<u16> =
-                                settings_clone2.url.encode_utf16().chain(Some(0)).collect();
+                            let source_string = match &settings_clone.source {
+                                WebView2Source::Url(url) => HSTRING::from(url.as_ref()),
+                                WebView2Source::Html(html) => HSTRING::from(html.as_ref()),
+                            };
+
                             unsafe {
-                                webview.Navigate(PCWSTR(url_u16.as_ptr()))?;
+                                match &settings_clone.source {
+                                    WebView2Source::Url(_) => webview.Navigate(&source_string)?,
+                                    WebView2Source::Html(_) => {
+                                        webview.NavigateToString(&source_string)?;
+                                    }
+                                }
                             }
 
                             Ok(())

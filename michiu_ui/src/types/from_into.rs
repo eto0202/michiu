@@ -1,14 +1,13 @@
 #![allow(clippy::cast_precision_loss)]
 
-use std::{borrow::Cow, path::PathBuf};
+use std::borrow::Cow;
 
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display,
     Element, FlexDirection, FlexWrap, FocusTrigger, Focusable, GridAutoFlow, GridLine,
-    GridPlacement, ImageSource, InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length,
-    LinearGradient, MovieProperty, MovieSource, Overflow, Percent, Pixel, Point, Position, Prop,
-    ReadSignal, Rect, Size, StyleValue, TextAlign, ThisStyle, Transform, UiaValue, Val,
-    WebView2Contents,
+    GridPlacement, InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length,
+    LinearGradient, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size,
+    StyleValue, TextAlign, ThisStyle, Transform, UiaValue, Val, WebView2Contents,
 };
 
 impl<T, U> From<Size<T>> for taffy::Size<U>
@@ -671,30 +670,6 @@ impl From<taffy::GridPlacement<String>> for GridPlacement<String> {
     }
 }
 
-impl From<PathBuf> for ImageSource {
-    fn from(path: PathBuf) -> Self {
-        Self::Path(path)
-    }
-}
-
-impl From<&'static str> for ImageSource {
-    fn from(s: &'static str) -> Self {
-        Self::Path(PathBuf::from(s))
-    }
-}
-
-impl From<PathBuf> for MovieSource {
-    fn from(path: PathBuf) -> Self {
-        Self::Path(path)
-    }
-}
-
-impl From<&'static str> for MovieSource {
-    fn from(s: &'static str) -> Self {
-        Self::Path(PathBuf::from(s))
-    }
-}
-
 impl From<&'static str> for UiaValue {
     fn from(s: &'static str) -> Self {
         Self::String(String::from(s))
@@ -808,40 +783,6 @@ where
 {
     fn from(f: F) -> Self {
         Self::Dynamic(Box::new(f))
-    }
-}
-
-impl From<ReadSignal<ImageSource>> for Prop<ImageSource> {
-    #[inline]
-    fn from(sig: ReadSignal<ImageSource>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-impl From<ReadSignal<MovieProperty>> for Prop<MovieProperty> {
-    #[inline]
-    fn from(sig: ReadSignal<MovieProperty>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-
-impl<F, S> From<F> for Prop<ImageSource>
-where
-    F: Fn() -> S + 'static,
-    S: Into<ImageSource>,
-{
-    #[inline]
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(move || f().into()))
-    }
-}
-impl<F, S> From<F> for Prop<MovieProperty>
-where
-    F: Fn() -> S + 'static,
-    S: Into<MovieProperty>,
-{
-    #[inline]
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(move || f().into()))
     }
 }
 

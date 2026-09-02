@@ -1426,3 +1426,6 @@ impl EventStore {
         Some(cut_text.into())
     }
 }
+
+#[cfg(test)]
+mod tests;

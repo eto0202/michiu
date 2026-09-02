@@ -20,15 +20,6 @@ pub fn container() -> Element {
     .children(element_1())
 }
 
-/*
- * 要素数はたぶん 260000 程度
- * それぞれ一桁の数値ラベルを持つ
- * 全ての子は Signal を使用しホバー時に背景色が変化。クリック時にフォントサイズが変化
- * container は常時スクロールバー（overlay）を表示。それ以外は hidden
- *
- * 1. container 直下は親 100（横並び） で開始
- */
-
 #[inline]
 fn element_1() -> Vec<Element> {
     let mut children = Vec::new();

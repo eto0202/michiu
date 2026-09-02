@@ -66,4 +66,5 @@ impl StateStore {
     }
 }
 
-impl StateStore {}
+#[cfg(test)]
+mod tests;

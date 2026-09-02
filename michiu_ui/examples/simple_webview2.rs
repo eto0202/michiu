@@ -378,7 +378,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let webview_element = {
             let wv = webview2(
-                WebView2Contents::new("https://www.google.com/maps")
+                WebView2Contents::from_url("https://www.google.com/maps")
                     .enable_context_menu(true)
                     .enable_dev_tools(true)
                     .allow_interaction(true)

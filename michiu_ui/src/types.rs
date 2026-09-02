@@ -4,8 +4,9 @@ pub mod layout_data;
 pub use from_into::*;
 pub use layout_data::*;
 
+use crate::{Context, Element, EntityId, PropertyList, VirtualKey, rgba};
 use bytemuck::{Pod, Zeroable};
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, time::Duration};
 use windows::Win32::{
     Graphics::Gdi::{
         BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
@@ -13,8 +14,6 @@ use windows::Win32::{
     },
     UI::WindowsAndMessaging::{CreateIconIndirect, HCURSOR, ICONINFO},
 };
-
-use crate::{Context, Element, EntityId, PropertyList, ThisStyle, VirtualKey, rgba};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -1184,8 +1183,6 @@ pub type CharCallback = Box<dyn FnMut(&mut Context, char) + 'static>;
 pub type ImeCallback = Box<dyn FnMut(&mut Context, ImeState) + 'static>;
 pub type FileDropCallback = Box<dyn FnMut(&mut Context, Vec<PathBuf>) + 'static>;
 pub type FileDragCallback = Box<dyn FnMut(&mut Context) + 'static>;
-pub type ImageLoadedCallback = Box<dyn FnMut(&mut Context, ImageMetadata) + 'static>;
-pub type MediaOpenedCallback = Box<dyn FnMut(&mut Context, MovieMetadata) + 'static>;
 pub type SimpleCallback = Box<dyn FnMut(&mut Context) + 'static>;
 
 // 各コールバックの引数: (context, ドラッグ元のElement, 現在ホバーまたはドロップされた対象のElement)
@@ -1255,10 +1252,6 @@ pub(crate) struct EventListeners {
     pub(crate) on_file_drag_enter: Option<FileDragCallback>,
     /// ドラッグされていたファイルが要素の外に出た、またはドラッグがキャンセルされた瞬間に発火します
     pub(crate) on_file_drag_leave: Option<FileDragCallback>,
-    /// 画像のデコード・ロードが完了し、メタデータが確定した瞬間に発火します
-    pub(crate) on_image_loaded: Option<ImageLoadedCallback>,
-    /// 動画等のメディアファイルのロードが完了し、メタデータが確定した瞬間に発火します
-    pub(crate) on_media_loaded: Option<MediaOpenedCallback>,
 
     // D&D 専用イベント
     pub(crate) on_dnd_entity_drag: Option<EntityDragCallback>,
@@ -1292,12 +1285,10 @@ define_event_dispatchers! {
     handle_on_char_input, on_char_input, ch: char;
     handle_on_ime, on_ime, info: ImeState;
 
-    // ファイルドロップ・メディア
+    // ファイルドロップ
     handle_on_file_dropped, on_file_dropped, paths: Vec<PathBuf>;
     handle_on_file_drag_enter, on_file_drag_enter;
     handle_on_file_drag_leave, on_file_drag_leave;
-    handle_on_image_loaded, on_image_loaded, metadata: ImageMetadata;
-    handle_on_media_loaded, on_media_loaded, metadata: MovieMetadata;
 
     // ドラッグ＆ドロップ
     handle_on_dnd_entity_drag, on_dnd_entity_drag, origin: Element, target: Option<Element>;
@@ -1357,20 +1348,6 @@ impl std::fmt::Debug for EventListeners {
             .field(
                 "on_file_drag_leave",
                 &self.on_file_drag_leave.as_ref().map(|_| "FnMut"),
-            )
-            .field(
-                "()",
-                &self
-                    .on_image_loaded
-                    .as_ref()
-                    .map(|_| "FnMut(ImageLoadedCallback)"),
-            )
-            .field(
-                "on_media_loaded",
-                &self
-                    .on_media_loaded
-                    .as_ref()
-                    .map(|_| "FnMut(MediaLoadedCallback)"),
             )
             .field("on_hover", &self.on_hover.as_ref().map(|_| "FnMut"))
             .field("on_focus", &self.on_focus.as_ref().map(|_| "FnMut"))
@@ -1651,95 +1628,6 @@ pub struct ImeState {
     pub caret_position: Option<LayoutPoint>,
     pub composition_cursor: usize,
     pub composition_attrs: Vec<u8>,
-}
-
-/// 画像のデータソースの表現
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ImageSource {
-    /// ローカルファイルやアセットへのパス
-    Path(PathBuf),
-    /// インターネット上のURL
-    Url(String),
-    /// メモリ上に直接読み込まれたバイト列 (埋め込みアセットなど)
-    Bytes(Arc<[u8]>),
-}
-
-/// 画像ファイルがロードされた際に取得できるメタデータ
-#[derive(Debug, Clone, PartialEq)]
-pub struct ImageMetadata {
-    /// 画像自体の本来の縦横サイズ（解像度）
-    pub resolution: LayoutSize,
-    /// フォーマット名 (例: "png", "jpeg", "gif", "webp" など)
-    pub format: String,
-    /// アニメーション画像（GIFやAPNGなど）であるかどうか
-    pub is_animated: bool,
-}
-
-/// 動画のデータソースの表現
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum MovieSource {
-    Path(PathBuf),
-    Url(String),
-}
-
-/// 動画要素が保持する再生設定プロパティ
-#[derive(Debug, Clone, PartialEq)]
-pub struct MovieProperty {
-    pub source: Option<MovieSource>,
-    pub autoplay: bool,
-    pub loop_playback: bool,
-    pub muted: bool,
-    pub volume: f32,
-    pub fast_forward: f32,
-    pub rewind: f32,
-    pub playback_rate: f32,
-    pub current_time: Option<f32>,
-}
-
-impl MovieProperty {
-    #[must_use]
-    pub fn new(source: Option<MovieSource>) -> Self {
-        Self {
-            source,
-            autoplay: false,
-            loop_playback: false,
-            muted: false,
-            volume: 1.0,
-            fast_forward: 0.0,
-            rewind: 0.0,
-            playback_rate: 1.0,
-            current_time: None,
-        }
-    }
-}
-
-impl Default for MovieProperty {
-    fn default() -> Self {
-        Self {
-            source: None,
-            autoplay: true,
-            loop_playback: true,
-            muted: false,
-            volume: 1.0,
-            fast_forward: 0.0,
-            rewind: 0.0,
-            playback_rate: 1.0,
-            current_time: None,
-        }
-    }
-}
-
-/// 動画ファイルがロードされた際に取得できるメタデータ
-#[derive(Debug, Clone, PartialEq)]
-pub struct MovieMetadata {
-    /// 動画自体の本来の縦横サイズ（解像度）
-    pub resolution: LayoutSize,
-    /// フレームレート (fps)
-    pub frame_rate: f32,
-    /// ビットレート (bps)
-    pub bitrate: u32,
-    /// 動画の総再生時間（秒）
-    pub duration: f32,
 }
 
 /// UI Automation (UIA) のプロパティ値の安全な表現

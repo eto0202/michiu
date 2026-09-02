@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 
 use crate::{
-    Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImageMetadata,
-    ImeState, LayoutPoint, Modifiers, MouseButton, MovieMetadata, Prop, StateFlag, VirtualKey,
-    with_context,
+    Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImeState,
+    LayoutPoint, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,
 };
 
 impl Element {
@@ -474,67 +473,6 @@ impl Element {
                 }));
             } else {
                 l.on_file_drag_leave = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 画像ファイルのロードが完了し、
-    /// メタデータ（解像度、フォーマット、アニメーションの有無等）が取得可能になった時のイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_image_loaded<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(ImageMetadata) + 'static,
-    {
-        self.on_image_loaded_with(move |_cx, img| f(img))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_image_loaded_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, ImageMetadata) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_image_loaded.take() {
-                let mut f = f;
-                l.on_image_loaded = Some(Box::new(move |cx, img| {
-                    existing(cx, img.clone());
-                    f(cx, img);
-                }));
-            } else {
-                l.on_image_loaded = Some(Box::new(f));
-            }
-        });
-        self
-    }
-
-    /// 動画ファイルがロードされ、メタデータ（解像度、FPS、ビットレート等）が取得可能になった時のイベントを登録します。
-    #[must_use]
-    #[inline]
-    pub fn on_media_loaded<F>(self, mut f: F) -> Self
-    where
-        F: FnMut(MovieMetadata) + 'static,
-    {
-        self.on_media_loaded_with(move |_cx, movie| f(movie))
-    }
-
-    #[must_use]
-    #[inline]
-    pub fn on_media_loaded_with<F>(self, f: F) -> Self
-    where
-        F: FnMut(&mut Context, MovieMetadata) + 'static,
-    {
-        self.get_or_create_listeners(|l| {
-            if let Some(mut existing) = l.on_media_loaded.take() {
-                let mut f = f;
-                l.on_media_loaded = Some(Box::new(move |cx, movie| {
-                    existing(cx, movie.clone());
-                    f(cx, movie);
-                }));
-            } else {
-                l.on_media_loaded = Some(Box::new(f));
             }
         });
         self

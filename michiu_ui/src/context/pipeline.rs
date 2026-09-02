@@ -11,9 +11,9 @@ use crate::{
     RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary,
     ScrollStore, ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextCacheKey, TextContentsSparseSecondary, TextEngine,
-    TextEditStore, TextSpan, TextSpansSparseSecondary, TopologyStore, UnderlineStyle, Val,
-    VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextCacheKey, TextContentsSparseSecondary,
+    TextEditStore, TextEngine, TextSpan, TextSpansSparseSecondary, TopologyStore, UnderlineStyle,
+    Val, VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context,
     execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
     handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
 };
@@ -2121,3 +2121,6 @@ impl Pipeline {
         render_data.push(id, ex_instance);
     }
 }
+
+#[cfg(test)]
+mod tests;
