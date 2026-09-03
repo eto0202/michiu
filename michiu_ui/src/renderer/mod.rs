@@ -3,12 +3,14 @@
 mod composed_renderer;
 mod init_webview2;
 mod interop;
+mod new_text;
 mod text;
 mod wgpu_renderer;
 
 pub use composed_renderer::*;
 pub use init_webview2::*;
 pub use interop::*;
+pub use new_text::*;
 use rustc_hash::FxHashMap;
 pub use text::*;
 pub use wgpu_renderer::*;
@@ -97,6 +99,7 @@ pub(crate) struct RendererView<'a> {
     pub(crate) atlas: &'a mut TextureAtlas,
     pub(crate) text_rasterizer: &'a TextRasterizer,
     pub(crate) text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
+    pub(crate) new_text_cache: &'a mut FxHashMap<NewTextCacheKey, TextCacheValue>,
     pub(crate) queue: &'a wgpu::Queue,
 }
 

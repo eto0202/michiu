@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DrawBatch,
-    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
-    Pipeline, QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue,
-    TextRasterizer, TextSpan, TextureAtlas, Vertex, VisualProperty,
+    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
+    NewTextCacheKey, OutputStore, Pipeline, QuadInstance, RenderData, RendererView, TextAlign,
+    TextCacheKey, TextCacheValue, TextRasterizer, TextSpan, TextureAtlas, Vertex, VisualProperty,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -63,6 +63,7 @@ pub struct WgpuRenderer {
     pub(crate) atlas: TextureAtlas,
     pub(crate) temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
     pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
+    pub(crate) new_text_cache: FxHashMap<NewTextCacheKey, TextCacheValue>,
     // 非アクティブ状態の WebView2 の静止画キャッシュ
     pub(crate) webview_static_caches: FxHashMap<EntityId, wgpu::TextureView>,
 
@@ -184,6 +185,7 @@ impl WgpuRenderer {
             atlas,
             temp_uv_map: SecondaryMap::new(),
             text_cache: FxHashMap::default(),
+            new_text_cache: FxHashMap::default(),
             webview_static_caches: FxHashMap::default(),
             render_data: RenderData::new(),
             external_bind_groups: FxHashMap::default(),
@@ -509,6 +511,7 @@ impl WgpuRenderer {
                 atlas: &mut self.atlas,
                 text_rasterizer: &self.text_rasterizer,
                 text_cache: &mut self.text_cache,
+                new_text_cache: &mut self.new_text_cache,
                 queue: &self.queue,
             },
         );

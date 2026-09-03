@@ -2,7 +2,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::types::LayoutSize;
-use crate::{EdgeInsets, LayoutRect, RendererView, TextSpan, VisualProperty};
+use crate::{EdgeInsets, LayoutRect, NewTextCacheKey, RendererView, TextSpan, VisualProperty};
+use cosmic_text::{
+    Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
+};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use windows::Win32::Graphics::Direct2D::{
@@ -48,6 +51,9 @@ pub(crate) struct TextEngine {
     pub(crate) dwrite_factory: IDWriteFactory,
     pub(crate) default_format: IDWriteTextFormat,
     pub(crate) rendering_params: IDWriteRenderingParams,
+
+    pub(crate) font_system: FontSystem,
+    pub(crate) swash_cache: SwashCache,
 }
 
 impl TextEngine {
@@ -91,6 +97,9 @@ impl TextEngine {
             dwrite_factory,
             default_format,
             rendering_params,
+
+            font_system: FontSystem::new(),
+            swash_cache: SwashCache::new(),
         }
     }
 
@@ -433,6 +442,257 @@ impl TextEngine {
 
         let (uv_min, uv_max) = view.atlas.texel_to_uv(x, y, width, height);
         view.text_cache
+            .insert(key.clone(), TextCacheValue { uv_min, uv_max });
+
+        (uv_min, uv_max, cleared)
+    }
+
+    pub(crate) fn create_buffer_new(
+        &mut self,
+        text: &str,
+        font_size: f32,
+        font_family: Option<&str>,
+        font_weight: Option<u32>,
+        font_style: Option<u32>,
+        max_width: Option<f32>,
+        auto_wrap: Option<bool>,
+        spans: &[TextSpan],
+    ) -> Buffer {
+        let metrics = Metrics::new(font_size, font_size * 1.2);
+        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+
+        let mut default_attrs = Attrs::new();
+        if let Some(family) = font_family {
+            default_attrs = default_attrs.family(Family::Name(family));
+        }
+        if let Some(weight) = font_weight {
+            default_attrs = default_attrs.weight(Weight(weight as u16));
+        }
+        if let Some(style) = font_style {
+            default_attrs = default_attrs.style(match style {
+                2 => Style::Italic,
+                _ => Style::Normal,
+            });
+        }
+
+        buffer.set_size(max_width, Some(f32::MAX));
+        if auto_wrap.unwrap_or(false) && max_width.is_some() {
+            buffer.set_wrap(Wrap::Glyph);
+        } else {
+            buffer.set_wrap(Wrap::None);
+        }
+
+        if spans.is_empty() {
+            buffer.set_text(text, &default_attrs, Shaping::Advanced, None);
+        } else {
+            let text_len = text.len();
+            let mut boundaries = vec![0, text_len];
+            for span in spans {
+                if span.range.start < text_len && text.is_char_boundary(span.range.start) {
+                    boundaries.push(span.range.start);
+                }
+                if span.range.end < text_len && text.is_char_boundary(span.range.end) {
+                    boundaries.push(span.range.end);
+                }
+            }
+            boundaries.sort_unstable();
+            boundaries.dedup();
+
+            let mut slice_strings = Vec::with_capacity(boundaries.len());
+            let mut rich_spans = Vec::with_capacity(boundaries.len());
+
+            for window in boundaries.windows(2) {
+                let start = window[0];
+                let end = window[1];
+                if start >= end {
+                    continue;
+                }
+
+                let slice_str = &text[start..end];
+                slice_strings.push(slice_str);
+            }
+
+            for (i, window) in boundaries.windows(2).enumerate() {
+                let start = window[0];
+                let end = window[1];
+                if start >= end {
+                    continue;
+                }
+
+                let mut attrs = default_attrs.clone();
+                if let Some(span) = spans
+                    .iter()
+                    .find(|s| s.range.start <= start && s.range.end >= end)
+                {
+                    if let Some(size) = span.font_size {
+                        attrs = attrs.metrics(Metrics::new(size, size * 1.2));
+                    }
+                    if let Some(color) = span.color {
+                        attrs = attrs.color(cosmic_text::Color::rgba(
+                            (color.r * 255.0) as u8,
+                            (color.g * 255.0) as u8,
+                            (color.b * 255.0) as u8,
+                            (color.a * 255.0) as u8,
+                        ));
+                    }
+                    if let Some(ref family) = span.font_family {
+                        attrs = attrs.family(Family::Name(family));
+                    }
+                    if let Some(weight) = span.font_weight {
+                        attrs = attrs.weight(Weight(weight as u16));
+                    }
+                    if let Some(style) = span.font_style {
+                        attrs = attrs.style(match style {
+                            2 => Style::Italic,
+                            _ => Style::Normal,
+                        });
+                    }
+                }
+                rich_spans.push((slice_strings[i], attrs));
+            }
+
+            buffer.set_rich_text(rich_spans, &default_attrs, Shaping::Advanced, None);
+        }
+
+        buffer.shape_until_scroll(&mut self.font_system, false);
+        buffer
+    }
+
+    pub(crate) fn measure_text_new(
+        &mut self,
+        text: &str,
+        font_size: f32,
+        font_family: Option<&str>,
+        font_weight: Option<u32>,
+        font_style: Option<u32>,
+        max_width: Option<f32>,
+        auto_wrap: Option<bool>,
+        spans: &[TextSpan],
+    ) -> LayoutSize {
+        if text.is_empty() {
+            return LayoutSize::ZERO;
+        }
+
+        let buffer = self.create_buffer_new(
+            text,
+            font_size,
+            font_family,
+            font_weight,
+            font_style,
+            max_width,
+            auto_wrap,
+            spans,
+        );
+
+        Self::get_layout_size_new(&buffer)
+    }
+
+    pub(crate) fn get_layout_size_new(buffer: &Buffer) -> LayoutSize {
+        let mut width = 0.0f32;
+        let mut height = 0.0f32;
+
+        for run in buffer.layout_runs() {
+            width = width.max(run.line_w);
+            height = run.line_y + run.line_height;
+        }
+
+        LayoutSize::new(width, height)
+    }
+
+    pub(crate) fn get_caret_position_new(
+        buffer: &Buffer,
+        index: usize,
+        text_len: usize,
+    ) -> (f32, f32, f32) {
+        let mut x = 0.0f32;
+        let mut y = 0.0f32;
+        let mut height = 16.0f32;
+        let mut found = false;
+
+        'outer: for run in buffer.layout_runs() {
+            height = run.line_height;
+            y = run.line_y;
+            for glyph in run.glyphs {
+                if index >= glyph.start && index < glyph.end {
+                    x = glyph.x;
+                    found = true;
+                    break 'outer;
+                }
+            }
+        }
+
+        if !found && let Some(last_run) = buffer.layout_runs().last() {
+            y = last_run.line_y;
+            height = last_run.line_height;
+            if let Some(last_glyph) = last_run.glyphs.last() {
+                x = last_glyph.x + last_glyph.w;
+            }
+        }
+
+        (x, y, height)
+    }
+
+    pub(crate) fn hit_test_point_new(buffer: &Buffer, x: f32, y: f32) -> (usize, bool) {
+        if let Some(cursor) = buffer.hit(x, y) {
+            (cursor.index, false)
+        } else {
+            (0, false)
+        }
+    }
+
+    pub(crate) fn get_or_create_glyph_uv_new(
+        &mut self,
+        cache_key: CacheKey,
+        view: &mut RendererView,
+    ) -> ([f32; 2], [f32; 2], bool) {
+        let key = NewTextCacheKey { cache_key };
+        if let Some(cached) = view.new_text_cache.get(&key) {
+            return (cached.uv_min, cached.uv_max, false);
+        }
+
+        let image_opt = self.swash_cache.get_image(&mut self.font_system, cache_key);
+
+        let Some(image) = image_opt else {
+            return ([0.0, 0.0], [0.0, 0.0], false);
+        };
+
+        let width = image.placement.width;
+        let height = image.placement.height;
+
+        let mut alloc_res = view.atlas.allocate(width, height);
+        let mut cleared = false;
+
+        if alloc_res.is_none() {
+            view.atlas.clear();
+            view.text_cache.clear();
+            alloc_res = view.atlas.allocate(width, height);
+            cleared = true;
+        }
+
+        let (x, y) = alloc_res.expect("Glyph exceeds maximum atlas size");
+
+        view.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &view.atlas.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &image.data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let (uv_min, uv_max) = view.atlas.texel_to_uv(x, y, width, height);
+        view.new_text_cache
             .insert(key.clone(), TextCacheValue { uv_min, uv_max });
 
         (uv_min, uv_max, cleared)
