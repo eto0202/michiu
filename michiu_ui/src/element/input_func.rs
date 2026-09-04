@@ -555,6 +555,7 @@ impl Element {
     fn pressed_left(
         id: EntityId,
         contents: &mut InputContents,
+        text_val: &str,
         caret: usize,
         mods: Modifiers,
         edit_selections: &mut TextSelectionsSparseSecondary,
@@ -577,7 +578,13 @@ impl Element {
             contents.last_interacted_time = Some(std::time::Instant::now());
             return true;
         } else if caret > 0 {
-            let new_caret = caret - 1;
+            let mut prev = caret - 1;
+            // 安全な文字の境界にぶつかるまで左に
+            while prev > 0 && !text_val.is_char_boundary(prev) {
+                prev -= 1;
+            }
+
+            let new_caret = prev;
 
             if mods.shift {
                 // Shiftキー押下中：選択の拡張
@@ -611,6 +618,7 @@ impl Element {
     fn pressed_right(
         id: EntityId,
         contents: &mut InputContents,
+        text_val: &str,
         caret: usize,
         text_len: usize,
         mods: Modifiers,
@@ -633,7 +641,10 @@ impl Element {
             contents.last_interacted_time = Some(std::time::Instant::now());
             return true;
         } else if caret < text_len {
-            let new_caret = caret + 1;
+            // 現在位置にある文字を取得
+            let current_char = text_val[caret..].chars().next().unwrap_or(' ');
+            // その文字のバイト数分だけキャレットを進める
+            let new_caret = caret + current_char.len_utf8();
 
             if mods.shift {
                 let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
@@ -768,7 +779,7 @@ impl Element {
             }
         };
 
-        let line_height = font_size * 1.3;
+        let line_height = font_size * 1.2;
         let target_y = cy_offset + line_height * 1.5;
         let (new_caret, is_trailing) = match &engine {
             TextLayoutEngine::Cosmic(buffer) => {
@@ -888,6 +899,7 @@ impl Element {
                 changed = Element::pressed_left(
                     id,
                     contents,
+                    &text_val,
                     caret,
                     mods,
                     &mut cx.states.edit.edit_selections,
@@ -899,6 +911,7 @@ impl Element {
                 changed = Element::pressed_right(
                     id,
                     contents,
+                    &text_val,
                     caret,
                     text_len,
                     mods,
