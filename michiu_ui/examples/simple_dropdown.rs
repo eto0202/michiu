@@ -28,6 +28,8 @@ struct AppState {
     root_id: EntityId,
 }
 
+pub(crate) const APPLY_COSMIC_TEXT: bool = false;
+
 // Win32 ウィンドウプロシージャ
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
@@ -68,8 +70,11 @@ unsafe extern "system" fn wnd_proc(
                 app.renderer.resize((width, height), scale);
 
                 // レイアウト再計算
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+                app.context.sync_layout_and_render(
+                    app.root_id,
+                    app.renderer.layout_size,
+                    APPLY_COSMIC_TEXT,
+                );
                 app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -86,8 +91,11 @@ unsafe extern "system" fn wnd_proc(
 
                 // Taffy レイアウトツリーの同期と確定座標再計算
 
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+                app.context.sync_layout_and_render(
+                    app.root_id,
+                    app.renderer.layout_size,
+                    APPLY_COSMIC_TEXT,
+                );
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 再描画要求
@@ -102,12 +110,15 @@ unsafe extern "system" fn wnd_proc(
                 // トランジション（アニメーション）を1フレーム進める
                 app.context.tick_system_frame(&TickType::Transition);
 
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+                app.context.sync_layout_and_render(
+                    app.root_id,
+                    app.renderer.layout_size,
+                    APPLY_COSMIC_TEXT,
+                );
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 描画実行
-                app.renderer.draw(&mut app.context);
+                app.renderer.draw(&mut app.context, APPLY_COSMIC_TEXT);
                 app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
@@ -166,8 +177,11 @@ unsafe extern "system" fn wnd_proc(
                     modifiers,
                 });
 
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+                app.context.sync_layout_and_render(
+                    app.root_id,
+                    app.renderer.layout_size,
+                    APPLY_COSMIC_TEXT,
+                );
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // クリックによる再描画を反映
@@ -333,7 +347,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.renderer.resize((width, height), scale_factor);
 
     app.context
-        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+        .sync_layout_and_render(app.root_id, app.renderer.layout_size, APPLY_COSMIC_TEXT);
 
     // 5. ウィンドウを表示して描画
     unsafe {

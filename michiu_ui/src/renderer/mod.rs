@@ -99,7 +99,6 @@ pub(crate) struct RendererView<'a> {
     pub(crate) atlas: &'a mut TextureAtlas,
     pub(crate) text_rasterizer: &'a TextRasterizer,
     pub(crate) text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
-    pub(crate) new_text_cache: &'a mut FxHashMap<NewTextCacheKey, TextCacheValue>,
     pub(crate) queue: &'a wgpu::Queue,
 }
 

@@ -1,9 +1,10 @@
 #![allow(dead_code)]
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DrawBatch,
-    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
-    NewTextCacheKey, OutputStore, Pipeline, QuadInstance, RenderData, RendererView, TextAlign,
-    TextCacheKey, TextCacheValue, TextRasterizer, TextSpan, TextureAtlas, Vertex, VisualProperty,
+    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, NewPipeline,
+    NewRendererView, NewTextCacheKey, OutputStore, Pipeline, QuadInstance, RenderData,
+    RendererView, TextAlign, TextCacheKey, TextCacheValue, TextRasterizer, TextSpan, TextureAtlas,
+    Vertex, VisualProperty,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -495,7 +496,7 @@ impl WgpuRenderer {
         }
     }
 
-    pub(crate) fn render(&mut self, cx: &mut Context, scale_factor: f32) {
+    pub(crate) fn render(&mut self, cx: &mut Context, scale_factor: f32, cosmic: bool) {
         let _context_guard = crate::bind_context(cx);
         // 破棄された要素のキャッシュを解放
         for id in cx.topology.topo_despawned_queue.drain(..) {
@@ -503,18 +504,30 @@ impl WgpuRenderer {
             self.webview_static_caches.remove(&id);
         }
 
-        // 前面と背面に分類されたバッチを Context から引き出す
-        Pipeline::collect_render_data(
-            cx,
-            &mut RendererView {
-                render_data: &mut self.render_data,
-                atlas: &mut self.atlas,
-                text_rasterizer: &self.text_rasterizer,
-                text_cache: &mut self.text_cache,
-                new_text_cache: &mut self.new_text_cache,
-                queue: &self.queue,
-            },
-        );
+        if cosmic {
+            NewPipeline::collect_render_data(
+                cx,
+                &mut NewRendererView {
+                    render_data: &mut self.render_data,
+                    atlas: &mut self.atlas,
+                    text_rasterizer: &self.text_rasterizer,
+                    text_cache: &mut self.new_text_cache,
+                    queue: &self.queue,
+                },
+            );
+        } else {
+            // 前面と背面に分類されたバッチを Context から引き出す
+            Pipeline::collect_render_data(
+                cx,
+                &mut RendererView {
+                    render_data: &mut self.render_data,
+                    atlas: &mut self.atlas,
+                    text_rasterizer: &self.text_rasterizer,
+                    text_cache: &mut self.text_cache,
+                    queue: &self.queue,
+                },
+            );
+        }
 
         if self.render_data.batches.is_empty() {
             return;

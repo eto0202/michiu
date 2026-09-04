@@ -613,8 +613,13 @@ impl Context {
     /// キャッシュコヒーレントな直列DFS同期（1次元直線ループ同期）
     /// Taffy自動計算を完全内包
     #[inline]
-    pub fn sync_layout_and_render(&mut self, root: EntityId, window_size: LayoutSize) {
-        Pipeline::sync_layout_and_render(self, root, window_size);
+    pub fn sync_layout_and_render(
+        &mut self,
+        root: EntityId,
+        window_size: LayoutSize,
+        cosmic: bool,
+    ) {
+        Pipeline::sync_layout_and_render(self, root, window_size, cosmic);
     }
 }
 

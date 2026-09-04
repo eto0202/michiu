@@ -42,6 +42,7 @@ impl SendHwnd {
 }
 
 pub const ALLOW_STRESS_TEST: bool = false;
+pub const APPLY_COSMIC_TEXT: bool = true;
 
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
@@ -94,7 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (width, height) = client_rect(hwnd);
     app.renderer.resize((width, height), scale_factor);
     app.context
-        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+        .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
 
     if app.webview_id.is_some() {
         app.renderer.prewarm_webview2();

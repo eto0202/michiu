@@ -8,9 +8,11 @@ use crate::{
     TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
     TextSpansSparseSecondary, UiaValue, VisualPropertiesSecondary, WindowStore,
 };
+use cosmic_text::Buffer;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     cell::RefCell,
+    rc::Rc,
     sync::{Arc, mpsc::Receiver},
 };
 use windows::Win32::{
@@ -31,6 +33,7 @@ use windows::Win32::{
         KeyboardAndMouse::GetFocus,
     },
 };
+use windows_core::Ref;
 
 pub(crate) type TaskSenderType =
     std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Context) + Send + 'static>>;
@@ -65,9 +68,12 @@ pub(crate) type DwriteLayoutsSparseSecondary =
     RefCell<SparseSecondaryMap<EntityId, IDWriteTextLayout>>;
 pub(crate) type UiaPropertiesSparseSecondary = SparseSecondaryMap<EntityId, Vec<(i32, UiaValue)>>;
 
+pub(crate) type TextBuffersSparseSecondary = RefCell<SparseSecondaryMap<EntityId, Rc<Buffer>>>;
+
 pub struct SystemStore {
     pub(crate) sys_text_engine: TextEngine,
     pub(crate) sys_dwrite_layouts: DwriteLayoutsSparseSecondary,
+    pub(crate) sys_text_buffers: TextBuffersSparseSecondary,
     pub(crate) sys_task_sender: TaskSender,
     pub(crate) sys_task_receiver: Receiver<TaskRecv>,
     pub(crate) sys_uia_properties: UiaPropertiesSparseSecondary,
@@ -82,6 +88,7 @@ impl SystemStore {
         Self {
             sys_text_engine: TextEngine::new(),
             sys_dwrite_layouts: RefCell::new(SparseSecondaryMap::new()),
+            sys_text_buffers: RefCell::new(SparseSecondaryMap::new()),
             sys_task_sender,
             sys_task_receiver,
             sys_uia_properties: SparseSecondaryMap::new(),
@@ -100,6 +107,7 @@ impl SystemStore {
             sys_dwrite_layouts: RefCell::new(SparseSecondaryMap::with_capacity(
                 c.sys_dwrite_layouts,
             )),
+            sys_text_buffers: RefCell::new(SparseSecondaryMap::with_capacity(c.sys_dwrite_layouts)),
             sys_task_sender,
             sys_task_receiver,
             sys_uia_properties: SparseSecondaryMap::new(),
@@ -109,6 +117,7 @@ impl SystemStore {
     #[inline]
     pub fn clear(&mut self) {
         self.sys_dwrite_layouts.borrow_mut().clear();
+        self.sys_text_buffers.borrow_mut().clear();
         while self.sys_task_receiver.try_recv().is_ok() {}
         self.sys_uia_properties.clear();
     }
@@ -116,6 +125,7 @@ impl SystemStore {
     #[inline]
     pub fn despawn(&mut self, id: EntityId) {
         self.sys_dwrite_layouts.borrow_mut().remove(id);
+        self.sys_text_buffers.borrow_mut().remove(id);
         self.sys_uia_properties.remove(id);
     }
 }
@@ -142,10 +152,6 @@ impl SystemStore {
         rnd_visual: &VisualPropertiesSecondary,
         out_rects: &RectsSecondary,
     ) -> Option<IDWriteTextLayout> {
-        if let Some(layout) = sys_dwrite_layouts.borrow().get(id) {
-            return Some(layout.clone());
-        }
-
         let text = cont_text_contents.get(id)?;
         let (font_size, font_family, font_weight, font_style) =
             RenderStore::get_font_propery(id, rnd_visual);
@@ -166,7 +172,8 @@ impl SystemStore {
         };
 
         // キャッシュ存在時に、現在の幅の制約と一致しているか検証
-        if let Some(layout) = sys_dwrite_layouts.borrow().get(id) {
+        let layout_opt = sys_dwrite_layouts.borrow().get(id).cloned();
+        if let Some(layout) = layout_opt {
             let cached_max_width = unsafe { layout.GetMaxWidth() };
             let current_max_width = max_width_opt.unwrap_or(f32::MAX);
 
@@ -313,6 +320,81 @@ impl SystemStore {
     }
 }
 
+impl SystemStore {
+    #[inline]
+    pub(crate) fn clear_layout_cache_cosmic(
+        id: EntityId,
+        sys_text_buffers: &TextBuffersSparseSecondary,
+    ) {
+        sys_text_buffers.borrow_mut().remove(id);
+    }
+
+    /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持。
+    #[inline]
+    pub(crate) fn get_or_create_layout_cosmic(
+        id: EntityId,
+        sys_text_engine: &mut TextEngine,
+        sys_text_buffers: &TextBuffersSparseSecondary,
+        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_spans: &TextSpansSparseSecondary,
+        lay_resolved_basic: &ResolvedBasicSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
+        out_rects: &RectsSecondary,
+    ) -> Option<Rc<Buffer>> {
+        let text = cont_text_contents.get(id)?;
+        let (font_size, font_family, font_weight, font_style) =
+            RenderStore::get_font_propery(id, rnd_visual);
+
+        let auto_wrap = rnd_visual.get(id).and_then(|v| v.auto_wrap);
+
+        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
+        let rect = out_rects.get(id).copied().unwrap_or_default();
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+        let max_width = rect.width - border.right - border.left - padding.right - padding.left;
+        // 修正：auto_wrap が有効な場合のみ、計算した最大幅を設定する
+        let max_width_opt = if auto_wrap.unwrap_or(false) && max_width > 0.0 {
+            Some(max_width)
+        } else {
+            None
+        };
+
+        let cached_buffer = sys_text_buffers.borrow().get(id).cloned();
+        // キャッシュ存在時に、現在の幅の制約と一致しているか検証
+        if let Some(buffer) = cached_buffer {
+            let cached_max_width = buffer.size().0.unwrap_or(f32::MAX);
+            let current_max_width = max_width_opt.unwrap_or(f32::MAX);
+
+            // 許容誤差 1e-3 内で一致している場合はそのまま再利用。
+            // リサイズによって幅が変わっている場合はキャッシュを破棄して再ビルドへ進む。
+            if (cached_max_width - current_max_width).abs() < 1e-3 {
+                return Some(buffer);
+            }
+
+            sys_text_buffers.borrow_mut().remove(id);
+        }
+
+        let spans = ContentStore::get_text_span(id, cont_text_spans);
+
+        let buffer = sys_text_engine.create_buffer_cosmic(
+            text,
+            font_size,
+            font_family,
+            font_weight,
+            font_style,
+            max_width_opt,
+            auto_wrap,
+            spans,
+        );
+
+        let buffer = Rc::new(buffer);
+
+        sys_text_buffers.borrow_mut().insert(id, buffer.clone());
+        Some(buffer)
+    }
+}
+
 impl Context {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
@@ -327,6 +409,27 @@ impl Context {
             id,
             &self.system.sys_text_engine,
             &self.system.sys_dwrite_layouts,
+            &self.contents.cont_text_contents,
+            &self.contents.cont_text_spans,
+            &self.layouts.lay_resolved_basic,
+            &self.renders.rnd_visual,
+            &self.outputs.out_rects,
+        )
+    }
+
+    /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
+    #[inline]
+    pub(crate) fn clear_layout_cache_cosmic(&self, id: EntityId) {
+        self.system.sys_text_buffers.borrow_mut().remove(id);
+    }
+
+    /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
+    #[inline]
+    pub(crate) fn get_or_create_layout_cosmic(&mut self, id: EntityId) -> Option<Rc<Buffer>> {
+        SystemStore::get_or_create_layout_cosmic(
+            id,
+            &mut self.system.sys_text_engine,
+            &self.system.sys_text_buffers,
             &self.contents.cont_text_contents,
             &self.contents.cont_text_spans,
             &self.layouts.lay_resolved_basic,

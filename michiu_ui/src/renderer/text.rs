@@ -2,7 +2,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use crate::types::LayoutSize;
-use crate::{EdgeInsets, LayoutRect, NewTextCacheKey, RendererView, TextSpan, VisualProperty};
+use crate::{
+    EdgeInsets, LayoutRect, NewRendererView, NewTextCacheKey, RendererView, TextSpan,
+    VisualProperty,
+};
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
 };
@@ -447,7 +450,7 @@ impl TextEngine {
         (uv_min, uv_max, cleared)
     }
 
-    pub(crate) fn create_buffer_new(
+    pub(crate) fn create_buffer_cosmic(
         &mut self,
         text: &str,
         font_size: f32,
@@ -558,7 +561,7 @@ impl TextEngine {
         buffer
     }
 
-    pub(crate) fn measure_text_new(
+    pub(crate) fn measure_text_cosmic(
         &mut self,
         text: &str,
         font_size: f32,
@@ -573,7 +576,7 @@ impl TextEngine {
             return LayoutSize::ZERO;
         }
 
-        let buffer = self.create_buffer_new(
+        let buffer = self.create_buffer_cosmic(
             text,
             font_size,
             font_family,
@@ -584,10 +587,10 @@ impl TextEngine {
             spans,
         );
 
-        Self::get_layout_size_new(&buffer)
+        self.get_layout_size_cosmic(&buffer)
     }
 
-    pub(crate) fn get_layout_size_new(buffer: &Buffer) -> LayoutSize {
+    pub(crate) fn get_layout_size_cosmic(&self, buffer: &Buffer) -> LayoutSize {
         let mut width = 0.0f32;
         let mut height = 0.0f32;
 
@@ -599,7 +602,7 @@ impl TextEngine {
         LayoutSize::new(width, height)
     }
 
-    pub(crate) fn get_caret_position_new(
+    pub(crate) fn get_caret_position_cosmic(
         buffer: &Buffer,
         index: usize,
         text_len: usize,
@@ -632,7 +635,7 @@ impl TextEngine {
         (x, y, height)
     }
 
-    pub(crate) fn hit_test_point_new(buffer: &Buffer, x: f32, y: f32) -> (usize, bool) {
+    pub(crate) fn hit_test_point_cosmic(buffer: &Buffer, x: f32, y: f32) -> (usize, bool) {
         if let Some(cursor) = buffer.hit(x, y) {
             (cursor.index, false)
         } else {
@@ -640,13 +643,13 @@ impl TextEngine {
         }
     }
 
-    pub(crate) fn get_or_create_glyph_uv_new(
+    pub(crate) fn get_or_create_glyph_uv_cosmic(
         &mut self,
         cache_key: CacheKey,
-        view: &mut RendererView,
+        view: &mut NewRendererView,
     ) -> ([f32; 2], [f32; 2], bool) {
         let key = NewTextCacheKey { cache_key };
-        if let Some(cached) = view.new_text_cache.get(&key) {
+        if let Some(cached) = view.text_cache.get(&key) {
             return (cached.uv_min, cached.uv_max, false);
         }
 
@@ -692,7 +695,7 @@ impl TextEngine {
         );
 
         let (uv_min, uv_max) = view.atlas.texel_to_uv(x, y, width, height);
-        view.new_text_cache
+        view.text_cache
             .insert(key.clone(), TextCacheValue { uv_min, uv_max });
 
         (uv_min, uv_max, cleared)
