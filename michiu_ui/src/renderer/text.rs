@@ -629,7 +629,7 @@ impl TextEngine {
 
         'outer: for run in buffer.layout_runs() {
             height = run.line_height;
-            y = run.line_y;
+            y = run.line_top;
             for glyph in run.glyphs {
                 if index >= glyph.start && index < glyph.end {
                     x = glyph.x;
@@ -640,8 +640,8 @@ impl TextEngine {
         }
 
         if !found && let Some(last_run) = buffer.layout_runs().last() {
-            y = last_run.line_y;
             height = last_run.line_height;
+            y = last_run.line_top;
             if let Some(last_glyph) = last_run.glyphs.last() {
                 x = last_glyph.x + last_glyph.w;
             }
