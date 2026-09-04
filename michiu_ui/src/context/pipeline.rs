@@ -412,10 +412,18 @@ impl Pipeline {
                 //  一時的に bind_context されているスレッドローカル経由で取得
                 context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
                     if cosmic {
+                        let flex = cx
+                            .layouts
+                            .lay_resolved_flex
+                            .get(id)
+                            .copied()
+                            .unwrap_or_default();
+
                         ContentStore::measure_content_cosmic(
                             id,
                             known_dims,
                             available_space,
+                            &flex,
                             &mut cx.system.sys_text_engine,
                             &mut cx.contents.cont_input_contents,
                             &cx.contents.cont_text_contents,
@@ -2412,6 +2420,7 @@ impl NewPipeline {
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
                     &cx.layouts.lay_resolved_basic,
+                    &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
                 )
@@ -2463,6 +2472,7 @@ impl NewPipeline {
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
                     &cx.layouts.lay_resolved_basic,
+                    &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
                 )
@@ -2618,7 +2628,7 @@ impl NewPipeline {
             for glyph in run.glyphs {
                 let offset = (glyph.x_offset, glyph.y_offset);
                 let physical = glyph.physical(offset, win_scale_factor);
-                let (_, _, cleared) =
+                let (_, _, _, _, cleared) =
                     sys_text_engine.get_or_create_glyph_uv_cosmic(physical.cache_key, view);
                 if cleared {
                     atlas_cleared = true;
@@ -2713,19 +2723,21 @@ impl NewPipeline {
     ) {
         for run in buffer.layout_runs() {
             for glyph in run.glyphs {
-                let offset = (glyph.x_offset, glyph.y_offset);
-                let physical = glyph.physical(offset, win_scale_factor);
+                // テキストブロック全体の開始位置(物理座標)
+                let base_phys_x = (params.rect.x + border.left + padding.left + align_offset.x
+                    - scroll.x)
+                    * win_scale_factor;
 
-                // スパンごとに指定されたカラー、指定がなければベースの文字色を採用
-                let char_color = glyph.color_opt.map_or(resolved_color, |c| Color {
-                    r: c.r() as f32 / 255.0,
-                    g: c.g() as f32 / 255.0,
-                    b: c.b() as f32 / 255.0,
-                    a: c.a() as f32 / 255.0,
-                });
+                let base_phys_y =
+                    (params.rect.y + border.top + padding.top + align_offset.y + run.line_y
+                        - scroll.y)
+                        * win_scale_factor;
+
+                // 文字の原点座標
+                let physical = glyph.physical((base_phys_x, base_phys_y), win_scale_factor);
 
                 // アトラス上の UV 座標を取得
-                let (uv_min, uv_max, _cleared) =
+                let (uv_min, uv_max, offset_x, offset_y, _cleared) =
                     sys_text_engine.get_or_create_glyph_uv_cosmic(physical.cache_key, view);
 
                 // 物理サイズから論理サイズを逆算
@@ -2734,21 +2746,23 @@ impl NewPipeline {
                 let tex_log_w = tex_phys_w / win_scale_factor;
                 let tex_log_h = tex_phys_h / win_scale_factor;
 
-                // 描画位置
-                // Swashの座標原点を、左上(0, 0)が正の wgpu 座標系にマッピング。
-                let char_x = params.rect.x
-                    + border.left
-                    + padding.left
-                    + align_offset.x
-                    + glyph.x
-                    + (physical.x as f32 / win_scale_factor)
-                    - scroll.x;
+                // 左上オフセットを足し引きして文字画像の左上の論理座標を計算
+                let char_phys_x = physical.x + offset_x;
+                let char_phys_y = physical.y - offset_y; // // Swash の top は上向き正のため減算
 
-                let char_y = params.rect.y + border.top + padding.top + align_offset.y + run.line_y
-                    - (physical.y as f32 / win_scale_factor)
-                    - scroll.y;
+                // 論理座標に戻す
+                let char_x = char_phys_x as f32 / win_scale_factor;
+                let char_y = char_phys_y as f32 / win_scale_factor;
 
                 let char_rect = LayoutRect::new(char_x, char_y, tex_log_w, tex_log_h);
+
+                // スパンごとに指定されたカラー、指定がなければベースの文字色を採用
+                let char_color = glyph.color_opt.map_or(resolved_color, |c| Color {
+                    r: c.r() as f32 / 255.0,
+                    g: c.g() as f32 / 255.0,
+                    b: c.b() as f32 / 255.0,
+                    a: c.a() as f32 / 255.0,
+                });
 
                 let glyph_instance = QuadInstance {
                     rect: char_rect,

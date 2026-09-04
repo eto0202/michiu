@@ -1,6 +1,6 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, InputContents, LayoutRect,
-    RenderStore, TextEngine, TextSpan, VisualPropertiesSecondary, WebView2Contents,
+    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, FlexLayout, InputContents,
+    LayoutRect, RenderStore, TextEngine, TextSpan, VisualPropertiesSecondary, WebView2Contents,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -224,6 +224,7 @@ impl ContentStore {
         id: EntityId,
         known_dims: taffy::Size<Option<f32>>,
         available_space: taffy::Size<taffy::AvailableSpace>,
+        flex: &FlexLayout,
         sys_text_engine: &mut TextEngine,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
@@ -307,6 +308,7 @@ impl ContentStore {
             font_family,
             font_weight,
             font_style,
+            flex.text_align,
             max_width,
             Some(auto_wrap),
             spans,
@@ -324,7 +326,6 @@ impl ContentStore {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests;

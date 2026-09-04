@@ -1,8 +1,8 @@
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BasicLayoutsSecondary, CapacityConfig,
-    ContentStore, Context, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents,
-    InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint, LayoutRect,
-    LayoutStore, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
+    ContentStore, Context, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, FlexLayout,
+    InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint,
+    LayoutRect, LayoutStore, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
     ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
     ScrollOffsetsSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
     TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
@@ -338,6 +338,7 @@ impl SystemStore {
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
+        lay_resolved_flex: &ResolvedFlexSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         out_rects: &RectsSecondary,
     ) -> Option<Rc<Buffer>> {
@@ -348,6 +349,7 @@ impl SystemStore {
         let auto_wrap = rnd_visual.get(id).and_then(|v| v.auto_wrap);
 
         let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
+        let flex = lay_resolved_flex.get(id).copied().unwrap_or_default();
         let rect = out_rects.get(id).copied().unwrap_or_default();
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -383,6 +385,7 @@ impl SystemStore {
             font_family,
             font_weight,
             font_style,
+            flex.text_align,
             max_width_opt,
             auto_wrap,
             spans,
@@ -425,7 +428,11 @@ impl Context {
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
-    pub(crate) fn get_or_create_layout_cosmic(&mut self, id: EntityId) -> Option<Rc<Buffer>> {
+    pub(crate) fn get_or_create_layout_cosmic(
+        &mut self,
+        id: EntityId,
+        flex: &FlexLayout,
+    ) -> Option<Rc<Buffer>> {
         SystemStore::get_or_create_layout_cosmic(
             id,
             &mut self.system.sys_text_engine,
@@ -433,6 +440,7 @@ impl Context {
             &self.contents.cont_text_contents,
             &self.contents.cont_text_spans,
             &self.layouts.lay_resolved_basic,
+            &self.layouts.lay_resolved_flex,
             &self.renders.rnd_visual,
             &self.outputs.out_rects,
         )

@@ -3,8 +3,8 @@ use std::collections::HashMap;
 
 use crate::types::LayoutSize;
 use crate::{
-    EdgeInsets, LayoutRect, NewRendererView, NewTextCacheKey, RendererView, TextSpan,
-    VisualProperty,
+    EdgeInsets, LayoutRect, NewRendererView, NewTextCacheKey, NewTextCacheValue, RendererView,
+    TextAlign, TextSpan, VisualProperty,
 };
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
@@ -457,6 +457,7 @@ impl TextEngine {
         font_family: Option<&str>,
         font_weight: Option<u32>,
         font_style: Option<u32>,
+        text_align: TextAlign,
         max_width: Option<f32>,
         auto_wrap: Option<bool>,
         spans: &[TextSpan],
@@ -478,6 +479,8 @@ impl TextEngine {
             });
         }
 
+        let align = Self::map_to_cosmic_align(text_align);
+
         buffer.set_size(max_width, Some(f32::MAX));
         if auto_wrap.unwrap_or(false) && max_width.is_some() {
             buffer.set_wrap(Wrap::Glyph);
@@ -486,7 +489,7 @@ impl TextEngine {
         }
 
         if spans.is_empty() {
-            buffer.set_text(text, &default_attrs, Shaping::Advanced, None);
+            buffer.set_text(text, &default_attrs, Shaping::Advanced, align);
         } else {
             let text_len = text.len();
             let mut boundaries = vec![0, text_len];
@@ -554,11 +557,19 @@ impl TextEngine {
                 rich_spans.push((slice_strings[i], attrs));
             }
 
-            buffer.set_rich_text(rich_spans, &default_attrs, Shaping::Advanced, None);
+            buffer.set_rich_text(rich_spans, &default_attrs, Shaping::Advanced, align);
         }
 
         buffer.shape_until_scroll(&mut self.font_system, false);
         buffer
+    }
+
+    fn map_to_cosmic_align(align: TextAlign) -> Option<cosmic_text::Align> {
+        match align {
+            TextAlign::Center => Some(cosmic_text::Align::Center),
+            TextAlign::Right => Some(cosmic_text::Align::Right),
+            _ => None, // TextAlign::Left や Auto は None（Left）
+        }
     }
 
     pub(crate) fn measure_text_cosmic(
@@ -568,6 +579,7 @@ impl TextEngine {
         font_family: Option<&str>,
         font_weight: Option<u32>,
         font_style: Option<u32>,
+        text_align: TextAlign,
         max_width: Option<f32>,
         auto_wrap: Option<bool>,
         spans: &[TextSpan],
@@ -582,6 +594,7 @@ impl TextEngine {
             font_family,
             font_weight,
             font_style,
+            text_align,
             max_width,
             auto_wrap,
             spans,
@@ -596,7 +609,7 @@ impl TextEngine {
 
         for run in buffer.layout_runs() {
             width = width.max(run.line_w);
-            height = run.line_y + run.line_height;
+            height += run.line_height;
         }
 
         LayoutSize::new(width, height)
@@ -647,16 +660,22 @@ impl TextEngine {
         &mut self,
         cache_key: CacheKey,
         view: &mut NewRendererView,
-    ) -> ([f32; 2], [f32; 2], bool) {
+    ) -> ([f32; 2], [f32; 2], i32, i32, bool) {
         let key = NewTextCacheKey { cache_key };
         if let Some(cached) = view.text_cache.get(&key) {
-            return (cached.uv_min, cached.uv_max, false);
+            return (
+                cached.uv_min,
+                cached.uv_max,
+                cached.offset_x,
+                cached.offset_y,
+                false,
+            );
         }
 
         let image_opt = self.swash_cache.get_image(&mut self.font_system, cache_key);
 
         let Some(image) = image_opt else {
-            return ([0.0, 0.0], [0.0, 0.0], false);
+            return ([0.0, 0.0], [0.0, 0.0], 0, 0, false);
         };
 
         let width = image.placement.width;
@@ -695,10 +714,20 @@ impl TextEngine {
         );
 
         let (uv_min, uv_max) = view.atlas.texel_to_uv(x, y, width, height);
-        view.text_cache
-            .insert(key.clone(), TextCacheValue { uv_min, uv_max });
+        let offset_x = image.placement.left;
+        let offset_y = image.placement.top;
 
-        (uv_min, uv_max, cleared)
+        view.text_cache.insert(
+            key.clone(),
+            NewTextCacheValue {
+                uv_min,
+                uv_max,
+                offset_x,
+                offset_y,
+            },
+        );
+
+        (uv_min, uv_max, offset_x, offset_y, cleared)
     }
 }
 
