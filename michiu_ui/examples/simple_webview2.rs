@@ -78,11 +78,8 @@ unsafe extern "system" fn wnd_proc(
 
                 // レイアウト再計算
 
-                app.context.sync_layout_and_render(
-                    app.root_id,
-                    app.renderer.layout_size,
-                    APPLY_COSMIC_TEXT,
-                );
+                app.context
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 // DCompツリー側（WebView2等）のBoundsサイズもリサイズに連動して再構築
                 app.renderer.update_composition_tree(&mut app.context);
 
@@ -99,11 +96,8 @@ unsafe extern "system" fn wnd_proc(
 
                 // Taffy レイアウトツリーの同期と確定座標再計算
 
-                app.context.sync_layout_and_render(
-                    app.root_id,
-                    app.renderer.layout_size,
-                    APPLY_COSMIC_TEXT,
-                );
+                app.context
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 // DCompツリーのサイズ追従
                 app.renderer.update_composition_tree(&mut app.context);
 
@@ -127,16 +121,13 @@ unsafe extern "system" fn wnd_proc(
                 // これにより、クリックによって変化したテキスト要素の「最新の幅」が、
                 // リアルタイムに wgpu 側の描画枠（rect）に追従し、文字の縮みを完全に防ぎます。
 
-                app.context.sync_layout_and_render(
-                    app.root_id,
-                    app.renderer.layout_size,
-                    APPLY_COSMIC_TEXT,
-                );
+                app.context
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 // 描画直前にDCompツリーおよびWebView2の配置も最新状態に追従させます
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 描画実行
-                app.renderer.draw(&mut app.context, APPLY_COSMIC_TEXT);
+                app.renderer.draw(&mut app.context);
                 app.context.clear_layout_dirty();
                 app.context.clear_render_dirty();
 
@@ -379,6 +370,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 3. UI コンテキストの構築と静的テキスト要素の定義
     let mut context = Context::new();
+    context.cosmic = APPLY_COSMIC_TEXT;
     let webview_id_cell = std::cell::Cell::new(None);
 
     // build_ui を使って要素ツリーを宣言的に組み立て
@@ -585,7 +577,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.renderer.resize((width, height), scale_factor);
 
     app.context
-        .sync_layout_and_render(app.root_id, app.renderer.layout_size, APPLY_COSMIC_TEXT);
+        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
     app.renderer.prewarm_webview2();
 
     // 5. ウィンドウを表示して描画

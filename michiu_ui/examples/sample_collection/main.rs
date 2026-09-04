@@ -60,6 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (h_instance, class_name, _wnd_class) = register_class()?;
     let hwnd = create_window(h_instance, class_name)?;
     let mut context = Context::with_capacity(&CapacityConfig::from_base_nodes(1024));
+    context.cosmic = APPLY_COSMIC_TEXT;
 
     let send_hwnd = SendHwnd(hwnd);
 
@@ -95,7 +96,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (width, height) = client_rect(hwnd);
     app.renderer.resize((width, height), scale_factor);
     app.context
-        .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
 
     if app.webview_id.is_some() {
         app.renderer.prewarm_webview2();

@@ -200,8 +200,8 @@ impl ComposedRenderer {
     }
 
     /// 描画のトリガー
-    pub fn draw(&mut self, cx: &mut Context, cosmic: bool) {
-        self.wgpu_renderer.render(cx, self.scale_factor, cosmic);
+    pub fn draw(&mut self, cx: &mut Context) {
+        self.wgpu_renderer.render(cx, self.scale_factor);
         let _ = unsafe { self.dcomp_device.Commit() };
     }
 

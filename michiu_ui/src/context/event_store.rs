@@ -3,23 +3,23 @@ use crate::{
     ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
     BasicLayout, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary,
     ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, DndStore, DwriteLayoutsSparseSecondary, EffectiveZindicesSecondary,
-    Element, ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
-    FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusStore, GridLayout,
-    GridLayoutsSparseSecondary, InputContents, InputContentsSparseSecondary, InputOp,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
-    Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline, PointerEvents,
-    Position, ReactiveStore, Rect, RectsSecondary, RenderStore, ResizeStore,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStore,
-    ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
-    SessionSpawnedVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextAlign, TextContentsSparseSecondary, TextEngine, TextEditStore,
-    TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore,
-    UserSelect, Val, VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context,
-    handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
-    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
-    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
+    DirtyRenderEntitiesVec, DndStore, EffectiveZindicesSecondary, Element, ElementEffectsSecondary,
+    ElementState, EntitiesSlot, EntityId, EventListeners, FlatDfsSequenceVec, FlexLayout,
+    FlexLayoutsSecondary, FocusStore, GridLayout, GridLayoutsSparseSecondary, InputContents,
+    InputContentsSparseSecondary, InputOp, InteractionPropertiesSecondary, LayoutPoint, LayoutRect,
+    LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow,
+    ParentsSecondary, Pipeline, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary,
+    RenderStore, ResizeStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore,
+    ScrollbarStore, ScrollbarStylesSecondary, SelectedRectsSparseSecondary,
+    SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEditStore,
+    TextEngine, TextLayoutEngine, TextLayoutEngineSparseSecondary, TextSelectionsSparseSecondary,
+    TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val, VirtualKey,
+    VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur,
+    handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start,
+    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
+    handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
     handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
     handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
 };
@@ -314,22 +314,23 @@ impl EventStore {
                     }
                 }
 
-                let dw_layout = SystemStore::get_or_create_layout(
+                let engine = SystemStore::get_or_create_layout(
                     pressed_id,
-                    &cx.system.sys_text_engine,
+                    cx.cosmic,
+                    &mut cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
                     &cx.layouts.lay_resolved_basic,
+                    &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
                 );
-
                 let local = OutputStore::pressed_local_point(
                     pressed_id,
                     logical_pos,
-                    dw_layout.as_ref(),
-                    &cx.system.sys_text_engine,
+                    engine.as_ref(),
+                    &mut cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                     &cx.topology.topo_active_masks,
                     &cx.topology.topo_parents,
@@ -342,13 +343,14 @@ impl EventStore {
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_offsets,
                 );
+
                 TextEditStore::handle_text_selection_click(
                     pressed_id,
                     start_pos,
                     local,
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
-                    &cx.system.sys_text_engine,
+                    &mut cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
                     &mut cx.contents.cont_text_contents,
                     &mut cx.contents.cont_input_contents,
@@ -373,6 +375,7 @@ impl EventStore {
                     &mut cx.states.edit.edit_selected_rects,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
+                    cx.cosmic,
                 );
             }
         }
@@ -480,15 +483,9 @@ impl EventStore {
                 target_id,
                 pointer_pos,
                 cx.window.win_last_size,
-                &cx.system.sys_text_engine,
-                &cx.system.sys_dwrite_layouts,
                 &mut cx.events.evt_interaction_states,
-                &cx.contents.cont_text_contents,
-                &cx.contents.cont_text_spans,
-                &cx.contents.cont_input_contents,
                 &mut cx.topology.topo_active_masks,
                 &cx.topology.topo_parents,
-                &cx.topology.topo_children,
                 &mut cx.layouts.lay_dirty_entities,
                 &mut cx.layouts.lay_taffy_tree,
                 &mut cx.layouts.scrollbar.bar_styles,
@@ -537,7 +534,7 @@ impl EventStore {
                 target_id,
                 pointer_pos,
                 modifiers.shift,
-                &cx.system.sys_text_engine,
+                &mut cx.system.sys_text_engine,
                 &cx.system.sys_dwrite_layouts,
                 &cx.contents.cont_text_contents,
                 &cx.contents.cont_text_spans,
@@ -556,6 +553,7 @@ impl EventStore {
                 &mut cx.states.edit.edit_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_offsets,
+                cx.cosmic,
             );
         }
 
@@ -691,13 +689,15 @@ impl EventStore {
             return;
         };
 
-        let Some(dw_layout) = SystemStore::get_or_create_layout(
+        let Some(engine) = SystemStore::get_or_create_layout(
             target_id,
-            &cx.system.sys_text_engine,
+            cx.cosmic,
+            &mut cx.system.sys_text_engine,
             &cx.system.sys_dwrite_layouts,
             &cx.contents.cont_text_contents,
             &cx.contents.cont_text_spans,
             &cx.layouts.lay_resolved_basic,
+            &cx.layouts.lay_resolved_flex,
             &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
         ) else {
@@ -722,21 +722,40 @@ impl EventStore {
         let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
         let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
 
-        let (clicked_index, is_trailing) = cx
-            .system
-            .sys_text_engine
-            .hit_test_point(&dw_layout, local_x, local_y);
+        let range = match &engine {
+            TextLayoutEngine::Cosmic(buffer) => {
+                let (clicked_index, is_trailing) = cx
+                    .system
+                    .sys_text_engine
+                    .hit_test_point_cosmic(buffer, local_x, local_y);
 
-        let final_index = if is_trailing {
-            clicked_index + 1
-        } else {
-            clicked_index
+                let final_index = if is_trailing {
+                    clicked_index + 1
+                } else {
+                    clicked_index
+                };
+
+                // 文節境界を抽出
+                InputContents::find_word_boundaries_utf8_byte(text, final_index)
+            }
+            TextLayoutEngine::DWrite(dw_layout) => {
+                let (clicked_index, is_trailing) = cx
+                    .system
+                    .sys_text_engine
+                    .hit_test_point(dw_layout, local_x, local_y);
+
+                let final_index = if is_trailing {
+                    clicked_index + 1
+                } else {
+                    clicked_index
+                };
+
+                let text_u16: Vec<u16> = text.encode_utf16().collect();
+
+                // 文節境界を抽出
+                InputContents::find_word_boundaries(&text_u16, final_index)
+            }
         };
-
-        let text_u16: Vec<u16> = text.encode_utf16().collect();
-
-        // 文節境界を抽出
-        let range = InputContents::find_word_boundaries(&text_u16, final_index);
 
         cx.states
             .edit
@@ -750,7 +769,7 @@ impl EventStore {
         // 選択矩形を更新
         TextEditStore::update_selection_rects(
             target_id,
-            &dw_layout,
+            &engine,
             &mut cx.states.edit.edit_selected_rects,
             &cx.states.edit.edit_selections,
         );
@@ -763,7 +782,7 @@ impl EventStore {
                 InputOp::MousePress,
                 cx.window.win_scale_factor,
                 cx.window.win_last_size,
-                &cx.system.sys_text_engine,
+                &mut cx.system.sys_text_engine,
                 &cx.system.sys_dwrite_layouts,
                 &mut cx.contents.cont_text_contents,
                 &mut cx.contents.cont_input_contents,
@@ -787,6 +806,7 @@ impl EventStore {
                 &mut cx.states.edit.edit_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                cx.cosmic,
             );
         } else {
             RenderStore::mark_render_dirty(
@@ -921,7 +941,7 @@ impl EventStore {
                     focused_id,
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
-                    &cx.system.sys_text_engine,
+                    &mut cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
                     &mut cx.contents.cont_text_contents,
                     &mut cx.contents.cont_input_contents,
@@ -946,6 +966,7 @@ impl EventStore {
                     &mut cx.states.edit.edit_selected_rects,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
+                    cx.cosmic,
                 );
                 return;
             }
@@ -1026,47 +1047,104 @@ impl EventStore {
         contents: &mut InputContents,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        cosmic: bool,
     ) {
         let text_val = contents.text.0.get();
         let range = contents.selected_range.clone();
 
-        let u16_text: Vec<u16> = text_val.encode_utf16().collect();
-        let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
-        let right = u16_text[range.end.min(u16_text.len())..].to_vec();
+        let (new_text, new_caret) = if cosmic {
+            // キャレット範囲をクランプ
+            let mut start = range.start.min(text_val.len());
+            let mut end = range.end.min(text_val.len());
 
-        let mut pasted_u16: Vec<u16> = text.encode_utf16().collect();
+            while start > 0 && !text_val.is_char_boundary(start) {
+                start -= 1;
+            }
+            while end > 0 && !text_val.is_char_boundary(end) {
+                end -= 1;
+            }
 
-        // ペーストテキストに対する数値制限フィルターの適用
-        if contents.numeric_only {
-            pasted_u16.retain(|&ch_u16| {
-                if let Ok(ch_char) = String::from_utf16(&[ch_u16])
-                    && let Some(c) = ch_char.chars().next()
-                {
-                    return c.is_numeric() || c == '.' || c == '-';
+            let left = &text_val[..start];
+            let right = &text_val[end..];
+
+            // 文字数の上限
+            let allowed_len = if let Some(max) = contents.max_length {
+                // 選択範囲を削除した後の文字数をカウント
+                let current_len = left.chars().count() + right.chars().count();
+                if current_len >= max {
+                    return;
                 }
+                max - current_len
+            } else {
+                usize::MAX
+            };
 
-                false
-            });
-        }
+            let mut pasted = String::new();
+            let mut chars_added = 0;
 
-        // ペーストテキストに対する文字数制限の適用（制限限界位置で自動カット）
-        if let Some(max) = contents.max_length {
-            let current_after_range_deleted =
-                u16_text.len() - (range.end.min(u16_text.len()) - range.start.min(u16_text.len()));
-            if current_after_range_deleted >= max {
-                return; // すでに限界文字数に達しているため無視
+            for c in text.chars() {
+                // 数値制限フィルタ
+                if contents.numeric_only && !c.is_numeric() && c != '.' && c != '-' {
+                    continue;
+                }
+                // 文字数制限カット
+                if chars_added >= allowed_len {
+                    break;
+                }
+                pasted.push(c);
+                chars_added += 1;
             }
-            let allowed_len = max - current_after_range_deleted;
-            if pasted_u16.len() > allowed_len {
-                pasted_u16.truncate(allowed_len); // 限界位置で足し合わせをカット
+
+            // 文字列の結合
+            let mut new_text = String::with_capacity(left.len() + pasted.len() + right.len());
+            new_text.push_str(left);
+            new_text.push_str(&pasted);
+            new_text.push_str(right);
+
+            // 新しいキャレット位置
+            let new_caret = start + pasted.len();
+
+            (new_text, new_caret)
+        } else {
+            let u16_text: Vec<u16> = text_val.encode_utf16().collect();
+            let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
+            let right = u16_text[range.end.min(u16_text.len())..].to_vec();
+
+            let mut pasted_u16: Vec<u16> = text.encode_utf16().collect();
+
+            // ペーストテキストに対する数値制限フィルターの適用
+            if contents.numeric_only {
+                pasted_u16.retain(|&ch_u16| {
+                    if let Ok(ch_char) = String::from_utf16(&[ch_u16])
+                        && let Some(c) = ch_char.chars().next()
+                    {
+                        return c.is_numeric() || c == '.' || c == '-';
+                    }
+
+                    false
+                });
             }
-        }
 
-        left.extend_from_slice(&pasted_u16);
-        left.extend_from_slice(&right);
+            // ペーストテキストに対する文字数制限の適用（制限限界位置で自動カット）
+            if let Some(max) = contents.max_length {
+                let current_after_range_deleted = u16_text.len()
+                    - (range.end.min(u16_text.len()) - range.start.min(u16_text.len()));
+                if current_after_range_deleted >= max {
+                    return; // すでに限界文字数に達しているため無視
+                }
+                let allowed_len = max - current_after_range_deleted;
+                if pasted_u16.len() > allowed_len {
+                    pasted_u16.truncate(allowed_len); // 限界位置で足し合わせをカット
+                }
+            }
 
-        let new_text = String::from_utf16_lossy(&left);
-        let new_caret = range.start + pasted_u16.len();
+            left.extend_from_slice(&pasted_u16);
+            left.extend_from_slice(&right);
+
+            let new_text = String::from_utf16_lossy(&left);
+            let new_caret = range.start + pasted_u16.len();
+            (new_text, new_caret)
+        };
 
         // 変更履歴（Undo）をセーブ
         contents.record_undo(text_val.clone(), range.clone());
@@ -1099,12 +1177,13 @@ impl EventStore {
             contents,
             &mut cx.states.edit.edit_selections,
             &mut cx.states.edit.edit_selected_rects,
+            cx.cosmic,
         );
         TextEditStore::update_input_caret_position(
             focused_id,
             cx.window.win_scale_factor,
             cx.window.win_last_size,
-            &cx.system.sys_text_engine,
+            &mut cx.system.sys_text_engine,
             &cx.system.sys_dwrite_layouts,
             &mut cx.contents.cont_text_contents,
             &mut cx.contents.cont_input_contents,
@@ -1126,13 +1205,14 @@ impl EventStore {
             &mut cx.states.edit.edit_selections,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            cx.cosmic,
         );
         TextEditStore::apply_input_update(
             focused_id,
             InputOp::Paste,
             cx.window.win_scale_factor,
             cx.window.win_last_size,
-            &cx.system.sys_text_engine,
+            &mut cx.system.sys_text_engine,
             &cx.system.sys_dwrite_layouts,
             &mut cx.contents.cont_text_contents,
             &mut cx.contents.cont_input_contents,
@@ -1156,6 +1236,7 @@ impl EventStore {
             &mut cx.states.edit.edit_selected_rects,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            cx.cosmic,
         );
     }
 
@@ -1215,7 +1296,7 @@ impl EventStore {
             InputOp::Undo,
             cx.window.win_scale_factor,
             cx.window.win_last_size,
-            &cx.system.sys_text_engine,
+            &mut cx.system.sys_text_engine,
             &cx.system.sys_dwrite_layouts,
             &mut cx.contents.cont_text_contents,
             &mut cx.contents.cont_input_contents,
@@ -1239,6 +1320,7 @@ impl EventStore {
             &mut cx.states.edit.edit_selected_rects,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            cx.cosmic,
         );
     }
 
@@ -1297,7 +1379,7 @@ impl EventStore {
             InputOp::Redo,
             cx.window.win_scale_factor,
             cx.window.win_last_size,
-            &cx.system.sys_text_engine,
+            &mut cx.system.sys_text_engine,
             &cx.system.sys_dwrite_layouts,
             &mut cx.contents.cont_text_contents,
             &mut cx.contents.cont_input_contents,
@@ -1321,6 +1403,7 @@ impl EventStore {
             &mut cx.states.edit.edit_selected_rects,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            cx.cosmic,
         );
     }
 
@@ -1330,18 +1413,44 @@ impl EventStore {
         contents: &mut InputContents,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        cosmic: bool,
     ) {
         // 削除前の履歴セーブ
         let current_text = contents.text.0.get();
         let current_range = contents.selected_range.clone();
         contents.record_undo(current_text, current_range);
 
-        let u16_input: Vec<u16> = contents.text.0.get().encode_utf16().collect();
-        let mut left = u16_input[..range.start.min(u16_input.len())].to_vec();
-        let right = u16_input[range.end.min(u16_input.len())..].to_vec();
-        left.extend_from_slice(&right);
+        let new_text = if cosmic {
+            let text = contents.text.0.get();
 
-        let new_text = String::from_utf16_lossy(&left);
+            // キャレット範囲をクランプ
+            let mut start = range.start.min(text.len());
+            let mut end = range.end.min(text.len());
+
+            while start > 0 && !text.is_char_boundary(start) {
+                start -= 1;
+            }
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+
+            // 削除範囲の左側と右側を取り出して合体
+            let left = &text[..start];
+            let right = &text[end..];
+
+            let mut new_text = String::with_capacity(left.len() + right.len());
+            new_text.push_str(left);
+            new_text.push_str(right);
+            new_text
+        } else {
+            let u16_input: Vec<u16> = contents.text.0.get().encode_utf16().collect();
+            let mut left = u16_input[..range.start.min(u16_input.len())].to_vec();
+            let right = u16_input[range.end.min(u16_input.len())..].to_vec();
+            left.extend_from_slice(&right);
+
+            String::from_utf16_lossy(&left)
+        };
+
         contents.selected_range = range.start..range.start;
         edit_selections.insert(focused_id, range.start..range.start);
         edit_selected_rects.remove(focused_id);
@@ -1370,10 +1479,26 @@ impl EventStore {
 
         let text = cx.contents.cont_text_contents.get(focused_id)?;
 
-        // 選択されたUTF-16テキストの切り出し
-        let u16_text: Vec<u16> = text.encode_utf16().collect();
-        let slice = &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
-        let cut_text = String::from_utf16(slice).ok()?;
+        let cut_text = if cx.cosmic {
+            // キャレット範囲をクランプ
+            let mut start = range.start.min(text.len());
+            let mut end = range.end.min(text.len());
+
+            while start > 0 && !text.is_char_boundary(start) {
+                start -= 1;
+            }
+            while end > 0 && !text.is_char_boundary(end) {
+                end -= 1;
+            }
+
+            // 補正した境界でテキストを切り出して String に
+            text[start..end].to_string()
+        } else {
+            // 選択されたUTF-16テキストの切り出し
+            let u16_text: Vec<u16> = text.encode_utf16().collect();
+            let slice = &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
+            String::from_utf16(slice).ok()?
+        };
 
         // 対象が Input コントロールである場合のみ書き換え
         let is_input = cx
@@ -1390,13 +1515,14 @@ impl EventStore {
                 contents,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selected_rects,
+                cx.cosmic,
             );
             TextEditStore::apply_input_update(
                 focused_id,
                 InputOp::Cut,
                 cx.window.win_scale_factor,
                 cx.window.win_last_size,
-                &cx.system.sys_text_engine,
+                &mut cx.system.sys_text_engine,
                 &cx.system.sys_dwrite_layouts,
                 &mut cx.contents.cont_text_contents,
                 &mut cx.contents.cont_input_contents,
@@ -1420,12 +1546,15 @@ impl EventStore {
                 &mut cx.states.edit.edit_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                cx.cosmic,
             );
         }
         // Input・非Inputに関わらず切り出されたテキストを返す
         Some(cut_text.into())
     }
 }
+
+impl EventStore {}
 
 #[cfg(test)]
 mod tests;

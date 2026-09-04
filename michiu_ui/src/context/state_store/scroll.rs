@@ -7,14 +7,14 @@ use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
     BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
     CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, Display, DwriteLayoutsSparseSecondary, EntityId, FlatDfsSequenceVec,
-    FlexLayoutsSecondary, GridLayoutsSparseSecondary, InputContentsSparseSecondary,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, OutputStore,
-    ParentsSecondary, Position, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollBarState, ScrollbarStylesSecondary,
-    Size, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextContentsSparseSecondary,
-    TextEngine, TextSpansSparseSecondary, ThisStyle, UserSelect, Val, VisualPropertiesSecondary,
-    WindowStore,
+    DirtyRenderEntitiesVec, Display, EntityId, FlatDfsSequenceVec, FlexLayoutsSecondary,
+    GridLayoutsSparseSecondary, InputContentsSparseSecondary, InteractionPropertiesSecondary,
+    LayoutPoint, LayoutSize, LayoutStore, Length, OutputStore, ParentsSecondary, Position, Rect,
+    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparseSecondary, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextContentsSparseSecondary, TextEngine,
+    TextLayoutEngine, TextLayoutEngineSparseSecondary, TextSpansSparseSecondary, ThisStyle,
+    UserSelect, Val, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -342,15 +342,9 @@ impl ScrollStore {
     pub(crate) fn autoscroll_occurred(
         id: EntityId,
         win_last_size: Option<LayoutSize>,
-        sys_text_engine: &TextEngine,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
         evt_current_pointer_position: Option<LayoutPoint>,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         bar_styles: &mut ScrollbarStylesSecondary,
@@ -422,8 +416,8 @@ impl ScrollStore {
     /// 指定された要素の子要素全体のスクロール領域を親ローカル座標系で算出します。
     pub(crate) fn get_scroll_size(
         id: EntityId,
-        sys_text_engine: &TextEngine,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        sys_text_engine: &mut TextEngine,
+        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
@@ -431,12 +425,14 @@ impl ScrollStore {
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
+        lay_resolved_flex: &ResolvedFlexSecondary,
         bar_styles: &ScrollbarStylesSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        cosmic: bool,
     ) -> LayoutSize {
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;
@@ -454,18 +450,23 @@ impl ScrollStore {
         } else if topo_active_masks
             .get(id)
             .is_some_and(ComponentMask::has_text_content)
-            && let Some(dw_layout) = SystemStore::get_or_create_layout(
+            && let Some(engine) = SystemStore::get_or_create_layout(
                 id,
+                cosmic,
                 sys_text_engine,
                 sys_dwrite_layouts,
                 cont_text_contents,
                 cont_text_spans,
                 lay_resolved_basic,
+                lay_resolved_flex,
                 rnd_visual,
                 out_rects,
             )
         {
-            let size = sys_text_engine.get_layout_size(&dw_layout);
+            let size = match engine {
+                TextLayoutEngine::Cosmic(buffer) => sys_text_engine.get_layout_size_cosmic(&buffer),
+                TextLayoutEngine::DWrite(dw_layout) => sys_text_engine.get_layout_size(&dw_layout),
+            };
             max_x = size.width;
             max_y = size.height;
         }

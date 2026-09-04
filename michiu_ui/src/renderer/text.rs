@@ -1,10 +1,11 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ops::Range;
 
 use crate::types::LayoutSize;
 use crate::{
-    EdgeInsets, LayoutRect, NewRendererView, NewTextCacheKey, NewTextCacheValue, RendererView,
-    TextAlign, TextSpan, VisualProperty,
+    EdgeInsets, LayoutRect, NewTextCacheKey, NewTextCacheValue, RendererView, TextAlign, TextSpan,
+    VisualProperty,
 };
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
@@ -616,6 +617,7 @@ impl TextEngine {
     }
 
     pub(crate) fn get_caret_position_cosmic(
+        &self,
         buffer: &Buffer,
         index: usize,
         text_len: usize,
@@ -648,7 +650,7 @@ impl TextEngine {
         (x, y, height)
     }
 
-    pub(crate) fn hit_test_point_cosmic(buffer: &Buffer, x: f32, y: f32) -> (usize, bool) {
+    pub(crate) fn hit_test_point_cosmic(&self, buffer: &Buffer, x: f32, y: f32) -> (usize, bool) {
         if let Some(cursor) = buffer.hit(x, y) {
             (cursor.index, false)
         } else {
@@ -659,15 +661,18 @@ impl TextEngine {
     pub(crate) fn get_or_create_glyph_uv_cosmic(
         &mut self,
         cache_key: CacheKey,
-        view: &mut NewRendererView,
-    ) -> ([f32; 2], [f32; 2], i32, i32, bool) {
+        view: &mut RendererView,
+        scale_factor: f32,
+    ) -> ([f32; 2], [f32; 2], i32, i32, f32, f32, bool) {
         let key = NewTextCacheKey { cache_key };
-        if let Some(cached) = view.text_cache.get(&key) {
+        if let Some(cached) = view.new_text_cache.get(&key) {
             return (
                 cached.uv_min,
                 cached.uv_max,
                 cached.offset_x,
                 cached.offset_y,
+                cached.width,
+                cached.height,
                 false,
             );
         }
@@ -675,7 +680,7 @@ impl TextEngine {
         let image_opt = self.swash_cache.get_image(&mut self.font_system, cache_key);
 
         let Some(image) = image_opt else {
-            return ([0.0, 0.0], [0.0, 0.0], 0, 0, false);
+            return ([0.0, 0.0], [0.0, 0.0], 0, 0, 0.0, 0.0, false);
         };
 
         let width = image.placement.width;
@@ -716,18 +721,51 @@ impl TextEngine {
         let (uv_min, uv_max) = view.atlas.texel_to_uv(x, y, width, height);
         let offset_x = image.placement.left;
         let offset_y = image.placement.top;
+        let log_width = width as f32 / scale_factor;
+        let log_height = height as f32 / scale_factor;
 
-        view.text_cache.insert(
+        view.new_text_cache.insert(
             key.clone(),
             NewTextCacheValue {
                 uv_min,
                 uv_max,
                 offset_x,
                 offset_y,
+                width: log_width,
+                height: log_height,
             },
         );
 
-        (uv_min, uv_max, offset_x, offset_y, cleared)
+        (
+            uv_min, uv_max, offset_x, offset_y, log_width, log_height, cleared,
+        )
+    }
+
+    /// cosmic-text の Buffer から、指定されたインデックス範囲が占める各行の矩形を計算
+    pub(crate) fn calc_span_rects_cosmic(buffer: &Buffer, range: Range<usize>) -> Vec<LayoutRect> {
+        let mut rects = Vec::new();
+
+        for run in buffer.layout_runs() {
+            let mut start_x: Option<f32> = None;
+            let mut end_x: Option<f32> = None;
+
+            for glyph in run.glyphs {
+                // スパンの範囲に文字のインデックスが一部でも交差しているか判定
+                if glyph.start < range.end && glyph.end > range.start {
+                    if start_x.is_none() {
+                        start_x = Some(glyph.x);
+                    }
+                    // グリフの右端座標
+                    end_x = Some(glyph.x + glyph.w);
+                }
+            }
+
+            // この行で交差するグリフが見つかった場合、その範囲で矩形を作成
+            if let (Some(sx), Some(ex)) = (start_x, end_x) {
+                rects.push(LayoutRect::new(sx, run.line_y, ex - sx, run.line_height));
+            }
+        }
+        rects
     }
 }
 

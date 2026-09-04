@@ -2,20 +2,21 @@ use crate::{
     ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseBasicLayoutsSecondary,
     BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing,
     ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
-    CornerRadius, DirtyLayoutEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets,
-    EffectId, ElementState, EntityId, EventStore, ExternalTextureAlphaMode,
-    ExternalTextureSparseSecondary, ExtractedThumb, FlatDfsSequenceVec, FlexLayout, FocusStore,
-    IDENTITY_MATRIX, ImeState, InputContentsSparseSecondary, InputOp, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, Length, Modifiers, MouseButton, NewRendererView, OutputStore,
-    ParentsSecondary, PointerEvents, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance,
-    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary,
-    ScrollStore, ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
+    CornerRadius, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets, EffectId, ElementState, EntityId,
+    EventStore, ExternalTextureAlphaMode, ExternalTextureSparseSecondary, ExtractedThumb,
+    FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState,
+    InputContentsSparseSecondary, InputOp, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
+    Length, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
+    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
+    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
+    ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
     TaffyNodesSecondary, TaffyTreeEntityId, TextCacheKey, TextContentsSparseSecondary,
-    TextEditStore, TextEngine, TextSpan, TextSpansSparseSecondary, TopologyStore, UnderlineStyle,
-    Val, VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context,
-    execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
-    handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
+    TextEditStore, TextEngine, TextLayoutEngine, TextLayoutEngineSparseSecondary, TextSpan,
+    TextSpansSparseSecondary, TopologyStore, UnderlineStyle, Val, VirtualKey,
+    VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context, execute_effect,
+    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
+    handle_on_ime, handle_on_select, with_context,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -315,7 +316,6 @@ impl Pipeline {
         cx: &mut Context,
         root: EntityId,
         window_size: LayoutSize,
-        cosmic: bool,
     ) {
         let _context_guard = bind_context(cx);
 
@@ -411,7 +411,7 @@ impl Pipeline {
                 // クロージャの外側の Context は直接キャプチャできないため、
                 //  一時的に bind_context されているスレッドローカル経由で取得
                 context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                    if cosmic {
+                    if cx.cosmic {
                         let flex = cx
                             .layouts
                             .lay_resolved_flex
@@ -497,7 +497,7 @@ impl Pipeline {
             {
                 let size = ScrollStore::get_scroll_size(
                     id,
-                    &cx.system.sys_text_engine,
+                    &mut cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
@@ -506,12 +506,14 @@ impl Pipeline {
                     &cx.topology.topo_parents,
                     &cx.topology.topo_children,
                     &cx.layouts.lay_resolved_basic,
+                    &cx.layouts.lay_resolved_flex,
                     &cx.layouts.scrollbar.bar_styles,
                     &cx.renders.rnd_visual,
                     &cx.renders.rnd_interaction,
                     &cx.renders.rnd_active_transitions,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_offsets,
+                    cx.cosmic,
                 );
                 cx.states.scroll.sc_sizes.insert(id, size);
             }
@@ -520,14 +522,8 @@ impl Pipeline {
         // スクロールバー要素（Track & Thumb）のサイズ・配置・不透明度を一括同期更新
         ScrollbarStore::sync_bar_styles(
             cx.window.win_last_size,
-            &cx.system.sys_text_engine,
-            &cx.system.sys_dwrite_layouts,
-            &cx.contents.cont_text_contents,
-            &cx.contents.cont_text_spans,
-            &cx.contents.cont_input_contents,
             &cx.topology.topo_active_masks,
             &cx.topology.topo_parents,
-            &cx.topology.topo_children,
             &mut cx.layouts.lay_taffy_tree,
             &mut cx.layouts.lay_basic,
             &mut cx.layouts.lay_base_basic,
@@ -621,7 +617,7 @@ impl Pipeline {
                     id,
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
-                    &cx.system.sys_text_engine,
+                    &mut cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
                     &mut cx.contents.cont_text_contents,
                     &mut cx.contents.cont_input_contents,
@@ -643,6 +639,7 @@ impl Pipeline {
                     &mut cx.states.edit.edit_selections,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
+                    cx.cosmic,
                 );
             }
         }
@@ -728,15 +725,9 @@ impl Pipeline {
             let (autoscroll_occurred, active_pos) = ScrollStore::autoscroll_occurred(
                 id,
                 cx.window.win_last_size,
-                &cx.system.sys_text_engine,
-                &cx.system.sys_dwrite_layouts,
                 cx.events.evt_current_pointer_position,
-                &cx.contents.cont_text_contents,
-                &cx.contents.cont_text_spans,
-                &cx.contents.cont_input_contents,
                 &mut cx.topology.topo_active_masks,
                 &cx.topology.topo_parents,
-                &cx.topology.topo_children,
                 &mut cx.layouts.lay_dirty_entities,
                 &mut cx.layouts.lay_taffy_tree,
                 &mut cx.layouts.scrollbar.bar_styles,
@@ -783,8 +774,14 @@ impl Pipeline {
             &mut cx.outputs.out_clip_rects,
             &cx.outputs.out_rects,
         );
+
         let mut force_full_scan = false;
         for &id in &*cx.topology.topo_sorted_entities {
+            let engines = cx.system.sys_dwrite_layouts.borrow();
+            let Some(engine) = engines.get(id) else {
+                continue;
+            };
+
             let is_dirty_text = cx
                 .topology
                 .topo_active_masks
@@ -795,8 +792,9 @@ impl Pipeline {
                 let cleared = Pipeline::scan_and_register_element_glyphs(
                     id,
                     view,
+                    engine,
                     &default_visual,
-                    &cx.system.sys_text_engine,
+                    &mut cx.system.sys_text_engine,
                     cx.window.win_scale_factor,
                     &cx.topology.topo_active_masks,
                     &cx.contents.cont_text_contents,
@@ -813,17 +811,24 @@ impl Pipeline {
         }
         if force_full_scan {
             for &id in &*cx.topology.topo_sorted_entities {
+                let engines = cx.system.sys_dwrite_layouts.borrow();
+                let Some(engine) = engines.get(id) else {
+                    continue;
+                };
+
                 let has_text_content = cx
                     .topology
                     .topo_active_masks
                     .get(id)
                     .is_some_and(ComponentMask::has_text_content);
+
                 if has_text_content {
                     let _ = Pipeline::scan_and_register_element_glyphs(
                         id,
                         view,
+                        engine,
                         &default_visual,
-                        &cx.system.sys_text_engine,
+                        &mut cx.system.sys_text_engine,
                         cx.window.win_scale_factor,
                         &cx.topology.topo_active_masks,
                         &cx.contents.cont_text_contents,
@@ -834,6 +839,7 @@ impl Pipeline {
                 }
             }
         }
+
         view.render_data.clear();
         let mut last_flushed_offset = 0;
         let mut current_batch_type = BatchType::Normal;
@@ -1028,39 +1034,69 @@ impl Pipeline {
 
             // 選択ハイライト背景
             if let Some(sel_rects) = cx.states.edit.edit_selected_rects.get(id)
-                && let Some(dw_layout) = SystemStore::get_or_create_layout(
+                && let Some(engine) = SystemStore::get_or_create_layout(
                     id,
-                    &cx.system.sys_text_engine,
+                    cx.cosmic,
+                    &mut cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
                     &cx.layouts.lay_resolved_basic,
+                    &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
                 )
             {
-                let align_offset = Pipeline::text_size_to_align_offset(
-                    id,
-                    &params,
-                    &dw_layout,
-                    border,
-                    padding,
-                    &flex,
-                    &cx.system.sys_text_engine,
-                    &cx.contents.cont_input_contents,
-                );
+                match &engine {
+                    TextLayoutEngine::Cosmic(buffer) => {
+                        let align_offset = Pipeline::text_size_to_align_offset(
+                            id,
+                            &params,
+                            &engine,
+                            border,
+                            padding,
+                            &flex,
+                            &cx.system.sys_text_engine,
+                            &cx.contents.cont_input_contents,
+                        );
 
-                Pipeline::push_selection_highlight_instances(
-                    id,
-                    view.render_data,
-                    &params,
-                    align_offset,
-                    border,
-                    padding,
-                    scroll,
-                    sel_rects,
-                    visual,
-                );
+                        Pipeline::push_selection_highlight_instances(
+                            id,
+                            view.render_data,
+                            &params,
+                            align_offset,
+                            border,
+                            padding,
+                            scroll,
+                            sel_rects,
+                            visual,
+                        );
+                    }
+                    TextLayoutEngine::DWrite(dw_layout) => {
+                        let align_offset = Pipeline::text_size_to_align_offset(
+                            id,
+                            &params,
+                            &engine,
+                            border,
+                            padding,
+                            &flex,
+                            &cx.system.sys_text_engine,
+                            &cx.contents.cont_input_contents,
+                        );
+
+                        Pipeline::push_selection_highlight_instances(
+                            id,
+                            view.render_data,
+                            &params,
+                            align_offset,
+                            border,
+                            padding,
+                            scroll,
+                            sel_rects,
+                            visual,
+                        );
+                    }
+                }
             }
 
             // 背景色とテキスト
@@ -1079,85 +1115,156 @@ impl Pipeline {
             }
 
             if is_text
-                && let Some(dw_layout) = SystemStore::get_or_create_layout(
+                && let Some(engine) = SystemStore::get_or_create_layout(
                     id,
-                    &cx.system.sys_text_engine,
+                    cx.cosmic,
+                    &mut cx.system.sys_text_engine,
                     &cx.system.sys_dwrite_layouts,
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
                     &cx.layouts.lay_resolved_basic,
+                    &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
                 )
             {
-                let align_offset = Pipeline::text_size_to_align_offset(
-                    id,
-                    &params,
-                    &dw_layout,
-                    border,
-                    padding,
-                    &flex,
-                    &cx.system.sys_text_engine,
-                    &cx.contents.cont_input_contents,
-                );
+                match &engine {
+                    TextLayoutEngine::Cosmic(buffer) => {
+                        let align_offset = Pipeline::text_size_to_align_offset(
+                            id,
+                            &params,
+                            &engine,
+                            border,
+                            padding,
+                            &flex,
+                            &cx.system.sys_text_engine,
+                            &cx.contents.cont_input_contents,
+                        );
 
-                let (metrics, text_u16_vec) = Pipeline::get_metrics_and_u16_vec(
-                    id,
-                    &dw_layout,
-                    &cx.system.sys_text_engine,
-                    &cx.contents.cont_text_contents,
-                );
+                        let spans = cx
+                            .contents
+                            .cont_text_spans
+                            .get(id)
+                            .map_or(&[][..], Vec::as_slice);
+                        let resolved_color = Pipeline::resolv_text_color(
+                            id,
+                            visual,
+                            &cx.contents.cont_input_contents,
+                        );
 
-                let spans = cx
-                    .contents
-                    .cont_text_spans
-                    .get(id)
-                    .map_or(&[][..], Vec::as_slice);
-                let resolved_color =
-                    Pipeline::resolv_text_color(id, visual, &cx.contents.cont_input_contents);
+                        Pipeline::push_text_background_instances(
+                            id,
+                            view.render_data,
+                            &params,
+                            &engine,
+                            spans,
+                            align_offset,
+                            border,
+                            padding,
+                            scroll,
+                        );
 
-                Pipeline::push_text_background_instances(
-                    id,
-                    view.render_data,
-                    &params,
-                    &dw_layout,
-                    spans,
-                    align_offset,
-                    border,
-                    padding,
-                    scroll,
-                );
+                        NewPipeline::push_text_metric_instances(
+                            id,
+                            view,
+                            &params,
+                            buffer,
+                            resolved_color,
+                            border,
+                            padding,
+                            scroll,
+                            align_offset,
+                            cx.window.win_scale_factor,
+                            &mut cx.system.sys_text_engine,
+                        );
 
-                Pipeline::push_text_metric_instances(
-                    id,
-                    view,
-                    &params,
-                    spans,
-                    &metrics,
-                    &text_u16_vec,
-                    visual,
-                    resolved_color,
-                    border,
-                    padding,
-                    scroll,
-                    align_offset,
-                    cx.window.win_scale_factor,
-                    &cx.system.sys_text_engine,
-                    &cx.contents.cont_text_contents,
-                );
+                        Pipeline::push_text_front_instances(
+                            id,
+                            view.render_data,
+                            &params,
+                            spans,
+                            &engine,
+                            border,
+                            padding,
+                            scroll,
+                            align_offset,
+                            resolved_color,
+                        );
+                    }
+                    TextLayoutEngine::DWrite(dw_layout) => {
+                        let align_offset = Pipeline::text_size_to_align_offset(
+                            id,
+                            &params,
+                            &engine,
+                            border,
+                            padding,
+                            &flex,
+                            &cx.system.sys_text_engine,
+                            &cx.contents.cont_input_contents,
+                        );
 
-                Pipeline::push_text_front_instances(
-                    id,
-                    view.render_data,
-                    &params,
-                    spans,
-                    &dw_layout,
-                    border,
-                    padding,
-                    scroll,
-                    align_offset,
-                    resolved_color,
-                );
+                        let (metrics, text_u16_vec) = Pipeline::get_metrics_and_u16_vec(
+                            id,
+                            dw_layout,
+                            &cx.system.sys_text_engine,
+                            &cx.contents.cont_text_contents,
+                        );
+
+                        let spans = cx
+                            .contents
+                            .cont_text_spans
+                            .get(id)
+                            .map_or(&[][..], Vec::as_slice);
+                        let resolved_color = Pipeline::resolv_text_color(
+                            id,
+                            visual,
+                            &cx.contents.cont_input_contents,
+                        );
+
+                        Pipeline::push_text_background_instances(
+                            id,
+                            view.render_data,
+                            &params,
+                            &engine,
+                            spans,
+                            align_offset,
+                            border,
+                            padding,
+                            scroll,
+                        );
+
+                        Pipeline::push_text_metric_instances(
+                            id,
+                            view,
+                            &params,
+                            spans,
+                            &metrics,
+                            &text_u16_vec,
+                            visual,
+                            resolved_color,
+                            border,
+                            padding,
+                            scroll,
+                            align_offset,
+                            cx.window.win_scale_factor,
+                            &cx.system.sys_text_engine,
+                            &cx.contents.cont_text_contents,
+                        );
+
+                        Pipeline::push_text_front_instances(
+                            id,
+                            view.render_data,
+                            &params,
+                            spans,
+                            &engine,
+                            border,
+                            padding,
+                            scroll,
+                            align_offset,
+                            resolved_color,
+                        );
+                    }
+                }
             }
 
             // 通常要素（テキスト以外）の背景マウントは親ループですでに has_bg が完了しているため不要
@@ -1515,34 +1622,64 @@ impl Pipeline {
     fn text_size_to_align_offset(
         id: EntityId,
         params: &CommonParameters,
-        dw_layout: &IDWriteTextLayout,
+        engine: &TextLayoutEngine,
         border: EdgeInsets,
         padding: EdgeInsets,
         flex: &FlexLayout,
         sys_text_engine: &TextEngine,
         cont_input_contents: &InputContentsSparseSecondary,
     ) -> LayoutPoint {
-        let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
-            if let Some(l) = c.last_layout {
-                // コンテンツが存在し前回のレイアウトもある場合
-                (LayoutSize::new(l.width, l.height), c.is_multiline)
-            } else {
-                // コンテンツはあるがレイアウトがない場合
-                (sys_text_engine.get_layout_size(dw_layout), c.is_multiline)
+        match engine {
+            TextLayoutEngine::Cosmic(buffer) => {
+                let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
+                    if let Some(l) = c.last_layout {
+                        // コンテンツが存在し前回のレイアウトもある場合
+                        (LayoutSize::new(l.width, l.height), c.is_multiline)
+                    } else {
+                        // コンテンツはあるがレイアウトがない場合
+                        (
+                            sys_text_engine.get_layout_size_cosmic(buffer),
+                            c.is_multiline,
+                        )
+                    }
+                } else {
+                    // コンテンツ自体が存在しない場合
+                    (sys_text_engine.get_layout_size_cosmic(buffer), false)
+                };
+                OutputStore::calc_align_offset(
+                    params.rect,
+                    border,
+                    padding,
+                    text_size,
+                    flex.text_align,
+                    flex.align_items,
+                    is_multiline,
+                )
             }
-        } else {
-            // コンテンツ自体が存在しない場合
-            (sys_text_engine.get_layout_size(dw_layout), false)
-        };
-        OutputStore::calc_align_offset(
-            params.rect,
-            border,
-            padding,
-            text_size,
-            flex.text_align,
-            flex.align_items,
-            is_multiline,
-        )
+            TextLayoutEngine::DWrite(dw_layout) => {
+                let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
+                    if let Some(l) = c.last_layout {
+                        // コンテンツが存在し前回のレイアウトもある場合
+                        (LayoutSize::new(l.width, l.height), c.is_multiline)
+                    } else {
+                        // コンテンツはあるがレイアウトがない場合
+                        (sys_text_engine.get_layout_size(dw_layout), c.is_multiline)
+                    }
+                } else {
+                    // コンテンツ自体が存在しない場合
+                    (sys_text_engine.get_layout_size(dw_layout), false)
+                };
+                OutputStore::calc_align_offset(
+                    params.rect,
+                    border,
+                    padding,
+                    text_size,
+                    flex.text_align,
+                    flex.align_items,
+                    is_multiline,
+                )
+            }
+        }
     }
 
     /// 指定された要素に含まれるすべての文字をアトラスにキャッシュ
@@ -1551,8 +1688,9 @@ impl Pipeline {
     fn scan_and_register_element_glyphs(
         id: EntityId,
         view: &mut RendererView,
+        engine: &TextLayoutEngine,
         default_visual: &VisualProperty,
-        sys_text_engine: &TextEngine,
+        sys_text_engine: &mut TextEngine,
         win_scale_factor: f32,
         topo_active_masks: &ActiveMasksSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
@@ -1560,35 +1698,62 @@ impl Pipeline {
         cont_input_contents: &InputContentsSparseSecondary,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> bool {
-        let text = cont_text_contents
-            .get(id)
-            .cloned()
-            .unwrap_or_else(|| "".into());
-        let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
+        match engine {
+            TextLayoutEngine::Cosmic(buffer) => {
+                let mut atlas_cleared = false;
 
-        let visual = rnd_visual.get(id).unwrap_or(default_visual);
+                // レイアウト結果からグリフを直接取り出してキャッシュ
+                for run in buffer.layout_runs() {
+                    for glyph in run.glyphs {
+                        let offset = (glyph.x_offset, glyph.y_offset);
+                        let physical = glyph.physical(offset, win_scale_factor);
+                        let (_, _, _, _, _, _, cleared) = sys_text_engine
+                            .get_or_create_glyph_uv_cosmic(
+                                physical.cache_key,
+                                view,
+                                win_scale_factor,
+                            );
+                        if cleared {
+                            atlas_cleared = true;
+                        }
+                    }
+                }
 
-        let text_u16_vec: Vec<u16> = text.encode_utf16().collect();
-
-        let mut char_idx = 0;
-        let mut atlas_cleared = false;
-
-        while char_idx < text_u16_vec.len() {
-            // サロゲートペア対応文字の抽出
-            let (character, u16_len) = Pipeline::get_char_and_u16_len(&text_u16_vec, char_idx);
-            let span = spans.iter().find(|s| s.range.contains(&char_idx));
-            let key = TextCacheKey::new(span, visual, character, win_scale_factor);
-
-            let (_, _, cleared) = sys_text_engine.get_or_create_glyph_uv(&key, view);
-
-            if cleared {
-                atlas_cleared = true;
+                atlas_cleared
             }
+            TextLayoutEngine::DWrite(_) => {
+                let text = cont_text_contents
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_else(|| "".into());
+                let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
 
-            char_idx += u16_len;
+                let visual = rnd_visual.get(id).unwrap_or(default_visual);
+
+                let text_u16_vec: Vec<u16> = text.encode_utf16().collect();
+
+                let mut char_idx = 0;
+                let mut atlas_cleared = false;
+
+                while char_idx < text_u16_vec.len() {
+                    // サロゲートペア対応文字の抽出
+                    let (character, u16_len) =
+                        Pipeline::get_char_and_u16_len(&text_u16_vec, char_idx);
+                    let span = spans.iter().find(|s| s.range.contains(&char_idx));
+                    let key = TextCacheKey::new(span, visual, character, win_scale_factor);
+
+                    let (_, _, cleared) = sys_text_engine.get_or_create_glyph_uv(&key, view);
+
+                    if cleared {
+                        atlas_cleared = true;
+                    }
+
+                    char_idx += u16_len;
+                }
+
+                atlas_cleared
+            }
         }
-
-        atlas_cleared
     }
 
     #[inline]
@@ -1804,7 +1969,7 @@ impl Pipeline {
         id: EntityId,
         render_data: &mut RenderData,
         params: &CommonParameters,
-        dw_layout: &IDWriteTextLayout,
+        engine: &TextLayoutEngine,
         spans: &[TextSpan],
         align_offset: LayoutPoint,
         border: EdgeInsets,
@@ -1813,7 +1978,7 @@ impl Pipeline {
     ) {
         for span in spans {
             if let Some(bg_color) = span.bg_color {
-                let rects = TextEditStore::calc_selection_rects(id, dw_layout, span.range.clone());
+                let rects = TextEditStore::calc_selection_rects(id, engine, span.range.clone());
 
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
@@ -1910,7 +2075,7 @@ impl Pipeline {
         render_data: &mut RenderData,
         params: &CommonParameters,
         spans: &[TextSpan],
-        dw_layout: &IDWriteTextLayout,
+        engine: &TextLayoutEngine,
         border: EdgeInsets,
         padding: EdgeInsets,
         scroll: LayoutPoint,
@@ -1924,7 +2089,7 @@ impl Pipeline {
                 continue;
             }
 
-            let rects = TextEditStore::calc_selection_rects(id, dw_layout, span.range.clone());
+            let rects = TextEditStore::calc_selection_rects(id, engine, span.range.clone());
 
             for metric_rect in rects {
                 let start_x =
@@ -2148,569 +2313,11 @@ impl Pipeline {
 
 pub(crate) struct NewPipeline;
 impl NewPipeline {
-    #[inline]
-    pub(crate) fn collect_render_data(cx: &mut Context, view: &mut NewRendererView) {
-        let default_visual = VisualProperty::default();
-        TopologyStore::prepare_sorted_entities(
-            cx.window.win_last_size,
-            &mut cx.topology.topo_active_masks,
-            &mut cx.topology.topo_dfs_indices,
-            &mut cx.topology.topo_effective_z_indices,
-            &mut cx.topology.topo_sorted_entities,
-            &mut cx.topology.topo_sort_cache,
-            &mut cx.topology.topo_is_sort_dirty,
-            &cx.topology.topo_active_entities,
-            &cx.topology.topo_parents,
-            &cx.topology.topo_flat_dfs_sequence,
-            &cx.renders.rnd_visual,
-            &mut cx.outputs.out_clip_rects,
-            &cx.outputs.out_rects,
-        );
-
-        let mut force_full_scan = false;
-        for &id in &*cx.topology.topo_sorted_entities {
-            let buffers = cx.system.sys_text_buffers.borrow();
-            let Some(buffer) = buffers.get(id) else {
-                continue;
-            };
-
-            let is_dirty_text = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has_text_content() && m.has_queued_layout_or_render());
-
-            if is_dirty_text {
-                let cleared = NewPipeline::scan_and_register_element_glyphs(
-                    id,
-                    view,
-                    buffer,
-                    cx.window.win_scale_factor,
-                    &mut cx.system.sys_text_engine,
-                );
-
-                if cleared {
-                    // このスキャン中にアトラスのクリアが起きたため再構築が必要
-                    force_full_scan = true;
-                }
-            }
-        }
-        if force_full_scan {
-            for &id in &*cx.topology.topo_sorted_entities {
-                let buffers = cx.system.sys_text_buffers.borrow();
-                let Some(buffer) = buffers.get(id) else {
-                    continue;
-                };
-
-                let has_text_content = cx
-                    .topology
-                    .topo_active_masks
-                    .get(id)
-                    .is_some_and(ComponentMask::has_text_content);
-
-                if has_text_content {
-                    let _ = NewPipeline::scan_and_register_element_glyphs(
-                        id,
-                        view,
-                        buffer,
-                        cx.window.win_scale_factor,
-                        &mut cx.system.sys_text_engine,
-                    );
-                }
-            }
-        }
-        view.render_data.clear();
-        let mut last_flushed_offset = 0;
-        let mut current_batch_type = BatchType::Normal;
-        let mut last_clip = None;
-        for &id in &*cx.topology.topo_sorted_entities {
-            let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
-            if rect.width <= 0.0 || rect.height <= 0.0 {
-                continue;
-            }
-            let clip = cx
-                .outputs
-                .out_clip_rects
-                .get(id)
-                .copied()
-                .unwrap_or_default();
-
-            let basic = cx
-                .layouts
-                .lay_resolved_basic
-                .get(id)
-                .copied()
-                .unwrap_or_default();
-            let flex = cx
-                .layouts
-                .lay_resolved_flex
-                .get(id)
-                .copied()
-                .unwrap_or_default();
-            let grid = cx
-                .layouts
-                .lay_resolved_grid
-                .get(id)
-                .cloned()
-                .unwrap_or_default();
-            let visual = cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
-
-            let (border, padding) =
-                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-            let scroll = cx
-                .states
-                .scroll
-                .sc_offsets
-                .get(id)
-                .copied()
-                .unwrap_or_default();
-
-            // トランスフォームブランチの場合のみその場で累積を解決
-            // それ以外は IDENTITY_MATRIX
-            let eff_transform =
-                if cx.topology.topo_active_masks[id].has(ComponentMask::STATE_TRANSFORM_ACTIVE) {
-                    RenderStore::resolve_effective_transform(
-                        id,
-                        &cx.topology.topo_parents,
-                        &cx.renders.rnd_visual,
-                    )
-                } else {
-                    IDENTITY_MATRIX
-                };
-
-            let params = CommonParameters::new(id, rect, &basic, visual, eff_transform);
-
-            let is_webview = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_webveiw2_content);
-            // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
-            let is_webview_ready = is_webview && cx.renders.rnd_active_webviews.contains(&id);
-            // WebView (アクティブ) の個別処理
-            if is_webview_ready {
-                // 溜まっている通常のバッチがあれば一旦フラッシュ
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    last_clip.unwrap_or_default(),
-                    current_batch_type,
-                );
-
-                Pipeline::push_punchout_instance(id, view.render_data, &params);
-                // くり抜き用のバッチとして即座にフラッシュ
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    clip,
-                    BatchType::Punchout,
-                );
-
-                Pipeline::push_front_instance(id, view.render_data, &params);
-
-                current_batch_type = BatchType::Normal;
-                last_clip = Some(clip);
-                continue;
-            }
-
-            // WebView (非アクティブ・静止キャッシュ) の処理
-            let is_webview_static = is_webview && !is_webview_ready;
-            if is_webview_static {
-                // 一般UIインスタンスがあれば強制フラッシュ
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    last_clip.unwrap_or_default(),
-                    current_batch_type,
-                );
-
-                Pipeline::push_static_instance(id, view.render_data, &params);
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    clip,
-                    BatchType::Normal,
-                );
-
-                // 前面インスタンス
-                Pipeline::push_static_front_instance(id, view.render_data, &params);
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    clip,
-                    BatchType::Normal,
-                );
-
-                last_clip = Some(clip);
-                continue;
-            }
-
-            // 外部テクスチャ
-            let is_external_texture = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT));
-            if is_external_texture {
-                // 既存UIインスタンスをフラッシュ
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    last_clip.unwrap_or_default(),
-                    current_batch_type,
-                );
-
-                Pipeline::push_external_texture_instance(
-                    id,
-                    view.render_data,
-                    &params,
-                    &cx.contents.cont_external_textures,
-                );
-                // テクスチャが固有に切り替わるため独立してバッチをフラッシュ
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    clip,
-                    BatchType::Normal,
-                );
-
-                // 前面インスタンス
-                Pipeline::push_static_front_instance(id, view.render_data, &params);
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    clip,
-                    BatchType::Normal,
-                );
-
-                last_clip = Some(clip);
-                continue;
-            }
-
-            // 一般要素
-            if let Some(prev_clip) = last_clip {
-                if clip != prev_clip {
-                    Pipeline::flush_batch(
-                        &mut view.render_data.batches,
-                        view.render_data.instances.len(),
-                        &mut last_flushed_offset,
-                        prev_clip,
-                        current_batch_type,
-                    );
-                    last_clip = Some(clip);
-                }
-            } else {
-                last_clip = Some(clip);
-            }
-
-            // 選択ハイライト背景
-            if let Some(sel_rects) = cx.states.edit.edit_selected_rects.get(id)
-                && let Some(buffer) = SystemStore::get_or_create_layout_cosmic(
-                    id,
-                    &mut cx.system.sys_text_engine,
-                    &cx.system.sys_text_buffers,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
-                    &cx.layouts.lay_resolved_basic,
-                    &cx.layouts.lay_resolved_flex,
-                    &cx.renders.rnd_visual,
-                    &cx.outputs.out_rects,
-                )
-            {
-                let align_offset = NewPipeline::text_size_to_align_offset(
-                    id,
-                    &params,
-                    &buffer,
-                    border,
-                    padding,
-                    &flex,
-                    &cx.system.sys_text_engine,
-                    &cx.contents.cont_input_contents,
-                );
-
-                Pipeline::push_selection_highlight_instances(
-                    id,
-                    view.render_data,
-                    &params,
-                    align_offset,
-                    border,
-                    padding,
-                    scroll,
-                    sel_rects,
-                    visual,
-                );
-            }
-
-            // 背景色とテキスト
-            let is_text = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_text_content);
-            let has_bg = visual.bg_color.is_some()
-                || visual.bg_gradient.is_some()
-                || visual.border_color.is_some()
-                || visual.shadow_params.is_some();
-
-            if has_bg {
-                Pipeline::push_background_instance(id, view.render_data, &params, visual);
-            }
-
-            if is_text
-                && let Some(buffer) = SystemStore::get_or_create_layout_cosmic(
-                    id,
-                    &mut cx.system.sys_text_engine,
-                    &cx.system.sys_text_buffers,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
-                    &cx.layouts.lay_resolved_basic,
-                    &cx.layouts.lay_resolved_flex,
-                    &cx.renders.rnd_visual,
-                    &cx.outputs.out_rects,
-                )
-            {
-                let align_offset = NewPipeline::text_size_to_align_offset(
-                    id,
-                    &params,
-                    &buffer,
-                    border,
-                    padding,
-                    &flex,
-                    &cx.system.sys_text_engine,
-                    &cx.contents.cont_input_contents,
-                );
-
-                let spans = cx
-                    .contents
-                    .cont_text_spans
-                    .get(id)
-                    .map_or(&[][..], Vec::as_slice);
-                let resolved_color =
-                    Pipeline::resolv_text_color(id, visual, &cx.contents.cont_input_contents);
-
-                NewPipeline::push_text_background_instances(
-                    id,
-                    view.render_data,
-                    &params,
-                    &buffer,
-                    spans,
-                    align_offset,
-                    border,
-                    padding,
-                    scroll,
-                );
-
-                NewPipeline::push_text_metric_instances(
-                    id,
-                    view,
-                    &params,
-                    &buffer,
-                    resolved_color,
-                    border,
-                    padding,
-                    scroll,
-                    align_offset,
-                    cx.window.win_scale_factor,
-                    &mut cx.system.sys_text_engine,
-                );
-
-                NewPipeline::push_text_front_instances(
-                    id,
-                    view.render_data,
-                    &params,
-                    spans,
-                    &buffer,
-                    border,
-                    padding,
-                    scroll,
-                    align_offset,
-                    resolved_color,
-                );
-            }
-
-            // 通常要素（テキスト以外）の背景マウントは親ループですでに has_bg が完了しているため不要
-            // 背景指定がない場合でもボーダー単体描画等が必要な場合はフォールバック
-            if !is_text && !has_bg {
-                Pipeline::push_fallback_border_instance(id, view.render_data, &params);
-            }
-
-            // インプット要素のキャレット
-            let is_input = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_input_content);
-            let is_focused = cx.events.evt_interaction_states.focused == Some(id);
-
-            if is_input && is_focused {
-                Pipeline::push_caret_instance(
-                    id,
-                    view.render_data,
-                    &params,
-                    border,
-                    padding,
-                    scroll,
-                    &flex,
-                    visual,
-                    cx.window.win_scale_factor,
-                    &cx.contents.cont_input_contents,
-                    &cx.renders.rnd_base_visual,
-                );
-            }
-        }
-        Pipeline::flush_batch(
-            &mut view.render_data.batches,
-            view.render_data.instances.len(),
-            &mut last_flushed_offset,
-            last_clip.unwrap_or_default(),
-            current_batch_type,
-        );
-    }
-
-    fn text_size_to_align_offset(
-        id: EntityId,
-        params: &CommonParameters,
-        buffer: &Buffer,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        flex: &FlexLayout,
-        sys_text_engine: &TextEngine,
-        cont_input_contents: &InputContentsSparseSecondary,
-    ) -> LayoutPoint {
-        let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
-            if let Some(l) = c.last_layout {
-                // コンテンツが存在し前回のレイアウトもある場合
-                (LayoutSize::new(l.width, l.height), c.is_multiline)
-            } else {
-                // コンテンツはあるがレイアウトがない場合
-                (
-                    sys_text_engine.get_layout_size_cosmic(buffer),
-                    c.is_multiline,
-                )
-            }
-        } else {
-            // コンテンツ自体が存在しない場合
-            (sys_text_engine.get_layout_size_cosmic(buffer), false)
-        };
-        OutputStore::calc_align_offset(
-            params.rect,
-            border,
-            padding,
-            text_size,
-            flex.text_align,
-            flex.align_items,
-            is_multiline,
-        )
-    }
-
-    /// 指定された要素に含まれるすべての文字をアトラスにキャッシュ
-    /// このフレームでアトラスの一括クリアが起きた場合は true
-    #[inline]
-    fn scan_and_register_element_glyphs(
-        id: EntityId,
-        view: &mut NewRendererView,
-        buffer: &Buffer,
-        win_scale_factor: f32,
-        sys_text_engine: &mut TextEngine,
-    ) -> bool {
-        let mut atlas_cleared = false;
-
-        // レイアウト結果からグリフを直接取り出してキャッシュ
-        for run in buffer.layout_runs() {
-            for glyph in run.glyphs {
-                let offset = (glyph.x_offset, glyph.y_offset);
-                let physical = glyph.physical(offset, win_scale_factor);
-                let (_, _, _, _, cleared) =
-                    sys_text_engine.get_or_create_glyph_uv_cosmic(physical.cache_key, view);
-                if cleared {
-                    atlas_cleared = true;
-                }
-            }
-        }
-
-        atlas_cleared
-    }
-
-    /// cosmic-text の Buffer から、指定されたインデックス範囲が占める各行の矩形を計算
-    fn calc_span_rects_cosmic(buffer: &Buffer, range: Range<usize>) -> Vec<LayoutRect> {
-        let mut rects = Vec::new();
-
-        for run in buffer.layout_runs() {
-            let mut start_x: Option<f32> = None;
-            let mut end_x: Option<f32> = None;
-
-            for glyph in run.glyphs {
-                // スパンの範囲に文字のインデックスが一部でも交差しているか判定
-                if glyph.start < range.end && glyph.end > range.start {
-                    if start_x.is_none() {
-                        start_x = Some(glyph.x);
-                    }
-                    // グリフの右端座標
-                    end_x = Some(glyph.x + glyph.w);
-                }
-            }
-
-            // この行で交差するグリフが見つかった場合、その範囲で矩形を作成
-            if let (Some(sx), Some(ex)) = (start_x, end_x) {
-                rects.push(LayoutRect::new(sx, run.line_y, ex - sx, run.line_height));
-            }
-        }
-        rects
-    }
-
-    /// テキスト用背面インスタンスを追加
-    #[inline]
-    fn push_text_background_instances(
-        id: EntityId,
-        render_data: &mut RenderData,
-        params: &CommonParameters,
-        buffer: &Buffer,
-        spans: &[TextSpan],
-        align_offset: LayoutPoint,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        scroll: LayoutPoint,
-    ) {
-        for span in spans {
-            if let Some(bg_color) = span.bg_color {
-                let rects = NewPipeline::calc_span_rects_cosmic(buffer, span.range.clone());
-
-                for metric_rect in rects {
-                    let sel_rect = LayoutRect::new(
-                        params.rect.x + border.left + padding.left + align_offset.x + metric_rect.x
-                            - scroll.x,
-                        params.rect.y + border.top + padding.top + align_offset.y + metric_rect.y
-                            - scroll.y,
-                        metric_rect.width,
-                        metric_rect.height,
-                    );
-
-                    let sel_instance = QuadInstance {
-                        rect: sel_rect,
-                        transform: params.transform,
-                        color: bg_color,
-                        opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
-                        ..Default::default()
-                    };
-                    render_data.push(id, sel_instance);
-                }
-            }
-        }
-    }
-
     /// 文字ごとのインスタンスを追加
     #[inline]
     fn push_text_metric_instances(
         id: EntityId,
-        view: &mut NewRendererView,
+        view: &mut RendererView,
         params: &CommonParameters,
         buffer: &Buffer,
         resolved_color: Color,
@@ -2723,37 +2330,34 @@ impl NewPipeline {
     ) {
         for run in buffer.layout_runs() {
             for glyph in run.glyphs {
-                // テキストブロック全体の開始位置(物理座標)
+                //  グリフ原点 ＝ テキストブロック位置 ＋ 行・文字位置を丸めたもの
                 let base_phys_x = (params.rect.x + border.left + padding.left + align_offset.x
                     - scroll.x)
                     * win_scale_factor;
-
                 let base_phys_y =
                     (params.rect.y + border.top + padding.top + align_offset.y + run.line_y
                         - scroll.y)
                         * win_scale_factor;
-
-                // 文字の原点座標
                 let physical = glyph.physical((base_phys_x, base_phys_y), win_scale_factor);
 
+                // アトラスにパッキングされた文字がUIの画面上で縦横何ピクセルの大きさで描画されるべきかを逆算
                 // アトラス上の UV 座標を取得
-                let (uv_min, uv_max, offset_x, offset_y, _cleared) =
-                    sys_text_engine.get_or_create_glyph_uv_cosmic(physical.cache_key, view);
+                let (uv_min, uv_max, offset_x, offset_y, tex_log_w, tex_log_h, _cleared) =
+                    sys_text_engine.get_or_create_glyph_uv_cosmic(
+                        physical.cache_key,
+                        view,
+                        win_scale_factor,
+                    );
 
-                // 物理サイズから論理サイズを逆算
-                let tex_phys_w = (uv_max[0] - uv_min[0]) * view.atlas.size as f32;
-                let tex_phys_h = (uv_max[1] - uv_min[1]) * view.atlas.size as f32;
-                let tex_log_w = tex_phys_w / win_scale_factor;
-                let tex_log_h = tex_phys_h / win_scale_factor;
-
-                // 左上オフセットを足し引きして文字画像の左上の論理座標を計算
+                // 最終的なポリゴンの左上 ＝ グリフ原点 ＋ 画像オフセット
                 let char_phys_x = physical.x + offset_x;
-                let char_phys_y = physical.y - offset_y; // // Swash の top は上向き正のため減算
+                let char_phys_y = physical.y - offset_y; // Swash の top は上向き正のため減算
 
                 // 論理座標に戻す
                 let char_x = char_phys_x as f32 / win_scale_factor;
                 let char_y = char_phys_y as f32 / win_scale_factor;
 
+                // 文字の矩形
                 let char_rect = LayoutRect::new(char_x, char_y, tex_log_w, tex_log_h);
 
                 // スパンごとに指定されたカラー、指定がなければベースの文字色を採用
@@ -2776,121 +2380,6 @@ impl NewPipeline {
                 };
 
                 view.render_data.push(id, glyph_instance);
-            }
-        }
-    }
-
-    /// テキスト用前面インスタンスを追加
-    fn push_text_front_instances(
-        id: EntityId,
-        render_data: &mut RenderData,
-        params: &CommonParameters,
-        spans: &[TextSpan],
-        buffer: &Buffer,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        scroll: LayoutPoint,
-        align_offset: LayoutPoint,
-        resolved_color: Color,
-    ) {
-        for span in spans {
-            let has_ul = span.underline.is_some();
-            let has_st = span.strikethrough.is_some();
-            if !has_ul && !has_st {
-                continue;
-            }
-
-            let rects = NewPipeline::calc_span_rects_cosmic(buffer, span.range.clone());
-
-            for metric_rect in rects {
-                let start_x =
-                    params.rect.x + border.left + padding.left + align_offset.x + metric_rect.x
-                        - scroll.x;
-                let end_x = start_x + metric_rect.width;
-                let base_y =
-                    params.rect.y + border.top + padding.top + align_offset.y + metric_rect.y
-                        - scroll.y;
-
-                // 打消し線（中線）
-                if let Some(st_style) = span.strikethrough {
-                    let st_color = span
-                        .strikethrough_color
-                        .or(span.color)
-                        .unwrap_or(resolved_color);
-                    let thickness = match st_style {
-                        StrikethroughStyle::Solid => 1.0,
-                        StrikethroughStyle::Thick => 2.5,
-                    };
-                    let st_rect = LayoutRect::new(
-                        start_x,
-                        (base_y + metric_rect.height * 0.5 - thickness * 0.5).round(),
-                        metric_rect.width,
-                        thickness,
-                    );
-
-                    let st_instance = QuadInstance {
-                        rect: st_rect,
-                        transform: params.transform,
-                        color: st_color,
-                        opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
-                        ..Default::default()
-                    };
-                    render_data.push(id, st_instance);
-                }
-
-                // 下線
-                if let Some(ul_style) = span.underline {
-                    let ul_color = span
-                        .underline_color
-                        .or(span.color)
-                        .unwrap_or(resolved_color);
-                    let thickness = match ul_style {
-                        UnderlineStyle::Thick => 2.5,
-                        UnderlineStyle::Solid | UnderlineStyle::Wave | UnderlineStyle::Double => {
-                            1.0
-                        }
-                    };
-                    let ul_y = (base_y + metric_rect.height - thickness - 1.0).round();
-
-                    if ul_style == UnderlineStyle::Wave {
-                        let wave_amplitude = 0.5;
-                        let wave_step: f32 = 2.0;
-                        let mut temp_x = start_x;
-                        let mut y_up = false;
-
-                        while temp_x < end_x {
-                            let seg_w = wave_step.min(end_x - temp_x);
-                            let seg_y = if y_up {
-                                ul_y - wave_amplitude
-                            } else {
-                                ul_y + wave_amplitude
-                            };
-
-                            let wave_instance = QuadInstance {
-                                rect: LayoutRect::new(temp_x, seg_y, seg_w, 1.0),
-                                transform: params.transform,
-                                color: ul_color,
-                                opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
-                                ..Default::default()
-                            };
-                            render_data.push(id, wave_instance);
-
-                            temp_x += wave_step;
-                            y_up = !y_up;
-                        }
-                    } else {
-                        let ul_rect = LayoutRect::new(start_x, ul_y, metric_rect.width, thickness);
-
-                        let ul_instance = QuadInstance {
-                            rect: ul_rect,
-                            transform: params.transform,
-                            color: ul_color,
-                            opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
-                            ..Default::default()
-                        };
-                        render_data.push(id, ul_instance);
-                    }
-                }
             }
         }
     }

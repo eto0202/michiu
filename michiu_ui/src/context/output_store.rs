@@ -1,6 +1,23 @@
 use crate::{
-    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, ActiveWebviewsHashSet, AlignItems, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing, CapacityConfig, ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius, DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, DwriteLayoutsSparseSecondary, EdgeInsets, EffectiveZindicesSecondary, EntityId, EventStore, ExternalTextureAlphaMode, ExternalTextureSparseSecondary, FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, GridLayoutsSparseSecondary, IDENTITY_MATRIX, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, ParentsSecondary, PointerEvents, Position, PropertyList, QuadInstance, ReactiveStore, RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollStore, ScrollbarStylesSecondary, SortedEntitiesVec, StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextCacheKey, TextCacheValue, TextContentsSparseSecondary, TextEngine, TextRasterizer, TextSpan, TextSpansSparseSecondary, TextureAtlas, TopoSortCacheVec, TopologyStore, Transform, UnderlineStyle, UserSelect, Val, VisualPropertiesSecondary, VisualProperty, WindowStore,
+    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary,
+    ActiveTransitionsSparseSecondary, ActiveWebviewsHashSet, AlignItems,
+    BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing,
+    CapacityConfig, ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius,
+    DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, EdgeInsets,
+    EffectiveZindicesSecondary, EntityId, EventStore, ExternalTextureAlphaMode,
+    ExternalTextureSparseSecondary, FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary,
+    GridLayoutsSparseSecondary, IDENTITY_MATRIX, InputContents, InputContentsSparseSecondary,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
+    ParentsSecondary, PointerEvents, Position, PropertyList, QuadInstance, ReactiveStore,
+    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollStore, ScrollbarStylesSecondary,
+    SortedEntitiesVec, StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextAlign, TextCacheKey, TextCacheValue, TextContentsSparseSecondary, TextEngine,
+    TextLayoutEngine, TextLayoutEngineSparseSecondary, TextRasterizer, TextSpan,
+    TextSpansSparseSecondary, TextureAtlas, TopoSortCacheVec, TopologyStore, Transform,
+    UnderlineStyle, UserSelect, Val, VisualPropertiesSecondary, VisualProperty, WindowStore,
 };
+use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -8,6 +25,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     ops::Range,
+    rc::Rc,
     time::Instant,
 };
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
@@ -94,8 +112,8 @@ impl OutputStore {
     pub(crate) fn pressed_local_point(
         id: EntityId,
         logical_pos: LayoutPoint,
-        dw_layout: Option<&IDWriteTextLayout>,
-        sys_text_engine: &TextEngine,
+        engine: Option<&TextLayoutEngine>,
+        sys_text_engine: &mut TextEngine,
         cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -124,8 +142,15 @@ impl OutputStore {
                 .last_layout
                 .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
             (size, contents.is_multiline)
-        } else if let Some(dw_layout) = dw_layout {
-            (sys_text_engine.get_layout_size(dw_layout), false)
+        } else if let Some(engine) = engine {
+            match engine {
+                TextLayoutEngine::Cosmic(buffer) => {
+                    (sys_text_engine.get_layout_size_cosmic(buffer), false)
+                }
+                TextLayoutEngine::DWrite(dw_layout) => {
+                    (sys_text_engine.get_layout_size(dw_layout), false)
+                }
+            }
         } else {
             (LayoutSize::ZERO, false)
         };
@@ -183,10 +208,7 @@ impl OutputStore {
             );
         };
 
-        let s_offsets = sc_offsets
-            .get(parent_id)
-            .copied()
-            .unwrap_or_default();
+        let s_offsets = sc_offsets.get(parent_id).copied().unwrap_or_default();
         let is_absolute = lay_basic
             .get(id)
             .is_some_and(|l| l.position == Position::Absolute);

@@ -25,7 +25,7 @@ use windows::{
     core::{PCWSTR, w},
 };
 
-use crate::{APPLY_COSMIC_TEXT, AppState};
+use crate::AppState;
 
 // Win32 ウィンドウプロシージャ
 unsafe extern "system" fn wnd_proc(
@@ -73,13 +73,10 @@ unsafe extern "system" fn wnd_proc(
 
                     // 消化によってレイアウトや描画に変更があった場合のみ、同期および再描画を実行
                     if app.context.has_dirty() {
-                        app.context.sync_layout_and_render(
-                            app.root_id,
-                            app.renderer.layout_size,
-                            APPLY_COSMIC_TEXT,
-                        );
+                        app.context
+                            .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                         app.renderer.update_composition_tree(&mut app.context);
-                        app.renderer.draw(&mut app.context, APPLY_COSMIC_TEXT); // これが内部で InvalidateRect 等を適切に走らせます
+                        app.renderer.draw(&mut app.context); // これが内部で InvalidateRect 等を適切に走らせます
                     }
                 }
                 return LRESULT(0);
@@ -95,7 +92,7 @@ unsafe extern "system" fn wnd_proc(
 
                 // レイアウト再計算
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -112,7 +109,7 @@ unsafe extern "system" fn wnd_proc(
 
                 // Taffy レイアウトツリーの同期と確定座標再計算
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 再描画要求
@@ -129,7 +126,7 @@ unsafe extern "system" fn wnd_proc(
 
                 let layout_start = std::time::Instant::now();
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 let layout_elapsed = layout_start.elapsed();
 
                 let comp_start = std::time::Instant::now();
@@ -140,7 +137,7 @@ unsafe extern "system" fn wnd_proc(
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
-                app.renderer.draw(&mut app.context, APPLY_COSMIC_TEXT);
+                app.renderer.draw(&mut app.context);
                 app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
@@ -297,7 +294,7 @@ unsafe extern "system" fn wnd_proc(
                 });
 
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
                 // フォーカス取得（点滅カーソル表示開始）のために再描画
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -317,7 +314,7 @@ unsafe extern "system" fn wnd_proc(
                 });
 
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -344,7 +341,7 @@ unsafe extern "system" fn wnd_proc(
                     .inject_user_action(UserAction::PointerDoubleClick { modifiers });
 
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -366,7 +363,7 @@ unsafe extern "system" fn wnd_proc(
                 // スクロールによって変化した絶対座標と表示制限を瞬時に再計算
 
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 画面を再描画
@@ -389,7 +386,7 @@ unsafe extern "system" fn wnd_proc(
                 });
 
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -400,7 +397,7 @@ unsafe extern "system" fn wnd_proc(
                     app.context.inject_user_action(UserAction::Character(ch));
 
                     app.context
-                        .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                     app.renderer.update_composition_tree(&mut app.context);
 
                     let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -485,7 +482,7 @@ unsafe extern "system" fn wnd_proc(
                     modifiers,
                 });
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -591,7 +588,7 @@ unsafe extern "system" fn wnd_proc(
                     let _ = unsafe { ImmReleaseContext(hwnd, himc) };
                 }
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size,APPLY_COSMIC_TEXT);
+                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
