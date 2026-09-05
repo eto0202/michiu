@@ -1,3 +1,6 @@
+use lightningcss::properties::font::AbsoluteFontSize::Small;
+use smallvec::SmallVec;
+
 use crate::{
     ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
     InputContents, InputOp, Modifiers, MouseButton, OutputStore, Prop,
@@ -1050,6 +1053,21 @@ impl Element {
             let mut spans = Vec::new();
             let caret = contents.selected_range.start;
 
+            // Windowsから送られてくる属性情報のインデックス（start_idx と end_idx）はバイト数ではなく文字単位
+            // UTF-8のときは文字単位インデックスをバイト単位にマッピングするためのリストを作成
+            let char_byte_offsets = if cx.cosmic {
+                let mut offsets = Vec::with_capacity(ime.composition_text.chars().count() + 1);
+                let mut curr_byte = 0;
+                for c in ime.composition_text.chars() {
+                    offsets.push(curr_byte);
+                    curr_byte += c.len_utf8();
+                }
+                offsets.push(curr_byte);
+                Some(offsets)
+            } else {
+                None
+            };
+
             if ime.composition_attrs.is_empty() {
                 // 属性が取得できない場合のフォールバック（全体を未確定波線に設定）
                 let comp_len = if cx.cosmic {
@@ -1084,8 +1102,21 @@ impl Element {
                         _ => Some(UnderlineStyle::Wave),
                     };
 
+                    // cosmic の時はバイト単位、DWrite の時は文字単位で範囲を計算
+                    let offset = char_byte_offsets.as_ref().unwrap();
+                    let span_start = if cx.cosmic {
+                        caret + offset[start_idx]
+                    } else {
+                        caret + start_idx
+                    };
+                    let span_end = if cx.cosmic {
+                        caret + offset[end_idx]
+                    } else {
+                        caret + end_idx
+                    };
+
                     spans.push(TextSpan {
-                        range: (caret + start_idx)..(caret + end_idx),
+                        range: span_start..span_end,
                         color: None,
                         bg_color: None,
                         font_size: None,

@@ -643,9 +643,9 @@ impl InputContents {
         if numeric_only && !ch.is_numeric() && ch != '.' && ch != '-' {
             return text.to_string();
         }
-        // 文字数制限（バイト単位）
+        // 文字数制限
         if let Some(max) = max_len
-            && text.len() >= max
+            && text.chars().count() >= max
         {
             return text.to_string();
         }
@@ -666,7 +666,7 @@ impl InputContents {
         result.push_str(&text[insert_pos..]);
 
         // キャレット位置を更新
-        *caret_offset = insert_pos * ch.len_utf8();
+        *caret_offset = insert_pos + ch.len_utf8();
 
         result
     }
