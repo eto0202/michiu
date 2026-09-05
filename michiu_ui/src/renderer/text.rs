@@ -11,7 +11,7 @@ use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
 };
 use rustc_hash::FxHashMap;
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use windows::Win32::Graphics::Direct2D::{
     D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, ID2D1RenderTarget,
 };
@@ -630,34 +630,62 @@ impl TextEngine {
         // フラットなインデックスから 2D Cursor へ
         let cursor = Self::flat_idx_to_cursor(buffer, index);
 
+        // この段落に属するすべてのビジュアル行を抽出
+        let mut candidate_runs: SmallVec<[_; 16]> = SmallVec::new();
         for run in buffer.layout_runs() {
             if run.line_i == cursor.line {
-                y = run.line_top;
-                height = run.line_height;
-                found = true;
-
-                let mut glyph_found = false;
-                for glyph in run.glyphs {
-                    if cursor.index >= glyph.start && cursor.index < glyph.end {
-                        x = glyph.x;
-                        glyph_found = true;
-                        break;
-                    }
-                }
-
-                // 行末、または空行などでグリフがヒットしなかった場合の補正
-                if !glyph_found {
-                    if let Some(last_glyph) = run.glyphs.last() {
-                        x = last_glyph.x + last_glyph.w;
-                    } else {
-                        x = 0.0;
-                    }
-                }
-                break;
+                candidate_runs.push(run);
             }
         }
 
-        // 万が一見つからなかった場合の最後のフォールバック
+        // 複数あるビジュアル行の中から、キャレットが実際に属している1行を特定
+        let mut matched_run = None;
+        if !candidate_runs.is_empty() {
+            for (i, run) in candidate_runs.iter().enumerate() {
+                let run_start = run.glyphs.first().map_or(0, |g| g.start);
+                let run_end = run.glyphs.last().map_or(0, |g| g.end);
+
+                let is_last_run = i == candidate_runs.len() - 1;
+
+                // 折り返された最後の行であれば、開始位置以降はすべてこの行に収める
+                if is_last_run && cursor.index >= run_start {
+                    matched_run = Some(run);
+                    break;
+                }
+                // 途中の折り返し行であれば、開始位置から終了位置の手前までに収まるかチェック
+                if cursor.index >= run_start && cursor.index < run_end {
+                    matched_run = Some(run);
+                    break;
+                }
+            }
+        }
+
+        // 特定した正しいビジュアル行からX/Y/Heightを算出
+        if let Some(run) = matched_run {
+            y = run.line_top;
+            height = run.line_height;
+            found = true;
+
+            let mut glyph_found = false;
+            for glyph in run.glyphs {
+                if cursor.index >= glyph.start && cursor.index < glyph.end {
+                    x = glyph.x;
+                    glyph_found = true;
+                    break;
+                }
+            }
+
+            // 行末、または空行などでグリフがヒットしなかった場合の補正
+            if !glyph_found {
+                if let Some(last_glyph) = run.glyphs.last() {
+                    x = last_glyph.x + last_glyph.w;
+                } else {
+                    x = 0.0;
+                }
+            }
+        }
+
+        // 万が一見つからなかった場合のフォールバック
         if !found && let Some(last_run) = buffer.layout_runs().last() {
             height = last_run.line_height;
             y = last_run.line_top;
