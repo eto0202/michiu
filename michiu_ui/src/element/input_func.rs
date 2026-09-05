@@ -677,7 +677,6 @@ impl Element {
         id: EntityId,
         contents: &mut InputContents,
         engine: &TextLayoutEngine,
-        font_size: f32,
         caret: usize,
         text_val: &str,
         text_len: usize,
@@ -691,7 +690,7 @@ impl Element {
             return false;
         }
 
-        let (cx_offset, cy_offset, _) = match &engine {
+        let (cx_offset, cy_offset, ch_height) = match &engine {
             TextLayoutEngine::Cosmic(buffer) => {
                 sys_text_engine.get_caret_position_cosmic(buffer, caret, text_len)
             }
@@ -700,8 +699,7 @@ impl Element {
             }
         };
 
-        let line_height = font_size * 1.2;
-        let target_y = (cy_offset - line_height * 0.5).max(0.0);
+        let target_y = (cy_offset - ch_height * 0.5).max(0.0);
 
         let (new_caret, is_trailing) = match &engine {
             TextLayoutEngine::Cosmic(buffer) => {
@@ -756,7 +754,6 @@ impl Element {
         id: EntityId,
         contents: &mut InputContents,
         engine: &TextLayoutEngine,
-        font_size: f32,
         caret: usize,
         text_val: &str,
         text_len: usize,
@@ -770,7 +767,7 @@ impl Element {
             return false;
         }
 
-        let (cx_offset, cy_offset, _) = match &engine {
+        let (cx_offset, cy_offset, ch_height) = match &engine {
             TextLayoutEngine::Cosmic(buffer) => {
                 sys_text_engine.get_caret_position_cosmic(buffer, caret, text_len)
             }
@@ -779,8 +776,8 @@ impl Element {
             }
         };
 
-        let line_height = font_size * 1.2;
-        let target_y = cy_offset + line_height * 1.5;
+        let target_y = cy_offset + ch_height * 1.5;
+
         let (new_caret, is_trailing) = match &engine {
             TextLayoutEngine::Cosmic(buffer) => {
                 sys_text_engine.hit_test_point_cosmic(buffer, cx_offset, target_y)
@@ -849,9 +846,6 @@ impl Element {
             return;
         };
 
-        let default_visual = VisualProperty::default();
-        let visual = cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
-        let font_size = visual.font_size.unwrap_or(16.0);
         let text_val = contents.text.0.get();
         let text_len = if cx.cosmic {
             text_val.len()
@@ -925,7 +919,6 @@ impl Element {
                     id,
                     contents,
                     &engine,
-                    font_size,
                     caret,
                     &text_val,
                     text_len,
@@ -941,7 +934,6 @@ impl Element {
                     id,
                     contents,
                     &engine,
-                    font_size,
                     caret,
                     &text_val,
                     text_len,

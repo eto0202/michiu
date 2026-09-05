@@ -627,18 +627,37 @@ impl TextEngine {
         let mut height = 16.0f32;
         let mut found = false;
 
-        'outer: for run in buffer.layout_runs() {
-            height = run.line_height;
-            y = run.line_top;
-            for glyph in run.glyphs {
-                if index >= glyph.start && index < glyph.end {
-                    x = glyph.x;
-                    found = true;
-                    break 'outer;
+        // フラットなインデックスから 2D Cursor へ
+        let cursor = Self::flat_idx_to_cursor(buffer, index);
+
+        for run in buffer.layout_runs() {
+            if run.line_i == cursor.line {
+                y = run.line_top;
+                height = run.line_height;
+                found = true;
+
+                let mut glyph_found = false;
+                for glyph in run.glyphs {
+                    if cursor.index >= glyph.start && cursor.index < glyph.end {
+                        x = glyph.x;
+                        glyph_found = true;
+                        break;
+                    }
                 }
+
+                // 行末、または空行などでグリフがヒットしなかった場合の補正
+                if !glyph_found {
+                    if let Some(last_glyph) = run.glyphs.last() {
+                        x = last_glyph.x + last_glyph.w;
+                    } else {
+                        x = 0.0;
+                    }
+                }
+                break;
             }
         }
 
+        // 万が一見つからなかった場合の最後のフォールバック
         if !found && let Some(last_run) = buffer.layout_runs().last() {
             height = last_run.line_height;
             y = last_run.line_top;
@@ -650,9 +669,47 @@ impl TextEngine {
         (x, y, height)
     }
 
+    // フラットなバイト位置から 2D Cursor を算出
+    pub(crate) fn flat_idx_to_cursor(buffer: &Buffer, flat_idx: usize) -> cosmic_text::Cursor {
+        let mut accum = 0;
+        for (line_idx, line) in buffer.lines.iter().enumerate() {
+            let line_len = line.text().len();
+            if flat_idx >= accum && flat_idx <= accum + line_len {
+                return cosmic_text::Cursor {
+                    line: line_idx,
+                    index: flat_idx - accum,
+                    // キャレットの位置調整用
+                    affinity: cosmic_text::Affinity::Before,
+                };
+            }
+            accum += line_len + 1; // 各行の末尾にある '\n'
+        }
+        let last_line = buffer.lines.len().saturating_sub(1);
+        let last_line_len = buffer.lines.get(last_line).map_or(0, |l| l.text().len());
+        cosmic_text::Cursor {
+            line: last_line,
+            index: last_line_len,
+            affinity: cosmic_text::Affinity::Before,
+        }
+    }
+
+    // 2D Cursor からフラットなバイト位置を逆算
+    pub(crate) fn cursor_to_flat_idx(buffer: &Buffer, cursor: &cosmic_text::Cursor) -> usize {
+        let mut flat_idx = 0;
+        for (line_idx, line) in buffer.lines.iter().enumerate() {
+            if line_idx == cursor.line {
+                break;
+            }
+            flat_idx += line.text().len() + 1; // 各行の末尾にある '\n'
+        }
+        flat_idx + cursor.index
+    }
+
     pub(crate) fn hit_test_point_cosmic(&self, buffer: &Buffer, x: f32, y: f32) -> (usize, bool) {
         if let Some(cursor) = buffer.hit(x, y) {
-            (cursor.index, false)
+            // 2D位置をフラットなバイトインデックスに変換
+            let flat_index = Self::cursor_to_flat_idx(buffer, &cursor);
+            (flat_index, false)
         } else {
             (0, false)
         }
