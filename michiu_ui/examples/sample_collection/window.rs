@@ -313,7 +313,6 @@ unsafe extern "system" fn wnd_proc(
                     modifiers: Modifiers::default(),
                 });
 
-
                 app.context
                     .sync_layout_and_render(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
@@ -340,7 +339,6 @@ unsafe extern "system" fn wnd_proc(
 
                 app.context
                     .inject_user_action(UserAction::PointerDoubleClick { modifiers });
-
 
                 app.context
                     .sync_layout_and_render(app.root_id, app.renderer.layout_size);

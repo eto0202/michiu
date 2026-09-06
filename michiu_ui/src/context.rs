@@ -73,6 +73,8 @@ pub struct Context {
     pub layouts: LayoutStore,
     pub renders: RenderStore,
     pub outputs: OutputStore,
+
+    pub cosmic: bool,
 }
 
 impl Default for Context {
@@ -103,6 +105,7 @@ impl Context {
                 },
                 rx,
             ),
+            cosmic: false,
         }
     }
 
@@ -128,6 +131,7 @@ impl Context {
             layouts: LayoutStore::with_capacity(capacity),
             renders: RenderStore::with_capacity(capacity),
             outputs: OutputStore::with_capacity(capacity),
+            cosmic: false,
         }
     }
 
@@ -353,6 +357,7 @@ impl Context {
             &self.contents.cont_text_contents,
             &self.renders.rnd_visual,
             &self.states.edit.edit_selections,
+            self.cosmic,
         )
     }
 

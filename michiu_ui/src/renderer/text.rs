@@ -1,10 +1,17 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::ops::Range;
 
 use crate::types::LayoutSize;
-use crate::{EdgeInsets, LayoutRect, RendererView, TextSpan, VisualProperty};
+use crate::{
+    EdgeInsets, LayoutRect, NewTextCacheKey, NewTextCacheValue, RendererView, TextAlign, TextSpan,
+    VisualProperty,
+};
+use cosmic_text::{
+    Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
+};
 use rustc_hash::FxHashMap;
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use windows::Win32::Graphics::Direct2D::{
     D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE, ID2D1RenderTarget,
 };
@@ -48,6 +55,9 @@ pub(crate) struct TextEngine {
     pub(crate) dwrite_factory: IDWriteFactory,
     pub(crate) default_format: IDWriteTextFormat,
     pub(crate) rendering_params: IDWriteRenderingParams,
+
+    pub(crate) font_system: FontSystem,
+    pub(crate) swash_cache: SwashCache,
 }
 
 impl TextEngine {
@@ -91,6 +101,9 @@ impl TextEngine {
             dwrite_factory,
             default_format,
             rendering_params,
+
+            font_system: FontSystem::new(),
+            swash_cache: SwashCache::new(),
         }
     }
 
@@ -436,6 +449,421 @@ impl TextEngine {
             .insert(key.clone(), TextCacheValue { uv_min, uv_max });
 
         (uv_min, uv_max, cleared)
+    }
+
+    pub(crate) fn create_buffer_cosmic(
+        &mut self,
+        text: &str,
+        font_size: f32,
+        font_family: Option<&str>,
+        font_weight: Option<u32>,
+        font_style: Option<u32>,
+        text_align: TextAlign,
+        max_width: Option<f32>,
+        auto_wrap: Option<bool>,
+        spans: &[TextSpan],
+    ) -> Buffer {
+        let metrics = Metrics::new(font_size, font_size * 1.2);
+        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+
+        let mut default_attrs = Attrs::new();
+        if let Some(family) = font_family {
+            default_attrs = default_attrs.family(Family::Name(family));
+        }
+        if let Some(weight) = font_weight {
+            default_attrs = default_attrs.weight(Weight(weight as u16));
+        }
+        if let Some(style) = font_style {
+            default_attrs = default_attrs.style(match style {
+                2 => Style::Italic,
+                _ => Style::Normal,
+            });
+        }
+
+        let align = Self::map_to_cosmic_align(text_align);
+
+        buffer.set_size(max_width, Some(f32::MAX));
+        if auto_wrap.unwrap_or(false) && max_width.is_some() {
+            buffer.set_wrap(Wrap::Glyph);
+        } else {
+            buffer.set_wrap(Wrap::None);
+        }
+
+        if spans.is_empty() {
+            buffer.set_text(text, &default_attrs, Shaping::Advanced, align);
+        } else {
+            let text_len = text.len();
+            let mut boundaries = vec![0, text_len];
+            for span in spans {
+                if span.range.start < text_len && text.is_char_boundary(span.range.start) {
+                    boundaries.push(span.range.start);
+                }
+                if span.range.end < text_len && text.is_char_boundary(span.range.end) {
+                    boundaries.push(span.range.end);
+                }
+            }
+            boundaries.sort_unstable();
+            boundaries.dedup();
+
+            let mut slice_strings = Vec::with_capacity(boundaries.len());
+            let mut rich_spans = Vec::with_capacity(boundaries.len());
+
+            for window in boundaries.windows(2) {
+                let start = window[0];
+                let end = window[1];
+                if start >= end {
+                    continue;
+                }
+
+                let slice_str = &text[start..end];
+                slice_strings.push(slice_str);
+            }
+
+            for (i, window) in boundaries.windows(2).enumerate() {
+                let start = window[0];
+                let end = window[1];
+                if start >= end {
+                    continue;
+                }
+
+                let mut attrs = default_attrs.clone();
+                if let Some(span) = spans
+                    .iter()
+                    .find(|s| s.range.start <= start && s.range.end >= end)
+                {
+                    if let Some(size) = span.font_size {
+                        attrs = attrs.metrics(Metrics::new(size, size * 1.2));
+                    }
+                    if let Some(color) = span.color {
+                        attrs = attrs.color(cosmic_text::Color::rgba(
+                            (color.r * 255.0) as u8,
+                            (color.g * 255.0) as u8,
+                            (color.b * 255.0) as u8,
+                            (color.a * 255.0) as u8,
+                        ));
+                    }
+                    if let Some(ref family) = span.font_family {
+                        attrs = attrs.family(Family::Name(family));
+                    }
+                    if let Some(weight) = span.font_weight {
+                        attrs = attrs.weight(Weight(weight as u16));
+                    }
+                    if let Some(style) = span.font_style {
+                        attrs = attrs.style(match style {
+                            2 => Style::Italic,
+                            _ => Style::Normal,
+                        });
+                    }
+                }
+                rich_spans.push((slice_strings[i], attrs));
+            }
+
+            buffer.set_rich_text(rich_spans, &default_attrs, Shaping::Advanced, align);
+        }
+
+        buffer.shape_until_scroll(&mut self.font_system, false);
+        buffer
+    }
+
+    fn map_to_cosmic_align(align: TextAlign) -> Option<cosmic_text::Align> {
+        match align {
+            TextAlign::Center => Some(cosmic_text::Align::Center),
+            TextAlign::Right => Some(cosmic_text::Align::Right),
+            _ => None, // TextAlign::Left や Auto は None（Left）
+        }
+    }
+
+    pub(crate) fn measure_text_cosmic(
+        &mut self,
+        text: &str,
+        font_size: f32,
+        font_family: Option<&str>,
+        font_weight: Option<u32>,
+        font_style: Option<u32>,
+        text_align: TextAlign,
+        max_width: Option<f32>,
+        auto_wrap: Option<bool>,
+        spans: &[TextSpan],
+    ) -> LayoutSize {
+        if text.is_empty() {
+            return LayoutSize::ZERO;
+        }
+
+        let buffer = self.create_buffer_cosmic(
+            text,
+            font_size,
+            font_family,
+            font_weight,
+            font_style,
+            text_align,
+            max_width,
+            auto_wrap,
+            spans,
+        );
+
+        self.get_layout_size_cosmic(&buffer)
+    }
+
+    pub(crate) fn get_layout_size_cosmic(&self, buffer: &Buffer) -> LayoutSize {
+        let mut width = 0.0f32;
+        let mut height = 0.0f32;
+
+        for run in buffer.layout_runs() {
+            width = width.max(run.line_w);
+            height += run.line_height;
+        }
+
+        LayoutSize::new(width, height)
+    }
+
+    pub(crate) fn get_caret_position_cosmic(
+        &self,
+        buffer: &Buffer,
+        index: usize,
+        text_len: usize,
+    ) -> (f32, f32, f32) {
+        let mut x = 0.0f32;
+        let mut y = 0.0f32;
+        let mut height = 16.0f32;
+        let mut found = false;
+
+        // フラットなインデックスから 2D Cursor へ
+        let cursor = Self::flat_idx_to_cursor(buffer, index);
+
+        // この段落に属するすべてのビジュアル行を抽出
+        let mut candidate_runs: SmallVec<[_; 16]> = SmallVec::new();
+        for run in buffer.layout_runs() {
+            if run.line_i == cursor.line {
+                candidate_runs.push(run);
+            }
+        }
+
+        // 複数あるビジュアル行の中から、キャレットが実際に属している1行を特定
+        let mut matched_run = None;
+        if !candidate_runs.is_empty() {
+            for (i, run) in candidate_runs.iter().enumerate() {
+                let run_start = run.glyphs.first().map_or(0, |g| g.start);
+                let run_end = run.glyphs.last().map_or(0, |g| g.end);
+
+                let is_last_run = i == candidate_runs.len() - 1;
+
+                // 折り返された最後の行であれば、開始位置以降はすべてこの行に収める
+                if is_last_run && cursor.index >= run_start {
+                    matched_run = Some(run);
+                    break;
+                }
+                // 途中の折り返し行であれば、開始位置から終了位置の手前までに収まるかチェック
+                if cursor.index >= run_start && cursor.index < run_end {
+                    matched_run = Some(run);
+                    break;
+                }
+            }
+        }
+
+        // 特定した正しいビジュアル行からX/Y/Heightを算出
+        if let Some(run) = matched_run {
+            y = run.line_top;
+            height = run.line_height;
+            found = true;
+
+            let mut glyph_found = false;
+            for glyph in run.glyphs {
+                if cursor.index >= glyph.start && cursor.index < glyph.end {
+                    x = glyph.x;
+                    glyph_found = true;
+                    break;
+                }
+            }
+
+            // 行末、または空行などでグリフがヒットしなかった場合の補正
+            if !glyph_found {
+                if let Some(last_glyph) = run.glyphs.last() {
+                    x = last_glyph.x + last_glyph.w;
+                } else {
+                    x = 0.0;
+                }
+            }
+        }
+
+        // 万が一見つからなかった場合のフォールバック
+        if !found && let Some(last_run) = buffer.layout_runs().last() {
+            height = last_run.line_height;
+            y = last_run.line_top;
+            if let Some(last_glyph) = last_run.glyphs.last() {
+                x = last_glyph.x + last_glyph.w;
+            }
+        }
+
+        (x, y, height)
+    }
+
+    // フラットなバイト位置から 2D Cursor を算出
+    pub(crate) fn flat_idx_to_cursor(buffer: &Buffer, flat_idx: usize) -> cosmic_text::Cursor {
+        let mut accum = 0;
+        let lines_len = buffer.lines.len();
+
+        if lines_len == 0 {
+            return cosmic_text::Cursor::default();
+        }
+
+        for (line_idx, line) in buffer.lines.iter().enumerate() {
+            let line_len = line.text().len();
+            // 最終行以外は '\n' の 1 バイトを考慮
+            let is_last_line = line_idx == lines_len - 1;
+            let line_end_with_nl = accum + line_len + usize::from(!is_last_line);
+
+            // 現在の行の範囲内（末尾の改行を含む）かチェック
+            if flat_idx < line_end_with_nl || is_last_line {
+                let index_in_line = (flat_idx.saturating_sub(accum)).min(line_len);
+                return cosmic_text::Cursor {
+                    line: line_idx,
+                    index: index_in_line,
+                    affinity: cosmic_text::Affinity::Before,
+                };
+            }
+
+            accum = line_end_with_nl;
+        }
+
+        let last_line = buffer.lines.len().saturating_sub(1);
+        let last_line_len = buffer.lines.get(last_line).map_or(0, |l| l.text().len());
+        cosmic_text::Cursor {
+            line: last_line,
+            index: last_line_len,
+            affinity: cosmic_text::Affinity::Before,
+        }
+    }
+
+    // 2D Cursor からフラットなバイト位置を逆算
+    pub(crate) fn cursor_to_flat_idx(buffer: &Buffer, cursor: &cosmic_text::Cursor) -> usize {
+        let mut flat_idx = 0;
+        for (line_idx, line) in buffer.lines.iter().enumerate() {
+            if line_idx == cursor.line {
+                break;
+            }
+            flat_idx += line.text().len() + 1; // 各行の末尾にある '\n'
+        }
+        flat_idx + cursor.index
+    }
+
+    pub(crate) fn hit_test_point_cosmic(&self, buffer: &Buffer, x: f32, y: f32) -> (usize, bool) {
+        if let Some(cursor) = buffer.hit(x, y) {
+            // 2D位置をフラットなバイトインデックスに変換
+            let flat_index = Self::cursor_to_flat_idx(buffer, &cursor);
+            (flat_index, false)
+        } else {
+            (0, false)
+        }
+    }
+
+    pub(crate) fn get_or_create_glyph_uv_cosmic(
+        &mut self,
+        cache_key: CacheKey,
+        view: &mut RendererView,
+        scale_factor: f32,
+    ) -> ([f32; 2], [f32; 2], i32, i32, f32, f32, bool) {
+        let key = NewTextCacheKey { cache_key };
+        if let Some(cached) = view.new_text_cache.get(&key) {
+            return (
+                cached.uv_min,
+                cached.uv_max,
+                cached.offset_x,
+                cached.offset_y,
+                cached.width,
+                cached.height,
+                false,
+            );
+        }
+
+        let image_opt = self.swash_cache.get_image(&mut self.font_system, cache_key);
+
+        let Some(image) = image_opt else {
+            return ([0.0, 0.0], [0.0, 0.0], 0, 0, 0.0, 0.0, false);
+        };
+
+        let width = image.placement.width;
+        let height = image.placement.height;
+
+        let mut alloc_res = view.atlas.allocate(width, height);
+        let mut cleared = false;
+
+        if alloc_res.is_none() {
+            view.atlas.clear();
+            view.text_cache.clear();
+            alloc_res = view.atlas.allocate(width, height);
+            cleared = true;
+        }
+
+        let (x, y) = alloc_res.expect("Glyph exceeds maximum atlas size");
+
+        view.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &view.atlas.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &image.data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let (uv_min, uv_max) = view.atlas.texel_to_uv(x, y, width, height);
+        let offset_x = image.placement.left;
+        let offset_y = image.placement.top;
+        let log_width = width as f32 / scale_factor;
+        let log_height = height as f32 / scale_factor;
+
+        view.new_text_cache.insert(
+            key.clone(),
+            NewTextCacheValue {
+                uv_min,
+                uv_max,
+                offset_x,
+                offset_y,
+                width: log_width,
+                height: log_height,
+            },
+        );
+
+        (
+            uv_min, uv_max, offset_x, offset_y, log_width, log_height, cleared,
+        )
+    }
+
+    /// cosmic-text の Buffer から、指定されたインデックス範囲が占める各行の矩形を計算
+    pub(crate) fn calc_span_rects_cosmic(buffer: &Buffer, range: Range<usize>) -> Vec<LayoutRect> {
+        let mut rects = Vec::new();
+
+        for run in buffer.layout_runs() {
+            let mut start_x: Option<f32> = None;
+            let mut end_x: Option<f32> = None;
+
+            for glyph in run.glyphs {
+                // スパンの範囲に文字のインデックスが一部でも交差しているか判定
+                if glyph.start < range.end && glyph.end > range.start {
+                    if start_x.is_none() {
+                        start_x = Some(glyph.x);
+                    }
+                    // グリフの右端座標
+                    end_x = Some(glyph.x + glyph.w);
+                }
+            }
+
+            // この行で交差するグリフが見つかった場合、その範囲で矩形を作成
+            if let (Some(sx), Some(ex)) = (start_x, end_x) {
+                rects.push(LayoutRect::new(sx, run.line_y, ex - sx, run.line_height));
+            }
+        }
+        rects
     }
 }
 

@@ -1,16 +1,18 @@
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BasicLayoutsSecondary, CapacityConfig,
-    ContentStore, Context, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents,
-    InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint, LayoutRect,
-    LayoutStore, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
+    ContentStore, Context, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, FlexLayout,
+    InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint,
+    LayoutRect, LayoutStore, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
     ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
     ScrollOffsetsSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
     TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
     TextSpansSparseSecondary, UiaValue, VisualPropertiesSecondary, WindowStore,
 };
+use cosmic_text::Buffer;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     cell::RefCell,
+    rc::Rc,
     sync::{Arc, mpsc::Receiver},
 };
 use windows::Win32::{
@@ -31,6 +33,7 @@ use windows::Win32::{
         KeyboardAndMouse::GetFocus,
     },
 };
+use windows_core::Ref;
 
 pub(crate) type TaskSenderType =
     std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Context) + Send + 'static>>;
@@ -61,13 +64,19 @@ impl TaskSender {
     }
 }
 
-pub(crate) type DwriteLayoutsSparseSecondary =
-    RefCell<SparseSecondaryMap<EntityId, IDWriteTextLayout>>;
+#[derive(Debug, Clone)]
+pub(crate) enum TextLayoutEngine {
+    Cosmic(Rc<Buffer>),
+    DWrite(IDWriteTextLayout),
+}
+
+pub(crate) type TextLayoutEngineSparseSecondary =
+    RefCell<SparseSecondaryMap<EntityId, TextLayoutEngine>>;
 pub(crate) type UiaPropertiesSparseSecondary = SparseSecondaryMap<EntityId, Vec<(i32, UiaValue)>>;
 
 pub struct SystemStore {
     pub(crate) sys_text_engine: TextEngine,
-    pub(crate) sys_dwrite_layouts: DwriteLayoutsSparseSecondary,
+    pub(crate) sys_dwrite_layouts: TextLayoutEngineSparseSecondary,
     pub(crate) sys_task_sender: TaskSender,
     pub(crate) sys_task_receiver: Receiver<TaskRecv>,
     pub(crate) sys_uia_properties: UiaPropertiesSparseSecondary,
@@ -125,7 +134,7 @@ impl SystemStore {
     #[inline]
     pub(crate) fn clear_layout_cache(
         id: EntityId,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
     ) {
         sys_dwrite_layouts.borrow_mut().remove(id);
     }
@@ -134,18 +143,16 @@ impl SystemStore {
     #[inline]
     pub(crate) fn get_or_create_layout(
         id: EntityId,
-        sys_text_engine: &TextEngine,
-        sys_dwrite_layouts: &DwriteLayoutsSparseSecondary,
+        cosmic: bool,
+        sys_text_engine: &mut TextEngine,
+        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
+        lay_resolved_flex: &ResolvedFlexSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         out_rects: &RectsSecondary,
-    ) -> Option<IDWriteTextLayout> {
-        if let Some(layout) = sys_dwrite_layouts.borrow().get(id) {
-            return Some(layout.clone());
-        }
-
+    ) -> Option<TextLayoutEngine> {
         let text = cont_text_contents.get(id)?;
         let (font_size, font_family, font_weight, font_style) =
             RenderStore::get_font_propery(id, rnd_visual);
@@ -153,6 +160,7 @@ impl SystemStore {
         let auto_wrap = rnd_visual.get(id).and_then(|v| v.auto_wrap);
 
         let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
+        let flex = lay_resolved_flex.get(id).copied().unwrap_or_default();
         let rect = out_rects.get(id).copied().unwrap_or_default();
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -165,35 +173,90 @@ impl SystemStore {
             None
         };
 
-        // キャッシュ存在時に、現在の幅の制約と一致しているか検証
-        if let Some(layout) = sys_dwrite_layouts.borrow().get(id) {
-            let cached_max_width = unsafe { layout.GetMaxWidth() };
-            let current_max_width = max_width_opt.unwrap_or(f32::MAX);
+        let engine = sys_dwrite_layouts.borrow().get(id).cloned();
 
-            // 許容誤差 1e-3 内で一致している場合はそのまま再利用。
-            // リサイズによって幅が変わっている場合はキャッシュを破棄して再ビルドへ進む。
-            if (cached_max_width - current_max_width).abs() < 1e-3 {
-                return Some(layout.clone());
+        if cosmic {
+            // キャッシュ存在時に、現在の幅の制約と一致しているか検証
+            if let Some(engine) = engine {
+                match engine {
+                    TextLayoutEngine::DWrite(idwrite_text_layout) => {
+                        // 古いエンジンのキャッシュは破棄して、そのまま下の新規ビルドへ進ませる
+                        sys_dwrite_layouts.borrow_mut().remove(id);
+                    }
+                    TextLayoutEngine::Cosmic(buffer) => {
+                        let cached_max_width = buffer.size().0.unwrap_or(f32::MAX);
+                        let current_max_width = max_width_opt.unwrap_or(f32::MAX);
+
+                        // 許容誤差 1e-3 内で一致している場合はそのまま再利用。
+                        // リサイズによって幅が変わっている場合はキャッシュを破棄して再ビルドへ進む。
+                        if (cached_max_width - current_max_width).abs() < 1e-3 {
+                            return Some(TextLayoutEngine::Cosmic(buffer));
+                        }
+
+                        sys_dwrite_layouts.borrow_mut().remove(id);
+                    }
+                }
             }
 
-            sys_dwrite_layouts.borrow_mut().remove(id);
+            let spans = ContentStore::get_text_span(id, cont_text_spans);
+
+            let buffer = sys_text_engine.create_buffer_cosmic(
+                text,
+                font_size,
+                font_family,
+                font_weight,
+                font_style,
+                flex.text_align,
+                max_width_opt,
+                auto_wrap,
+                spans,
+            );
+
+            let buffer = Rc::new(buffer);
+
+            sys_dwrite_layouts
+                .borrow_mut()
+                .insert(id, TextLayoutEngine::Cosmic(buffer.clone()));
+            Some(TextLayoutEngine::Cosmic(buffer))
+        } else {
+            if let Some(engine) = engine {
+                match engine {
+                    TextLayoutEngine::Cosmic(buffer) => {
+                        sys_dwrite_layouts.borrow_mut().remove(id);
+                    }
+                    TextLayoutEngine::DWrite(layout) => {
+                        let cached_max_width = unsafe { layout.GetMaxWidth() };
+                        let current_max_width = max_width_opt.unwrap_or(f32::MAX);
+
+                        // 許容誤差 1e-3 内で一致している場合はそのまま再利用。
+                        // リサイズによって幅が変わっている場合はキャッシュを破棄して再ビルドへ進む。
+                        if (cached_max_width - current_max_width).abs() < 1e-3 {
+                            return Some(TextLayoutEngine::DWrite(layout.clone()));
+                        }
+
+                        sys_dwrite_layouts.borrow_mut().remove(id);
+                    }
+                }
+            }
+
+            let spans = ContentStore::get_text_span(id, cont_text_spans);
+
+            let layout = sys_text_engine.create_layout(
+                text,
+                font_size,
+                font_family,
+                font_weight,
+                font_style,
+                max_width_opt,
+                auto_wrap,
+                spans,
+            );
+
+            sys_dwrite_layouts
+                .borrow_mut()
+                .insert(id, TextLayoutEngine::DWrite(layout.clone()));
+            Some(TextLayoutEngine::DWrite(layout))
         }
-
-        let spans = ContentStore::get_text_span(id, cont_text_spans);
-
-        let layout = sys_text_engine.create_layout(
-            text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
-            max_width_opt,
-            auto_wrap,
-            spans,
-        );
-
-        sys_dwrite_layouts.borrow_mut().insert(id, layout.clone());
-        Some(layout)
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -317,19 +380,21 @@ impl Context {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
     pub(crate) fn clear_layout_cache(&self, id: EntityId) {
-        self.system.sys_dwrite_layouts.borrow_mut().remove(id);
+        SystemStore::clear_layout_cache(id, &self.system.sys_dwrite_layouts);
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
-    pub(crate) fn get_or_create_layout(&self, id: EntityId) -> Option<IDWriteTextLayout> {
+    pub(crate) fn get_or_create_layout(&mut self, id: EntityId) -> Option<TextLayoutEngine> {
         SystemStore::get_or_create_layout(
             id,
-            &self.system.sys_text_engine,
+            self.cosmic,
+            &mut self.system.sys_text_engine,
             &self.system.sys_dwrite_layouts,
             &self.contents.cont_text_contents,
             &self.contents.cont_text_spans,
             &self.layouts.lay_resolved_basic,
+            &self.layouts.lay_resolved_flex,
             &self.renders.rnd_visual,
             &self.outputs.out_rects,
         )

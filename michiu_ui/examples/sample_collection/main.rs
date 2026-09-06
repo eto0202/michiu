@@ -42,6 +42,7 @@ impl SendHwnd {
 }
 
 pub const ALLOW_STRESS_TEST: bool = false;
+pub const APPLY_COSMIC_TEXT: bool = true;
 
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
@@ -59,6 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (h_instance, class_name, _wnd_class) = register_class()?;
     let hwnd = create_window(h_instance, class_name)?;
     let mut context = Context::with_capacity(&CapacityConfig::from_base_nodes(1024));
+    context.cosmic = APPLY_COSMIC_TEXT;
 
     let send_hwnd = SendHwnd(hwnd);
 

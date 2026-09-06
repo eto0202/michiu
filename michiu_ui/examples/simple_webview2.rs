@@ -35,6 +35,8 @@ struct AppState {
     webview_id: EntityId,
 }
 
+pub(crate) const APPLY_COSMIC_TEXT: bool = false;
+
 // Win32 ウィンドウプロシージャ
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
@@ -368,6 +370,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 3. UI コンテキストの構築と静的テキスト要素の定義
     let mut context = Context::new();
+    context.cosmic = APPLY_COSMIC_TEXT;
     let webview_id_cell = std::cell::Cell::new(None);
 
     // build_ui を使って要素ツリーを宣言的に組み立て
