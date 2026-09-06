@@ -1,13 +1,10 @@
-use lightningcss::properties::font::AbsoluteFontSize::Small;
-use smallvec::SmallVec;
-
 use crate::{
     ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
     InputContents, InputOp, Modifiers, MouseButton, OutputStore, Prop,
     SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SystemStore, TextEngine,
-    TextLayoutEngine, TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey,
-    VisualProperty, with_context,
+    TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
+use cosmic_text::Buffer;
 
 impl Element {
     /// このコンテナを入力フィールド（テキストボックス）化し、IME制御や入力ロジックをバインドします。
@@ -88,11 +85,7 @@ impl Element {
         self.input_area(dynamic_prop)
     }
 
-    fn sync_existing_input_properties(
-        existing: &mut InputContents,
-        c: InputContents,
-        cosmic: bool,
-    ) {
+    fn sync_existing_input_properties(existing: &mut InputContents, c: InputContents) {
         existing.placeholder = c.placeholder;
         existing.placeholder_color = c.placeholder_color;
         existing.caret_color = c.caret_color;
@@ -109,11 +102,7 @@ impl Element {
 
         // 動的なテキスト長の変更に伴い、既存の選択範囲が枠外へ飛び出さないようクランプ
         let current_text = existing.text.0.get();
-        let text_len = if cosmic {
-            current_text.len()
-        } else {
-            current_text.encode_utf16().count()
-        };
+        let text_len = current_text.len();
         existing.selected_range.start = existing.selected_range.start.min(text_len);
         existing.selected_range.end = existing.selected_range.end.min(text_len);
     }
@@ -169,9 +158,8 @@ impl Element {
 
         let engine = SystemStore::get_or_create_layout(
             id,
-            cx.cosmic,
             &mut cx.system.sys_text_engine,
-            &cx.system.sys_dwrite_layouts,
+            &cx.system.sys_text_buffers,
             &cx.contents.cont_text_contents,
             &cx.contents.cont_text_spans,
             &cx.layouts.lay_resolved_basic,
@@ -222,11 +210,10 @@ impl Element {
                 Some(&mut cx.states.edit.edit_selected_rects),
             );
         } else {
-            let Some(engine) = SystemStore::get_or_create_layout(
+            let Some(buffer) = SystemStore::get_or_create_layout(
                 id,
-                cx.cosmic,
                 &mut cx.system.sys_text_engine,
-                &cx.system.sys_dwrite_layouts,
+                &cx.system.sys_text_buffers,
                 &cx.contents.cont_text_contents,
                 &cx.contents.cont_text_spans,
                 &cx.layouts.lay_resolved_basic,
@@ -237,47 +224,24 @@ impl Element {
                 return;
             };
             // キャッシュ済みのレイアウトをそのまま使って高速にヒットテスト
-            let (new_caret, is_trailing) = match &engine {
-                TextLayoutEngine::Cosmic(buffer) => cx
-                    .system
-                    .sys_text_engine
-                    .hit_test_point_cosmic(buffer, local.x, local.y),
-                TextLayoutEngine::DWrite(dw_layout) => cx
-                    .system
-                    .sys_text_engine
-                    .hit_test_point(dw_layout, local.x, local.y),
-            };
+            let (new_caret, is_trailing) = cx
+                .system
+                .sys_text_engine
+                .hit_test_point(&buffer, local.x, local.y);
             // UTF-8の場合は次の文字境界までバイト数分進める
-            let final_caret = if cx.cosmic {
+            let final_caret = {
                 if is_trailing && new_caret < text_val.len() {
                     let current_char = text_val[new_caret..].chars().next().unwrap_or(' ');
                     new_caret + current_char.len_utf8()
                 } else {
                     new_caret
                 }
-            } else {
-                if is_trailing {
-                    new_caret + 1
-                } else {
-                    new_caret
-                }
             };
 
             let editable_len = if is_placeholder {
-                contents.placeholder.as_ref().map_or(0, |p| {
-                    if cx.cosmic {
-                        p.len()
-                    } else {
-                        p.encode_utf16().count()
-                    }
-                })
+                contents.placeholder.as_ref().map_or(0, |p| p.len())
             } else {
-                // 通常の文字列長
-                if cx.cosmic {
-                    text_val.len()
-                } else {
-                    text_val.encode_utf16().count()
-                }
+                text_val.len() // 通常の文字列長
             };
             let final_caret_clamped = final_caret.min(editable_len);
 
@@ -376,86 +340,48 @@ impl Element {
         // 変更発生前に現在の状態をセーブ
         contents.record_undo(text_val.clone(), range.clone());
 
-        if cx.cosmic {
-            // キャレット範囲をクランプし安全な文字境界に補正
-            let mut start = range.start.min(text_val.len());
-            let mut end = range.end.min(text_val.len());
+        // キャレット範囲をクランプし安全な文字境界に補正
+        let mut start = range.start.min(text_val.len());
+        let mut end = range.end.min(text_val.len());
 
-            while start > 0 && !text_val.is_char_boundary(start) {
-                start -= 1;
-            }
-            while end > 0 && !text_val.is_char_boundary(end) {
-                end -= 1;
-            }
-
-            let left = &text_val[..start];
-            let right = &text_val[end..];
-
-            // 削除後の文字数 ＋ 挿入する1文字が制限を超えないか
-            let chars_after_delete = left.chars().count() + right.chars().count();
-            if let Some(max) = contents.max_length
-                && chars_after_delete + 1 > max
-            {
-                return; // 制限を超えるため入力を中断
-            }
-
-            contents.last_interacted_time = Some(std::time::Instant::now());
-
-            // 文字列の結合
-            let mut new_text = String::with_capacity(left.len() + ch.len_utf8() + right.len());
-            new_text.push_str(left);
-            new_text.push(*ch);
-            new_text.push_str(right);
-
-            // キャレット位置を挿入した文字のバイト数分だけ進める
-            let new_caret = start + ch.len_utf8();
-
-            Element::set_caret_position(
-                id,
-                contents,
-                new_caret,
-                &mut cx.states.edit.edit_selections,
-                &mut cx.states.edit.edit_selection_start_index,
-                Some(&mut cx.states.edit.edit_selected_rects),
-            );
-            contents.text.1.set(new_text);
-        } else {
-            let u16_text: Vec<u16> = text_val.encode_utf16().collect();
-
-            // 選択範囲が削除された後の長さ
-            let u16_len_after_delete =
-                u16_text.len() - (range.end.min(u16_text.len()) - range.start.min(u16_text.len()));
-            let mut buf = [0u16; 2];
-            let ch_u16_slice = ch.encode_utf16(&mut buf);
-
-            // 文字数制限
-            if let Some(max) = contents.max_length
-                && u16_len_after_delete + ch_u16_slice.len() > max
-            {
-                return; // 制限を超えるため入力を中断
-            }
-
-            contents.last_interacted_time = Some(std::time::Instant::now());
-
-            let mut left = u16_text[..range.start.min(u16_text.len())].to_vec();
-            let right = u16_text[range.end.min(u16_text.len())..].to_vec();
-
-            left.extend_from_slice(ch_u16_slice);
-            left.extend_from_slice(&right);
-
-            let new_text = String::from_utf16_lossy(&left);
-            let new_caret = range.start + ch_u16_slice.len();
-
-            Element::set_caret_position(
-                id,
-                contents,
-                new_caret,
-                &mut cx.states.edit.edit_selections,
-                &mut cx.states.edit.edit_selection_start_index,
-                Some(&mut cx.states.edit.edit_selected_rects),
-            );
-            contents.text.1.set(new_text);
+        while start > 0 && !text_val.is_char_boundary(start) {
+            start -= 1;
         }
+        while end > 0 && !text_val.is_char_boundary(end) {
+            end -= 1;
+        }
+
+        let left = &text_val[..start];
+        let right = &text_val[end..];
+
+        // 削除後の文字数 ＋ 挿入する1文字が制限を超えないか
+        let chars_after_delete = left.chars().count() + right.chars().count();
+        if let Some(max) = contents.max_length
+            && chars_after_delete + 1 > max
+        {
+            return; // 制限を超えるため入力を中断
+        }
+
+        contents.last_interacted_time = Some(std::time::Instant::now());
+
+        // 文字列の結合
+        let mut new_text = String::with_capacity(left.len() + ch.len_utf8() + right.len());
+        new_text.push_str(left);
+        new_text.push(*ch);
+        new_text.push_str(right);
+
+        // キャレット位置を挿入した文字のバイト数分だけ進める
+        let new_caret = start + ch.len_utf8();
+
+        Element::set_caret_position(
+            id,
+            contents,
+            new_caret,
+            &mut cx.states.edit.edit_selections,
+            &mut cx.states.edit.edit_selection_start_index,
+            Some(&mut cx.states.edit.edit_selected_rects),
+        );
+        contents.text.1.set(new_text);
 
         cx.apply_input_update(id, InputOp::CharTyped);
     }
@@ -467,17 +393,12 @@ impl Element {
         text_val: &str,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        cosmic: bool,
     ) {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.to_string(), range.clone());
 
         if range.start < range.end {
-            let new_text = if cosmic {
-                InputContents::remove_range_utf8_byte(text_val, &range)
-            } else {
-                InputContents::remove_utf16_range(text_val, &range)
-            };
+            let new_text = InputContents::remove_range_utf8_byte(text_val, &range);
 
             Element::set_caret_position(
                 id,
@@ -490,11 +411,7 @@ impl Element {
             contents.text.1.set(new_text);
         } else {
             // 通常の1文字バックスペース
-            let new_text = if cosmic {
-                InputContents::input_backspace_utf8_byte(text_val, caret)
-            } else {
-                InputContents::input_backspace(text_val, caret)
-            };
+            let new_text = InputContents::input_backspace_utf8_byte(text_val, caret);
             Element::set_caret_position(
                 id,
                 contents,
@@ -515,17 +432,11 @@ impl Element {
         text_val: &str,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        cosmic: bool,
     ) {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.to_string(), range.clone());
         if range.start < range.end {
-            let new_text = if cosmic {
-                InputContents::remove_range_utf8_byte(text_val, &range)
-            } else {
-                InputContents::remove_utf16_range(text_val, &range)
-            };
-
+            let new_text = InputContents::remove_range_utf8_byte(text_val, &range);
             Element::set_caret_position(
                 id,
                 contents,
@@ -537,11 +448,7 @@ impl Element {
             contents.text.1.set(new_text);
         } else {
             // 通常の1文字デリート
-            let new_text = if cosmic {
-                InputContents::input_delete_utf8_byte(text_val, caret)
-            } else {
-                InputContents::input_delete(text_val, caret)
-            };
+            let new_text = InputContents::input_delete_utf8_byte(text_val, caret);
             Element::set_caret_position(
                 id,
                 contents,
@@ -679,7 +586,7 @@ impl Element {
     fn pressed_up(
         id: EntityId,
         contents: &mut InputContents,
-        engine: &TextLayoutEngine,
+        buffer: &Buffer,
         caret: usize,
         text_val: &str,
         text_len: usize,
@@ -687,41 +594,23 @@ impl Element {
         sys_text_engine: &mut TextEngine,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        cosmic: bool,
     ) -> bool {
         if !contents.is_multiline {
             return false;
         }
 
-        let (cx_offset, cy_offset, ch_height) = match &engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                sys_text_engine.get_caret_position_cosmic(buffer, caret, text_len)
-            }
-            TextLayoutEngine::DWrite(dw_layout) => {
-                sys_text_engine.get_caret_position(dw_layout, caret, text_len)
-            }
-        };
+        let (cx_offset, cy_offset, ch_height) =
+            sys_text_engine.get_caret_position(buffer, caret, text_len);
 
         let target_y = (cy_offset - ch_height * 0.5).max(0.0);
 
-        let (new_caret, is_trailing) = match &engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                sys_text_engine.hit_test_point_cosmic(buffer, cx_offset, target_y)
-            }
-            TextLayoutEngine::DWrite(dw_layout) => {
-                sys_text_engine.hit_test_point(dw_layout, cx_offset, target_y)
-            }
-        };
-        let final_caret = if cosmic {
+        let (new_caret, is_trailing) =
+            sys_text_engine.hit_test_point(buffer, cx_offset, target_y);
+
+        let final_caret = {
             if is_trailing && new_caret < text_len {
                 let current_char = text_val[new_caret..].chars().next().unwrap_or(' ');
                 new_caret + current_char.len_utf8()
-            } else {
-                new_caret
-            }
-        } else {
-            if is_trailing {
-                new_caret + 1
             } else {
                 new_caret
             }
@@ -756,7 +645,7 @@ impl Element {
     fn pressed_down(
         id: EntityId,
         contents: &mut InputContents,
-        engine: &TextLayoutEngine,
+        buffer: &Buffer,
         caret: usize,
         text_val: &str,
         text_len: usize,
@@ -764,41 +653,23 @@ impl Element {
         sys_text_engine: &mut TextEngine,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        cosmic: bool,
     ) -> bool {
         if !contents.is_multiline {
             return false;
         }
 
-        let (cx_offset, cy_offset, ch_height) = match &engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                sys_text_engine.get_caret_position_cosmic(buffer, caret, text_len)
-            }
-            TextLayoutEngine::DWrite(dw_layout) => {
-                sys_text_engine.get_caret_position(dw_layout, caret, text_len)
-            }
-        };
+        let (cx_offset, cy_offset, ch_height) =
+            sys_text_engine.get_caret_position(buffer, caret, text_len);
 
         let target_y = cy_offset + ch_height * 1.5;
 
-        let (new_caret, is_trailing) = match &engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                sys_text_engine.hit_test_point_cosmic(buffer, cx_offset, target_y)
-            }
-            TextLayoutEngine::DWrite(dw_layout) => {
-                sys_text_engine.hit_test_point(dw_layout, cx_offset, target_y)
-            }
-        };
-        let final_caret = if cosmic {
+        let (new_caret, is_trailing) =
+            sys_text_engine.hit_test_point(buffer, cx_offset, target_y);
+
+        let final_caret = {
             if is_trailing && new_caret < text_len {
                 let current_char = text_val[new_caret..].chars().next().unwrap_or(' ');
                 new_caret + current_char.len_utf8()
-            } else {
-                new_caret
-            }
-        } else {
-            if is_trailing {
-                new_caret + 1
             } else {
                 new_caret
             }
@@ -850,11 +721,7 @@ impl Element {
         };
 
         let text_val = contents.text.0.get();
-        let text_len = if cx.cosmic {
-            text_val.len()
-        } else {
-            text_val.encode_utf16().count()
-        };
+        let text_len = text_val.len();
 
         contents.selected_range = (contents.selected_range.start.min(text_len))
             ..(contents.selected_range.end.min(text_len));
@@ -876,7 +743,6 @@ impl Element {
                     &text_val,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
-                    cx.cosmic,
                 );
                 cx.apply_input_update(id, InputOp::Backspace);
             }
@@ -888,7 +754,6 @@ impl Element {
                     &text_val,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
-                    cx.cosmic,
                 );
                 cx.apply_input_update(id, InputOp::Delete);
             }
@@ -929,7 +794,6 @@ impl Element {
                     &mut cx.system.sys_text_engine,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
-                    cx.cosmic,
                 );
             }
             VirtualKey::DOWN => {
@@ -944,7 +808,6 @@ impl Element {
                     &mut cx.system.sys_text_engine,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
-                    cx.cosmic,
                 );
             }
             _ => {}
@@ -974,11 +837,7 @@ impl Element {
             // Undo履歴に削除前の状態を記録
             contents.record_undo(text_val.clone(), range.clone());
 
-            let new_text = if cx.cosmic {
-                InputContents::remove_range_utf8_byte(&text_val, &range)
-            } else {
-                InputContents::remove_utf16_range(&text_val, &range)
-            };
+            let new_text = InputContents::remove_range_utf8_byte(&text_val, &range);
             let caret = range.start;
 
             // キャレット・選択範囲を消去開始位置に一度リセットして同期
@@ -1001,23 +860,13 @@ impl Element {
             // 確定した文字列を1文字ずつ安全に挿入
             let mut temp_text = text_val;
             for ch in ime.result_text.chars() {
-                if cx.cosmic {
-                    temp_text = InputContents::input_insert_char_utf8_byte(
-                        &temp_text,
-                        &mut caret,
-                        ch,
-                        contents.max_length,
-                        contents.numeric_only,
-                    );
-                } else {
-                    temp_text = InputContents::input_insert_char(
-                        &temp_text,
-                        &mut caret,
-                        ch,
-                        contents.max_length,
-                        contents.numeric_only,
-                    );
-                }
+                temp_text = InputContents::input_insert_char_utf8_byte(
+                    &temp_text,
+                    &mut caret,
+                    ch,
+                    contents.max_length,
+                    contents.numeric_only,
+                );
             }
 
             // 確定したキャレット位置で SoA 側の選択状態と開始アンカーを同期
@@ -1035,11 +884,7 @@ impl Element {
         } else if !ime.composition_text.is_empty() {
             // IME 未変換中
             let caret = contents.selected_range.start;
-            let comp_len = if cx.cosmic {
-                ime.composition_text.len()
-            } else {
-                ime.composition_text.encode_utf16().count()
-            };
+            let comp_len = ime.composition_text.len();
             contents.marked_range = Some(caret..(caret + comp_len));
         } else {
             contents.marked_range = None;
@@ -1055,7 +900,7 @@ impl Element {
 
             // Windowsから送られてくる属性情報のインデックス（start_idx と end_idx）はバイト数ではなく文字単位
             // UTF-8のときは文字単位インデックスをバイト単位にマッピングするためのリストを作成
-            let char_byte_offsets = if cx.cosmic {
+            let char_byte_offsets = {
                 let mut offsets = Vec::with_capacity(ime.composition_text.chars().count() + 1);
                 let mut curr_byte = 0;
                 for c in ime.composition_text.chars() {
@@ -1063,18 +908,12 @@ impl Element {
                     curr_byte += c.len_utf8();
                 }
                 offsets.push(curr_byte);
-                Some(offsets)
-            } else {
-                None
+                offsets
             };
 
             if ime.composition_attrs.is_empty() {
                 // 属性が取得できない場合のフォールバック（全体を未確定波線に設定）
-                let comp_len = if cx.cosmic {
-                    ime.composition_text.len()
-                } else {
-                    ime.composition_text.encode_utf16().count()
-                };
+                let comp_len = ime.composition_text.len();
                 spans.push(TextSpan {
                     range: caret..(caret + comp_len),
                     underline: Some(UnderlineStyle::Wave),
@@ -1102,18 +941,8 @@ impl Element {
                         _ => Some(UnderlineStyle::Wave),
                     };
 
-                    // cosmic の時はバイト単位、DWrite の時は文字単位で範囲を計算
-                    let offset = char_byte_offsets.as_ref().unwrap();
-                    let span_start = if cx.cosmic {
-                        caret + offset[start_idx]
-                    } else {
-                        caret + start_idx
-                    };
-                    let span_end = if cx.cosmic {
-                        caret + offset[end_idx]
-                    } else {
-                        caret + end_idx
-                    };
+                    let span_start = caret + char_byte_offsets[start_idx];
+                    let span_end = caret + char_byte_offsets[end_idx];
 
                     spans.push(TextSpan {
                         range: span_start..span_end,
@@ -1150,7 +979,7 @@ impl Element {
         // キャレット位置（selected_range）や Undo/Redo 履歴の末尾への強制初期化を防止
         // 既存の状態を検知した場合はデザイン設定のみを上書き
         if let Some(existing) = cx.contents.cont_input_contents.get_mut(id) {
-            Element::sync_existing_input_properties(existing, c, cx.cosmic);
+            Element::sync_existing_input_properties(existing, c);
             // 早期リターンを抜ける前に、最新の文字列状態を SoA / DWrite 側へ即座に同期・反映
             cx.apply_input_update(id, InputOp::Init);
             // これ以降の初期化を完全にスキップして早期リターン
@@ -1159,11 +988,7 @@ impl Element {
 
         // 最初のロード時、シグナルから現在値を取得して内部カーソルを末尾に合わせる
         let current_text = c.text.0.get();
-        let current_len = if cx.cosmic {
-            current_text.len()
-        } else {
-            current_text.encode_utf16().count()
-        };
+        let current_len = current_text.len();
         c.selected_range = current_len..current_len;
 
         cx.contents.cont_input_contents.insert(id, c);

@@ -12,11 +12,10 @@ use crate::{
     ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
     ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
     TaffyNodesSecondary, TaffyTreeEntityId, TextCacheKey, TextContentsSparseSecondary,
-    TextEditStore, TextEngine, TextLayoutEngine, TextLayoutEngineSparseSecondary, TextSpan,
-    TextSpansSparseSecondary, TopologyStore, UnderlineStyle, Val, VirtualKey,
-    VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context, execute_effect,
-    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
-    handle_on_ime, handle_on_select, with_context,
+    TextEditStore, TextEngine, TextBufferSparseSecondary, TextSpan, TextSpansSparseSecondary,
+    TopologyStore, UnderlineStyle, Val, VirtualKey, VisualPropertiesSecondary, VisualProperty,
+    WindowStore, bind_context, execute_effect, handle_on_active, handle_on_char_input,
+    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -158,7 +157,7 @@ impl Pipeline {
                 id,
                 true,
                 cx.window.win_last_size.as_ref(),
-                &cx.system.sys_dwrite_layouts,
+                &cx.system.sys_text_buffers,
                 &cx.reactive.react_element_effects,
                 &cx.contents.cont_input_contents,
                 &mut cx.topology.topo_active_masks,
@@ -411,39 +410,25 @@ impl Pipeline {
                 // クロージャの外側の Context は直接キャプチャできないため、
                 //  一時的に bind_context されているスレッドローカル経由で取得
                 context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                    if cx.cosmic {
-                        let flex = cx
-                            .layouts
-                            .lay_resolved_flex
-                            .get(id)
-                            .copied()
-                            .unwrap_or_default();
+                    let flex = cx
+                        .layouts
+                        .lay_resolved_flex
+                        .get(id)
+                        .copied()
+                        .unwrap_or_default();
 
-                        ContentStore::measure_content_cosmic(
-                            id,
-                            known_dims,
-                            available_space,
-                            &flex,
-                            &mut cx.system.sys_text_engine,
-                            &mut cx.contents.cont_input_contents,
-                            &cx.contents.cont_text_contents,
-                            &cx.contents.cont_text_spans,
-                            &cx.topology.topo_active_masks,
-                            &cx.renders.rnd_visual,
-                        )
-                    } else {
-                        ContentStore::measure_content(
-                            id,
-                            known_dims,
-                            available_space,
-                            &cx.system.sys_text_engine,
-                            &mut cx.contents.cont_input_contents,
-                            &cx.contents.cont_text_contents,
-                            &cx.contents.cont_text_spans,
-                            &cx.topology.topo_active_masks,
-                            &cx.renders.rnd_visual,
-                        )
-                    }
+                    ContentStore::measure_content(
+                        id,
+                        known_dims,
+                        available_space,
+                        &flex,
+                        &mut cx.system.sys_text_engine,
+                        &mut cx.contents.cont_input_contents,
+                        &cx.contents.cont_text_contents,
+                        &cx.contents.cont_text_spans,
+                        &cx.topology.topo_active_masks,
+                        &cx.renders.rnd_visual,
+                    )
                 })
             };
 
@@ -498,7 +483,7 @@ impl Pipeline {
                 let size = ScrollStore::get_scroll_size(
                     id,
                     &mut cx.system.sys_text_engine,
-                    &cx.system.sys_dwrite_layouts,
+                    &cx.system.sys_text_buffers,
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
                     &cx.contents.cont_input_contents,
@@ -513,7 +498,6 @@ impl Pipeline {
                     &cx.renders.rnd_active_transitions,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_offsets,
-                    cx.cosmic,
                 );
                 cx.states.scroll.sc_sizes.insert(id, size);
             }
@@ -618,7 +602,7 @@ impl Pipeline {
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
                     &mut cx.system.sys_text_engine,
-                    &cx.system.sys_dwrite_layouts,
+                    &cx.system.sys_text_buffers,
                     &mut cx.contents.cont_text_contents,
                     &mut cx.contents.cont_input_contents,
                     &cx.contents.cont_text_spans,
@@ -639,7 +623,6 @@ impl Pipeline {
                     &mut cx.states.edit.edit_selections,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
-                    cx.cosmic,
                 );
             }
         }
@@ -777,7 +760,7 @@ impl Pipeline {
 
         let mut force_full_scan = false;
         for &id in &*cx.topology.topo_sorted_entities {
-            let engines = cx.system.sys_dwrite_layouts.borrow();
+            let engines = cx.system.sys_text_buffers.borrow();
             let Some(engine) = engines.get(id) else {
                 continue;
             };
@@ -811,7 +794,7 @@ impl Pipeline {
         }
         if force_full_scan {
             for &id in &*cx.topology.topo_sorted_entities {
-                let engines = cx.system.sys_dwrite_layouts.borrow();
+                let engines = cx.system.sys_text_buffers.borrow();
                 let Some(engine) = engines.get(id) else {
                     continue;
                 };
@@ -1034,11 +1017,10 @@ impl Pipeline {
 
             // 選択ハイライト背景
             if let Some(sel_rects) = cx.states.edit.edit_selected_rects.get(id)
-                && let Some(engine) = SystemStore::get_or_create_layout(
+                && let Some(buffer) = SystemStore::get_or_create_layout(
                     id,
-                    cx.cosmic,
                     &mut cx.system.sys_text_engine,
-                    &cx.system.sys_dwrite_layouts,
+                    &cx.system.sys_text_buffers,
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
                     &cx.layouts.lay_resolved_basic,
@@ -1047,56 +1029,28 @@ impl Pipeline {
                     &cx.outputs.out_rects,
                 )
             {
-                match &engine {
-                    TextLayoutEngine::Cosmic(buffer) => {
-                        let align_offset = Pipeline::text_size_to_align_offset(
-                            id,
-                            &params,
-                            &engine,
-                            border,
-                            padding,
-                            &flex,
-                            &cx.system.sys_text_engine,
-                            &cx.contents.cont_input_contents,
-                        );
+                let align_offset = Pipeline::text_size_to_align_offset(
+                    id,
+                    &params,
+                    &buffer,
+                    border,
+                    padding,
+                    &flex,
+                    &cx.system.sys_text_engine,
+                    &cx.contents.cont_input_contents,
+                );
 
-                        Pipeline::push_selection_highlight_instances(
-                            id,
-                            view.render_data,
-                            &params,
-                            align_offset,
-                            border,
-                            padding,
-                            scroll,
-                            sel_rects,
-                            visual,
-                        );
-                    }
-                    TextLayoutEngine::DWrite(dw_layout) => {
-                        let align_offset = Pipeline::text_size_to_align_offset(
-                            id,
-                            &params,
-                            &engine,
-                            border,
-                            padding,
-                            &flex,
-                            &cx.system.sys_text_engine,
-                            &cx.contents.cont_input_contents,
-                        );
-
-                        Pipeline::push_selection_highlight_instances(
-                            id,
-                            view.render_data,
-                            &params,
-                            align_offset,
-                            border,
-                            padding,
-                            scroll,
-                            sel_rects,
-                            visual,
-                        );
-                    }
-                }
+                Pipeline::push_selection_highlight_instances(
+                    id,
+                    view.render_data,
+                    &params,
+                    align_offset,
+                    border,
+                    padding,
+                    scroll,
+                    sel_rects,
+                    visual,
+                );
             }
 
             // 背景色とテキスト
@@ -1115,11 +1069,10 @@ impl Pipeline {
             }
 
             if is_text
-                && let Some(engine) = SystemStore::get_or_create_layout(
+                && let Some(buffer) = SystemStore::get_or_create_layout(
                     id,
-                    cx.cosmic,
                     &mut cx.system.sys_text_engine,
-                    &cx.system.sys_dwrite_layouts,
+                    &cx.system.sys_text_buffers,
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_text_spans,
                     &cx.layouts.lay_resolved_basic,
@@ -1128,143 +1081,63 @@ impl Pipeline {
                     &cx.outputs.out_rects,
                 )
             {
-                match &engine {
-                    TextLayoutEngine::Cosmic(buffer) => {
-                        let align_offset = Pipeline::text_size_to_align_offset(
-                            id,
-                            &params,
-                            &engine,
-                            border,
-                            padding,
-                            &flex,
-                            &cx.system.sys_text_engine,
-                            &cx.contents.cont_input_contents,
-                        );
+                let align_offset = Pipeline::text_size_to_align_offset(
+                    id,
+                    &params,
+                    &buffer,
+                    border,
+                    padding,
+                    &flex,
+                    &cx.system.sys_text_engine,
+                    &cx.contents.cont_input_contents,
+                );
 
-                        let spans = cx
-                            .contents
-                            .cont_text_spans
-                            .get(id)
-                            .map_or(&[][..], Vec::as_slice);
-                        let resolved_color = Pipeline::resolv_text_color(
-                            id,
-                            visual,
-                            &cx.contents.cont_input_contents,
-                        );
+                let spans = cx
+                    .contents
+                    .cont_text_spans
+                    .get(id)
+                    .map_or(&[][..], Vec::as_slice);
+                let resolved_color =
+                    Pipeline::resolv_text_color(id, visual, &cx.contents.cont_input_contents);
 
-                        Pipeline::push_text_background_instances(
-                            id,
-                            view.render_data,
-                            &params,
-                            &engine,
-                            spans,
-                            align_offset,
-                            border,
-                            padding,
-                            scroll,
-                        );
+                Pipeline::push_text_background_instances(
+                    id,
+                    view.render_data,
+                    &params,
+                    &buffer,
+                    spans,
+                    align_offset,
+                    border,
+                    padding,
+                    scroll,
+                );
 
-                        NewPipeline::push_text_metric_instances(
-                            id,
-                            view,
-                            &params,
-                            buffer,
-                            resolved_color,
-                            border,
-                            padding,
-                            scroll,
-                            align_offset,
-                            cx.window.win_scale_factor,
-                            &mut cx.system.sys_text_engine,
-                        );
+                Pipeline::push_text_metric_instances(
+                    id,
+                    view,
+                    &params,
+                    &buffer,
+                    resolved_color,
+                    border,
+                    padding,
+                    scroll,
+                    align_offset,
+                    cx.window.win_scale_factor,
+                    &mut cx.system.sys_text_engine,
+                );
 
-                        Pipeline::push_text_front_instances(
-                            id,
-                            view.render_data,
-                            &params,
-                            spans,
-                            &engine,
-                            border,
-                            padding,
-                            scroll,
-                            align_offset,
-                            resolved_color,
-                        );
-                    }
-                    TextLayoutEngine::DWrite(dw_layout) => {
-                        let align_offset = Pipeline::text_size_to_align_offset(
-                            id,
-                            &params,
-                            &engine,
-                            border,
-                            padding,
-                            &flex,
-                            &cx.system.sys_text_engine,
-                            &cx.contents.cont_input_contents,
-                        );
-
-                        let (metrics, text_u16_vec) = Pipeline::get_metrics_and_u16_vec(
-                            id,
-                            dw_layout,
-                            &cx.system.sys_text_engine,
-                            &cx.contents.cont_text_contents,
-                        );
-
-                        let spans = cx
-                            .contents
-                            .cont_text_spans
-                            .get(id)
-                            .map_or(&[][..], Vec::as_slice);
-                        let resolved_color = Pipeline::resolv_text_color(
-                            id,
-                            visual,
-                            &cx.contents.cont_input_contents,
-                        );
-
-                        Pipeline::push_text_background_instances(
-                            id,
-                            view.render_data,
-                            &params,
-                            &engine,
-                            spans,
-                            align_offset,
-                            border,
-                            padding,
-                            scroll,
-                        );
-
-                        Pipeline::push_text_metric_instances(
-                            id,
-                            view,
-                            &params,
-                            spans,
-                            &metrics,
-                            &text_u16_vec,
-                            visual,
-                            resolved_color,
-                            border,
-                            padding,
-                            scroll,
-                            align_offset,
-                            cx.window.win_scale_factor,
-                            &cx.system.sys_text_engine,
-                            &cx.contents.cont_text_contents,
-                        );
-
-                        Pipeline::push_text_front_instances(
-                            id,
-                            view.render_data,
-                            &params,
-                            spans,
-                            &engine,
-                            border,
-                            padding,
-                            scroll,
-                            align_offset,
-                            resolved_color,
-                        );
-                    }
-                }
+                Pipeline::push_text_front_instances(
+                    id,
+                    view.render_data,
+                    &params,
+                    spans,
+                    &buffer,
+                    border,
+                    padding,
+                    scroll,
+                    align_offset,
+                    resolved_color,
+                );
             }
 
             // 通常要素（テキスト以外）の背景マウントは親ループですでに has_bg が完了しているため不要
@@ -1622,64 +1495,37 @@ impl Pipeline {
     fn text_size_to_align_offset(
         id: EntityId,
         params: &CommonParameters,
-        engine: &TextLayoutEngine,
+        buffer: &Buffer,
         border: EdgeInsets,
         padding: EdgeInsets,
         flex: &FlexLayout,
         sys_text_engine: &TextEngine,
         cont_input_contents: &InputContentsSparseSecondary,
     ) -> LayoutPoint {
-        match engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
-                    if let Some(l) = c.last_layout {
-                        // コンテンツが存在し前回のレイアウトもある場合
-                        (LayoutSize::new(l.width, l.height), c.is_multiline)
-                    } else {
-                        // コンテンツはあるがレイアウトがない場合
-                        (
-                            sys_text_engine.get_layout_size_cosmic(buffer),
-                            c.is_multiline,
-                        )
-                    }
-                } else {
-                    // コンテンツ自体が存在しない場合
-                    (sys_text_engine.get_layout_size_cosmic(buffer), false)
-                };
-                OutputStore::calc_align_offset(
-                    params.rect,
-                    border,
-                    padding,
-                    text_size,
-                    flex.text_align,
-                    flex.align_items,
-                    is_multiline,
+        let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
+            if let Some(l) = c.last_layout {
+                // コンテンツが存在し前回のレイアウトもある場合
+                (LayoutSize::new(l.width, l.height), c.is_multiline)
+            } else {
+                // コンテンツはあるがレイアウトがない場合
+                (
+                    sys_text_engine.get_layout_size(buffer),
+                    c.is_multiline,
                 )
             }
-            TextLayoutEngine::DWrite(dw_layout) => {
-                let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
-                    if let Some(l) = c.last_layout {
-                        // コンテンツが存在し前回のレイアウトもある場合
-                        (LayoutSize::new(l.width, l.height), c.is_multiline)
-                    } else {
-                        // コンテンツはあるがレイアウトがない場合
-                        (sys_text_engine.get_layout_size(dw_layout), c.is_multiline)
-                    }
-                } else {
-                    // コンテンツ自体が存在しない場合
-                    (sys_text_engine.get_layout_size(dw_layout), false)
-                };
-                OutputStore::calc_align_offset(
-                    params.rect,
-                    border,
-                    padding,
-                    text_size,
-                    flex.text_align,
-                    flex.align_items,
-                    is_multiline,
-                )
-            }
-        }
+        } else {
+            // コンテンツ自体が存在しない場合
+            (sys_text_engine.get_layout_size(buffer), false)
+        };
+        OutputStore::calc_align_offset(
+            params.rect,
+            border,
+            padding,
+            text_size,
+            flex.text_align,
+            flex.align_items,
+            is_multiline,
+        )
     }
 
     /// 指定された要素に含まれるすべての文字をアトラスにキャッシュ
@@ -1688,7 +1534,7 @@ impl Pipeline {
     fn scan_and_register_element_glyphs(
         id: EntityId,
         view: &mut RendererView,
-        engine: &TextLayoutEngine,
+        buffer: &Buffer,
         default_visual: &VisualProperty,
         sys_text_engine: &mut TextEngine,
         win_scale_factor: f32,
@@ -1698,62 +1544,25 @@ impl Pipeline {
         cont_input_contents: &InputContentsSparseSecondary,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> bool {
-        match engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                let mut atlas_cleared = false;
+        let mut atlas_cleared = false;
 
-                // レイアウト結果からグリフを直接取り出してキャッシュ
-                for run in buffer.layout_runs() {
-                    for glyph in run.glyphs {
-                        let offset = (glyph.x_offset, glyph.y_offset);
-                        let physical = glyph.physical(offset, win_scale_factor);
-                        let (_, _, _, _, _, _, cleared) = sys_text_engine
-                            .get_or_create_glyph_uv_cosmic(
-                                physical.cache_key,
-                                view,
-                                win_scale_factor,
-                            );
-                        if cleared {
-                            atlas_cleared = true;
-                        }
-                    }
+        // レイアウト結果からグリフを直接取り出してキャッシュ
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs {
+                let offset = (glyph.x_offset, glyph.y_offset);
+                let physical = glyph.physical(offset, win_scale_factor);
+                let (_, _, _, _, _, _, cleared) = sys_text_engine.get_or_create_glyph_uv(
+                    physical.cache_key,
+                    view,
+                    win_scale_factor,
+                );
+                if cleared {
+                    atlas_cleared = true;
                 }
-
-                atlas_cleared
-            }
-            TextLayoutEngine::DWrite(_) => {
-                let text = cont_text_contents
-                    .get(id)
-                    .cloned()
-                    .unwrap_or_else(|| "".into());
-                let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
-
-                let visual = rnd_visual.get(id).unwrap_or(default_visual);
-
-                let text_u16_vec: Vec<u16> = text.encode_utf16().collect();
-
-                let mut char_idx = 0;
-                let mut atlas_cleared = false;
-
-                while char_idx < text_u16_vec.len() {
-                    // サロゲートペア対応文字の抽出
-                    let (character, u16_len) =
-                        Pipeline::get_char_and_u16_len(&text_u16_vec, char_idx);
-                    let span = spans.iter().find(|s| s.range.contains(&char_idx));
-                    let key = TextCacheKey::new(span, visual, character, win_scale_factor);
-
-                    let (_, _, cleared) = sys_text_engine.get_or_create_glyph_uv(&key, view);
-
-                    if cleared {
-                        atlas_cleared = true;
-                    }
-
-                    char_idx += u16_len;
-                }
-
-                atlas_cleared
             }
         }
+
+        atlas_cleared
     }
 
     #[inline]
@@ -1781,26 +1590,6 @@ impl Pipeline {
         } else {
             visual.text_color.unwrap_or(Color::WHITE)
         }
-    }
-
-    #[inline]
-    fn get_metrics_and_u16_vec(
-        id: EntityId,
-        dw_layout: &IDWriteTextLayout,
-        sys_text_engine: &TextEngine,
-        cont_text_contents: &TextContentsSparseSecondary,
-    ) -> (Vec<DWRITE_HIT_TEST_METRICS>, Vec<u16>) {
-        let text = cont_text_contents
-            .get(id)
-            .cloned()
-            .unwrap_or_else(|| "".into());
-
-        let text_u16_len = text.encode_utf16().count();
-        let metrics = sys_text_engine.get_all_char_metrics(dw_layout, text_u16_len);
-
-        let text_u16_vec: Vec<u16> = text.encode_utf16().collect();
-
-        (metrics, text_u16_vec)
     }
 
     /// パンチアウト用インスタンスを追加
@@ -1969,7 +1758,7 @@ impl Pipeline {
         id: EntityId,
         render_data: &mut RenderData,
         params: &CommonParameters,
-        engine: &TextLayoutEngine,
+        buffer: &Buffer,
         spans: &[TextSpan],
         align_offset: LayoutPoint,
         border: EdgeInsets,
@@ -1978,7 +1767,7 @@ impl Pipeline {
     ) {
         for span in spans {
             if let Some(bg_color) = span.bg_color {
-                let rects = TextEditStore::calc_selection_rects(id, engine, span.range.clone());
+                let rects = TextEditStore::calc_selection_rects(id, buffer, span.range.clone());
 
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
@@ -2009,63 +1798,68 @@ impl Pipeline {
         id: EntityId,
         view: &mut RendererView,
         params: &CommonParameters,
-        spans: &[TextSpan],
-        metrics: &Vec<DWRITE_HIT_TEST_METRICS>,
-        text_u16_vec: &[u16],
-        visual: &VisualProperty,
+        buffer: &Buffer,
         resolved_color: Color,
         border: EdgeInsets,
         padding: EdgeInsets,
         scroll: LayoutPoint,
         align_offset: LayoutPoint,
         win_scale_factor: f32,
-        sys_text_engine: &TextEngine,
-        cont_text_contents: &TextContentsSparseSecondary,
+        sys_text_engine: &mut TextEngine,
     ) {
-        for metric in metrics {
-            let char_idx = metric.textPosition as usize;
-            if char_idx >= text_u16_vec.len() {
-                continue;
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs {
+                //  グリフ原点 ＝ テキストブロック位置 ＋ 行・文字位置を丸めたもの
+                let base_phys_x = (params.rect.x + border.left + padding.left + align_offset.x
+                    - scroll.x)
+                    * win_scale_factor;
+                let base_phys_y =
+                    (params.rect.y + border.top + padding.top + align_offset.y + run.line_y
+                        - scroll.y)
+                        * win_scale_factor;
+                let physical = glyph.physical((base_phys_x, base_phys_y), win_scale_factor);
+
+                // アトラスにパッキングされた文字がUIの画面上で縦横何ピクセルの大きさで描画されるべきかを逆算
+                // アトラス上の UV 座標を取得
+                let (uv_min, uv_max, offset_x, offset_y, tex_log_w, tex_log_h, _cleared) =
+                    sys_text_engine.get_or_create_glyph_uv(
+                        physical.cache_key,
+                        view,
+                        win_scale_factor,
+                    );
+
+                // 最終的なポリゴンの左上 ＝ グリフ原点 ＋ 画像オフセット
+                let char_phys_x = physical.x + offset_x;
+                let char_phys_y = physical.y - offset_y; // Swash の top は上向き正のため減算
+
+                // 論理座標に戻す
+                let char_x = char_phys_x as f32 / win_scale_factor;
+                let char_y = char_phys_y as f32 / win_scale_factor;
+
+                // 文字の矩形
+                let char_rect = LayoutRect::new(char_x, char_y, tex_log_w, tex_log_h);
+
+                // スパンごとに指定されたカラー、指定がなければベースの文字色を採用
+                let char_color = glyph.color_opt.map_or(resolved_color, |c| Color {
+                    r: c.r() as f32 / 255.0,
+                    g: c.g() as f32 / 255.0,
+                    b: c.b() as f32 / 255.0,
+                    a: c.a() as f32 / 255.0,
+                });
+
+                let glyph_instance = QuadInstance {
+                    rect: char_rect,
+                    transform: params.transform,
+                    transform_origin: params.transform_origin,
+                    color: char_color,
+                    opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
+                    uv_min,
+                    uv_max,
+                    ..Default::default()
+                };
+
+                view.render_data.push(id, glyph_instance);
             }
-
-            let (character, _) = Pipeline::get_char_and_u16_len(text_u16_vec, char_idx);
-            // 該当文字に当たるテキストスパンのフォントオーバーライド
-            let span = spans.iter().find(|s| s.range.contains(&char_idx));
-            let key = TextCacheKey::new(span, visual, character, win_scale_factor);
-            let char_color = span.and_then(|s| s.color).unwrap_or(resolved_color);
-
-            // DWrite リソース解決APIを呼び出して UV を取得
-            let (uv_min, uv_max, _cleared) = sys_text_engine.get_or_create_glyph_uv(&key, view);
-
-            // アトラスに登録された実際の物理テクスチャ解像度を逆算
-            let tex_phys_w = (uv_max[0] - uv_min[0]) * view.atlas.size as f32;
-            let tex_phys_h = (uv_max[1] - uv_min[1]) * view.atlas.size as f32;
-
-            // 論理サイズに逆算
-            let tex_log_w = tex_phys_w / win_scale_factor;
-            let tex_log_h = tex_phys_h / win_scale_factor;
-
-            // 文字の配置
-            let char_rect = LayoutRect::new(
-                params.rect.x + border.left + padding.left + align_offset.x + metric.left
-                    - scroll.x,
-                params.rect.y + border.top + padding.top + align_offset.y + metric.top - scroll.y,
-                tex_log_w,
-                tex_log_h,
-            );
-
-            let glyph_instance = QuadInstance {
-                rect: char_rect,
-                transform: params.transform,
-                transform_origin: params.transform_origin,
-                color: char_color,
-                opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
-                uv_min,
-                uv_max,
-                ..Default::default()
-            };
-
-            view.render_data.push(id, glyph_instance);
         }
     }
 
@@ -2075,7 +1869,7 @@ impl Pipeline {
         render_data: &mut RenderData,
         params: &CommonParameters,
         spans: &[TextSpan],
-        engine: &TextLayoutEngine,
+        buffer: &Buffer,
         border: EdgeInsets,
         padding: EdgeInsets,
         scroll: LayoutPoint,
@@ -2089,7 +1883,7 @@ impl Pipeline {
                 continue;
             }
 
-            let rects = TextEditStore::calc_selection_rects(id, engine, span.range.clone());
+            let rects = TextEditStore::calc_selection_rects(id, buffer, span.range.clone());
 
             for metric_rect in rects {
                 let start_x =
@@ -2308,80 +2102,6 @@ impl Pipeline {
         };
 
         render_data.push(id, ex_instance);
-    }
-}
-
-pub(crate) struct NewPipeline;
-impl NewPipeline {
-    /// 文字ごとのインスタンスを追加
-    #[inline]
-    fn push_text_metric_instances(
-        id: EntityId,
-        view: &mut RendererView,
-        params: &CommonParameters,
-        buffer: &Buffer,
-        resolved_color: Color,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        scroll: LayoutPoint,
-        align_offset: LayoutPoint,
-        win_scale_factor: f32,
-        sys_text_engine: &mut TextEngine,
-    ) {
-        for run in buffer.layout_runs() {
-            for glyph in run.glyphs {
-                //  グリフ原点 ＝ テキストブロック位置 ＋ 行・文字位置を丸めたもの
-                let base_phys_x = (params.rect.x + border.left + padding.left + align_offset.x
-                    - scroll.x)
-                    * win_scale_factor;
-                let base_phys_y =
-                    (params.rect.y + border.top + padding.top + align_offset.y + run.line_y
-                        - scroll.y)
-                        * win_scale_factor;
-                let physical = glyph.physical((base_phys_x, base_phys_y), win_scale_factor);
-
-                // アトラスにパッキングされた文字がUIの画面上で縦横何ピクセルの大きさで描画されるべきかを逆算
-                // アトラス上の UV 座標を取得
-                let (uv_min, uv_max, offset_x, offset_y, tex_log_w, tex_log_h, _cleared) =
-                    sys_text_engine.get_or_create_glyph_uv_cosmic(
-                        physical.cache_key,
-                        view,
-                        win_scale_factor,
-                    );
-
-                // 最終的なポリゴンの左上 ＝ グリフ原点 ＋ 画像オフセット
-                let char_phys_x = physical.x + offset_x;
-                let char_phys_y = physical.y - offset_y; // Swash の top は上向き正のため減算
-
-                // 論理座標に戻す
-                let char_x = char_phys_x as f32 / win_scale_factor;
-                let char_y = char_phys_y as f32 / win_scale_factor;
-
-                // 文字の矩形
-                let char_rect = LayoutRect::new(char_x, char_y, tex_log_w, tex_log_h);
-
-                // スパンごとに指定されたカラー、指定がなければベースの文字色を採用
-                let char_color = glyph.color_opt.map_or(resolved_color, |c| Color {
-                    r: c.r() as f32 / 255.0,
-                    g: c.g() as f32 / 255.0,
-                    b: c.b() as f32 / 255.0,
-                    a: c.a() as f32 / 255.0,
-                });
-
-                let glyph_instance = QuadInstance {
-                    rect: char_rect,
-                    transform: params.transform,
-                    transform_origin: params.transform_origin,
-                    color: char_color,
-                    opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
-                    uv_min,
-                    uv_max,
-                    ..Default::default()
-                };
-
-                view.render_data.push(id, glyph_instance);
-            }
-        }
     }
 }
 

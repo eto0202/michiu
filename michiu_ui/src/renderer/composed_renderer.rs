@@ -37,7 +37,9 @@ use windows::{
             },
             Dxgi::*,
             Gdi::InvalidateRect,
+            Imaging::{CLSID_WICImagingFactory, IWICImagingFactory},
         },
+        System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
         UI::WindowsAndMessaging::{
             GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
         },
@@ -50,6 +52,8 @@ pub struct ComposedRenderer {
     pub hwnd: HWND,
     pub layout_size: LayoutSize,
     pub scale_factor: f32,
+
+    pub wic_factory: IWICImagingFactory,
 
     /// `DirectComposition` リソース
     pub dcomp_device: IDCompositionDesktopDevice,
@@ -125,10 +129,15 @@ impl ComposedRenderer {
 
         let webview_env = Rc::new(RefCell::new(None));
 
+        let wic_factory: IWICImagingFactory = unsafe {
+            CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).unwrap()
+        };
+
         Ok(Self {
             hwnd,
             layout_size,
             scale_factor,
+            wic_factory,
             dcomp_device,
             dcomp_target,
             root_visual,
@@ -530,7 +539,7 @@ impl ComposedRenderer {
                         let pending_removals_clone = self.pending_removals.clone();
                         let wgpu_device = self.wgpu_renderer.device.clone();
                         let wgpu_queue = self.wgpu_renderer.queue.clone();
-                        let wic_factory = self.wgpu_renderer.text_rasterizer.wic_factory.clone();
+                        let wic_factory = self.wic_factory.clone();
                         let parent_hwnd = self.hwnd; // HWNDの退避
 
                         // 非同期キャプチャをキック

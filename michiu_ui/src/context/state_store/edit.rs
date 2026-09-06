@@ -8,10 +8,11 @@ use crate::{
     LayoutRect, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, RectsSecondary,
     RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
     ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextContentsSparseSecondary, TextEngine,
-    TextLayoutEngine, TextLayoutEngineSparseSecondary, TextSpansSparseSecondary, TopologyStore,
-    UserSelect, VisualPropertiesSecondary,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary,
+    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect,
+    VisualPropertiesSecondary,
 };
+use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
@@ -95,66 +96,36 @@ impl TextEditStore {
         contents: &InputContents,
         max: usize,
         filtered_comp_text: String,
-        cosmic: bool,
     ) -> String {
         let range = &contents.selected_range;
 
-        if cosmic {
-            // キャレット範囲をクランプ
-            let mut start = range.start.min(text_val.len());
-            let mut end = range.end.min(text_val.len());
+        // キャレット範囲をクランプ
+        let mut start = range.start.min(text_val.len());
+        let mut end = range.end.min(text_val.len());
 
-            while start > 0 && !text_val.is_char_boundary(start) {
-                start -= 1;
-            }
-            while end > 0 && !text_val.is_char_boundary(end) {
-                end -= 1;
-            }
+        while start > 0 && !text_val.is_char_boundary(start) {
+            start -= 1;
+        }
+        while end > 0 && !text_val.is_char_boundary(end) {
+            end -= 1;
+        }
 
-            // 選択範囲が削除された後の確定テキストの文字数
-            let left_chars = text_val[..start].chars().count();
-            let right_chars = text_val[end..].chars().count();
-            let current_len_after_delete = left_chars + right_chars;
+        // 選択範囲が削除された後の確定テキストの文字数
+        let left_chars = text_val[..start].chars().count();
+        let right_chars = text_val[end..].chars().count();
+        let current_len_after_delete = left_chars + right_chars;
 
-            if current_len_after_delete >= max {
-                // すでに確定文字数が制限に達している場合は未確定文字を一切受け入れない
-                String::new()
-            } else {
-                let allowed_comp_len = max - current_len_after_delete;
-                let comp_char_count = filtered_comp_text.chars().count();
-
-                if comp_char_count > allowed_comp_len {
-                    filtered_comp_text.chars().take(allowed_comp_len).collect()
-                } else {
-                    filtered_comp_text
-                }
-            }
+        if current_len_after_delete >= max {
+            // すでに確定文字数が制限に達している場合は未確定文字を一切受け入れない
+            String::new()
         } else {
-            let text_u16: Vec<u16> = text_val.encode_utf16().collect();
+            let allowed_comp_len = max - current_len_after_delete;
+            let comp_char_count = filtered_comp_text.chars().count();
 
-            let range_start = range.start.min(text_u16.len());
-            let range_end = range.end.min(text_u16.len());
-            let deleted_len = range_end - range_start;
-            let current_len_after_delete = text_u16.len() - deleted_len;
-
-            if current_len_after_delete >= max {
-                // すでに確定文字数が制限に達している場合は未確定文字を一切受け入れない
-                String::new()
+            if comp_char_count > allowed_comp_len {
+                filtered_comp_text.chars().take(allowed_comp_len).collect()
             } else {
-                let allowed_comp_len = max - current_len_after_delete;
-                let comp_u16: Vec<u16> = filtered_comp_text.encode_utf16().collect();
-                if comp_u16.len() > allowed_comp_len {
-                    // サロゲートペア文字の途中でぶつ切りになるのを防ぐ
-                    let mut limit = allowed_comp_len;
-                    if limit > 0 && (0xD800..=0xDBFF).contains(&comp_u16[limit - 1]) {
-                        limit -= 1;
-                    }
-
-                    // 許容文字数に収まるようUTF-16単位で正確に切り詰め
-                    String::from_utf16_lossy(&comp_u16[..allowed_comp_len])
-                } else {
-                    filtered_comp_text
-                }
+                filtered_comp_text
             }
         }
     }
@@ -223,135 +194,84 @@ impl TextEditStore {
 
     pub(crate) fn calc_selection_rects(
         id: EntityId,
-        engine: &TextLayoutEngine,
+        buffer: &Buffer,
         range: Range<usize>,
     ) -> Vec<LayoutRect> {
-        match engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                // 範囲が空（選択なし）の場合は即座に空Vecを返す
-                if range.start == range.end {
-                    return Vec::new();
-                }
+        // 範囲が空（選択なし）の場合は即座に空Vecを返す
+        if range.start == range.end {
+            return Vec::new();
+        }
 
-                let (start_idx, end_idx) = if range.start <= range.end {
-                    (range.start, range.end)
-                } else {
-                    (range.end, range.start)
-                };
+        let (start_idx, end_idx) = if range.start <= range.end {
+            (range.start, range.end)
+        } else {
+            (range.end, range.start)
+        };
 
-                let mut cursor_start = TextEngine::flat_idx_to_cursor(buffer, start_idx);
-                let mut cursor_end = TextEngine::flat_idx_to_cursor(buffer, end_idx);
+        let mut cursor_start = TextEngine::flat_idx_to_cursor(buffer, start_idx);
+        let mut cursor_end = TextEngine::flat_idx_to_cursor(buffer, end_idx);
 
-                if (cursor_start.line > cursor_end.line)
-                    || (cursor_start.line == cursor_end.line
-                        && cursor_start.index > cursor_end.index)
-                {
-                    std::mem::swap(&mut cursor_start, &mut cursor_end);
-                }
+        if (cursor_start.line > cursor_end.line)
+            || (cursor_start.line == cursor_end.line && cursor_start.index > cursor_end.index)
+        {
+            std::mem::swap(&mut cursor_start, &mut cursor_end);
+        }
 
-                let mut out_rects = Vec::new();
-                for run in buffer.layout_runs() {
-                    let line_i = run.line_i;
+        let mut out_rects = Vec::new();
+        for run in buffer.layout_runs() {
+            let line_i = run.line_i;
 
-                    // 選択範囲より前の行、または後の行はスキップ
-                    if line_i < cursor_start.line || line_i > cursor_end.line {
-                        continue;
-                    }
-
-                    // この行（run）における選択の始点と終点
-                    let line_len = buffer.lines.get(line_i).map_or(0, |l| l.text().len());
-
-                    // 開始行なら cursor_start.index、それ以降の行なら行頭（0）
-                    let run_cursor_start = if line_i == cursor_start.line {
-                        cursor_start
-                    } else {
-                        cosmic_text::Cursor {
-                            line: line_i,
-                            index: 0,
-                            affinity: cosmic_text::Affinity::Before,
-                        }
-                    };
-
-                    // 終了行なら cursor_end.index、それ以前の行なら行末（line_len）
-                    let run_cursor_end = if line_i == cursor_end.line {
-                        cursor_end
-                    } else {
-                        cosmic_text::Cursor {
-                            line: line_i,
-                            index: line_len,
-                            affinity: cosmic_text::Affinity::Before,
-                        }
-                    };
-
-                    // highlight を計算
-                    for (x, w) in run.highlight(run_cursor_start, run_cursor_end) {
-                        out_rects.push(LayoutRect::new(x, run.line_top, w, run.line_height));
-                    }
-                }
-
-                out_rects
+            // 選択範囲より前の行、または後の行はスキップ
+            if line_i < cursor_start.line || line_i > cursor_end.line {
+                continue;
             }
-            TextLayoutEngine::DWrite(dw_layout) => {
-                let mut hit_test_metrics = vec![DWRITE_HIT_TEST_METRICS::default(); 16];
-                let mut actual_count: u32 = 0;
-                let res = unsafe {
-                    dw_layout.HitTestTextRange(
-                        range.start.try_into().expect("Value fits in u32"),
-                        (range.end - range.start)
-                            .try_into()
-                            .expect("Value fits in u32"),
-                        0.0,
-                        0.0,
-                        Some(&mut hit_test_metrics),
-                        &raw mut actual_count,
-                    )
-                };
 
-                if res.is_ok() && actual_count as usize > hit_test_metrics.len() {
-                    hit_test_metrics
-                        .resize(actual_count as usize, DWRITE_HIT_TEST_METRICS::default());
-                    let _ = unsafe {
-                        dw_layout.HitTestTextRange(
-                            range.start.try_into().expect("Value fits in u32"),
-                            (range.end - range.start)
-                                .try_into()
-                                .expect("Value fits in u32"),
-                            0.0,
-                            0.0,
-                            Some(&mut hit_test_metrics),
-                            &raw mut actual_count,
-                        )
-                    };
+            // この行（run）における選択の始点と終点
+            let line_len = buffer.lines.get(line_i).map_or(0, |l| l.text().len());
+
+            // 開始行なら cursor_start.index、それ以降の行なら行頭（0）
+            let run_cursor_start = if line_i == cursor_start.line {
+                cursor_start
+            } else {
+                cosmic_text::Cursor {
+                    line: line_i,
+                    index: 0,
+                    affinity: cosmic_text::Affinity::Before,
                 }
+            };
 
-                let mut out_rects = Vec::with_capacity(actual_count as usize);
-                (0..actual_count as usize).for_each(|m_idx| {
-                    let metric = &hit_test_metrics[m_idx];
-                    out_rects.push(LayoutRect::new(
-                        metric.left,
-                        metric.top,
-                        metric.width,
-                        metric.height,
-                    ));
-                });
+            // 終了行なら cursor_end.index、それ以前の行なら行末（line_len）
+            let run_cursor_end = if line_i == cursor_end.line {
+                cursor_end
+            } else {
+                cosmic_text::Cursor {
+                    line: line_i,
+                    index: line_len,
+                    affinity: cosmic_text::Affinity::Before,
+                }
+            };
 
-                out_rects
+            // highlight を計算
+            for (x, w) in run.highlight(run_cursor_start, run_cursor_end) {
+                out_rects.push(LayoutRect::new(x, run.line_top, w, run.line_height));
             }
         }
+
+        out_rects
     }
 
     /// 現在の選択範囲に基づき描画用の物理選択矩形を計算してキャッシュを更新
     #[inline]
     pub(crate) fn update_selection_rects(
         id: EntityId,
-        engine: &TextLayoutEngine,
+        buffer: &Rc<Buffer>,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
         edit_selections: &TextSelectionsSparseSecondary,
     ) {
         if let Some(range) = edit_selections.get(id).cloned()
             && range.start < range.end
         {
-            let out_rects = TextEditStore::calc_selection_rects(id, engine, range);
+            let out_rects = TextEditStore::calc_selection_rects(id, buffer, range);
             edit_selected_rects.insert(id, out_rects);
             return;
         }
@@ -365,7 +285,6 @@ impl TextEditStore {
         cont_text_contents: &TextContentsSparseSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         edit_selections: &TextSelectionsSparseSecondary,
-        cosmic: bool,
     ) -> Option<String> {
         // フォーカスされている要素を最優先とし、
         // 無い場合は現在有効な空ではない選択範囲を持つ最初の要素を逆引き
@@ -386,23 +305,17 @@ impl TextEditStore {
             if range.start < range.end {
                 let text = cont_text_contents.get(target_id)?;
 
-                if cosmic {
-                    let mut start = range.start.min(text.len());
-                    let mut end = range.end.min(text.len());
+                let mut start = range.start.min(text.len());
+                let mut end = range.end.min(text.len());
 
-                    while start > 0 && !text.is_char_boundary(start) {
-                        start -= 1;
-                    }
-                    while end > 0 && !text.is_char_boundary(end) {
-                        end -= 1;
-                    }
-
-                    return Some(text[start..end].to_string());
+                while start > 0 && !text.is_char_boundary(start) {
+                    start -= 1;
                 }
-                let u16_text: Vec<u16> = text.encode_utf16().collect();
-                let slice =
-                    &u16_text[range.start.min(u16_text.len())..range.end.min(u16_text.len())];
-                return String::from_utf16(slice).ok();
+                while end > 0 && !text.is_char_boundary(end) {
+                    end -= 1;
+                }
+
+                return Some(text[start..end].to_string());
             }
         }
         None
@@ -412,17 +325,10 @@ impl TextEditStore {
     pub(crate) fn calculate_text_selection(
         start_pos: usize,
         local: LayoutPoint,
-        engine: &TextLayoutEngine,
+        buffer: &Rc<Buffer>,
         sys_text_engine: &mut TextEngine,
     ) -> (std::ops::Range<usize>, bool) {
-        let (current_index, is_trailing) = match engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                sys_text_engine.hit_test_point_cosmic(buffer, local.x, local.y)
-            }
-            TextLayoutEngine::DWrite(dw_layout) => {
-                sys_text_engine.hit_test_point(dw_layout, local.x, local.y)
-            }
-        };
+        let (current_index, is_trailing) = sys_text_engine.hit_test_point(buffer, local.x, local.y);
 
         let final_index = if is_trailing {
             current_index + 1
@@ -442,7 +348,7 @@ impl TextEditStore {
         pointer_pos: LayoutPoint,
         pressed_shift: bool,
         sys_text_engine: &mut TextEngine,
-        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
+        sys_text_buffers: &TextBufferSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
@@ -460,13 +366,11 @@ impl TextEditStore {
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
-        cosmic: bool,
     ) {
-        let Some(engine) = SystemStore::get_or_create_layout(
+        let Some(buffer) = SystemStore::get_or_create_layout(
             id,
-            cosmic,
             sys_text_engine,
-            sys_dwrite_layouts,
+            sys_text_buffers,
             cont_text_contents,
             cont_text_spans,
             lay_resolved_basic,
@@ -480,7 +384,7 @@ impl TextEditStore {
         let local = OutputStore::pressed_local_point(
             id,
             pointer_pos,
-            Some(&engine),
+            Some(&buffer),
             sys_text_engine,
             cont_input_contents,
             topo_active_masks,
@@ -494,14 +398,8 @@ impl TextEditStore {
             out_rects,
             sc_offsets,
         );
-        let (clicked_index, is_trailing) = match &engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                sys_text_engine.hit_test_point_cosmic(buffer, local.x, local.y)
-            }
-            TextLayoutEngine::DWrite(dw_layout) => {
-                sys_text_engine.hit_test_point(dw_layout, local.x, local.y)
-            }
-        };
+        let (clicked_index, is_trailing) =
+            sys_text_engine.hit_test_point(&buffer, local.x, local.y);
 
         let final_index = if is_trailing {
             clicked_index + 1
@@ -526,7 +424,7 @@ impl TextEditStore {
             edit_selections.insert(id, range);
             TextEditStore::update_selection_rects(
                 id,
-                &engine,
+                &buffer,
                 edit_selected_rects,
                 edit_selections,
             );
@@ -547,7 +445,7 @@ impl TextEditStore {
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
-        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
+        sys_text_buffers: &TextBufferSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
@@ -571,13 +469,11 @@ impl TextEditStore {
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
-        cosmic: bool,
     ) {
         let Some(engine) = SystemStore::get_or_create_layout(
             id,
-            cosmic,
             sys_text_engine,
-            sys_dwrite_layouts,
+            sys_text_buffers,
             cont_text_contents,
             cont_text_spans,
             lay_resolved_basic,
@@ -605,7 +501,7 @@ impl TextEditStore {
                 win_scale_factor,
                 win_last_size,
                 sys_text_engine,
-                sys_dwrite_layouts,
+                sys_text_buffers,
                 cont_text_contents,
                 cont_input_contents,
                 cont_text_spans,
@@ -628,7 +524,6 @@ impl TextEditStore {
                 edit_selected_rects,
                 out_rects,
                 sc_sizes,
-                cosmic,
             );
         } else {
             RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
@@ -641,7 +536,7 @@ impl TextEditStore {
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
-        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
+        sys_text_buffers: &TextBufferSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
@@ -665,13 +560,11 @@ impl TextEditStore {
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
-        cosmic: bool,
     ) {
         let Some(engine) = SystemStore::get_or_create_layout(
             id,
-            cosmic,
             sys_text_engine,
-            sys_dwrite_layouts,
+            sys_text_buffers,
             cont_text_contents,
             cont_text_spans,
             lay_resolved_basic,
@@ -686,11 +579,7 @@ impl TextEditStore {
             return;
         };
 
-        let text_len = if cosmic {
-            text.len()
-        } else {
-            text.encode_utf16().count()
-        };
+        let text_len = text.len();
         let full_range = 0..text_len;
 
         edit_selections.insert(id, full_range.clone());
@@ -706,7 +595,7 @@ impl TextEditStore {
                 win_scale_factor,
                 win_last_size,
                 sys_text_engine,
-                sys_dwrite_layouts,
+                sys_text_buffers,
                 cont_text_contents,
                 cont_input_contents,
                 cont_text_spans,
@@ -729,7 +618,6 @@ impl TextEditStore {
                 edit_selected_rects,
                 out_rects,
                 sc_sizes,
-                cosmic,
             );
         } else {
             RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
@@ -742,7 +630,7 @@ impl TextEditStore {
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
-        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
+        sys_text_buffers: &TextBufferSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
@@ -765,7 +653,6 @@ impl TextEditStore {
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
-        cosmic: bool,
     ) {
         // 直前までハイライトが描画されていたか
         let has_selection_before = edit_selected_rects.contains_key(id);
@@ -779,9 +666,8 @@ impl TextEditStore {
         if (has_selection_before || has_selection_after)
             && let Some(engine) = SystemStore::get_or_create_layout(
                 id,
-                cosmic,
                 sys_text_engine,
-                sys_dwrite_layouts,
+                sys_text_buffers,
                 cont_text_contents,
                 cont_text_spans,
                 lay_resolved_basic,
@@ -810,7 +696,7 @@ impl TextEditStore {
                     win_scale_factor,
                     win_last_size,
                     sys_text_engine,
-                    sys_dwrite_layouts,
+                    sys_text_buffers,
                     cont_text_contents,
                     cont_input_contents,
                     cont_text_spans,
@@ -831,7 +717,6 @@ impl TextEditStore {
                     edit_selections,
                     out_rects,
                     sc_sizes,
-                    cosmic,
                 );
                 RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
             }
@@ -844,7 +729,7 @@ impl TextEditStore {
                     win_scale_factor,
                     win_last_size,
                     sys_text_engine,
-                    sys_dwrite_layouts,
+                    sys_text_buffers,
                     cont_text_contents,
                     cont_input_contents,
                     cont_text_spans,
@@ -865,7 +750,6 @@ impl TextEditStore {
                     edit_selections,
                     out_rects,
                     sc_sizes,
-                    cosmic,
                 );
                 TopologyStore::mark_dirty(
                     id,
@@ -907,7 +791,7 @@ impl TextEditStore {
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
-        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
+        sys_text_buffers: &TextBufferSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
@@ -928,15 +812,14 @@ impl TextEditStore {
         edit_selections: &mut TextSelectionsSparseSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
-        cosmic: bool,
     ) {
         // IMEやタイピング中の古いキャッシュを破棄
-        SystemStore::clear_layout_cache(id, sys_dwrite_layouts);
+        SystemStore::clear_layout_cache(id, sys_text_buffers);
 
         let ime_caret_info = TextEditStore::ime_caret_info(
             id,
             sys_text_engine,
-            sys_dwrite_layouts,
+            sys_text_buffers,
             cont_text_contents,
             cont_input_contents,
             cont_text_spans,
@@ -946,7 +829,6 @@ impl TextEditStore {
             rnd_base_visual,
             edit_selections,
             out_rects,
-            cosmic,
         );
 
         let Some((caret, caret_offset, is_multiline)) = ime_caret_info else {
@@ -1050,7 +932,7 @@ impl TextEditStore {
     pub(crate) fn ime_caret_info(
         id: EntityId,
         sys_text_engine: &mut TextEngine,
-        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
+        sys_text_buffers: &TextBufferSparseSecondary,
         cont_text_contents: &mut TextContentsSparseSecondary,
         cont_input_contents: &mut InputContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
@@ -1060,7 +942,6 @@ impl TextEditStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         edit_selections: &mut TextSelectionsSparseSecondary,
         out_rects: &RectsSecondary,
-        cosmic: bool,
     ) -> Option<(LayoutRect, f32, bool)> {
         let contents = cont_input_contents.get_mut(id)?;
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
@@ -1097,7 +978,6 @@ impl TextEditStore {
                 contents,
                 max,
                 filtered_comp_text,
-                cosmic,
             );
         }
 
@@ -1119,19 +999,11 @@ impl TextEditStore {
 
         // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
         let display_text = if !filtered_comp_text.is_empty() {
-            if cosmic {
-                InputContents::input_get_display_text_utf8_byte(
-                    &text_val_for_display,
-                    contents.selected_range.start,
-                    &filtered_comp_text,
-                )
-            } else {
-                InputContents::input_get_display_text(
-                    &text_val_for_display,
-                    contents.selected_range.start,
-                    &filtered_comp_text,
-                )
-            }
+            InputContents::input_get_display_text_utf8_byte(
+                &text_val_for_display,
+                contents.selected_range.start,
+                &filtered_comp_text,
+            )
         } else if text_val.is_empty() {
             contents
                 .placeholder
@@ -1147,11 +1019,10 @@ impl TextEditStore {
 
         cont_text_contents.insert(id, display_text.clone().into());
 
-        let engine = SystemStore::get_or_create_layout(
+        let buffer = SystemStore::get_or_create_layout(
             id,
-            cosmic,
             sys_text_engine,
-            sys_dwrite_layouts,
+            sys_text_buffers,
             cont_text_contents,
             cont_text_spans,
             lay_resolved_basic,
@@ -1160,21 +1031,14 @@ impl TextEditStore {
             out_rects,
         )?;
 
-        let text_size = match &engine {
-            TextLayoutEngine::Cosmic(buffer) => sys_text_engine.get_layout_size_cosmic(buffer),
-            TextLayoutEngine::DWrite(dw_layout) => sys_text_engine.get_layout_size(dw_layout),
-        };
+        let text_size = sys_text_engine.get_layout_size(&buffer);
         contents.last_layout = Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
 
         let composition_offset = if let Some(ref ime) = contents.ime_state
             && !ime.composition_text.is_empty()
         {
             // 組成文字全体の文字数をオフセットとして適用
-            if cosmic {
-                ime.composition_text.len()
-            } else {
-                ime.composition_text.encode_utf16().count()
-            }
+            ime.composition_text.len()
         } else {
             0
         };
@@ -1204,40 +1068,24 @@ impl TextEditStore {
             };
 
             let total_char_caret = base_char_count + comp_char_count;
-            if cosmic {
-                total_char_caret * mask.len()
-            } else {
-                total_char_caret * mask.encode_utf16().count()
-            }
+
+            total_char_caret * mask.len()
         } else {
             current_caret_relative + composition_offset
         };
 
-        let display_text_len = if cosmic {
-            display_text.len()
-        } else {
-            display_text.encode_utf16().count()
-        };
+        let display_text_len = display_text.len();
 
         // プレースホルダーに干渉されない純粋なキャレット位置を算出
-        let (cx_offset, cy_offset, ch_height) = match &engine {
-            TextLayoutEngine::Cosmic(buffer) => {
-                sys_text_engine.get_caret_position_cosmic(buffer, caret_index, display_text_len)
-            }
-            TextLayoutEngine::DWrite(dw_layout) => {
-                sys_text_engine.get_caret_position(dw_layout, caret_index, display_text_len)
-            }
-        };
+        let (cx_offset, cy_offset, ch_height) =
+            sys_text_engine.get_caret_position(&buffer, caret_index, display_text_len);
 
         contents.measured_caret_x = cx_offset;
         contents.measured_caret_y = cy_offset;
         contents.caret_line_height = ch_height;
 
-        let (curr_line, tot_lines) = if cosmic {
-            InputContents::calculate_line_indices_utf8_byte(&display_text, caret_index)
-        } else {
-            InputContents::calculate_line_indices(&display_text, caret_index)
-        };
+        let (curr_line, tot_lines) =
+            InputContents::calculate_line_indices_utf8_byte(&display_text, caret_index);
         contents.current_line_index = curr_line;
 
         // 最終表示用テキストを Context 側に反映
@@ -1282,7 +1130,7 @@ impl Context {
             self.window.win_scale_factor,
             self.window.win_last_size,
             &mut self.system.sys_text_engine,
-            &self.system.sys_dwrite_layouts,
+            &self.system.sys_text_buffers,
             &mut self.contents.cont_text_contents,
             &mut self.contents.cont_input_contents,
             &self.contents.cont_text_spans,
@@ -1305,7 +1153,6 @@ impl Context {
             &mut self.states.edit.edit_selected_rects,
             &self.outputs.out_rects,
             &self.states.scroll.sc_sizes,
-            self.cosmic,
         );
     }
 }

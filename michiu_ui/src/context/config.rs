@@ -1,7 +1,7 @@
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapacityConfig {
-    pub sys_dwrite_layouts: usize,
+    pub sys_text_buffers: usize,
     pub sys_uia_properties: usize,
     pub react_signals: usize,
     pub react_effects: usize,
@@ -117,7 +117,7 @@ impl CapacityConfig {
             rnd_active_transitions: base / 10, // アニメーション等は1割程度
             rnd_active_animations: base / 20,
 
-            sys_dwrite_layouts: base / 3,
+            sys_text_buffers: base / 3,
             sys_uia_properties: base / 10,
 
             ..Self::zero()
@@ -128,7 +128,7 @@ impl CapacityConfig {
     #[inline]
     pub fn zero() -> Self {
         Self {
-            sys_dwrite_layouts: 0,
+            sys_text_buffers: 0,
             sys_uia_properties: 0,
             react_signals: 0,
             react_effects: 0,
