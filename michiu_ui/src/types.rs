@@ -1,8 +1,10 @@
 pub mod from_into;
 pub mod layout_data;
+pub mod string;
 
 pub use from_into::*;
 pub use layout_data::*;
+pub use string::*;
 
 use crate::{Context, Element, EntityId, PropertyList, VirtualKey, rgba};
 use bytemuck::{Pod, Zeroable};
