@@ -798,6 +798,10 @@ impl TextEditStore {
             );
         }
 
+        if let Some(c) = cont_input_contents.get_mut(id) {
+            c.needs_scroll_to_caret = true;
+        }
+
         match op {
             // コンテンツのサイズに変動がない（Taffyレイアウトの再計算が不要）操作
             InputOp::MousePress | InputOp::ArrowMove | InputOp::SelectAll => {
@@ -954,10 +958,13 @@ impl TextEditStore {
         let rect = out_rects.get(id).copied().unwrap_or_default();
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+        let should_scroll = cont_input_contents
+            .get(id)
+            .is_some_and(|c| c.needs_scroll_to_caret);
 
-        let mut scroll = sc_offsets.get(id).copied().unwrap_or_default();
+        let mut scroll_offset = sc_offsets.get(id).copied().unwrap_or_default();
 
-        if rect.width > 0.0 && rect.height > 0.0 {
+        if should_scroll && rect.width > 0.0 && rect.height > 0.0 {
             let viewport = OutputStore::calc_viewport_size(rect, border, padding);
 
             let text_size = if let Some(contents) = cont_input_contents.get(id)
@@ -985,27 +992,27 @@ impl TextEditStore {
             // let margin_x = 0.0; // 左右端のあそび（マージン）
 
             // 1. 横方向スクロール (X軸)
-            if aligned_caret_x < scroll.x {
-                scroll.x = aligned_caret_x.max(0.0);
-            } else if aligned_caret_x + caret.width > scroll.x + viewport.width {
-                scroll.x = (aligned_caret_x + caret.width - viewport.width).max(0.0);
+            if aligned_caret_x < scroll_offset.x {
+                scroll_offset.x = aligned_caret_x.max(0.0);
+            } else if aligned_caret_x + caret.width > scroll_offset.x + viewport.width {
+                scroll_offset.x = (aligned_caret_x + caret.width - viewport.width).max(0.0);
             }
 
             // 2. 縦方向スクロール (Y軸 - マルチラインのみ)
             if is_multiline {
-                if aligned_caret_y < scroll.y {
-                    scroll.y = aligned_caret_y.max(0.0);
-                } else if aligned_caret_y + caret.height > scroll.y + viewport.height {
-                    scroll.y = (aligned_caret_y + caret.height - viewport.height).max(0.0);
+                if aligned_caret_y < scroll_offset.y {
+                    scroll_offset.y = aligned_caret_y.max(0.0);
+                } else if aligned_caret_y + caret.height > scroll_offset.y + viewport.height {
+                    scroll_offset.y = (aligned_caret_y + caret.height - viewport.height).max(0.0);
                 }
             } else {
-                scroll.y = 0.0;
+                scroll_offset.y = 0.0;
             }
 
             ScrollStore::scroll_to(
                 id,
-                scroll.x,
-                scroll.y,
+                scroll_offset.x,
+                scroll_offset.y,
                 win_last_size,
                 topo_active_masks,
                 topo_parents,
@@ -1021,6 +1028,10 @@ impl TextEditStore {
                 out_rects,
                 sc_sizes,
             );
+
+            if let Some(c) = cont_input_contents.get_mut(id) {
+                c.needs_scroll_to_caret = false;
+            }
         }
 
         // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
@@ -1031,7 +1042,7 @@ impl TextEditStore {
             padding,
             caret,
             caret_offset,
-            scroll,
+            scroll_offset,
         );
     }
 

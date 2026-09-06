@@ -211,6 +211,7 @@ pub struct InputContents {
     pub(crate) measured_caret_x: f32,
     pub(crate) measured_caret_y: f32,
     pub(crate) caret_line_height: f32,
+    pub(crate) needs_scroll_to_caret: bool,
     /// キャレットの移動・タイピングなどの最終操作時刻
     pub(crate) last_interacted_time: Option<std::time::Instant>,
     /// 現在のキャレットが位置する行番号 (0始まり)
@@ -260,6 +261,7 @@ impl InputContents {
             measured_caret_x: 0.0,
             measured_caret_y: 0.0,
             caret_line_height: 0.0,
+            needs_scroll_to_caret: false,
             last_interacted_time: None,
             current_line_index: 0,
             total_lines: 1,
