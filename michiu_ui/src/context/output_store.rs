@@ -13,9 +13,9 @@ use crate::{
     ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollStore, ScrollbarStylesSecondary,
     SortedEntitiesVec, StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
     TextAlign, TextCacheKey, TextCacheValue, TextContentsSparseSecondary, TextEngine,
-    TextLayoutEngine, TextLayoutEngineSparseSecondary, TextRasterizer, TextSpan,
-    TextSpansSparseSecondary, TextureAtlas, TopoSortCacheVec, TopologyStore, Transform,
-    UnderlineStyle, UserSelect, Val, VisualPropertiesSecondary, VisualProperty, WindowStore,
+    TextBufferSparseSecondary, TextSpan, TextSpansSparseSecondary, TextureAtlas,
+    TopoSortCacheVec, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
+    VisualPropertiesSecondary, VisualProperty, WindowStore,
 };
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
@@ -112,7 +112,7 @@ impl OutputStore {
     pub(crate) fn pressed_local_point(
         id: EntityId,
         logical_pos: LayoutPoint,
-        engine: Option<&TextLayoutEngine>,
+        buffer: Option<&Rc<Buffer>>,
         sys_text_engine: &mut TextEngine,
         cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &ActiveMasksSecondary,
@@ -142,15 +142,8 @@ impl OutputStore {
                 .last_layout
                 .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
             (size, contents.is_multiline)
-        } else if let Some(engine) = engine {
-            match engine {
-                TextLayoutEngine::Cosmic(buffer) => {
-                    (sys_text_engine.get_layout_size_cosmic(buffer), false)
-                }
-                TextLayoutEngine::DWrite(dw_layout) => {
-                    (sys_text_engine.get_layout_size(dw_layout), false)
-                }
-            }
+        } else if let Some(buffer) = buffer {
+            (sys_text_engine.get_layout_size(buffer), false)
         } else {
             (LayoutSize::ZERO, false)
         };

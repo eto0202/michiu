@@ -10,7 +10,7 @@ use crate::{
     LayoutRect, LayoutSize, Length, NormalLayout, OutputStore, ParentsSecondary, Position,
     PropertyList, Rect, RectsSecondary, RenderStore, ResizingState, ScrollOffsetsSecondary,
     ScrollSizesSecondary, Size, StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine,
-    TextLayoutEngineSparseSecondary, TextSpansSparseSecondary, ThisStyle, TopologyStore, Val,
+    TextBufferSparseSecondary, TextSpansSparseSecondary, ThisStyle, TopologyStore, Val,
     VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};

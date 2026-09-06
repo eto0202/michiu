@@ -13,8 +13,8 @@ use crate::{
     RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
     ResolvedGridSparseSecondary, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
     TaffyNodesSecondary, TaffyTreeEntityId, TextContentsSparseSecondary, TextEngine,
-    TextLayoutEngine, TextLayoutEngineSparseSecondary, TextSpansSparseSecondary, ThisStyle,
-    UserSelect, Val, VisualPropertiesSecondary, WindowStore,
+    TextBufferSparseSecondary, TextSpansSparseSecondary, ThisStyle, UserSelect, Val,
+    VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -417,7 +417,7 @@ impl ScrollStore {
     pub(crate) fn get_scroll_size(
         id: EntityId,
         sys_text_engine: &mut TextEngine,
-        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
+        sys_text_buffers: &TextBufferSparseSecondary,
         cont_text_contents: &TextContentsSparseSecondary,
         cont_text_spans: &TextSpansSparseSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
@@ -432,7 +432,6 @@ impl ScrollStore {
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
-        cosmic: bool,
     ) -> LayoutSize {
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;
@@ -450,11 +449,10 @@ impl ScrollStore {
         } else if topo_active_masks
             .get(id)
             .is_some_and(ComponentMask::has_text_content)
-            && let Some(engine) = SystemStore::get_or_create_layout(
+            && let Some(buffer) = SystemStore::get_or_create_layout(
                 id,
-                cosmic,
                 sys_text_engine,
-                sys_dwrite_layouts,
+                sys_text_buffers,
                 cont_text_contents,
                 cont_text_spans,
                 lay_resolved_basic,
@@ -463,10 +461,7 @@ impl ScrollStore {
                 out_rects,
             )
         {
-            let size = match engine {
-                TextLayoutEngine::Cosmic(buffer) => sys_text_engine.get_layout_size_cosmic(&buffer),
-                TextLayoutEngine::DWrite(dw_layout) => sys_text_engine.get_layout_size(&dw_layout),
-            };
+            let size = sys_text_engine.get_layout_size(&buffer);
             max_x = size.width;
             max_y = size.height;
         }

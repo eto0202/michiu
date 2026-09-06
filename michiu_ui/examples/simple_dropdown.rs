@@ -28,8 +28,6 @@ struct AppState {
     root_id: EntityId,
 }
 
-pub(crate) const APPLY_COSMIC_TEXT: bool = false;
-
 // Win32 ウィンドウプロシージャ
 unsafe extern "system" fn wnd_proc(
     hwnd: HWND,
@@ -208,7 +206,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut context = Context::new();
-    context.cosmic = APPLY_COSMIC_TEXT;
     let (menu_open, set_menu_open) = context.create_signal(false);
 
     let root = build_ui(&mut context, || {

@@ -4,12 +4,12 @@ use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
     BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
     CapacityConfig, ChildrenSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display,
-    TextLayoutEngineSparseSecondary, EntityId, FlexLayoutsSecondary, GridLayoutsSparseSecondary,
-    InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint, LayoutSize,
-    LayoutStore, Length, OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary,
+    EntityId, FlexLayoutsSecondary, GridLayoutsSparseSecondary, InputContentsSparseSecondary,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, OutputStore,
+    ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollOffsetsSecondary,
+    ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextBufferSparseSecondary, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary,
     ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::SparseSecondaryMap;
@@ -275,8 +275,7 @@ impl ScrollbarStore {
                 let thumb_rect = thumb_id
                     .and_then(|i| out_rects.get(i).copied())
                     .unwrap_or_default();
-                let visible_size =
-                    WindowStore::calc_visible_size(container_rect, win_last_size);
+                let visible_size = WindowStore::calc_visible_size(container_rect, win_last_size);
 
                 // 縦・横の計算用パラメータ
                 let (pointer_coord, track_coord, track_len, thumb_len, scroll_total, visible_total) =

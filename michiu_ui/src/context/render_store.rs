@@ -8,8 +8,8 @@ use crate::{
     InputContentsSparseSecondary, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize,
     LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList,
     ReactiveStore, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSecondary, StyleTarget,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextLayoutEngineSparseSecondary,
-    ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, ThisStyle,
+    TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -791,7 +791,7 @@ impl RenderStore {
         id: EntityId,
         allow_transition: bool,
         win_last_size: Option<&LayoutSize>,
-        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
+        sys_text_buffers: &TextBufferSparseSecondary,
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
@@ -818,7 +818,7 @@ impl RenderStore {
             id,
             allow_transition,
             active_mask,
-            sys_dwrite_layouts,
+            sys_text_buffers,
             react_element_effects,
             cont_input_contents,
             topo_active_masks,
@@ -988,7 +988,7 @@ impl RenderStore {
         id: EntityId,
         allow_transition: bool,
         active_mask: ComponentMask,
-        sys_dwrite_layouts: &TextLayoutEngineSparseSecondary,
+        sys_text_buffers: &TextBufferSparseSecondary,
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
@@ -1266,7 +1266,7 @@ impl RenderStore {
             }
 
             if font_changed {
-                SystemStore::clear_layout_cache(id, sys_dwrite_layouts);
+                SystemStore::clear_layout_cache(id, sys_text_buffers);
                 LayoutStore::mark_layout_dirty(
                     id,
                     topo_active_masks,
@@ -2009,7 +2009,7 @@ impl Context {
             id,
             allow_transition,
             self.window.win_last_size.as_ref(),
-            &self.system.sys_dwrite_layouts,
+            &self.system.sys_text_buffers,
             &self.reactive.react_element_effects,
             &self.contents.cont_input_contents,
             &mut self.topology.topo_active_masks,

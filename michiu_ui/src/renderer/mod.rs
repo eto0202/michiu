@@ -97,9 +97,7 @@ pub struct DrawBatch {
 pub(crate) struct RendererView<'a> {
     pub(crate) render_data: &'a mut RenderData,
     pub(crate) atlas: &'a mut TextureAtlas,
-    pub(crate) text_rasterizer: &'a TextRasterizer,
     pub(crate) text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
-    pub(crate) new_text_cache: &'a mut FxHashMap<NewTextCacheKey, NewTextCacheValue>,
     pub(crate) queue: &'a wgpu::Queue,
 }
 
