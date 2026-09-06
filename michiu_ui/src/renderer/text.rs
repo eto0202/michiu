@@ -700,18 +700,31 @@ impl TextEngine {
     // フラットなバイト位置から 2D Cursor を算出
     pub(crate) fn flat_idx_to_cursor(buffer: &Buffer, flat_idx: usize) -> cosmic_text::Cursor {
         let mut accum = 0;
+        let lines_len = buffer.lines.len();
+
+        if lines_len == 0 {
+            return cosmic_text::Cursor::default();
+        }
+
         for (line_idx, line) in buffer.lines.iter().enumerate() {
             let line_len = line.text().len();
-            if flat_idx >= accum && flat_idx <= accum + line_len {
+            // 最終行以外は '\n' の 1 バイトを考慮
+            let is_last_line = line_idx == lines_len - 1;
+            let line_end_with_nl = accum + line_len + usize::from(!is_last_line);
+
+            // 現在の行の範囲内（末尾の改行を含む）かチェック
+            if flat_idx < line_end_with_nl || is_last_line {
+                let index_in_line = (flat_idx.saturating_sub(accum)).min(line_len);
                 return cosmic_text::Cursor {
                     line: line_idx,
-                    index: flat_idx - accum,
-                    // キャレットの位置調整用
+                    index: index_in_line,
                     affinity: cosmic_text::Affinity::Before,
                 };
             }
-            accum += line_len + 1; // 各行の末尾にある '\n'
+
+            accum = line_end_with_nl;
         }
+
         let last_line = buffer.lines.len().saturating_sub(1);
         let last_line_len = buffer.lines.get(last_line).map_or(0, |l| l.text().len());
         cosmic_text::Cursor {

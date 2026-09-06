@@ -228,56 +228,64 @@ impl TextEditStore {
     ) -> Vec<LayoutRect> {
         match engine {
             TextLayoutEngine::Cosmic(buffer) => {
-                // 範囲が逆転している場合の対策
+                // 範囲が空（選択なし）の場合は即座に空Vecを返す
+                if range.start == range.end {
+                    return Vec::new();
+                }
+
                 let (start_idx, end_idx) = if range.start <= range.end {
                     (range.start, range.end)
                 } else {
                     (range.end, range.start)
                 };
 
-                // フラットなバイト位置から cosmic-text の Cursor への変換用クロージャ
-                let flat_idx_to_cursor = |flat_idx: usize| -> cosmic_text::Cursor {
-                    let mut accum = 0;
-                    for (line_idx, line) in buffer.lines.iter().enumerate() {
-                        let line_len = line.text().len();
-                        // インデックスが現在の段落内にあるか
-                        if flat_idx >= accum && flat_idx <= accum + line_len {
-                            return cosmic_text::Cursor {
-                                line: line_idx,
-                                index: flat_idx - accum,
-                                affinity: cosmic_text::Affinity::Before,
-                            };
-                        }
-                        accum += line_len + 1; // 各段落の終わりの '\n' の分
-                    }
-                    // 範囲外だった場合のフォールバック
-                    let last_line = buffer.lines.len().saturating_sub(1);
-                    let last_line_len = buffer
-                        .lines
-                        .get(last_line)
-                        .map(|l| l.text().len())
-                        .unwrap_or(0);
-                    cosmic_text::Cursor {
-                        line: last_line,
-                        index: last_line_len,
-                        affinity: cosmic_text::Affinity::Before,
-                    }
-                };
+                let mut cursor_start = TextEngine::flat_idx_to_cursor(buffer, start_idx);
+                let mut cursor_end = TextEngine::flat_idx_to_cursor(buffer, end_idx);
 
-                let cursor_start = flat_idx_to_cursor(start_idx);
-                let cursor_end = flat_idx_to_cursor(end_idx);
+                if (cursor_start.line > cursor_end.line)
+                    || (cursor_start.line == cursor_end.line
+                        && cursor_start.index > cursor_end.index)
+                {
+                    std::mem::swap(&mut cursor_start, &mut cursor_end);
+                }
 
                 let mut out_rects = Vec::new();
-
-                // 各行をループしてハイライト領域を計算
                 for run in buffer.layout_runs() {
-                    for (x, w) in run.highlight(cursor_start, cursor_end) {
-                        out_rects.push(LayoutRect::new(
-                            x,               // 選択範囲の左端
-                            run.line_top,    // 行の上端のY座標
-                            w,               // 選択範囲の幅
-                            run.line_height, // 行の高さ
-                        ));
+                    let line_i = run.line_i;
+
+                    // 選択範囲より前の行、または後の行はスキップ
+                    if line_i < cursor_start.line || line_i > cursor_end.line {
+                        continue;
+                    }
+
+                    // この行（run）における選択の始点と終点
+                    let line_len = buffer.lines.get(line_i).map_or(0, |l| l.text().len());
+
+                    // 開始行なら cursor_start.index、それ以降の行なら行頭（0）
+                    let run_cursor_start = if line_i == cursor_start.line {
+                        cursor_start
+                    } else {
+                        cosmic_text::Cursor {
+                            line: line_i,
+                            index: 0,
+                            affinity: cosmic_text::Affinity::Before,
+                        }
+                    };
+
+                    // 終了行なら cursor_end.index、それ以前の行なら行末（line_len）
+                    let run_cursor_end = if line_i == cursor_end.line {
+                        cursor_end
+                    } else {
+                        cosmic_text::Cursor {
+                            line: line_i,
+                            index: line_len,
+                            affinity: cosmic_text::Affinity::Before,
+                        }
+                    };
+
+                    // highlight を計算
+                    for (x, w) in run.highlight(run_cursor_start, run_cursor_end) {
+                        out_rects.push(LayoutRect::new(x, run.line_top, w, run.line_height));
                     }
                 }
 
