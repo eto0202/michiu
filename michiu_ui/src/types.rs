@@ -1,8 +1,10 @@
+pub mod font;
 pub mod from_into;
 pub mod index;
 pub mod layout_data;
 pub mod string;
 
+pub use font::*;
 pub use from_into::*;
 pub use index::*;
 pub use layout_data::*;

@@ -262,7 +262,6 @@ impl TextEditStore {
         if let Some(range) = edit_selections.get(id).cloned()
             && range.start < range.end
         {
-
             // 生テキストの選択範囲を、表示テキスト（マスク文字）の選択範囲へ変換
             let display_range = if let Some(contents) = cont_input_contents.get(id) {
                 let raw_text = contents.to_michiu();
@@ -432,6 +431,7 @@ impl TextEditStore {
         id: EntityId,
         start_pos: ByteIndex,
         local: LayoutPoint,
+        buffer: Option<&Rc<Buffer>>,
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
@@ -460,21 +460,11 @@ impl TextEditStore {
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) {
-        let Some(engine) = SystemStore::get_or_create_layout(
-            id,
-            sys_text_engine,
-            sys_text_buffers,
-            cont_text_contents,
-            cont_text_spans,
-            lay_resolved_basic,
-            lay_resolved_flex,
-            rnd_visual,
-            out_rects,
-        ) else {
+        let Some(buffer) = buffer else {
             return;
         };
 
-        let (display_index, is_trailing) = sys_text_engine.hit_test_point(&engine, local);
+        let (display_index, is_trailing) = sys_text_engine.hit_test_point(buffer, local);
 
         // 表示テキストの文字境界を進める
         let display_text = cont_text_contents.get(id).cloned().unwrap_or_default();
@@ -503,7 +493,7 @@ impl TextEditStore {
 
         TextEditStore::update_selection_rects(
             id,
-            &engine,
+            buffer,
             edit_selected_rects,
             edit_selections,
             cont_input_contents,
@@ -703,7 +693,7 @@ impl TextEditStore {
 
         // 選択範囲の描画を更新
         if (has_selection_before || has_selection_after)
-            && let Some(engine) = SystemStore::get_or_create_layout(
+            && let Some(buffer) = SystemStore::get_or_create_layout(
                 id,
                 sys_text_engine,
                 sys_text_buffers,
@@ -717,7 +707,7 @@ impl TextEditStore {
         {
             TextEditStore::update_selection_rects(
                 id,
-                &engine,
+                &buffer,
                 edit_selected_rects,
                 edit_selections,
                 cont_input_contents,
@@ -764,6 +754,8 @@ impl TextEditStore {
             // Taffy計算前に表示用テキストの同期が必須
             // 未確定文字の伸縮時はシグナルが更新されないため ImeUpdated を含める
             InputOp::Init | InputOp::TextEffect | InputOp::ImeUpdated => {
+                // IMEやタイピング中の古いキャッシュを破棄
+                SystemStore::clear_layout_cache(id, sys_text_buffers);
                 TextEditStore::update_input_caret_position(
                     id,
                     win_scale_factor,
@@ -811,6 +803,8 @@ impl TextEditStore {
             | InputOp::Cut
             | InputOp::Undo
             | InputOp::Redo => {
+                // IMEやタイピング中の古いキャッシュを破棄
+                SystemStore::clear_layout_cache(id, sys_text_buffers);
                 TopologyStore::mark_dirty(
                     id,
                     topo_active_masks,
@@ -853,9 +847,6 @@ impl TextEditStore {
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) {
-        // IMEやタイピング中の古いキャッシュを破棄
-        SystemStore::clear_layout_cache(id, sys_text_buffers);
-
         let ime_caret_info = TextEditStore::ime_caret_info(
             id,
             sys_text_engine,

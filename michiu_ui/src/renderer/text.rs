@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use crate::types::LayoutSize;
 use crate::{
-    ByteIndex, EdgeInsets, LayoutPoint, LayoutRect, MichiuString, RendererView, TextAlign,
-    TextSpan, VisualProperty,
+    ByteIndex, EdgeInsets, FontDate, LayoutPoint, LayoutRect, MichiuString, RendererView,
+    TextAlign, TextSpan, VisualProperty,
 };
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
@@ -55,27 +55,25 @@ impl TextEngine {
     pub(crate) fn create_buffer(
         &mut self,
         text: &MichiuString,
-        font_size: f32,
-        font_family: Option<&str>,
-        font_weight: Option<u32>,
-        font_style: Option<u32>,
+        font: FontDate,
         text_align: TextAlign,
         max_width: Option<f32>,
         auto_wrap: Option<bool>,
         spans: &[TextSpan],
     ) -> Buffer {
+        let font_size = font.size.unwrap_or(FontDate::FONT_SIZE);
         let metrics = Metrics::new(font_size, font_size * 1.4);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
 
         let mut default_attrs = Attrs::new();
 
-        if let Some(family) = font_family {
+        if let Some(family) = font.family.as_deref() {
             default_attrs = default_attrs.family(Family::Name(family));
         }
-        if let Some(weight) = font_weight {
+        if let Some(weight) = font.weight {
             default_attrs = default_attrs.weight(Weight(weight as u16));
         }
-        if let Some(style) = font_style {
+        if let Some(style) = font.style {
             default_attrs = default_attrs.style(match style {
                 2 => Style::Italic,
                 _ => Style::Normal,
@@ -164,10 +162,7 @@ impl TextEngine {
     pub(crate) fn measure_text(
         &mut self,
         text: &MichiuString,
-        font_size: f32,
-        font_family: Option<&str>,
-        font_weight: Option<u32>,
-        font_style: Option<u32>,
+        font: FontDate,
         text_align: TextAlign,
         max_width: Option<f32>,
         auto_wrap: Option<bool>,
@@ -177,17 +172,7 @@ impl TextEngine {
             return LayoutSize::ZERO;
         }
 
-        let buffer = self.create_buffer(
-            text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
-            text_align,
-            max_width,
-            auto_wrap,
-            spans,
-        );
+        let buffer = self.create_buffer(text, font, text_align, max_width, auto_wrap, spans);
 
         self.get_layout_size(&buffer)
     }

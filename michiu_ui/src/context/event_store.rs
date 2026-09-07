@@ -315,7 +315,7 @@ impl EventStore {
                     }
                 }
 
-                let engine = SystemStore::get_or_create_layout(
+                let buffer = SystemStore::get_or_create_layout(
                     pressed_id,
                     &mut cx.system.sys_text_engine,
                     &cx.system.sys_text_buffers,
@@ -329,7 +329,7 @@ impl EventStore {
                 let local = OutputStore::pressed_local_point(
                     pressed_id,
                     logical_pos,
-                    engine.as_ref(),
+                    buffer.as_ref(),
                     &mut cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                     &cx.topology.topo_active_masks,
@@ -348,6 +348,7 @@ impl EventStore {
                     pressed_id,
                     start_pos,
                     local,
+                    buffer.as_ref(),
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
                     &mut cx.system.sys_text_engine,

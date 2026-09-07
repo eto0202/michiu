@@ -5360,7 +5360,7 @@ impl ThisStyle {
         match family.into_style_value() {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.visual_property.font_family = Some(v);
+                inner.visual_property.font.family = Some(v);
                 inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
             }
             StyleValue::Dynamic(getter) => {
@@ -5369,7 +5369,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.font_family = Some(val);
+                        v.font.family = Some(val);
                     }
                     cx.mark_render_dirty(id);
                 }));
@@ -5385,7 +5385,7 @@ impl ThisStyle {
         match weight.into_style_value() {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.visual_property.font_weight = Some(v);
+                inner.visual_property.font.weight = Some(v);
                 inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
             }
             StyleValue::Dynamic(getter) => {
@@ -5394,7 +5394,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.font_weight = Some(val);
+                        v.font.weight = Some(val);
                     }
                     cx.mark_render_dirty(id);
                 }));
@@ -5410,7 +5410,7 @@ impl ThisStyle {
         match size.into_style_value() {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.visual_property.font_size = Some(v);
+                inner.visual_property.font.size = Some(v);
                 inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
             }
             StyleValue::Dynamic(getter) => {
@@ -5419,7 +5419,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.font_size = Some(val);
+                        v.font.size = Some(val);
                     }
                     cx.mark_render_dirty(id);
                 }));
@@ -5435,7 +5435,7 @@ impl ThisStyle {
         match style.into_style_value() {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.visual_property.font_style = Some(v);
+                inner.visual_property.font.style = Some(v);
                 inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
             }
             StyleValue::Dynamic(getter) => {
@@ -5444,7 +5444,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.font_style = Some(val);
+                        v.font.style = Some(val);
                     }
                     cx.mark_render_dirty(id);
                 }));
