@@ -346,7 +346,7 @@ impl EventStore {
 
                 TextEditStore::handle_text_selection_click(
                     pressed_id,
-                    start_pos.into(),
+                    start_pos,
                     local,
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
@@ -729,12 +729,12 @@ impl EventStore {
         cx.states
             .edit
             .edit_selections
-            .insert(target_id, range.clone().to_usize_range());
+            .insert(target_id, range.clone());
         // アンカー開始を文節左端にセット
         cx.states
             .edit
             .edit_selection_start_index
-            .insert(target_id, range.start.0);
+            .insert(target_id, range.start);
         // 選択矩形を更新
         TextEditStore::update_selection_rects(
             target_id,
@@ -1061,7 +1061,7 @@ impl EventStore {
 
         let new_range = new_caret..new_caret;
         contents.selected_range = new_range.clone();
-        edit_selections.insert(focused_id, new_range.to_usize_range());
+        edit_selections.insert(focused_id, new_range);
         edit_selected_rects.remove(focused_id);
     }
 
@@ -1157,7 +1157,7 @@ impl EventStore {
     ) {
         contents.apply_undo(prev_text, prev_sel.clone());
 
-        edit_selections.insert(focused_id, prev_sel.to_usize_range());
+        edit_selections.insert(focused_id, prev_sel);
         edit_selected_rects.remove(focused_id);
     }
 
@@ -1192,7 +1192,7 @@ impl EventStore {
         cx.states
             .edit
             .edit_selection_start_index
-            .insert(focused_id, prev_sel.start.0);
+            .insert(focused_id, prev_sel.start);
 
         TextEditStore::apply_input_update(
             focused_id,
@@ -1238,9 +1238,9 @@ impl EventStore {
         // InputContents 側の状態復元
         contents.apply_redo(next_text, next_sel.clone());
 
-        edit_selections.insert(focused_id, next_sel.clone().to_usize_range());
+        edit_selections.insert(focused_id, next_sel.clone());
         edit_selected_rects.remove(focused_id);
-        edit_selection_start_index.insert(focused_id, next_sel.start.0);
+        edit_selection_start_index.insert(focused_id, next_sel.start);
     }
 
     pub(crate) fn inject_redo(cx: &mut Context) {
@@ -1322,7 +1322,7 @@ impl EventStore {
         // キャレット位置・選択状態の更新
         let new_range = new_caret..new_caret;
         contents.selected_range = new_range.clone();
-        edit_selections.insert(focused_id, new_range.to_usize_range());
+        edit_selections.insert(focused_id, new_range);
         edit_selected_rects.remove(focused_id);
     }
 
@@ -1347,7 +1347,7 @@ impl EventStore {
         }
 
         let text = cx.contents.cont_text_contents.get(focused_id)?;
-        let cut_text = text.slice(range.clone().to_byte_range()).to_string();
+        let cut_text = text.slice(range.clone()).to_string();
 
         // 対象が Input コントロールである場合のみ書き換え
         let is_input = cx
@@ -1360,7 +1360,7 @@ impl EventStore {
         if is_input && let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) {
             EventStore::inject_cut_internal(
                 focused_id,
-                range.clone().to_byte_range(),
+                range.clone(),
                 contents,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selected_rects,

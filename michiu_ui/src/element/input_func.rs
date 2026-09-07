@@ -1,11 +1,10 @@
 use std::{ops::Range, time::Instant};
 
 use crate::{
-    ByteIndex, CharIndex, ComponentMask, Context, EffectCategory, Element, ElementState, EntityId,
-    ImeState, InputContents, InputOp, LayoutPoint, MichiuString, Modifiers, MouseButton,
-    OutputStore, Prop, RangeExt, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
-    SystemStore, TextEngine, TextSelectionsSparseSecondary, TextSpan, UnderlineStyle,
-    UsizeRangeExt, VirtualKey, with_context,
+    ByteIndex, ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
+    InputContents, InputOp, LayoutPoint, MichiuString, Modifiers, MouseButton, OutputStore, Prop,
+    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SystemStore, TextEngine,
+    TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
 use cosmic_text::Buffer;
 
@@ -124,8 +123,8 @@ impl Element {
         contents.selected_range = caret..caret;
         contents.selection_reversed = false;
 
-        edit_selections.insert(id, (caret..caret).to_usize_range());
-        edit_selection_start_index.insert(id, caret.into());
+        edit_selections.insert(id, caret..caret);
+        edit_selection_start_index.insert(id, caret);
         if let Some(rects) = edit_selected_rects {
             rects.remove(id);
         }
@@ -142,7 +141,7 @@ impl Element {
     ) {
         contents.selected_range = range.clone();
         contents.selection_reversed = selection_reversed;
-        edit_selections.insert(id, range.to_usize_range());
+        edit_selections.insert(id, range);
     }
 
     fn handle_input_mouse_pressed(
@@ -267,20 +266,20 @@ impl Element {
                     .edit
                     .edit_selection_start_index
                     .entry(id)
-                    .map_or(contents.selected_range.start.0, |e| {
-                        *e.or_insert(contents.selected_range.start.0)
+                    .map_or(contents.selected_range.start, |e| {
+                        *e.or_insert(contents.selected_range.start)
                     });
 
-                let (range, reversed) = if anchor <= final_caret_clamped.0 {
-                    (anchor..final_caret_clamped.0, false)
+                let (range, reversed) = if anchor <= final_caret_clamped {
+                    (anchor..final_caret_clamped, false)
                 } else {
-                    (final_caret_clamped.0..anchor, true)
+                    (final_caret_clamped..anchor, true)
                 };
 
                 Element::set_selection_range(
                     id,
                     contents,
-                    range.to_byte_range(),
+                    range,
                     reversed,
                     &mut cx.states.edit.edit_selections,
                 );
@@ -471,22 +470,16 @@ impl Element {
                 let anchor = edit_selection_start_index
                     .get(id)
                     .copied()
-                    .unwrap_or(new_caret.0);
+                    .unwrap_or(new_caret);
                 if !edit_selection_start_index.contains_key(id) {
-                    edit_selection_start_index.insert(id, new_caret.0);
+                    edit_selection_start_index.insert(id, new_caret);
                 }
-                let (range, reversed) = if anchor <= new_caret.0 {
-                    (anchor..new_caret.0, false)
+                let (range, reversed) = if anchor <= new_caret {
+                    (anchor..new_caret, false)
                 } else {
-                    (new_caret.0..anchor, true)
+                    (new_caret..anchor, true)
                 };
-                Element::set_selection_range(
-                    id,
-                    contents,
-                    range.to_byte_range(),
-                    reversed,
-                    edit_selections,
-                );
+                Element::set_selection_range(id, contents, range, reversed, edit_selections);
             } else {
                 // Shiftキー非押下：選択解除して単なる移動
                 Element::set_caret_position(
@@ -532,25 +525,16 @@ impl Element {
             let new_caret = text_val.next_char_boundary(caret);
 
             if mods.shift {
-                let anchor = edit_selection_start_index
-                    .get(id)
-                    .copied()
-                    .unwrap_or(caret.0);
+                let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
                 if !edit_selection_start_index.contains_key(id) {
-                    edit_selection_start_index.insert(id, caret.0);
+                    edit_selection_start_index.insert(id, caret);
                 }
-                let (range, reversed) = if anchor <= new_caret.0 {
-                    (anchor..new_caret.0, false)
+                let (range, reversed) = if anchor <= new_caret {
+                    (anchor..new_caret, false)
                 } else {
-                    (new_caret.0..anchor, true)
+                    (new_caret..anchor, true)
                 };
-                Element::set_selection_range(
-                    id,
-                    contents,
-                    range.to_byte_range(),
-                    reversed,
-                    edit_selections,
-                );
+                Element::set_selection_range(id, contents, range, reversed, edit_selections);
             } else {
                 Element::set_caret_position(
                     id,
@@ -596,25 +580,16 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = edit_selection_start_index
-                .get(id)
-                .copied()
-                .unwrap_or(caret.0);
+            let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
             if !edit_selection_start_index.contains_key(id) {
-                edit_selection_start_index.insert(id, caret.0);
+                edit_selection_start_index.insert(id, caret);
             }
-            let (range, reversed) = if anchor <= final_caret.0 {
-                (anchor..final_caret.0, false)
+            let (range, reversed) = if anchor <= final_caret {
+                (anchor..final_caret, false)
             } else {
-                (final_caret.0..anchor, true)
+                (final_caret..anchor, true)
             };
-            Element::set_selection_range(
-                id,
-                contents,
-                range.to_byte_range(),
-                reversed,
-                edit_selections,
-            );
+            Element::set_selection_range(id, contents, range, reversed, edit_selections);
         } else {
             Element::set_caret_position(
                 id,
@@ -645,8 +620,7 @@ impl Element {
             return false;
         }
 
-        let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(buffer, caret.into());
+        let (cx_offset, cy_offset, ch_height) = sys_text_engine.get_caret_position(buffer, caret);
 
         let target_y = cy_offset + ch_height * 1.5;
 
@@ -660,25 +634,16 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = edit_selection_start_index
-                .get(id)
-                .copied()
-                .unwrap_or(caret.0);
+            let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
             if !edit_selection_start_index.contains_key(id) {
-                edit_selection_start_index.insert(id, caret.0);
+                edit_selection_start_index.insert(id, caret);
             }
-            let (range, reversed) = if anchor <= final_caret.0 {
-                (anchor..final_caret.0, false)
+            let (range, reversed) = if anchor <= final_caret {
+                (anchor..final_caret, false)
             } else {
-                (final_caret.0..anchor, true)
+                (final_caret..anchor, true)
             };
-            Element::set_selection_range(
-                id,
-                contents,
-                range.to_byte_range(),
-                reversed,
-                edit_selections,
-            );
+            Element::set_selection_range(id, contents, range, reversed, edit_selections);
         } else {
             Element::set_caret_position(
                 id,

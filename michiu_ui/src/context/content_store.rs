@@ -202,7 +202,7 @@ impl ContentStore {
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 
         let size = sys_text_engine.measure_text(
-            &text,
+            text,
             font_size,
             font_family,
             font_weight,

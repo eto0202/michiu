@@ -36,8 +36,8 @@ pub enum InputOp {
 }
 
 pub(crate) type SelectedRectsSparseSecondary = SparseSecondaryMap<EntityId, Vec<LayoutRect>>;
-pub(crate) type TextSelectionsSparseSecondary = SparseSecondaryMap<EntityId, Range<usize>>;
-pub(crate) type SelectionStartIndexSparseSecondary = SparseSecondaryMap<EntityId, usize>;
+pub(crate) type TextSelectionsSparseSecondary = SparseSecondaryMap<EntityId, Range<ByteIndex>>;
+pub(crate) type SelectionStartIndexSparseSecondary = SparseSecondaryMap<EntityId, ByteIndex>;
 
 pub(crate) struct TextEditStore {
     pub(crate) edit_selections: TextSelectionsSparseSecondary,
@@ -262,14 +262,13 @@ impl TextEditStore {
         if let Some(range) = edit_selections.get(id).cloned()
             && range.start < range.end
         {
-            let raw_range = range.to_byte_range();
 
             // 生テキストの選択範囲を、表示テキスト（マスク文字）の選択範囲へ変換
             let display_range = if let Some(contents) = cont_input_contents.get(id) {
                 let raw_text = contents.to_michiu();
-                contents.raw_range_to_display_range(raw_range, &raw_text)
+                contents.raw_range_to_display_range(range, &raw_text)
             } else {
-                raw_range
+                range
             };
 
             let out_rects = TextEditStore::calc_selection_rects(id, buffer, display_range);
@@ -305,7 +304,7 @@ impl TextEditStore {
             let range = edit_selections.get(target_id)?;
             if range.start < range.end {
                 let text = cont_text_contents.get(target_id)?;
-                let byte_range = range.clone().to_byte_range();
+                let byte_range = range.clone();
                 return Some(text.slice(byte_range).to_string().into());
             }
         }
@@ -402,14 +401,14 @@ impl TextEditStore {
             let anchor = edit_selection_start_index
                 .get(id)
                 .copied()
-                .unwrap_or(final_index.0);
+                .unwrap_or(final_index);
             if !edit_selection_start_index.contains_key(id) {
-                edit_selection_start_index.insert(id, final_index.0);
+                edit_selection_start_index.insert(id, final_index);
             }
-            let range = if anchor <= final_index.0 {
-                anchor..final_index.0
+            let range = if anchor <= final_index {
+                anchor..final_index
             } else {
-                final_index.0..anchor
+                final_index..anchor
             };
             edit_selections.insert(id, range);
             TextEditStore::update_selection_rects(
@@ -421,8 +420,8 @@ impl TextEditStore {
             );
         } else {
             // 共通の通常クリックリセット
-            edit_selection_start_index.insert(id, final_index.0);
-            edit_selections.insert(id, final_index.0..final_index.0);
+            edit_selection_start_index.insert(id, final_index);
+            edit_selections.insert(id, final_index..final_index);
             edit_selected_rects.remove(id);
         }
 
@@ -500,7 +499,7 @@ impl TextEditStore {
             (final_raw_index..start_pos, true)
         };
 
-        edit_selections.insert(id, range.clone().to_usize_range());
+        edit_selections.insert(id, range.clone());
 
         TextEditStore::update_selection_rects(
             id,
@@ -607,7 +606,7 @@ impl TextEditStore {
         };
 
         if let Some(full_range) = input_full_range {
-            edit_selections.insert(id, full_range.to_usize_range());
+            edit_selections.insert(id, full_range);
 
             TextEditStore::update_selection_rects(
                 id,
@@ -652,7 +651,7 @@ impl TextEditStore {
             let text_len = text.byte_len();
             let full_range = ByteIndex(0)..text_len;
 
-            edit_selections.insert(id, full_range.clone().to_usize_range());
+            edit_selections.insert(id, full_range.clone());
             TextEditStore::update_selection_rects(
                 id,
                 &engine,
@@ -986,7 +985,7 @@ impl TextEditStore {
     ) -> Option<(LayoutRect, f32, bool)> {
         let contents = cont_input_contents.get_mut(id)?;
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
-        edit_selections.insert(id, contents.selected_range.clone().to_usize_range());
+        edit_selections.insert(id, contents.selected_range.clone());
 
         let text_val = contents.to_michiu();
 

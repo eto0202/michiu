@@ -1,14 +1,16 @@
 pub mod from_into;
+pub mod index;
 pub mod layout_data;
 pub mod string;
 
 pub use from_into::*;
+pub use index::*;
 pub use layout_data::*;
 pub use string::*;
 
-use crate::{Context, Element, EntityId, PropertyList, VirtualKey, rgba};
+use crate::{Context, Element, EntityId, ImeState, PropertyList, VirtualKey, rgba};
 use bytemuck::{Pod, Zeroable};
-use std::{borrow::Cow, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 use windows::Win32::{
     Graphics::Gdi::{
         BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
@@ -1617,93 +1619,6 @@ pub struct Modifiers {
     pub ctrl: bool,
     pub alt: bool,
     pub logo: bool, // Windowsキー
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct ImeState {
-    pub is_open: bool,
-    pub conversion_mode: u32,
-    pub sentence_mode: u32,
-    pub keyboard_layout_id: u32,
-    pub composition_text: MichiuString,
-    pub result_text: MichiuString,
-    pub caret_position: Option<LayoutPoint>,
-    pub composition_cursor: CharIndex,
-    pub composition_attrs: Vec<u8>,
-}
-
-impl ImeState {
-    #[inline]
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            ..Default::default()
-        }
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn is_open(mut self, enable: bool) -> Self {
-        self.is_open = enable;
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn conversion_mode(mut self, mode: u32) -> Self {
-        self.conversion_mode = mode;
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn sentence_mode(mut self, mode: u32) -> Self {
-        self.sentence_mode = mode;
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn keyboard_layout_id(mut self, id: u32) -> Self {
-        self.keyboard_layout_id = id;
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn composition_text(mut self, text: impl Into<Cow<'static, str>>) -> Self {
-        self.composition_text = MichiuString(text.into());
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn result_text(mut self, text: impl Into<Cow<'static, str>>) -> Self {
-        self.result_text = MichiuString(text.into());
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn caret_position(mut self, pos: Option<LayoutPoint>) -> Self {
-        self.caret_position = pos;
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn composition_cursor(mut self, index: usize) -> Self {
-        self.composition_cursor = index.into();
-        self
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn composition_attrs(mut self, attrs: Vec<u8>) -> Self {
-        self.composition_attrs = attrs;
-        self
-    }
-
 }
 
 /// UI Automation (UIA) のプロパティ値の安全な表現
