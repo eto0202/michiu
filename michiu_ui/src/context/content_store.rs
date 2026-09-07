@@ -11,7 +11,7 @@ use std::{
 };
 use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
-pub(crate) type TextContentsSparseSecondary = SparseSecondaryMap<EntityId, Cow<'static, str>>;
+pub(crate) type TextContentsSparseSecondary = SparseSecondaryMap<EntityId, MichiuString>;
 pub(crate) type TextSpansSparseSecondary = SparseSecondaryMap<EntityId, Vec<TextSpan>>;
 pub(crate) type InputContentsSparseSecondary = SparseSecondaryMap<EntityId, InputContents>;
 pub(crate) type ExternalTextureSparseSecondary =
@@ -24,7 +24,7 @@ pub struct ContentStore {
     pub(crate) cont_input_contents: InputContentsSparseSecondary,
     pub(crate) cont_external_textures: ExternalTextureSparseSecondary,
     pub(crate) cont_webview_contents: WebviewContentsSparseSecondary,
-    pub(crate) cont_cut_text: Option<Cow<'static, str>>,
+    pub(crate) cont_cut_text: Option<MichiuString>,
 }
 
 impl Default for ContentStore {
@@ -202,7 +202,7 @@ impl ContentStore {
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 
         let size = sys_text_engine.measure_text(
-            &MichiuString(text.clone()),
+            &text,
             font_size,
             font_family,
             font_weight,

@@ -175,7 +175,7 @@ impl SystemStore {
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 
         let buffer = sys_text_engine.create_buffer(
-            &MichiuString(text.clone()),
+            text,
             font_size,
             font_family,
             font_weight,

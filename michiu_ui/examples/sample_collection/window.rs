@@ -501,12 +501,11 @@ unsafe extern "system" fn wnd_proc(
             }
             WM_IME_ENDCOMPOSITION => {
                 // IME の非確定終了（確定 or キャンセル時）に伴い状態をクリア
-                let ime_state = ImeState {
-                    is_open: false,
-                    composition_text: String::new(),
-                    result_text: String::new(),
-                    ..Default::default()
-                };
+                let ime_state = ImeState::new()
+                    .is_open(false)
+                    .composition_text(String::new())
+                    .result_text(String::new());
+
                 app.context.inject_user_action(UserAction::Ime(ime_state));
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(1);
@@ -514,10 +513,7 @@ unsafe extern "system" fn wnd_proc(
             WM_IME_COMPOSITION => {
                 let himc = unsafe { ImmGetContext(hwnd) };
                 if !himc.is_invalid() {
-                    let mut ime_state = ImeState {
-                        is_open: true,
-                        ..Default::default()
-                    };
+                    let mut ime_state = ImeState::new().is_open(true);
 
                     // IME から確定されたテキストを取得
                     if (lparam.0 & GCS_RESULTSTR.0 as isize) != 0 {
@@ -532,7 +528,7 @@ unsafe extern "system" fn wnd_proc(
                                     len as u32,
                                 );
                             }
-                            ime_state.result_text = String::from_utf16_lossy(&buf);
+                            ime_state = ime_state.result_text(String::from_utf16_lossy(&buf));
                         }
                     }
 
@@ -549,10 +545,12 @@ unsafe extern "system" fn wnd_proc(
                                     len as u32,
                                 );
                             }
-                            ime_state.composition_text = String::from_utf16_lossy(&buf);
+
                             // エラー時のためのフォールバックとして、組成文字列の末尾を一旦セット
-                            ime_state.composition_cursor =
-                                ime_state.composition_text.encode_utf16().count();
+                            let index = ime_state.composition_text.encode_utf16().count();
+                            ime_state = ime_state
+                                .composition_text(String::from_utf16_lossy(&buf))
+                                .composition_cursor(index);
                         }
                     }
 
@@ -561,7 +559,7 @@ unsafe extern "system" fn wnd_proc(
                         let cursor_pos =
                             unsafe { ImmGetCompositionStringW(himc, GCS_CURSORPOS, None, 0) };
                         if cursor_pos >= 0 {
-                            ime_state.composition_cursor = cursor_pos as usize;
+                            ime_state = ime_state.composition_cursor(cursor_pos as usize);
                         }
                     }
 
@@ -578,7 +576,7 @@ unsafe extern "system" fn wnd_proc(
                                     len as u32,
                                 );
                             }
-                            ime_state.composition_attrs = attrs;
+                            ime_state = ime_state.composition_attrs(attrs);
                         }
                     }
 

@@ -120,7 +120,7 @@ impl Pipeline {
                 };
                 handle_on_file_dropped(cx, target_id, path_bufs);
             }
-            UserAction::Paste(text) => EventStore::inject_paste(cx, &text),
+            UserAction::Paste(text) => EventStore::inject_paste(cx, &text.into()),
             UserAction::Cut => {
                 cx.contents.cont_cut_text = EventStore::inject_cut(cx);
             }
@@ -1764,11 +1764,7 @@ impl Pipeline {
     ) {
         for span in spans {
             if let Some(bg_color) = span.bg_color {
-                let rects = TextEditStore::calc_selection_rects(
-                    id,
-                    buffer,
-                    span.range.clone().to_usize_range(),
-                );
+                let rects = TextEditStore::calc_selection_rects(id, buffer, span.range.clone());
 
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
@@ -1822,16 +1818,15 @@ impl Pipeline {
 
                 // アトラスにパッキングされた文字がUIの画面上で縦横何ピクセルの大きさで描画されるべきかを逆算
                 // アトラス上の UV 座標を取得
-                let (value, _cleared) =
-                    sys_text_engine.get_or_create_glyph_uv(
-                        physical.cache_key,
-                        view,
-                        win_scale_factor,
-                    );
+                let (value, _cleared) = sys_text_engine.get_or_create_glyph_uv(
+                    physical.cache_key,
+                    view,
+                    win_scale_factor,
+                );
 
                 // 最終的なポリゴンの左上 ＝ グリフ原点 ＋ 画像オフセット
                 let char_phys_x = physical.x + value.offset_x;
-                let char_phys_y = physical.y - value. offset_y; // Swash の top は上向き正のため減算
+                let char_phys_y = physical.y - value.offset_y; // Swash の top は上向き正のため減算
 
                 // 論理座標に戻す
                 let char_x = char_phys_x as f32 / win_scale_factor;
@@ -1884,7 +1879,7 @@ impl Pipeline {
                 continue;
             }
 
-            let rects = TextEditStore::calc_selection_rects(id, buffer, span.range.clone().to_usize_range());
+            let rects = TextEditStore::calc_selection_rects(id, buffer, span.range.clone());
 
             for metric_rect in rects {
                 let start_x =

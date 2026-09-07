@@ -222,8 +222,8 @@ pub struct InputContents {
     pub(crate) total_lines: usize,
 
     // Undo / Redo 用履歴スタック
-    pub(crate) undo_stack: Vec<(String, Range<ByteIndex>)>,
-    pub(crate) redo_stack: Vec<(String, Range<ByteIndex>)>,
+    pub(crate) undo_stack: Vec<(MichiuString, Range<ByteIndex>)>,
+    pub(crate) redo_stack: Vec<(MichiuString, Range<ByteIndex>)>,
     pub(crate) undo_limit: usize,
 }
 
@@ -416,7 +416,8 @@ impl InputContents {
     }
 
     /// 現在の状態を Undo 履歴に記録し、Redo スタックをクリアします
-    pub(crate) fn record_undo(&mut self, text: String, selection: Range<ByteIndex>) {
+    #[inline]
+    pub(crate) fn record_undo(&mut self, text: MichiuString, selection: Range<ByteIndex>) {
         if let Some((last_text, _)) = self.undo_stack.last()
             && *last_text == text
         {
@@ -431,274 +432,94 @@ impl InputContents {
         }
     }
 
+    /// Redoを実行し、現在の状態をUndoスタックへ退避させつつテキストと選択範囲を復元する
     #[inline]
+    pub(crate) fn apply_redo(&mut self, next_text: MichiuString, next_sel: Range<ByteIndex>) {
+        let current_text = self.to_michiu();
+        let current_sel = self.selected_range.clone();
+        self.undo_stack.push((current_text, current_sel));
+
+        self.selected_range = next_sel;
+        self.text.1.set(next_text.into());
+    }
+
+    /// Undoを実行し、現在の状態をRedoスタックへ退避させつつテキストと選択範囲を復元する
+    #[inline]
+    pub(crate) fn apply_undo(&mut self, prev_text: MichiuString, prev_sel: Range<ByteIndex>) {
+        let current_text = self.to_michiu();
+        let current_sel = self.selected_range.clone();
+        self.redo_stack.push((current_text, current_sel));
+
+        self.selected_range = prev_sel;
+        self.text.1.set(prev_text.into());
+    }
+
+    /// パスワードモードが有効なら文字数分マスクした文字列を返し、無効ならそのままのテキストを返す
+    #[inline]
+    #[must_use]
+    pub(crate) fn mask_if_password(&self, text: &MichiuString) -> MichiuString {
+        if self.is_password {
+            let mask = self.mask_text.as_deref().unwrap_or("●");
+            mask.repeat(text.char_count().0).into()
+        } else {
+            text.clone()
+        }
+    }
+
+    /// 表示テキスト（マスク後）のバイト位置を、生テキストのバイト位置に変換する（クリック・ヒットテスト用）
+    pub(crate) fn display_byte_to_raw_byte(
+        &self,
+        display_byte: ByteIndex,
+        raw_text: &MichiuString,
+    ) -> ByteIndex {
+        if self.is_password {
+            let mask = self.mask_text.as_deref().unwrap_or("●");
+            let mask_len = mask.len().max(1);
+
+            // 表示上のバイト位置からCharIndexを逆算
+            let char_idx = CharIndex(display_byte.0 / mask_len);
+
+            // その文字数を生テキスト側のバイト位置にマッピング
+            raw_text.to_byte_index(char_idx)
+        } else {
+            raw_text.clamp_to_boundary(display_byte)
+        }
+    }
+
+    /// 生テキストの選択範囲を表示テキスト（マスク後）のバイト範囲に変換する（ハイライト描画用）
+    pub(crate) fn raw_range_to_display_range(
+        &self,
+        raw_range: Range<ByteIndex>,
+        raw_text: &MichiuString,
+    ) -> Range<ByteIndex> {
+        if self.is_password {
+            let mask = self.mask_text.as_deref().unwrap_or("●");
+            let mask_len = mask.len();
+
+            // 生テキスト側のバイト位置から文字数を取り出す
+            let start_char = raw_text.to_char_index(raw_range.start);
+            let end_char = raw_text.to_char_index(raw_range.end);
+
+            // マスク文字のバイト数を掛けて表示テキスト側の正しいバイト範囲にする
+            ByteIndex(start_char.0 * mask_len)..ByteIndex(end_char.0 * mask_len)
+        } else {
+            raw_range
+        }
+    }
+
+    #[inline]
+    #[must_use]
     pub(crate) fn to_michiu(&self) -> MichiuString {
         MichiuString::from(self.text.0.get())
     }
 
     /// `MichiuString` で編集し、変更結果を自動的にシグナルへ書き戻すヘルパー
+    #[inline]
+    #[must_use]
     pub(crate) fn update_michiu<R>(&self, f: impl FnOnce(&mut MichiuString) -> R) -> R {
         let mut m = self.to_michiu();
         let r = f(&mut m);
         self.text.1.set(m.into());
         r
-    }
-}
-
-impl InputContents {
-    /// 指定されたUTF-8の範囲を文字列から安全に削除し新しい文字列を返す。
-    pub(crate) fn remove_range_utf8_byte(text: &str, range: &Range<usize>) -> String {
-        let start = range.start.min(text.len());
-        let end = range.end.min(text.len());
-
-        // もし指定されたインデックスがマルチバイト文字の途中にあった場合、
-        // 最も近い文字の境界に調整
-        let mut start_idx = start;
-        while start_idx > 0 && !text.is_char_boundary(start_idx) {
-            start_idx -= 1;
-        }
-        let mut end_idx = end;
-        while end_idx > 0 && !text.is_char_boundary(end_idx) {
-            end_idx -= 1;
-        }
-
-        let left = &text[..start_idx];
-        let right = &text[end_idx..];
-
-        format!("{left}{right}")
-    }
-
-    /// キー入力（文字）の挿入をマルチバイト対応で行う
-    /// 全てバイト単位
-    pub(crate) fn input_insert_char_utf8_byte(
-        text: &str,
-        caret_offset: &mut usize,
-        ch: char,
-        max_len: Option<usize>,
-        numeric_only: bool,
-    ) -> String {
-        // 数値限定フィルタ
-        if numeric_only && !ch.is_numeric() && ch != '.' && ch != '-' {
-            return text.to_string();
-        }
-        // 文字数制限
-        if let Some(max) = max_len
-            && text.chars().count() >= max
-        {
-            return text.to_string();
-        }
-
-        // 挿入位置を確定
-        let mut insert_pos = (*caret_offset).min(text.len());
-
-        // 挿入位置がマルチバイト文字の途中だった場合、
-        // サロゲートペアを破壊しないよう、手前の文字境界まで戻す
-        while insert_pos > 0 && !text.is_char_boundary(insert_pos) {
-            insert_pos -= 1;
-        }
-
-        // 新しい文字列を生成（左側 + 挿入文字 + 右側）
-        let mut result = String::with_capacity(text.len() + ch.len_utf8());
-        result.push_str(&text[..insert_pos]);
-        result.push(ch);
-        result.push_str(&text[insert_pos..]);
-
-        // キャレット位置を更新
-        *caret_offset = insert_pos + ch.len_utf8();
-
-        result
-    }
-
-    /// Backspace（一文字削除）を実行
-    #[inline]
-    pub(crate) fn input_backspace_utf8_byte(text: &str, caret_offset: &mut usize) -> String {
-        // キャレット位置を現在の文字列の長さにクランプ
-        let mut current_pos = (*caret_offset).min(text.len());
-
-        // 現在のキャレットが安全な文字境界にあるか確認
-        while current_pos > 0 && !text.is_char_boundary(current_pos) {
-            current_pos -= 1;
-        }
-
-        // 先頭でなければ1文字分左側のバイト位置を探して削除する
-        if current_pos > 0 {
-            // 削除する文字の開始バイト位置
-            let mut remove_start = current_pos - 1;
-            // 直前の有効な文字の開始境界に到達するまで左へ
-            while remove_start > 0 && !text.is_char_boundary(remove_start) {
-                remove_start -= 1;
-            }
-
-            // 対象を挟んだ左右をスライス
-            let left = &text[..remove_start];
-            let right = &text[current_pos..];
-
-            // キャレット位置を削除開始位置に
-            *caret_offset = remove_start;
-
-            // 左右を結合
-            let mut result = String::with_capacity(left.len() + right.len());
-            result.push_str(left);
-            result.push_str(right);
-            result
-        } else {
-            // すでに先頭にいる場合はキャレットを0にし、何もせず元の文字列を返す
-            *caret_offset = 0;
-            text.to_string()
-        }
-    }
-
-    /// Delete（カーソル右側一文字削除）を実行
-    #[inline]
-    pub(crate) fn input_delete_utf8_byte(text: &str, caret_offset: usize) -> String {
-        // キャレット位置を現在の文字列の長さにクランプ
-        let mut current_pos = caret_offset.min(text.len());
-
-        // 現在のキャレットが安全な文字境界にあるか確認
-        while current_pos > 0 && !text.is_char_boundary(current_pos) {
-            current_pos -= 1;
-        }
-
-        // キャレットが末尾に達していなければ1文字分右側の終了位置を探して削除
-        if current_pos < text.len() {
-            // 削除する文字の終了バイト位置
-            let mut remove_end = current_pos + 1;
-            // 次の文字の開始境界に到達するまで右へ
-            while remove_end < text.len() && !text.is_char_boundary(remove_end) {
-                remove_end += 1;
-            }
-            //対象を挟んだ左右をスライス
-            let left = &text[..current_pos];
-            let right = &text[remove_end..];
-
-            // 左右を結合
-            let mut result = String::with_capacity(left.len() + right.len());
-            result.push_str(left);
-            result.push_str(right);
-            result
-        } else {
-            // すでに末尾にいる場合は削除する文字がないためそのまま元の文字列を返す
-            text.to_string()
-        }
-    }
-
-    /// IME未確定テキストをカーソル位置にマージした画面表示用テキストを合成
-    pub(crate) fn input_get_display_text_utf8_byte(
-        base_text: &str,
-        caret_offset: usize,
-        composition: &str,
-    ) -> String {
-        // キャレット位置を文字列の長さにクランプ
-        let mut split = caret_offset.min(base_text.len());
-
-        // 安全な文字境界に補正
-        while split > 0 && !base_text.is_char_boundary(split) {
-            split -= 1;
-        }
-
-        // 元の文字列をキャレット位置で左右にスライス
-        let left = &base_text[..split];
-        let right = &base_text[split..];
-
-        // 左側 + IME未確定テキスト + 右側を結合
-        let mut result = String::with_capacity(base_text.len() + composition.len());
-        result.push_str(left);
-        result.push_str(composition);
-        result.push_str(right);
-
-        result
-    }
-
-    /// 文字列の改行文字 '\n' を数えて、現在のキャレットの行番号 (0始まり) と総行数を算出するヘルパー
-    pub(crate) fn calculate_line_indices_utf8_byte(
-        text: &str,
-        caret_offset: usize,
-    ) -> (usize, usize) {
-        let bytes = text.as_bytes();
-        let caret_clamped = caret_offset.min(bytes.len());
-
-        // 現在のカーソル位置よりも前にある '\n' の数を、現在の行インデックスにする
-        // UTF-8はASCII文字と同じバイト値（\n なら 0x0A）が、マルチバイト文字の途中に現れることは絶対にないため、
-        // 文字単位ではなくバイト配列の中から b'\n' を探すだけで正確に改行だけをカウント出来るらしい
-        // バイト配列のスライスはどこで切ってもクラッシュしない
-        let current_line = bytecount::count(&bytes[..caret_clamped], b'\n');
-
-        // 全体の行数
-        let total_lines = bytecount::count(bytes, b'\n') + 1;
-
-        (current_line, total_lines)
-    }
-
-    /// 文字種を判定してクラスIDを返す
-    /// のちのち複雑な判定を考える
-    fn get_char_class_utf8_byte(ch: char) -> u8 {
-        if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
-            0 // 空白文字・改行
-        } else if ('\u{3040}'..='\u{309F}').contains(&ch) {
-            1 // ひらがな
-        } else if ('\u{30A0}'..='\u{30FF}').contains(&ch) {
-            2 // カタカナ
-        } else if ('\u{4E00}'..='\u{9FFF}').contains(&ch) {
-            3 // 漢字
-        } else if ch.is_ascii_alphanumeric() || ch == '_' {
-            4 // 英数字・アンダースコア (a-z, A-Z, 0-9, _)
-        } else {
-            5 // 記号・その他
-        }
-    }
-
-    /// 指定した文字インデックス周辺の文節・単語境界を安全にスキャン
-    pub(crate) fn find_word_boundaries_utf8_byte(text: &str, index: usize) -> Range<usize> {
-        if text.is_empty() {
-            return 0..0;
-        }
-
-        // 指定位置をクランプし安全な文字境界に調整
-        let mut index = index.min(text.len());
-        while index > 0 && !text.is_char_boundary(index) {
-            index -= 1;
-        }
-
-        // もしカーソルが末尾にある場合は1文字分左に戻す
-        if index == text.len() {
-            let mut prev = index - 1;
-            while prev > 0 && !text.is_char_boundary(prev) {
-                prev -= 1;
-            }
-            index = prev;
-        }
-
-        // 基準となる文字とその文字クラスを取得
-        let target_char = text[index..].chars().next().unwrap_or(' ');
-        let target_class = InputContents::get_char_class_utf8_byte(target_char);
-
-        // 左方向へ同じ文字種が続く限りスキャン
-        let mut start = index;
-        while start > 0 {
-            // 1文字手前の開始境界を探索
-            let mut prev = start - 1;
-            while prev > 0 && !text.is_char_boundary(prev) {
-                prev -= 1;
-            }
-
-            let prev_char = text[prev..].chars().next().unwrap_or(' ');
-            if InputContents::get_char_class_utf8_byte(prev_char) != target_class {
-                break;
-            }
-            start = prev;
-        }
-
-        // 右方向へ同じ文字種が続く限りスキャン
-        let mut end = index;
-        while end < text.len() {
-            let current_char = text[end..].chars().next().unwrap_or(' ');
-            if InputContents::get_char_class_utf8_byte(current_char) != target_class {
-                break;
-            }
-            // 次の文字の開始境界へ進める
-            end += current_char.len_utf8();
-        }
-
-        start..end
     }
 }

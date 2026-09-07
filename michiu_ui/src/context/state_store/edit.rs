@@ -1,7 +1,16 @@
 use std::{ops::Range, rc::Rc};
 
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary, ByteIndex, CapacityConfig, ChildrenSecondary, Color, ComponentMask, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, RangeExt, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
+    BaseVisualPropertiesSecondary, ByteIndex, CapacityConfig, CharIndex, ChildrenSecondary, Color,
+    ComponentMask, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EdgeInsets, EntityId,
+    EventStore, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuString, OutputStore, ParentsSecondary,
+    RangeExt, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore,
+    ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextBufferSparseSecondary, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary,
+    TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -83,38 +92,28 @@ impl TextEditStore {
 impl TextEditStore {
     #[inline]
     pub(crate) fn truncate_unconfirmed_text(
-        text_val: &str,
+        text_val: &MichiuString,
         contents: &InputContents,
-        max: usize,
-        filtered_comp_text: String,
-    ) -> String {
+        max: CharIndex,
+        filtered_comp_text: MichiuString,
+    ) -> MichiuString {
         let range = &contents.selected_range;
 
-        // キャレット範囲をクランプ
-        let mut start = range.start.0.min(text_val.len());
-        let mut end = range.end.0.min(text_val.len());
-
-        while start > 0 && !text_val.is_char_boundary(start) {
-            start -= 1;
-        }
-        while end > 0 && !text_val.is_char_boundary(end) {
-            end -= 1;
-        }
-
-        // 選択範囲が削除された後の確定テキストの文字数
-        let left_chars = text_val[..start].chars().count();
-        let right_chars = text_val[end..].chars().count();
-        let current_len_after_delete = left_chars + right_chars;
+        // 選択範囲削除後の文字数
+        let selected_chars = text_val.slice(range.clone()).chars().count();
+        let current_len_after_delete = text_val.char_count() - selected_chars;
 
         if current_len_after_delete >= max {
-            // すでに確定文字数が制限に達している場合は未確定文字を一切受け入れない
-            String::new()
+            // すでに確定文字数が制限に達している場合は空の MichiuString を返す
+            MichiuString::default()
         } else {
-            let allowed_comp_len = max - current_len_after_delete;
-            let comp_char_count = filtered_comp_text.chars().count();
+            // 許容文字数
+            let allowed_chars = max - current_len_after_delete;
 
-            if comp_char_count > allowed_comp_len {
-                filtered_comp_text.chars().take(allowed_comp_len).collect()
+            if filtered_comp_text.char_count().0 > allowed_chars {
+                // 制限に収まるよう安全に文字数で切り詰め
+                let truncated: String = filtered_comp_text.chars().take(allowed_chars).collect();
+                MichiuString::from(truncated)
             } else {
                 filtered_comp_text
             }
@@ -186,7 +185,7 @@ impl TextEditStore {
     pub(crate) fn calc_selection_rects(
         id: EntityId,
         buffer: &Buffer,
-        range: Range<usize>,
+        range: Range<ByteIndex>,
     ) -> Vec<LayoutRect> {
         // 範囲が空（選択なし）の場合は即座に空Vecを返す
         if range.start == range.end {
@@ -199,8 +198,8 @@ impl TextEditStore {
             (range.end, range.start)
         };
 
-        let mut cursor_start = TextEngine::flat_idx_to_cursor(buffer, start_idx.into());
-        let mut cursor_end = TextEngine::flat_idx_to_cursor(buffer, end_idx.into());
+        let mut cursor_start = TextEngine::flat_idx_to_cursor(buffer, start_idx);
+        let mut cursor_end = TextEngine::flat_idx_to_cursor(buffer, end_idx);
 
         if (cursor_start.line > cursor_end.line)
             || (cursor_start.line == cursor_end.line && cursor_start.index > cursor_end.index)
@@ -258,11 +257,22 @@ impl TextEditStore {
         buffer: &Rc<Buffer>,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
         edit_selections: &TextSelectionsSparseSecondary,
+        cont_input_contents: &InputContentsSparseSecondary,
     ) {
         if let Some(range) = edit_selections.get(id).cloned()
             && range.start < range.end
         {
-            let out_rects = TextEditStore::calc_selection_rects(id, buffer, range);
+            let raw_range = range.to_byte_range();
+
+            // 生テキストの選択範囲を、表示テキスト（マスク文字）の選択範囲へ変換
+            let display_range = if let Some(contents) = cont_input_contents.get(id) {
+                let raw_text = contents.to_michiu();
+                contents.raw_range_to_display_range(raw_range, &raw_text)
+            } else {
+                raw_range
+            };
+
+            let out_rects = TextEditStore::calc_selection_rects(id, buffer, display_range);
             edit_selected_rects.insert(id, out_rects);
             return;
         }
@@ -276,7 +286,7 @@ impl TextEditStore {
         cont_text_contents: &TextContentsSparseSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         edit_selections: &TextSelectionsSparseSecondary,
-    ) -> Option<String> {
+    ) -> Option<MichiuString> {
         // フォーカスされている要素を最優先とし、
         // 無い場合は現在有効な空ではない選択範囲を持つ最初の要素を逆引き
         let target_id = evt_interaction_states.focused.or_else(|| {
@@ -295,18 +305,8 @@ impl TextEditStore {
             let range = edit_selections.get(target_id)?;
             if range.start < range.end {
                 let text = cont_text_contents.get(target_id)?;
-
-                let mut start = range.start.min(text.len());
-                let mut end = range.end.min(text.len());
-
-                while start > 0 && !text.is_char_boundary(start) {
-                    start -= 1;
-                }
-                while end > 0 && !text.is_char_boundary(end) {
-                    end -= 1;
-                }
-
-                return Some(text[start..end].to_string());
+                let byte_range = range.clone().to_byte_range();
+                return Some(text.slice(byte_range).to_string().into());
             }
         }
         None
@@ -314,17 +314,17 @@ impl TextEditStore {
 
     #[inline]
     pub(crate) fn calculate_text_selection(
-        start_pos: usize,
+        start_pos: ByteIndex,
         local: LayoutPoint,
         buffer: &Rc<Buffer>,
         sys_text_engine: &mut TextEngine,
-    ) -> (std::ops::Range<usize>, bool) {
+    ) -> (Range<ByteIndex>, bool) {
         let (current_index, is_trailing) = sys_text_engine.hit_test_point(buffer, local);
 
         let final_index = if is_trailing {
-            current_index.0 + 1
+            current_index + 1
         } else {
-            current_index.0
+            current_index
         };
 
         if start_pos <= final_index {
@@ -389,13 +389,12 @@ impl TextEditStore {
             out_rects,
             sc_offsets,
         );
-        let (clicked_index, is_trailing) =
-            sys_text_engine.hit_test_point(&buffer, local);
+        let (clicked_index, is_trailing) = sys_text_engine.hit_test_point(&buffer, local);
 
         let final_index = if is_trailing {
-            clicked_index.0 + 1
+            clicked_index + 1
         } else {
-            clicked_index.0
+            clicked_index
         };
 
         if pressed_shift {
@@ -403,14 +402,14 @@ impl TextEditStore {
             let anchor = edit_selection_start_index
                 .get(id)
                 .copied()
-                .unwrap_or(final_index);
+                .unwrap_or(final_index.0);
             if !edit_selection_start_index.contains_key(id) {
-                edit_selection_start_index.insert(id, final_index);
+                edit_selection_start_index.insert(id, final_index.0);
             }
-            let range = if anchor <= final_index {
-                anchor..final_index
+            let range = if anchor <= final_index.0 {
+                anchor..final_index.0
             } else {
-                final_index..anchor
+                final_index.0..anchor
             };
             edit_selections.insert(id, range);
             TextEditStore::update_selection_rects(
@@ -418,11 +417,12 @@ impl TextEditStore {
                 &buffer,
                 edit_selected_rects,
                 edit_selections,
+                cont_input_contents,
             );
         } else {
             // 共通の通常クリックリセット
-            edit_selection_start_index.insert(id, final_index);
-            edit_selections.insert(id, final_index..final_index);
+            edit_selection_start_index.insert(id, final_index.0);
+            edit_selections.insert(id, final_index.0..final_index.0);
             edit_selected_rects.remove(id);
         }
 
@@ -431,7 +431,7 @@ impl TextEditStore {
 
     pub(crate) fn handle_text_selection_click(
         id: EntityId,
-        start_pos: usize,
+        start_pos: ByteIndex,
         local: LayoutPoint,
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
@@ -475,16 +475,44 @@ impl TextEditStore {
             return;
         };
 
-        let (range, is_reversed) =
-            TextEditStore::calculate_text_selection(start_pos, local, &engine, sys_text_engine);
+        let (display_index, is_trailing) = sys_text_engine.hit_test_point(&engine, local);
 
-        edit_selections.insert(id, range.clone());
+        // 表示テキストの文字境界を進める
+        let display_text = cont_text_contents.get(id).cloned().unwrap_or_default();
+        let final_display_index = if is_trailing {
+            display_text.next_char_boundary(display_index)
+        } else {
+            display_index
+        };
 
-        TextEditStore::update_selection_rects(id, &engine, edit_selected_rects, edit_selections);
+        // 生テキストのバイト位置に逆算
+        let final_raw_index = if let Some(contents) = cont_input_contents.get(id) {
+            let raw_text = contents.to_michiu();
+            contents.display_byte_to_raw_byte(final_display_index, &raw_text)
+        } else {
+            final_display_index
+        };
+
+        // 生テキスト基準で選択範囲を作成
+        let (range, is_reversed) = if start_pos <= final_raw_index {
+            (start_pos..final_raw_index, false)
+        } else {
+            (final_raw_index..start_pos, true)
+        };
+
+        edit_selections.insert(id, range.clone().to_usize_range());
+
+        TextEditStore::update_selection_rects(
+            id,
+            &engine,
+            edit_selected_rects,
+            edit_selections,
+            cont_input_contents,
+        );
 
         if let Some(contents) = cont_input_contents.get_mut(id) {
             contents.selection_reversed = is_reversed;
-            contents.selected_range = range.to_byte_range();
+            contents.selected_range = range;
 
             TextEditStore::apply_input_update(
                 id,
@@ -566,20 +594,29 @@ impl TextEditStore {
             return;
         };
 
-        let Some(text) = cont_text_contents.get(id) else {
-            return;
+        // Input 要素の場合は生テキストの長さで全選択範囲を作る
+        let input_full_range = if let Some(contents) = cont_input_contents.get_mut(id) {
+            let raw_text = contents.to_michiu();
+            let full_range = ByteIndex(0)..raw_text.byte_len();
+
+            contents.selected_range = full_range.clone();
+            contents.selection_reversed = false;
+            Some(full_range)
+        } else {
+            None
         };
 
-        let text_len = text.len();
-        let full_range = 0..text_len;
+        if let Some(full_range) = input_full_range {
+            edit_selections.insert(id, full_range.to_usize_range());
 
-        edit_selections.insert(id, full_range.clone());
+            TextEditStore::update_selection_rects(
+                id,
+                &engine,
+                edit_selected_rects,
+                edit_selections,
+                cont_input_contents,
+            );
 
-        TextEditStore::update_selection_rects(id, &engine, edit_selected_rects, edit_selections);
-
-        if let Some(contents) = cont_input_contents.get_mut(id) {
-            contents.selected_range = full_range.to_byte_range();
-            contents.selection_reversed = false;
             TextEditStore::apply_input_update(
                 id,
                 InputOp::SelectAll,
@@ -610,7 +647,19 @@ impl TextEditStore {
                 out_rects,
                 sc_sizes,
             );
-        } else {
+        } else if let Some(text) = cont_text_contents.get(id) {
+            // 通常のテキスト要素
+            let text_len = text.byte_len();
+            let full_range = ByteIndex(0)..text_len;
+
+            edit_selections.insert(id, full_range.clone().to_usize_range());
+            TextEditStore::update_selection_rects(
+                id,
+                &engine,
+                edit_selected_rects,
+                edit_selections,
+                cont_input_contents,
+            );
             RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
         }
     }
@@ -672,6 +721,7 @@ impl TextEditStore {
                 &engine,
                 edit_selected_rects,
                 edit_selections,
+                cont_input_contents,
             );
         }
 
@@ -938,7 +988,7 @@ impl TextEditStore {
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
         edit_selections.insert(id, contents.selected_range.clone().to_usize_range());
 
-        let text_val = contents.text.0.get();
+        let text_val = contents.to_michiu();
 
         // IME未確定文字列が入力されている際、numeric_only が有効であれば数値を事前にフィルタリング
         // is_password が有効であればマスク処理を適用した中間文字列を生成
@@ -946,18 +996,17 @@ impl TextEditStore {
             && !ime.composition_text.is_empty()
         {
             if contents.numeric_only {
-                let mut s = String::new();
-                for c in ime.composition_text.chars() {
-                    if c.is_numeric() || c == '.' || c == '-' {
-                        s.push(c);
-                    }
-                }
-                s
+                let filtered: String = ime
+                    .composition_text
+                    .chars()
+                    .filter(|&c| c.is_numeric() || c == '.' || c == '-')
+                    .collect();
+                MichiuString::from(filtered)
             } else {
                 ime.composition_text.clone()
             }
         } else {
-            String::new()
+            MichiuString::default()
         };
 
         // 文字数制限（max_length）による未確定文字列の事前切り詰め
@@ -967,48 +1016,39 @@ impl TextEditStore {
             filtered_comp_text = TextEditStore::truncate_unconfirmed_text(
                 &text_val,
                 contents,
-                max.0,
+                max,
                 filtered_comp_text,
             );
         }
 
-        if contents.is_password && !filtered_comp_text.is_empty() {
-            let mask = contents.mask_text.as_deref().unwrap_or("●");
-            filtered_comp_text = mask.repeat(filtered_comp_text.chars().count());
+        // 未確定テキストのマスク
+        if !filtered_comp_text.is_empty() {
+            filtered_comp_text = contents.mask_if_password(&filtered_comp_text);
         }
 
+        // 確定済みテキストのマスク
+        let text_val_for_display = contents.mask_if_password(&text_val);
+
+        // 描画表示用テキストの生成
         // is_password が true の場合、未確定中であっても
         // すでに確定されている文字列部分が一時的に生テキストとして露出してしまわないよう
         // マスクを維持した一時文字列を生成してベースとして使用
-        let text_val_for_display = if contents.is_password {
-            let mask = contents.mask_text.as_deref().unwrap_or("●");
-            let char_count = text_val.chars().count();
-            mask.repeat(char_count)
-        } else {
-            text_val.clone()
-        };
-
-        // 描画表示用テキスト（IME未確定文字列の有無を最優先で判定）
         let display_text = if !filtered_comp_text.is_empty() {
-            InputContents::input_get_display_text_utf8_byte(
-                &text_val_for_display,
-                contents.selected_range.start.0,
-                &filtered_comp_text,
-            )
+            // 未確定文字がある場合：[マスク済み確定テキスト] + [マスク済み未確定文字]
+            text_val_for_display.inserted(contents.selected_range.start, &filtered_comp_text)
         } else if text_val.is_empty() {
+            // 文字列が完全に空の場合はプレースホルダー
             contents
                 .placeholder
                 .as_ref()
                 .map(std::string::ToString::to_string)
                 .unwrap_or_default()
-        } else if contents.is_password {
-            let mask = contents.mask_text.as_deref().unwrap_or("●");
-            mask.repeat(text_val.chars().count())
+                .into()
         } else {
-            text_val.clone()
+            text_val_for_display.to_string().into()
         };
 
-        cont_text_contents.insert(id, display_text.clone().into());
+        cont_text_contents.insert(id, display_text.clone());
 
         let buffer = SystemStore::get_or_create_layout(
             id,
@@ -1029,9 +1069,9 @@ impl TextEditStore {
             && !ime.composition_text.is_empty()
         {
             // 組成文字全体の文字数をオフセットとして適用
-            ime.composition_text.len()
+            ime.composition_text.byte_len()
         } else {
-            0
+            ByteIndex(0)
         };
 
         // ドラッグの方向を判定しマウス位置にキャレットを固定
@@ -1041,46 +1081,35 @@ impl TextEditStore {
             contents.selected_range.end // 順方向（右ドラッグ）時は右端がマウス位置
         };
 
+        // キャレット位（caret_index）の計算
         let caret_index = if contents.is_password {
             let mask = contents.mask_text.as_deref().unwrap_or("●");
 
-            // 確定テキストの現在のキャレット位置までの文字数
-            let mut safe_caret = current_caret_relative.0.min(text_val.len());
-            while safe_caret > 0 && !text_val.is_char_boundary(safe_caret) {
-                safe_caret -= 1;
-            }
-            let base_char_count = text_val[..safe_caret].chars().count();
+            let base_chars = text_val.to_char_index(current_caret_relative);
+            let comp_chars = contents
+                .ime_state
+                .as_ref()
+                .map_or(CharIndex(0), |ime| ime.composition_text.char_count());
 
-            // 未確定テキストの文字数
-            let comp_char_count = if let Some(ref ime) = contents.ime_state {
-                ime.composition_text.chars().count()
-            } else {
-                0
-            };
-
-            let total_char_caret = base_char_count + comp_char_count;
-
-            total_char_caret * mask.len()
+            let total_chars = base_chars.0 + comp_chars.0;
+            ByteIndex(total_chars * mask.len())
         } else {
-            current_caret_relative.0 + composition_offset
+            current_caret_relative + composition_offset
         };
-
-        let display_text_len = display_text.len();
 
         // プレースホルダーに干渉されない純粋なキャレット位置を算出
         let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(&buffer, caret_index.into());
+            sys_text_engine.get_caret_position(&buffer, caret_index);
 
-        contents.measured_caret.x = cx_offset;
-        contents.measured_caret.y = cy_offset;
+        contents.measured_caret = LayoutPoint::new(cx_offset, cy_offset);
         contents.caret_line_height = ch_height;
 
-        let (curr_line, tot_lines) =
-            InputContents::calculate_line_indices_utf8_byte(&display_text, caret_index);
+        // 行情報の計算
+        let (curr_line, _tot_lines) = display_text.line_indices(caret_index);
         contents.current_line_index = curr_line;
 
         // 最終表示用テキストを Context 側に反映
-        cont_text_contents.insert(id, display_text.into());
+        cont_text_contents.insert(id, display_text);
 
         let visual = rnd_visual.get_mut(id)?;
         let is_ime_active = contents
