@@ -2,8 +2,8 @@ use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BasicLayoutsSecondary, CapacityConfig,
     ContentStore, Context, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, FlexLayout,
     InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutRect, LayoutStore, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
+    LayoutRect, LayoutStore, MichiuString, OutputStore, ParentsSecondary, RectsSecondary,
+    RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
     ScrollOffsetsSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
     TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
     TextSpansSparseSecondary, UiaValue, VisualPropertiesSecondary, WindowStore,
@@ -175,7 +175,7 @@ impl SystemStore {
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 
         let buffer = sys_text_engine.create_buffer(
-            text,
+            &MichiuString(text.clone()),
             font_size,
             font_family,
             font_weight,

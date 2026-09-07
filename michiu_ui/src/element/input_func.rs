@@ -1,8 +1,9 @@
 use crate::{
     ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
-    InputContents, InputOp, Modifiers, MouseButton, OutputStore, Prop,
+    InputContents, InputOp, LayoutPoint, Modifiers, MouseButton, OutputStore, Prop, RangeExt,
     SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SystemStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey, with_context,
+    TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, UsizeRangeExt, VirtualKey,
+    with_context,
 };
 use cosmic_text::Buffer;
 
@@ -103,8 +104,8 @@ impl Element {
         // 動的なテキスト長の変更に伴い、既存の選択範囲が枠外へ飛び出さないようクランプ
         let current_text = existing.text.0.get();
         let text_len = current_text.len();
-        existing.selected_range.start = existing.selected_range.start.min(text_len);
-        existing.selected_range.end = existing.selected_range.end.min(text_len);
+        existing.selected_range.start = existing.selected_range.start.min(text_len.into());
+        existing.selected_range.end = existing.selected_range.end.min(text_len.into());
     }
 
     /// キャレット位置を単一の点に設定する
@@ -118,7 +119,7 @@ impl Element {
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
         edit_selected_rects: Option<&mut SelectedRectsSparseSecondary>,
     ) {
-        contents.selected_range = caret..caret;
+        contents.selected_range = (caret..caret).to_byte_range();
         contents.selection_reversed = false;
 
         edit_selections.insert(id, caret..caret);
@@ -137,7 +138,7 @@ impl Element {
         selection_reversed: bool,
         edit_selections: &mut TextSelectionsSparseSecondary,
     ) {
-        contents.selected_range = range.clone();
+        contents.selected_range = range.clone().to_byte_range();
         contents.selection_reversed = selection_reversed;
         edit_selections.insert(id, range);
     }
@@ -224,17 +225,14 @@ impl Element {
                 return;
             };
             // キャッシュ済みのレイアウトをそのまま使って高速にヒットテスト
-            let (new_caret, is_trailing) = cx
-                .system
-                .sys_text_engine
-                .hit_test_point(&buffer, local.x, local.y);
+            let (new_caret, is_trailing) = cx.system.sys_text_engine.hit_test_point(&buffer, local);
             // UTF-8の場合は次の文字境界までバイト数分進める
             let final_caret = {
-                if is_trailing && new_caret < text_val.len() {
-                    let current_char = text_val[new_caret..].chars().next().unwrap_or(' ');
-                    new_caret + current_char.len_utf8()
+                if is_trailing && new_caret.0 < text_val.len() {
+                    let current_char = text_val[new_caret.0..].chars().next().unwrap_or(' ');
+                    new_caret.0 + current_char.len_utf8()
                 } else {
-                    new_caret
+                    new_caret.0
                 }
             };
 
@@ -251,8 +249,8 @@ impl Element {
                     .edit
                     .edit_selection_start_index
                     .entry(id)
-                    .map_or(contents.selected_range.start, |e| {
-                        *e.or_insert(contents.selected_range.start)
+                    .map_or(contents.selected_range.start.0, |e| {
+                        *e.or_insert(contents.selected_range.start.0)
                     });
 
                 let (range, reversed) = if anchor <= final_caret_clamped {
@@ -341,8 +339,8 @@ impl Element {
         contents.record_undo(text_val.clone(), range.clone());
 
         // キャレット範囲をクランプし安全な文字境界に補正
-        let mut start = range.start.min(text_val.len());
-        let mut end = range.end.min(text_val.len());
+        let mut start = range.start.0.min(text_val.len());
+        let mut end = range.end.0.min(text_val.len());
 
         while start > 0 && !text_val.is_char_boundary(start) {
             start -= 1;
@@ -357,7 +355,7 @@ impl Element {
         // 削除後の文字数 ＋ 挿入する1文字が制限を超えないか
         let chars_after_delete = left.chars().count() + right.chars().count();
         if let Some(max) = contents.max_length
-            && chars_after_delete + 1 > max
+            && chars_after_delete + 1 > max.0
         {
             return; // 制限を超えるため入力を中断
         }
@@ -398,12 +396,13 @@ impl Element {
         contents.record_undo(text_val.to_string(), range.clone());
 
         if range.start < range.end {
-            let new_text = InputContents::remove_range_utf8_byte(text_val, &range);
+            let new_text =
+                InputContents::remove_range_utf8_byte(text_val, &range.clone().to_usize_range());
 
             Element::set_caret_position(
                 id,
                 contents,
-                range.start,
+                range.start.0,
                 edit_selections,
                 edit_selection_start_index,
                 None,
@@ -436,11 +435,12 @@ impl Element {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.to_string(), range.clone());
         if range.start < range.end {
-            let new_text = InputContents::remove_range_utf8_byte(text_val, &range);
+            let new_text =
+                InputContents::remove_range_utf8_byte(text_val, &range.clone().to_usize_range());
             Element::set_caret_position(
                 id,
                 contents,
-                range.start,
+                range.start.0,
                 edit_selections,
                 edit_selection_start_index,
                 None,
@@ -480,7 +480,7 @@ impl Element {
             Element::set_caret_position(
                 id,
                 contents,
-                new_caret,
+                new_caret.0,
                 edit_selections,
                 edit_selection_start_index,
                 Some(edit_selected_rects),
@@ -543,7 +543,7 @@ impl Element {
             Element::set_caret_position(
                 id,
                 contents,
-                new_caret,
+                new_caret.0,
                 edit_selections,
                 edit_selection_start_index,
                 Some(edit_selected_rects),
@@ -600,19 +600,19 @@ impl Element {
         }
 
         let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(buffer, caret, text_len);
+            sys_text_engine.get_caret_position(buffer, caret.into());
 
         let target_y = (cy_offset - ch_height * 0.5).max(0.0);
 
         let (new_caret, is_trailing) =
-            sys_text_engine.hit_test_point(buffer, cx_offset, target_y);
+            sys_text_engine.hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
 
         let final_caret = {
-            if is_trailing && new_caret < text_len {
-                let current_char = text_val[new_caret..].chars().next().unwrap_or(' ');
-                new_caret + current_char.len_utf8()
+            if is_trailing && new_caret.0 < text_len {
+                let current_char = text_val[new_caret.0..].chars().next().unwrap_or(' ');
+                new_caret.0 + current_char.len_utf8()
             } else {
-                new_caret
+                new_caret.0
             }
         };
 
@@ -659,19 +659,19 @@ impl Element {
         }
 
         let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(buffer, caret, text_len);
+            sys_text_engine.get_caret_position(buffer, caret.into());
 
         let target_y = cy_offset + ch_height * 1.5;
 
         let (new_caret, is_trailing) =
-            sys_text_engine.hit_test_point(buffer, cx_offset, target_y);
+            sys_text_engine.hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
 
         let final_caret = {
-            if is_trailing && new_caret < text_len {
-                let current_char = text_val[new_caret..].chars().next().unwrap_or(' ');
-                new_caret + current_char.len_utf8()
+            if is_trailing && new_caret.0 < text_len {
+                let current_char = text_val[new_caret.0..].chars().next().unwrap_or(' ');
+                new_caret.0 + current_char.len_utf8()
             } else {
-                new_caret
+                new_caret.0
             }
         };
 
@@ -723,15 +723,16 @@ impl Element {
         let text_val = contents.text.0.get();
         let text_len = text_val.len();
 
-        contents.selected_range = (contents.selected_range.start.min(text_len))
-            ..(contents.selected_range.end.min(text_len));
+        contents.selected_range = ((contents.selected_range.start.0.min(text_len))
+            ..(contents.selected_range.end.0.min(text_len)))
+            .to_byte_range();
 
         let raw_caret = if contents.selection_reversed {
             contents.selected_range.start
         } else {
             contents.selected_range.end
         };
-        let mut caret = raw_caret.min(text_len);
+        let mut caret = raw_caret.0.min(text_len);
         let mut changed = false; // 状態変更フラグ
 
         match key {
@@ -837,14 +838,15 @@ impl Element {
             // Undo履歴に削除前の状態を記録
             contents.record_undo(text_val.clone(), range.clone());
 
-            let new_text = InputContents::remove_range_utf8_byte(&text_val, &range);
+            let new_text =
+                InputContents::remove_range_utf8_byte(&text_val, &range.clone().to_usize_range());
             let caret = range.start;
 
             // キャレット・選択範囲を消去開始位置に一度リセットして同期
             Element::set_caret_position(
                 id,
                 contents,
-                caret,
+                caret.0,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selection_start_index,
                 Some(&mut cx.states.edit.edit_selected_rects),
@@ -862,9 +864,9 @@ impl Element {
             for ch in ime.result_text.chars() {
                 temp_text = InputContents::input_insert_char_utf8_byte(
                     &temp_text,
-                    &mut caret,
+                    &mut caret.0,
                     ch,
-                    contents.max_length,
+                    contents.max_length.map(|f| f.0),
                     contents.numeric_only,
                 );
             }
@@ -873,7 +875,7 @@ impl Element {
             Element::set_caret_position(
                 id,
                 contents,
-                caret,
+                caret.0,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selection_start_index,
                 Some(&mut cx.states.edit.edit_selected_rects),
@@ -885,7 +887,7 @@ impl Element {
             // IME 未変換中
             let caret = contents.selected_range.start;
             let comp_len = ime.composition_text.len();
-            contents.marked_range = Some(caret..(caret + comp_len));
+            contents.marked_range = Some((caret.0..(caret.0 + comp_len)).to_byte_range());
         } else {
             contents.marked_range = None;
         }
@@ -915,7 +917,7 @@ impl Element {
                 // 属性が取得できない場合のフォールバック（全体を未確定波線に設定）
                 let comp_len = ime.composition_text.len();
                 spans.push(TextSpan {
-                    range: caret..(caret + comp_len),
+                    range: (caret.0..(caret.0 + comp_len)).to_byte_range(),
                     underline: Some(UnderlineStyle::Wave),
                     ..Default::default()
                 });
@@ -941,11 +943,11 @@ impl Element {
                         _ => Some(UnderlineStyle::Wave),
                     };
 
-                    let span_start = caret + char_byte_offsets[start_idx];
-                    let span_end = caret + char_byte_offsets[end_idx];
+                    let span_start = caret.0 + char_byte_offsets[start_idx];
+                    let span_end = caret.0 + char_byte_offsets[end_idx];
 
                     spans.push(TextSpan {
-                        range: span_start..span_end,
+                        range: (span_start..span_end).to_byte_range(),
                         color: None,
                         bg_color: None,
                         font_size: None,
@@ -989,7 +991,7 @@ impl Element {
         // 最初のロード時、シグナルから現在値を取得して内部カーソルを末尾に合わせる
         let current_text = c.text.0.get();
         let current_len = current_text.len();
-        c.selected_range = current_len..current_len;
+        c.selected_range = (current_len..current_len).to_byte_range();
 
         cx.contents.cont_input_contents.insert(id, c);
         cx.topology.topo_active_masks[id]

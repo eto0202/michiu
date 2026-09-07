@@ -1,7 +1,10 @@
 use std::ops::Range;
 use std::{borrow::Cow, time::Duration};
 
-use crate::{Color, ImeState, IntoSize, LayoutRect, ReadSignal, WriteSignal};
+use crate::{
+    ByteIndex, CharIndex, Color, ImeState, IntoSize, LayoutPoint, LayoutRect, MichiuString,
+    ReadSignal, UsizeRangeExt, WriteSignal,
+};
 
 /// リッチテキスト用の下線の描画スタイル
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,49 +31,49 @@ pub enum StrikethroughStyle {
 /// 文字列の特定範囲に部分的なスタイリングを施すための、完成されたリッチテキストスパン
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextSpan {
-    /// この装飾が適用される文字インデックスの範囲 (UTF-16 単位)
-    pub range: std::ops::Range<usize>,
+    /// この装飾が適用される文字インデックスの範囲 (UTF-8 単位)
+    pub(crate) range: Range<ByteIndex>,
 
     /// 部分的な文字色の上書き (例: リンクの青色や強調の赤色)
-    pub color: Option<Color>,
+    pub(crate) color: Option<Color>,
     /// 部分的な文字背景色の上書き (例: マーカーの黄色や、コードブロック `` `code` `` の背景グレー)
-    pub bg_color: Option<Color>,
+    pub(crate) bg_color: Option<Color>,
 
     /// 部分的なフォントサイズの上書き
-    pub font_size: Option<f32>,
+    pub(crate) font_size: Option<f32>,
     /// 部分的なフォントファミリーの上書き
-    pub font_family: Option<Cow<'static, str>>,
+    pub(crate) font_family: Option<Cow<'static, str>>,
     /// 部分的な太さ (Bold = 700等) の上書き (`DWRITE_FONT_WEIGHT` 相当)
-    pub font_weight: Option<u32>,
+    pub(crate) font_weight: Option<u32>,
     /// 部分的な斜体 (Normal=0, Italic=2等) の上書き (`DWRITE_FONT_STYLE` 相当)
-    pub font_style: Option<u32>,
+    pub(crate) font_style: Option<u32>,
 
     /// 下線の種類 (標準下線、太下線、波下線)
-    pub underline: Option<UnderlineStyle>,
+    pub(crate) underline: Option<UnderlineStyle>,
     /// 下線の色
-    pub underline_color: Option<Color>,
+    pub(crate) underline_color: Option<Color>,
     /// 打ち消し線 (取り消し線) の種類
-    pub strikethrough: Option<StrikethroughStyle>,
+    pub(crate) strikethrough: Option<StrikethroughStyle>,
     /// 打ち消し線の色
-    pub strikethrough_color: Option<Color>,
+    pub(crate) strikethrough_color: Option<Color>,
 
     /// リンクとしてクリック可能にする場合、識別子を入れておき
     /// ヒットテスト時にイベントをフック可能にします
-    pub link_id: Option<Cow<'static, str>>,
+    pub(crate) link_id: Option<Cow<'static, str>>,
 }
 
 impl Default for TextSpan {
     fn default() -> Self {
-        Self::new(Range { start: 0, end: 0 })
+        Self::new(0..0)
     }
 }
 
 impl TextSpan {
     /// 空のデフォルトスパンを生成します
     #[must_use]
-    pub fn new(range: std::ops::Range<usize>) -> Self {
+    pub fn new(range: Range<usize>) -> Self {
         Self {
-            range,
+            range: range.to_byte_range(),
             color: None,
             bg_color: None,
             font_size: None,
@@ -86,8 +89,8 @@ impl TextSpan {
     }
     #[inline]
     #[must_use]
-    pub fn range(mut self, range: std::ops::Range<usize>) -> Self {
-        self.range = range;
+    pub fn range(mut self, range: Range<usize>) -> Self {
+        self.range = range.to_byte_range();
         self
     }
     #[inline]
@@ -174,42 +177,41 @@ pub enum RoundingMode {
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputContents {
-    pub text: (ReadSignal<String>, WriteSignal<String>),
-    pub placeholder: Option<Cow<'static, str>>,
-    pub placeholder_color: Option<Color>,
-    pub max_length: Option<usize>,
-    pub is_password: bool,
-    pub mask_text: Option<Cow<'static, str>>,
-    pub numeric_only: bool,
-    pub decimal_places: Option<usize>,
-    pub rounding_mode: Option<RoundingMode>,
-    pub is_multiline: bool,
-    pub placeholder_select: bool,
+    pub(crate) text: (ReadSignal<String>, WriteSignal<String>),
+    pub(crate) placeholder: Option<Cow<'static, str>>,
+    pub(crate) placeholder_color: Option<Color>,
+    pub(crate) max_length: Option<CharIndex>,
+    pub(crate) is_password: bool,
+    pub(crate) mask_text: Option<Cow<'static, str>>,
+    pub(crate) numeric_only: bool,
+    pub(crate) decimal_places: Option<CharIndex>,
+    pub(crate) rounding_mode: Option<RoundingMode>,
+    pub(crate) is_multiline: bool,
+    pub(crate) placeholder_select: bool,
     // キャレットデザイン
-    pub has_caret: bool,
-    pub caret_width: Option<f32>,
-    pub default_caret_width: f32,
-    pub caret_height: Option<f32>,
-    pub caret_offset: f32,
-    pub caret_color: Option<Color>,
-    pub is_blink: bool,
-    pub blink_frequency: Option<Duration>,
+    pub(crate) has_caret: bool,
+    pub(crate) caret_width: Option<f32>,
+    pub(crate) default_caret_width: f32,
+    pub(crate) caret_height: Option<f32>,
+    pub(crate) caret_offset: f32,
+    pub(crate) caret_color: Option<Color>,
+    pub(crate) is_blink: bool,
+    pub(crate) blink_frequency: Option<Duration>,
 
     /// 部分的なスタイリング (IMEの下線等に使用)
     pub(crate) rich_text: Option<TextSpan>,
     // IME制御
-    pub is_ime: bool,
-    pub ime_state: Option<ImeState>,
+    pub(crate) is_ime: bool,
+    pub(crate) ime_state: Option<ImeState>,
 
     /// 選択範囲。カーソル位置は start == end で表現
-    pub(crate) selected_range: Range<usize>,
+    pub(crate) selected_range: Range<ByteIndex>,
     pub(crate) selection_reversed: bool,
-    pub(crate) marked_range: Option<Range<usize>>,
+    pub(crate) marked_range: Option<Range<ByteIndex>>,
     pub(crate) is_selecting: bool,
     pub(crate) last_layout: Option<LayoutRect>,
     pub(crate) last_bounds: Option<LayoutRect>,
-    pub(crate) measured_caret_x: f32,
-    pub(crate) measured_caret_y: f32,
+    pub(crate) measured_caret: LayoutPoint,
     pub(crate) caret_line_height: f32,
     pub(crate) needs_scroll_to_caret: bool,
     /// キャレットの移動・タイピングなどの最終操作時刻
@@ -217,12 +219,12 @@ pub struct InputContents {
     /// 現在のキャレットが位置する行番号 (0始まり)
     pub(crate) current_line_index: usize,
     /// 入力文字列全体の総行数
-    pub total_lines: usize,
+    pub(crate) total_lines: usize,
 
     // Undo / Redo 用履歴スタック
-    pub(crate) undo_stack: Vec<(String, Range<usize>)>,
-    pub(crate) redo_stack: Vec<(String, Range<usize>)>,
-    pub undo_limit: usize,
+    pub(crate) undo_stack: Vec<(String, Range<ByteIndex>)>,
+    pub(crate) redo_stack: Vec<(String, Range<ByteIndex>)>,
+    pub(crate) undo_limit: usize,
 }
 
 impl InputContents {
@@ -252,21 +254,20 @@ impl InputContents {
             rich_text: None,
             is_ime: true,
             ime_state: None,
-            selected_range: 0..0,
+            selected_range: ByteIndex(0)..ByteIndex(0),
             selection_reversed: false,
             marked_range: None,
             is_selecting: false,
             last_layout: None,
             last_bounds: None,
-            measured_caret_x: 0.0,
-            measured_caret_y: 0.0,
+            measured_caret: LayoutPoint::ZERO,
             caret_line_height: 0.0,
             needs_scroll_to_caret: false,
             last_interacted_time: None,
             current_line_index: 0,
             total_lines: 1,
-            undo_stack: Vec::new(),
-            redo_stack: Vec::new(),
+            undo_stack: Vec::with_capacity(32),
+            redo_stack: Vec::with_capacity(32),
             undo_limit: 100,
         }
     }
@@ -291,7 +292,7 @@ impl InputContents {
     #[inline]
     #[must_use]
     pub fn max_length(mut self, max: usize) -> Self {
-        self.max_length = Some(max);
+        self.max_length = Some(max.into());
         self
     }
     #[inline]
@@ -315,7 +316,7 @@ impl InputContents {
     #[inline]
     #[must_use]
     pub fn decimal_places(mut self, places: usize) -> Self {
-        self.decimal_places = Some(places);
+        self.decimal_places = Some(places.into());
         self
     }
     #[inline]
@@ -415,7 +416,7 @@ impl InputContents {
     }
 
     /// 現在の状態を Undo 履歴に記録し、Redo スタックをクリアします
-    pub(crate) fn record_undo(&mut self, text: String, selection: Range<usize>) {
+    pub(crate) fn record_undo(&mut self, text: String, selection: Range<ByteIndex>) {
         if let Some((last_text, _)) = self.undo_stack.last()
             && *last_text == text
         {
@@ -428,6 +429,19 @@ impl InputContents {
         if self.undo_stack.len() > self.undo_limit {
             self.undo_stack.remove(0);
         }
+    }
+
+    #[inline]
+    pub(crate) fn to_michiu(&self) -> MichiuString {
+        MichiuString::from(self.text.0.get())
+    }
+
+    /// `MichiuString` で編集し、変更結果を自動的にシグナルへ書き戻すヘルパー
+    pub(crate) fn update_michiu<R>(&self, f: impl FnOnce(&mut MichiuString) -> R) -> R {
+        let mut m = self.to_michiu();
+        let r = f(&mut m);
+        self.text.1.set(m.into());
+        r
     }
 }
 

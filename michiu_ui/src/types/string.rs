@@ -6,8 +6,16 @@ use std::{
 
 // --- インデックス型 ---
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct ByteIndex(pub usize);
+
+impl Deref for ByteIndex {
+    type Target = usize;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 impl From<usize> for ByteIndex {
     #[inline]
@@ -32,6 +40,14 @@ impl fmt::Display for ByteIndex {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct CharIndex(pub usize);
 
+impl Deref for CharIndex {
+    type Target = usize;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl From<usize> for CharIndex {
     #[inline]
     fn from(v: usize) -> Self {
@@ -49,6 +65,50 @@ impl From<CharIndex> for usize {
 impl fmt::Display for CharIndex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+/// Range<usize> と専用型 Range の安全な相互変換を提供するトレイト
+pub trait RangeExt {
+    fn to_usize_range(self) -> Range<usize>;
+}
+
+impl RangeExt for Range<usize> {
+    #[inline]
+    fn to_usize_range(self) -> Range<usize> {
+        self
+    }
+}
+
+impl RangeExt for Range<ByteIndex> {
+    #[inline]
+    fn to_usize_range(self) -> Range<usize> {
+        self.start.0..self.end.0
+    }
+}
+
+impl RangeExt for Range<CharIndex> {
+    #[inline]
+    fn to_usize_range(self) -> Range<usize> {
+        self.start.0..self.end.0
+    }
+}
+
+// Range<usize> 側から、型を明示して変換するための拡張
+pub trait UsizeRangeExt {
+    fn to_byte_range(self) -> Range<ByteIndex>;
+    fn to_char_range(self) -> Range<CharIndex>;
+}
+
+impl UsizeRangeExt for Range<usize> {
+    #[inline]
+    fn to_byte_range(self) -> Range<ByteIndex> {
+        ByteIndex(self.start)..ByteIndex(self.end)
+    }
+
+    #[inline]
+    fn to_char_range(self) -> Range<CharIndex> {
+        CharIndex(self.start)..CharIndex(self.end)
     }
 }
 
@@ -322,5 +382,12 @@ impl From<MichiuString> for String {
 impl fmt::Display for MichiuString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl Default for MichiuString {
+    #[inline]
+    fn default() -> Self {
+        MichiuString::new("")
     }
 }

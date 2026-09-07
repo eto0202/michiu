@@ -1,6 +1,7 @@
 use crate::{
     ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, FlexLayout, InputContents,
-    LayoutRect, RenderStore, TextEngine, TextSpan, VisualPropertiesSecondary, WebView2Contents,
+    LayoutRect, MichiuString, RenderStore, TextEngine, TextSpan, VisualPropertiesSecondary,
+    WebView2Contents,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -188,17 +189,20 @@ impl ContentStore {
             };
         }
 
-        let text = cont_text_contents
-            .get(id)
-            .map_or("", std::convert::AsRef::as_ref);
+        let Some(text) = cont_text_contents.get(id) else {
+            return taffy::Size {
+                width: known_dims.width.unwrap_or(0.0),
+                height: known_dims.height.unwrap_or(0.0),
+            };
+        };
+
         let (font_size, font_family, font_weight, font_style) =
             RenderStore::get_font_propery(id, rnd_visual);
 
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 
-        // DirectWrite を使用して正確なサイズを計測
         let size = sys_text_engine.measure_text(
-            text,
+            &MichiuString(text.clone()),
             font_size,
             font_family,
             font_weight,

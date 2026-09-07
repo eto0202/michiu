@@ -1,27 +1,5 @@
 use crate::{
-    ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
-    ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
-    BasicLayout, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary,
-    ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, DndStore, EffectiveZindicesSecondary, Element, ElementEffectsSecondary,
-    ElementState, EntitiesSlot, EntityId, EventListeners, FlatDfsSequenceVec, FlexLayout,
-    FlexLayoutsSecondary, FocusStore, GridLayout, GridLayoutsSparseSecondary, InputContents,
-    InputContentsSparseSecondary, InputOp, InteractionPropertiesSecondary, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow,
-    ParentsSecondary, Pipeline, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary,
-    RenderStore, ResizeStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSecondary, SelectedRectsSparseSecondary,
-    SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEditStore,
-    TextEngine, TextBufferSparseSecondary, TextSelectionsSparseSecondary,
-    TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val, VirtualKey,
-    VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur,
-    handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start,
-    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
-    handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
-    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
-    handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
+    ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, ByteIndex, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndStore, EffectiveZindicesSecondary, Element, ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners, FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusStore, GridLayout, GridLayoutsSparseSecondary, InputContents, InputContentsSparseSecondary, InputOp, InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline, PointerEvents, Position, RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore, ResizeStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextBufferSparseSecondary, TextContentsSparseSecondary, TextEditStore, TextEngine, TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, UsizeRangeExt, Val, VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -722,12 +700,12 @@ impl EventStore {
             let (clicked_index, is_trailing) = cx
                 .system
                 .sys_text_engine
-                .hit_test_point(&buffer, local_x, local_y);
+                .hit_test_point(&buffer, LayoutPoint::new(local_x, local_y));
 
             let final_index = if is_trailing {
-                clicked_index + 1
+                clicked_index.0 + 1
             } else {
-                clicked_index
+                clicked_index.0
             };
 
             // 文節境界を抽出
@@ -752,7 +730,7 @@ impl EventStore {
         );
 
         if let Some(contents) = cx.contents.cont_input_contents.get_mut(target_id) {
-            contents.selected_range = range;
+            contents.selected_range = range.to_byte_range();
             contents.selection_reversed = false; // キャレットは右端に配置
             TextEditStore::apply_input_update(
                 target_id,
@@ -1027,8 +1005,8 @@ impl EventStore {
         let range = contents.selected_range.clone();
 
         // キャレット範囲をクランプ
-        let mut start = range.start.min(text_val.len());
-        let mut end = range.end.min(text_val.len());
+        let mut start = range.start.0.min(text_val.len());
+        let mut end = range.end.0.min(text_val.len());
 
         while start > 0 && !text_val.is_char_boundary(start) {
             start -= 1;
@@ -1044,10 +1022,10 @@ impl EventStore {
         let allowed_len = if let Some(max) = contents.max_length {
             // 選択範囲を削除した後の文字数をカウント
             let current_len = left.chars().count() + right.chars().count();
-            if current_len >= max {
+            if current_len >= max.0 {
                 return;
             }
-            max - current_len
+            max.0 - current_len
         } else {
             usize::MAX
         };
@@ -1078,9 +1056,9 @@ impl EventStore {
         let new_caret = start + pasted.len();
 
         // 変更履歴（Undo）をセーブ
-        contents.record_undo(text_val.clone(), range.clone());
+        contents.record_undo(text_val.clone(), range);
 
-        contents.selected_range = new_caret..new_caret;
+        contents.selected_range = (new_caret..new_caret).to_byte_range();
         edit_selections.insert(focused_id, new_caret..new_caret);
         edit_selected_rects.remove(focused_id);
         contents.text.1.set(new_text);
@@ -1180,7 +1158,7 @@ impl EventStore {
         let current_sel = contents.selected_range.clone();
         contents.redo_stack.push((current_text, current_sel)); // 現在の状態を Redo 用にセーブ
 
-        contents.selected_range = prev_sel.clone();
+        contents.selected_range = prev_sel.clone().to_byte_range();
         edit_selections.insert(focused_id, prev_sel);
         edit_selected_rects.remove(focused_id);
         contents.text.1.set(prev_text);
@@ -1207,7 +1185,7 @@ impl EventStore {
 
         EventStore::handle_undo(
             focused_id,
-            prev_sel.clone(),
+            prev_sel.clone().to_usize_range(),
             prev_text,
             contents,
             &mut cx.states.edit.edit_selections,
@@ -1217,7 +1195,7 @@ impl EventStore {
         cx.states
             .edit
             .edit_selection_start_index
-            .insert(focused_id, prev_sel.start);
+            .insert(focused_id, prev_sel.start.0);
 
         TextEditStore::apply_input_update(
             focused_id,
@@ -1263,7 +1241,7 @@ impl EventStore {
         let current_sel = contents.selected_range.clone();
         contents.undo_stack.push((current_text, current_sel)); // 現在の状態を Undo 用に退避
 
-        contents.selected_range = next_sel.clone();
+        contents.selected_range = next_sel.clone().to_byte_range();
         edit_selections.insert(focused_id, next_sel);
         edit_selected_rects.remove(focused_id);
         contents.text.1.set(next_text);
@@ -1290,7 +1268,7 @@ impl EventStore {
 
         EventStore::handle_redo(
             focused_id,
-            next_sel.clone(),
+            next_sel.clone().to_usize_range(),
             next_text,
             contents,
             &mut cx.states.edit.edit_selections,
@@ -1299,7 +1277,7 @@ impl EventStore {
         cx.states
             .edit
             .edit_selection_start_index
-            .insert(focused_id, next_sel.start);
+            .insert(focused_id, next_sel.start.0);
 
         TextEditStore::apply_input_update(
             focused_id,
@@ -1366,7 +1344,7 @@ impl EventStore {
         new_text.push_str(left);
         new_text.push_str(right);
 
-        contents.selected_range = range.start..range.start;
+        contents.selected_range = (range.start..range.start).to_byte_range();
         edit_selections.insert(focused_id, range.start..range.start);
         edit_selected_rects.remove(focused_id);
         contents.text.1.set(new_text);

@@ -1,16 +1,7 @@
 use std::{ops::Range, rc::Rc};
 
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
-    BaseVisualPropertiesSecondary, CapacityConfig, ChildrenSecondary, Color, ComponentMask,
-    Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore,
-    InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, RectsSecondary,
-    RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary,
-    TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect,
-    VisualPropertiesSecondary,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary, ByteIndex, CapacityConfig, ChildrenSecondary, Color, ComponentMask, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, RangeExt, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary, TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -100,8 +91,8 @@ impl TextEditStore {
         let range = &contents.selected_range;
 
         // キャレット範囲をクランプ
-        let mut start = range.start.min(text_val.len());
-        let mut end = range.end.min(text_val.len());
+        let mut start = range.start.0.min(text_val.len());
+        let mut end = range.end.0.min(text_val.len());
 
         while start > 0 && !text_val.is_char_boundary(start) {
             start -= 1;
@@ -142,7 +133,7 @@ impl TextEditStore {
         edit_selections.remove(id);
         edit_selected_rects.remove(id);
         if let Some(contents) = cont_input_contents.get_mut(id) {
-            contents.selected_range = 0..0;
+            contents.selected_range = ByteIndex(0)..ByteIndex(0);
             // 進行中の IME コンポジションをリセットして波線を消去
             contents.ime_state = None;
             contents.marked_range = None;
@@ -163,7 +154,7 @@ impl TextEditStore {
         align_offset: LayoutPoint,
     ) -> LayoutRect {
         let logical_x =
-            rect.x + border.left + padding.left + align_offset.x + contents.measured_caret_x
+            rect.x + border.left + padding.left + align_offset.x + contents.measured_caret.x
                 - scroll.x;
         let aligned_x = (logical_x * scale).round() / scale;
 
@@ -181,7 +172,7 @@ impl TextEditStore {
             + border.top
             + padding.top
             + align_offset.y
-            + contents.measured_caret_y
+            + contents.measured_caret.y
             + contents.caret_offset
             - scroll.y;
 
@@ -208,8 +199,8 @@ impl TextEditStore {
             (range.end, range.start)
         };
 
-        let mut cursor_start = TextEngine::flat_idx_to_cursor(buffer, start_idx);
-        let mut cursor_end = TextEngine::flat_idx_to_cursor(buffer, end_idx);
+        let mut cursor_start = TextEngine::flat_idx_to_cursor(buffer, start_idx.into());
+        let mut cursor_end = TextEngine::flat_idx_to_cursor(buffer, end_idx.into());
 
         if (cursor_start.line > cursor_end.line)
             || (cursor_start.line == cursor_end.line && cursor_start.index > cursor_end.index)
@@ -328,12 +319,12 @@ impl TextEditStore {
         buffer: &Rc<Buffer>,
         sys_text_engine: &mut TextEngine,
     ) -> (std::ops::Range<usize>, bool) {
-        let (current_index, is_trailing) = sys_text_engine.hit_test_point(buffer, local.x, local.y);
+        let (current_index, is_trailing) = sys_text_engine.hit_test_point(buffer, local);
 
         let final_index = if is_trailing {
-            current_index + 1
+            current_index.0 + 1
         } else {
-            current_index
+            current_index.0
         };
 
         if start_pos <= final_index {
@@ -399,12 +390,12 @@ impl TextEditStore {
             sc_offsets,
         );
         let (clicked_index, is_trailing) =
-            sys_text_engine.hit_test_point(&buffer, local.x, local.y);
+            sys_text_engine.hit_test_point(&buffer, local);
 
         let final_index = if is_trailing {
-            clicked_index + 1
+            clicked_index.0 + 1
         } else {
-            clicked_index
+            clicked_index.0
         };
 
         if pressed_shift {
@@ -493,7 +484,7 @@ impl TextEditStore {
 
         if let Some(contents) = cont_input_contents.get_mut(id) {
             contents.selection_reversed = is_reversed;
-            contents.selected_range = range;
+            contents.selected_range = range.to_byte_range();
 
             TextEditStore::apply_input_update(
                 id,
@@ -587,7 +578,7 @@ impl TextEditStore {
         TextEditStore::update_selection_rects(id, &engine, edit_selected_rects, edit_selections);
 
         if let Some(contents) = cont_input_contents.get_mut(id) {
-            contents.selected_range = full_range;
+            contents.selected_range = full_range.to_byte_range();
             contents.selection_reversed = false;
             TextEditStore::apply_input_update(
                 id,
@@ -945,7 +936,7 @@ impl TextEditStore {
     ) -> Option<(LayoutRect, f32, bool)> {
         let contents = cont_input_contents.get_mut(id)?;
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
-        edit_selections.insert(id, contents.selected_range.clone());
+        edit_selections.insert(id, contents.selected_range.clone().to_usize_range());
 
         let text_val = contents.text.0.get();
 
@@ -976,7 +967,7 @@ impl TextEditStore {
             filtered_comp_text = TextEditStore::truncate_unconfirmed_text(
                 &text_val,
                 contents,
-                max,
+                max.0,
                 filtered_comp_text,
             );
         }
@@ -1001,7 +992,7 @@ impl TextEditStore {
         let display_text = if !filtered_comp_text.is_empty() {
             InputContents::input_get_display_text_utf8_byte(
                 &text_val_for_display,
-                contents.selected_range.start,
+                contents.selected_range.start.0,
                 &filtered_comp_text,
             )
         } else if text_val.is_empty() {
@@ -1054,7 +1045,7 @@ impl TextEditStore {
             let mask = contents.mask_text.as_deref().unwrap_or("●");
 
             // 確定テキストの現在のキャレット位置までの文字数
-            let mut safe_caret = current_caret_relative.min(text_val.len());
+            let mut safe_caret = current_caret_relative.0.min(text_val.len());
             while safe_caret > 0 && !text_val.is_char_boundary(safe_caret) {
                 safe_caret -= 1;
             }
@@ -1071,17 +1062,17 @@ impl TextEditStore {
 
             total_char_caret * mask.len()
         } else {
-            current_caret_relative + composition_offset
+            current_caret_relative.0 + composition_offset
         };
 
         let display_text_len = display_text.len();
 
         // プレースホルダーに干渉されない純粋なキャレット位置を算出
         let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(&buffer, caret_index, display_text_len);
+            sys_text_engine.get_caret_position(&buffer, caret_index.into());
 
-        contents.measured_caret_x = cx_offset;
-        contents.measured_caret_y = cy_offset;
+        contents.measured_caret.x = cx_offset;
+        contents.measured_caret.y = cy_offset;
         contents.caret_line_height = ch_height;
 
         let (curr_line, tot_lines) =
