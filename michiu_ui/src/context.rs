@@ -354,6 +354,7 @@ impl Context {
             &self.renders.rnd_visual,
             &self.states.edit.edit_selections,
         )
+        .map(|m| m.into())
     }
 
     /// 現在のスクロール位置 (x, y) を取得
@@ -389,7 +390,7 @@ impl Context {
 
     #[inline]
     pub fn cut_text(&self) -> Option<Cow<'_, str>> {
-        self.contents.cont_cut_text.clone()
+        self.contents.cont_cut_text.clone().map(|f| f.0)
     }
 
     /// Context インスタンスから直接シグナルを生成します。

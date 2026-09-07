@@ -1,13 +1,7 @@
-use std::{borrow::Cow, sync::Arc};
-
 use crate::{
-    AlignContent, AlignItems, AlignSelf, Backdrop, BorderAlignment, BorderStyle, BoxShadow,
-    BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction, Display, EdgeInsets,
-    EntityId, FlexDirection, FlexWrap, Focusable, GridAutoFlow, GridLine, GridPlacement,
-    JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Point,
-    PointerEvents, Position, Rect, Size, StyleTarget, TextAlign, ThisStyle, Transition, UserSelect,
-    Val,
+    AlignContent, AlignItems, AlignSelf, Backdrop, BorderAlignment, BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction, Display, EdgeInsets, FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow, GridLine, GridPlacement, JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Point, PointerEvents, Position, Rect, Size, StyleTarget, TextAlign, ThisStyle, Transition, UserSelect, Val,
 };
+use std::{borrow::Cow, sync::Arc};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NormalLayout {
@@ -286,10 +280,7 @@ pub struct VisualProperty {
     pub resizable_cursor: Option<[Option<CursorIcon>; 4]>,
     pub backdrop: Backdrop,
     pub text_color: Option<Color>,
-    pub font_size: Option<f32>,
-    pub font_family: Option<Cow<'static, str>>,
-    pub font_weight: Option<u32>,
-    pub font_style: Option<u32>,
+    pub font: FontDate,
     pub auto_wrap: Option<bool>,
     pub bg_gradient: Option<LinearGradient>,
     pub transitions: Vec<Transition>,
@@ -356,17 +347,17 @@ impl VisualProperty {
             self.text_color = other.text_color;
         }
         if mask.has(ComponentMask::STYLE_FONT_SIZE) {
-            self.font_size = other.font_size;
+            self.font.size = other.font.size;
         }
         if mask.has(ComponentMask::STYLE_EXT_PROPERTIES) {
-            if other.font_family.is_some() {
-                self.font_family.clone_from(&other.font_family);
+            if other.font.family.is_some() {
+                self.font.family.clone_from(&other.font.family);
             }
-            if other.font_weight.is_some() {
-                self.font_weight = other.font_weight;
+            if other.font.weight.is_some() {
+                self.font.weight = other.font.weight;
             }
-            if other.font_style.is_some() {
-                self.font_style = other.font_style;
+            if other.font.style.is_some() {
+                self.font.style = other.font.style;
             }
         }
         if mask.has(ComponentMask::STYLE_AUTO_WRAP) {

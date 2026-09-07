@@ -558,7 +558,7 @@ impl Element {
     #[inline]
     pub fn text(self, content: impl Into<Prop<Cow<'static, str>>>) -> Self {
         self.bind_prop(content, EffectCategory::Text, |cx, id, val| {
-            cx.contents.cont_text_contents.insert(id, val);
+            cx.contents.cont_text_contents.insert(id, val.into());
             cx.topology.topo_active_masks[id].set(ComponentMask::COMP_TEXT_CONTENT);
             cx.clear_layout_cache(id);
             cx.mark_dirty(id);

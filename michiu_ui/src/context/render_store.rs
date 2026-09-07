@@ -1,15 +1,5 @@
 use crate::{
-    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition,
-    AnimationCurve, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment,
-    BorderStyle, BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color,
-    ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DirtyLayoutEntitiesVec,
-    Display, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId,
-    FlatDfsSequenceVec, FocusTrigger, Focusable, GlobalCursorIcon, IDENTITY_MATRIX,
-    InputContentsSparseSecondary, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList,
-    ReactiveStore, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSecondary, StyleTarget,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, ThisStyle,
-    TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
+    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition, AnimationCurve, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle, BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -150,21 +140,6 @@ impl RenderStore {
             mask.unset(ComponentMask::STATE_QUEUED_RENDER);
         }
         rnd_dirty_entities.clear();
-    }
-
-    #[inline]
-    pub(crate) fn get_font_propery(
-        id: EntityId,
-        rnd_visual: &VisualPropertiesSecondary,
-    ) -> (f32, Option<&str>, Option<u32>, Option<u32>) {
-        rnd_visual.get(id).map_or((16.0, None, None, None), |v| {
-            (
-                v.font_size.unwrap_or(16.0),
-                v.font_family.as_deref(),
-                v.font_weight,
-                v.font_style,
-            )
-        })
     }
 
     #[inline]
@@ -1089,13 +1064,13 @@ impl RenderStore {
         let target_text_color = target.text_color.unwrap_or(Color::WHITE);
         let text_color_changed = current.text_color != target_text_color;
 
-        let target_font_size = target.font_size.unwrap_or(16.0);
-        let target_font_family = target.font_family.clone();
-        let target_font_weight = target.font_weight.unwrap_or(400);
-        let target_font_style = target.font_style.unwrap_or(0);
+        let target_font_size = target.font.size.unwrap_or(16.0);
+        let target_font_family = target.font.family.clone();
+        let target_font_weight = target.font.weight.unwrap_or(400);
+        let target_font_style = target.font.style.unwrap_or(0);
         let target_auto_wrap = target.auto_wrap.unwrap_or(false);
 
-        let font_changed = (current.font_size - target_font_size).abs() >= 0.001
+        let font_changed = (current.font_size - target_font_size).abs() >= 0.01
             || current.font_family != target_font_family
             || current.font_weight != target_font_weight
             || current.font_style != target_font_style
@@ -1242,10 +1217,7 @@ impl RenderStore {
             active_vis.cursor = target.cursor;
             active_vis.resizable_cursor = target.resizable_cursor;
 
-            active_vis.font_size = target.font_size;
-            active_vis.font_family.clone_from(&target.font_family);
-            active_vis.font_weight = target.font_weight;
-            active_vis.font_style = target.font_style;
+            active_vis.font.clone_from(&target.font);
             active_vis.auto_wrap = target.auto_wrap;
 
             active_vis.pointer_events = target.pointer_events;
@@ -1784,10 +1756,10 @@ impl RenderStore {
                 corner_radius: v.corner_radius.unwrap_or(CornerRadius::ZERO),
                 shadow_params: v.shadow_params.unwrap_or(BoxShadow::none()),
                 text_color: v.text_color.unwrap_or(Color::WHITE),
-                font_size: v.font_size.unwrap_or(16.0),
-                font_family: v.font_family.clone(),
-                font_weight: v.font_weight.unwrap_or(400),
-                font_style: v.font_style.unwrap_or(0),
+                font_size: v.font.size.unwrap_or(16.0),
+                font_family: v.font.family.clone(),
+                font_weight: v.font.weight.unwrap_or(400),
+                font_style: v.font.style.unwrap_or(0),
                 auto_wrap: v.auto_wrap.unwrap_or(false),
                 pointer_events: v.pointer_events.unwrap_or_default(),
             })
@@ -1821,10 +1793,7 @@ pub(crate) struct TargetStyle {
     pub(crate) outline_styles: Option<[BorderStyle; 4]>,
     pub(crate) outline_alignments: Option<[BorderAlignment; 4]>,
     pub(crate) outline_offset: Option<f32>,
-    pub(crate) font_size: Option<f32>,
-    pub(crate) font_family: Option<Cow<'static, str>>,
-    pub(crate) font_weight: Option<u32>,
-    pub(crate) font_style: Option<u32>,
+    pub(crate) font: FontDate,
     pub(crate) auto_wrap: Option<bool>,
 }
 
@@ -1862,10 +1831,7 @@ impl RenderStore {
                 outline_styles: v.outline_styles,
                 outline_alignments: v.outline_alignments,
                 outline_offset: v.outline_offset,
-                font_size: v.font_size,
-                font_family: v.font_family.clone(),
-                font_weight: v.font_weight,
-                font_style: v.font_style,
+                font: v.font.clone(),
                 auto_wrap: v.auto_wrap,
             })
             .unwrap_or_default()
@@ -1959,17 +1925,17 @@ impl TargetStyle {
             target.resizable_cursor = inner_vis.resizable_cursor;
         }
         if inner_mask.has(ComponentMask::STYLE_FONT_SIZE) {
-            target.font_size = inner_vis.font_size;
+            target.font.size = inner_vis.font.size;
         }
         if inner_mask.has(ComponentMask::STYLE_EXT_PROPERTIES) {
-            if inner_vis.font_family.is_some() {
-                target.font_family.clone_from(&inner_vis.font_family);
+            if inner_vis.font.family.is_some() {
+                target.font.family.clone_from(&inner_vis.font.family);
             }
-            if inner_vis.font_weight.is_some() {
-                target.font_weight = inner_vis.font_weight;
+            if inner_vis.font.weight.is_some() {
+                target.font.weight = inner_vis.font.weight;
             }
-            if inner_vis.font_style.is_some() {
-                target.font_style = inner_vis.font_style;
+            if inner_vis.font.style.is_some() {
+                target.font.style = inner_vis.font.style;
             }
         }
         if inner_mask.has(ComponentMask::STYLE_AUTO_WRAP) {

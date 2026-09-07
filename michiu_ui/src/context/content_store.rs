@@ -1,6 +1,7 @@
 use crate::{
     ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, FlexLayout, InputContents,
-    LayoutRect, RenderStore, TextEngine, TextSpan, VisualPropertiesSecondary, WebView2Contents,
+    LayoutRect, MichiuString, RenderStore, TextBufferSparseSecondary, TextEngine, TextSpan,
+    VisualPropertiesSecondary, WebView2Contents,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -10,7 +11,7 @@ use std::{
 };
 use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
-pub(crate) type TextContentsSparseSecondary = SparseSecondaryMap<EntityId, Cow<'static, str>>;
+pub(crate) type TextContentsSparseSecondary = SparseSecondaryMap<EntityId, MichiuString>;
 pub(crate) type TextSpansSparseSecondary = SparseSecondaryMap<EntityId, Vec<TextSpan>>;
 pub(crate) type InputContentsSparseSecondary = SparseSecondaryMap<EntityId, InputContents>;
 pub(crate) type ExternalTextureSparseSecondary =
@@ -23,7 +24,7 @@ pub struct ContentStore {
     pub(crate) cont_input_contents: InputContentsSparseSecondary,
     pub(crate) cont_external_textures: ExternalTextureSparseSecondary,
     pub(crate) cont_webview_contents: WebviewContentsSparseSecondary,
-    pub(crate) cont_cut_text: Option<Cow<'static, str>>,
+    pub(crate) cont_cut_text: Option<MichiuString>,
 }
 
 impl Default for ContentStore {
@@ -114,7 +115,7 @@ impl ContentStore {
         cont_text_spans.get(id).map_or(&[], Vec::as_slice)
     }
 
-    /// テキストやインプットのサイズを DirectWrite を用いて計測し、Taffy 向けサイズを返します。
+    /// テキストやインプットのサイズを cosmic-text を用いて計測し、Taffy 向けサイズを返します。
     pub(crate) fn measure_content(
         id: EntityId,
         known_dims: taffy::Size<Option<f32>>,
@@ -164,15 +165,19 @@ impl ContentStore {
             None
         };
 
-        // キャッシュが存在し、かつ折り返しによる幅変更の影響がない場合
-        if let Some(layout) = layout_rect {
-            let width_changed = if let Some(mw) = max_width {
-                (layout.width - mw).abs() > 1.0
-            } else {
-                false
+        // 自動折り返しがない（1行入力、または折り返し無効の複数行）場合
+        // 文字が変わらない限りサイズは絶対に変わらないので、前回のサイズを即座に返す
+        if !auto_wrap && let Some(layout) = layout_rect {
+            return taffy::Size {
+                width: known_dims.width.unwrap_or(layout.width),
+                height: known_dims.height.unwrap_or(layout.height),
             };
+        }
 
-            if !width_changed {
+        // キャッシュが存在し、かつ幅が変わっていない場合
+        if let Some(layout) = layout_rect {
+            // 制限幅が確定していない、または前回計測時と同じなら再利用
+            if max_width.is_none() {
                 return taffy::Size {
                     width: known_dims.width.unwrap_or(layout.width),
                     height: known_dims.height.unwrap_or(layout.height),
@@ -188,21 +193,23 @@ impl ContentStore {
             };
         }
 
-        let text = cont_text_contents
+        let Some(text) = cont_text_contents.get(id) else {
+            return taffy::Size {
+                width: known_dims.width.unwrap_or(0.0),
+                height: known_dims.height.unwrap_or(0.0),
+            };
+        };
+
+        let font = rnd_visual
             .get(id)
-            .map_or("", std::convert::AsRef::as_ref);
-        let (font_size, font_family, font_weight, font_style) =
-            RenderStore::get_font_propery(id, rnd_visual);
+            .map(|v| v.font.clone())
+            .unwrap_or_default();
 
         let spans = ContentStore::get_text_span(id, cont_text_spans);
 
-        // DirectWrite を使用して正確なサイズを計測
         let size = sys_text_engine.measure_text(
             text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
+            font,
             flex.text_align,
             max_width,
             Some(auto_wrap),

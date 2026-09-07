@@ -1,27 +1,28 @@
 use crate::{
     ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
     ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
-    BasicLayout, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary,
-    ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, DndStore, EffectiveZindicesSecondary, Element, ElementEffectsSecondary,
-    ElementState, EntitiesSlot, EntityId, EventListeners, FlatDfsSequenceVec, FlexLayout,
-    FlexLayoutsSecondary, FocusStore, GridLayout, GridLayoutsSparseSecondary, InputContents,
-    InputContentsSparseSecondary, InputOp, InteractionPropertiesSecondary, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, Length, Modifiers, MouseButton, OutputStore, Overflow,
-    ParentsSecondary, Pipeline, PointerEvents, Position, ReactiveStore, Rect, RectsSecondary,
-    RenderStore, ResizeStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSecondary, SelectedRectsSparseSecondary,
-    SelectionStartIndexSparseSecondary, SessionSpawnedVec, SortedEntitiesVec, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextContentsSparseSecondary, TextEditStore,
-    TextEngine, TextBufferSparseSecondary, TextSelectionsSparseSecondary,
-    TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore, UserSelect, Val, VirtualKey,
-    VisualPropertiesSecondary, WindowStore, bind_context, handle_on_active, handle_on_blur,
-    handle_on_click, handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start,
-    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
-    handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
-    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
-    handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
+    BasicLayout, BasicLayoutsSecondary, ByteIndex, CapacityConfig, ChildrenSecondary,
+    ClipRectsSecondary, ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndStore, EffectiveZindicesSecondary, Element,
+    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
+    FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusStore, GridLayout,
+    GridLayoutsSparseSecondary, InputContents, InputContentsSparseSecondary, InputOp,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
+    MichiuString, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline,
+    PointerEvents, Position, RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore,
+    ResizeStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStore,
+    ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
+    SessionSpawnedVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextAlign, TextBufferSparseSecondary, TextContentsSparseSecondary, TextEditStore, TextEngine,
+    TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore,
+    UserSelect, UsizeRangeExt, Val, VirtualKey, VisualPropertiesSecondary, WindowStore,
+    bind_context, handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved,
+    handle_on_disable, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
+    handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
+    handle_on_focus, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter,
+    handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click,
+    handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -314,7 +315,7 @@ impl EventStore {
                     }
                 }
 
-                let engine = SystemStore::get_or_create_layout(
+                let buffer = SystemStore::get_or_create_layout(
                     pressed_id,
                     &mut cx.system.sys_text_engine,
                     &cx.system.sys_text_buffers,
@@ -328,7 +329,7 @@ impl EventStore {
                 let local = OutputStore::pressed_local_point(
                     pressed_id,
                     logical_pos,
-                    engine.as_ref(),
+                    buffer.as_ref(),
                     &mut cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                     &cx.topology.topo_active_masks,
@@ -347,6 +348,7 @@ impl EventStore {
                     pressed_id,
                     start_pos,
                     local,
+                    buffer.as_ref(),
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
                     &mut cx.system.sys_text_engine,
@@ -670,7 +672,7 @@ impl EventStore {
         };
 
         if let Some(contents) = cx.contents.cont_input_contents.get(target_id) {
-            let text_val = contents.text.0.get();
+            let text_val = contents.to_michiu();
             let is_placeholder = text_val.is_empty()
                 && contents
                     .ime_state
@@ -718,21 +720,12 @@ impl EventStore {
         let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
         let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
 
-        let range = {
-            let (clicked_index, is_trailing) = cx
-                .system
-                .sys_text_engine
-                .hit_test_point(&buffer, local_x, local_y);
+        let (clicked_index, _) = cx
+            .system
+            .sys_text_engine
+            .hit_test_point(&buffer, LayoutPoint::new(local_x, local_y));
 
-            let final_index = if is_trailing {
-                clicked_index + 1
-            } else {
-                clicked_index
-            };
-
-            // 文節境界を抽出
-            InputContents::find_word_boundaries_utf8_byte(text, final_index)
-        };
+        let range = text.find_word_boundaries(clicked_index);
 
         cx.states
             .edit
@@ -749,6 +742,7 @@ impl EventStore {
             &buffer,
             &mut cx.states.edit.edit_selected_rects,
             &cx.states.edit.edit_selections,
+            &cx.contents.cont_input_contents,
         );
 
         if let Some(contents) = cx.contents.cont_input_contents.get_mut(target_id) {
@@ -1018,36 +1012,23 @@ impl EventStore {
 
     fn handle_paste(
         focused_id: EntityId,
-        text: &str,
+        text: &MichiuString,
         contents: &mut InputContents,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
-        let text_val = contents.text.0.get();
+        let text_val = contents.to_michiu();
         let range = contents.selected_range.clone();
 
-        // キャレット範囲をクランプ
-        let mut start = range.start.min(text_val.len());
-        let mut end = range.end.min(text_val.len());
-
-        while start > 0 && !text_val.is_char_boundary(start) {
-            start -= 1;
-        }
-        while end > 0 && !text_val.is_char_boundary(end) {
-            end -= 1;
-        }
-
-        let left = &text_val[..start];
-        let right = &text_val[end..];
-
-        // 文字数の上限
+        // 文字数制限の計算
         let allowed_len = if let Some(max) = contents.max_length {
-            // 選択範囲を削除した後の文字数をカウント
-            let current_len = left.chars().count() + right.chars().count();
-            if current_len >= max {
-                return;
+            let selected_char_count = text_val.slice(range.clone()).chars().count();
+            let current_len_after_delete = text_val.char_count().0 - selected_char_count;
+
+            if current_len_after_delete >= max.0 {
+                return; // 枠が残っていないので貼り付け中断
             }
-            max - current_len
+            max.0 - current_len_after_delete
         } else {
             usize::MAX
         };
@@ -1068,25 +1049,24 @@ impl EventStore {
             chars_added += 1;
         }
 
-        // 文字列の結合
-        let mut new_text = String::with_capacity(left.len() + pasted.len() + right.len());
-        new_text.push_str(left);
-        new_text.push_str(&pasted);
-        new_text.push_str(right);
+        // 貼り付ける文字がなく、削除する選択範囲もない
+        if pasted.is_empty() && range.start == range.end {
+            return;
+        }
 
-        // 新しいキャレット位置
-        let new_caret = start + pasted.len();
+        // 変更前の状態を Undo に退避
+        contents.record_undo(text_val, range.clone());
 
-        // 変更履歴（Undo）をセーブ
-        contents.record_undo(text_val.clone(), range.clone());
+        // MichiuString で置換
+        let new_caret = contents.update_michiu(|m| m.replace_range(range, &pasted));
 
-        contents.selected_range = new_caret..new_caret;
-        edit_selections.insert(focused_id, new_caret..new_caret);
+        let new_range = new_caret..new_caret;
+        contents.selected_range = new_range.clone();
+        edit_selections.insert(focused_id, new_range);
         edit_selected_rects.remove(focused_id);
-        contents.text.1.set(new_text);
     }
 
-    pub(crate) fn inject_paste(cx: &mut Context, text: &str) {
+    pub(crate) fn inject_paste(cx: &mut Context, text: &MichiuString) {
         let Some(focused_id) = cx.events.evt_interaction_states.focused else {
             return;
         };
@@ -1170,20 +1150,16 @@ impl EventStore {
 
     fn handle_undo(
         focused_id: EntityId,
-        prev_sel: Range<usize>,
-        prev_text: String,
+        prev_sel: Range<ByteIndex>,
+        prev_text: MichiuString,
         contents: &mut InputContents,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
-        let current_text = contents.text.0.get();
-        let current_sel = contents.selected_range.clone();
-        contents.redo_stack.push((current_text, current_sel)); // 現在の状態を Redo 用にセーブ
+        contents.apply_undo(prev_text, prev_sel.clone());
 
-        contents.selected_range = prev_sel.clone();
         edit_selections.insert(focused_id, prev_sel);
         edit_selected_rects.remove(focused_id);
-        contents.text.1.set(prev_text);
     }
 
     pub(crate) fn inject_undo(cx: &mut Context) {
@@ -1253,20 +1229,19 @@ impl EventStore {
 
     fn handle_redo(
         focused_id: EntityId,
-        next_sel: Range<usize>,
-        next_text: String,
+        next_sel: Range<ByteIndex>,
+        next_text: MichiuString,
         contents: &mut InputContents,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
     ) {
-        let current_text = contents.text.0.get();
-        let current_sel = contents.selected_range.clone();
-        contents.undo_stack.push((current_text, current_sel)); // 現在の状態を Undo 用に退避
+        // InputContents 側の状態復元
+        contents.apply_redo(next_text, next_sel.clone());
 
-        contents.selected_range = next_sel.clone();
-        edit_selections.insert(focused_id, next_sel);
+        edit_selections.insert(focused_id, next_sel.clone());
         edit_selected_rects.remove(focused_id);
-        contents.text.1.set(next_text);
+        edit_selection_start_index.insert(focused_id, next_sel.start);
     }
 
     pub(crate) fn inject_redo(cx: &mut Context) {
@@ -1295,11 +1270,8 @@ impl EventStore {
             contents,
             &mut cx.states.edit.edit_selections,
             &mut cx.states.edit.edit_selected_rects,
+            &mut cx.states.edit.edit_selection_start_index,
         );
-        cx.states
-            .edit
-            .edit_selection_start_index
-            .insert(focused_id, next_sel.start);
 
         TextEditStore::apply_input_update(
             focused_id,
@@ -1335,44 +1307,27 @@ impl EventStore {
 
     fn inject_cut_internal(
         focused_id: EntityId,
-        range: Range<usize>,
+        range: Range<ByteIndex>,
         contents: &mut InputContents,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
         // 削除前の履歴セーブ
-        let current_text = contents.text.0.get();
+        let current_text = contents.to_michiu();
         let current_range = contents.selected_range.clone();
         contents.record_undo(current_text, current_range);
 
-        let text = contents.text.0.get();
+        // remove_range() が内部で自動クランプして削除し、安全な新しいキャレット位置（始点）を返してくれる
+        let new_caret = contents.update_michiu(|m| m.remove_range(range));
 
-        // キャレット範囲をクランプ
-        let mut start = range.start.min(text.len());
-        let mut end = range.end.min(text.len());
-
-        while start > 0 && !text.is_char_boundary(start) {
-            start -= 1;
-        }
-        while end > 0 && !text.is_char_boundary(end) {
-            end -= 1;
-        }
-
-        // 削除範囲の左側と右側を取り出して合体
-        let left = &text[..start];
-        let right = &text[end..];
-
-        let mut new_text = String::with_capacity(left.len() + right.len());
-        new_text.push_str(left);
-        new_text.push_str(right);
-
-        contents.selected_range = range.start..range.start;
-        edit_selections.insert(focused_id, range.start..range.start);
+        // キャレット位置・選択状態の更新
+        let new_range = new_caret..new_caret;
+        contents.selected_range = new_range.clone();
+        edit_selections.insert(focused_id, new_range);
         edit_selected_rects.remove(focused_id);
-        contents.text.1.set(new_text);
     }
 
-    pub(crate) fn inject_cut(cx: &mut Context) -> Option<Cow<'static, str>> {
+    pub(crate) fn inject_cut(cx: &mut Context) -> Option<MichiuString> {
         let focused_id = cx.events.evt_interaction_states.focused?;
         let user_select = cx
             .renders
@@ -1393,22 +1348,7 @@ impl EventStore {
         }
 
         let text = cx.contents.cont_text_contents.get(focused_id)?;
-
-        let cut_text = {
-            // キャレット範囲をクランプ
-            let mut start = range.start.min(text.len());
-            let mut end = range.end.min(text.len());
-
-            while start > 0 && !text.is_char_boundary(start) {
-                start -= 1;
-            }
-            while end > 0 && !text.is_char_boundary(end) {
-                end -= 1;
-            }
-
-            // 補正した境界でテキストを切り出して String に
-            text[start..end].to_string()
-        };
+        let cut_text = text.slice(range.clone()).to_string();
 
         // 対象が Input コントロールである場合のみ書き換え
         let is_input = cx

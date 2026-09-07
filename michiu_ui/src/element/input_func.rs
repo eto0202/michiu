@@ -1,6 +1,8 @@
+use std::{ops::Range, time::Instant};
+
 use crate::{
-    ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
-    InputContents, InputOp, Modifiers, MouseButton, OutputStore, Prop,
+    ByteIndex, ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
+    InputContents, InputOp, LayoutPoint, MichiuString, Modifiers, MouseButton, OutputStore, Prop,
     SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SystemStore, TextEngine,
     TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
@@ -101,8 +103,8 @@ impl Element {
         existing.mask_text = c.mask_text;
 
         // 動的なテキスト長の変更に伴い、既存の選択範囲が枠外へ飛び出さないようクランプ
-        let current_text = existing.text.0.get();
-        let text_len = current_text.len();
+        let current_text = existing.to_michiu();
+        let text_len = current_text.byte_len();
         existing.selected_range.start = existing.selected_range.start.min(text_len);
         existing.selected_range.end = existing.selected_range.end.min(text_len);
     }
@@ -113,7 +115,7 @@ impl Element {
     fn set_caret_position(
         id: EntityId,
         contents: &mut InputContents,
-        caret: usize,
+        caret: ByteIndex,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
         edit_selected_rects: Option<&mut SelectedRectsSparseSecondary>,
@@ -133,7 +135,7 @@ impl Element {
     fn set_selection_range(
         id: EntityId,
         contents: &mut InputContents,
-        range: std::ops::Range<usize>,
+        range: Range<ByteIndex>,
         selection_reversed: bool,
         edit_selections: &mut TextSelectionsSparseSecondary,
     ) {
@@ -190,7 +192,7 @@ impl Element {
             return;
         };
 
-        let text_val = contents.text.0.get();
+        let text_val = contents.to_michiu();
 
         // プレースホルダーが表示状態にあるか
         let is_placeholder = text_val.is_empty()
@@ -204,7 +206,7 @@ impl Element {
             Element::set_caret_position(
                 id,
                 contents,
-                0,
+                ByteIndex(0),
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selection_start_index,
                 Some(&mut cx.states.edit.edit_selected_rects),
@@ -223,25 +225,38 @@ impl Element {
             ) else {
                 return;
             };
-            // キャッシュ済みのレイアウトをそのまま使って高速にヒットテスト
-            let (new_caret, is_trailing) = cx
-                .system
-                .sys_text_engine
-                .hit_test_point(&buffer, local.x, local.y);
-            // UTF-8の場合は次の文字境界までバイト数分進める
-            let final_caret = {
-                if is_trailing && new_caret < text_val.len() {
-                    let current_char = text_val[new_caret..].chars().next().unwrap_or(' ');
-                    new_caret + current_char.len_utf8()
-                } else {
-                    new_caret
-                }
+
+            // 表示テキストを取得
+            let display_text = cx
+                .contents
+                .cont_text_contents
+                .get(id)
+                .cloned()
+                .unwrap_or_default();
+
+            // 表示バッファ上でヒットテスト
+            // 返ってくるのは表示テキスト上のバイト位置
+            let (display_caret, is_trailing) =
+                cx.system.sys_text_engine.hit_test_point(&buffer, local);
+
+            // 表示テキスト基準で次の文字境界へ進める
+            let final_display_caret = if is_trailing {
+                display_text.next_char_boundary(display_caret)
+            } else {
+                display_caret
             };
 
+            // 表示テキスト上のバイト位置を生テキストのバイト位置に変換
+            let final_caret = contents.display_byte_to_raw_byte(final_display_caret, &text_val);
+
+            // 許容される最大長
             let editable_len = if is_placeholder {
-                contents.placeholder.as_ref().map_or(0, |p| p.len())
+                contents
+                    .placeholder
+                    .as_ref()
+                    .map_or(ByteIndex(0), |p| ByteIndex(p.len()))
             } else {
-                text_val.len() // 通常の文字列長
+                text_val.byte_len()
             };
             let final_caret_clamped = final_caret.min(editable_len);
 
@@ -260,6 +275,7 @@ impl Element {
                 } else {
                     (final_caret_clamped..anchor, true)
                 };
+
                 Element::set_selection_range(
                     id,
                     contents,
@@ -278,7 +294,7 @@ impl Element {
                 );
             }
         }
-        contents.last_interacted_time = Some(std::time::Instant::now());
+        contents.last_interacted_time = Some(Instant::now());
         // キャレットの絶対座標と表示情報を一括更新
         cx.apply_input_update(id, InputOp::MousePress);
     }
@@ -287,7 +303,7 @@ impl Element {
         if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
             contents.is_selecting = false;
             // フォーカス獲得時も操作時刻を記録して即座にキャレットを表示
-            contents.last_interacted_time = Some(std::time::Instant::now());
+            contents.last_interacted_time = Some(Instant::now());
         }
         cx.mark_render_dirty(id);
     }
@@ -326,52 +342,30 @@ impl Element {
             return;
         };
 
-        contents.last_interacted_time = Some(std::time::Instant::now());
-
-        let text_val = contents.text.0.get();
-
         // 数値制限フィルター
         if contents.numeric_only && !ch.is_numeric() && *ch != '.' && *ch != '-' {
             return;
         }
 
+        let text_val = contents.to_michiu();
         let range = contents.selected_range.clone();
 
+        // 文字数制限のチェック
+        if let Some(max) = contents.max_length {
+            let selected_chars = text_val.slice(range.clone()).chars().count();
+            let chars_after_delete = text_val.char_count() - selected_chars;
+            if chars_after_delete + 1 > max {
+                return; // 制限を超えるため入力を中断
+            }
+        }
+
         // 変更発生前に現在の状態をセーブ
-        contents.record_undo(text_val.clone(), range.clone());
+        contents.record_undo(text_val, range.clone());
+        contents.last_interacted_time = Some(Instant::now());
 
-        // キャレット範囲をクランプし安全な文字境界に補正
-        let mut start = range.start.min(text_val.len());
-        let mut end = range.end.min(text_val.len());
-
-        while start > 0 && !text_val.is_char_boundary(start) {
-            start -= 1;
-        }
-        while end > 0 && !text_val.is_char_boundary(end) {
-            end -= 1;
-        }
-
-        let left = &text_val[..start];
-        let right = &text_val[end..];
-
-        // 削除後の文字数 ＋ 挿入する1文字が制限を超えないか
-        let chars_after_delete = left.chars().count() + right.chars().count();
-        if let Some(max) = contents.max_length
-            && chars_after_delete + 1 > max
-        {
-            return; // 制限を超えるため入力を中断
-        }
-
-        contents.last_interacted_time = Some(std::time::Instant::now());
-
-        // 文字列の結合
-        let mut new_text = String::with_capacity(left.len() + ch.len_utf8() + right.len());
-        new_text.push_str(left);
-        new_text.push(*ch);
-        new_text.push_str(right);
-
-        // キャレット位置を挿入した文字のバイト数分だけ進める
-        let new_caret = start + ch.len_utf8();
+        let mut buf = [0u8; 4];
+        let ch_str = ch.encode_utf8(&mut buf);
+        let new_caret = contents.update_michiu(|m| m.replace_range(range, ch_str));
 
         Element::set_caret_position(
             id,
@@ -381,98 +375,79 @@ impl Element {
             &mut cx.states.edit.edit_selection_start_index,
             Some(&mut cx.states.edit.edit_selected_rects),
         );
-        contents.text.1.set(new_text);
-
         cx.apply_input_update(id, InputOp::CharTyped);
     }
 
     fn pressed_back(
         id: EntityId,
         contents: &mut InputContents,
-        caret: &mut usize,
-        text_val: &str,
+        caret: ByteIndex,
+        text_val: &MichiuString,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
     ) {
         let range = contents.selected_range.clone();
-        contents.record_undo(text_val.to_string(), range.clone());
+        contents.record_undo(text_val.clone(), range.clone());
 
-        if range.start < range.end {
-            let new_text = InputContents::remove_range_utf8_byte(text_val, &range);
-
-            Element::set_caret_position(
-                id,
-                contents,
-                range.start,
-                edit_selections,
-                edit_selection_start_index,
-                None,
-            );
-            contents.text.1.set(new_text);
+        // 範囲選択があれば範囲削除、なければ通常の1文字バックスペース
+        let new_caret = if range.start < range.end {
+            contents.update_michiu(|m| m.remove_range(range))
         } else {
-            // 通常の1文字バックスペース
-            let new_text = InputContents::input_backspace_utf8_byte(text_val, caret);
-            Element::set_caret_position(
-                id,
-                contents,
-                *caret,
-                edit_selections,
-                edit_selection_start_index,
-                None,
-            );
-            contents.text.1.set(new_text);
-        }
-        contents.last_interacted_time = Some(std::time::Instant::now());
+            contents.update_michiu(|m| m.backspace(caret))
+        };
+
+        Element::set_caret_position(
+            id,
+            contents,
+            new_caret,
+            edit_selections,
+            edit_selection_start_index,
+            None,
+        );
+        contents.last_interacted_time = Some(Instant::now());
     }
 
     fn pressed_delete(
         id: EntityId,
         contents: &mut InputContents,
-        caret: usize,
-        text_val: &str,
+        caret: ByteIndex,
+        text_val: &MichiuString,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
     ) {
         let range = contents.selected_range.clone();
-        contents.record_undo(text_val.to_string(), range.clone());
-        if range.start < range.end {
-            let new_text = InputContents::remove_range_utf8_byte(text_val, &range);
-            Element::set_caret_position(
-                id,
-                contents,
-                range.start,
-                edit_selections,
-                edit_selection_start_index,
-                None,
-            );
-            contents.text.1.set(new_text);
+        contents.record_undo(text_val.clone(), range.clone());
+
+        // 範囲選択があれば範囲削除、なければ通常の1文字デリート
+        let new_caret = if range.start < range.end {
+            contents.update_michiu(|m| m.remove_range(range))
         } else {
-            // 通常の1文字デリート
-            let new_text = InputContents::input_delete_utf8_byte(text_val, caret);
-            Element::set_caret_position(
-                id,
-                contents,
-                caret,
-                edit_selections,
-                edit_selection_start_index,
-                None,
-            );
-            contents.text.1.set(new_text);
-        }
-        contents.last_interacted_time = Some(std::time::Instant::now());
+            contents.update_michiu(|m| m.delete(caret))
+        };
+
+        Element::set_caret_position(
+            id,
+            contents,
+            new_caret,
+            edit_selections,
+            edit_selection_start_index,
+            None,
+        );
+        contents.last_interacted_time = Some(Instant::now());
     }
 
     fn pressed_left(
         id: EntityId,
         contents: &mut InputContents,
-        text_val: &str,
-        caret: usize,
+        text_val: &MichiuString,
+        caret: ByteIndex,
         mods: Modifiers,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
     ) -> bool {
         let range = contents.selected_range.clone();
+
         // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時
         if range.start < range.end && !mods.shift {
             // 選択範囲をすべて解除し、キャレットを左端（start）に収束
@@ -485,22 +460,19 @@ impl Element {
                 edit_selection_start_index,
                 Some(edit_selected_rects),
             );
-            contents.last_interacted_time = Some(std::time::Instant::now());
+            contents.last_interacted_time = Some(Instant::now());
             return true;
-        } else if caret > 0 {
-            let mut prev = caret - 1;
-            // 安全な文字の境界にぶつかるまで左に
-            while prev > 0 && !text_val.is_char_boundary(prev) {
-                prev -= 1;
-            }
-
-            let new_caret = prev;
+        } else if caret.0 > 0 {
+            let new_caret = text_val.prev_char_boundary(caret);
 
             if mods.shift {
                 // Shiftキー押下中：選択の拡張
-                let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+                let anchor = edit_selection_start_index
+                    .get(id)
+                    .copied()
+                    .unwrap_or(new_caret);
                 if !edit_selection_start_index.contains_key(id) {
-                    edit_selection_start_index.insert(id, caret);
+                    edit_selection_start_index.insert(id, new_caret);
                 }
                 let (range, reversed) = if anchor <= new_caret {
                     (anchor..new_caret, false)
@@ -519,7 +491,7 @@ impl Element {
                     Some(edit_selected_rects),
                 );
             }
-            contents.last_interacted_time = Some(std::time::Instant::now());
+            contents.last_interacted_time = Some(Instant::now());
             return true;
         }
         false
@@ -528,9 +500,8 @@ impl Element {
     fn pressed_right(
         id: EntityId,
         contents: &mut InputContents,
-        text_val: &str,
-        caret: usize,
-        text_len: usize,
+        text_val: &MichiuString,
+        caret: ByteIndex,
         mods: Modifiers,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
@@ -539,22 +510,19 @@ impl Element {
         let range = contents.selected_range.clone();
         // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時（全選択中での右移動に完全対応）
         if range.start < range.end && !mods.shift {
-            let new_caret = range.end;
             Element::set_caret_position(
                 id,
                 contents,
-                new_caret,
+                range.end,
                 edit_selections,
                 edit_selection_start_index,
                 Some(edit_selected_rects),
             );
-            contents.last_interacted_time = Some(std::time::Instant::now());
+            contents.last_interacted_time = Some(Instant::now());
             return true;
-        } else if caret < text_len {
-            // 現在位置にある文字を取得
-            let current_char = text_val[caret..].chars().next().unwrap_or(' ');
-            // その文字のバイト数分だけキャレットを進める
-            let new_caret = caret + current_char.len_utf8();
+        } else if caret < text_val.byte_len() {
+            // 現在位置にある文字を取得し、その文字のバイト数分だけキャレットを進める
+            let new_caret = text_val.next_char_boundary(caret);
 
             if mods.shift {
                 let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
@@ -577,7 +545,7 @@ impl Element {
                     Some(edit_selected_rects),
                 );
             }
-            contents.last_interacted_time = Some(std::time::Instant::now());
+            contents.last_interacted_time = Some(Instant::now());
             return true;
         }
         false
@@ -587,9 +555,8 @@ impl Element {
         id: EntityId,
         contents: &mut InputContents,
         buffer: &Buffer,
-        caret: usize,
-        text_val: &str,
-        text_len: usize,
+        caret: ByteIndex,
+        text_val: &MichiuString,
         mods: Modifiers,
         sys_text_engine: &mut TextEngine,
         edit_selections: &mut TextSelectionsSparseSecondary,
@@ -599,21 +566,17 @@ impl Element {
             return false;
         }
 
-        let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(buffer, caret, text_len);
+        let (cx_offset, cy_offset, ch_height) = sys_text_engine.get_caret_position(buffer, caret);
 
         let target_y = (cy_offset - ch_height * 0.5).max(0.0);
 
         let (new_caret, is_trailing) =
-            sys_text_engine.hit_test_point(buffer, cx_offset, target_y);
+            sys_text_engine.hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
 
-        let final_caret = {
-            if is_trailing && new_caret < text_len {
-                let current_char = text_val[new_caret..].chars().next().unwrap_or(' ');
-                new_caret + current_char.len_utf8()
-            } else {
-                new_caret
-            }
+        let final_caret = if is_trailing {
+            text_val.next_char_boundary(new_caret)
+        } else {
+            new_caret
         };
 
         if mods.shift {
@@ -638,7 +601,7 @@ impl Element {
             );
         }
 
-        contents.last_interacted_time = Some(std::time::Instant::now());
+        contents.last_interacted_time = Some(Instant::now());
         true
     }
 
@@ -646,9 +609,8 @@ impl Element {
         id: EntityId,
         contents: &mut InputContents,
         buffer: &Buffer,
-        caret: usize,
-        text_val: &str,
-        text_len: usize,
+        caret: ByteIndex,
+        text_val: &MichiuString,
         mods: Modifiers,
         sys_text_engine: &mut TextEngine,
         edit_selections: &mut TextSelectionsSparseSecondary,
@@ -658,21 +620,17 @@ impl Element {
             return false;
         }
 
-        let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(buffer, caret, text_len);
+        let (cx_offset, cy_offset, ch_height) = sys_text_engine.get_caret_position(buffer, caret);
 
         let target_y = cy_offset + ch_height * 1.5;
 
         let (new_caret, is_trailing) =
-            sys_text_engine.hit_test_point(buffer, cx_offset, target_y);
+            sys_text_engine.hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
 
-        let final_caret = {
-            if is_trailing && new_caret < text_len {
-                let current_char = text_val[new_caret..].chars().next().unwrap_or(' ');
-                new_caret + current_char.len_utf8()
-            } else {
-                new_caret
-            }
+        let final_caret = if is_trailing {
+            text_val.next_char_boundary(new_caret)
+        } else {
+            new_caret
         };
 
         if mods.shift {
@@ -697,7 +655,7 @@ impl Element {
             );
         }
 
-        contents.last_interacted_time = Some(std::time::Instant::now());
+        contents.last_interacted_time = Some(Instant::now());
         true
     }
 
@@ -712,7 +670,7 @@ impl Element {
             return;
         }
 
-        let Some(engine) = cx.get_or_create_layout(id) else {
+        let Some(buffer) = cx.get_or_create_layout(id) else {
             return;
         };
 
@@ -720,18 +678,18 @@ impl Element {
             return;
         };
 
-        let text_val = contents.text.0.get();
-        let text_len = text_val.len();
+        let text_val = contents.to_michiu();
+        let text_len = text_val.byte_len();
 
-        contents.selected_range = (contents.selected_range.start.min(text_len))
-            ..(contents.selected_range.end.min(text_len));
+        contents.selected_range =
+            contents.selected_range.start.min(text_len)..contents.selected_range.end.min(text_len);
 
         let raw_caret = if contents.selection_reversed {
             contents.selected_range.start
         } else {
             contents.selected_range.end
         };
-        let mut caret = raw_caret.min(text_len);
+        let caret = raw_caret.min(text_len);
         let mut changed = false; // 状態変更フラグ
 
         match key {
@@ -739,7 +697,7 @@ impl Element {
                 Element::pressed_back(
                     id,
                     contents,
-                    &mut caret,
+                    caret,
                     &text_val,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
@@ -775,7 +733,6 @@ impl Element {
                     contents,
                     &text_val,
                     caret,
-                    text_len,
                     mods,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
@@ -786,10 +743,9 @@ impl Element {
                 changed = Element::pressed_up(
                     id,
                     contents,
-                    &engine,
+                    &buffer,
                     caret,
                     &text_val,
-                    text_len,
                     mods,
                     &mut cx.system.sys_text_engine,
                     &mut cx.states.edit.edit_selections,
@@ -800,10 +756,9 @@ impl Element {
                 changed = Element::pressed_down(
                     id,
                     contents,
-                    &engine,
+                    &buffer,
                     caret,
                     &text_val,
-                    text_len,
                     mods,
                     &mut cx.system.sys_text_engine,
                     &mut cx.states.edit.edit_selections,
@@ -823,10 +778,10 @@ impl Element {
             return;
         };
 
-        contents.last_interacted_time = Some(std::time::Instant::now());
+        contents.last_interacted_time = Some(Instant::now());
         contents.ime_state = Some(ime.clone());
 
-        let mut text_val = contents.text.0.get();
+        let mut text_val = contents.to_michiu();
         let range = contents.selected_range.clone();
 
         // 選択範囲が存在し、かつIME入力（未変換または確定）が開始される場合、
@@ -837,8 +792,7 @@ impl Element {
             // Undo履歴に削除前の状態を記録
             contents.record_undo(text_val.clone(), range.clone());
 
-            let new_text = InputContents::remove_range_utf8_byte(&text_val, &range);
-            let caret = range.start;
+            let caret = contents.update_michiu(|m| m.remove_range(range));
 
             // キャレット・選択範囲を消去開始位置に一度リセットして同期
             Element::set_caret_position(
@@ -849,42 +803,61 @@ impl Element {
                 &mut cx.states.edit.edit_selection_start_index,
                 Some(&mut cx.states.edit.edit_selected_rects),
             );
-            contents.text.1.set(new_text.clone());
-            text_val = new_text;
+
+            // 後続の処理で使うため、最新の文字列を取得しておく
+            text_val = contents.to_michiu();
         }
 
         // IME 確定文字の書き込み
         if !ime.result_text.is_empty() {
-            let mut caret = contents.selected_range.start;
+            // 文字数制限の計算
+            let allowed_len = if let Some(max) = contents.max_length {
+                let current_chars = text_val.char_count().0;
+                if current_chars >= max.0 {
+                    // すでに制限いっぱいなら確定文字を破棄して終了
+                    contents.marked_range = None;
+                    return;
+                }
+                max.0 - current_chars
+            } else {
+                usize::MAX
+            };
 
-            // 確定した文字列を1文字ずつ安全に挿入
-            let mut temp_text = text_val;
-            for ch in ime.result_text.chars() {
-                temp_text = InputContents::input_insert_char_utf8_byte(
-                    &temp_text,
-                    &mut caret,
-                    ch,
-                    contents.max_length,
-                    contents.numeric_only,
-                );
+            // 確定文字のフィルタリング＆切り詰め
+            let mut filtered = String::new();
+            let mut chars_added = 0;
+
+            for c in ime.result_text.chars() {
+                // 数値制限フィルタ
+                if contents.numeric_only && !c.is_numeric() && c != '.' && c != '-' {
+                    continue;
+                }
+                // 文字数制限カット
+                if chars_added >= allowed_len {
+                    break;
+                }
+                filtered.push(c);
+                chars_added += 1;
             }
 
-            // 確定したキャレット位置で SoA 側の選択状態と開始アンカーを同期
-            Element::set_caret_position(
-                id,
-                contents,
-                caret,
-                &mut cx.states.edit.edit_selections,
-                &mut cx.states.edit.edit_selection_start_index,
-                Some(&mut cx.states.edit.edit_selected_rects),
-            );
+            if !filtered.is_empty() {
+                let caret = contents.selected_range.start;
+                let new_caret = contents.update_michiu(|m| m.insert_str(caret, &filtered));
 
-            contents.text.1.set(temp_text);
+                Element::set_caret_position(
+                    id,
+                    contents,
+                    new_caret,
+                    &mut cx.states.edit.edit_selections,
+                    &mut cx.states.edit.edit_selection_start_index,
+                    Some(&mut cx.states.edit.edit_selected_rects),
+                );
+            }
             contents.marked_range = None;
         } else if !ime.composition_text.is_empty() {
             // IME 未変換中
             let caret = contents.selected_range.start;
-            let comp_len = ime.composition_text.len();
+            let comp_len = ime.composition_text.byte_len();
             contents.marked_range = Some(caret..(caret + comp_len));
         } else {
             contents.marked_range = None;
@@ -900,9 +873,9 @@ impl Element {
 
             // Windowsから送られてくる属性情報のインデックス（start_idx と end_idx）はバイト数ではなく文字単位
             // UTF-8のときは文字単位インデックスをバイト単位にマッピングするためのリストを作成
-            let char_byte_offsets = {
-                let mut offsets = Vec::with_capacity(ime.composition_text.chars().count() + 1);
-                let mut curr_byte = 0;
+            let char_byte_offsets: Vec<ByteIndex> = {
+                let mut offsets = Vec::with_capacity(ime.composition_text.char_count().0 + 1);
+                let mut curr_byte = ByteIndex(0);
                 for c in ime.composition_text.chars() {
                     offsets.push(curr_byte);
                     curr_byte += c.len_utf8();
@@ -913,7 +886,7 @@ impl Element {
 
             if ime.composition_attrs.is_empty() {
                 // 属性が取得できない場合のフォールバック（全体を未確定波線に設定）
-                let comp_len = ime.composition_text.len();
+                let comp_len = ime.composition_text.byte_len();
                 spans.push(TextSpan {
                     range: caret..(caret + comp_len),
                     underline: Some(UnderlineStyle::Wave),
@@ -987,8 +960,8 @@ impl Element {
         }
 
         // 最初のロード時、シグナルから現在値を取得して内部カーソルを末尾に合わせる
-        let current_text = c.text.0.get();
-        let current_len = current_text.len();
+        let current_text = c.to_michiu();
+        let current_len = current_text.byte_len();
         c.selected_range = current_len..current_len;
 
         cx.contents.cont_input_contents.insert(id, c);

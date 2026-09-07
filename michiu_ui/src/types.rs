@@ -1,10 +1,16 @@
+pub mod font;
 pub mod from_into;
+pub mod index;
 pub mod layout_data;
+pub mod string;
 
+pub use font::*;
 pub use from_into::*;
+pub use index::*;
 pub use layout_data::*;
+pub use string::*;
 
-use crate::{Context, Element, EntityId, PropertyList, VirtualKey, rgba};
+use crate::{Context, Element, EntityId, ImeState, PropertyList, VirtualKey, rgba};
 use bytemuck::{Pod, Zeroable};
 use std::{path::PathBuf, time::Duration};
 use windows::Win32::{
@@ -1615,19 +1621,6 @@ pub struct Modifiers {
     pub ctrl: bool,
     pub alt: bool,
     pub logo: bool, // Windowsキー
-}
-
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct ImeState {
-    pub is_open: bool,
-    pub conversion_mode: u32,
-    pub sentence_mode: u32,
-    pub keyboard_layout_id: u32,
-    pub composition_text: String,
-    pub result_text: String,
-    pub caret_position: Option<LayoutPoint>,
-    pub composition_cursor: usize,
-    pub composition_attrs: Vec<u8>,
 }
 
 /// UI Automation (UIA) のプロパティ値の安全な表現

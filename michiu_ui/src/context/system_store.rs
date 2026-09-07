@@ -1,12 +1,13 @@
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BasicLayoutsSecondary, CapacityConfig,
     ContentStore, Context, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, FlexLayout,
-    InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutRect, LayoutStore, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
-    ScrollOffsetsSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
-    TextContentsSparseSecondary, TextEngine, TextSelectionsSparseSecondary,
-    TextSpansSparseSecondary, UiaValue, VisualPropertiesSecondary, WindowStore,
+    FontDate, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary,
+    LayoutPoint, LayoutRect, LayoutStore, MichiuString, OutputStore, ParentsSecondary,
+    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparseSecondary, ScrollOffsetsSecondary, SelectedRectsSparseSecondary,
+    SelectionStartIndexSparseSecondary, TextContentsSparseSecondary, TextEngine,
+    TextSelectionsSparseSecondary, TextSpansSparseSecondary, UiaValue, VisualPropertiesSecondary,
+    WindowStore,
 };
 use cosmic_text::Buffer;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -140,9 +141,11 @@ impl SystemStore {
         out_rects: &RectsSecondary,
     ) -> Option<Rc<Buffer>> {
         let text = cont_text_contents.get(id)?;
-        let (font_size, font_family, font_weight, font_style) =
-            RenderStore::get_font_propery(id, rnd_visual);
 
+        let font = rnd_visual
+            .get(id)
+            .map(|v| v.font.clone())
+            .unwrap_or_default();
         let auto_wrap = rnd_visual.get(id).and_then(|v| v.auto_wrap);
 
         let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
@@ -159,14 +162,20 @@ impl SystemStore {
             None
         };
 
-        // キャッシュ存在時に、現在の幅の制約と一致しているか検証
+        // キャッシュ存在時に現在の幅の制約と一致しているか検証
         if let Some(buffer) = sys_text_buffers.borrow().get(id).cloned() {
-            let cached_max_width = buffer.size().0.unwrap_or(f32::MAX);
-            let current_max_width = max_width_opt.unwrap_or(f32::MAX);
+            let cached_size = buffer.size().0; // Option<f32>
 
-            // 許容誤差 1e-3 内で一致している場合はそのまま再利用。
-            // リサイズによって幅が変わっている場合はキャッシュを破棄して再ビルドへ進む。
-            if (cached_max_width - current_max_width).abs() < 1e-3 {
+            let is_width_matched = match (cached_size, max_width_opt) {
+                // 両方とも制限幅がある場合：差が 0.1 未満なら一致
+                (Some(cached), Some(current)) => (cached - current).abs() < 1e-1,
+                // 両方とも制限なし（折り返しなし）の場合：一致
+                (None, None) => true,
+                // 片方だけ制限がある場合：不一致
+                _ => false,
+            };
+
+            if is_width_matched {
                 return Some(buffer);
             }
         }
@@ -176,10 +185,7 @@ impl SystemStore {
 
         let buffer = sys_text_engine.create_buffer(
             text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
+            font,
             flex.text_align,
             max_width_opt,
             auto_wrap,

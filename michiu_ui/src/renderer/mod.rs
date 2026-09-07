@@ -1,22 +1,19 @@
 #![allow(unused)]
-
 mod composed_renderer;
 mod init_webview2;
 mod interop;
-mod new_text;
 mod text;
 mod wgpu_renderer;
 
 pub use composed_renderer::*;
 pub use init_webview2::*;
 pub use interop::*;
-pub use new_text::*;
-use rustc_hash::FxHashMap;
 pub use text::*;
 pub use wgpu_renderer::*;
 
 use crate::{Color, CornerRadius, EdgeInsets, EntityId, LayoutRect};
 use bytemuck::{Pod, Zeroable};
+use rustc_hash::FxHashMap;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]

@@ -7,12 +7,12 @@ use crate::{
     FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState,
     InputContentsSparseSecondary, InputOp, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
     Length, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
-    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
-    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextCacheKey, TextContentsSparseSecondary,
-    TextEditStore, TextEngine, TextBufferSparseSecondary, TextSpan, TextSpansSparseSecondary,
+    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt, ReactiveStore,
+    RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary,
+    ScrollStore, ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextCacheKey,
+    TextContentsSparseSecondary, TextEditStore, TextEngine, TextSpan, TextSpansSparseSecondary,
     TopologyStore, UnderlineStyle, Val, VirtualKey, VisualPropertiesSecondary, VisualProperty,
     WindowStore, bind_context, execute_effect, handle_on_active, handle_on_char_input,
     handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
@@ -120,7 +120,7 @@ impl Pipeline {
                 };
                 handle_on_file_dropped(cx, target_id, path_bufs);
             }
-            UserAction::Paste(text) => EventStore::inject_paste(cx, &text),
+            UserAction::Paste(text) => EventStore::inject_paste(cx, &text.into()),
             UserAction::Cut => {
                 cx.contents.cont_cut_text = EventStore::inject_cut(cx);
             }
@@ -1508,10 +1508,7 @@ impl Pipeline {
                 (LayoutSize::new(l.width, l.height), c.is_multiline)
             } else {
                 // コンテンツはあるがレイアウトがない場合
-                (
-                    sys_text_engine.get_layout_size(buffer),
-                    c.is_multiline,
-                )
+                (sys_text_engine.get_layout_size(buffer), c.is_multiline)
             }
         } else {
             // コンテンツ自体が存在しない場合
@@ -1551,7 +1548,7 @@ impl Pipeline {
             for glyph in run.glyphs {
                 let offset = (glyph.x_offset, glyph.y_offset);
                 let physical = glyph.physical(offset, win_scale_factor);
-                let (_, _, _, _, _, _, cleared) = sys_text_engine.get_or_create_glyph_uv(
+                let (_, cleared) = sys_text_engine.get_or_create_glyph_uv(
                     physical.cache_key,
                     view,
                     win_scale_factor,
@@ -1821,23 +1818,22 @@ impl Pipeline {
 
                 // アトラスにパッキングされた文字がUIの画面上で縦横何ピクセルの大きさで描画されるべきかを逆算
                 // アトラス上の UV 座標を取得
-                let (uv_min, uv_max, offset_x, offset_y, tex_log_w, tex_log_h, _cleared) =
-                    sys_text_engine.get_or_create_glyph_uv(
-                        physical.cache_key,
-                        view,
-                        win_scale_factor,
-                    );
+                let (value, _cleared) = sys_text_engine.get_or_create_glyph_uv(
+                    physical.cache_key,
+                    view,
+                    win_scale_factor,
+                );
 
                 // 最終的なポリゴンの左上 ＝ グリフ原点 ＋ 画像オフセット
-                let char_phys_x = physical.x + offset_x;
-                let char_phys_y = physical.y - offset_y; // Swash の top は上向き正のため減算
+                let char_phys_x = physical.x + value.offset_x;
+                let char_phys_y = physical.y - value.offset_y; // Swash の top は上向き正のため減算
 
                 // 論理座標に戻す
                 let char_x = char_phys_x as f32 / win_scale_factor;
                 let char_y = char_phys_y as f32 / win_scale_factor;
 
                 // 文字の矩形
-                let char_rect = LayoutRect::new(char_x, char_y, tex_log_w, tex_log_h);
+                let char_rect = LayoutRect::new(char_x, char_y, value.width, value.height);
 
                 // スパンごとに指定されたカラー、指定がなければベースの文字色を採用
                 let char_color = glyph.color_opt.map_or(resolved_color, |c| Color {
@@ -1853,8 +1849,8 @@ impl Pipeline {
                     transform_origin: params.transform_origin,
                     color: char_color,
                     opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
-                    uv_min,
-                    uv_max,
+                    uv_min: value.uv_min,
+                    uv_max: value.uv_max,
                     ..Default::default()
                 };
 

@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use crate::types::LayoutSize;
-use crate::{EdgeInsets, LayoutRect, RendererView, TextAlign, TextSpan, VisualProperty};
+use crate::{
+    ByteIndex, EdgeInsets, FontDate, LayoutPoint, LayoutRect, MichiuString, RendererView,
+    TextAlign, TextSpan, VisualProperty,
+};
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
 };
@@ -30,40 +33,47 @@ pub(crate) struct TextCacheValue {
     pub(crate) height: f32,
 }
 
+impl TextCacheValue {
+    pub(crate) const ZERO: Self = Self {
+        uv_min: [0.0, 0.0],
+        uv_max: [0.0, 0.0],
+        offset_x: 0,
+        offset_y: 0,
+        width: 0.0,
+        height: 0.0,
+    };
+}
+
 impl TextEngine {
     pub(crate) fn new() -> Self {
-        let mut font_system = FontSystem::new();
-        font_system.db_mut().set_sans_serif_family("Segoe UI");
-
         Self {
-            font_system,
+            font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
         }
     }
 
     pub(crate) fn create_buffer(
         &mut self,
-        text: &str,
-        font_size: f32,
-        font_family: Option<&str>,
-        font_weight: Option<u32>,
-        font_style: Option<u32>,
+        text: &MichiuString,
+        font: FontDate,
         text_align: TextAlign,
         max_width: Option<f32>,
         auto_wrap: Option<bool>,
         spans: &[TextSpan],
     ) -> Buffer {
-        let metrics = Metrics::new(font_size, font_size * 1.2);
+        let font_size = font.size.unwrap_or(FontDate::FONT_SIZE);
+        let metrics = Metrics::new(font_size, font_size * 1.4);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
 
         let mut default_attrs = Attrs::new();
-        if let Some(family) = font_family {
+
+        if let Some(family) = font.family.as_deref() {
             default_attrs = default_attrs.family(Family::Name(family));
         }
-        if let Some(weight) = font_weight {
+        if let Some(weight) = font.weight {
             default_attrs = default_attrs.weight(Weight(weight as u16));
         }
-        if let Some(style) = font_style {
+        if let Some(style) = font.style {
             default_attrs = default_attrs.style(match style {
                 2 => Style::Italic,
                 _ => Style::Normal,
@@ -72,9 +82,9 @@ impl TextEngine {
 
         let align = Self::map_to_align(text_align);
 
-        buffer.set_size(max_width, Some(f32::MAX));
+        buffer.set_size(max_width, None);
         if auto_wrap.unwrap_or(false) && max_width.is_some() {
-            buffer.set_wrap(Wrap::Glyph);
+            buffer.set_wrap(Wrap::WordOrGlyph);
         } else {
             buffer.set_wrap(Wrap::None);
         }
@@ -82,70 +92,56 @@ impl TextEngine {
         if spans.is_empty() {
             buffer.set_text(text, &default_attrs, Shaping::Advanced, align);
         } else {
-            let text_len = text.len();
-            let mut boundaries = vec![0, text_len];
+            let text_len = text.byte_len();
+            let mut boundaries = vec![ByteIndex(0), text_len];
             for span in spans {
-                if span.range.start < text_len && text.is_char_boundary(span.range.start) {
+                if span.range.start < text_len && text.is_char_boundary(span.range.start.0) {
                     boundaries.push(span.range.start);
                 }
-                if span.range.end < text_len && text.is_char_boundary(span.range.end) {
+                if span.range.end < text_len && text.is_char_boundary(span.range.end.0) {
                     boundaries.push(span.range.end);
                 }
             }
             boundaries.sort_unstable();
             boundaries.dedup();
 
-            let mut slice_strings = Vec::with_capacity(boundaries.len());
-            let mut rich_spans = Vec::with_capacity(boundaries.len());
+            let mut rich_spans = Vec::with_capacity(boundaries.len().saturating_sub(1));
 
             for window in boundaries.windows(2) {
                 let start = window[0];
                 let end = window[1];
-                if start >= end {
-                    continue;
-                }
-
-                let slice_str = &text[start..end];
-                slice_strings.push(slice_str);
-            }
-
-            for (i, window) in boundaries.windows(2).enumerate() {
-                let start = window[0];
-                let end = window[1];
-                if start >= end {
-                    continue;
-                }
+                let slice_str = text.slice(start..end);
 
                 let mut attrs = default_attrs.clone();
-                if let Some(span) = spans
-                    .iter()
-                    .find(|s| s.range.start <= start && s.range.end >= end)
-                {
-                    if let Some(size) = span.font_size {
-                        attrs = attrs.metrics(Metrics::new(size, size * 1.2));
-                    }
-                    if let Some(color) = span.color {
-                        attrs = attrs.color(cosmic_text::Color::rgba(
-                            (color.r * 255.0) as u8,
-                            (color.g * 255.0) as u8,
-                            (color.b * 255.0) as u8,
-                            (color.a * 255.0) as u8,
-                        ));
-                    }
-                    if let Some(ref family) = span.font_family {
-                        attrs = attrs.family(Family::Name(family));
-                    }
-                    if let Some(weight) = span.font_weight {
-                        attrs = attrs.weight(Weight(weight as u16));
-                    }
-                    if let Some(style) = span.font_style {
-                        attrs = attrs.style(match style {
-                            2 => Style::Italic,
-                            _ => Style::Normal,
-                        });
+
+                for span in spans {
+                    if span.range.start <= start && span.range.end >= end {
+                        if let Some(size) = span.font_size {
+                            attrs = attrs.metrics(Metrics::new(size, size * 1.4));
+                        }
+                        if let Some(color) = span.color {
+                            attrs = attrs.color(cosmic_text::Color::rgba(
+                                (color.r * 255.0).clamp(0.0, 255.0).round() as u8,
+                                (color.g * 255.0).clamp(0.0, 255.0).round() as u8,
+                                (color.b * 255.0).clamp(0.0, 255.0).round() as u8,
+                                (color.a * 255.0).clamp(0.0, 255.0).round() as u8,
+                            ));
+                        }
+                        if let Some(ref family) = span.font_family {
+                            attrs = attrs.family(Family::Name(family));
+                        }
+                        if let Some(weight) = span.font_weight {
+                            attrs = attrs.weight(Weight(weight as u16));
+                        }
+                        if let Some(style) = span.font_style {
+                            attrs = attrs.style(match style {
+                                2 => Style::Italic,
+                                _ => Style::Normal,
+                            });
+                        }
                     }
                 }
-                rich_spans.push((slice_strings[i], attrs));
+                rich_spans.push((slice_str, attrs));
             }
 
             buffer.set_rich_text(rich_spans, &default_attrs, Shaping::Advanced, align);
@@ -165,11 +161,8 @@ impl TextEngine {
 
     pub(crate) fn measure_text(
         &mut self,
-        text: &str,
-        font_size: f32,
-        font_family: Option<&str>,
-        font_weight: Option<u32>,
-        font_style: Option<u32>,
+        text: &MichiuString,
+        font: FontDate,
         text_align: TextAlign,
         max_width: Option<f32>,
         auto_wrap: Option<bool>,
@@ -179,17 +172,7 @@ impl TextEngine {
             return LayoutSize::ZERO;
         }
 
-        let buffer = self.create_buffer(
-            text,
-            font_size,
-            font_family,
-            font_weight,
-            font_style,
-            text_align,
-            max_width,
-            auto_wrap,
-            spans,
-        );
+        let buffer = self.create_buffer(text, font, text_align, max_width, auto_wrap, spans);
 
         self.get_layout_size(&buffer)
     }
@@ -200,21 +183,16 @@ impl TextEngine {
 
         for run in buffer.layout_runs() {
             width = width.max(run.line_w);
-            height += run.line_height;
+            height = height.max(run.line_top + run.line_height);
         }
 
         LayoutSize::new(width, height)
     }
 
-    pub(crate) fn get_caret_position(
-        &self,
-        buffer: &Buffer,
-        index: usize,
-        text_len: usize,
-    ) -> (f32, f32, f32) {
+    pub(crate) fn get_caret_position(&self, buffer: &Buffer, index: ByteIndex) -> (f32, f32, f32) {
         let mut x = 0.0f32;
         let mut y = 0.0f32;
-        let mut height = 16.0f32;
+        let mut height = 0.0f32;
         let mut found = false;
 
         // フラットなインデックスから 2D Cursor へ
@@ -288,7 +266,7 @@ impl TextEngine {
     }
 
     // フラットなバイト位置から 2D Cursor を算出
-    pub(crate) fn flat_idx_to_cursor(buffer: &Buffer, flat_idx: usize) -> cosmic_text::Cursor {
+    pub(crate) fn flat_idx_to_cursor(buffer: &Buffer, flat_idx: ByteIndex) -> cosmic_text::Cursor {
         let mut accum = 0;
         let lines_len = buffer.lines.len();
 
@@ -303,8 +281,8 @@ impl TextEngine {
             let line_end_with_nl = accum + line_len + usize::from(!is_last_line);
 
             // 現在の行の範囲内（末尾の改行を含む）かチェック
-            if flat_idx < line_end_with_nl || is_last_line {
-                let index_in_line = (flat_idx.saturating_sub(accum)).min(line_len);
+            if flat_idx.0 < line_end_with_nl || is_last_line {
+                let index_in_line = (flat_idx.0.saturating_sub(accum)).min(line_len);
                 return cosmic_text::Cursor {
                     line: line_idx,
                     index: index_in_line,
@@ -325,7 +303,7 @@ impl TextEngine {
     }
 
     // 2D Cursor からフラットなバイト位置を逆算
-    pub(crate) fn cursor_to_flat_idx(buffer: &Buffer, cursor: &cosmic_text::Cursor) -> usize {
+    pub(crate) fn cursor_to_flat_idx(buffer: &Buffer, cursor: &cosmic_text::Cursor) -> ByteIndex {
         let mut flat_idx = 0;
         for (line_idx, line) in buffer.lines.iter().enumerate() {
             if line_idx == cursor.line {
@@ -333,16 +311,16 @@ impl TextEngine {
             }
             flat_idx += line.text().len() + 1; // 各行の末尾にある '\n'
         }
-        flat_idx + cursor.index
+        ByteIndex(flat_idx + cursor.index)
     }
 
-    pub(crate) fn hit_test_point(&self, buffer: &Buffer, x: f32, y: f32) -> (usize, bool) {
-        if let Some(cursor) = buffer.hit(x, y) {
+    pub(crate) fn hit_test_point(&self, buffer: &Buffer, point: LayoutPoint) -> (ByteIndex, bool) {
+        if let Some(cursor) = buffer.hit(point.x, point.y) {
             // 2D位置をフラットなバイトインデックスに変換
             let flat_index = Self::cursor_to_flat_idx(buffer, &cursor);
             (flat_index, false)
         } else {
-            (0, false)
+            (ByteIndex(0), false)
         }
     }
 
@@ -351,28 +329,26 @@ impl TextEngine {
         cache_key: CacheKey,
         view: &mut RendererView,
         scale_factor: f32,
-    ) -> ([f32; 2], [f32; 2], i32, i32, f32, f32, bool) {
+    ) -> (TextCacheValue, bool) {
         let key = TextCacheKey { cache_key };
         if let Some(cached) = view.text_cache.get(&key) {
-            return (
-                cached.uv_min,
-                cached.uv_max,
-                cached.offset_x,
-                cached.offset_y,
-                cached.width,
-                cached.height,
-                false,
-            );
+            return (*cached, false);
         }
 
         let image_opt = self.swash_cache.get_image(&mut self.font_system, cache_key);
 
         let Some(image) = image_opt else {
-            return ([0.0, 0.0], [0.0, 0.0], 0, 0, 0.0, 0.0, false);
+            return (TextCacheValue::ZERO, false);
         };
 
         let width = image.placement.width;
         let height = image.placement.height;
+
+        // スペース文字など、描画ピクセルを持たないグリフの早期リターン
+        if width == 0 || height == 0 {
+            view.text_cache.insert(key, TextCacheValue::ZERO);
+            return (TextCacheValue::ZERO, false);
+        }
 
         let mut alloc_res = view.atlas.allocate(width, height);
         let mut cleared = false;
@@ -412,45 +388,54 @@ impl TextEngine {
         let log_width = width as f32 / scale_factor;
         let log_height = height as f32 / scale_factor;
 
-        view.text_cache.insert(
-            key.clone(),
-            TextCacheValue {
-                uv_min,
-                uv_max,
-                offset_x,
-                offset_y,
-                width: log_width,
-                height: log_height,
-            },
-        );
+        let value = TextCacheValue {
+            uv_min,
+            uv_max,
+            offset_x,
+            offset_y,
+            width: log_width,
+            height: log_height,
+        };
 
-        (
-            uv_min, uv_max, offset_x, offset_y, log_width, log_height, cleared,
-        )
+        view.text_cache.insert(key.clone(), value);
+
+        (value, cleared)
     }
 
     /// cosmic-text の Buffer から、指定されたインデックス範囲が占める各行の矩形を計算
-    pub(crate) fn calc_span_rects(buffer: &Buffer, range: Range<usize>) -> Vec<LayoutRect> {
-        let mut rects = Vec::new();
+    pub(crate) fn calc_span_rects(buffer: &Buffer, range: Range<ByteIndex>) -> Vec<LayoutRect> {
+        let mut rects = Vec::with_capacity((range.start.0..range.end.0).len());
+
+        // 各段落の開始バイト位置を事前計算
+        let mut line_starts = Vec::with_capacity(buffer.lines.len());
+        let mut accum = 0;
+        for line in &buffer.lines {
+            line_starts.push(accum);
+            accum += line.text().len() + 1; // '\n' を考慮
+        }
 
         for run in buffer.layout_runs() {
+            let line_flat_start = line_starts.get(run.line_i).copied().unwrap_or(0);
+
             let mut start_x: Option<f32> = None;
             let mut end_x: Option<f32> = None;
 
             for glyph in run.glyphs {
-                // スパンの範囲に文字のインデックスが一部でも交差しているか判定
-                if glyph.start < range.end && glyph.end > range.start {
+                // グリフのフラットな開始・終了バイト位置を復元して交差判定
+                let glyph_flat_start = line_flat_start + glyph.start;
+                let glyph_flat_end = line_flat_start + glyph.end;
+
+                if glyph_flat_start < range.end.0 && glyph_flat_end > range.start.0 {
                     if start_x.is_none() {
                         start_x = Some(glyph.x);
                     }
-                    // グリフの右端座標
                     end_x = Some(glyph.x + glyph.w);
                 }
             }
 
             // この行で交差するグリフが見つかった場合、その範囲で矩形を作成
             if let (Some(sx), Some(ex)) = (start_x, end_x) {
-                rects.push(LayoutRect::new(sx, run.line_y, ex - sx, run.line_height));
+                rects.push(LayoutRect::new(sx, run.line_top, ex - sx, run.line_height));
             }
         }
         rects

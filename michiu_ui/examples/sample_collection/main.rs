@@ -48,9 +48,10 @@ pub const ALLOW_STRESS_TEST: bool = false;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 // cargo build --example sample_collection --release
+// cargo run --example sample_collection --release --features dhat-heap
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "dhat-heap")]
-    let _profiler = dhat::Profiler::new_heap();
+    let _profiler = dhat::Profiler::builder().trim_backtraces(None).build();
 
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
