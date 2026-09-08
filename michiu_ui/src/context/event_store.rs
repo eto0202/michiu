@@ -8,8 +8,8 @@ use crate::{
     FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusStore, GridLayout,
     GridLayoutsSparseSecondary, InputContents, InputContentsSparseSecondary, InputOp,
     InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
-    MichiuString, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline,
-    PointerEvents, Position, RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore,
+    MichiuSoA, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary,
+    Pipeline, PointerEvents, Position, RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore,
     ResizeStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
     ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStore,
     ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
@@ -523,8 +523,8 @@ impl EventStore {
         let is_input = cx
             .topology
             .topo_active_masks
-            .get(target_id)
-            .is_some_and(ComponentMask::has_input_content);
+            .at(target_id)
+            .has_input_content();
 
         if user_select == UserSelect::Text
             && !is_input
@@ -808,8 +808,8 @@ impl EventStore {
             let has_overflow = cx
                 .topology
                 .topo_active_masks
-                .get(curr_id)
-                .is_some_and(|m| m.has(ComponentMask::STYLE_OVERFLOW));
+                .at(curr_id)
+                .has(ComponentMask::STYLE_OVERFLOW);
             if has_overflow {
                 let basic = &cx
                     .layouts
@@ -863,7 +863,7 @@ impl EventStore {
             }
 
             // 先祖へ伝播
-            curr = cx.topology.topo_parents.get(curr_id).copied().flatten();
+            curr = *cx.topology.topo_parents.at(curr_id);
         }
     }
 
@@ -889,8 +889,8 @@ impl EventStore {
             let has_input_contents = cx
                 .topology
                 .topo_active_masks
-                .get(focused_id)
-                .is_some_and(ComponentMask::has_input_content);
+                .at(focused_id)
+                .has_input_content();
 
             if !has_input_contents {
                 handle_on_click(cx, focused_id);
@@ -1073,8 +1073,8 @@ impl EventStore {
         if !cx
             .topology
             .topo_active_masks
-            .get(focused_id)
-            .is_some_and(ComponentMask::has_input_content)
+            .at(focused_id)
+            .has_input_content()
         {
             return;
         }
@@ -1169,8 +1169,8 @@ impl EventStore {
         if !cx
             .topology
             .topo_active_masks
-            .get(focused_id)
-            .is_some_and(ComponentMask::has_input_content)
+            .at(focused_id)
+            .has_input_content()
         {
             return;
         }
@@ -1251,8 +1251,8 @@ impl EventStore {
         if !cx
             .topology
             .topo_active_masks
-            .get(focused_id)
-            .is_some_and(ComponentMask::has_input_content)
+            .at(focused_id)
+            .has_input_content()
         {
             return;
         }
@@ -1354,8 +1354,8 @@ impl EventStore {
         let is_input = cx
             .topology
             .topo_active_masks
-            .get(focused_id)
-            .is_some_and(ComponentMask::has_input_content);
+            .at(focused_id)
+            .has_input_content();
 
         // Input 用のコンテンツが実際に存在する場合のみ実行
         if is_input && let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) {

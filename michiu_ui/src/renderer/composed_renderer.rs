@@ -1,6 +1,6 @@
 use crate::{
     AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, EntityId, LayoutPoint,
-    LayoutRect, LayoutSize, PlaybackCount, PropertyList, WebView2Contents, WgpuRenderer,
+    LayoutRect, LayoutSize, MichiuSoA, PlaybackCount, PropertyList, WebView2Contents, WgpuRenderer,
 };
 use std::{
     cell::RefCell,
@@ -290,7 +290,7 @@ impl ComposedRenderer {
 
             for &id in &cx.topology.topo_webview_entities {
                 // WebView2 要素を抽出して昇格させる
-                let is_webview = cx.topology.topo_active_masks[id].has_webveiw2_content();
+                let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
 
                 let is_always_active = cx
                     .contents
@@ -783,7 +783,7 @@ impl ComposedRenderer {
             let webview_controller = Rc::new(RefCell::new(None));
 
             // B. WebView2 設定のバインド (COMP_WEBVIEW_CONTENTフラグ)
-            if cx.topology.topo_active_masks[id].has_webveiw2_content()
+            if cx.topology.topo_active_masks.at(id).has_webveiw2_content()
                 && let Some(contents) = cx.contents.cont_webview_contents.get(id)
             {
                 let slot_clone = webview_controller.clone();
@@ -935,17 +935,21 @@ impl ComposedRenderer {
 // 親子関係を再帰的に走査してアクティビティを伝播するヘルパー関数の追加 ───
 fn has_interactive_descendant(cx: &Context, id: EntityId) -> bool {
     // 自分自身がフォーカス、またはアクティブ状態のインタラクション属性を持っているか
-    if cx.topology.topo_active_masks[id].has_active_interaction_property() {
+    if cx
+        .topology
+        .topo_active_masks
+        .at(id)
+        .has_active_interaction_property()
+    {
         return true;
     }
     // 子要素を再帰的にチェック
-    if let Some(children) = cx.topology.topo_children.get(id) {
-        for &child_id in children {
-            if has_interactive_descendant(cx, child_id) {
-                return true;
-            }
+    for &child_id in cx.topology.topo_children.at(id) {
+        if has_interactive_descendant(cx, child_id) {
+            return true;
         }
     }
+
     false
 }
 

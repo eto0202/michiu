@@ -7,11 +7,11 @@ use crate::{
     BasicLayout, CapacityConfig, ChildrenSecondary, ComponentMask, ContentStore, Context,
     DirtyRenderEntitiesVec, Display, EdgeInsets, EntityId, FlexLayout, GridLayout,
     InputContentsSparseSecondary, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
-    LayoutRect, LayoutSize, Length, NormalLayout, OutputStore, ParentsSecondary, Position,
-    PropertyList, Rect, RectsSecondary, RenderStore, ResizingState, ScrollOffsetsSecondary,
-    ScrollSizesSecondary, Size, StyleTarget, SystemStore, TextContentsSparseSecondary, TextEngine,
-    TextBufferSparseSecondary, TextSpansSparseSecondary, ThisStyle, TopologyStore, Val,
-    VisualPropertiesSecondary, WindowStore,
+    LayoutRect, LayoutSize, Length, MichiuSoA, NormalLayout, OutputStore, ParentsSecondary,
+    Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizingState,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, Size, StyleTarget, SystemStore,
+    TextBufferSparseSecondary, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary,
+    ThisStyle, TopologyStore, Val, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -148,7 +148,7 @@ impl LayoutStore {
         let mut flex = lay_flex.get(id).copied().unwrap_or_default();
         let mut grid = lay_grid.get(id).cloned();
 
-        let active_mask = topo_active_masks[id];
+        let active_mask = topo_active_masks.at(id);
 
         // 幅・高さ・一括サイズに対して、現在トランジションアニメーションが駆動中であるかを走査
         let (is_width_transitioning, is_height_transitioning) =
@@ -162,7 +162,7 @@ impl LayoutStore {
         .map(|state| {
             RenderStore::resolv_focus_style(
                 id,
-                &active_mask,
+                active_mask,
                 state,
                 topo_parents,
                 rnd_visual,
@@ -173,7 +173,7 @@ impl LayoutStore {
         // 状態マッピング解決のルックアップとループを1回に集約
         LayoutStore::apply_interaction_styles(
             id,
-            &active_mask,
+            active_mask,
             &mut basic,
             &mut flex,
             &mut grid,
@@ -498,11 +498,9 @@ impl LayoutStore {
                 let _ = lay_taffy_tree.remove_child(parent_node, child_node);
             }
         }
-        // 最新の並び替え順序リストの存在チェック
-        let Some(children_list) = topo_children.get(parent_id) else {
-            return;
-        };
 
+        // 最新の並び替え順序リストの存在チェック
+        let children_list = topo_children.at(parent_id);
         // 最新の順序に従って、Taffy 側に再アタッチ
         for &child_id in children_list {
             let Some(&child_node) = lay_taffy_nodes.get(child_id) else {
@@ -513,7 +511,7 @@ impl LayoutStore {
     }
 
     #[inline]
-    pub fn clear_layout_dirty(
+    pub(crate) fn clear_layout_dirty(
         topo_active_masks: &mut ActiveMasksSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
     ) {
@@ -522,7 +520,6 @@ impl LayoutStore {
                 mask.unset(ComponentMask::STATE_QUEUED_LAYOUT);
             }
         }
-        lay_dirty_entities.clear();
     }
 
     #[inline]
@@ -552,10 +549,10 @@ impl LayoutStore {
             }
 
             // 親要素（先祖）をルートまで辿って Dirty フラグを連鎖伝播させる
-            let Some(Some(parent_id)) = topo_parents.get(curr).copied() else {
+            let Some(parent_id) = topo_parents.at(curr) else {
                 break;
             };
-            curr = parent_id;
+            curr = *parent_id;
         }
     }
 }

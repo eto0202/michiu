@@ -1,4 +1,4 @@
-use crate::{Context, TaskSender, with_context};
+use crate::{Context, Effects, TaskSender, with_context};
 use slotmap::new_key_type;
 use smallvec::SmallVec;
 use std::cell::Cell;
@@ -395,7 +395,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
                 .react_effects
                 .get_mut(effect_id)
                 .expect("Effect lost"),
-            Box::new(move |_| {
+            Effects(Box::new(move |_| {
                 // このプレースホルダが呼び出されたということは、
                 // 元のクロージャがまだ実行中（返却前）に、同一のエフェクトが再帰トリガーされたことを意味する
                 eprintln!(
@@ -403,7 +403,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
                                      Effect {effect_id:?} recursively triggered itself. \
                                      To prevent stack overflow, this recursive run has been skipped."
                 );
-            }),
+            })),
         );
 
         // 2. 依存追跡状態を退避・更新
@@ -414,7 +414,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
         });
 
         // 実行（内部で get() が呼ばれたシグナルと、この effect_id が自動で紐づきます）
-        effect_closure(cx);
+        effect_closure.0(cx);
 
         // 実行完了後、退避していた元のエフェクトIDを正確に復元する
         ACTIVE_EFFECT.with(|cell| cell.set(prev_effect));
@@ -434,7 +434,7 @@ where
     F: FnMut(&mut Context) + 'static,
 {
     // SoA にクロージャを登録
-    let id = with_context(|cx| cx.reactive.react_effects.insert(Box::new(f)));
+    let id = with_context(|cx| cx.reactive.react_effects.insert(Effects(Box::new(f))));
     // 初回評価を実行し、同時にシグナルとの依存関係マップを自動構築する
     execute_effect(id);
     id

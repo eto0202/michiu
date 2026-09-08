@@ -4,10 +4,11 @@ use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayoutsSecondary,
     CapacityConfig, ChildrenSecondary, ComponentMask, Context, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Element, EntitiesSlot, EntityId, EventStore, FlexLayoutsSecondary,
-    LayoutPoint, LayoutRect, LayoutStore, Length, ParentsSecondary, Pipeline, PointerEvents,
-    Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec, TaffyNodesSecondary,
-    TaffyTreeEntityId, TopologyStore, Val, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
-    handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
+    LayoutPoint, LayoutRect, LayoutStore, Length, MichiuSoA, ParentsSecondary, Pipeline,
+    PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec,
+    TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val, handle_on_dnd_drag_start,
+    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
+    handle_on_dnd_id_drop, handle_on_drag,
 };
 
 /// プレースホルダーを挿入してマウントする親先祖の制御方法
@@ -266,9 +267,9 @@ impl DndStore {
         for vis in [visual, base_visual].into_iter().flatten() {
             vis.pointer_events = Some(PointerEvents::None);
         }
-        if let Some(mask) = cx.topology.topo_active_masks.get_mut(placeholder_id) {
-            mask.set(ComponentMask::STYLE_POINTER_EVENTS);
-        }
+
+        let mask = cx.topology.topo_active_masks.at_mut(placeholder_id);
+        mask.set(ComponentMask::STYLE_POINTER_EVENTS);
     }
 
     fn transfer_children_to_placeholder(
@@ -281,18 +282,12 @@ impl DndStore {
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
     ) {
-        let Some(src_children) = topo_children.get(pressed_id).cloned() else {
-            return;
-        };
-
-        for child_id in src_children {
+        for child_id in topo_children.at(pressed_id).clone() {
             // 子要素の親ポインタをプレースホルダーに付け替え
             topo_parents.insert(child_id, Some(placeholder_id));
 
             // プレースホルダー側の子要素リストへ追加
-            if let Some(ph_children) = topo_children.get_mut(placeholder_id) {
-                ph_children.push(child_id);
-            }
+            topo_children.at_mut(placeholder_id).push(child_id);
 
             // Taffy 側の親子構造も、一時的にプレースホルダーに繋ぎ替え
             if let Some(&src_node) = lay_taffy_nodes.get(pressed_id)
@@ -305,9 +300,7 @@ impl DndStore {
         }
 
         // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
-        if let Some(src_children_mut) = topo_children.get_mut(pressed_id) {
-            src_children_mut.clear();
-        }
+        topo_children.at_mut(pressed_id).clear();
 
         // 元要素とプレースホルダー要素の両方をダーティマーク
         for id in [pressed_id, placeholder_id] {
@@ -386,7 +379,7 @@ impl DndStore {
         );
 
         // プレースホルダーアタッチ前の、本当の元の親要素のIDを記録
-        let original_parent = cx.topology.topo_parents.get(pressed_id).copied().flatten();
+        let original_parent = *cx.topology.topo_parents.at(pressed_id);
 
         // セッション開始
         cx.states.dnd.dnd_active_drag_state = Some(ActiveDragState {
@@ -432,8 +425,8 @@ impl DndStore {
         if cx
             .topology
             .topo_active_masks
-            .get(pressed_id)
-            .is_some_and(|m| m.has(ComponentMask::STYLE_DND_DRAGGABLE))
+            .at(pressed_id)
+            .has(ComponentMask::STYLE_DND_DRAGGABLE)
             && cx.states.dnd.dnd_active_drag_state.is_none()
         {
             DndStore::start_dnd_drag_session(cx, pressed_id, logical_pos);
@@ -512,20 +505,20 @@ impl DndStore {
         // 自身のサブツリーをすべてスキップするためにドラッグ元の親から探索を開始
         let is_descendant = TopologyStore::is_descendant_of(hit_id, src_id, topo_parents);
         let mut current_id = if hit_id == src_id || is_descendant {
-            topo_parents.get(src_id).copied().flatten()
+            *topo_parents.at(src_id)
         } else {
             Some(hit_id)
         };
 
         while let Some(id) = current_id {
             let is_dnd = topo_active_masks
-                .get(id)
-                .is_some_and(|f| f.has(ComponentMask::STYLE_DND_DROPPABLE));
+                .at(id)
+                .has(ComponentMask::STYLE_DND_DROPPABLE);
 
             if id != placeholder && is_dnd {
                 return Some(id); // ドロップ先を見つけたら即座に返す
             }
-            current_id = topo_parents.get(id).copied().flatten();
+            current_id = *topo_parents.at(id);
         }
 
         None
@@ -588,9 +581,8 @@ impl DndStore {
             return;
         };
 
-        if let Some(src_children) = topo_children.get_mut(src_parent_id) {
-            src_children.retain(|x| *x != src_id);
-        }
+        topo_children.at_mut(src_parent_id).retain(|x| *x != src_id);
+
         // 旧親側の Taffy 順序も再同期
         LayoutStore::resync_taffy_children_order(
             src_parent_id,
@@ -694,10 +686,8 @@ impl DndStore {
                 out_rects,
             );
 
-            if let Some(parent_children) = topo_children.get_mut(target_id) {
-                // 算出されたインデックス位置へ挿入
-                parent_children.insert(insert_idx, src_id);
-            }
+            // 算出されたインデックス位置へ挿入
+            topo_children.at_mut(target_id).insert(insert_idx, src_id);
             topo_parents.insert(src_id, Some(target_id));
 
             // Taffy 側のノード順序を物理並び替え結果に沿って一括して再同期
@@ -792,30 +782,27 @@ impl DndStore {
         }
 
         // 子要素のツリー構造復元
-        if let Some(ph_children) = cx.topology.topo_children.get(holder).cloned() {
-            TopologyStore::restore_child(
-                src_id,
-                holder,
-                ph_children,
-                &mut cx.topology.topo_parents,
-                &mut cx.topology.topo_children,
-                &mut cx.layouts.lay_taffy_tree,
-                &mut cx.layouts.lay_taffy_nodes,
-            );
-            if let Some(ph_children_mut) = cx.topology.topo_children.get_mut(holder) {
-                ph_children_mut.clear();
-            }
+        let ph_children = cx.topology.topo_children.at(holder).clone();
+        TopologyStore::restore_child(
+            src_id,
+            holder,
+            ph_children,
+            &mut cx.topology.topo_parents,
+            &mut cx.topology.topo_children,
+            &mut cx.layouts.lay_taffy_tree,
+            &mut cx.layouts.lay_taffy_nodes,
+        );
+        cx.topology.topo_children.at_mut(holder).clear();
 
-            for id in [src_id, holder] {
-                LayoutStore::mark_layout_dirty(
-                    id,
-                    &mut cx.topology.topo_active_masks,
-                    &cx.topology.topo_parents,
-                    &mut cx.layouts.lay_dirty_entities,
-                    &mut cx.layouts.lay_taffy_tree,
-                    &cx.layouts.lay_taffy_nodes,
-                );
-            }
+        for id in [src_id, holder] {
+            LayoutStore::mark_layout_dirty(
+                id,
+                &mut cx.topology.topo_active_masks,
+                &cx.topology.topo_parents,
+                &mut cx.layouts.lay_dirty_entities,
+                &mut cx.layouts.lay_taffy_tree,
+                &cx.layouts.lay_taffy_nodes,
+            );
         }
 
         match drag_prop.drag_mode {

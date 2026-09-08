@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DrawBatch,
-    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
-    Pipeline, QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue,
-    TextSpan, TextureAtlas, Vertex, VisualProperty,
+    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, MichiuSoA,
+    OutputStore, Pipeline, QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey,
+    TextCacheValue, TextSpan, TextureAtlas, Vertex, VisualProperty,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -792,14 +792,18 @@ impl WgpuRenderer {
                 // WebViewアクティブ（DCompブレンド時）の濃さの補正
                 let mut has_active_webview_parent = false;
                 let mut curr_id = entity_id;
-                while let Some(Some(parent_id)) = cx.topology.topo_parents.get(curr_id) {
-                    if cx.topology.topo_active_masks[*parent_id].has_webveiw2_content()
-                        && cx.renders.rnd_active_webviews.contains(parent_id)
+                while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
+                    if cx
+                        .topology
+                        .topo_active_masks
+                        .at(parent_id)
+                        .has_webveiw2_content()
+                        && cx.renders.rnd_active_webviews.contains(&parent_id)
                     {
                         has_active_webview_parent = true;
                         break;
                     }
-                    curr_id = *parent_id;
+                    curr_id = parent_id;
                 }
                 if has_active_webview_parent {
                     color.a *= 0.45;

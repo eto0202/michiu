@@ -2,9 +2,9 @@ use crate::{
     ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
     ComponentMask, ContentStore, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId,
     EventStore, FlexDirection, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, OutputStore, PointerEvents, ReactiveStore, RectsSecondary,
+    LayoutSize, LayoutStore, MichiuSoA, OutputStore, PointerEvents, ReactiveStore, RectsSecondary,
     RenderStore, StateStore, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    VisualPropertiesSecondary, WindowStore, define_slotmap,
+    VisualPropertiesSecondary, WindowStore, define_secondary, define_slotmap,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -18,9 +18,16 @@ struct StackFrame {
 
 define_slotmap!(pub(crate) struct EntitiesSlot(EntityId => ()););
 
-pub(crate) type ParentsSecondary = SecondaryMap<EntityId, Option<EntityId>>;
-pub(crate) type ChildrenSecondary = SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>;
-pub(crate) type ActiveMasksSecondary = SecondaryMap<EntityId, ComponentMask>;
+define_secondary!(
+    pub(crate) struct ParentsSecondary(Option<EntityId>);
+);
+define_secondary!(
+    pub(crate) struct ChildrenSecondary(SmallVec<[EntityId; 4]>);
+);
+define_secondary!(
+    pub(crate) struct ActiveMasksSecondary(ComponentMask);
+);
+
 pub(crate) type ActiveEntitiesVec = Vec<EntityId>;
 pub(crate) type SessionSpawnedVec = Vec<EntityId>;
 pub(crate) type SessionRootsVec = Vec<EntityId>;
@@ -73,9 +80,9 @@ impl TopologyStore {
         Self {
             topo_entities: EntitiesSlot(SlotMap::with_key()),
             topo_active_entities: Vec::new(),
-            topo_active_masks: SecondaryMap::new(),
-            topo_parents: SecondaryMap::new(),
-            topo_children: SecondaryMap::new(),
+            topo_active_masks: ActiveMasksSecondary(SecondaryMap::new()),
+            topo_parents: ParentsSecondary(SecondaryMap::new()),
+            topo_children: ChildrenSecondary(SecondaryMap::new()),
             topo_session_spawned: Vec::new(),
             topo_session_roots: Vec::new(),
             topo_flat_dfs_sequence: Vec::new(),
@@ -96,9 +103,11 @@ impl TopologyStore {
         Self {
             topo_entities: EntitiesSlot(SlotMap::with_capacity_and_key(c.topo_entities)),
             topo_active_entities: Vec::with_capacity(c.topo_active_entities),
-            topo_active_masks: SecondaryMap::with_capacity(c.topo_active_masks),
-            topo_parents: SecondaryMap::with_capacity(c.topo_parents),
-            topo_children: SecondaryMap::with_capacity(c.topo_children),
+            topo_active_masks: ActiveMasksSecondary(SecondaryMap::with_capacity(
+                c.topo_active_masks,
+            )),
+            topo_parents: ParentsSecondary(SecondaryMap::with_capacity(c.topo_parents)),
+            topo_children: ChildrenSecondary(SecondaryMap::with_capacity(c.topo_children)),
             topo_session_spawned: Vec::with_capacity(c.topo_session_spawned),
             topo_session_roots: Vec::with_capacity(c.topo_session_roots),
             topo_flat_dfs_sequence: Vec::with_capacity(c.topo_flat_dfs_sequence),
@@ -199,7 +208,7 @@ impl TopologyStore {
         lay_taffy_nodes: &mut TaffyNodesSecondary,
     ) {
         // 子がすでに別の親に属している場合は、古い親からデタッチ
-        if let Some(old_parent) = topo_parents.get(child).copied().flatten()
+        if let Some(old_parent) = *topo_parents.at(child)
             && old_parent != parent
         {
             TopologyStore::detach_from_parent(
@@ -339,16 +348,18 @@ impl TopologyStore {
         topology.topo_is_sort_dirty = true;
 
         // 親トポロジーおよび Taffy ツリーからのデタッチ
-        if let Some(Some(parent_id)) = topology.topo_parents.get(id) {
-            if let Some(&parent_node) = layouts.lay_taffy_nodes.get(*parent_id)
-                && let Some(&child_node) = layouts.lay_taffy_nodes.get(id)
-                && let Ok(taffy_children) = layouts.lay_taffy_tree.children(parent_node)
-                && taffy_children.contains(&child_node)
+        if let Some(parent_id) = *topology.topo_parents.at(id) {
+            if let Some(parent_node) = layouts.lay_taffy_nodes.get(parent_id)
+                && let Some(child_node) = layouts.lay_taffy_nodes.get(id)
+                && let Ok(taffy_children) = layouts.lay_taffy_tree.children(*parent_node)
+                && taffy_children.contains(child_node)
             {
-                let _ = layouts.lay_taffy_tree.remove_child(parent_node, child_node);
+                let _ = layouts
+                    .lay_taffy_tree
+                    .remove_child(*parent_node, *child_node);
             }
-
-            if let Some(parent_children) = topology.topo_children.get_mut(*parent_id) {
+            // 親要素が先に破棄されている場合があるため、子リストはあれば消す
+            if let Some(parent_children) = topology.topo_children.get_mut(parent_id) {
                 parent_children.retain(|x| *x != id);
             }
         }
@@ -404,7 +415,7 @@ impl TopologyStore {
 
         for id in spawned_in_session {
             // 親が存在しない
-            let has_no_parent = topology.topo_parents.get(id).copied().flatten().is_none();
+            let has_no_parent = topology.topo_parents.at(id).is_none();
             // ルート要素としても登録されていない
             let is_not_root = !topology.topo_session_roots.contains(&id);
 
@@ -421,19 +432,15 @@ impl TopologyStore {
 
     /// 親トポロジーから子要素をデタッチする
     #[inline]
-    pub fn detach_from_parent(
+    pub(crate) fn detach_from_parent(
         child: EntityId,
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         topo_is_structure_dirty: &mut bool,
         topo_is_sort_dirty: &mut bool,
     ) -> Option<EntityId> {
-        let Some(Some(parent_id)) = topo_parents.get(child).copied() else {
-            return None;
-        };
-        if let Some(children_list) = topo_children.get_mut(parent_id) {
-            children_list.retain(|x| *x != child);
-        }
+        let parent_id = (*topo_parents.at(child))?;
+        topo_children.at_mut(parent_id).retain(|x| *x != child);
         topo_parents.insert(child, None);
         *topo_is_structure_dirty = true;
         *topo_is_sort_dirty = true;
@@ -442,7 +449,7 @@ impl TopologyStore {
 
     /// 新しい親子関係を結合する
     #[inline]
-    pub fn attach_to_parent(
+    pub(crate) fn attach_to_parent(
         parent: EntityId,
         child: EntityId,
         topo_parents: &mut ParentsSecondary,
@@ -451,9 +458,8 @@ impl TopologyStore {
         topo_is_sort_dirty: &mut bool,
     ) {
         topo_parents.insert(child, Some(parent));
-        if let Some(children_list) = topo_children.get_mut(parent)
-            && !children_list.contains(&child)
-        {
+        let children_list = topo_children.at_mut(parent);
+        if !children_list.contains(&child) {
             children_list.push(child);
         }
         *topo_is_structure_dirty = true;
@@ -462,7 +468,7 @@ impl TopologyStore {
 
     /// 親要素の特定の古い子要素を、順序を維持したまま新しい子要素へ直接差し替える
     #[inline]
-    pub fn replace_child_node(
+    pub(crate) fn replace_child_node(
         parent: EntityId,
         old_child: EntityId,
         new_child: EntityId,
@@ -471,8 +477,10 @@ impl TopologyStore {
         topo_is_structure_dirty: &mut bool,
         topo_is_sort_dirty: &mut bool,
     ) {
-        if let Some(children_list) = topo_children.get_mut(parent)
-            && let Some(child) = children_list.iter_mut().find(|x| **x == old_child)
+        if let Some(child) = topo_children
+            .at_mut(parent)
+            .iter_mut()
+            .find(|x| **x == old_child)
         {
             *child = new_child;
         }
@@ -483,7 +491,7 @@ impl TopologyStore {
 
     /// DFS配列の高速再構築
     #[inline]
-    pub fn rebuild_dfs_sequence(
+    pub(crate) fn rebuild_dfs_sequence(
         root: EntityId,
         topo_flat_dfs_sequence: &mut FlatDfsSequenceVec,
         topo_is_structure_dirty: &mut bool,
@@ -496,9 +504,7 @@ impl TopologyStore {
         while let Some(id) = stack.pop() {
             topo_flat_dfs_sequence.push(id);
 
-            let Some(children_list) = topo_children.get(id) else {
-                continue;
-            };
+            let children_list = topo_children.at(id);
 
             let len = children_list.len();
             for i in (0..len).rev() {
@@ -520,22 +526,18 @@ impl TopologyStore {
     ) -> bool {
         let mut stack = SmallVec::<[EntityId; 16]>::new();
 
-        if let Some(list) = topo_children.get(parent) {
-            stack.extend(list.iter().copied());
-        }
+        let list = topo_children.at(parent);
+        stack.extend(list.iter().copied());
 
         while let Some(child_id) = stack.pop() {
             if topo_entities.contains_key(child_id)
-                && topo_active_masks
-                    .get(child_id)
-                    .is_some_and(|m| m.has(state_flag))
+                && topo_active_masks.at(child_id).has(state_flag)
             {
                 return true;
             }
 
-            if let Some(list) = topo_children.get(child_id) {
-                stack.extend(list.iter().copied());
-            }
+            let list = topo_children.at(child_id);
+            stack.extend(list.iter().copied());
         }
         false
     }
@@ -569,15 +571,13 @@ impl TopologyStore {
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
     ) -> bool {
-        let Some(Some(parent_id)) = topo_parents.get(id).copied() else {
+        let Some(parent_id) = *topo_parents.at(id) else {
             return false;
         };
         if !topo_entities.contains_key(parent_id) {
             return false;
         }
-        let Some(mask) = topo_active_masks.get(parent_id) else {
-            return false;
-        };
+        let mask = topo_active_masks.at(parent_id);
         mask.has(state_flag)
     }
 
@@ -591,18 +591,13 @@ impl TopologyStore {
         lay_flex: &FlexLayoutsSecondary,
         out_rects: &RectsSecondary,
     ) -> usize {
-        // 親に子要素が存在しない場合は 0
-        let Some(children) = topo_children.get(parent) else {
-            return 0;
-        };
-
         let parent_flex = lay_flex.get(parent).copied().unwrap_or_default();
         let is_row = parent_flex.flex_direction == FlexDirection::Row
             || parent_flex.flex_direction == FlexDirection::RowReverse;
 
         let mut insert_idx = 0;
 
-        for (idx, &child) in children.iter().enumerate() {
+        for (idx, &child) in topo_children.at(parent).iter().enumerate() {
             let Some(rect) = out_rects.get(child) else {
                 continue;
             };
@@ -633,11 +628,11 @@ impl TopologyStore {
             return true;
         }
         let mut curr = target;
-        while let Some(Some(p)) = topo_parents.get(curr) {
-            if *p == parent {
+        while let Some(p) = *topo_parents.at(curr) {
+            if p == parent {
                 return true;
             }
-            curr = *p;
+            curr = p;
         }
         false
     }
@@ -672,7 +667,7 @@ impl TopologyStore {
 
         // DFS順配列を使って可視性フラグを高速に伝播、および出現インデックスの記録
         for (index, &id) in topo_flat_dfs_sequence.iter().enumerate() {
-            let parent_id = topo_parents.get(id).copied().flatten();
+            let parent_id = *topo_parents.at(id);
 
             // 親がスタックのトップに一致するまで遡る
             while let Some(top) = stack.last() {
@@ -717,15 +712,22 @@ impl TopologyStore {
             let eff_clip = out_clip_rects.get(id).copied().unwrap_or(default_clip);
 
             // トランスフォームの適用されているブランチか伝播判定
-            let is_parent_transform = parent_id
-                .is_some_and(|p| topo_active_masks[p].has(ComponentMask::STATE_TRANSFORM_ACTIVE));
+            let is_parent_transform = parent_id.is_some_and(|p| {
+                topo_active_masks
+                    .at(p)
+                    .has(ComponentMask::STATE_TRANSFORM_ACTIVE)
+            });
             let has_self_transform = rnd_visual.get(id).is_some_and(|v| v.transform.is_some());
             let is_transform_active = is_parent_transform || has_self_transform;
 
             if is_transform_active {
-                topo_active_masks[id].set(ComponentMask::STATE_TRANSFORM_ACTIVE);
+                topo_active_masks
+                    .at_mut(id)
+                    .set(ComponentMask::STATE_TRANSFORM_ACTIVE);
             } else {
-                topo_active_masks[id].unset(ComponentMask::STATE_TRANSFORM_ACTIVE);
+                topo_active_masks
+                    .at_mut(id)
+                    .unset(ComponentMask::STATE_TRANSFORM_ACTIVE);
             }
 
             // カリング判定用の AABB の取得と交差判定
@@ -738,8 +740,11 @@ impl TopologyStore {
             };
 
             // 親の可視性フラグのチェック
-            let is_parent_invisible = parent_id
-                .is_some_and(|p| !topo_active_masks[p].has(ComponentMask::STATE_RENDER_VISIBLE));
+            let is_parent_invisible = parent_id.is_some_and(|p| {
+                !topo_active_masks
+                    .at(p)
+                    .has(ComponentMask::STATE_RENDER_VISIBLE)
+            });
 
             // Bounding Box と クリップの交差矩形
             let intersect = bounding_box.intersect(&eff_clip);
@@ -748,9 +753,13 @@ impl TopologyStore {
             let is_visible = !is_parent_invisible && !is_self_invisible;
 
             if is_visible {
-                topo_active_masks[id].set(ComponentMask::STATE_RENDER_VISIBLE);
+                topo_active_masks
+                    .at_mut(id)
+                    .set(ComponentMask::STATE_RENDER_VISIBLE);
             } else {
-                topo_active_masks[id].unset(ComponentMask::STATE_RENDER_VISIBLE);
+                topo_active_masks
+                    .at_mut(id)
+                    .unset(ComponentMask::STATE_RENDER_VISIBLE);
             }
 
             // DFS出現順インデックスの記録
@@ -767,7 +776,10 @@ impl TopologyStore {
         // STATE_RENDER_VISIBLE が立っている要素のみを抽出
         topo_sort_cache.clear();
         for &id in topo_active_entities {
-            if topo_active_masks[id].has(ComponentMask::STATE_RENDER_VISIBLE) {
+            if topo_active_masks
+                .at(id)
+                .has(ComponentMask::STATE_RENDER_VISIBLE)
+            {
                 let z = topo_effective_z_indices.get(id).copied().unwrap_or(0);
                 let dfs = topo_dfs_indices.get(id).copied().unwrap_or(0);
                 topo_sort_cache.push((id, z, dfs));
@@ -799,9 +811,7 @@ impl TopologyStore {
             topo_parents.insert(child_id, Some(src_id));
 
             // 元の要素の子要素リストへ復旧
-            if let Some(src_children) = topo_children.get_mut(src_id) {
-                src_children.push(child_id);
-            }
+            topo_children.at_mut(src_id).push(child_id);
 
             // Taffy 側の親子構造も、元の要素に繋ぎ戻し
             if let Some(&src_node) = lay_taffy_nodes.get(src_id)
@@ -873,8 +883,8 @@ impl TopologyStore {
         );
         for &id in topo_sorted_entities.iter().rev() {
             let is_drag_over = topo_active_masks
-                .get(id)
-                .is_some_and(|mask| mask.has(ComponentMask::STATE_DND_DRAG_OVER));
+                .at(id)
+                .has(ComponentMask::STATE_DND_DRAG_OVER);
 
             // ドラッグ中かつゴースト化した元の実体要素、およびプレースホルダー要素はヒットテストを強制スルーさせる
             if Some(id) == evt_interaction_states.dragged || is_drag_over {

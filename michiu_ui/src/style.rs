@@ -5361,11 +5361,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font.family = Some(v);
-                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_FONT_STYLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_FONT_STYLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5386,11 +5386,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font.weight = Some(v);
-                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_FONT_STYLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_FONT_STYLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {
@@ -5436,11 +5436,11 @@ impl ThisStyle {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font.style = Some(v);
-                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_FONT_STYLE);
             }
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_EXT_PROPERTIES);
+                inner.mask.set(ComponentMask::STYLE_FONT_STYLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     if let Some(v) = cx.get_visual_property_mut(id, target) {

@@ -1,7 +1,5 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, FlexLayout, InputContents,
-    LayoutRect, MichiuString, RenderStore, TextBufferSparseSecondary, TextEngine, TextSpan,
-    VisualPropertiesSecondary, WebView2Contents,
+    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, FlexLayout, InputContents, LayoutRect, MichiuSoA, MichiuString, RenderStore, TextBufferSparseSecondary, TextEngine, TextSpan, VisualPropertiesSecondary, WebView2Contents,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -128,7 +126,7 @@ impl ContentStore {
         topo_active_masks: &ActiveMasksSecondary,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> taffy::Size<f32> {
-        let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+        let mask = topo_active_masks.at(id);
         let has_input = mask.has_input_content();
         let has_text = mask.has_text_content();
 

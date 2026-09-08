@@ -6,7 +6,7 @@ use crate::{
     EventStore, ExternalTextureAlphaMode, ExternalTextureSparseSecondary, ExtractedThumb,
     FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState,
     InputContentsSparseSecondary, InputOp, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
-    Length, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
+    Length, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
     PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt, ReactiveStore,
     RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary,
@@ -135,9 +135,7 @@ impl Pipeline {
         let mut was_active = false;
         let mut state_changed = false;
 
-        let Some(mask) = cx.topology.topo_active_masks.get_mut(id) else {
-            return;
-        };
+        let mask = cx.topology.topo_active_masks.at_mut(id); // 絶対に生きてるはず
 
         was_active = mask.has(state_flag);
         if was_active == actived {
@@ -218,30 +216,28 @@ impl Pipeline {
         resolve_element(cx, id);
 
         // 親から子方向へのスタイル解決の伝播
-        if let Some(child) = cx.topology.topo_children.get(id).cloned() {
-            for child_id in child {
-                let has_parent = cx
-                    .topology
-                    .topo_active_masks
-                    .get(child_id)
-                    .is_some_and(|m| m.has(ComponentMask::STYLE_INTERACTION_PARENT));
+        for child_id in cx.topology.topo_children.at(id).clone() {
+            let has_parent = cx
+                .topology
+                .topo_active_masks
+                .at(child_id)
+                .has(ComponentMask::STYLE_INTERACTION_PARENT);
 
-                if has_parent {
-                    resolve_element(cx, child_id);
-                    mark_dirty(cx, child_id);
-                }
+            if has_parent {
+                resolve_element(cx, child_id);
+                mark_dirty(cx, child_id);
             }
         }
 
         // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
         let mut curr = id;
-        while let Some(parent_id) = cx.topology.topo_parents.get(curr).copied().flatten() {
+        while let Some(parent_id) = *cx.topology.topo_parents.at(curr) {
             if cx.topology.topo_entities.contains_key(parent_id) {
                 let has_within = cx
                     .topology
                     .topo_active_masks
-                    .get(parent_id)
-                    .is_some_and(|m| m.has(ComponentMask::STYLE_INTERACTION_WITHIN));
+                    .at(parent_id)
+                    .has(ComponentMask::STYLE_INTERACTION_WITHIN);
 
                 // 先祖要素が within スタイルを持っている場合のみそのスタイル評価を実行
                 if has_within {
@@ -477,8 +473,8 @@ impl Pipeline {
             if cx
                 .topology
                 .topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has(ComponentMask::STYLE_OVERFLOW))
+                .at(id)
+                .has(ComponentMask::STYLE_OVERFLOW)
             {
                 let size = ScrollStore::get_scroll_size(
                     id,
@@ -542,11 +538,7 @@ impl Pipeline {
                  _style: &taffy::Style|
                  -> taffy::Size<f32> {
                     context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                        let is_input = cx
-                            .topology
-                            .topo_active_masks
-                            .get(id)
-                            .is_some_and(ComponentMask::has_input_content);
+                        let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
 
                         if is_input
                             && let Some(contents) = cx.contents.cont_input_contents.get(id)
@@ -589,11 +581,7 @@ impl Pipeline {
 
         // リサイズ追従に伴い、インプットのキャレット・選択ハイライトを同期
         for &id in &cx.topology.topo_flat_dfs_sequence {
-            let has_input = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_input_content);
+            let has_input = cx.topology.topo_active_masks.at(id).has_input_content();
             let is_focused = cx.events.evt_interaction_states.focused == Some(id);
             // フォーカスを得ている入力要素のみ、レイアウト確定後にキャレット・スクロールを同期
             if has_input && is_focused {
@@ -765,11 +753,8 @@ impl Pipeline {
                 continue;
             };
 
-            let is_dirty_text = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has_text_content() && m.has_queued_layout_or_render());
+            let mask = cx.topology.topo_active_masks.at(id);
+            let is_dirty_text = mask.has_text_content() && mask.has_queued_layout_or_render();
 
             if is_dirty_text {
                 let cleared = Pipeline::scan_and_register_element_glyphs(
@@ -799,11 +784,7 @@ impl Pipeline {
                     continue;
                 };
 
-                let has_text_content = cx
-                    .topology
-                    .topo_active_masks
-                    .get(id)
-                    .is_some_and(ComponentMask::has_text_content);
+                let has_text_content = cx.topology.topo_active_masks.at(id).has_text_content();
 
                 if has_text_content {
                     let _ = Pipeline::scan_and_register_element_glyphs(
@@ -871,24 +852,24 @@ impl Pipeline {
 
             // トランスフォームブランチの場合のみその場で累積を解決
             // それ以外は IDENTITY_MATRIX
-            let eff_transform =
-                if cx.topology.topo_active_masks[id].has(ComponentMask::STATE_TRANSFORM_ACTIVE) {
-                    RenderStore::resolve_effective_transform(
-                        id,
-                        &cx.topology.topo_parents,
-                        &cx.renders.rnd_visual,
-                    )
-                } else {
-                    IDENTITY_MATRIX
-                };
+            let eff_transform = if cx
+                .topology
+                .topo_active_masks
+                .at(id)
+                .has(ComponentMask::STATE_TRANSFORM_ACTIVE)
+            {
+                RenderStore::resolve_effective_transform(
+                    id,
+                    &cx.topology.topo_parents,
+                    &cx.renders.rnd_visual,
+                )
+            } else {
+                IDENTITY_MATRIX
+            };
 
             let params = CommonParameters::new(id, rect, &basic, visual, eff_transform);
 
-            let is_webview = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_webveiw2_content);
+            let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
             let is_webview_ready = is_webview && cx.renders.rnd_active_webviews.contains(&id);
             // WebView (アクティブ) の個別処理
@@ -958,8 +939,8 @@ impl Pipeline {
             let is_external_texture = cx
                 .topology
                 .topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT));
+                .at(id)
+                .has(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
             if is_external_texture {
                 // 既存UIインスタンスをフラッシュ
                 Pipeline::flush_batch(
@@ -1054,11 +1035,7 @@ impl Pipeline {
             }
 
             // 背景色とテキスト
-            let is_text = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_text_content);
+            let is_text = cx.topology.topo_active_masks.at(id).has_text_content();
             let has_bg = visual.bg_color.is_some()
                 || visual.bg_gradient.is_some()
                 || visual.border_color.is_some()
@@ -1147,11 +1124,7 @@ impl Pipeline {
             }
 
             // インプット要素のキャレット
-            let is_input = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_input_content);
+            let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
             let is_focused = cx.events.evt_interaction_states.focused == Some(id);
 
             if is_input && is_focused {
@@ -1325,7 +1298,7 @@ impl Pipeline {
 
         out_rects.insert(id, abs_rect);
 
-        let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+        let mask = topo_active_masks.at(id);
 
         if mask.has_input_content()
             && let Some(contents) = cont_input_contents.get_mut(id)
@@ -1380,9 +1353,7 @@ impl Pipeline {
                 out_prev_clip_rects,
             );
 
-            let has_style_changed = topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has(ComponentMask::STATE_QUEUED_LAYOUT));
+            let has_style_changed = topo_active_masks.at(id).has_queued_layout();
 
             // 静的キャッシュの判定と適用
             // 自分自身のスタイルが変わっておらず、親も動いていない、かつモニターリサイズもされていないならキャッシュ利用

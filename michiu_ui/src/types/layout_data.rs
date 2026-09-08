@@ -349,7 +349,7 @@ impl VisualProperty {
         if mask.has(ComponentMask::STYLE_FONT_SIZE) {
             self.font.size = other.font.size;
         }
-        if mask.has(ComponentMask::STYLE_EXT_PROPERTIES) {
+        if mask.has(ComponentMask::STYLE_FONT_STYLE) {
             if other.font.family.is_some() {
                 self.font.family.clone_from(&other.font.family);
             }

@@ -9,12 +9,12 @@ use crate::{
     CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Display, EntityId, FlatDfsSequenceVec, FlexLayoutsSecondary,
     GridLayoutsSparseSecondary, InputContentsSparseSecondary, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutSize, LayoutStore, Length, OutputStore, ParentsSecondary, Position, Rect,
-    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary,
+    Position, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
     ResolvedGridSparseSecondary, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextContentsSparseSecondary, TextEngine,
-    TextBufferSparseSecondary, TextSpansSparseSecondary, ThisStyle, UserSelect, Val,
-    VisualPropertiesSecondary, WindowStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparseSecondary,
+    TextEngine, TextSpansSparseSecondary, ThisStyle, UserSelect, Val, VisualPropertiesSecondary,
+    WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -437,18 +437,14 @@ impl ScrollStore {
         let mut max_y = 0.0f32;
 
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
-        if topo_active_masks
-            .get(id)
-            .is_some_and(ComponentMask::has_input_content)
+        if topo_active_masks.at(id).has_input_content()
             && let Some(contents) = cont_input_contents.get(id)
             && let Some(layout_rect) = contents.last_layout
         {
             max_x =
                 layout_rect.width + contents.caret_width.unwrap_or(contents.default_caret_width);
             max_y = layout_rect.height;
-        } else if topo_active_masks
-            .get(id)
-            .is_some_and(ComponentMask::has_text_content)
+        } else if topo_active_masks.at(id).has_text_content()
             && let Some(buffer) = SystemStore::get_or_create_layout(
                 id,
                 sys_text_engine,
@@ -482,34 +478,32 @@ impl ScrollStore {
             (None, None)
         };
 
-        if let Some(children_list) = topo_children.get(id) {
-            for &child_id in children_list {
-                // スクロールバーのトラックはサイズ計算から除外
-                if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
-                    continue;
-                }
+        let children_list = topo_children.at(id);
+        for &child_id in children_list {
+            // スクロールバーのトラックはサイズ計算から除外
+            if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
+                continue;
+            }
 
-                // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
-                let is_absolute = lay_resolved_basic
-                    .get(child_id)
-                    .is_some_and(|l| l.position == Position::Absolute);
-                if is_absolute {
-                    continue;
-                }
+            // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
+            let is_absolute = lay_resolved_basic
+                .get(child_id)
+                .is_some_and(|l| l.position == Position::Absolute);
+            if is_absolute {
+                continue;
+            }
 
-                if let Some(&rect) = out_rects.get(child_id) {
-                    let parent_rect = out_rects.get(id).copied().unwrap_or_default();
-                    let scroll_offset = sc_offsets.get(id).copied().unwrap_or_default();
+            if let Some(&rect) = out_rects.get(child_id) {
+                let parent_rect = out_rects.get(id).copied().unwrap_or_default();
+                let scroll_offset = sc_offsets.get(id).copied().unwrap_or_default();
 
-                    // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
-                    let local_right =
-                        rect.x - parent_rect.x + scroll_offset.x + rect.width - offset_x;
-                    let local_bottom =
-                        rect.y - parent_rect.y + scroll_offset.y + rect.height - offset_y;
+                // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
+                let local_right = rect.x - parent_rect.x + scroll_offset.x + rect.width - offset_x;
+                let local_bottom =
+                    rect.y - parent_rect.y + scroll_offset.y + rect.height - offset_y;
 
-                    max_x = max_x.max(local_right);
-                    max_y = max_y.max(local_bottom);
-                }
+                max_x = max_x.max(local_right);
+                max_y = max_y.max(local_bottom);
             }
         }
 

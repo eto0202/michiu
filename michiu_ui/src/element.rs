@@ -2,9 +2,9 @@ pub mod handler;
 pub mod input_func;
 
 use crate::{
-    BasicLayout, ComponentMask, Context, EffectCategory, EntityId, ExternalTexture, ReadSignal,
-    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle, UiaValue, Val,
-    WebView2Contents, create_effect, div_n,
+    BasicLayout, ComponentMask, Context, EffectCategory, EntityId, ExternalTexture, MichiuSoA,
+    ReadSignal, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle, UiaValue,
+    Val, WebView2Contents, create_effect, div_n,
 };
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -232,7 +232,10 @@ impl Element {
         // 実行時にのみ制御されるべきなのでここでは除外する
         let property_only_mask = mask.0 & !ComponentMask::STYLE_INTERACTION_PROPERTY;
 
-        cx.topology.topo_active_masks[id].0 |= property_only_mask;
+        cx.topology
+            .topo_active_masks
+            .at_mut(id)
+            .set(property_only_mask);
         if mask.has_basic_layout()
             || mask.has(ComponentMask::STYLE_FONT_SIZE)
             || mask.has(ComponentMask::STYLE_AUTO_WRAP)
@@ -535,12 +538,11 @@ impl Element {
         }
 
         // 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
-        if let Some(children_list) = cx.topology.topo_children.get(id) {
-            let old_children: Vec<EntityId> = children_list.iter().copied().collect();
-            for child_id in old_children {
-                if !scrollbar_ids.contains(&child_id) {
-                    cx.despawn_internal(child_id);
-                }
+        let children_list = cx.topology.topo_children.at(id);
+        let old_children: Vec<EntityId> = children_list.iter().copied().collect();
+        for child_id in old_children {
+            if !scrollbar_ids.contains(&child_id) {
+                cx.despawn_internal(child_id);
             }
         }
 
@@ -559,7 +561,10 @@ impl Element {
     pub fn text(self, content: impl Into<Prop<Cow<'static, str>>>) -> Self {
         self.bind_prop(content, EffectCategory::Text, |cx, id, val| {
             cx.contents.cont_text_contents.insert(id, val.into());
-            cx.topology.topo_active_masks[id].set(ComponentMask::COMP_TEXT_CONTENT);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_TEXT_CONTENT);
             cx.clear_layout_cache(id);
             cx.mark_dirty(id);
         })
@@ -607,7 +612,10 @@ impl Element {
 
         with_context(|cx| {
             cx.contents.cont_external_textures.insert(id, texture_arc);
-            cx.topology.topo_active_masks[id].set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
 
             if !cx.layouts.lay_base_basic.contains_key(id) {
                 cx.layouts.lay_base_basic.insert(id, BasicLayout::default());
@@ -628,7 +636,10 @@ impl Element {
         self.bind_prop(contents, EffectCategory::Movie, |cx, id, src| {
             cx.contents.cont_webview_contents.insert(id, src);
             cx.topology.topo_webview_entities.push(id);
-            cx.topology.topo_active_masks[id].set(ComponentMask::COMP_WEBVIEW_CONTENT);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_WEBVIEW_CONTENT);
             cx.mark_dirty(id);
         })
     }
@@ -688,7 +699,10 @@ impl Element {
         } else {
             list.push((property_id, value));
         }
-        cx.topology.topo_active_masks[self.id].set(ComponentMask::COMP_UIA_CONTENT);
+        cx.topology
+            .topo_active_masks
+            .at_mut(self.id)
+            .set(ComponentMask::COMP_UIA_CONTENT);
     }
 
     /// 自動テストフレームワークやデバッグで要素を特定するための「Automation `ID」を設定します（UIA_AutomationIdPropertyId` 互換）。

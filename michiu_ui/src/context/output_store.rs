@@ -7,13 +7,13 @@ use crate::{
     EffectiveZindicesSecondary, EntityId, EventStore, ExternalTextureAlphaMode,
     ExternalTextureSparseSecondary, FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary,
     GridLayoutsSparseSecondary, IDENTITY_MATRIX, InputContents, InputContentsSparseSecondary,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
     ParentsSecondary, PointerEvents, Position, PropertyList, QuadInstance, ReactiveStore,
     RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
     ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollStore, ScrollbarStylesSecondary,
     SortedEntitiesVec, StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextAlign, TextCacheKey, TextCacheValue, TextContentsSparseSecondary, TextEngine,
-    TextBufferSparseSecondary, TextSpan, TextSpansSparseSecondary, TextureAtlas,
+    TextAlign, TextBufferSparseSecondary, TextCacheKey, TextCacheValue,
+    TextContentsSparseSecondary, TextEngine, TextSpan, TextSpansSparseSecondary, TextureAtlas,
     TopoSortCacheVec, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
     VisualPropertiesSecondary, VisualProperty, WindowStore,
 };
@@ -97,15 +97,13 @@ impl OutputStore {
         out_prev_rects: &PrevRectsSecondary,
         out_prev_clip_rects: &PrevClipRectsSecondary,
     ) -> bool {
-        let Some(parent_id) = topo_parents.get(id).copied().flatten() else {
+        let Some(parent_id) = *topo_parents.at(id) else {
             return false;
         };
 
         out_prev_rects.get(parent_id) != out_rects.get(parent_id)
             || out_prev_clip_rects.get(parent_id) != out_clip_rects.get(parent_id)
-            || topo_active_masks
-                .get(parent_id)
-                .is_some_and(|a| a.has(ComponentMask::STATE_QUEUED_LAYOUT))
+            || topo_active_masks.at(parent_id).has_queued_layout()
     }
 
     pub(crate) fn pressed_local_point(
@@ -182,22 +180,14 @@ impl OutputStore {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
         let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy_tree, lay_taffy_nodes);
 
-        let parent_info = topo_parents.get(id).copied().flatten().and_then(|p_id| {
-            let rect = out_rects.get(p_id).copied()?;
-            let clip = out_clip_rects.get(p_id).copied()?;
-            Some((p_id, rect, clip))
-        });
+        let Some(parent_id) = *topo_parents.at(id) else {
+            return (local_rect, initial_clip);
+        };
 
-        let Some((parent_id, parent_rect, parent_clip)) = parent_info else {
-            return (
-                LayoutRect::new(
-                    local_rect.x,
-                    local_rect.y,
-                    local_rect.width,
-                    local_rect.height,
-                ),
-                initial_clip,
-            );
+        let (Some(&parent_rect), Some(&parent_clip)) =
+            (out_rects.get(parent_id), out_clip_rects.get(parent_id))
+        else {
+            return (local_rect, initial_clip);
         };
 
         let s_offsets = sc_offsets.get(parent_id).copied().unwrap_or_default();
@@ -249,9 +239,7 @@ impl OutputStore {
             Val::Percent(p) => {
                 // 親要素の確定サイズを優先取得
                 let parent_size = topo_parents
-                    .get(id)
-                    .copied()
-                    .flatten()
+                    .at(id) // &Option<EntityId> が返る
                     .and_then(|p_id| out_rects.get(p_id))
                     .map(|r| LayoutSize::new(r.width, r.height));
 

@@ -1,6 +1,6 @@
 use crate::{
     ActiveMasksSecondary, BasicLayoutsSecondary, ComponentMask, Context, Display, EntitiesSlot,
-    EntityId, OutputStore, ParentsSecondary, Pipeline, SystemStore, TextEditStore,
+    EntityId, MichiuSoA, OutputStore, ParentsSecondary, Pipeline, SystemStore, TextEditStore,
     VisualPropertiesSecondary, handle_on_blur, handle_on_focus,
 };
 
@@ -36,9 +36,7 @@ impl FocusStore {
     pub(crate) fn should_prevent_focus_steal(cx: &Context, target_id: EntityId) -> bool {
         let mut curr = Some(target_id);
         while let Some(curr_id) = curr {
-            let Some(mask) = cx.topology.topo_active_masks.get(curr_id) else {
-                break;
-            };
+            let mask = cx.topology.topo_active_masks.at(curr_id);
 
             if mask.has(ComponentMask::STYLE_PREVENT_FOCUS_STEAL)
                 && curr_id == target_id
@@ -63,7 +61,7 @@ impl FocusStore {
                 return true;
             }
 
-            curr = cx.topology.topo_parents.get(curr_id).copied().flatten();
+            curr = *cx.topology.topo_parents.at(curr_id);
         }
         false
     }
@@ -74,7 +72,7 @@ impl FocusStore {
         rnd_visual: &VisualPropertiesSecondary,
     ) -> bool {
         let focusable = rnd_visual.get(id).and_then(|v| v.focusable).or_else(|| {
-            let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+            let mask = topo_active_masks.at(id);
             if mask.has_input_content() || mask.has_webveiw2_content() {
                 Some(Focusable::Inherit(FocusTrigger::Both)) // 未指定時はキーボードフォーカス
             } else {
@@ -136,7 +134,7 @@ impl FocusStore {
         FocusStore::set_focused_by_trigger(cx, id, true, trigger);
 
         // 新しいフォーカス先が is_ime(false) の場合は IME 関連付けを解除
-        let is_input = cx.topology.topo_active_masks[id].has_input_content();
+        let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
         if is_input && let Some(contents) = cx.contents.cont_input_contents.get(id) {
             SystemStore::unassociate_ime(contents, &mut cx.window.win_default_himc);
         } else {
@@ -192,7 +190,7 @@ impl FocusStore {
             return false;
         }
         // 無効化（Disabled）状態でないか検証
-        let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+        let mask = topo_active_masks.at(id);
         if mask.has(ComponentMask::STATE_DISABLED) {
             return false;
         }
@@ -221,7 +219,7 @@ impl FocusStore {
             {
                 return false;
             }
-            curr = topo_parents.get(curr_id).copied().flatten();
+            curr = *topo_parents.at(curr_id);
         }
         true
     }

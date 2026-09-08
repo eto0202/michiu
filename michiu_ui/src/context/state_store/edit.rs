@@ -5,12 +5,12 @@ use crate::{
     BaseVisualPropertiesSecondary, ByteIndex, CapacityConfig, CharIndex, ChildrenSecondary, Color,
     ComponentMask, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EdgeInsets, EntityId,
     EventStore, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuString, OutputStore, ParentsSecondary,
-    RangeExt, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore,
-    ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextBufferSparseSecondary, TextContentsSparseSecondary, TextEngine, TextSpansSparseSecondary,
-    TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuString, OutputStore,
+    ParentsSecondary, RangeExt, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollOffsetsSecondary,
+    ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparseSecondary, TextEngine,
+    TextSpansSparseSecondary, TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -138,9 +138,8 @@ impl TextEditStore {
             contents.marked_range = None;
         }
         cont_text_spans.remove(id);
-        if let Some(i) = topo_active_masks.get_mut(id) {
-            i.unset(ComponentMask::STYLE_TEXT_SPANS);
-        }
+        let mask = topo_active_masks.at_mut(id);
+        mask.unset(ComponentMask::STYLE_TEXT_SPANS);
     }
 
     pub(crate) fn calculate_caret_rect(

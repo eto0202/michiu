@@ -1,9 +1,9 @@
 use crate::{
-    ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary,
-    ComponentMask, CursorIcon, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId,
-    ActiveInteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
-    ParentsSecondary, Position, Rect, RectsSecondary, TaffyNodesSecondary, TaffyTreeEntityId,
-    TopologyStore, Val, VisualPropertiesSecondary,
+    ActiveInteractionStates, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayout,
+    BasicLayoutsSecondary, ComponentMask, CursorIcon, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
+    MichiuSoA, OutputStore, ParentsSecondary, Position, Rect, RectsSecondary, TaffyNodesSecondary,
+    TaffyTreeEntityId, TopologyStore, Val, VisualPropertiesSecondary,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,7 +146,7 @@ impl ResizeStore {
         let mut current_id = target_id;
         let mut found_resize_hover = None;
         while let Some(id) = current_id {
-            if topo_active_masks[id].has(ComponentMask::STYLE_RESIZABLE) {
+            if topo_active_masks.at(id).has(ComponentMask::STYLE_RESIZABLE) {
                 let rect = out_rects.get(id).copied().unwrap_or_default();
                 let resizable_flags = lay_basic.get(id).map_or([false; 4], |l| l.resizable);
 
@@ -163,7 +163,7 @@ impl ResizeStore {
                     break; // 最も前面寄りのリサイズ親要素を優先採用
                 }
             }
-            current_id = topo_parents.get(id).copied().flatten();
+            current_id = *topo_parents.at(id);
         }
         (current_id, found_resize_hover)
     }
@@ -192,7 +192,7 @@ impl ResizeStore {
         };
 
         // 親要素の矩形と、その左・上ボーダーの厚みを取得
-        let parent_id = topo_parents.get(id).copied().flatten();
+        let parent_id = topo_parents.at(id);
         let (parent_rect, parent_border_left, parent_border_top) =
             parent_id.map_or((LayoutRect::ZERO, 0.0, 0.0), |p_id| {
                 let p_rect = out_rects.get(p_id).copied().unwrap_or_default();

@@ -2,9 +2,10 @@ use std::{ops::Range, time::Instant};
 
 use crate::{
     ByteIndex, ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
-    InputContents, InputOp, LayoutPoint, MichiuString, Modifiers, MouseButton, OutputStore, Prop,
-    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SystemStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey, with_context,
+    InputContents, InputOp, LayoutPoint, MichiuSoA, MichiuString, Modifiers, MouseButton,
+    OutputStore, Prop, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
+    SystemStore, TextEngine, TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey,
+    with_context,
 };
 use cosmic_text::Buffer;
 
@@ -866,7 +867,10 @@ impl Element {
         // IME の未確定状態（未確定波線、変換フォーカス太線/細線）を TextSpan に自動マッピング
         if ime.composition_text.is_empty() {
             cx.contents.cont_text_spans.remove(id);
-            cx.topology.topo_active_masks[id].unset(ComponentMask::STYLE_TEXT_SPANS);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .unset(ComponentMask::STYLE_TEXT_SPANS);
         } else {
             let mut spans = Vec::new();
             let caret = contents.selected_range.start;
@@ -937,7 +941,10 @@ impl Element {
             }
 
             cx.contents.cont_text_spans.insert(id, spans);
-            cx.topology.topo_active_masks[id].set(ComponentMask::STYLE_TEXT_SPANS);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::STYLE_TEXT_SPANS);
         }
 
         // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
@@ -965,7 +972,9 @@ impl Element {
         c.selected_range = current_len..current_len;
 
         cx.contents.cont_input_contents.insert(id, c);
-        cx.topology.topo_active_masks[id]
+        cx.topology
+            .topo_active_masks
+            .at_mut(id)
             .set(ComponentMask::COMP_INPUT_CONTENT | ComponentMask::COMP_TEXT_CONTENT);
 
         self.get_or_create_listeners(|l| {

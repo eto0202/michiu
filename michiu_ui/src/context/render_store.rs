@@ -1,5 +1,15 @@
 use crate::{
-    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition, AnimationCurve, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle, BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DirtyLayoutEntitiesVec, Display, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparseSecondary, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
+    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition,
+    AnimationCurve, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment,
+    BorderStyle, BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color,
+    ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DirtyLayoutEntitiesVec,
+    Display, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId,
+    FlatDfsSequenceVec, FocusTrigger, Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX,
+    InputContentsSparseSecondary, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents,
+    PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSecondary,
+    StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary,
+    ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -116,13 +126,11 @@ impl RenderStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
     ) {
-        let Some(mask) = topo_active_masks.get_mut(id) else {
-            return;
-        };
+        let mask = topo_active_masks.at_mut(id);
+
         if mask.has(ComponentMask::STATE_QUEUED_RENDER) {
             return;
         }
-
         mask.set(ComponentMask::STATE_QUEUED_RENDER);
         rnd_dirty_entities.push(id);
     }
@@ -134,6 +142,7 @@ impl RenderStore {
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
     ) {
         for id in rnd_dirty_entities.drain(..) {
+            // 過去に詰まれたIDのため、破棄されて死んでいる可能性がある
             let Some(mask) = topo_active_masks.get_mut(id) else {
                 continue;
             };
@@ -254,7 +263,7 @@ impl RenderStore {
         id: EntityId,
         active_mask: &ComponentMask,
         state_flag: u128,
-        topo_parents: &SecondaryMap<EntityId, Option<EntityId>>,
+        topo_parents: &ParentsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) -> Option<ThisStyle> {
@@ -291,7 +300,7 @@ impl RenderStore {
         }
 
         // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素の設定をそのまま借用する
-        let mut curr = topo_parents.get(id).copied().flatten();
+        let mut curr = *topo_parents.at(id);
         while let Some(curr_id) = curr {
             if let Some(parent_interaction) = rnd_interaction.get(curr_id) {
                 let parent_style = if state_flag == ComponentMask::STATE_FOCUSED_VISIBLE {
@@ -304,7 +313,7 @@ impl RenderStore {
                     return Some(p_style.clone());
                 }
             }
-            curr = topo_parents.get(curr_id).copied().flatten();
+            curr = *topo_parents.at(curr_id);
         }
         None
     }
@@ -403,7 +412,7 @@ impl RenderStore {
     pub(crate) fn cascade_basic_layout(
         id: EntityId,
         target_layout: &mut BasicLayout,
-        active_mask: ComponentMask,
+        active_mask: &ComponentMask,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
         let Some(interaction) = rnd_interaction.get(id) else {
@@ -440,7 +449,7 @@ impl RenderStore {
     pub(crate) fn cascade_interaction(
         id: EntityId,
         target: &mut TargetStyle,
-        active_mask: ComponentMask,
+        active_mask: &ComponentMask,
         focused_style_resolved: Option<&ThisStyle>,
         focused_visible_style_resolved: Option<&ThisStyle>,
         rnd_interaction: &InteractionPropertiesSecondary,
@@ -473,7 +482,7 @@ impl RenderStore {
     pub(crate) fn cascade_within_interaction(
         id: EntityId,
         target: &mut TargetStyle,
-        active_mask: ComponentMask,
+        active_mask: &ComponentMask,
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_children: &ChildrenSecondary,
@@ -539,7 +548,7 @@ impl RenderStore {
     pub(crate) fn cascade_parent_interaction(
         id: EntityId,
         target: &mut TargetStyle,
-        active_mask: ComponentMask,
+        active_mask: &ComponentMask,
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -602,7 +611,7 @@ impl RenderStore {
     pub(crate) fn apply_interaction_cascades(
         id: EntityId,
         target: &mut TargetStyle,
-        active_mask: ComponentMask,
+        active_mask: &ComponentMask,
         focused_style_resolved: Option<&ThisStyle>,
         focused_visible_style_resolved: Option<&ThisStyle>,
         topo_entities: &EntitiesSlot,
@@ -787,12 +796,9 @@ impl RenderStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         out_rects: &RectsSecondary,
     ) {
-        let active_mask = topo_active_masks[id];
-
         RenderStore::resolve_visual_styles(
             id,
             allow_transition,
-            active_mask,
             sys_text_buffers,
             react_element_effects,
             cont_input_contents,
@@ -814,7 +820,6 @@ impl RenderStore {
         RenderStore::resolve_layout_styles(
             id,
             allow_transition,
-            active_mask,
             win_last_size,
             react_element_effects,
             topo_active_masks,
@@ -839,7 +844,6 @@ impl RenderStore {
     fn resolve_layout_styles(
         id: EntityId,
         allow_transition: bool,
-        active_mask: ComponentMask,
         win_last_size: Option<&LayoutSize>,
         react_element_effects: &ElementEffectsSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
@@ -855,6 +859,7 @@ impl RenderStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         out_rects: &RectsSecondary,
     ) {
+        let active_mask = topo_active_masks.at(id);
         let has_base_layout = lay_base_basic.contains_key(id);
         let has_active_layout = lay_basic.contains_key(id);
 
@@ -962,7 +967,6 @@ impl RenderStore {
     fn resolve_visual_styles(
         id: EntityId,
         allow_transition: bool,
-        active_mask: ComponentMask,
         sys_text_buffers: &TextBufferSparseSecondary,
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparseSecondary,
@@ -980,6 +984,7 @@ impl RenderStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
+        let active_mask = topo_active_masks.at(id);
         let has_base_visual = rnd_base_visual.contains_key(id);
         let has_active_visual = rnd_visual.contains_key(id);
         let has_interaction_styles = rnd_interaction.contains_key(id);
@@ -994,7 +999,7 @@ impl RenderStore {
         let resolv_focus = |flag| {
             RenderStore::resolv_focus_style(
                 id,
-                &active_mask,
+                active_mask,
                 flag,
                 topo_parents,
                 rnd_visual,
@@ -1380,7 +1385,7 @@ impl RenderStore {
                     }
                 }
             }
-            curr = topo_parents.get(id).copied().flatten();
+            curr = *topo_parents.at(id);
         }
 
         // 個別指定がなく、親のいずれかに Global カーソルが定義されていた場合はそれを採用
@@ -1426,7 +1431,7 @@ impl RenderStore {
 
             // 継承設定があり親が存在する場合のみ上に遡る
             if transform_inherit {
-                curr = topo_parents.get(curr_id).copied().flatten();
+                curr = *topo_parents.at(curr_id);
             } else {
                 break;
             }
@@ -1927,7 +1932,7 @@ impl TargetStyle {
         if inner_mask.has(ComponentMask::STYLE_FONT_SIZE) {
             target.font.size = inner_vis.font.size;
         }
-        if inner_mask.has(ComponentMask::STYLE_EXT_PROPERTIES) {
+        if inner_mask.has(ComponentMask::STYLE_FONT_STYLE) {
             if inner_vis.font.family.is_some() {
                 target.font.family.clone_from(&inner_vis.font.family);
             }

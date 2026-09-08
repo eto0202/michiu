@@ -226,8 +226,7 @@ impl ComponentMask {
 
     pub(crate) const COMP_UIA_CONTENT: u128 = 1 << 60;
 
-    /// カスタムのCSS変数や動的プロパティ（HashMap等含む）
-    pub(crate) const STYLE_EXT_PROPERTIES: u128 = 1 << 61;
+    pub(crate) const STYLE_FONT_STYLE: u128 = 1 << 61;
 
     /// `WebView2` のコンテンツを持っているか
     pub const COMP_WEBVIEW_CONTENT: u128 = 1 << 62;
@@ -317,7 +316,7 @@ impl ComponentMask {
         | Self::STYLE_BACKDROP
         | Self::STYLE_TEXT_COLOR
         | Self::STYLE_FONT_SIZE
-        | Self::STYLE_EXT_PROPERTIES
+        | Self::STYLE_FONT_STYLE
         | Self::STYLE_POINTER_EVENTS
         | Self::STYLE_USER_SELECT
         | Self::STYLE_DND_DRAGGABLE
