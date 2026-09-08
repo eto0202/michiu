@@ -28,7 +28,6 @@ use std::{
     rc::Rc,
     time::Instant,
 };
-use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
 pub(crate) type RectsSecondary = SecondaryMap<EntityId, LayoutRect>;
 pub(crate) type ClipRectsSecondary = SecondaryMap<EntityId, LayoutRect>;

@@ -4,7 +4,7 @@ use crate::{
     EventStore, FlexDirection, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint, LayoutRect,
     LayoutSize, LayoutStore, OutputStore, PointerEvents, ReactiveStore, RectsSecondary,
     RenderStore, StateStore, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    VisualPropertiesSecondary, WindowStore,
+    VisualPropertiesSecondary, WindowStore, define_slotmap,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -16,7 +16,8 @@ struct StackFrame {
     clip: LayoutRect,
 }
 
-pub(crate) type EntitiesSlot = SlotMap<EntityId, ()>;
+define_slotmap!(pub(crate) struct EntitiesSlot(EntityId => ()););
+
 pub(crate) type ParentsSecondary = SecondaryMap<EntityId, Option<EntityId>>;
 pub(crate) type ChildrenSecondary = SecondaryMap<EntityId, SmallVec<[EntityId; 4]>>;
 pub(crate) type ActiveMasksSecondary = SecondaryMap<EntityId, ComponentMask>;
@@ -70,7 +71,7 @@ impl TopologyStore {
     #[inline]
     pub fn new() -> Self {
         Self {
-            topo_entities: SlotMap::with_key(),
+            topo_entities: EntitiesSlot(SlotMap::with_key()),
             topo_active_entities: Vec::new(),
             topo_active_masks: SecondaryMap::new(),
             topo_parents: SecondaryMap::new(),
@@ -93,7 +94,7 @@ impl TopologyStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            topo_entities: SlotMap::with_capacity_and_key(c.topo_entities),
+            topo_entities: EntitiesSlot(SlotMap::with_capacity_and_key(c.topo_entities)),
             topo_active_entities: Vec::with_capacity(c.topo_active_entities),
             topo_active_masks: SecondaryMap::with_capacity(c.topo_active_masks),
             topo_parents: SecondaryMap::with_capacity(c.topo_parents),
@@ -510,7 +511,7 @@ impl TopologyStore {
     /// 子孫要素のインタラクション状態を走査
     #[inline]
     #[must_use]
-    pub fn has_descendant_with_state(
+    pub(crate) fn has_descendant_with_state(
         parent: EntityId,
         state_flag: u128,
         topo_entities: &EntitiesSlot,
