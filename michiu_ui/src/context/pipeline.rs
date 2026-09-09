@@ -3,19 +3,19 @@ use crate::{
     BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing,
     ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
     CornerRadius, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets, EffectId, ElementState, EntityId,
-    EventStore, ExternalTextureAlphaMode, ExternalTextureSparseSecondary, ExtractedThumb,
-    FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState,
-    InputContentsSparseSecondary, InputOp, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
-    Length, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
+    EventStore, ExternalTextureAlphaMode, ExternalTextureSparse, ExtractedThumb,
+    FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState, InputContents,
+    InputContentsSparse, InputOp, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
+    MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
     PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt, ReactiveStore,
     RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary,
-    ScrollStore, ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
+    ResolvedFlexSecondary, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
+    ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
     TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextCacheKey,
-    TextContentsSparseSecondary, TextEditStore, TextEngine, TextSpan, TextSpansSparseSecondary,
-    TopologyStore, UnderlineStyle, Val, VirtualKey, VisualPropertiesSecondary, VisualProperty,
-    WindowStore, bind_context, execute_effect, handle_on_active, handle_on_char_input,
-    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
+    TextContentsSparse, TextEditStore, TextEngine, TextSpan, TextSpansSparse, TopologyStore,
+    UnderlineStyle, Val, VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore,
+    bind_context, execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
+    handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -386,57 +386,59 @@ impl Pipeline {
         );
 
         // Taffy 1回目レイアウト計算
-        if let Some(&root_node) = cx.layouts.lay_taffy_nodes.get(root) {
-            // 計測関数をクロージャとして定義
-            let measure_func = |known_dims: taffy::Size<Option<f32>>,
-                                available_space: taffy::Size<taffy::AvailableSpace>,
-                                _node_id: taffy::NodeId,
-                                context: Option<&mut EntityId>,
-                                _style: &taffy::Style|
-             -> taffy::Size<f32> {
-                // 幅と高さの両方がすでにスタイル（known_dims）として解決されている場合はそれを最優先する
-                if let (Some(w), Some(h)) = (known_dims.width, known_dims.height) {
-                    return taffy::Size {
-                        width: w,
-                        height: h,
-                    };
-                }
+        let root_node = *cx.layouts.lay_taffy_nodes.at(root);
+        // 計測関数をクロージャとして定義
+        let measure_func = |known_dims: taffy::Size<Option<f32>>,
+                            available_space: taffy::Size<taffy::AvailableSpace>,
+                            _node_id: taffy::NodeId,
+                            context: Option<&mut EntityId>,
+                            _style: &taffy::Style|
+         -> taffy::Size<f32> {
+            // 幅と高さの両方がすでにスタイル（known_dims）として解決されている場合はそれを最優先する
+            if let (Some(w), Some(h)) = (known_dims.width, known_dims.height) {
+                return taffy::Size {
+                    width: w,
+                    height: h,
+                };
+            }
 
-                // テキスト内容を持っているかチェック
-                // クロージャの外側の Context は直接キャプチャできないため、
-                //  一時的に bind_context されているスレッドローカル経由で取得
-                context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                    let flex = cx
-                        .layouts
-                        .lay_resolved_flex
-                        .get(id)
-                        .copied()
-                        .unwrap_or_default();
+            // テキスト内容を持っているかチェック
+            // クロージャの外側の Context は直接キャプチャできないため、
+            //  一時的に bind_context されているスレッドローカル経由で取得
+            context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
+                let flex = cx
+                    .layouts
+                    .lay_resolved_flex
+                    .get(id)
+                    .copied()
+                    .unwrap_or_default();
 
-                    ContentStore::measure_content(
-                        id,
-                        known_dims,
-                        available_space,
-                        &flex,
-                        &mut cx.system.sys_text_engine,
-                        &mut cx.contents.cont_input_contents,
-                        &cx.contents.cont_text_contents,
-                        &cx.contents.cont_text_spans,
-                        &cx.topology.topo_active_masks,
-                        &cx.renders.rnd_visual,
-                    )
-                })
-            };
+                ContentStore::measure_content(
+                    id,
+                    known_dims,
+                    available_space,
+                    &flex,
+                    &mut cx.system.sys_text_engine,
+                    &mut cx.contents.cont_input_contents,
+                    &cx.contents.cont_text_contents,
+                    &cx.contents.cont_text_spans,
+                    &cx.topology.topo_active_masks,
+                    &cx.renders.rnd_visual,
+                )
+            })
+        };
 
-            let _ = cx.layouts.lay_taffy_tree.compute_layout_with_measure(
+        cx.layouts
+            .lay_taffy_tree
+            .compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
                     height: taffy::AvailableSpace::Definite(window_size.height),
                 },
                 measure_func,
-            );
-        }
+            )
+            .unwrap();
 
         // ダブルバッファをスワップし、1回目の出力座標を決定
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの out_rects のみを確定
@@ -524,8 +526,10 @@ impl Pipeline {
         );
 
         // Taffy の 2回目レイアウト計算（スクロールバー配置確定後）
-        if let Some(&root_node) = cx.layouts.lay_taffy_nodes.get(root) {
-            let _ = cx.layouts.lay_taffy_tree.compute_layout_with_measure(
+        let root_node = *cx.layouts.lay_taffy_nodes.at(root);
+        cx.layouts
+            .lay_taffy_tree
+            .compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
@@ -539,15 +543,15 @@ impl Pipeline {
                  -> taffy::Size<f32> {
                     context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
                         let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
-
-                        if is_input
-                            && let Some(contents) = cx.contents.cont_input_contents.get(id)
-                            && let Some(layout_rect) = contents.last_layout
-                        {
-                            return taffy::Size {
-                                width: known_dims.width.unwrap_or(layout_rect.width),
-                                height: known_dims.height.unwrap_or(layout_rect.height),
-                            };
+                        if is_input {
+                            // マスクがあるなら Some のはず
+                            let contents = cx.contents.cont_input_contents.at(id);
+                            if let Some(layout_rect) = contents.last_layout {
+                                return taffy::Size {
+                                    width: known_dims.width.unwrap_or(layout_rect.width),
+                                    height: known_dims.height.unwrap_or(layout_rect.height),
+                                };
+                            }
                         }
 
                         // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
@@ -560,8 +564,8 @@ impl Pipeline {
                             })
                     })
                 },
-            );
-        }
+            )
+            .unwrap();
 
         // スクロールバーも加えた、最終的な出力座標の決定
         Pipeline::resolve_final_pass_rects(
@@ -1244,7 +1248,7 @@ impl Pipeline {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        lay_resolved_grid: &ResolvedGridSparse,
         bar_styles: &ScrollbarStylesSecondary,
     ) {
         for &id in lay_dirty_entities {
@@ -1252,8 +1256,8 @@ impl Pipeline {
                 continue;
             }
 
-            let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
-            let flex = lay_resolved_flex.get(id).copied().unwrap_or_default();
+            let basic = lay_resolved_basic.get_or_default(id);
+            let flex = lay_resolved_flex.get_or_default(id);
             let grid = lay_resolved_grid.get(id).cloned();
 
             // トランジション（アニメーション）中プロパティの現在値による上書き
@@ -1263,9 +1267,8 @@ impl Pipeline {
             let taffy_style =
                 LayoutStore::resolve_taffy_style(id, &basic, &flex, grid.as_ref(), bar_styles);
 
-            if let Some(taffy_node) = lay_taffy_nodes.get(id) {
-                lay_taffy_tree.set_style(*taffy_node, taffy_style).unwrap();
-            }
+            let taffy_node = *lay_taffy_nodes.at(id);
+            lay_taffy_tree.set_style(taffy_node, taffy_style).unwrap();
         }
     }
 
@@ -1273,7 +1276,7 @@ impl Pipeline {
     fn update_element_output_rect_and_clip(
         id: EntityId,
         window_size: LayoutSize,
-        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparse,
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -1300,9 +1303,9 @@ impl Pipeline {
 
         let mask = topo_active_masks.at(id);
 
-        if mask.has_input_content()
-            && let Some(contents) = cont_input_contents.get_mut(id)
-        {
+        if mask.has_input_content() {
+            // マスクがあるなら Some のはず
+            let contents = cont_input_contents.at_mut(id);
             contents.last_bounds = Some(abs_rect);
         }
 
@@ -1321,7 +1324,7 @@ impl Pipeline {
         scrollbar_el_ids: &HashSet<EntityId>,
         window_size: LayoutSize,
         window_resized: bool,
-        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparse,
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -1390,7 +1393,7 @@ impl Pipeline {
     /// 最終的な出力領域決定（スクロールバー要素を含む一括同期）
     fn resolve_final_pass_rects(
         window_size: LayoutSize,
-        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparse,
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -1471,7 +1474,7 @@ impl Pipeline {
         padding: EdgeInsets,
         flex: &FlexLayout,
         sys_text_engine: &TextEngine,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
     ) -> LayoutPoint {
         let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
             if let Some(l) = c.last_layout {
@@ -1507,9 +1510,9 @@ impl Pipeline {
         sys_text_engine: &mut TextEngine,
         win_scale_factor: f32,
         topo_active_masks: &ActiveMasksSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparse,
+        cont_text_spans: &TextSpansSparse,
+        cont_input_contents: &InputContentsSparse,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> bool {
         let mut atlas_cleared = false;
@@ -1537,26 +1540,29 @@ impl Pipeline {
     fn resolv_text_color(
         id: EntityId,
         visual: &VisualProperty,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
     ) -> Color {
-        let is_ime_active = cont_input_contents
-            .get(id)
-            .and_then(|c| c.ime_state.as_ref())
+        // 通常のテキスト色
+        let default_color = visual.text_color.unwrap_or(Color::WHITE);
+
+        // そもそも入力コンポーネントを持っていないなら通常色を返して終了
+        let Some(input) = cont_input_contents.get(id) else {
+            return default_color;
+        };
+
+        // IME変換中かどうか
+        let is_ime_active = input
+            .ime_state
+            .as_ref()
             .is_some_and(|ime| !ime.composition_text.is_empty());
 
-        let base_text_empty = cont_input_contents
-            .get(id)
-            .is_some_and(|c| c.text.0.get().is_empty());
-
-        let placeholder_color = cont_input_contents
-            .get(id)
-            .and_then(|p| p.placeholder_color)
-            .unwrap_or(Color::rgb_f32(0.5, 0.5, 0.5));
-
-        if base_text_empty && !is_ime_active {
-            placeholder_color
+        // テキストが空 かつ IME非アクティブならプレースホルダー色を採用
+        if input.to_michiu().is_empty() && !is_ime_active {
+            input
+                .placeholder_color
+                .unwrap_or(Color::rgb_f32(0.5, 0.5, 0.5))
         } else {
-            visual.text_color.unwrap_or(Color::WHITE)
+            default_color
         }
     }
 
@@ -1957,12 +1963,11 @@ impl Pipeline {
         flex: &FlexLayout,
         visual: &VisualProperty,
         win_scale_factor: f32,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
     ) {
-        let Some(contents) = cont_input_contents.get(id) else {
-            return;
-        };
+        // キャレットがあるなら入力コンポーネントもあるはず
+        let contents = cont_input_contents.at(id);
 
         if !ContentStore::should_show_caret(contents) {
             return;
@@ -2044,9 +2049,9 @@ impl Pipeline {
         id: EntityId,
         render_data: &mut RenderData,
         params: &CommonParameters,
-        cont_external_textures: &ExternalTextureSparseSecondary,
+        cont_external_textures: &ExternalTextureSparse,
     ) {
-        let provider = cont_external_textures.get(id).unwrap();
+        let provider = cont_external_textures.at(id);
         let meta = provider.metadata();
 
         let alpha_val = match meta.alpha_mode {

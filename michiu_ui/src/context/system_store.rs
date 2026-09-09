@@ -1,13 +1,12 @@
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BasicLayoutsSecondary, CapacityConfig,
     ContentStore, Context, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, FlexLayout,
-    FontDate, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutRect, LayoutStore, MichiuString, OutputStore, ParentsSecondary,
-    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparseSecondary, ScrollOffsetsSecondary, SelectedRectsSparseSecondary,
-    SelectionStartIndexSparseSecondary, TextContentsSparseSecondary, TextEngine,
-    TextSelectionsSparseSecondary, TextSpansSparseSecondary, UiaValue, VisualPropertiesSecondary,
-    WindowStore,
+    FontDate, InputContents, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
+    LayoutRect, LayoutStore, MichiuSoA, MichiuString, OutputStore, ParentsSecondary,
+    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollOffsetsSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
+    TextContentsSparse, TextEngine, TextSelectionsSparseSecondary, TextSpansSparse, UiaValue,
+    VisualPropertiesSecondary, WindowStore,
 };
 use cosmic_text::Buffer;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -133,14 +132,14 @@ impl SystemStore {
         id: EntityId,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
+        cont_text_contents: &TextContentsSparse,
+        cont_text_spans: &TextSpansSparse,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         out_rects: &RectsSecondary,
     ) -> Option<Rc<Buffer>> {
-        let text = cont_text_contents.get(id)?;
+        let text = cont_text_contents.at(id);
 
         let font = rnd_visual
             .get(id)
@@ -148,8 +147,8 @@ impl SystemStore {
             .unwrap_or_default();
         let auto_wrap = rnd_visual.get(id).and_then(|v| v.auto_wrap);
 
-        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
-        let flex = lay_resolved_flex.get(id).copied().unwrap_or_default();
+        let basic = lay_resolved_basic.get_or_default(id);
+        let flex = lay_resolved_flex.get_or_default(id);
         let rect = out_rects.get(id).copied().unwrap_or_default();
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -181,7 +180,7 @@ impl SystemStore {
         }
         sys_text_buffers.borrow_mut().remove(id);
 
-        let spans = ContentStore::get_text_span(id, cont_text_spans);
+        let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
 
         let buffer = sys_text_engine.create_buffer(
             text,

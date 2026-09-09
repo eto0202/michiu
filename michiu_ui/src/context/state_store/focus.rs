@@ -135,7 +135,9 @@ impl FocusStore {
 
         // 新しいフォーカス先が is_ime(false) の場合は IME 関連付けを解除
         let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
-        if is_input && let Some(contents) = cx.contents.cont_input_contents.get(id) {
+        if is_input {
+            // マスクがあるなら Some のはず
+            let contents = cx.contents.cont_input_contents.at(id);
             SystemStore::unassociate_ime(contents, &mut cx.window.win_default_himc);
         } else {
             // インプット以外の場合は IME をデフォルト状態に戻す

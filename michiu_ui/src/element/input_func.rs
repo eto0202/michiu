@@ -310,27 +310,23 @@ impl Element {
     }
 
     fn handle_input_char_typed(cx: &mut Context, id: EntityId, ch: &mut char) {
-        // IME未変換の入力中 (composition_textがある間) は文字入力を無視
-        let is_ime_active = cx
-            .contents
-            .cont_input_contents
-            .get(id)
-            .and_then(|c| c.ime_state.as_ref())
-            .is_some_and(|s| !s.composition_text.is_empty());
+        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+            return;
+        };
 
-        if is_ime_active {
+        // IME未変換の入力中 (composition_textがある間) は文字入力を無視
+        if contents
+            .ime_state
+            .as_ref()
+            .is_some_and(|s| !s.composition_text.is_empty())
+        {
             return;
         }
 
         let mut is_allowed = !ch.is_control();
-        let is_multiline = cx
-            .contents
-            .cont_input_contents
-            .get(id)
-            .is_some_and(|c| c.is_multiline);
 
         // 複数行入力時に、Enterキー（'\r' / '\n'）が押された場合は改行コードとして許可
-        if is_multiline && (*ch == '\r' || *ch == '\n') {
+        if contents.is_multiline && (*ch == '\r' || *ch == '\n') {
             *ch = '\n';
             is_allowed = true;
         }
@@ -338,10 +334,6 @@ impl Element {
         if !is_allowed {
             return;
         }
-
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
-            return;
-        };
 
         // 数値制限フィルター
         if contents.numeric_only && !ch.is_numeric() && *ch != '.' && *ch != '-' {

@@ -6,9 +6,9 @@ use crate::{
     FocusTrigger, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement,
     InteractionName, InteractionStyles, IntoStyleConvert, IntoStyleCornerRadius, IntoStylePoint,
     IntoStyleRect, IntoStyleResizable, IntoStyleSize, IntoStyleValue, JustifyContent,
-    KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Overflow, PointerEvents, Position,
-    PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TextAlign, Transform,
-    Transition, UserSelect, Val, VisualProperty, auto, pct,
+    KeyframeAnimation, LayoutOverflow, Length, LinearGradient, MichiuSoA, Overflow, PointerEvents,
+    Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TextAlign,
+    Transform, Transition, UserSelect, Val, VisualProperty, auto, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -153,8 +153,8 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
-                            v.display = val;
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
+                            b.display = val;
                         }
                         cx.mark_layout_dirty(id);
                     }
@@ -204,8 +204,8 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
-                            v.item_is_table = val;
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
+                            b.item_is_table = val;
                         }
                         cx.mark_layout_dirty(id);
                     }
@@ -231,8 +231,8 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
-                            v.item_is_replaced = val;
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
+                            b.item_is_replaced = val;
                         }
                         cx.mark_layout_dirty(id);
                     }
@@ -258,8 +258,8 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
-                            v.box_sizing = val;
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
+                            b.box_sizing = val;
                         }
                         cx.mark_layout_dirty(id);
                     }
@@ -297,8 +297,8 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
-                            v.direction = val;
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
+                            b.direction = val;
                         }
                         cx.mark_layout_dirty(id);
                     }
@@ -464,8 +464,8 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
-                            v.overflow = val;
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
+                            b.overflow = val;
                         }
                         cx.mark_layout_dirty(id);
                     }
@@ -527,10 +527,10 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
-                            v.overflow.x = val; // x軸のみを安全に更新（y軸の動的設定を破壊しない）
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
+                            b.overflow.x = val;
                         }
-                        cx.mark_layout_dirty(id); // クリック境界が動くため必須
+                        cx.mark_layout_dirty(id);
                     }
                 }));
             }
@@ -554,8 +554,8 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
-                            v.overflow.y = val;
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
+                            b.overflow.y = val;
                         }
                         cx.mark_layout_dirty(id);
                     }
@@ -629,8 +629,8 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
-                            v.position = val;
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
+                            b.position = val;
                         }
                         cx.mark_layout_dirty(id);
                     }
@@ -1155,14 +1155,15 @@ impl ThisStyle {
                     if target == StyleTarget::Base {
                         let w = get_w();
                         let h = get_h();
-                        if let Some(v) = cx.layouts.lay_basic.get_mut(id) {
+
+                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
                             if h <= 0.0 {
-                                v.aspect_ratio = None;
+                                b.aspect_ratio = None;
                             } else {
-                                v.aspect_ratio = Some(w / h);
+                                b.aspect_ratio = Some(w / h);
                             }
                         }
-                        cx.mark_layout_dirty(id); // レイアウト Dirty マーク
+                        cx.mark_layout_dirty(id);
                     }
                 }));
             }
@@ -3404,7 +3405,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_flex.get_mut(id) {
+                        if let Some(v) = cx.get_flex_layout_mut(id, target) {
                             v.flex_direction = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -3455,7 +3456,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.lay_flex.get_mut(id) {
+                        if let Some(v) = cx.get_flex_layout_mut(id, target) {
                             v.flex_wrap = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -4100,9 +4101,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_template_rows = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_template_rows = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -4134,9 +4133,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_template_columns = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_template_columns = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -4165,9 +4162,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_auto_rows = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_auto_rows = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -4199,9 +4194,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_auto_columns = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_auto_columns = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -4230,9 +4223,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_auto_flow = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_auto_flow = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -4264,9 +4255,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_template_areas = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_template_areas = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -4298,9 +4287,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_template_column_names = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_template_column_names = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -4329,9 +4316,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_template_row_names = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_template_row_names = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -4360,9 +4345,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_row = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_row = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -4394,9 +4377,7 @@ impl ThisStyle {
                         if !cx.layouts.lay_grid.contains_key(id) {
                             cx.layouts.lay_grid.insert(id, GridLayout::default());
                         }
-                        if let Some(grid) = cx.layouts.lay_grid.get_mut(id) {
-                            grid.grid_column = val;
-                        }
+                        cx.layouts.lay_grid.at_mut(id).grid_column = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));

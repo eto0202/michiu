@@ -241,7 +241,7 @@ impl Element {
             || mask.has(ComponentMask::STYLE_AUTO_WRAP)
         {
             if merge && cx.layouts.lay_base_basic.contains_key(id) {
-                let base = cx.layouts.lay_base_basic.get_mut(id).unwrap();
+                let base = cx.layouts.lay_base_basic.at_mut(id);
                 base.override_with(&inner.basic_layout, mask);
             } else {
                 // 前回の設定蓄積をクリアして置換
@@ -279,7 +279,7 @@ impl Element {
 
         if mask.has_flex_layout() {
             if merge && cx.layouts.lay_flex.contains_key(id) {
-                let flex = cx.layouts.lay_flex.get_mut(id).unwrap();
+                let flex = cx.layouts.lay_flex.at_mut(id);
                 flex.override_with(&inner.flex_layout, mask);
             } else {
                 cx.layouts.lay_flex.insert(id, inner.flex_layout);
@@ -620,7 +620,7 @@ impl Element {
             if !cx.layouts.lay_base_basic.contains_key(id) {
                 cx.layouts.lay_base_basic.insert(id, BasicLayout::default());
             }
-            let basic = cx.layouts.lay_base_basic.get_mut(id).unwrap();
+            let basic = cx.layouts.lay_base_basic.at_mut(id);
             basic.size.width = Val::Px(metadata.size.width);
             basic.size.height = Val::Px(metadata.size.height);
 

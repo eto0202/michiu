@@ -2,8 +2,8 @@ use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayout,
     BasicLayoutsSecondary, ComponentMask, CursorIcon, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
-    MichiuSoA, OutputStore, ParentsSecondary, Position, Rect, RectsSecondary, TaffyNodesSecondary,
-    TaffyTreeEntityId, TopologyStore, Val, VisualPropertiesSecondary,
+    MichiuSoA, OutputStore, ParentsSecondary, Position, Rect, RectsSecondary, Size,
+    TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val, VisualPropertiesSecondary,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,7 +182,7 @@ impl ResizeStore {
         let rect = out_rects.get(id).copied().unwrap_or_default();
         let (position, mut start_inset) = lay_basic
             .get(id)
-            .map_or((Position::Relative, BasicLayout::default().inset), |l| {
+            .map_or((Position::default(), BasicLayout::default().inset), |l| {
                 (l.position, l.inset)
             });
 
@@ -258,13 +258,12 @@ impl ResizeStore {
         let delta_x = logical_pos.x - state.start_mouse_pos.x;
         let delta_y = logical_pos.y - state.start_mouse_pos.y;
 
+        let basic = lay_basic.get_or_default(id);
+
         let start_rect = state.start_rect;
-        let position = lay_basic.get(id).map(|l| l.position).unwrap_or_default();
 
         // 最小サイズ・最大クランプ値の解決
         let (min_w, max_w, min_h, max_h) = {
-            let basic = lay_basic.get(id).copied().unwrap_or_default();
-
             let rect = out_rects.get(id).copied().unwrap_or_default();
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -322,7 +321,7 @@ impl ResizeStore {
         if let Some(factor) = h_factor {
             new_w = (start_rect.width + delta_x * factor).clamp(min_w, max_w);
             // 絶対配置（Absolute）で、左側へサイズを伸ばした（縮めた）場合はインセットを同期補正
-            if position == Position::Absolute && factor < 0.0 {
+            if basic.position == Position::Absolute && factor < 0.0 {
                 delta_inset_left = start_rect.width - new_w;
             }
         }
@@ -330,7 +329,7 @@ impl ResizeStore {
         if let Some(factor) = v_factor {
             new_h = (start_rect.height + delta_y * factor).clamp(min_h, max_h);
             // 絶対配置（Absolute）で、上側へサイズを伸ばした（縮めた）場合はインセットを同期補正
-            if position == Position::Absolute && factor < 0.0 {
+            if basic.position == Position::Absolute && factor < 0.0 {
                 delta_inset_top = start_rect.height - new_h;
             }
         }
@@ -341,7 +340,7 @@ impl ResizeStore {
             layout.size.width = Val::Px(new_w);
             layout.size.height = Val::Px(new_h);
 
-            if position != Position::Absolute {
+            if basic.position != Position::Absolute {
                 continue;
             }
 

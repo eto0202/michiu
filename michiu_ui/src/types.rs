@@ -689,6 +689,16 @@ impl Length {
     pub fn pct(percent: f32) -> Self {
         Self::Percent(percent)
     }
+
+    /// Px ならその値、それ以外は 0.0 を返す
+    #[inline]
+    #[must_use]
+    pub fn to_px_or_zero(&self) -> f32 {
+        match *self {
+            Length::Px(v) => v,
+            Length::Percent(_) => 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1205,7 +1215,7 @@ pub type DragStartCallback = Box<dyn FnMut(&mut Context, Element, Element) + 'st
 #[derive(Default)]
 #[allow(clippy::struct_field_names)]
 pub(crate) struct EventListeners {
-    /// 要素がクリックされた（マウスダウン ➔ 同一要素上でマウスアップされた）際のコールバック
+    /// 要素がクリックされた（マウスダウン -> 同一要素上でマウスアップされた）際のコールバック
     pub(crate) on_click: Option<ClickCallback>,
 
     /// 右クリックされた際のコールバック（コンテキストメニューの起動用など）

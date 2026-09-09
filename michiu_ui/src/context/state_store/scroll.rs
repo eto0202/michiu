@@ -8,12 +8,12 @@ use crate::{
     BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
     CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Display, EntityId, FlatDfsSequenceVec, FlexLayoutsSecondary,
-    GridLayoutsSparseSecondary, InputContentsSparseSecondary, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary,
-    Position, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparseSecondary, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparseSecondary,
-    TextEngine, TextSpansSparseSecondary, ThisStyle, UserSelect, Val, VisualPropertiesSecondary,
+    GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
+    LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Position, Rect,
+    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparse, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparse,
+    TextEngine, TextSpansSparse, ThisStyle, UserSelect, Val, VisualPropertiesSecondary,
     WindowStore,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -94,7 +94,7 @@ impl ScrollStore {
         let scroll_size = sc_sizes.get(id).copied().unwrap_or_default();
 
         // 親コンテナのボーダーおよびパディング厚を取得
-        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
+        let basic = lay_resolved_basic.get_or_default(id);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -418,9 +418,9 @@ impl ScrollStore {
         id: EntityId,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparse,
+        cont_text_spans: &TextSpansSparse,
+        cont_input_contents: &InputContentsSparse,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
@@ -437,13 +437,14 @@ impl ScrollStore {
         let mut max_y = 0.0f32;
 
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
-        if topo_active_masks.at(id).has_input_content()
-            && let Some(contents) = cont_input_contents.get(id)
-            && let Some(layout_rect) = contents.last_layout
-        {
-            max_x =
-                layout_rect.width + contents.caret_width.unwrap_or(contents.default_caret_width);
-            max_y = layout_rect.height;
+        if topo_active_masks.at(id).has_input_content() {
+            // マスクがあるなら Some のはず
+            let contents = cont_input_contents.at(id);
+            if let Some(layout_rect) = contents.last_layout {
+                max_x = layout_rect.width
+                    + contents.caret_width.unwrap_or(contents.default_caret_width);
+                max_y = layout_rect.height;
+            }
         } else if topo_active_masks.at(id).has_text_content()
             && let Some(buffer) = SystemStore::get_or_create_layout(
                 id,
@@ -463,7 +464,7 @@ impl ScrollStore {
         }
 
         // 親要素自体のボーダー・パディング厚を取得
-        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
+        let basic = lay_resolved_basic.get_or_default(id);
         let rect = out_rects.get(id).copied().unwrap_or_default();
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);

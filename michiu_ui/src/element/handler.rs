@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::{
     Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImeState,
-    LayoutPoint, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,
+    LayoutPoint, MichiuSoA, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,
 };
 
 impl Element {
@@ -17,7 +17,7 @@ impl Element {
                     .evt_listeners
                     .insert(self.id, EventListeners::default());
             }
-            let listeners = cx.events.evt_listeners.get_mut(self.id).unwrap();
+            let listeners = cx.events.evt_listeners.at_mut(self.id);
             f(listeners)
         })
     }

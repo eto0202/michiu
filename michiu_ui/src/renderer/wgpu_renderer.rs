@@ -720,24 +720,9 @@ impl WgpuRenderer {
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> (QuadInstance, bool) {
-        let basic = &cx
-            .layouts
-            .lay_resolved_basic
-            .get(entity_id)
-            .copied()
-            .unwrap_or_default();
-        let flex = &cx
-            .layouts
-            .lay_resolved_flex
-            .get(entity_id)
-            .copied()
-            .unwrap_or_default();
-        let _grid = &cx
-            .layouts
-            .lay_resolved_grid
-            .get(entity_id)
-            .cloned()
-            .unwrap_or_default();
+        let basic = &cx.layouts.lay_resolved_basic.get_or_default(entity_id);
+        let flex = &cx.layouts.lay_resolved_flex.get_or_default(entity_id);
+        let _grid = &cx.layouts.lay_resolved_grid.get_or_default(entity_id);
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders

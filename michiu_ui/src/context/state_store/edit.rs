@@ -4,13 +4,13 @@ use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
     BaseVisualPropertiesSecondary, ByteIndex, CapacityConfig, CharIndex, ChildrenSecondary, Color,
     ComponentMask, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EdgeInsets, EntityId,
-    EventStore, InputContents, InputContentsSparseSecondary, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuString, OutputStore,
-    ParentsSecondary, RangeExt, RectsSecondary, RenderStore, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollOffsetsSecondary,
-    ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparseSecondary, TextEngine,
-    TextSpansSparseSecondary, TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
+    EventStore, InputContents, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
+    LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuString, OutputStore, ParentsSecondary,
+    RangeExt, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore,
+    ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextBufferSparseSecondary, TextContentsSparse, TextEngine, TextSpansSparse, TopologyStore,
+    UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -124,8 +124,8 @@ impl TextEditStore {
     pub(crate) fn clear_selection_highlight_rect(
         id: EntityId,
         topo_active_masks: &mut ActiveMasksSecondary,
-        cont_input_contents: &mut InputContentsSparseSecondary,
-        cont_text_spans: &mut TextSpansSparseSecondary,
+        cont_input_contents: &mut InputContentsSparse,
+        cont_text_spans: &mut TextSpansSparse,
         edit_selections: &mut TextSelectionsSparseSecondary,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
     ) {
@@ -256,7 +256,7 @@ impl TextEditStore {
         buffer: &Rc<Buffer>,
         edit_selected_rects: &mut SelectedRectsSparseSecondary,
         edit_selections: &TextSelectionsSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
     ) {
         if let Some(range) = edit_selections.get(id).cloned()
             && range.start < range.end
@@ -280,7 +280,7 @@ impl TextEditStore {
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
     pub(crate) fn get_selected_text(
         evt_interaction_states: &ActiveInteractionStates,
-        cont_text_contents: &TextContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparse,
         rnd_visual: &VisualPropertiesSecondary,
         edit_selections: &TextSelectionsSparseSecondary,
     ) -> Option<MichiuString> {
@@ -301,7 +301,7 @@ impl TextEditStore {
         if user_select == UserSelect::Text {
             let range = edit_selections.get(target_id)?;
             if range.start < range.end {
-                let text = cont_text_contents.get(target_id)?;
+                let text = cont_text_contents.at(target_id);
                 let byte_range = range.clone();
                 return Some(text.slice(byte_range).to_string().into());
             }
@@ -337,14 +337,14 @@ impl TextEditStore {
         pressed_shift: bool,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparse,
+        cont_text_spans: &TextSpansSparse,
+        cont_input_contents: &InputContentsSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
@@ -435,9 +435,9 @@ impl TextEditStore {
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparseSecondary,
-        cont_text_contents: &mut TextContentsSparseSecondary,
-        cont_input_contents: &mut InputContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
+        cont_text_contents: &mut TextContentsSparse,
+        cont_input_contents: &mut InputContentsSparse,
+        cont_text_spans: &TextSpansSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
@@ -447,7 +447,7 @@ impl TextEditStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
@@ -466,7 +466,7 @@ impl TextEditStore {
         let (display_index, is_trailing) = sys_text_engine.hit_test_point(buffer, local);
 
         // 表示テキストの文字境界を進める
-        let display_text = cont_text_contents.get(id).cloned().unwrap_or_default();
+        let display_text = cont_text_contents.at(id);
         let final_display_index = if is_trailing {
             display_text.next_char_boundary(display_index)
         } else {
@@ -544,9 +544,9 @@ impl TextEditStore {
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparseSecondary,
-        cont_text_contents: &mut TextContentsSparseSecondary,
-        cont_input_contents: &mut InputContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
+        cont_text_contents: &mut TextContentsSparse,
+        cont_input_contents: &mut InputContentsSparse,
+        cont_text_spans: &TextSpansSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
@@ -556,7 +556,7 @@ impl TextEditStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
@@ -635,9 +635,9 @@ impl TextEditStore {
                 out_rects,
                 sc_sizes,
             );
-        } else if let Some(text) = cont_text_contents.get(id) {
+        } else {
             // 通常のテキスト要素
-            let text_len = text.byte_len();
+            let text_len = cont_text_contents.at(id).byte_len();
             let full_range = ByteIndex(0)..text_len;
 
             edit_selections.insert(id, full_range.clone());
@@ -659,9 +659,9 @@ impl TextEditStore {
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparseSecondary,
-        cont_text_contents: &mut TextContentsSparseSecondary,
-        cont_input_contents: &mut InputContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
+        cont_text_contents: &mut TextContentsSparse,
+        cont_input_contents: &mut InputContentsSparse,
+        cont_text_spans: &TextSpansSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
@@ -670,7 +670,7 @@ impl TextEditStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
@@ -825,9 +825,9 @@ impl TextEditStore {
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparseSecondary,
-        cont_text_contents: &mut TextContentsSparseSecondary,
-        cont_input_contents: &mut InputContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
+        cont_text_contents: &mut TextContentsSparse,
+        cont_input_contents: &mut InputContentsSparse,
+        cont_text_spans: &TextSpansSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
@@ -836,7 +836,7 @@ impl TextEditStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        lay_resolved_grid: &ResolvedGridSparse,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
@@ -864,24 +864,24 @@ impl TextEditStore {
         let Some((caret, caret_offset, is_multiline)) = ime_caret_info else {
             return;
         };
-        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
-        let flex = lay_resolved_flex.get(id).copied().unwrap_or_default();
-        let _grid = lay_resolved_grid.get(id).cloned().unwrap_or_default();
+        let basic = lay_resolved_basic.get_or_default(id);
+        let flex = lay_resolved_flex.get_or_default(id);
+        let _grid = lay_resolved_grid.get_or_default(id);
         let rect = out_rects.get(id).copied().unwrap_or_default();
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-        let should_scroll = cont_input_contents
-            .get(id)
-            .is_some_and(|c| c.needs_scroll_to_caret);
+
+        // キャレットがあるなら Some のはず
+        let contents = cont_input_contents.at_mut(id);
+
+        let should_scroll = contents.needs_scroll_to_caret;
 
         let mut scroll_offset = sc_offsets.get(id).copied().unwrap_or_default();
 
         if should_scroll && rect.width > 0.0 && rect.height > 0.0 {
             let viewport = OutputStore::calc_viewport_size(rect, border, padding);
 
-            let text_size = if let Some(contents) = cont_input_contents.get(id)
-                && let Some(layout_rect) = contents.last_layout
-            {
+            let text_size = if let Some(layout_rect) = contents.last_layout {
                 LayoutSize::new(layout_rect.width, layout_rect.height)
             } else {
                 LayoutSize::ZERO
@@ -941,9 +941,7 @@ impl TextEditStore {
                 sc_sizes,
             );
 
-            if let Some(c) = cont_input_contents.get_mut(id) {
-                c.needs_scroll_to_caret = false;
-            }
+            contents.needs_scroll_to_caret = false;
         }
 
         // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
@@ -963,9 +961,9 @@ impl TextEditStore {
         id: EntityId,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparseSecondary,
-        cont_text_contents: &mut TextContentsSparseSecondary,
-        cont_input_contents: &mut InputContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
+        cont_text_contents: &mut TextContentsSparse,
+        cont_input_contents: &mut InputContentsSparse,
+        cont_text_spans: &TextSpansSparse,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
         rnd_visual: &mut VisualPropertiesSecondary,

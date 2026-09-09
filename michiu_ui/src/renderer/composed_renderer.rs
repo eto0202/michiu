@@ -292,11 +292,8 @@ impl ComposedRenderer {
                 // WebView2 要素を抽出して昇格させる
                 let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
 
-                let is_always_active = cx
-                    .contents
-                    .cont_webview_contents
-                    .get(id)
-                    .is_some_and(|c| c.always_active);
+                // マスクがあるなら Some のはず
+                let is_always_active = cx.contents.cont_webview_contents.at(id).always_active;
 
                 // 要素自身だけでなく、上に重なっている子要素の操作中もアクティブと判定
                 let is_interactive = has_interactive_descendant(cx, id);
@@ -783,9 +780,9 @@ impl ComposedRenderer {
             let webview_controller = Rc::new(RefCell::new(None));
 
             // B. WebView2 設定のバインド (COMP_WEBVIEW_CONTENTフラグ)
-            if cx.topology.topo_active_masks.at(id).has_webveiw2_content()
-                && let Some(contents) = cx.contents.cont_webview_contents.get(id)
-            {
+            if cx.topology.topo_active_masks.at(id).has_webveiw2_content() {
+                // マスクがあるなら Some のはず
+                let contents = cx.contents.cont_webview_contents.at(id);
                 let slot_clone = webview_controller.clone();
 
                 // この要素の Visual ターゲットに向けて WebView2 を非同期初期化
@@ -793,7 +790,7 @@ impl ComposedRenderer {
                     self.hwnd,
                     visual.clone(),
                     slot_clone,
-                    contents.clone(), // 設定値（URL、DevTools等のフラグ）を引き渡す
+                    contents, // 設定値（URL、DevTools等のフラグ）を引き渡す
                     rect,
                     self.scale_factor,
                     self.webview_env.clone(),
@@ -836,9 +833,8 @@ impl ComposedRenderer {
         physical_cursor_pos: LayoutPoint, // 親ウィンドウ上の論理カーソル座標
     ) {
         // 1. allow_interaction が false なら、転送を完全に無視して早期リターン
-        if let Some(contents) = cx.contents.cont_webview_contents.get(id)
-            && !contents.allow_interaction
-        {
+        // contents はある前提
+        if !cx.contents.cont_webview_contents.at(id).allow_interaction {
             return;
         }
 

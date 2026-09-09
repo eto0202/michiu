@@ -47,6 +47,7 @@ pub const ALLOW_STRESS_TEST: bool = false;
 #[global_allocator]
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
+// cargo build --timings --example sample_collection
 // cargo build --example sample_collection --release
 // cargo run --example sample_collection --release --features dhat-heap
 fn main() -> Result<(), Box<dyn std::error::Error>> {

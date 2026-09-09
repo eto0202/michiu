@@ -225,12 +225,15 @@ impl TopologyStore {
             );
 
             // 古い親の Taffy ノードから安全にデタッチ
-            if let Some(&old_parent_node) = lay_taffy_nodes.get(old_parent)
-                && let Some(&child_node) = lay_taffy_nodes.get(child)
-                && let Ok(taffy_children) = lay_taffy_tree.children(old_parent_node)
+            let old_parent_node = *lay_taffy_nodes.at(old_parent);
+            let child_node = *lay_taffy_nodes.at(child);
+
+            if let Ok(taffy_children) = lay_taffy_tree.children(old_parent_node)
                 && taffy_children.contains(&child_node)
             {
-                let _ = lay_taffy_tree.remove_child(old_parent_node, child_node);
+                lay_taffy_tree
+                    .remove_child(old_parent_node, child_node)
+                    .unwrap();
             }
 
             // 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
@@ -261,11 +264,9 @@ impl TopologyStore {
         );
 
         // 新しい親の Taffy ツリーの親子関係を永続的に更新
-        if let Some(&parent_node) = lay_taffy_nodes.get(parent)
-            && let Some(&child_node) = lay_taffy_nodes.get(child)
-        {
-            let _ = lay_taffy_tree.add_child(parent_node, child_node);
-        }
+        let parent_node = *lay_taffy_nodes.at(parent);
+        let child_node = *lay_taffy_nodes.at(child);
+        lay_taffy_tree.add_child(parent_node, child_node).unwrap();
 
         LayoutStore::mark_layout_dirty(
             parent,
@@ -295,11 +296,12 @@ impl TopologyStore {
         outputs: &mut OutputStore,
     ) {
         // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
-        if let Some(&parent_node) = layouts.lay_taffy_nodes.get(parent)
-            && let Some(&new_node) = layouts.lay_taffy_nodes.get(new_child)
-        {
-            let _ = layouts.lay_taffy_tree.add_child(parent_node, new_node);
-        }
+        let parent_node = *layouts.lay_taffy_nodes.at(parent);
+        let new_node = *layouts.lay_taffy_nodes.at(new_child);
+        layouts
+            .lay_taffy_tree
+            .add_child(parent_node, new_node)
+            .unwrap();
 
         TopologyStore::replace_child_node(
             parent,
@@ -353,17 +355,21 @@ impl TopologyStore {
         topology.topo_is_sort_dirty = true;
 
         // 親トポロジーおよび Taffy ツリーからのデタッチ
+        // 自身がルート要素の場合親は None
         if let Some(parent_id) = *topology.topo_parents.at(id) {
-            if let Some(parent_node) = layouts.lay_taffy_nodes.get(parent_id)
-                && let Some(child_node) = layouts.lay_taffy_nodes.get(id)
-                && let Ok(taffy_children) = layouts.lay_taffy_tree.children(*parent_node)
-                && taffy_children.contains(child_node)
-            {
-                let _ = layouts
-                    .lay_taffy_tree
-                    .remove_child(*parent_node, *child_node);
+            // 親も自分もレイアウトノードを持っている場合のみTaffyツリーからのデタッチ
+            if let Some(&parent_node) = layouts.lay_taffy_nodes.get(parent_id) {
+                let child_node = *layouts.lay_taffy_nodes.at(id); // 自分はあるはず！
+                let taffy_children = layouts.lay_taffy_tree.children(parent_node).unwrap();
+                if taffy_children.contains(&child_node) {
+                    layouts
+                        .lay_taffy_tree
+                        .remove_child(parent_node, child_node)
+                        .unwrap();
+                }
             }
-            // 親要素が先に破棄されている場合があるため、子リストはあれば消す
+
+            // 親がまだ生きていれば外す
             if let Some(parent_children) = topology.topo_children.get_mut(parent_id) {
                 parent_children.retain(|x| *x != id);
             }
@@ -596,9 +602,11 @@ impl TopologyStore {
         lay_flex: &FlexLayoutsSecondary,
         out_rects: &RectsSecondary,
     ) -> usize {
-        let parent_flex = lay_flex.get(parent).copied().unwrap_or_default();
-        let is_row = parent_flex.flex_direction == FlexDirection::Row
-            || parent_flex.flex_direction == FlexDirection::RowReverse;
+        let flex_direction = lay_flex
+            .get(parent)
+            .map_or(FlexDirection::default(), |f| f.flex_direction);
+        let is_row =
+            flex_direction == FlexDirection::Row || flex_direction == FlexDirection::RowReverse;
 
         let mut insert_idx = 0;
 
@@ -819,13 +827,12 @@ impl TopologyStore {
             topo_children.at_mut(src_id).push(child_id);
 
             // Taffy 側の親子構造も、元の要素に繋ぎ戻し
-            if let Some(&src_node) = lay_taffy_nodes.get(src_id)
-                && let Some(&ph_node) = lay_taffy_nodes.get(holder)
-                && let Some(&child_node) = lay_taffy_nodes.get(child_id)
-            {
-                let _ = lay_taffy_tree.remove_child(ph_node, child_node);
-                let _ = lay_taffy_tree.add_child(src_node, child_node);
-            }
+            let src_node = *lay_taffy_nodes.at(src_id);
+            let ph_node = *lay_taffy_nodes.at(holder);
+            let child_node = *lay_taffy_nodes.at(child_id);
+
+            lay_taffy_tree.remove_child(ph_node, child_node).unwrap();
+            lay_taffy_tree.add_child(src_node, child_node).unwrap();
         }
     }
 

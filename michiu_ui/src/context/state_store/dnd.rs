@@ -143,28 +143,17 @@ impl DndStore {
                 border_top: 0.0,
             },
             DndDragPlaceholderParent::Custom(p_id) => {
-                let p_rect = out_rects.get(p_id).copied().unwrap_or_default();
-                let (b_l, b_t) = lay_basic
+                let rect = out_rects.get(p_id).copied().unwrap_or_default();
+                let (border_left, border_top) = lay_basic
                     .get(p_id)
-                    .map(|l| {
-                        (
-                            match l.border.left {
-                                Length::Px(v) => v,
-                                Length::Percent(_) => 0.0,
-                            },
-                            match l.border.top {
-                                Length::Px(v) => v,
-                                Length::Percent(_) => 0.0,
-                            },
-                        )
-                    })
+                    .map(|l| (l.border.left.to_px_or_zero(), l.border.top.to_px_or_zero()))
                     .unwrap_or_default();
 
                 PlaceholderAttachment {
                     parent_id: Some(p_id),
-                    rect: p_rect,
-                    border_left: b_l,
-                    border_top: b_t,
+                    rect,
+                    border_left,
+                    border_top,
                 }
             }
         }
@@ -232,10 +221,10 @@ impl DndStore {
         start_rect: LayoutRect,
     ) {
         // 元要素のレイアウトおよびビジュアル情報をコピー
-        if let Some(basic) = cx.layouts.lay_base_basic.get(pressed_id).copied() {
-            cx.layouts.lay_base_basic.insert(placeholder_id, basic);
-            cx.layouts.lay_basic.insert(placeholder_id, basic);
-        }
+        let basic = *cx.layouts.lay_base_basic.at_mut(pressed_id);
+        cx.layouts.lay_base_basic.insert(placeholder_id, basic);
+        cx.layouts.lay_basic.insert(placeholder_id, basic);
+
         if let Some(visual) = cx.renders.rnd_base_visual.get(pressed_id).cloned() {
             cx.renders
                 .rnd_base_visual
@@ -290,13 +279,12 @@ impl DndStore {
             topo_children.at_mut(placeholder_id).push(child_id);
 
             // Taffy 側の親子構造も、一時的にプレースホルダーに繋ぎ替え
-            if let Some(&src_node) = lay_taffy_nodes.get(pressed_id)
-                && let Some(&ph_node) = lay_taffy_nodes.get(placeholder_id)
-                && let Some(&child_node) = lay_taffy_nodes.get(child_id)
-            {
-                let _ = lay_taffy_tree.remove_child(src_node, child_node);
-                let _ = lay_taffy_tree.add_child(ph_node, child_node);
-            }
+            let src_node = *lay_taffy_nodes.at(pressed_id);
+            let ph_node = *lay_taffy_nodes.at(placeholder_id);
+            let child_node = *lay_taffy_nodes.at(child_id);
+
+            lay_taffy_tree.remove_child(src_node, child_node).unwrap();
+            lay_taffy_tree.add_child(ph_node, child_node).unwrap();
         }
 
         // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
@@ -469,18 +457,17 @@ impl DndStore {
         let local_x = logical_pos.x - (parent_rect.x + b_l) - drag_state.click_offset.x;
         let local_y = logical_pos.y - (parent_rect.y + b_t) - drag_state.click_offset.y;
 
-        if let Some(layout) = lay_basic.get_mut(placeholder) {
-            layout.inset.left = Val::Px(local_x);
-            layout.inset.top = Val::Px(local_y);
-            layout.inset.right = Val::Auto;
-            layout.inset.bottom = Val::Auto;
-        }
-        if let Some(layout) = lay_base_basic.get_mut(placeholder) {
-            layout.inset.left = Val::Px(local_x);
-            layout.inset.top = Val::Px(local_y);
-            layout.inset.right = Val::Auto;
-            layout.inset.bottom = Val::Auto;
-        }
+        let basic = lay_basic.at_mut(placeholder);
+        basic.inset.left = Val::Px(local_x);
+        basic.inset.top = Val::Px(local_y);
+        basic.inset.right = Val::Auto;
+        basic.inset.bottom = Val::Auto;
+
+        let base_basic = lay_base_basic.at_mut(placeholder);
+        base_basic.inset.left = Val::Px(local_x);
+        base_basic.inset.top = Val::Px(local_y);
+        base_basic.inset.right = Val::Auto;
+        base_basic.inset.bottom = Val::Auto;
 
         LayoutStore::mark_layout_dirty(
             placeholder,
@@ -620,29 +607,22 @@ impl DndStore {
         lay_flex: &FlexLayoutsSecondary,
         out_rects: &RectsSecondary,
     ) {
-        // ドラッグ元要素の配置（Position）の取得
-        let position = lay_basic
-            .get(src_id)
-            .map(|l| l.position)
-            .unwrap_or_default();
+        let basic = lay_basic.at_mut(src_id);
 
-        if position == Position::Absolute {
+        // ドラッグ元要素の配置
+        if basic.position == Position::Absolute {
             // 絶対配置: 位置移動（補正）を伴うアタッチ
             if drag_prop.update_position {
                 // プレースホルダーの最終的な絶対画面座標を取得
                 let ph_abs_rect = out_rects.get(holder).copied().unwrap_or_default();
                 // 新しい親（target_id）の絶対画面座標とボーダー厚みを取得
                 let target_rect = out_rects.get(target_id).copied().unwrap_or_default();
-                let (border_l, border_t) = if let Some(basic) = lay_basic.get(target_id) {
-                    let border = LayoutStore::get_physical_border(target_rect, basic.border);
-                    (border.left, border.top)
-                } else {
-                    (0.0, 0.0)
-                };
+
+                let border = LayoutStore::get_physical_border(target_rect, basic.border);
 
                 // 新しい親を基準にした新しいローカル相対位置を逆算して割り出す
-                let new_inset_left = ph_abs_rect.x - (target_rect.x + border_l);
-                let new_inset_top = ph_abs_rect.y - (target_rect.y + border_t);
+                let new_inset_left = ph_abs_rect.x - (target_rect.x + border.left);
+                let new_inset_top = ph_abs_rect.y - (target_rect.y + border.top);
 
                 let new_inset = Rect {
                     top: Val::Px(new_inset_top),
@@ -651,12 +631,8 @@ impl DndStore {
                     left: Val::Px(new_inset_left),
                 };
 
-                if let Some(basic) = lay_basic.get_mut(src_id) {
-                    basic.inset = new_inset;
-                }
-                if let Some(base_basic) = lay_base_basic.get_mut(src_id) {
-                    base_basic.inset = new_inset;
-                }
+                basic.inset = new_inset;
+                lay_base_basic.at_mut(src_id).inset = new_inset;
             }
 
             // ドロップ先コンテナ（target_id）の末尾の子要素としてマウント

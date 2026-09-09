@@ -6,23 +6,22 @@ use crate::{
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndStore, EffectiveZindicesSecondary, Element,
     ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
     FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusStore, GridLayout,
-    GridLayoutsSparseSecondary, InputContents, InputContentsSparseSecondary, InputOp,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
-    MichiuSoA, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary,
-    Pipeline, PointerEvents, Position, RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore,
-    ResizeStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStore,
-    ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
-    SessionSpawnedVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextAlign, TextBufferSparseSecondary, TextContentsSparseSecondary, TextEditStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpansSparseSecondary, SortCacheVec, TopologyStore,
-    UserSelect, UsizeRangeExt, Val, VirtualKey, VisualPropertiesSecondary, WindowStore,
-    bind_context, handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved,
-    handle_on_disable, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
-    handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
-    handle_on_focus, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter,
-    handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click,
-    handle_on_select,
+    GridLayoutsSparse, InputContents, InputContentsSparse, InputOp, InteractionPropertiesSecondary,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, MichiuSoA, MichiuString, Modifiers,
+    MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline, PointerEvents, Position,
+    RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore, ResizeStore,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
+    ScrollSizesSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSecondary,
+    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec,
+    SortCacheVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextAlign, TextBufferSparseSecondary, TextContentsSparse, TextEditStore, TextEngine,
+    TextSelectionsSparseSecondary, TextSpansSparse, TopologyStore, UserSelect, UsizeRangeExt, Val,
+    VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context, define_sparse_secondary,
+    handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
+    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
+    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
+    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
+    handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -60,10 +59,24 @@ impl ActiveInteractionStates {
     }
 }
 
-pub(crate) type EventListenersSparseSecondary = SparseSecondaryMap<EntityId, EventListeners>;
+#[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+#[into_iterator(owned, ref, ref_mut)]
+pub(crate) struct EventListenersSparse(SparseSecondaryMap<EntityId, EventListeners>);
+
+impl MichiuSoA for EventListenersSparse {
+    type Item = EventListeners;
+    #[inline]
+    fn get(&self, id: EntityId) -> Option<&Self::Item> {
+        self.0.get(id)
+    }
+    #[inline]
+    fn get_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+        self.0.get_mut(id)
+    }
+}
 
 pub struct EventStore {
-    pub(crate) evt_listeners: EventListenersSparseSecondary,
+    pub(crate) evt_listeners: EventListenersSparse,
     pub(crate) evt_interaction_states: ActiveInteractionStates,
     pub(crate) evt_current_pointer_position: Option<LayoutPoint>,
 }
@@ -79,7 +92,7 @@ impl EventStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            evt_listeners: SparseSecondaryMap::new(),
+            evt_listeners: EventListenersSparse(SparseSecondaryMap::new()),
             evt_interaction_states: ActiveInteractionStates::new(),
             evt_current_pointer_position: None,
         }
@@ -89,7 +102,7 @@ impl EventStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            evt_listeners: SparseSecondaryMap::with_capacity(c.evt_listeners),
+            evt_listeners: EventListenersSparse(SparseSecondaryMap::with_capacity(c.evt_listeners)),
             ..Default::default()
         }
     }
@@ -304,7 +317,7 @@ impl EventStore {
             {
                 // プレースホルダー選択のドラッグ遮断
                 if let Some(contents) = cx.contents.cont_input_contents.get(pressed_id) {
-                    let is_placeholder = contents.text.0.get().is_empty();
+                    let is_placeholder = contents.to_michiu().is_empty();
                     let is_ime = contents
                         .ime_state
                         .as_ref()
@@ -672,8 +685,7 @@ impl EventStore {
         };
 
         if let Some(contents) = cx.contents.cont_input_contents.get(target_id) {
-            let text_val = contents.to_michiu();
-            let is_placeholder = text_val.is_empty()
+            let is_placeholder = contents.to_michiu().is_empty()
                 && contents
                     .ime_state
                     .as_ref()
@@ -684,9 +696,7 @@ impl EventStore {
             }
         }
 
-        let Some(text) = cx.contents.cont_text_contents.get(target_id) else {
-            return;
-        };
+        let text = cx.contents.cont_text_contents.at(target_id);
 
         let Some(buffer) = SystemStore::get_or_create_layout(
             target_id,
@@ -1078,9 +1088,8 @@ impl EventStore {
         {
             return;
         }
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) else {
-            return;
-        };
+        // マスクがあるなら Some のはず
+        let contents = cx.contents.cont_input_contents.at_mut(focused_id);
 
         EventStore::handle_paste(
             focused_id,
@@ -1174,9 +1183,10 @@ impl EventStore {
         {
             return;
         }
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) else {
-            return;
-        };
+
+        // マスクがあるなら Some のはず
+        let contents = cx.contents.cont_input_contents.at_mut(focused_id);
+
         let Some((prev_text, prev_sel)) = contents.undo_stack.pop() else {
             return;
         };
@@ -1256,9 +1266,8 @@ impl EventStore {
         {
             return;
         }
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) else {
-            return;
-        };
+        // マスクがあるなら Some のはず
+        let contents = cx.contents.cont_input_contents.at_mut(focused_id);
         let Some((next_text, next_sel)) = contents.redo_stack.pop() else {
             return;
         };
@@ -1347,7 +1356,7 @@ impl EventStore {
             return None;
         }
 
-        let text = cx.contents.cont_text_contents.get(focused_id)?;
+        let text = cx.contents.cont_text_contents.at(focused_id);
         let cut_text = text.slice(range.clone()).to_string();
 
         // 対象が Input コントロールである場合のみ書き換え
@@ -1358,7 +1367,9 @@ impl EventStore {
             .has_input_content();
 
         // Input 用のコンテンツが実際に存在する場合のみ実行
-        if is_input && let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) {
+        if is_input {
+            // is_input が ture なら Some のはず
+            let contents = cx.contents.cont_input_contents.at_mut(focused_id);
             EventStore::inject_cut_internal(
                 focused_id,
                 range.clone(),

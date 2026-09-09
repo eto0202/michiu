@@ -5,16 +5,15 @@ use crate::{
     CapacityConfig, ChildrenSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius,
     DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, EdgeInsets,
     EffectiveZindicesSecondary, EntityId, EventStore, ExternalTextureAlphaMode,
-    ExternalTextureSparseSecondary, FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary,
-    GridLayoutsSparseSecondary, IDENTITY_MATRIX, InputContents, InputContentsSparseSecondary,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
-    ParentsSecondary, PointerEvents, Position, PropertyList, QuadInstance, ReactiveStore,
-    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparseSecondary, ScrollOffsetsSecondary, ScrollStore, ScrollbarStylesSecondary,
-    SortedEntitiesVec, StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextAlign, TextBufferSparseSecondary, TextCacheKey, TextCacheValue,
-    TextContentsSparseSecondary, TextEngine, TextSpan, TextSpansSparseSecondary, TextureAtlas,
-    SortCacheVec, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
+    ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, GridLayoutsSparse,
+    IDENTITY_MATRIX, InputContents, InputContentsSparse, InteractionPropertiesSecondary,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, ParentsSecondary, PointerEvents,
+    Position, PropertyList, QuadInstance, ReactiveStore, RenderData, RenderStore, RendererView,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
+    ScrollStore, ScrollbarStylesSecondary, SortCacheVec, SortedEntitiesVec, StrikethroughStyle,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextBufferSparseSecondary,
+    TextCacheKey, TextCacheValue, TextContentsSparse, TextEngine, TextSpan, TextSpansSparse,
+    TextureAtlas, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
     VisualPropertiesSecondary, VisualProperty, WindowStore,
 };
 use cosmic_text::Buffer;
@@ -111,12 +110,12 @@ impl OutputStore {
         logical_pos: LayoutPoint,
         buffer: Option<&Rc<Buffer>>,
         sys_text_engine: &mut TextEngine,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        lay_resolved_grid: &ResolvedGridSparse,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
         rnd_visual: &VisualPropertiesSecondary,
@@ -125,9 +124,9 @@ impl OutputStore {
     ) -> LayoutPoint {
         let rect = out_rects.get(id).copied().unwrap_or_default();
 
-        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
-        let flex = lay_resolved_flex.get(id).copied().unwrap_or_default();
-        let _ = lay_resolved_grid.get(id).cloned().unwrap_or_default(); // TODO: Grid実装時用
+        let basic = lay_resolved_basic.get_or_default(id);
+        let flex = lay_resolved_flex.get_or_default(id);
+        let _ = lay_resolved_grid.get_or_default(id); // TODO: Grid実装時用
 
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -191,6 +190,7 @@ impl OutputStore {
         };
 
         let s_offsets = sc_offsets.get(parent_id).copied().unwrap_or_default();
+        // データが無い要素が Absolute になることは絶対にない
         let is_absolute = lay_basic
             .get(id)
             .is_some_and(|l| l.position == Position::Absolute);

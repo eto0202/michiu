@@ -5,11 +5,11 @@ use crate::{
     ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DirtyLayoutEntitiesVec,
     Display, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId,
     FlatDfsSequenceVec, FocusTrigger, Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX,
-    InputContentsSparseSecondary, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents,
-    PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSecondary,
-    StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary,
-    ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
+    InputContentsSparse, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
+    MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList,
+    ReactiveStore, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSecondary, StyleTarget,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, ThisStyle,
+    TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -174,7 +174,7 @@ impl RenderStore {
     pub(crate) fn has_active_frame(
         evt_interaction_states: &ActiveInteractionStates,
         evt_current_pointer_position: Option<&LayoutPoint>,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
         bar_styles: &ScrollbarStylesSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparseSecondary,
@@ -688,15 +688,15 @@ impl RenderStore {
                 v.corner_radius = Some(cr);
             }
             TransitionValue::Width(w) => {
-                if let Some(layout) = lay_basic.get_mut(id) {
-                    layout.size.width = Val::Px(w);
-                }
+                // 書き込み先は絶対にあるはず
+                let layout = lay_basic.at_mut(id);
+                layout.size.width = Val::Px(w);
                 is_layout_dirty = true;
             }
             TransitionValue::Height(h) => {
-                if let Some(layout) = lay_basic.get_mut(id) {
-                    layout.size.height = Val::Px(h);
-                }
+                // 書き込み先は絶対にあるはず
+                let layout = lay_basic.at_mut(id);
+                layout.size.height = Val::Px(h);
                 is_layout_dirty = true;
             }
             TransitionValue::BoxShadow(shadow) => {
@@ -777,7 +777,7 @@ impl RenderStore {
         win_last_size: Option<&LayoutSize>,
         sys_text_buffers: &TextBufferSparseSecondary,
         react_element_effects: &ElementEffectsSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_is_sort_dirty: &mut bool,
         topo_entities: &EntitiesSlot,
@@ -867,8 +867,8 @@ impl RenderStore {
             return;
         }
 
-        let active_layout = lay_basic.get(id).copied().unwrap_or_default();
-        let base_layout = lay_base_basic.get(id).copied().unwrap_or_default();
+        let active_layout = lay_basic.get_or_default(id);
+        let base_layout = lay_base_basic.get_or_default(id);
         let mut target_layout = base_layout;
 
         RenderStore::cascade_basic_layout(id, &mut target_layout, active_mask, rnd_interaction);
@@ -938,7 +938,7 @@ impl RenderStore {
         if !lay_basic.contains_key(id) {
             lay_basic.insert(id, BasicLayout::default());
         }
-        let active_layout_mut = lay_basic.get_mut(id).unwrap();
+        let active_layout_mut = lay_basic.at_mut(id);
 
         // 解決後の target_layout と 現在の active_layout が異なっているか
         let is_layout_changed = *active_layout_mut != target_layout;
@@ -969,7 +969,7 @@ impl RenderStore {
         allow_transition: bool,
         sys_text_buffers: &TextBufferSparseSecondary,
         react_element_effects: &ElementEffectsSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_is_sort_dirty: &mut bool,
         topo_entities: &EntitiesSlot,
@@ -1029,7 +1029,7 @@ impl RenderStore {
                 .ime_state
                 .as_ref()
                 .is_none_or(|s| s.composition_text.is_empty());
-            if contents.text.0.get().is_empty() && has_no_ime {
+            if contents.to_michiu().is_empty() && has_no_ime {
                 is_placeholder_active = true;
             }
         }
@@ -1650,9 +1650,8 @@ impl RenderStore {
                         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
                     }
                     TransitionValue::Width(w) => {
-                        if let Some(layout) = lay_basic.get_mut(id) {
-                            layout.size.width = Val::Px(w); // ピクセル値で上書き
-                        }
+                        let layout = lay_basic.at_mut(id);
+                        layout.size.width = Val::Px(w); // ピクセル値で上書き
                         LayoutStore::mark_layout_dirty(
                             id,
                             topo_active_masks,
@@ -1664,9 +1663,8 @@ impl RenderStore {
                     }
                     // 縦幅（Height）の毎フレームアニメーション補間
                     TransitionValue::Height(h) => {
-                        if let Some(layout) = lay_basic.get_mut(id) {
-                            layout.size.height = Val::Px(h);
-                        }
+                        let layout = lay_basic.at_mut(id);
+                        layout.size.height = Val::Px(h);
                         LayoutStore::mark_layout_dirty(
                             id,
                             topo_active_masks,
