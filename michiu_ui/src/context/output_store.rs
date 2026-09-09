@@ -14,7 +14,7 @@ use crate::{
     SortedEntitiesVec, StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
     TextAlign, TextBufferSparseSecondary, TextCacheKey, TextCacheValue,
     TextContentsSparseSecondary, TextEngine, TextSpan, TextSpansSparseSecondary, TextureAtlas,
-    TopoSortCacheVec, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
+    SortCacheVec, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
     VisualPropertiesSecondary, VisualProperty, WindowStore,
 };
 use cosmic_text::Buffer;

@@ -88,91 +88,75 @@ pub(crate) trait MichiuSoA {
 
 #[macro_export]
 macro_rules! define_slotmap {
-    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty => $item:ty);) => {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty => $item:ty) $(;)?) => {
         $(#[$meta])*
-        #[derive(Debug, Default)]
+        #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut)]
         $vis struct $name(pub(crate) slotmap::SlotMap<$key, $item>);
-
-        impl std::ops::Deref for $name {
-            type Target = slotmap::SlotMap<$key, $item>;
-            #[inline] fn deref(&self) -> &Self::Target { &self.0 }
-        }
-        impl std::ops::DerefMut for $name {
-            #[inline] fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
-        }
     };
 }
 
 #[macro_export]
 macro_rules! define_secondary {
-    ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty);) => {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty) $(;)?) => {
         $(#[$meta])*
-        #[derive(Debug, Default, Clone)]
+        #[derive(Debug, Default, Clone, derive_more::Deref, derive_more::DerefMut)]
         $vis struct $name(pub(crate) slotmap::SecondaryMap<$crate::EntityId, $item>);
 
         impl $crate::MichiuSoA for $name {
             type Item = $item;
-            #[inline] fn get(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
-            #[inline] fn get_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
-        }
-
-        impl std::ops::Deref for $name {
-            type Target = slotmap::SecondaryMap<$crate::EntityId, $item>;
-            #[inline] fn deref(&self) -> &Self::Target { &self.0 }
-        }
-        impl std::ops::DerefMut for $name {
-            #[inline] fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
+            #[inline]
+            fn get(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
+            #[inline]
+            fn get_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
         }
     };
 
-    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty => $item:ty);) => {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty => $item:ty) $(;)?) => {
         $(#[$meta])*
-        #[derive(Debug, Default, Clone)]
+        #[derive(Debug, Default, Clone, derive_more::Deref, derive_more::DerefMut)]
         $vis struct $name(pub(crate) slotmap::SecondaryMap<$key, $item>);
-
-        impl std::ops::Deref for $name {
-            type Target = slotmap::SecondaryMap<$key, $item>;
-            #[inline] fn deref(&self) -> &Self::Target { &self.0 }
-        }
-        impl std::ops::DerefMut for $name {
-            #[inline] fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
-        }
     };
 }
 
 #[macro_export]
 macro_rules! define_sparse_secondary {
-    ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty);) => {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty) $(;)?) => {
         $(#[$meta])*
-        #[derive(Debug, Default, Clone)]
+        #[derive(Debug, Default, Clone, derive_more::Deref, derive_more::DerefMut)]
         $vis struct $name(pub(crate) slotmap::SparseSecondaryMap<$crate::EntityId, $item>);
 
         impl $crate::MichiuSoA for $name {
             type Item = $item;
-            #[inline] fn get(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
-            #[inline] fn get_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
-        }
-
-        impl std::ops::Deref for $name {
-            type Target = slotmap::SparseSecondaryMap<$crate::EntityId, $item>;
-            #[inline] fn deref(&self) -> &Self::Target { &self.0 }
-        }
-        impl std::ops::DerefMut for $name {
-            #[inline] fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
+            #[inline]
+            fn get(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
+            #[inline]
+            fn get_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
         }
     };
 
-    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty => $item:ty);) => {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty => $item:ty) $(;)?) => {
         $(#[$meta])*
-        #[derive(Debug, Default, Clone)]
+        #[derive(Debug, Default, Clone, derive_more::Deref, derive_more::DerefMut)]
         $vis struct $name(pub(crate) slotmap::SparseSecondaryMap<$key, $item>);
+    };
+}
 
-        impl std::ops::Deref for $name {
-            type Target = slotmap::SparseSecondaryMap<$key, $item>;
-            #[inline] fn deref(&self) -> &Self::Target { &self.0 }
-        }
-        impl std::ops::DerefMut for $name {
-            #[inline] fn deref_mut(&mut self) -> &mut Self::Target { &mut self.0 }
-        }
+#[macro_export]
+macro_rules! define_vec {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty) $(;)?) => {
+        $(#[$meta])*
+        #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+        #[into_iterator(owned, ref, ref_mut)]
+        $vis struct $name(pub(crate) Vec<$item>);
+    };
+}
+
+// SmallVec は 参照に対する IntoIterator を持っていない
+#[macro_export]
+macro_rules! define_smallvec {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty, $size:expr) $(;)?) => {
+        $(#[$meta])*
+        #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+        $vis struct $name(pub(crate) smallvec::SmallVec<[$item; $size]>);
     };
 }

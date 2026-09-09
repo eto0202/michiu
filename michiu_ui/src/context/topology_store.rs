@@ -4,8 +4,10 @@ use crate::{
     EventStore, FlexDirection, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint, LayoutRect,
     LayoutSize, LayoutStore, MichiuSoA, OutputStore, PointerEvents, ReactiveStore, RectsSecondary,
     RenderStore, StateStore, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    VisualPropertiesSecondary, WindowStore, define_secondary, define_slotmap,
+    VisualPropertiesSecondary, WindowStore, define_secondary, define_slotmap, define_smallvec,
+    define_vec,
 };
+use derive_more::{Deref, DerefMut, IntoIterator};
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
 
@@ -16,28 +18,23 @@ struct StackFrame {
     clip: LayoutRect,
 }
 
-define_slotmap!(pub(crate) struct EntitiesSlot(EntityId => ()););
+define_slotmap!(pub(crate) struct EntitiesSlot(EntityId => ()));
 
-define_secondary!(
-    pub(crate) struct ParentsSecondary(Option<EntityId>);
-);
-define_secondary!(
-    pub(crate) struct ChildrenSecondary(SmallVec<[EntityId; 4]>);
-);
-define_secondary!(
-    pub(crate) struct ActiveMasksSecondary(ComponentMask);
-);
+define_secondary!(pub(crate) struct ParentsSecondary(Option<EntityId>));
+define_secondary!(pub(crate) struct ChildrenSecondary(SmallVec<[EntityId; 4]>));
+define_secondary!(pub(crate) struct ActiveMasksSecondary(ComponentMask));
+define_secondary!(pub(crate) struct EffectiveZindicesSecondary(i32));
+define_secondary!(pub(crate) struct DfsIndicesSecondary(u32));
 
-pub(crate) type ActiveEntitiesVec = Vec<EntityId>;
-pub(crate) type SessionSpawnedVec = Vec<EntityId>;
-pub(crate) type SessionRootsVec = Vec<EntityId>;
-pub(crate) type FlatDfsSequenceVec = Vec<EntityId>;
-pub(crate) type EffectiveZindicesSecondary = SecondaryMap<EntityId, i32>;
-pub(crate) type SortedEntitiesVec = Vec<EntityId>;
-pub(crate) type DfsIndicesSecondary = SecondaryMap<EntityId, u32>;
-pub(crate) type TopoSortCacheVec = Vec<(EntityId, i32, u32)>;
-pub(crate) type WebviewEntitiesVec = SmallVec<[EntityId; 4]>;
-pub(crate) type DespawnedQueueVec = Vec<EntityId>;
+define_vec!(pub(crate) struct ActiveEntitiesVec(EntityId));
+define_vec!(pub(crate) struct SessionSpawnedVec(EntityId));
+define_vec!(pub(crate) struct FlatDfsSequenceVec(EntityId));
+define_vec!(pub(crate) struct SortedEntitiesVec(EntityId));
+define_vec!(pub(crate) struct SortCacheVec((EntityId, i32, u32)));
+
+define_smallvec!(pub(crate) struct SessionRootsVec(EntityId, 4));
+define_smallvec!(pub(crate) struct WebviewEntitiesVec(EntityId, 4));
+define_smallvec!(pub(crate) struct DespawnedQueueVec(EntityId, 4));
 
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
@@ -60,7 +57,7 @@ pub struct TopologyStore {
     // 実効 z-index の作業用マップ
     pub(crate) topo_effective_z_indices: EffectiveZindicesSecondary,
     pub(crate) topo_sorted_entities: SortedEntitiesVec,
-    pub(crate) topo_sort_cache: TopoSortCacheVec,
+    pub(crate) topo_sort_cache: SortCacheVec,
     pub(crate) topo_is_structure_dirty: bool,
     pub(crate) topo_is_sort_dirty: bool,
     pub(crate) topo_webview_entities: WebviewEntitiesVec,
@@ -79,21 +76,21 @@ impl TopologyStore {
     pub fn new() -> Self {
         Self {
             topo_entities: EntitiesSlot(SlotMap::with_key()),
-            topo_active_entities: Vec::new(),
+            topo_active_entities: ActiveEntitiesVec(Vec::new()),
             topo_active_masks: ActiveMasksSecondary(SecondaryMap::new()),
             topo_parents: ParentsSecondary(SecondaryMap::new()),
             topo_children: ChildrenSecondary(SecondaryMap::new()),
-            topo_session_spawned: Vec::new(),
-            topo_session_roots: Vec::new(),
-            topo_flat_dfs_sequence: Vec::new(),
-            topo_dfs_indices: SecondaryMap::new(),
-            topo_effective_z_indices: SecondaryMap::new(),
-            topo_sorted_entities: Vec::new(),
-            topo_sort_cache: Vec::new(),
+            topo_session_spawned: SessionSpawnedVec(Vec::new()),
+            topo_session_roots: SessionRootsVec(SmallVec::new()),
+            topo_flat_dfs_sequence: FlatDfsSequenceVec(Vec::new()),
+            topo_dfs_indices: DfsIndicesSecondary(SecondaryMap::new()),
+            topo_effective_z_indices: EffectiveZindicesSecondary(SecondaryMap::new()),
+            topo_sorted_entities: SortedEntitiesVec(Vec::new()),
+            topo_sort_cache: SortCacheVec(Vec::new()),
             topo_is_structure_dirty: true,
             topo_is_sort_dirty: true,
-            topo_webview_entities: SmallVec::new(),
-            topo_despawned_queue: Vec::new(),
+            topo_webview_entities: WebviewEntitiesVec(SmallVec::new()),
+            topo_despawned_queue: DespawnedQueueVec(SmallVec::new()),
         }
     }
 
@@ -102,21 +99,29 @@ impl TopologyStore {
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             topo_entities: EntitiesSlot(SlotMap::with_capacity_and_key(c.topo_entities)),
-            topo_active_entities: Vec::with_capacity(c.topo_active_entities),
+            topo_active_entities: ActiveEntitiesVec(Vec::with_capacity(c.topo_active_entities)),
             topo_active_masks: ActiveMasksSecondary(SecondaryMap::with_capacity(
                 c.topo_active_masks,
             )),
             topo_parents: ParentsSecondary(SecondaryMap::with_capacity(c.topo_parents)),
             topo_children: ChildrenSecondary(SecondaryMap::with_capacity(c.topo_children)),
-            topo_session_spawned: Vec::with_capacity(c.topo_session_spawned),
-            topo_session_roots: Vec::with_capacity(c.topo_session_roots),
-            topo_flat_dfs_sequence: Vec::with_capacity(c.topo_flat_dfs_sequence),
-            topo_dfs_indices: SecondaryMap::with_capacity(c.topo_dfs_indices),
-            topo_effective_z_indices: SecondaryMap::with_capacity(c.topo_effective_z_indices),
-            topo_sorted_entities: Vec::with_capacity(c.topo_sorted_entities),
-            topo_sort_cache: Vec::with_capacity(c.topo_sort_cache),
-            topo_webview_entities: SmallVec::with_capacity(c.topo_webview_entities),
-            topo_despawned_queue: Vec::with_capacity(c.topo_despawned_queue),
+            topo_session_spawned: SessionSpawnedVec(Vec::with_capacity(c.topo_session_spawned)),
+            topo_session_roots: SessionRootsVec(SmallVec::with_capacity(c.topo_session_roots)),
+            topo_flat_dfs_sequence: FlatDfsSequenceVec(Vec::with_capacity(
+                c.topo_flat_dfs_sequence,
+            )),
+            topo_dfs_indices: DfsIndicesSecondary(SecondaryMap::with_capacity(c.topo_dfs_indices)),
+            topo_effective_z_indices: EffectiveZindicesSecondary(SecondaryMap::with_capacity(
+                c.topo_effective_z_indices,
+            )),
+            topo_sorted_entities: SortedEntitiesVec(Vec::with_capacity(c.topo_sorted_entities)),
+            topo_sort_cache: SortCacheVec(Vec::with_capacity(c.topo_sort_cache)),
+            topo_webview_entities: WebviewEntitiesVec(SmallVec::with_capacity(
+                c.topo_webview_entities,
+            )),
+            topo_despawned_queue: DespawnedQueueVec(SmallVec::with_capacity(
+                c.topo_despawned_queue,
+            )),
             ..Default::default()
         }
     }
@@ -146,14 +151,14 @@ impl TopologyStore {
         self.topo_active_masks.remove(id);
         self.topo_parents.remove(id);
         self.topo_session_spawned.retain(|&x| x != id);
-        self.topo_session_roots.retain(|&x| x != id);
+        self.topo_session_roots.retain(|x| *x != id);
         self.topo_flat_dfs_sequence.retain(|&x| x != id);
         self.topo_dfs_indices.remove(id);
         self.topo_effective_z_indices.remove(id);
         self.topo_sorted_entities.retain(|&x| x != id);
         self.topo_sort_cache.retain(|&x| x.0 != id);
         self.topo_webview_entities.retain(|x| *x != id);
-        self.topo_despawned_queue.retain(|&x| x != id);
+        self.topo_despawned_queue.retain(|x| *x != id);
     }
 }
 
@@ -645,7 +650,7 @@ impl TopologyStore {
         topo_dfs_indices: &mut DfsIndicesSecondary,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_sorted_entities: &mut SortedEntitiesVec,
-        topo_sort_cache: &mut TopoSortCacheVec,
+        topo_sort_cache: &mut SortCacheVec,
         topo_is_sort_dirty: &mut bool,
         topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,
@@ -780,8 +785,8 @@ impl TopologyStore {
                 .at(id)
                 .has(ComponentMask::STATE_RENDER_VISIBLE)
             {
-                let z = topo_effective_z_indices.get(id).copied().unwrap_or(0);
-                let dfs = topo_dfs_indices.get(id).copied().unwrap_or(0);
+                let z = *topo_effective_z_indices.at(id);
+                let dfs = *topo_dfs_indices.at(id);
                 topo_sort_cache.push((id, z, dfs));
             }
         }
@@ -856,7 +861,7 @@ impl TopologyStore {
         topo_dfs_indices: &mut DfsIndicesSecondary,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_sorted_entities: &mut SortedEntitiesVec,
-        topo_sort_cache: &mut TopoSortCacheVec,
+        topo_sort_cache: &mut SortCacheVec,
         topo_is_sort_dirty: &mut bool,
         topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,

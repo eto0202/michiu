@@ -15,7 +15,7 @@ use crate::{
     ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
     SessionSpawnedVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
     TextAlign, TextBufferSparseSecondary, TextContentsSparseSecondary, TextEditStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore,
+    TextSelectionsSparseSecondary, TextSpansSparseSecondary, SortCacheVec, TopologyStore,
     UserSelect, UsizeRangeExt, Val, VirtualKey, VisualPropertiesSecondary, WindowStore,
     bind_context, handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved,
     handle_on_disable, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,

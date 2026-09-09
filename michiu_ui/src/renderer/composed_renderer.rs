@@ -288,7 +288,7 @@ impl ComposedRenderer {
 
             let mut current_promoted_ids = Vec::new();
 
-            for &id in &cx.topology.topo_webview_entities {
+            for &id in cx.topology.topo_webview_entities.iter() {
                 // WebView2 要素を抽出して昇格させる
                 let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
 
@@ -912,7 +912,7 @@ impl ComposedRenderer {
         unsafe {
             // 1. D3D11 デバイスを作成
             // グローバルなマネージャーの解決を試みる（失敗時は呼び出し元にエラーを伝播できるよう、後々 Result にするか
-            // ここではひとまず unwrap() などで処理する形にしておきます）
+            // ここではひとまず unwrap() などで処理する形
             let manager = DCompDeviceManager::global()?;
             let dcomp_device = manager.dcomp_device.clone();
 
