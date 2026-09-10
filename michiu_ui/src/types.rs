@@ -672,6 +672,7 @@ impl<T: Clone> Point<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
 pub enum Length {
     Px(f32),
     Percent(f32),
@@ -702,6 +703,7 @@ impl Length {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
 pub enum Val {
     Auto,
     Px(f32),
@@ -729,6 +731,7 @@ impl Val {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum Display {
     #[default]
     Flex,
@@ -738,6 +741,7 @@ pub enum Display {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum Position {
     #[default]
     Relative,
@@ -745,6 +749,7 @@ pub enum Position {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum BoxSizing {
     #[default]
     BorderBox,
@@ -752,6 +757,7 @@ pub enum BoxSizing {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum Direction {
     #[default]
     Ltr,
@@ -759,6 +765,7 @@ pub enum Direction {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum Overflow {
     #[default]
     Visible,
@@ -774,6 +781,7 @@ pub struct LayoutOverflow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum FlexDirection {
     #[default]
     Row,
@@ -783,6 +791,7 @@ pub enum FlexDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum FlexWrap {
     #[default]
     NoWrap,
@@ -791,6 +800,7 @@ pub enum FlexWrap {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum AlignItems {
     Start,
     End,
@@ -808,6 +818,7 @@ pub enum AlignItems {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum AlignSelf {
     Start,
     End,
@@ -825,6 +836,7 @@ pub enum AlignSelf {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum JustifyContent {
     Start,
     End,
@@ -844,6 +856,7 @@ pub enum JustifyContent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum AlignContent {
     Start,
     End,
@@ -863,6 +876,7 @@ pub enum AlignContent {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum TextAlign {
     #[default]
     Auto,
@@ -872,6 +886,7 @@ pub enum TextAlign {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(u8)]
 pub enum GridAutoFlow {
     #[default]
     Row,
@@ -1068,6 +1083,7 @@ impl PartialEq for AnimationCurve {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum PlaybackCount {
     Infinite,
     Count(u32),
@@ -1140,6 +1156,7 @@ pub enum PointerEvents {
 
 /// 子要素から伝播して解決可能なインタラクション定義
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum InteractionName {
     Hover,
     Focus,
@@ -1610,6 +1627,7 @@ impl CursorIcon {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum MouseButton {
     Left,
     Right,
@@ -1619,6 +1637,7 @@ pub enum MouseButton {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum ElementState {
     Pressed,
     Released,
@@ -1635,6 +1654,7 @@ pub struct Modifiers {
 
 /// UI Automation (UIA) のプロパティ値の安全な表現
 #[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
 pub enum UiaValue {
     String(String),
     Bool(bool),
@@ -1654,6 +1674,7 @@ pub enum Backdrop {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
 pub enum UserSelect {
     #[default]
     None,
@@ -1683,6 +1704,7 @@ pub enum BorderAlignment {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
 pub enum InteractionState {
     Hovered,
     Focused,
@@ -1709,6 +1731,7 @@ pub struct ExternalTextureMetadata {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum ExternalTextureAlphaMode {
     /// 通常（Straight）アルファ。シェーダー内で自動的に PMA（乗算済みアルファ）へ変換。
     Straight,

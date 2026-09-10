@@ -166,7 +166,7 @@ impl LayoutStore {
         let active_mask = topo_active_masks.at(id);
 
         // 幅・高さ・一括サイズに対して、現在トランジションアニメーションが駆動中であるかを走査
-        let (is_width_transitioning, is_height_transitioning) =
+        let is_transitioning =
             LayoutStore::is_transition_currently_running(id, rnd_active_transitions);
 
         // 自身、または親先祖から focused / focus_visible のフォーカス関連スタイルを解決
@@ -193,7 +193,7 @@ impl LayoutStore {
             &mut flex,
             &mut grid,
             &[focused_style_resolved, focused_visible_style_resolved],
-            (is_width_transitioning, is_height_transitioning),
+            is_transitioning,
             rnd_interaction,
         );
 
@@ -241,14 +241,16 @@ impl LayoutStore {
         target: StyleTarget,
         lay_base_basic: &'a mut BaseBasicLayoutsSecondary,
         rnd_interaction: &'a mut InteractionPropertiesSecondary,
-    ) -> Option<&'a mut BasicLayout> {
+    ) -> &'a mut BasicLayout {
         if target == StyleTarget::Base {
-            lay_base_basic.get_mut(id)
+            lay_base_basic.at_mut(id)
         } else {
-            // rnd_interaction から該当疑似クラスを安全に解決
-            let styles = rnd_interaction.get_mut(id)?;
+            if !rnd_interaction.contains_key(id) {
+                rnd_interaction.insert(id, InteractionStyles::default());
+            }
+            let styles = rnd_interaction.get_mut(id).unwrap();
             let style_ref = styles.get_style_target_mut(target);
-            Some(&mut Arc::make_mut(&mut style_ref.inner).basic_layout)
+            &mut Arc::make_mut(&mut style_ref.inner).basic_layout
         }
     }
 
@@ -257,16 +259,16 @@ impl LayoutStore {
         target: StyleTarget,
         lay_flex: &'a mut FlexLayoutsSecondary,
         rnd_interaction: &'a mut InteractionPropertiesSecondary,
-    ) -> Option<&'a mut FlexLayout> {
+    ) -> &'a mut FlexLayout {
         if target == StyleTarget::Base {
-            lay_flex.get_mut(id)
+            lay_flex.at_mut(id)
         } else {
             if !rnd_interaction.contains_key(id) {
                 rnd_interaction.insert(id, InteractionStyles::default());
             }
             let styles = rnd_interaction.get_mut(id).unwrap();
             let style_ref = styles.get_style_target_mut(target);
-            Some(&mut Arc::make_mut(&mut style_ref.inner).flex_layout)
+            &mut Arc::make_mut(&mut style_ref.inner).flex_layout
         }
     }
 
@@ -586,7 +588,7 @@ impl Context {
         &mut self,
         id: EntityId,
         target: StyleTarget,
-    ) -> Option<&mut BasicLayout> {
+    ) -> &mut BasicLayout {
         LayoutStore::get_basic_layout_mut(
             id,
             target,
@@ -600,7 +602,7 @@ impl Context {
         &mut self,
         id: EntityId,
         target: StyleTarget,
-    ) -> Option<&mut FlexLayout> {
+    ) -> &mut FlexLayout {
         LayoutStore::get_flex_layout_mut(
             id,
             target,

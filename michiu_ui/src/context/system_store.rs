@@ -1,11 +1,12 @@
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BasicLayoutsSecondary, CapacityConfig,
-    ContentStore, Context, DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, FlexLayout,
-    FontDate, InputContents, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutRect, LayoutStore, MichiuSoA, MichiuString, OutputStore, ParentsSecondary,
-    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
-    ScrollOffsetsSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
-    TextContentsSparse, TextEngine, TextSelectionsSparseSecondary, TextSpansSparse, UiaValue,
+    ContentStore, Context, DEFAULT_BASIC, DEFAULT_FLEX, DirtyRenderEntitiesVec, EdgeInsets,
+    EntityId, EventStore, FlexLayout, FontDate, InputContents, InputContentsSparse,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutStore, MichiuSoA, MichiuString,
+    OutputStore, ParentsSecondary, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
+    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, TextContentsSparse,
+    TextEngine, TextSelectionsSparseSecondary, TextSpansSparse, UiaValue,
     VisualPropertiesSecondary, WindowStore,
 };
 use cosmic_text::Buffer;
@@ -149,7 +150,7 @@ impl SystemStore {
 
         let basic = lay_resolved_basic.get_or_default(id);
         let flex = lay_resolved_flex.get_or_default(id);
-        let rect = out_rects.get(id).copied().unwrap_or_default();
+        let rect = out_rects.get_or_default(id); // 初回実行の場合、存在しない可能性
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 

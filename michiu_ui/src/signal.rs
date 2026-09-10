@@ -68,6 +68,40 @@ impl<T> ReadSignal<T> {
     }
 }
 
+impl<T: 'static> ReadSignal<T> {
+    /// 依存関係の自動トラッキング
+    #[inline]
+    fn track(&self) {
+        ACTIVE_EFFECT.with(|cell| {
+            if let Some(active_effect_id) = cell.get() {
+                with_context(|cx| {
+                    if let Some(subs) = cx.reactive.react_subscribers.get_mut(self.id) {
+                        if !subs.contains(&active_effect_id) {
+                            subs.push(active_effect_id);
+                        }
+                    } else {
+                        let mut subs: smallvec::SmallVec<[EffectId; 8]> = smallvec::SmallVec::new();
+                        subs.push(active_effect_id);
+                        cx.reactive.react_subscribers.insert(self.id, subs);
+                    }
+                });
+            }
+        });
+    }
+
+    /// 参照 `&T` を使って処理を行い結果だけを取り出す
+    #[inline]
+    pub fn with<U>(&self, f: impl FnOnce(&T) -> U) -> U {
+        self.track();
+
+        with_context(|cx| {
+            let any_val = &cx.reactive.react_signals[self.id];
+            let val = any_val.downcast_ref::<T>().expect("Signal type mismatch");
+            f(val)
+        })
+    }
+}
+
 impl<T: Clone + 'static> ReadSignal<T> {
     #[inline]
     #[must_use]
@@ -76,35 +110,10 @@ impl<T: Clone + 'static> ReadSignal<T> {
     }
     /// シグナルの現在の値を取得（複製）します。
     /// もし現在エフェクトの評価中であれば、そのエフェクトをこのシグナルの依存先（Subscriber）として自動登録します。
+    #[inline]
     #[must_use]
     pub fn get(&self) -> T {
-        // 依存関係の追跡（自動サブスクライブ）
-        ACTIVE_EFFECT.with(|cell| {
-            if let Some(active_effect_id) = cell.get() {
-                with_context(|cx| {
-                    if let Some(subs) = cx.reactive.react_subscribers.get_mut(self.id) {
-                        // すでに依存関係リストに登録されていなければ追加
-                        if !subs.contains(&active_effect_id) {
-                            subs.push(active_effect_id);
-                        }
-                    } else {
-                        // 新規登録
-                        let mut subs = smallvec::SmallVec::new();
-                        subs.push(active_effect_id);
-                        cx.reactive.react_subscribers.insert(self.id, subs);
-                    }
-                });
-            }
-        });
-
-        // 実値の取得とキャスト
-        with_context(|cx| {
-            let any_val = &cx.reactive.react_signals[self.id];
-            any_val
-                .downcast_ref::<T>()
-                .cloned()
-                .expect("Signal type mismatch")
-        })
+        self.with(std::clone::Clone::clone)
     }
 
     /// 任意の型のシグナルに対して、条件判定クロージャ `cond_fn` の結果に基づき、

@@ -2,13 +2,13 @@ use crate::{
     ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseBasicLayoutsSecondary,
     BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing,
     ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
-    CornerRadius, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets, EffectId, ElementState, EntityId,
-    EventStore, ExternalTextureAlphaMode, ExternalTextureSparse, ExtractedThumb,
-    FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState, InputContents,
-    InputContentsSparse, InputOp, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
-    MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
-    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt, ReactiveStore,
-    RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
+    CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets,
+    EffectId, ElementState, EntityId, EventStore, ExternalTextureAlphaMode, ExternalTextureSparse,
+    ExtractedThumb, FlatDfsSequenceVec, FlexLayout, FocusStore, GridLayout, IDENTITY_MATRIX,
+    ImeState, InputContents, InputContentsSparse, InputOp, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, Length, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
+    PointerEvents, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt,
+    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
     ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
     TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextCacheKey,
@@ -23,6 +23,7 @@ use std::{borrow::Cow, collections::HashSet, ops::Range, path::PathBuf};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
 pub enum UserAction {
     PointerMove(LayoutPoint),
     PointerButton {
@@ -52,6 +53,7 @@ pub enum UserAction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
 pub enum TickType {
     All,
     Transition,
@@ -61,6 +63,7 @@ pub enum TickType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
 pub enum StateFlag {
     Hovered,
     Focused,
@@ -154,7 +157,7 @@ impl Pipeline {
             RenderStore::resolve_element_style_state(
                 id,
                 true,
-                cx.window.win_last_size.as_ref(),
+                cx.window.win_last_size,
                 &cx.system.sys_text_buffers,
                 &cx.reactive.react_element_effects,
                 &cx.contents.cont_input_contents,
@@ -442,10 +445,13 @@ impl Pipeline {
 
         // ダブルバッファをスワップし、1回目の出力座標を決定
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの out_rects のみを確定
-        std::mem::swap(&mut cx.outputs.out_rects, &mut cx.outputs.out_prev_rects);
         std::mem::swap(
-            &mut cx.outputs.out_clip_rects,
-            &mut cx.outputs.out_prev_clip_rects,
+            &mut cx.outputs.out_rects.0,
+            &mut cx.outputs.out_prev_rects.0,
+        );
+        std::mem::swap(
+            &mut cx.outputs.out_clip_rects.0,
+            &mut cx.outputs.out_prev_clip_rects.0,
         );
         cx.outputs.out_rects.clear();
         cx.outputs.out_clip_rects.clear();
@@ -813,7 +819,7 @@ impl Pipeline {
         let mut current_batch_type = BatchType::Normal;
         let mut last_clip = None;
         for &id in &*cx.topology.topo_sorted_entities {
-            let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
+            let rect = *cx.outputs.out_rects.at(id);
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
@@ -1079,7 +1085,7 @@ impl Pipeline {
                     .get(id)
                     .map_or(&[][..], Vec::as_slice);
                 let resolved_color =
-                    Pipeline::resolv_text_color(id, visual, &cx.contents.cont_input_contents);
+                    Pipeline::resolve_text_color(id, visual, &cx.contents.cont_input_contents);
 
                 Pipeline::push_text_background_instances(
                     id,
@@ -1256,8 +1262,8 @@ impl Pipeline {
                 continue;
             }
 
-            let basic = lay_resolved_basic.get_or_default(id);
-            let flex = lay_resolved_flex.get_or_default(id);
+            let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
+            let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
             let grid = lay_resolved_grid.get(id).cloned();
 
             // トランジション（アニメーション）中プロパティの現在値による上書き
@@ -1360,19 +1366,17 @@ impl Pipeline {
 
             // 静的キャッシュの判定と適用
             // 自分自身のスタイルが変わっておらず、親も動いていない、かつモニターリサイズもされていないならキャッシュ利用
-            if !window_resized
-                && !has_style_changed
-                && !parent_changed
-                && let Some(&cached_rect) = out_prev_rects.get(id)
-                && let Some(&cached_clip) = out_prev_clip_rects.get(id)
-            {
+            if !window_resized && !has_style_changed && !parent_changed {
+                let cached_rect = *out_prev_rects.at(id);
+                let cached_clip = *out_prev_clip_rects.at(id);
+
                 out_rects.insert(id, cached_rect);
                 out_clip_rects.insert(id, cached_clip);
                 topo_active_entities.push(id);
                 continue;
             }
 
-            // キャッシュが無効な場合は、共通ヘルパーで再計算
+            // キャッシュが無効な場合は共通ヘルパーで再計算
             Pipeline::update_element_output_rect_and_clip(
                 id,
                 window_size,
@@ -1537,7 +1541,7 @@ impl Pipeline {
     }
 
     #[inline]
-    fn resolv_text_color(
+    fn resolve_text_color(
         id: EntityId,
         visual: &VisualProperty,
         cont_input_contents: &InputContentsSparse,
@@ -1557,7 +1561,7 @@ impl Pipeline {
             .is_some_and(|ime| !ime.composition_text.is_empty());
 
         // テキストが空 かつ IME非アクティブならプレースホルダー色を採用
-        if input.to_michiu().is_empty() && !is_ime_active {
+        if input.text_empty() && !is_ime_active {
             input
                 .placeholder_color
                 .unwrap_or(Color::rgb_f32(0.5, 0.5, 0.5))

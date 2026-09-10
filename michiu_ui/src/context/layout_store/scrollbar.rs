@@ -1,16 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
-    BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
-    CapacityConfig, ChildrenSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display,
-    EntityId, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA,
-    OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
-    ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary,
-    TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, Val, VisualPropertiesSecondary,
-    WindowStore,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::SparseSecondaryMap;
 use smallvec::SmallVec;
@@ -243,7 +234,7 @@ impl ScrollbarStore {
 
         // 親スクロールコンテナ
         let sb_state = bar_styles.get(c_id).cloned().unwrap();
-        let container_rect = out_rects.get(c_id).copied().unwrap_or_default();
+        let container_rect = *out_rects.at(c_id);
         let scroll_size = sc_sizes.get(c_id).copied().unwrap_or_default();
         let offset = sc_offsets.get(c_id).copied().unwrap_or_default();
 
@@ -271,7 +262,8 @@ impl ScrollbarStore {
                     sb_state.h_thumb_id
                 };
 
-                let track_rect = out_rects.get(target_id).copied().unwrap_or_default();
+                // ヒット先があるなら Some のはず
+                let track_rect = *out_rects.at(target_id);
                 let thumb_rect = thumb_id
                     .and_then(|i| out_rects.get(i).copied())
                     .unwrap_or_default();
@@ -472,16 +464,15 @@ impl ScrollbarStore {
 
         for id in scrollbar_ids {
             let sb_state = bar_styles.get(id).cloned().unwrap();
-            let container_rect = out_rects[id];
+            let rect = *out_rects.at(id);
             let scroll_size = sc_sizes.get(id).copied().unwrap_or_default();
             let current_scroll = sc_offsets.get(id).copied().unwrap_or_default();
 
-            let basic = lay_resolved_basic.get_or_default(id);
-            let rect = out_rects.get(id).copied().unwrap_or_default();
+            let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-            let visible_size = WindowStore::calc_visible_size(container_rect, win_last_size);
+            let visible_size = WindowStore::calc_visible_size(rect, win_last_size);
             let content_size = OutputStore::calc_inner_content_size(visible_size, border, padding);
 
             let show_v = scroll_size.height > content_size.height;
@@ -858,8 +849,8 @@ impl ScrollbarStore {
             rnd_active_transitions,
         );
 
-        let basic = lay_resolved_basic.get_or_default(id);
-        let flex = lay_resolved_flex.get_or_default(id);
+        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
+        let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
         let grid = lay_resolved_grid.get(id); // Grid実装時用
 
         LayoutStore::set_taffy_style(

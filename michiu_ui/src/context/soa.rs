@@ -28,15 +28,19 @@ pub(crate) trait MichiuSoA {
 
     /// パニック可能な不変参照アクセサ
     #[inline]
+    #[track_caller]
     #[allow(clippy::panic)]
     fn at(&self, id: EntityId) -> &Self::Item {
         let type_name = std::any::type_name::<Self>();
+        let caller = std::panic::Location::caller();
+
         self.get(id).unwrap_or_else(|| {
             panic!(
                 "[Michiu UI] SoA Component Access Failed\n\
+                    Caller Loc    : {caller}\n\
                     Target Entity : {id:?}\n\
                     SoA Container : {type_name}\n\
-                    Possible causes:\n\
+                    Possible causes :\n\
                         - The entity was already despawned (dangling EntityId).\n\
                         - The component was not attached to this entity during spawn.\n\
                         - The component was removed before this access.\n\
@@ -47,15 +51,19 @@ pub(crate) trait MichiuSoA {
 
     /// パニック可能な可変参照アクセサ
     #[inline]
+    #[track_caller]
     #[allow(clippy::panic)]
     fn at_mut(&mut self, id: EntityId) -> &mut Self::Item {
         let type_name = std::any::type_name::<Self>();
+        let caller = std::panic::Location::caller();
+
         self.get_mut(id).unwrap_or_else(|| {
             panic!(
                 "[Michiu UI] SoA Component Mutable Access Failed\n\
+                    Caller Loc    : {caller}\n\
                     Target Entity : {id:?}\n\
                     SoA Container : {type_name}\n\
-                    Possible causes:\n\
+                    Possible causes :\n\
                         - The entity was already despawned (dangling EntityId).\n\
                         - The component was not attached to this entity during spawn.\n\
                         - The component was removed before this access.\n\

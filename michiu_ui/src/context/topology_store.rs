@@ -611,9 +611,7 @@ impl TopologyStore {
         let mut insert_idx = 0;
 
         for (idx, &child) in topo_children.at(parent).iter().enumerate() {
-            let Some(rect) = out_rects.get(child) else {
-                continue;
-            };
+            let rect = *out_rects.at(child);
 
             // 縦・横の判定
             let (mouse_pos, center_pos) = if is_row {
@@ -720,9 +718,8 @@ impl TopologyStore {
             };
 
             // クリップ矩形のインライン累積
-            let rect = out_rects.get(id).copied().unwrap_or_default();
-
-            let eff_clip = out_clip_rects.get(id).copied().unwrap_or(default_clip);
+            let rect = *out_rects.at(id);
+            let eff_clip = *out_clip_rects.get_or(id, &default_clip);
 
             // トランスフォームの適用されているブランチか伝播判定
             let is_parent_transform = parent_id.is_some_and(|p| {
@@ -904,17 +901,12 @@ impl TopologyStore {
             }
 
             // 物理範囲に含まれているか
-            let Some(rect) = out_rects.get(id).copied() else {
-                continue;
-            };
-            if !rect.contains(point) {
+            if !out_rects.at(id).contains(point) {
                 continue;
             }
 
             // 親などの overflow 等でクリップされている表示範囲外ならスキップ
-            if let Some(clip) = out_clip_rects.get(id)
-                && !clip.contains(point)
-            {
+            if !out_clip_rects.at(id).contains(point) {
                 continue;
             }
 

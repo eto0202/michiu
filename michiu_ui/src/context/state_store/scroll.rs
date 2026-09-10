@@ -6,11 +6,11 @@ use std::{
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
     BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
-    CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, Display, EntityId, FlatDfsSequenceVec, FlexLayoutsSecondary,
-    GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Position, Rect,
-    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DEFAULT_BASIC,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlatDfsSequenceVec,
+    FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary,
+    LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary,
+    Position, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
     ResolvedGridSparse, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
     TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparse,
     TextEngine, TextSpansSparse, ThisStyle, UserSelect, Val, VisualPropertiesSecondary,
@@ -87,14 +87,12 @@ impl ScrollStore {
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) -> bool {
-        let Some(rect) = out_rects.get(id).copied() else {
-            return false;
-        };
+        let rect = *out_rects.at(id);
 
         let scroll_size = sc_sizes.get(id).copied().unwrap_or_default();
 
         // 親コンテナのボーダーおよびパディング厚を取得
-        let basic = lay_resolved_basic.get_or_default(id);
+        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -191,7 +189,7 @@ impl ScrollStore {
 
         let (sb_state, container_rect, scroll_size) = {
             let sb_state = bar_styles.get(current_id).cloned().unwrap_or_default();
-            let container_rect = out_rects.get(current_id).copied().unwrap_or_default();
+            let container_rect = *out_rects.at(current_id);
             let scroll_size = sc_sizes.get(current_id).copied().unwrap_or_default();
             (sb_state, container_rect, scroll_size)
         };
@@ -202,8 +200,8 @@ impl ScrollStore {
             DragDirection::Vertical => {
                 let track_id = sb_state.v_track_id.unwrap();
                 let thumb_id = sb_state.v_thumb_id.unwrap();
-                let track_rect = out_rects.get(track_id).copied().unwrap_or_default();
-                let thumb_rect = out_rects.get(thumb_id).copied().unwrap_or_default();
+                let track_rect = *out_rects.at(track_id);
+                let thumb_rect = *out_rects.at(thumb_id);
 
                 let (mut margin_top, mut margin_bottom) = (0.0, 0.0);
                 if let Some(ref thumb_style) = sb_state.style.v_thumb {
@@ -230,8 +228,8 @@ impl ScrollStore {
             DragDirection::Horizontal => {
                 let track_id = sb_state.h_track_id.unwrap();
                 let thumb_id = sb_state.h_thumb_id.unwrap();
-                let track_rect = out_rects.get(track_id).copied().unwrap_or_default();
-                let thumb_rect = out_rects.get(thumb_id).copied().unwrap_or_default();
+                let track_rect = *out_rects.at(track_id);
+                let thumb_rect = *out_rects.at(thumb_id);
 
                 let (mut margin_left, mut margin_right) = (0.0, 0.0);
                 if let Some(ref thumb_style) = sb_state.style.h_thumb {
@@ -362,9 +360,7 @@ impl ScrollStore {
         let Some(pointer_pos) = evt_current_pointer_position else {
             return (false, None);
         };
-        let Some(clip) = out_clip_rects.get(id).copied() else {
-            return (false, None);
-        };
+        let clip = *out_clip_rects.at(id);
 
         // テキスト選択状態
         let user_select = rnd_visual
@@ -376,7 +372,7 @@ impl ScrollStore {
         }
 
         // はみ出し距離
-        let distance = OutputStore::drag_overhang_distance(pointer_pos, &clip);
+        let distance = OutputStore::drag_overhang_distance(pointer_pos, clip);
         if distance.x.abs() <= 1.0 && distance.y.abs() <= 1.0 {
             return (false, None);
         }
@@ -464,8 +460,8 @@ impl ScrollStore {
         }
 
         // 親要素自体のボーダー・パディング厚を取得
-        let basic = lay_resolved_basic.get_or_default(id);
-        let rect = out_rects.get(id).copied().unwrap_or_default();
+        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
+        let rect = *out_rects.at(id);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -494,18 +490,18 @@ impl ScrollStore {
                 continue;
             }
 
-            if let Some(&rect) = out_rects.get(child_id) {
-                let parent_rect = out_rects.get(id).copied().unwrap_or_default();
-                let scroll_offset = sc_offsets.get(id).copied().unwrap_or_default();
+            let child_rect = *out_rects.at(child_id);
+            let parent_rect = *out_rects.at(id);
+            let scroll_offset = sc_offsets.get(id).copied().unwrap_or_default();
 
-                // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
-                let local_right = rect.x - parent_rect.x + scroll_offset.x + rect.width - offset_x;
-                let local_bottom =
-                    rect.y - parent_rect.y + scroll_offset.y + rect.height - offset_y;
+            // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
+            let local_right =
+                child_rect.x - parent_rect.x + scroll_offset.x + child_rect.width - offset_x;
+            let local_bottom =
+                child_rect.y - parent_rect.y + scroll_offset.y + child_rect.height - offset_y;
 
-                max_x = max_x.max(local_right);
-                max_y = max_y.max(local_bottom);
-            }
+            max_x = max_x.max(local_right);
+            max_y = max_y.max(local_bottom);
         }
 
         LayoutSize::new(max_x, max_y)

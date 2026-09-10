@@ -153,9 +153,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            b.display = val;
-                        }
+                        cx.get_basic_layout_mut(id, target).display = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -204,9 +202,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            b.item_is_table = val;
-                        }
+                        cx.get_basic_layout_mut(id, target).item_is_table = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -231,9 +227,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            b.item_is_replaced = val;
-                        }
+                        cx.get_basic_layout_mut(id, target).item_is_replaced = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -258,9 +252,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            b.box_sizing = val;
-                        }
+                        cx.get_basic_layout_mut(id, target).box_sizing = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -297,9 +289,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            b.direction = val;
-                        }
+                        cx.get_basic_layout_mut(id, target).direction = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -464,9 +454,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            b.overflow = val;
-                        }
+                        cx.get_basic_layout_mut(id, target).overflow = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -527,9 +515,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            b.overflow.x = val;
-                        }
+                        cx.get_basic_layout_mut(id, target).overflow.x = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -554,9 +540,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            b.overflow.y = val;
-                        }
+                        cx.get_basic_layout_mut(id, target).overflow.y = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -629,9 +613,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            b.position = val;
-                        }
+                        cx.get_basic_layout_mut(id, target).position = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -667,9 +649,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.inset = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).inset = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -699,10 +679,10 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.inset.right = size.width;
-                        v.inset.left = size.height;
-                    }
+                    let v = cx.get_basic_layout_mut(id, target);
+                    v.inset.right = size.width;
+                    v.inset.left = size.height;
+
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -725,10 +705,10 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.inset.top = size.width;
-                        v.inset.bottom = size.height;
-                    }
+                    let v = cx.get_basic_layout_mut(id, target);
+                    v.inset.top = size.width;
+                    v.inset.bottom = size.height;
+
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -749,9 +729,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.inset.top = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).inset.top = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -772,9 +750,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.inset.right = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).inset.right = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -795,9 +771,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.inset.bottom = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).inset.bottom = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -818,9 +792,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_INSET);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.inset.left = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).inset.left = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -843,9 +815,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.size = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).size = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -885,9 +855,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.size.width = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).size.width = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -933,9 +901,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.size.height = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).size.height = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -982,9 +948,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MIN_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.min_size = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).min_size = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -1007,9 +971,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MAX_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.max_size = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).max_size = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -1031,9 +993,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MIN_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.min_size.width = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).min_size.width = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1055,9 +1015,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MIN_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.min_size.height = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).min_size.height = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1079,9 +1037,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MAX_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.max_size.width = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).max_size.width = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1103,9 +1059,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MAX_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.max_size.height = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).max_size.height = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1156,13 +1110,13 @@ impl ThisStyle {
                         let w = get_w();
                         let h = get_h();
 
-                        if let Some(b) = cx.get_basic_layout_mut(id, target) {
-                            if h <= 0.0 {
-                                b.aspect_ratio = None;
-                            } else {
-                                b.aspect_ratio = Some(w / h);
-                            }
+                        let b = cx.get_basic_layout_mut(id, target);
+                        if h <= 0.0 {
+                            b.aspect_ratio = None;
+                        } else {
+                            b.aspect_ratio = Some(w / h);
                         }
+
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -1234,9 +1188,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.margin = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).margin = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -1277,10 +1229,10 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.margin.right = size.width;
-                        v.margin.left = size.height;
-                    }
+                    let b = cx.get_basic_layout_mut(id, target);
+                    b.margin.right = size.width;
+                    b.margin.left = size.height;
+
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1303,10 +1255,10 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.margin.top = size.width;
-                        v.margin.bottom = size.height;
-                    }
+                    let b = cx.get_basic_layout_mut(id, target);
+                    b.margin.top = size.width;
+                    b.margin.bottom = size.height;
+
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1327,9 +1279,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.margin.top = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).margin.top = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1350,9 +1300,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.margin.right = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).margin.right = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1373,9 +1321,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.margin.bottom = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).margin.bottom = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1396,9 +1342,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_MARGIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.margin.left = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).margin.left = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1421,9 +1365,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.padding = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).padding = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -1458,10 +1400,10 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.padding.right = size.width;
-                        v.padding.left = size.height;
-                    }
+                    let b = cx.get_basic_layout_mut(id, target);
+                    b.padding.right = size.width;
+                    b.padding.left = size.height;
+
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1484,10 +1426,10 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let size = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.padding.top = size.width;
-                        v.padding.bottom = size.height;
-                    }
+                    let b = cx.get_basic_layout_mut(id, target);
+                    b.padding.top = size.width;
+                    b.padding.bottom = size.height;
+
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1508,9 +1450,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.padding.top = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).padding.top = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1531,9 +1471,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.padding.right = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).padding.right = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1554,9 +1492,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.padding.bottom = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).padding.bottom = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1577,9 +1513,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_PADDING);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.padding.left = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).padding.left = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -1625,9 +1559,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let w = get_w();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
-                        layout.border = w;
-                    }
+                    cx.get_basic_layout_mut(id, target).border = w;
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         vis.border_styles = Some([s; 4]);
                     }
@@ -1709,9 +1641,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
-                        layout.border.top = v;
-                    }
+                    cx.get_basic_layout_mut(id, target).border.top = v;
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[0] = s;
@@ -1767,9 +1697,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
-                        layout.border.right = v;
-                    }
+                    cx.get_basic_layout_mut(id, target).border.right = v;
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[1] = s;
@@ -1825,9 +1753,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
-                        layout.border.bottom = v;
-                    }
+                    cx.get_basic_layout_mut(id, target).border.bottom = v;
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[2] = s;
@@ -1883,9 +1809,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(layout) = cx.get_basic_layout_mut(id, target) {
-                        layout.border.left = v;
-                    }
+                    cx.get_basic_layout_mut(id, target).border.left = v;
                     if let Some(vis) = cx.get_visual_property_mut(id, target) {
                         let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
                         styles[3] = s;
@@ -2638,9 +2562,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_ALIGN_ITEMS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.align_items = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).align_items = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -2735,9 +2657,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_ALIGN_SELF);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.align_self = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).align_self = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -2838,9 +2758,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_JUSTIFY_ITEMS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.justify_items = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).justify_items = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -2935,9 +2853,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_JUSTIFY_SELF);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.justify_self = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).justify_self = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -3038,9 +2954,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_ALIGN_CONTENT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.align_content = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).align_content = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -3147,9 +3061,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_JUSTIFY_CONTENT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.justify_content = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).justify_content = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -3256,9 +3168,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_GAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.gap = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).gap = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -3292,9 +3202,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_GAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.gap.height = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).gap.height = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -3316,9 +3224,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_GAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.gap.width = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).gap.width = val;
                     cx.mark_layout_dirty(id);
                 }));
                 self
@@ -3355,9 +3261,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_TEXT_ALIGN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.text_align = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).text_align = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -3405,9 +3309,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                            v.flex_direction = val;
-                        }
+                        cx.get_flex_layout_mut(id, target).flex_direction = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -3456,9 +3358,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                            v.flex_wrap = val;
-                        }
+                        cx.get_flex_layout_mut(id, target).flex_wrap = val;
                         cx.mark_layout_dirty(id);
                     }
                 }));
@@ -3500,9 +3400,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_FLEX_BASIS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.flex_basis = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).flex_basis = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -3544,9 +3442,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_FLEX_GROW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.flex_grow = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).flex_grow = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -3584,9 +3480,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_FLEX_SHRINK);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_flex_layout_mut(id, target) {
-                        v.flex_shrink = val;
-                    }
+                    cx.get_flex_layout_mut(id, target).flex_shrink = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -4670,9 +4564,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.resizable = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).resizable = val;
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -4695,9 +4587,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.resizable = [val; 4];
-                    }
+                    cx.get_basic_layout_mut(id, target).resizable = [val; 4];
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -4721,10 +4611,10 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.resizable[1] = val;
-                        v.resizable[3] = val;
-                    }
+                    let v = cx.get_basic_layout_mut(id, target);
+                    v.resizable[1] = val;
+                    v.resizable[3] = val;
+
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -4748,10 +4638,10 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.resizable[0] = val;
-                        v.resizable[2] = val;
-                    }
+                    let v = cx.get_basic_layout_mut(id, target);
+                    v.resizable[0] = val;
+                    v.resizable[2] = val;
+
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -4800,9 +4690,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_RESIZABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_basic_layout_mut(id, target) {
-                        v.resizable[idx] = val;
-                    }
+                    cx.get_basic_layout_mut(id, target).resizable[idx] = val;
                     cx.mark_layout_dirty(id);
                 }));
             }

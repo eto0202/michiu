@@ -2,26 +2,27 @@ use crate::{
     ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
     ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
     BasicLayout, BasicLayoutsSecondary, ByteIndex, CapacityConfig, ChildrenSecondary,
-    ClipRectsSecondary, ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary,
-    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndStore, EffectiveZindicesSecondary, Element,
-    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
-    FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusStore, GridLayout,
-    GridLayoutsSparse, InputContents, InputContentsSparse, InputOp, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, MichiuSoA, MichiuString, Modifiers,
-    MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline, PointerEvents, Position,
-    RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore, ResizeStore,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
-    ScrollSizesSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSecondary,
-    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec,
-    SortCacheVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextAlign, TextBufferSparseSecondary, TextContentsSparse, TextEditStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpansSparse, TopologyStore, UserSelect, UsizeRangeExt, Val,
-    VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context, define_sparse_secondary,
-    handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
-    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
-    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
-    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
-    handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
+    ClipRectsSecondary, ComponentMask, ContentStore, Context, CursorIcon, DEFAULT_BASIC,
+    DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndStore,
+    EffectiveZindicesSecondary, Element, ElementEffectsSecondary, ElementState, EntitiesSlot,
+    EntityId, EventListeners, FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusStore,
+    GridLayout, GridLayoutsSparse, InputContents, InputContentsSparse, InputOp,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
+    MichiuSoA, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary,
+    Pipeline, PointerEvents, Position, RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore,
+    ResizeStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStore,
+    ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
+    SessionSpawnedVec, SortCacheVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextAlign, TextBufferSparseSecondary, TextContentsSparse, TextEditStore,
+    TextEngine, TextSelectionsSparseSecondary, TextSpansSparse, TopologyStore, UserSelect,
+    UsizeRangeExt, Val, VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context,
+    define_sparse_secondary, handle_on_active, handle_on_blur, handle_on_click,
+    handle_on_cursor_moved, handle_on_disable, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
+    handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
+    handle_on_focus, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter,
+    handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click,
+    handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -162,7 +163,8 @@ impl EventStore {
             .is_some_and(|l| l.on_cursor_moved.is_some());
 
         if has_listener {
-            let rect = &cx.outputs.out_rects.get(id).copied().unwrap_or_default();
+            // ヒット先があるなら Some のはず
+            let rect = cx.outputs.out_rects.at(id);
             let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
             handle_on_cursor_moved(cx, id, relative_pos);
         }
@@ -177,7 +179,7 @@ impl EventStore {
             ResizeStore::sync_resizing_drag(
                 logical_pos,
                 state,
-                cx.window.win_last_size.as_ref(),
+                cx.window.win_last_size,
                 &mut cx.topology.topo_active_masks,
                 &cx.topology.topo_parents,
                 &mut cx.layouts.lay_dirty_entities,
@@ -269,7 +271,7 @@ impl EventStore {
                 RenderStore::resolve_element_style_state(
                     prev_id,
                     false,
-                    cx.window.win_last_size.as_ref(),
+                    cx.window.win_last_size,
                     &cx.system.sys_text_buffers,
                     &cx.reactive.react_element_effects,
                     &cx.contents.cont_input_contents,
@@ -712,18 +714,12 @@ impl EventStore {
             return;
         };
 
-        let rect = cx
-            .outputs
-            .out_rects
-            .get(target_id)
-            .copied()
-            .unwrap_or_default();
-        let basic = &cx
+        // ヒット先があるなら Some のはず
+        let rect = *cx.outputs.out_rects.at(target_id);
+        let basic = cx
             .layouts
             .lay_resolved_basic
-            .get(target_id)
-            .copied()
-            .unwrap_or_default();
+            .get_or(target_id, &DEFAULT_BASIC);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -821,12 +817,10 @@ impl EventStore {
                 .at(curr_id)
                 .has(ComponentMask::STYLE_OVERFLOW);
             if has_overflow {
-                let basic = &cx
+                let basic = cx
                     .layouts
                     .lay_resolved_basic
-                    .get(curr_id)
-                    .copied()
-                    .unwrap_or_default();
+                    .get_or(curr_id, &DEFAULT_BASIC);
 
                 // スクロール可能な軸の移動量
                 let dy = if scroll_y != 0.0

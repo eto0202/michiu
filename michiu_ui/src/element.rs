@@ -67,6 +67,7 @@ impl Drop for ContextGuard {
 }
 
 /// 静的な値、または動的に変化する値（Signalやクロージャ）を抽象化する型
+#[repr(u8)]
 pub enum Prop<T> {
     None,
     Static(T),

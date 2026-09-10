@@ -9,6 +9,7 @@ use smallvec::SmallVec;
 use std::{collections::HashMap, fmt, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub(crate) enum EffectCategory {
     None,
     Style,
@@ -38,9 +39,9 @@ impl fmt::Debug for Effects {
 define_slotmap!(pub(crate) struct SignalsSlot(SignalId => Box<dyn std::any::Any>););
 define_slotmap!(pub(crate) struct EffectsSlot(EffectId => Effects););
 
-pub(crate) type SubscribersSecondary = SecondaryMap<SignalId, SmallVec<[EffectId; 4]>>;
+pub(crate) type SubscribersSecondary = SecondaryMap<SignalId, SmallVec<[EffectId; 8]>>;
 pub(crate) type ElementEffectsSecondary =
-    SecondaryMap<EntityId, SmallVec<[(EffectCategory, EffectId); 4]>>;
+    SecondaryMap<EntityId, SmallVec<[(EffectCategory, EffectId); 8]>>;
 pub(crate) type EffectToElementSecondary = SecondaryMap<EffectId, EntityId>;
 pub(crate) type PendingElementEffectsVec = Vec<EffectId>;
 pub(crate) type ProvidersSparseSecondary =

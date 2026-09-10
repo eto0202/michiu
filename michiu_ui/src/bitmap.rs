@@ -4,6 +4,7 @@ pub struct ComponentMask(pub u128);
 
 /// アニメーションやトランジションを設定可能なプロパティの一覧
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum PropertyList {
     BackgroundColor,
     BorderColor,

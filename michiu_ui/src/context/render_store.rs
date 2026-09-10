@@ -1,15 +1,5 @@
 use crate::{
-    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition,
-    AnimationCurve, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment,
-    BorderStyle, BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color,
-    ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DirtyLayoutEntitiesVec,
-    Display, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId,
-    FlatDfsSequenceVec, FocusTrigger, Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX,
-    InputContentsSparse, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
-    MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList,
-    ReactiveStore, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSecondary, StyleTarget,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, ThisStyle,
-    TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
+    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition, AnimationCurve, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle, BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DEFAULT_BASIC, DirtyLayoutEntitiesVec, Display, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary, EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, WindowStore,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -774,7 +764,7 @@ impl RenderStore {
     pub(crate) fn resolve_element_style_state(
         id: EntityId,
         allow_transition: bool,
-        win_last_size: Option<&LayoutSize>,
+        win_last_size: Option<LayoutSize>,
         sys_text_buffers: &TextBufferSparseSecondary,
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparse,
@@ -844,7 +834,7 @@ impl RenderStore {
     fn resolve_layout_styles(
         id: EntityId,
         allow_transition: bool,
-        win_last_size: Option<&LayoutSize>,
+        win_last_size: Option<LayoutSize>,
         react_element_effects: &ElementEffectsSecondary,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -867,7 +857,7 @@ impl RenderStore {
             return;
         }
 
-        let active_layout = lay_basic.get_or_default(id);
+        let active_layout = lay_basic.get_or(id, &DEFAULT_BASIC);
         let base_layout = lay_base_basic.get_or_default(id);
         let mut target_layout = base_layout;
 
@@ -1029,7 +1019,7 @@ impl RenderStore {
                 .ime_state
                 .as_ref()
                 .is_none_or(|s| s.composition_text.is_empty());
-            if contents.to_michiu().is_empty() && has_no_ime {
+            if contents.text_empty() && has_no_ime {
                 is_placeholder_active = true;
             }
         }
@@ -1977,7 +1967,7 @@ impl Context {
         RenderStore::resolve_element_style_state(
             id,
             allow_transition,
-            self.window.win_last_size.as_ref(),
+            self.window.win_last_size,
             &self.system.sys_text_buffers,
             &self.reactive.react_element_effects,
             &self.contents.cont_input_contents,

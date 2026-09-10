@@ -3,20 +3,21 @@ use std::{ops::Range, rc::Rc};
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
     BaseVisualPropertiesSecondary, ByteIndex, CapacityConfig, CharIndex, ChildrenSecondary, Color,
-    ComponentMask, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EdgeInsets, EntityId,
-    EventStore, InputContents, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuString, OutputStore, ParentsSecondary,
-    RangeExt, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore,
-    ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextBufferSparseSecondary, TextContentsSparse, TextEngine, TextSpansSparse, TopologyStore,
-    UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
+    ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents, InputContentsSparse,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
+    MichiuString, OutputStore, ParentsSecondary, RangeExt, RectsSecondary, RenderStore,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
+    ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparse, TextEngine, TextSpansSparse,
+    TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum InputOp {
     // 初期化用
     Init,
@@ -864,10 +865,10 @@ impl TextEditStore {
         let Some((caret, caret_offset, is_multiline)) = ime_caret_info else {
             return;
         };
-        let basic = lay_resolved_basic.get_or_default(id);
-        let flex = lay_resolved_flex.get_or_default(id);
+        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
+        let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
         let _grid = lay_resolved_grid.get_or_default(id);
-        let rect = out_rects.get(id).copied().unwrap_or_default();
+        let rect = out_rects.get_or_default(id); // 初回実行の場合、存在しない可能性
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 

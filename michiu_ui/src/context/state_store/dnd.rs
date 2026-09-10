@@ -13,6 +13,7 @@ use crate::{
 
 /// プレースホルダーを挿入してマウントする親先祖の制御方法
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum DndDragPlaceholderParent {
     Root,             // 自動的に最上位ルート要素の子としてアタッチ
     Custom(EntityId), // ユーザーが指定した特定の親コンテナの子としてアタッチ（範囲制限）
@@ -20,6 +21,7 @@ pub enum DndDragPlaceholderParent {
 
 /// ドラッグ＆ドロップ動作の論理形式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum DndDragPayload {
     /// Element 自体を移動する。
     /// ドロップ時に UI ツリーが自動的に更新される。
@@ -41,6 +43,7 @@ pub struct DndDragProperty {
 
 /// ドロップ受け入れ先での取り込み形式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum DndDropTarget {
     Child,   // ドロップ先の子要素として取り込む
     Sibling, // ドロップ先の兄弟要素（隣接位置）として取り込む
@@ -138,12 +141,12 @@ impl DndStore {
         match drag_prop.placeholder_parent {
             DndDragPlaceholderParent::Root => PlaceholderAttachment {
                 parent_id: Some(root),
-                rect: out_rects.get(root).copied().unwrap_or_default(),
+                rect: *out_rects.at(root),
                 border_left: 0.0,
                 border_top: 0.0,
             },
             DndDragPlaceholderParent::Custom(p_id) => {
-                let rect = out_rects.get(p_id).copied().unwrap_or_default();
+                let rect = *out_rects.at(p_id);
                 let (border_left, border_top) = lay_basic
                     .get(p_id)
                     .map(|l| (l.border.left.to_px_or_zero(), l.border.top.to_px_or_zero()))
@@ -311,12 +314,7 @@ impl DndStore {
             .get(pressed_id)
             .copied()
             .unwrap();
-        let start_rect = cx
-            .outputs
-            .out_rects
-            .get(pressed_id)
-            .copied()
-            .unwrap_or_default();
+        let start_rect = *cx.outputs.out_rects.at(pressed_id);
 
         // 開始時のクリック位置と要素左上の相対的なズレを計算
         let click_offset =
@@ -614,9 +612,9 @@ impl DndStore {
             // 絶対配置: 位置移動（補正）を伴うアタッチ
             if drag_prop.update_position {
                 // プレースホルダーの最終的な絶対画面座標を取得
-                let ph_abs_rect = out_rects.get(holder).copied().unwrap_or_default();
+                let ph_abs_rect = *out_rects.at(holder);
                 // 新しい親（target_id）の絶対画面座標とボーダー厚みを取得
-                let target_rect = out_rects.get(target_id).copied().unwrap_or_default();
+                let target_rect = *out_rects.at(target_id);
 
                 let border = LayoutStore::get_physical_border(target_rect, basic.border);
 
