@@ -1,7 +1,12 @@
 use crate::{
-    AlignContent, AlignItems, AlignSelf, Backdrop, BorderAlignment, BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction, Display, EdgeInsets, FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow, GridLine, GridPlacement, JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Point, PointerEvents, Position, Rect, Size, StyleTarget, TextAlign, ThisStyle, Transition, UserSelect, Val,
+    AlignContent, AlignItems, AlignSelf, Backdrop, BorderAlignment, BorderStyle, BoxShadow,
+    BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction, Display, EdgeInsets,
+    FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow, GridLine, GridPlacement,
+    JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Point,
+    PointerEvents, Position, Rect, Size, StyleTarget, TextAlign, ThisStyle, Transition, UserSelect,
+    Val,
 };
-use std::{borrow::Cow, sync::Arc};
+use std::sync::{Arc, LazyLock};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NormalLayout {
@@ -33,45 +38,50 @@ impl NormalLayout {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BasicLayout {
     pub display: Display,
-    pub item_is_table: bool,
-    pub item_is_replaced: bool,
     pub box_sizing: BoxSizing,
     pub direction: Direction,
-    pub overflow: LayoutOverflow,
     pub position: Position,
-    pub inset: Rect<Val>,
-    pub size: Size<Val>,
-    pub min_size: Size<Val>,
-    pub max_size: Size<Val>,
-    pub aspect_ratio: Option<f32>,
-    pub margin: Rect<Val>,
-    pub padding: Rect<Length>,
+    pub overflow: LayoutOverflow, // 2バイト
+    pub item_is_table: bool,      // 1バイト
+    pub item_is_replaced: bool,   // 1バイト
+    pub resizable: [bool; 4],     // 4バイト
+
+    pub size: Size<Val>,           // Val(8バイト) * 2 = 16バイト
+    pub min_size: Size<Val>,       // 16バイト
+    pub max_size: Size<Val>,       // 16バイト
+    pub aspect_ratio: Option<f32>, // f32 + タグ = 8バイト
+
+    pub inset: Rect<Val>,      // Val(8バイト) * 4 = 32バイト
+    pub margin: Rect<Val>,     // 32バイト
+    pub padding: Rect<Length>, // Length(8バイト) * 4 = 32バイト
     pub border: Rect<Length>,
-    pub resizable: [bool; 4],
 }
+
+pub(crate) static DEFAULT_BASIC: LazyLock<BasicLayout> = LazyLock::new(|| {
+    let default_style: taffy::Style = taffy::Style::default();
+    BasicLayout {
+        display: default_style.display.into(),
+        box_sizing: default_style.box_sizing.into(),
+        direction: default_style.direction.into(),
+        position: default_style.position.into(),
+        overflow: default_style.overflow.into(),
+        item_is_table: default_style.item_is_table,
+        item_is_replaced: default_style.item_is_replaced,
+        resizable: [false; 4],
+        size: default_style.size.into(),
+        min_size: default_style.min_size.into(),
+        max_size: default_style.max_size.into(),
+        aspect_ratio: default_style.aspect_ratio,
+        inset: default_style.inset.into(),
+        margin: default_style.margin.into(),
+        padding: default_style.padding.into(),
+        border: default_style.border.into(),
+    }
+});
 
 impl Default for BasicLayout {
     fn default() -> Self {
-        // Taffy のデフォルトの Style から基本設定値をコピーして初期化
-        let default_style: taffy::Style = taffy::Style::default();
-        Self {
-            display: default_style.display.into(),
-            item_is_table: default_style.item_is_table,
-            item_is_replaced: default_style.item_is_replaced,
-            box_sizing: default_style.box_sizing.into(),
-            direction: default_style.direction.into(),
-            overflow: default_style.overflow.into(),
-            position: default_style.position.into(),
-            inset: default_style.inset.into(),
-            size: default_style.size.into(),
-            min_size: default_style.min_size.into(),
-            max_size: default_style.max_size.into(),
-            aspect_ratio: default_style.aspect_ratio,
-            margin: default_style.margin.into(),
-            padding: default_style.padding.into(),
-            border: default_style.border.into(),
-            resizable: [false; 4],
-        }
+        *DEFAULT_BASIC
     }
 }
 
@@ -134,19 +144,21 @@ impl BasicLayout {
 /// Flexboxコンテナ、またはその子要素に適用される情報。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FlexLayout {
+    pub flex_grow: f32,   // 4バイト
+    pub flex_shrink: f32, // 4バイト
+    pub flex_basis: Val,  // 8バイト (タグ1 + パディング3 + f32 4)
+    pub gap: Size<Val>,   // 16バイト (Val 8バイト * 2)
+
     pub align_items: Option<AlignItems>,
     pub align_self: Option<AlignSelf>,
     pub justify_items: Option<AlignItems>,
     pub justify_self: Option<AlignSelf>,
     pub align_content: Option<AlignContent>,
     pub justify_content: Option<JustifyContent>,
-    pub gap: Size<Val>,
+
     pub text_align: TextAlign,
     pub flex_direction: FlexDirection,
     pub flex_wrap: FlexWrap,
-    pub flex_basis: Val,
-    pub flex_grow: f32,
-    pub flex_shrink: f32,
 }
 
 impl FlexLayout {
@@ -195,24 +207,28 @@ impl FlexLayout {
     }
 }
 
+pub(crate) static DEFAULT_FLEX: LazyLock<FlexLayout> = LazyLock::new(|| {
+    let default_style: taffy::Style = taffy::Style::default();
+    FlexLayout {
+        flex_grow: default_style.flex_grow,
+        flex_shrink: default_style.flex_shrink,
+        flex_basis: default_style.flex_basis.into(),
+        gap: default_style.gap.into(),
+        align_items: default_style.align_items.map(std::convert::Into::into),
+        align_self: default_style.align_self.map(std::convert::Into::into),
+        justify_items: default_style.justify_items.map(std::convert::Into::into),
+        justify_self: default_style.justify_self.map(std::convert::Into::into),
+        align_content: default_style.align_content.map(std::convert::Into::into),
+        justify_content: default_style.justify_content.map(std::convert::Into::into),
+        text_align: default_style.text_align.into(),
+        flex_direction: default_style.flex_direction.into(),
+        flex_wrap: default_style.flex_wrap.into(),
+    }
+});
+
 impl Default for FlexLayout {
     fn default() -> Self {
-        let default_style: taffy::Style = taffy::Style::default();
-        Self {
-            align_items: default_style.align_items.map(std::convert::Into::into),
-            align_self: default_style.align_self.map(std::convert::Into::into),
-            justify_items: default_style.justify_items.map(std::convert::Into::into),
-            justify_self: default_style.justify_self.map(std::convert::Into::into),
-            align_content: default_style.align_content.map(std::convert::Into::into),
-            justify_content: default_style.justify_content.map(std::convert::Into::into),
-            gap: default_style.gap.into(),
-            text_align: default_style.text_align.into(),
-            flex_direction: default_style.flex_direction.into(),
-            flex_wrap: default_style.flex_wrap.into(),
-            flex_basis: default_style.flex_basis.into(),
-            flex_grow: default_style.flex_grow,
-            flex_shrink: default_style.flex_shrink,
-        }
+        *DEFAULT_FLEX
     }
 }
 
@@ -349,7 +365,7 @@ impl VisualProperty {
         if mask.has(ComponentMask::STYLE_FONT_SIZE) {
             self.font.size = other.font.size;
         }
-        if mask.has(ComponentMask::STYLE_EXT_PROPERTIES) {
+        if mask.has(ComponentMask::STYLE_FONT_STYLE) {
             if other.font.family.is_some() {
                 self.font.family.clone_from(&other.font.family);
             }

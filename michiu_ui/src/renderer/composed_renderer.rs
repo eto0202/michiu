@@ -1,6 +1,6 @@
 use crate::{
     AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, EntityId, LayoutPoint,
-    LayoutRect, LayoutSize, PlaybackCount, PropertyList, WebView2Contents, WgpuRenderer,
+    LayoutRect, LayoutSize, MichiuSoA, PlaybackCount, PropertyList, WebView2Contents, WgpuRenderer,
 };
 use std::{
     cell::RefCell,
@@ -288,15 +288,12 @@ impl ComposedRenderer {
 
             let mut current_promoted_ids = Vec::new();
 
-            for &id in &cx.topology.topo_webview_entities {
+            for &id in cx.topology.topo_webview_entities.iter() {
                 // WebView2 要素を抽出して昇格させる
-                let is_webview = cx.topology.topo_active_masks[id].has_webveiw2_content();
+                let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
 
-                let is_always_active = cx
-                    .contents
-                    .cont_webview_contents
-                    .get(id)
-                    .is_some_and(|c| c.always_active);
+                // マスクがあるなら Some のはず
+                let is_always_active = cx.contents.cont_webview_contents.at(id).always_active;
 
                 // 要素自身だけでなく、上に重なっている子要素の操作中もアクティブと判定
                 let is_interactive = has_interactive_descendant(cx, id);
@@ -333,13 +330,8 @@ impl ComposedRenderer {
                             });
 
                 // 要素の物理サイズが前フレームから微細変動（リサイズドラッグなど）しているか判定
-                let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
-                let prev_rect = cx
-                    .outputs
-                    .out_prev_rects
-                    .get(id)
-                    .copied()
-                    .unwrap_or_default();
+                let rect = *cx.outputs.out_rects.at(id);
+                let prev_rect = cx.outputs.out_prev_rects.get_or_default(id);
                 let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
                     || (rect.height - prev_rect.height).abs() > 0.01;
 
@@ -479,13 +471,8 @@ impl ComposedRenderer {
                                 })
                             });
 
-                let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
-                let prev_rect = cx
-                    .outputs
-                    .out_prev_rects
-                    .get(id)
-                    .copied()
-                    .unwrap_or(LayoutRect::ZERO);
+                let rect = *cx.outputs.out_rects.at(id);
+                let prev_rect = cx.outputs.out_prev_rects.get_or_default(id);
                 let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
                     || (rect.height - prev_rect.height).abs() > 0.01;
 
@@ -507,12 +494,7 @@ impl ComposedRenderer {
                     if !promoted.is_capturing
                         && let Some(ref controller) = *promoted.webview_controller.borrow()
                     {
-                        let rect = cx
-                            .outputs
-                            .out_rects
-                            .get(id)
-                            .copied()
-                            .unwrap_or(LayoutRect::ZERO);
+                        let rect = *cx.outputs.out_rects.at(id);
                         let width = (rect.width * self.scale_factor).round() as u32;
                         let height = (rect.height * self.scale_factor).round() as u32;
 
@@ -525,13 +507,6 @@ impl ComposedRenderer {
                         promoted.is_capturing = true;
 
                         let webview = controller.CoreWebView2().unwrap();
-                        // 安全な .get() とアンラップで座標を取得
-                        let rect = cx
-                            .outputs
-                            .out_rects
-                            .get(id)
-                            .copied()
-                            .unwrap_or(LayoutRect::ZERO);
 
                         let width = (rect.width * self.scale_factor).round() as u32;
                         let height = (rect.height * self.scale_factor).round() as u32;
@@ -582,31 +557,16 @@ impl ComposedRenderer {
                 }
 
                 // 2. 生きている要素のサイズを追従（Taffyのレイアウトアニメーションと完全同期）
-                let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
+                let rect = *cx.outputs.out_rects.at(id);
                 // 親の overflow 等で制限された表示領域
-                let clip_rect = cx
-                    .outputs
-                    .out_clip_rects
-                    .get(id)
-                    .copied()
-                    .unwrap_or_default();
+                let clip_rect = *cx.outputs.out_clip_rects.at(id);
                 let visual = &self.promoted_visuals[i].visual;
 
                 // 移動中・リサイズ中におけるDCompスワップチェーンの子の影の点滅を防止するため、
                 // 要素の絶対座標（rect）およびクリップ境界（clip_rect）が前回から1ピクセルも変化していない場合は、
                 // DComp側へのOffset/Clip/Boundsの再設定を完全にスキップして早期スルー。
-                let prev_rect = cx
-                    .outputs
-                    .out_prev_rects
-                    .get(id)
-                    .copied()
-                    .unwrap_or_default();
-                let prev_clip = cx
-                    .outputs
-                    .out_prev_clip_rects
-                    .get(id)
-                    .copied()
-                    .unwrap_or_default();
+                let prev_rect = cx.outputs.out_prev_rects.get_or_default(id);
+                let prev_clip = cx.outputs.out_prev_clip_rects.get_or_default(id);
 
                 // 要素の物理サイズが変化した場合、古いキャッシュテクスチャを即座に破棄（無効化）
                 //  初期サイズ決定時（prev_rect が ZERO の起動時フレーム）を除外
@@ -767,7 +727,7 @@ impl ComposedRenderer {
             let visual = self.dcomp_device.CreateVisual().unwrap();
 
             // 2. 位置とサイズを DComp 側に同期（最初のフレームから物理座標を使い、ジャンプを防ぐ）
-            let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
+            let rect = *cx.outputs.out_rects.at(id);
             let phys_x = rect.x * self.scale_factor;
             let phys_y = rect.y * self.scale_factor;
             visual.SetOffsetX2(phys_x).unwrap();
@@ -783,9 +743,9 @@ impl ComposedRenderer {
             let webview_controller = Rc::new(RefCell::new(None));
 
             // B. WebView2 設定のバインド (COMP_WEBVIEW_CONTENTフラグ)
-            if cx.topology.topo_active_masks[id].has_webveiw2_content()
-                && let Some(contents) = cx.contents.cont_webview_contents.get(id)
-            {
+            if cx.topology.topo_active_masks.at(id).has_webveiw2_content() {
+                // マスクがあるなら Some のはず
+                let contents = cx.contents.cont_webview_contents.at(id);
                 let slot_clone = webview_controller.clone();
 
                 // この要素の Visual ターゲットに向けて WebView2 を非同期初期化
@@ -793,7 +753,7 @@ impl ComposedRenderer {
                     self.hwnd,
                     visual.clone(),
                     slot_clone,
-                    contents.clone(), // 設定値（URL、DevTools等のフラグ）を引き渡す
+                    contents, // 設定値（URL、DevTools等のフラグ）を引き渡す
                     rect,
                     self.scale_factor,
                     self.webview_env.clone(),
@@ -836,14 +796,13 @@ impl ComposedRenderer {
         physical_cursor_pos: LayoutPoint, // 親ウィンドウ上の論理カーソル座標
     ) {
         // 1. allow_interaction が false なら、転送を完全に無視して早期リターン
-        if let Some(contents) = cx.contents.cont_webview_contents.get(id)
-            && !contents.allow_interaction
-        {
+        // contents はある前提
+        if !cx.contents.cont_webview_contents.at(id).allow_interaction {
             return;
         }
 
         // 2. この WebView2 要素の矩形（rect）を取得
-        let rect = cx.outputs.out_rects[id];
+        let rect = *cx.outputs.out_rects.at(id);
 
         // 3. マウス座標を WebView2 の左上 (0,0) を原点とする相対座標にローカライズ
         // ※ さらに DComp 側に引き渡すために物理ピクセルにスケールアップします
@@ -912,7 +871,7 @@ impl ComposedRenderer {
         unsafe {
             // 1. D3D11 デバイスを作成
             // グローバルなマネージャーの解決を試みる（失敗時は呼び出し元にエラーを伝播できるよう、後々 Result にするか
-            // ここではひとまず unwrap() などで処理する形にしておきます）
+            // ここではひとまず unwrap() などで処理する形
             let manager = DCompDeviceManager::global()?;
             let dcomp_device = manager.dcomp_device.clone();
 
@@ -935,17 +894,21 @@ impl ComposedRenderer {
 // 親子関係を再帰的に走査してアクティビティを伝播するヘルパー関数の追加 ───
 fn has_interactive_descendant(cx: &Context, id: EntityId) -> bool {
     // 自分自身がフォーカス、またはアクティブ状態のインタラクション属性を持っているか
-    if cx.topology.topo_active_masks[id].has_active_interaction_property() {
+    if cx
+        .topology
+        .topo_active_masks
+        .at(id)
+        .has_active_interaction_property()
+    {
         return true;
     }
     // 子要素を再帰的にチェック
-    if let Some(children) = cx.topology.topo_children.get(id) {
-        for &child_id in children {
-            if has_interactive_descendant(cx, child_id) {
-                return true;
-            }
+    for &child_id in cx.topology.topo_children.at(id) {
+        if has_interactive_descendant(cx, child_id) {
+            return true;
         }
     }
+
     false
 }
 

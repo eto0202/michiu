@@ -1,4 +1,4 @@
-use crate::{Context, TaskSender, with_context};
+use crate::{Context, Effects, TaskSender, with_context};
 use slotmap::new_key_type;
 use smallvec::SmallVec;
 use std::cell::Cell;
@@ -68,6 +68,40 @@ impl<T> ReadSignal<T> {
     }
 }
 
+impl<T: 'static> ReadSignal<T> {
+    /// 依存関係の自動トラッキング
+    #[inline]
+    fn track(&self) {
+        ACTIVE_EFFECT.with(|cell| {
+            if let Some(active_effect_id) = cell.get() {
+                with_context(|cx| {
+                    if let Some(subs) = cx.reactive.react_subscribers.get_mut(self.id) {
+                        if !subs.contains(&active_effect_id) {
+                            subs.push(active_effect_id);
+                        }
+                    } else {
+                        let mut subs: SmallVec<[EffectId; 8]> = SmallVec::new();
+                        subs.push(active_effect_id);
+                        cx.reactive.react_subscribers.insert(self.id, subs);
+                    }
+                });
+            }
+        });
+    }
+
+    /// 参照 `&T` を使って処理を行い結果だけを取り出す
+    #[inline]
+    pub fn with<U>(&self, f: impl FnOnce(&T) -> U) -> U {
+        self.track();
+
+        with_context(|cx| {
+            let any_val = cx.reactive.react_signals.get(self.id).unwrap();
+            let val = any_val.downcast_ref::<T>().expect("Signal type mismatch");
+            f(val)
+        })
+    }
+}
+
 impl<T: Clone + 'static> ReadSignal<T> {
     #[inline]
     #[must_use]
@@ -76,35 +110,10 @@ impl<T: Clone + 'static> ReadSignal<T> {
     }
     /// シグナルの現在の値を取得（複製）します。
     /// もし現在エフェクトの評価中であれば、そのエフェクトをこのシグナルの依存先（Subscriber）として自動登録します。
+    #[inline]
     #[must_use]
     pub fn get(&self) -> T {
-        // 依存関係の追跡（自動サブスクライブ）
-        ACTIVE_EFFECT.with(|cell| {
-            if let Some(active_effect_id) = cell.get() {
-                with_context(|cx| {
-                    if let Some(subs) = cx.reactive.react_subscribers.get_mut(self.id) {
-                        // すでに依存関係リストに登録されていなければ追加
-                        if !subs.contains(&active_effect_id) {
-                            subs.push(active_effect_id);
-                        }
-                    } else {
-                        // 新規登録
-                        let mut subs = smallvec::SmallVec::new();
-                        subs.push(active_effect_id);
-                        cx.reactive.react_subscribers.insert(self.id, subs);
-                    }
-                });
-            }
-        });
-
-        // 実値の取得とキャスト
-        with_context(|cx| {
-            let any_val = &cx.reactive.react_signals[self.id];
-            any_val
-                .downcast_ref::<T>()
-                .cloned()
-                .expect("Signal type mismatch")
-        })
+        self.with(std::clone::Clone::clone)
     }
 
     /// 任意の型のシグナルに対して、条件判定クロージャ `cond_fn` の結果に基づき、
@@ -156,7 +165,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
     #[must_use]
     pub fn get_untracked(&self) -> T {
         with_context(|cx| {
-            let any_val = &cx.reactive.react_signals[self.id];
+            let any_val = cx.reactive.react_signals.get(self.id).unwrap();
             any_val
                 .downcast_ref::<T>()
                 .cloned()
@@ -309,7 +318,7 @@ impl<T: Send + 'static> WriteSignal<T> {
 
         with_context(|cx| {
             // 新しい値に差し替え
-            cx.reactive.react_signals[self.id] = Box::new(new_value);
+            *cx.reactive.react_signals.get_mut(self.id).unwrap() = Box::new(new_value);
 
             // 依存しているエフェクトIDのリストをクローン
             if let Some(subs) = cx.reactive.react_subscribers.get(self.id) {
@@ -395,7 +404,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
                 .react_effects
                 .get_mut(effect_id)
                 .expect("Effect lost"),
-            Box::new(move |_| {
+            Effects(Box::new(move |_| {
                 // このプレースホルダが呼び出されたということは、
                 // 元のクロージャがまだ実行中（返却前）に、同一のエフェクトが再帰トリガーされたことを意味する
                 eprintln!(
@@ -403,7 +412,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
                                      Effect {effect_id:?} recursively triggered itself. \
                                      To prevent stack overflow, this recursive run has been skipped."
                 );
-            }),
+            })),
         );
 
         // 2. 依存追跡状態を退避・更新
@@ -414,7 +423,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
         });
 
         // 実行（内部で get() が呼ばれたシグナルと、この effect_id が自動で紐づきます）
-        effect_closure(cx);
+        effect_closure.0(cx);
 
         // 実行完了後、退避していた元のエフェクトIDを正確に復元する
         ACTIVE_EFFECT.with(|cell| cell.set(prev_effect));
@@ -434,7 +443,7 @@ where
     F: FnMut(&mut Context) + 'static,
 {
     // SoA にクロージャを登録
-    let id = with_context(|cx| cx.reactive.react_effects.insert(Box::new(f)));
+    let id = with_context(|cx| cx.reactive.react_effects.insert(Effects(Box::new(f))));
     // 初回評価を実行し、同時にシグナルとの依存関係マップを自動構築する
     execute_effect(id);
     id

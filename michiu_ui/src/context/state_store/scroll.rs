@@ -1,26 +1,26 @@
+use crate::{
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
+    BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
+    CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DEFAULT_BASIC,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlatDfsSequenceVec,
+    FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary,
+    LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary,
+    Position, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparse, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine,
+    TextSpansSparse, ThisStyle, UserSelect, Val, VisualPropertiesSecondary, WindowStore,
+    define_secondary,
+};
+use slotmap::{SecondaryMap, SparseSecondaryMap};
+use smallvec::SmallVec;
 use std::{
+    cell::RefCell,
     collections::HashSet,
     time::{Duration, Instant},
 };
 
-use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
-    BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
-    CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, Display, EntityId, FlatDfsSequenceVec, FlexLayoutsSecondary,
-    GridLayoutsSparseSecondary, InputContentsSparseSecondary, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutSize, LayoutStore, Length, OutputStore, ParentsSecondary, Position, Rect,
-    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparseSecondary, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextContentsSparseSecondary, TextEngine,
-    TextBufferSparseSecondary, TextSpansSparseSecondary, ThisStyle, UserSelect, Val,
-    VisualPropertiesSecondary, WindowStore,
-};
-use slotmap::{SecondaryMap, SparseSecondaryMap};
-use smallvec::SmallVec;
-
-pub(crate) type ScrollOffsetsSecondary = SecondaryMap<EntityId, LayoutPoint>;
-pub(crate) type ScrollSizesSecondary = SecondaryMap<EntityId, LayoutSize>;
+define_secondary!(pub(crate) struct ScrollOffsetsSecondary(LayoutPoint));
+define_secondary!(pub(crate) struct ScrollSizesSecondary(LayoutSize));
 
 pub(crate) struct ScrollStore {
     pub(crate) sc_offsets: ScrollOffsetsSecondary,
@@ -38,8 +38,8 @@ impl ScrollStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            sc_offsets: SecondaryMap::new(),
-            sc_sizes: SecondaryMap::new(),
+            sc_offsets: ScrollOffsetsSecondary(SecondaryMap::new()),
+            sc_sizes: ScrollSizesSecondary(SecondaryMap::new()),
         }
     }
 
@@ -47,8 +47,8 @@ impl ScrollStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            sc_offsets: SecondaryMap::with_capacity(c.sc_offsets),
-            sc_sizes: SecondaryMap::with_capacity(c.sc_sizes),
+            sc_offsets: ScrollOffsetsSecondary(SecondaryMap::with_capacity(c.sc_offsets)),
+            sc_sizes: ScrollSizesSecondary(SecondaryMap::with_capacity(c.sc_sizes)),
         }
     }
 
@@ -82,19 +82,17 @@ impl ScrollStore {
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) -> bool {
-        let Some(rect) = out_rects.get(id).copied() else {
-            return false;
-        };
+        let rect = *out_rects.at(id);
 
-        let scroll_size = sc_sizes.get(id).copied().unwrap_or_default();
+        let scroll_size = sc_sizes.get_or_default(id);
 
         // 親コンテナのボーダーおよびパディング厚を取得
-        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
+        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -113,7 +111,8 @@ impl ScrollStore {
             sc_offsets.insert(id, LayoutPoint::ZERO);
         }
 
-        let current = sc_offsets.get_mut(id).unwrap();
+        // 上で入れたばっかなので Some のはず
+        let current = sc_offsets.at_mut(id);
         if (current.x - x).abs() > 0.01 || (current.y - y).abs() > 0.01 {
             current.x = x;
             current.y = y;
@@ -151,7 +150,7 @@ impl ScrollStore {
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
@@ -191,8 +190,8 @@ impl ScrollStore {
 
         let (sb_state, container_rect, scroll_size) = {
             let sb_state = bar_styles.get(current_id).cloned().unwrap_or_default();
-            let container_rect = out_rects.get(current_id).copied().unwrap_or_default();
-            let scroll_size = sc_sizes.get(current_id).copied().unwrap_or_default();
+            let container_rect = *out_rects.at(current_id);
+            let scroll_size = sc_sizes.get_or_default(current_id);
             (sb_state, container_rect, scroll_size)
         };
 
@@ -202,8 +201,8 @@ impl ScrollStore {
             DragDirection::Vertical => {
                 let track_id = sb_state.v_track_id.unwrap();
                 let thumb_id = sb_state.v_thumb_id.unwrap();
-                let track_rect = out_rects.get(track_id).copied().unwrap_or_default();
-                let thumb_rect = out_rects.get(thumb_id).copied().unwrap_or_default();
+                let track_rect = *out_rects.at(track_id);
+                let thumb_rect = *out_rects.at(thumb_id);
 
                 let (mut margin_top, mut margin_bottom) = (0.0, 0.0);
                 if let Some(ref thumb_style) = sb_state.style.v_thumb {
@@ -230,8 +229,8 @@ impl ScrollStore {
             DragDirection::Horizontal => {
                 let track_id = sb_state.h_track_id.unwrap();
                 let thumb_id = sb_state.h_thumb_id.unwrap();
-                let track_rect = out_rects.get(track_id).copied().unwrap_or_default();
-                let thumb_rect = out_rects.get(thumb_id).copied().unwrap_or_default();
+                let track_rect = *out_rects.at(track_id);
+                let thumb_rect = *out_rects.at(thumb_id);
 
                 let (mut margin_left, mut margin_right) = (0.0, 0.0);
                 if let Some(ref thumb_style) = sb_state.style.h_thumb {
@@ -312,12 +311,12 @@ impl ScrollStore {
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) -> bool {
-        let current = sc_offsets.get(id).copied().unwrap_or_default();
+        let current = sc_offsets.get_or_default(id);
         ScrollStore::scroll_to(
             id,
             current.x + dx,
@@ -352,7 +351,7 @@ impl ScrollStore {
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
@@ -362,9 +361,7 @@ impl ScrollStore {
         let Some(pointer_pos) = evt_current_pointer_position else {
             return (false, None);
         };
-        let Some(clip) = out_clip_rects.get(id).copied() else {
-            return (false, None);
-        };
+        let clip = *out_clip_rects.at(id);
 
         // テキスト選択状態
         let user_select = rnd_visual
@@ -376,7 +373,7 @@ impl ScrollStore {
         }
 
         // はみ出し距離
-        let distance = OutputStore::drag_overhang_distance(pointer_pos, &clip);
+        let distance = OutputStore::drag_overhang_distance(pointer_pos, clip);
         if distance.x.abs() <= 1.0 && distance.y.abs() <= 1.0 {
             return (false, None);
         }
@@ -417,10 +414,10 @@ impl ScrollStore {
     pub(crate) fn get_scroll_size(
         id: EntityId,
         sys_text_engine: &mut TextEngine,
-        sys_text_buffers: &TextBufferSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
+        cont_text_contents: &TextContentsSparse,
+        cont_text_spans: &TextSpansSparse,
+        cont_input_contents: &InputContentsSparse,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
@@ -429,7 +426,7 @@ impl ScrollStore {
         bar_styles: &ScrollbarStylesSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
     ) -> LayoutSize {
@@ -437,18 +434,15 @@ impl ScrollStore {
         let mut max_y = 0.0f32;
 
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
-        if topo_active_masks
-            .get(id)
-            .is_some_and(ComponentMask::has_input_content)
-            && let Some(contents) = cont_input_contents.get(id)
-            && let Some(layout_rect) = contents.last_layout
-        {
-            max_x =
-                layout_rect.width + contents.caret_width.unwrap_or(contents.default_caret_width);
-            max_y = layout_rect.height;
-        } else if topo_active_masks
-            .get(id)
-            .is_some_and(ComponentMask::has_text_content)
+        if topo_active_masks.at(id).has_input_content() {
+            // マスクがあるなら Some のはず
+            let contents = cont_input_contents.at(id);
+            if let Some(layout_rect) = contents.last_layout {
+                max_x = layout_rect.width
+                    + contents.caret_width.unwrap_or(contents.default_caret_width);
+                max_y = layout_rect.height;
+            }
+        } else if topo_active_masks.at(id).has_text_content()
             && let Some(buffer) = SystemStore::get_or_create_layout(
                 id,
                 sys_text_engine,
@@ -467,8 +461,8 @@ impl ScrollStore {
         }
 
         // 親要素自体のボーダー・パディング厚を取得
-        let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
-        let rect = out_rects.get(id).copied().unwrap_or_default();
+        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
+        let rect = *out_rects.at(id);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -482,35 +476,33 @@ impl ScrollStore {
             (None, None)
         };
 
-        if let Some(children_list) = topo_children.get(id) {
-            for &child_id in children_list {
-                // スクロールバーのトラックはサイズ計算から除外
-                if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
-                    continue;
-                }
-
-                // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
-                let is_absolute = lay_resolved_basic
-                    .get(child_id)
-                    .is_some_and(|l| l.position == Position::Absolute);
-                if is_absolute {
-                    continue;
-                }
-
-                if let Some(&rect) = out_rects.get(child_id) {
-                    let parent_rect = out_rects.get(id).copied().unwrap_or_default();
-                    let scroll_offset = sc_offsets.get(id).copied().unwrap_or_default();
-
-                    // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
-                    let local_right =
-                        rect.x - parent_rect.x + scroll_offset.x + rect.width - offset_x;
-                    let local_bottom =
-                        rect.y - parent_rect.y + scroll_offset.y + rect.height - offset_y;
-
-                    max_x = max_x.max(local_right);
-                    max_y = max_y.max(local_bottom);
-                }
+        let children_list = topo_children.at(id);
+        for &child_id in children_list {
+            // スクロールバーのトラックはサイズ計算から除外
+            if Some(child_id) == v_track_opt || Some(child_id) == h_track_opt {
+                continue;
             }
+
+            // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
+            let is_absolute = lay_resolved_basic
+                .get(child_id)
+                .is_some_and(|l| l.position == Position::Absolute);
+            if is_absolute {
+                continue;
+            }
+
+            let child_rect = *out_rects.at(child_id);
+            let parent_rect = *out_rects.at(id);
+            let scroll_offset = sc_offsets.get_or_default(id);
+
+            // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
+            let local_right =
+                child_rect.x - parent_rect.x + scroll_offset.x + child_rect.width - offset_x;
+            let local_bottom =
+                child_rect.y - parent_rect.y + scroll_offset.y + child_rect.height - offset_y;
+
+            max_x = max_x.max(local_right);
+            max_y = max_y.max(local_bottom);
         }
 
         LayoutSize::new(max_x, max_y)

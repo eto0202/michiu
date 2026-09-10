@@ -7,6 +7,7 @@ pub mod output_store;
 pub mod pipeline;
 pub mod reactive_store;
 pub mod render_store;
+pub mod soa;
 pub mod state_store;
 pub mod system_store;
 pub mod topology_store;
@@ -20,6 +21,7 @@ pub use output_store::*;
 pub use pipeline::*;
 pub use reactive_store::*;
 pub use render_store::*;
+pub use soa::*;
 pub use state_store::*;
 pub use system_store::*;
 pub use topology_store::*;
@@ -170,19 +172,14 @@ impl Context {
     /// 指定した要素の親要素を取得します。
     #[inline]
     pub fn parent_element(&self, handle: Element) -> Option<Element> {
-        self.topology
-            .topo_parents
-            .get(handle.id)
-            .and_then(|c| c.map(Element::from))
+        self.topology.topo_parents.at(handle.id).map(Element::from)
     }
 
     /// 指定した要素の子要素一覧を取得します。
     #[inline]
     pub fn children_list(&self, handle: Element) -> Option<Vec<Element>> {
-        self.topology
-            .topo_children
-            .get(handle.id)
-            .map(|c| c.iter().map(|&id| Element { id }).collect())
+        let list = self.topology.topo_children.at(handle.id);
+        Some(list.iter().map(|&id| Element::from(id)).collect())
     }
 
     /// 画面上でアクティブになっている要素の総数を取得します。
@@ -224,8 +221,8 @@ impl Context {
     pub fn is_hovered(&self, id: EntityId) -> bool {
         self.topology
             .topo_active_masks
-            .get(id)
-            .is_some_and(|m| m.has(ComponentMask::STATE_HOVERED))
+            .at(id)
+            .has(ComponentMask::STATE_HOVERED)
     }
 
     /// 指定された要素が現在キーボードフォーカスを得ているか判定します
@@ -233,8 +230,8 @@ impl Context {
     pub fn is_focused(&self, id: EntityId) -> bool {
         self.topology
             .topo_active_masks
-            .get(id)
-            .is_some_and(|m| m.has(ComponentMask::STATE_FOCUSED))
+            .at(id)
+            .has(ComponentMask::STATE_FOCUSED)
     }
 
     /// 指定された要素が現在マウスやタップで押し下げられているか判定します
@@ -242,8 +239,8 @@ impl Context {
     pub fn is_pressed(&self, id: EntityId) -> bool {
         self.topology
             .topo_active_masks
-            .get(id)
-            .is_some_and(|m| m.has(ComponentMask::STATE_PRESSED))
+            .at(id)
+            .has(ComponentMask::STATE_PRESSED)
     }
 
     /// 指定された要素が無効化（操作不可）状態にあるか判定します
@@ -251,8 +248,8 @@ impl Context {
     pub fn is_disabled(&self, id: EntityId) -> bool {
         self.topology
             .topo_active_masks
-            .get(id)
-            .is_some_and(|m| m.has(ComponentMask::STATE_DISABLED))
+            .at(id)
+            .has(ComponentMask::STATE_DISABLED)
     }
 
     /// 指定された要素が現在アクティブ（有効選択など）状態にあるか判定します
@@ -260,8 +257,8 @@ impl Context {
     pub fn is_actived(&self, id: EntityId) -> bool {
         self.topology
             .topo_active_masks
-            .get(id)
-            .is_some_and(|m| m.has(ComponentMask::STATE_ACTIVED))
+            .at(id)
+            .has(ComponentMask::STATE_ACTIVED)
     }
 
     /// 指定された要素が現在テキストまたはトグル選択されているか判定します
@@ -269,8 +266,8 @@ impl Context {
     pub fn is_selected(&self, id: EntityId) -> bool {
         self.topology
             .topo_active_masks
-            .get(id)
-            .is_some_and(|m| m.has(ComponentMask::STATE_SELECTED))
+            .at(id)
+            .has(ComponentMask::STATE_SELECTED)
     }
 
     /// 指定された要素が現在ドラッグ操作中にあるか判定します
@@ -278,8 +275,8 @@ impl Context {
     pub fn is_dragged(&self, id: EntityId) -> bool {
         self.topology
             .topo_active_masks
-            .get(id)
-            .is_some_and(|m| m.has(ComponentMask::STATE_DRAGGED))
+            .at(id)
+            .has(ComponentMask::STATE_DRAGGED)
     }
 
     /// 現在、システム内部に再描画要求（Dirtyマークされた要素）があるか判定します。

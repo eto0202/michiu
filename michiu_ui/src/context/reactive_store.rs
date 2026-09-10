@@ -1,13 +1,15 @@
 use crate::{
-    CapacityConfig, Context, EffectId, EntitiesSlot, EntityId, FlatDfsSequenceVec,
-    ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal, execute_effect,
+    CapacityConfig, Context, EffectId, EntitiesSlot, EntityId, FlatDfsSequenceVec, MichiuSoA,
+    ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal, define_secondary,
+    define_slotmap, define_sparse_secondary, define_vec, execute_effect,
 };
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use smallvec::SmallVec;
-use std::{collections::HashMap, marker::PhantomData};
+use std::{collections::HashMap, fmt, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub(crate) enum EffectCategory {
     None,
     Style,
@@ -27,27 +29,33 @@ pub(crate) enum EffectCategory {
     FocusableState,
 }
 
-pub(crate) type SignalsSlotMap = SlotMap<SignalId, Box<dyn std::any::Any>>;
-pub(crate) type EffectsSlotMap = SlotMap<EffectId, Effects>;
-pub(crate) type SubscribersSecondary = SecondaryMap<SignalId, SmallVec<[EffectId; 4]>>;
-pub(crate) type ElementEffectsSecondary =
-    SecondaryMap<EntityId, SmallVec<[(EffectCategory, EffectId); 4]>>;
-pub(crate) type EffectToElementSecondary = SecondaryMap<EffectId, EntityId>;
-pub(crate) type PendingElementEffectsVec = Vec<EffectId>;
-pub(crate) type ProvidersSparseSecondary =
-    SparseSecondaryMap<EntityId, FxHashMap<std::any::TypeId, SignalId>>;
+pub(crate) struct Effects(pub(crate) Box<dyn FnMut(&mut Context)>);
+impl fmt::Debug for Effects {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Effects(<closure>)")
+    }
+}
+
+define_slotmap!(pub(crate) struct SignalsSlot(SignalId, Box<dyn std::any::Any>));
+define_slotmap!(pub(crate) struct EffectsSlot(EffectId, Effects));
+
+define_secondary!(pub(crate) struct SubscribersSecondary(SignalId, SmallVec<[EffectId; 8]>));
+define_secondary!(pub(crate) struct ElementEffectsSecondary(SmallVec<[(EffectCategory, EffectId); 8]>));
+define_secondary!(pub(crate) struct EffectToElementSecondary(EffectId, EntityId));
+
+define_sparse_secondary!(pub(crate) struct ProvidersSparseSecondary(FxHashMap<std::any::TypeId, SignalId>));
+
+define_vec!(pub(crate) struct PendingElementEffectsVec(EffectId));
 
 pub struct ReactiveStore {
-    pub(crate) react_signals: SignalsSlotMap,
-    pub(crate) react_effects: EffectsSlotMap,
+    pub(crate) react_signals: SignalsSlot,
+    pub(crate) react_effects: EffectsSlot,
     pub(crate) react_subscribers: SubscribersSecondary,
     pub(crate) react_element_effects: ElementEffectsSecondary,
     pub(crate) react_effect_to_element: EffectToElementSecondary,
     pub(crate) react_pending_element_effects: PendingElementEffectsVec,
     pub(crate) react_providers: ProvidersSparseSecondary,
 }
-
-pub(crate) type Effects = Box<dyn FnMut(&mut Context)>;
 
 impl Default for ReactiveStore {
     fn default() -> Self {
@@ -60,13 +68,13 @@ impl ReactiveStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            react_signals: SlotMap::with_key(),
-            react_effects: SlotMap::with_key(),
-            react_subscribers: SecondaryMap::new(),
-            react_element_effects: SecondaryMap::new(),
-            react_effect_to_element: SecondaryMap::new(),
-            react_pending_element_effects: Vec::new(),
-            react_providers: SparseSecondaryMap::new(),
+            react_signals: SignalsSlot(SlotMap::with_key()),
+            react_effects: EffectsSlot(SlotMap::with_key()),
+            react_subscribers: SubscribersSecondary(SecondaryMap::new()),
+            react_element_effects: ElementEffectsSecondary(SecondaryMap::new()),
+            react_effect_to_element: EffectToElementSecondary(SecondaryMap::new()),
+            react_pending_element_effects: PendingElementEffectsVec(Vec::new()),
+            react_providers: ProvidersSparseSecondary(SparseSecondaryMap::new()),
         }
     }
 
@@ -74,13 +82,23 @@ impl ReactiveStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            react_signals: SlotMap::with_capacity_and_key(c.react_signals),
-            react_effects: SlotMap::with_capacity_and_key(c.react_effects),
-            react_subscribers: SecondaryMap::with_capacity(c.react_subscribers),
-            react_element_effects: SecondaryMap::with_capacity(c.react_element_effects),
-            react_effect_to_element: SecondaryMap::with_capacity(c.react_effect_to_element),
-            react_pending_element_effects: Vec::with_capacity(c.react_pending_element_effects),
-            react_providers: SparseSecondaryMap::with_capacity(c.react_providers),
+            react_signals: SignalsSlot(SlotMap::with_capacity_and_key(c.react_signals)),
+            react_effects: EffectsSlot(SlotMap::with_capacity_and_key(c.react_effects)),
+            react_subscribers: SubscribersSecondary(SecondaryMap::with_capacity(
+                c.react_subscribers,
+            )),
+            react_element_effects: ElementEffectsSecondary(SecondaryMap::with_capacity(
+                c.react_element_effects,
+            )),
+            react_effect_to_element: EffectToElementSecondary(SecondaryMap::with_capacity(
+                c.react_effect_to_element,
+            )),
+            react_pending_element_effects: PendingElementEffectsVec(Vec::with_capacity(
+                c.react_pending_element_effects,
+            )),
+            react_providers: ProvidersSparseSecondary(SparseSecondaryMap::with_capacity(
+                c.react_providers,
+            )),
         }
     }
 
@@ -119,10 +137,7 @@ impl ReactiveStore {
         let type_id = std::any::TypeId::of::<T>();
 
         // 親要素へ遡るイテレータを生成
-        std::iter::successors(Some(id), |&curr_id| {
-            topo_parents.get(curr_id).copied().flatten()
-        })
-        .find_map(|curr_id| {
+        std::iter::successors(Some(id), |&curr_id| *topo_parents.at(curr_id)).find_map(|curr_id| {
             react_providers
                 .get(curr_id)
                 .and_then(|map| map.get(&type_id))
@@ -157,10 +172,7 @@ impl ReactiveStore {
         let type_id = std::any::TypeId::of::<T>();
 
         // 親要素へ遡るイテレータを生成
-        std::iter::successors(Some(id), |&curr_id| {
-            topo_parents.get(curr_id).copied().flatten()
-        })
-        .find_map(|curr_id| {
+        std::iter::successors(Some(id), |&curr_id| *topo_parents.at(curr_id)).find_map(|curr_id| {
             react_providers
                 .get(curr_id)
                 .and_then(|map| map.get(&type_id))
@@ -175,7 +187,7 @@ impl ReactiveStore {
         element_id: EntityId,
         category: EffectCategory,
         effect_id: EffectId,
-        react_effects: &mut EffectsSlotMap,
+        react_effects: &mut EffectsSlot,
         react_element_effects: &mut ElementEffectsSecondary,
         react_effect_to_element: &mut EffectToElementSecondary,
         react_pending_element_effects: &mut PendingElementEffectsVec,
@@ -199,7 +211,7 @@ impl ReactiveStore {
     pub(crate) fn create_element_effect<F>(
         element_id: EntityId,
         category: EffectCategory,
-        react_effects: &mut EffectsSlotMap,
+        react_effects: &mut EffectsSlot,
         react_element_effects: &mut ElementEffectsSecondary,
         react_effect_to_element: &mut EffectToElementSecondary,
         react_pending_element_effects: &mut PendingElementEffectsVec,
@@ -208,7 +220,7 @@ impl ReactiveStore {
     where
         F: FnMut(&mut Context) + 'static,
     {
-        let effect_id = react_effects.insert(Box::new(f));
+        let effect_id = react_effects.insert(Effects(Box::new(f)));
 
         // 初回評価が走る前に要素との紐付けを登録
         react_effect_to_element.insert(effect_id, element_id);
@@ -265,7 +277,7 @@ impl ReactiveStore {
     #[inline]
     pub(crate) fn create_signal<T: Send + 'static>(
         initial_value: T,
-        react_signals: &mut SignalsSlotMap,
+        react_signals: &mut SignalsSlot,
         react_subscribers: &mut SubscribersSecondary,
     ) -> (ReadSignal<T>, WriteSignal<T>) {
         let id = react_signals.insert(Box::new(initial_value));
@@ -278,7 +290,7 @@ impl ReactiveStore {
     #[inline]
     pub(crate) fn evaluate_pending_element_effects(
         react_pending_element_effects: &mut PendingElementEffectsVec,
-        react_effects: &EffectsSlotMap,
+        react_effects: &EffectsSlot,
     ) {
         // レイアウトが再計算される前に、溜まっているすべてのエフェクトを評価完了させる
         if react_pending_element_effects.is_empty() {

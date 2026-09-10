@@ -1,28 +1,27 @@
 use crate::{
-    ActiveAnimationsSparseSecondary, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
-    ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary,
-    BasicLayout, BasicLayoutsSecondary, ByteIndex, CapacityConfig, ChildrenSecondary,
-    ClipRectsSecondary, ComponentMask, ContentStore, Context, CursorIcon, DfsIndicesSecondary,
+    ActiveAnimationsSparse, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
+    ActiveTransitionsSparse, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayout,
+    BasicLayoutsSecondary, ByteIndex, CapacityConfig, ChildrenSecondary, ClipRectsSecondary,
+    ComponentMask, ContentStore, Context, CursorIcon, DEFAULT_BASIC, DfsIndicesSecondary,
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndStore, EffectiveZindicesSecondary, Element,
     ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
     FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusStore, GridLayout,
-    GridLayoutsSparseSecondary, InputContents, InputContentsSparseSecondary, InputOp,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
-    MichiuString, Modifiers, MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline,
-    PointerEvents, Position, RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore,
-    ResizeStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparseSecondary,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStore,
-    ScrollbarStylesSecondary, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
-    SessionSpawnedVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextAlign, TextBufferSparseSecondary, TextContentsSparseSecondary, TextEditStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpansSparseSecondary, TopoSortCacheVec, TopologyStore,
-    UserSelect, UsizeRangeExt, Val, VirtualKey, VisualPropertiesSecondary, WindowStore,
-    bind_context, handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved,
-    handle_on_disable, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
-    handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
-    handle_on_focus, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter,
-    handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click,
-    handle_on_select,
+    GridLayoutsSparse, InputContents, InputContentsSparse, InputOp, InteractionPropertiesSecondary,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, MichiuSoA, MichiuString, Modifiers,
+    MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline, PointerEvents, Position,
+    RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore, ResizeStore,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
+    ScrollSizesSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSecondary,
+    SelectedRectsSparse, SelectionStartIndexSparse, SessionSpawnedVec, SortCacheVec,
+    SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
+    TextBufferSparse, TextContentsSparse, TextEditStore, TextEngine, TextSelectionsSparse,
+    TextSpansSparse, TopologyStore, UserSelect, UsizeRangeExt, Val, VirtualKey,
+    VisualPropertiesSecondary, WindowStore, bind_context, define_sparse_secondary,
+    handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
+    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
+    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
+    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
+    handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -60,10 +59,24 @@ impl ActiveInteractionStates {
     }
 }
 
-pub(crate) type EventListenersSparseSecondary = SparseSecondaryMap<EntityId, EventListeners>;
+#[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+#[into_iterator(owned, ref, ref_mut)]
+pub(crate) struct EventListenersSparse(SparseSecondaryMap<EntityId, EventListeners>);
+
+impl MichiuSoA for EventListenersSparse {
+    type Item = EventListeners;
+    #[inline]
+    fn get(&self, id: EntityId) -> Option<&Self::Item> {
+        self.0.get(id)
+    }
+    #[inline]
+    fn get_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+        self.0.get_mut(id)
+    }
+}
 
 pub struct EventStore {
-    pub(crate) evt_listeners: EventListenersSparseSecondary,
+    pub(crate) evt_listeners: EventListenersSparse,
     pub(crate) evt_interaction_states: ActiveInteractionStates,
     pub(crate) evt_current_pointer_position: Option<LayoutPoint>,
 }
@@ -79,7 +92,7 @@ impl EventStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            evt_listeners: SparseSecondaryMap::new(),
+            evt_listeners: EventListenersSparse(SparseSecondaryMap::new()),
             evt_interaction_states: ActiveInteractionStates::new(),
             evt_current_pointer_position: None,
         }
@@ -89,7 +102,7 @@ impl EventStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            evt_listeners: SparseSecondaryMap::with_capacity(c.evt_listeners),
+            evt_listeners: EventListenersSparse(SparseSecondaryMap::with_capacity(c.evt_listeners)),
             ..Default::default()
         }
     }
@@ -149,7 +162,8 @@ impl EventStore {
             .is_some_and(|l| l.on_cursor_moved.is_some());
 
         if has_listener {
-            let rect = &cx.outputs.out_rects.get(id).copied().unwrap_or_default();
+            // ヒット先があるなら Some のはず
+            let rect = cx.outputs.out_rects.at(id);
             let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
             handle_on_cursor_moved(cx, id, relative_pos);
         }
@@ -164,7 +178,7 @@ impl EventStore {
             ResizeStore::sync_resizing_drag(
                 logical_pos,
                 state,
-                cx.window.win_last_size.as_ref(),
+                cx.window.win_last_size,
                 &mut cx.topology.topo_active_masks,
                 &cx.topology.topo_parents,
                 &mut cx.layouts.lay_dirty_entities,
@@ -256,7 +270,7 @@ impl EventStore {
                 RenderStore::resolve_element_style_state(
                     prev_id,
                     false,
-                    cx.window.win_last_size.as_ref(),
+                    cx.window.win_last_size,
                     &cx.system.sys_text_buffers,
                     &cx.reactive.react_element_effects,
                     &cx.contents.cont_input_contents,
@@ -304,7 +318,7 @@ impl EventStore {
             {
                 // プレースホルダー選択のドラッグ遮断
                 if let Some(contents) = cx.contents.cont_input_contents.get(pressed_id) {
-                    let is_placeholder = contents.text.0.get().is_empty();
+                    let is_placeholder = contents.to_michiu().is_empty();
                     let is_ime = contents
                         .ime_state
                         .as_ref()
@@ -408,13 +422,7 @@ impl EventStore {
         let src_id = drag_state.source_entity;
         let placeholder_id = drag_state.placeholder_entity;
 
-        let drag_prop = cx
-            .states
-            .dnd
-            .dnd_drag_properties
-            .get(src_id)
-            .copied()
-            .unwrap();
+        let drag_prop = *cx.states.dnd.dnd_drag_properties.at(src_id);
 
         // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従
         DndStore::update_inset_based_relative_local(
@@ -523,8 +531,8 @@ impl EventStore {
         let is_input = cx
             .topology
             .topo_active_masks
-            .get(target_id)
-            .is_some_and(ComponentMask::has_input_content);
+            .at(target_id)
+            .has_input_content();
 
         if user_select == UserSelect::Text
             && !is_input
@@ -672,8 +680,7 @@ impl EventStore {
         };
 
         if let Some(contents) = cx.contents.cont_input_contents.get(target_id) {
-            let text_val = contents.to_michiu();
-            let is_placeholder = text_val.is_empty()
+            let is_placeholder = contents.to_michiu().is_empty()
                 && contents
                     .ime_state
                     .as_ref()
@@ -684,9 +691,7 @@ impl EventStore {
             }
         }
 
-        let Some(text) = cx.contents.cont_text_contents.get(target_id) else {
-            return;
-        };
+        let text = cx.contents.cont_text_contents.at(target_id);
 
         let Some(buffer) = SystemStore::get_or_create_layout(
             target_id,
@@ -702,18 +707,12 @@ impl EventStore {
             return;
         };
 
-        let rect = cx
-            .outputs
-            .out_rects
-            .get(target_id)
-            .copied()
-            .unwrap_or_default();
-        let basic = &cx
+        // ヒット先があるなら Some のはず
+        let rect = *cx.outputs.out_rects.at(target_id);
+        let basic = cx
             .layouts
             .lay_resolved_basic
-            .get(target_id)
-            .copied()
-            .unwrap_or_default();
+            .get_or(target_id, &DEFAULT_BASIC);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -808,15 +807,13 @@ impl EventStore {
             let has_overflow = cx
                 .topology
                 .topo_active_masks
-                .get(curr_id)
-                .is_some_and(|m| m.has(ComponentMask::STYLE_OVERFLOW));
+                .at(curr_id)
+                .has(ComponentMask::STYLE_OVERFLOW);
             if has_overflow {
-                let basic = &cx
+                let basic = cx
                     .layouts
                     .lay_resolved_basic
-                    .get(curr_id)
-                    .copied()
-                    .unwrap_or_default();
+                    .get_or(curr_id, &DEFAULT_BASIC);
 
                 // スクロール可能な軸の移動量
                 let dy = if scroll_y != 0.0
@@ -863,7 +860,7 @@ impl EventStore {
             }
 
             // 先祖へ伝播
-            curr = cx.topology.topo_parents.get(curr_id).copied().flatten();
+            curr = *cx.topology.topo_parents.at(curr_id);
         }
     }
 
@@ -889,8 +886,8 @@ impl EventStore {
             let has_input_contents = cx
                 .topology
                 .topo_active_masks
-                .get(focused_id)
-                .is_some_and(ComponentMask::has_input_content);
+                .at(focused_id)
+                .has_input_content();
 
             if !has_input_contents {
                 handle_on_click(cx, focused_id);
@@ -1014,8 +1011,8 @@ impl EventStore {
         focused_id: EntityId,
         text: &MichiuString,
         contents: &mut InputContents,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) {
         let text_val = contents.to_michiu();
         let range = contents.selected_range.clone();
@@ -1073,14 +1070,13 @@ impl EventStore {
         if !cx
             .topology
             .topo_active_masks
-            .get(focused_id)
-            .is_some_and(ComponentMask::has_input_content)
+            .at(focused_id)
+            .has_input_content()
         {
             return;
         }
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) else {
-            return;
-        };
+        // マスクがあるなら Some のはず
+        let contents = cx.contents.cont_input_contents.at_mut(focused_id);
 
         EventStore::handle_paste(
             focused_id,
@@ -1153,8 +1149,8 @@ impl EventStore {
         prev_sel: Range<ByteIndex>,
         prev_text: MichiuString,
         contents: &mut InputContents,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) {
         contents.apply_undo(prev_text, prev_sel.clone());
 
@@ -1169,14 +1165,15 @@ impl EventStore {
         if !cx
             .topology
             .topo_active_masks
-            .get(focused_id)
-            .is_some_and(ComponentMask::has_input_content)
+            .at(focused_id)
+            .has_input_content()
         {
             return;
         }
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) else {
-            return;
-        };
+
+        // マスクがあるなら Some のはず
+        let contents = cx.contents.cont_input_contents.at_mut(focused_id);
+
         let Some((prev_text, prev_sel)) = contents.undo_stack.pop() else {
             return;
         };
@@ -1232,9 +1229,9 @@ impl EventStore {
         next_sel: Range<ByteIndex>,
         next_text: MichiuString,
         contents: &mut InputContents,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) {
         // InputContents 側の状態復元
         contents.apply_redo(next_text, next_sel.clone());
@@ -1251,14 +1248,13 @@ impl EventStore {
         if !cx
             .topology
             .topo_active_masks
-            .get(focused_id)
-            .is_some_and(ComponentMask::has_input_content)
+            .at(focused_id)
+            .has_input_content()
         {
             return;
         }
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) else {
-            return;
-        };
+        // マスクがあるなら Some のはず
+        let contents = cx.contents.cont_input_contents.at_mut(focused_id);
         let Some((next_text, next_sel)) = contents.redo_stack.pop() else {
             return;
         };
@@ -1309,8 +1305,8 @@ impl EventStore {
         focused_id: EntityId,
         range: Range<ByteIndex>,
         contents: &mut InputContents,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) {
         // 削除前の履歴セーブ
         let current_text = contents.to_michiu();
@@ -1340,25 +1336,28 @@ impl EventStore {
             return None;
         }
 
-        let range = cx.states.edit.edit_selections.get(focused_id)?;
+        // テキストを選択してるなら Some のはず
+        let range = cx.states.edit.edit_selections.at(focused_id);
 
         // 空の選択範囲の場合
         if range.start >= range.end {
             return None;
         }
 
-        let text = cx.contents.cont_text_contents.get(focused_id)?;
+        let text = cx.contents.cont_text_contents.at(focused_id);
         let cut_text = text.slice(range.clone()).to_string();
 
         // 対象が Input コントロールである場合のみ書き換え
         let is_input = cx
             .topology
             .topo_active_masks
-            .get(focused_id)
-            .is_some_and(ComponentMask::has_input_content);
+            .at(focused_id)
+            .has_input_content();
 
         // Input 用のコンテンツが実際に存在する場合のみ実行
-        if is_input && let Some(contents) = cx.contents.cont_input_contents.get_mut(focused_id) {
+        if is_input {
+            // is_input が ture なら Some のはず
+            let contents = cx.contents.cont_input_contents.at_mut(focused_id);
             EventStore::inject_cut_internal(
                 focused_id,
                 range.clone(),

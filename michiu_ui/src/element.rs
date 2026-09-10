@@ -1,10 +1,12 @@
 pub mod handler;
 pub mod input_func;
 
+use smallvec::SmallVec;
+
 use crate::{
-    BasicLayout, ComponentMask, Context, EffectCategory, EntityId, ExternalTexture, ReadSignal,
-    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle, UiaValue, Val,
-    WebView2Contents, create_effect, div_n,
+    BasicLayout, ComponentMask, Context, EffectCategory, EntityId, ExternalTexture, MichiuSoA,
+    ReadSignal, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle, UiaValue,
+    Val, WebView2Contents, create_effect, div_n,
 };
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -67,6 +69,7 @@ impl Drop for ContextGuard {
 }
 
 /// 静的な値、または動的に変化する値（Signalやクロージャ）を抽象化する型
+#[repr(u8)]
 pub enum Prop<T> {
     None,
     Static(T),
@@ -232,13 +235,16 @@ impl Element {
         // 実行時にのみ制御されるべきなのでここでは除外する
         let property_only_mask = mask.0 & !ComponentMask::STYLE_INTERACTION_PROPERTY;
 
-        cx.topology.topo_active_masks[id].0 |= property_only_mask;
+        cx.topology
+            .topo_active_masks
+            .at_mut(id)
+            .set(property_only_mask);
         if mask.has_basic_layout()
             || mask.has(ComponentMask::STYLE_FONT_SIZE)
             || mask.has(ComponentMask::STYLE_AUTO_WRAP)
         {
             if merge && cx.layouts.lay_base_basic.contains_key(id) {
-                let base = cx.layouts.lay_base_basic.get_mut(id).unwrap();
+                let base = cx.layouts.lay_base_basic.at_mut(id);
                 base.override_with(&inner.basic_layout, mask);
             } else {
                 // 前回の設定蓄積をクリアして置換
@@ -251,7 +257,8 @@ impl Element {
             mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
         if has_visual {
             if merge && cx.renders.rnd_base_visual.contains_key(id) {
-                let vis = cx.renders.rnd_base_visual.get_mut(id).unwrap();
+                // マスクがあるなら Some のはず
+                let vis = cx.renders.rnd_base_visual.at_mut(id);
                 vis.override_with(&inner.visual_property, mask);
             } else {
                 cx.renders
@@ -265,7 +272,8 @@ impl Element {
             || mask.has(ComponentMask::STYLE_INTERACTION_PARENT)
         {
             if merge && cx.renders.rnd_interaction.contains_key(id) {
-                let interaction = cx.renders.rnd_interaction.get_mut(id).unwrap();
+                // マスクがあるなら Some のはず
+                let interaction = cx.renders.rnd_interaction.at_mut(id);
                 interaction.override_with(&inner.interaction_styles, mask);
             } else {
                 cx.renders
@@ -276,7 +284,7 @@ impl Element {
 
         if mask.has_flex_layout() {
             if merge && cx.layouts.lay_flex.contains_key(id) {
-                let flex = cx.layouts.lay_flex.get_mut(id).unwrap();
+                let flex = cx.layouts.lay_flex.at_mut(id);
                 flex.override_with(&inner.flex_layout, mask);
             } else {
                 cx.layouts.lay_flex.insert(id, inner.flex_layout);
@@ -483,17 +491,17 @@ impl Element {
                 let id = self.id;
                 with_context(|cx| {
                     // 静的なコンテンツ上書き時のみ古い動的評価エフェクト（Contentsカテゴリ）を一括破棄
-                    if let Some(react_effects) = cx.reactive.react_element_effects.get_mut(id)
-                        && let Some(pos) = react_effects
+                    if let Some(effects) = cx.reactive.react_element_effects.get_mut(id)
+                        && let Some(i) = effects
                             .iter()
                             .position(|(cat, _)| *cat == EffectCategory::Contents)
                     {
-                        let (_, old_effect_id) = react_effects.remove(pos);
-                        cx.reactive.react_effects.remove(old_effect_id);
-                        cx.reactive.react_effect_to_element.remove(old_effect_id);
+                        let (_, old_effect) = effects.remove(i);
+                        cx.reactive.react_effects.remove(old_effect);
+                        cx.reactive.react_effect_to_element.remove(old_effect);
                         cx.reactive
                             .react_pending_element_effects
-                            .retain(|&x| x != old_effect_id);
+                            .retain(|&x| x != old_effect);
                     }
                     self.set_contents_internal(cx, new_child);
                 });
@@ -504,7 +512,7 @@ impl Element {
                     cx.create_element_effect(id, EffectCategory::Contents, move |cx| {
                         let new_child = f();
                         let container = Element { id };
-                        // Dynamic 実行時は自身を自殺させないためそのままマウントを実行
+                        // Dynamic 実行時は自殺させないためそのままマウントを実行
                         container.set_contents_internal(cx, new_child);
                     });
                 });
@@ -535,12 +543,11 @@ impl Element {
         }
 
         // 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
-        if let Some(children_list) = cx.topology.topo_children.get(id) {
-            let old_children: Vec<EntityId> = children_list.iter().copied().collect();
-            for child_id in old_children {
-                if !scrollbar_ids.contains(&child_id) {
-                    cx.despawn_internal(child_id);
-                }
+        let children_list = cx.topology.topo_children.at(id);
+        let old_children: SmallVec<[EntityId; 8]> = children_list.iter().copied().collect();
+        for child_id in old_children {
+            if !scrollbar_ids.contains(&child_id) {
+                cx.despawn_internal(child_id);
             }
         }
 
@@ -559,7 +566,10 @@ impl Element {
     pub fn text(self, content: impl Into<Prop<Cow<'static, str>>>) -> Self {
         self.bind_prop(content, EffectCategory::Text, |cx, id, val| {
             cx.contents.cont_text_contents.insert(id, val.into());
-            cx.topology.topo_active_masks[id].set(ComponentMask::COMP_TEXT_CONTENT);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_TEXT_CONTENT);
             cx.clear_layout_cache(id);
             cx.mark_dirty(id);
         })
@@ -607,12 +617,15 @@ impl Element {
 
         with_context(|cx| {
             cx.contents.cont_external_textures.insert(id, texture_arc);
-            cx.topology.topo_active_masks[id].set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
 
             if !cx.layouts.lay_base_basic.contains_key(id) {
                 cx.layouts.lay_base_basic.insert(id, BasicLayout::default());
             }
-            let basic = cx.layouts.lay_base_basic.get_mut(id).unwrap();
+            let basic = cx.layouts.lay_base_basic.at_mut(id);
             basic.size.width = Val::Px(metadata.size.width);
             basic.size.height = Val::Px(metadata.size.height);
 
@@ -628,7 +641,10 @@ impl Element {
         self.bind_prop(contents, EffectCategory::Movie, |cx, id, src| {
             cx.contents.cont_webview_contents.insert(id, src);
             cx.topology.topo_webview_entities.push(id);
-            cx.topology.topo_active_masks[id].set(ComponentMask::COMP_WEBVIEW_CONTENT);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_WEBVIEW_CONTENT);
             cx.mark_dirty(id);
         })
     }
@@ -682,13 +698,16 @@ impl Element {
         if !cx.system.sys_uia_properties.contains_key(self.id) {
             cx.system.sys_uia_properties.insert(self.id, Vec::new());
         }
-        let list = cx.system.sys_uia_properties.get_mut(self.id).unwrap();
+        let list = cx.system.sys_uia_properties.at_mut(self.id);
         if let Some(pos) = list.iter().position(|(k, _)| *k == property_id) {
             list[pos].1 = value;
         } else {
             list.push((property_id, value));
         }
-        cx.topology.topo_active_masks[self.id].set(ComponentMask::COMP_UIA_CONTENT);
+        cx.topology
+            .topo_active_masks
+            .at_mut(self.id)
+            .set(ComponentMask::COMP_UIA_CONTENT);
     }
 
     /// 自動テストフレームワークやデバッグで要素を特定するための「Automation `ID」を設定します（UIA_AutomationIdPropertyId` 互換）。

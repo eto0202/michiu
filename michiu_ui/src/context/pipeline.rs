@@ -2,20 +2,20 @@ use crate::{
     ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseBasicLayoutsSecondary,
     BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing,
     ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
-    CornerRadius, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets, EffectId, ElementState, EntityId,
-    EventStore, ExternalTextureAlphaMode, ExternalTextureSparseSecondary, ExtractedThumb,
-    FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState,
-    InputContentsSparseSecondary, InputOp, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
-    Length, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
-    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt, ReactiveStore,
-    RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparseSecondary, ScrollBarState, ScrollOffsetsSecondary,
-    ScrollStore, ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextCacheKey,
-    TextContentsSparseSecondary, TextEditStore, TextEngine, TextSpan, TextSpansSparseSecondary,
-    TopologyStore, UnderlineStyle, Val, VirtualKey, VisualPropertiesSecondary, VisualProperty,
-    WindowStore, bind_context, execute_effect, handle_on_active, handle_on_char_input,
-    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
+    CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets,
+    EffectId, ElementState, EntityId, EventStore, ExternalTextureAlphaMode, ExternalTextureSparse,
+    ExtractedThumb, FlatDfsSequenceVec, FlexLayout, FocusStore, GridLayout, IDENTITY_MATRIX,
+    ImeState, InputContents, InputContentsSparse, InputOp, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, Length, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
+    PointerEvents, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt,
+    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
+    ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextCacheKey,
+    TextContentsSparse, TextEditStore, TextEngine, TextSpan, TextSpansSparse, TopologyStore,
+    UnderlineStyle, Val, VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore,
+    bind_context, execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
+    handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -23,6 +23,7 @@ use std::{borrow::Cow, collections::HashSet, ops::Range, path::PathBuf};
 use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
 pub enum UserAction {
     PointerMove(LayoutPoint),
     PointerButton {
@@ -52,6 +53,7 @@ pub enum UserAction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
 pub enum TickType {
     All,
     Transition,
@@ -61,6 +63,7 @@ pub enum TickType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
 pub enum StateFlag {
     Hovered,
     Focused,
@@ -135,9 +138,7 @@ impl Pipeline {
         let mut was_active = false;
         let mut state_changed = false;
 
-        let Some(mask) = cx.topology.topo_active_masks.get_mut(id) else {
-            return;
-        };
+        let mask = cx.topology.topo_active_masks.at_mut(id); // 絶対に生きてるはず
 
         was_active = mask.has(state_flag);
         if was_active == actived {
@@ -156,7 +157,7 @@ impl Pipeline {
             RenderStore::resolve_element_style_state(
                 id,
                 true,
-                cx.window.win_last_size.as_ref(),
+                cx.window.win_last_size,
                 &cx.system.sys_text_buffers,
                 &cx.reactive.react_element_effects,
                 &cx.contents.cont_input_contents,
@@ -218,30 +219,28 @@ impl Pipeline {
         resolve_element(cx, id);
 
         // 親から子方向へのスタイル解決の伝播
-        if let Some(child) = cx.topology.topo_children.get(id).cloned() {
-            for child_id in child {
-                let has_parent = cx
-                    .topology
-                    .topo_active_masks
-                    .get(child_id)
-                    .is_some_and(|m| m.has(ComponentMask::STYLE_INTERACTION_PARENT));
+        for child_id in cx.topology.topo_children.at(id).clone() {
+            let has_parent = cx
+                .topology
+                .topo_active_masks
+                .at(child_id)
+                .has(ComponentMask::STYLE_INTERACTION_PARENT);
 
-                if has_parent {
-                    resolve_element(cx, child_id);
-                    mark_dirty(cx, child_id);
-                }
+            if has_parent {
+                resolve_element(cx, child_id);
+                mark_dirty(cx, child_id);
             }
         }
 
         // STYLE_INTERACTION_WITHIN マスク判定による親先祖の早期バイパス
         let mut curr = id;
-        while let Some(parent_id) = cx.topology.topo_parents.get(curr).copied().flatten() {
+        while let Some(parent_id) = *cx.topology.topo_parents.at(curr) {
             if cx.topology.topo_entities.contains_key(parent_id) {
                 let has_within = cx
                     .topology
                     .topo_active_masks
-                    .get(parent_id)
-                    .is_some_and(|m| m.has(ComponentMask::STYLE_INTERACTION_WITHIN));
+                    .at(parent_id)
+                    .has(ComponentMask::STYLE_INTERACTION_WITHIN);
 
                 // 先祖要素が within スタイルを持っている場合のみそのスタイル評価を実行
                 if has_within {
@@ -390,64 +389,69 @@ impl Pipeline {
         );
 
         // Taffy 1回目レイアウト計算
-        if let Some(&root_node) = cx.layouts.lay_taffy_nodes.get(root) {
-            // 計測関数をクロージャとして定義
-            let measure_func = |known_dims: taffy::Size<Option<f32>>,
-                                available_space: taffy::Size<taffy::AvailableSpace>,
-                                _node_id: taffy::NodeId,
-                                context: Option<&mut EntityId>,
-                                _style: &taffy::Style|
-             -> taffy::Size<f32> {
-                // 幅と高さの両方がすでにスタイル（known_dims）として解決されている場合はそれを最優先する
-                if let (Some(w), Some(h)) = (known_dims.width, known_dims.height) {
-                    return taffy::Size {
-                        width: w,
-                        height: h,
-                    };
-                }
+        let root_node = *cx.layouts.lay_taffy_nodes.at(root);
+        // 計測関数をクロージャとして定義
+        let measure_func = |known_dims: taffy::Size<Option<f32>>,
+                            available_space: taffy::Size<taffy::AvailableSpace>,
+                            _node_id: taffy::NodeId,
+                            context: Option<&mut EntityId>,
+                            _style: &taffy::Style|
+         -> taffy::Size<f32> {
+            // 幅と高さの両方がすでにスタイル（known_dims）として解決されている場合はそれを最優先する
+            if let (Some(w), Some(h)) = (known_dims.width, known_dims.height) {
+                return taffy::Size {
+                    width: w,
+                    height: h,
+                };
+            }
 
-                // テキスト内容を持っているかチェック
-                // クロージャの外側の Context は直接キャプチャできないため、
-                //  一時的に bind_context されているスレッドローカル経由で取得
-                context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                    let flex = cx
-                        .layouts
-                        .lay_resolved_flex
-                        .get(id)
-                        .copied()
-                        .unwrap_or_default();
+            // テキスト内容を持っているかチェック
+            // クロージャの外側の Context は直接キャプチャできないため、
+            //  一時的に bind_context されているスレッドローカル経由で取得
+            context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
+                let flex = cx
+                    .layouts
+                    .lay_resolved_flex
+                    .get(id)
+                    .copied()
+                    .unwrap_or_default();
 
-                    ContentStore::measure_content(
-                        id,
-                        known_dims,
-                        available_space,
-                        &flex,
-                        &mut cx.system.sys_text_engine,
-                        &mut cx.contents.cont_input_contents,
-                        &cx.contents.cont_text_contents,
-                        &cx.contents.cont_text_spans,
-                        &cx.topology.topo_active_masks,
-                        &cx.renders.rnd_visual,
-                    )
-                })
-            };
+                ContentStore::measure_content(
+                    id,
+                    known_dims,
+                    available_space,
+                    &flex,
+                    &mut cx.system.sys_text_engine,
+                    &mut cx.contents.cont_input_contents,
+                    &cx.contents.cont_text_contents,
+                    &cx.contents.cont_text_spans,
+                    &cx.topology.topo_active_masks,
+                    &cx.renders.rnd_visual,
+                )
+            })
+        };
 
-            let _ = cx.layouts.lay_taffy_tree.compute_layout_with_measure(
+        cx.layouts
+            .lay_taffy_tree
+            .compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
                     height: taffy::AvailableSpace::Definite(window_size.height),
                 },
                 measure_func,
-            );
-        }
+            )
+            .unwrap();
 
         // ダブルバッファをスワップし、1回目の出力座標を決定
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの out_rects のみを確定
-        std::mem::swap(&mut cx.outputs.out_rects, &mut cx.outputs.out_prev_rects);
         std::mem::swap(
-            &mut cx.outputs.out_clip_rects,
-            &mut cx.outputs.out_prev_clip_rects,
+            &mut cx.outputs.out_rects.0,
+            &mut cx.outputs.out_prev_rects.0,
+        );
+        std::mem::swap(
+            &mut cx.outputs.out_clip_rects.0,
+            &mut cx.outputs.out_prev_clip_rects.0,
         );
         cx.outputs.out_rects.clear();
         cx.outputs.out_clip_rects.clear();
@@ -477,8 +481,8 @@ impl Pipeline {
             if cx
                 .topology
                 .topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has(ComponentMask::STYLE_OVERFLOW))
+                .at(id)
+                .has(ComponentMask::STYLE_OVERFLOW)
             {
                 let size = ScrollStore::get_scroll_size(
                     id,
@@ -528,8 +532,10 @@ impl Pipeline {
         );
 
         // Taffy の 2回目レイアウト計算（スクロールバー配置確定後）
-        if let Some(&root_node) = cx.layouts.lay_taffy_nodes.get(root) {
-            let _ = cx.layouts.lay_taffy_tree.compute_layout_with_measure(
+        let root_node = *cx.layouts.lay_taffy_nodes.at(root);
+        cx.layouts
+            .lay_taffy_tree
+            .compute_layout_with_measure(
                 root_node,
                 taffy::Size {
                     width: taffy::AvailableSpace::Definite(window_size.width),
@@ -542,20 +548,16 @@ impl Pipeline {
                  _style: &taffy::Style|
                  -> taffy::Size<f32> {
                     context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                        let is_input = cx
-                            .topology
-                            .topo_active_masks
-                            .get(id)
-                            .is_some_and(ComponentMask::has_input_content);
-
-                        if is_input
-                            && let Some(contents) = cx.contents.cont_input_contents.get(id)
-                            && let Some(layout_rect) = contents.last_layout
-                        {
-                            return taffy::Size {
-                                width: known_dims.width.unwrap_or(layout_rect.width),
-                                height: known_dims.height.unwrap_or(layout_rect.height),
-                            };
+                        let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
+                        if is_input {
+                            // マスクがあるなら Some のはず
+                            let contents = cx.contents.cont_input_contents.at(id);
+                            if let Some(layout_rect) = contents.last_layout {
+                                return taffy::Size {
+                                    width: known_dims.width.unwrap_or(layout_rect.width),
+                                    height: known_dims.height.unwrap_or(layout_rect.height),
+                                };
+                            }
                         }
 
                         // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
@@ -568,8 +570,8 @@ impl Pipeline {
                             })
                     })
                 },
-            );
-        }
+            )
+            .unwrap();
 
         // スクロールバーも加えた、最終的な出力座標の決定
         Pipeline::resolve_final_pass_rects(
@@ -589,11 +591,7 @@ impl Pipeline {
 
         // リサイズ追従に伴い、インプットのキャレット・選択ハイライトを同期
         for &id in &cx.topology.topo_flat_dfs_sequence {
-            let has_input = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_input_content);
+            let has_input = cx.topology.topo_active_masks.at(id).has_input_content();
             let is_focused = cx.events.evt_interaction_states.focused == Some(id);
             // フォーカスを得ている入力要素のみ、レイアウト確定後にキャレット・スクロールを同期
             if has_input && is_focused {
@@ -765,11 +763,8 @@ impl Pipeline {
                 continue;
             };
 
-            let is_dirty_text = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has_text_content() && m.has_queued_layout_or_render());
+            let mask = cx.topology.topo_active_masks.at(id);
+            let is_dirty_text = mask.has_text_content() && mask.has_queued_layout_or_render();
 
             if is_dirty_text {
                 let cleared = Pipeline::scan_and_register_element_glyphs(
@@ -799,11 +794,7 @@ impl Pipeline {
                     continue;
                 };
 
-                let has_text_content = cx
-                    .topology
-                    .topo_active_masks
-                    .get(id)
-                    .is_some_and(ComponentMask::has_text_content);
+                let has_text_content = cx.topology.topo_active_masks.at(id).has_text_content();
 
                 if has_text_content {
                     let _ = Pipeline::scan_and_register_element_glyphs(
@@ -828,67 +819,46 @@ impl Pipeline {
         let mut current_batch_type = BatchType::Normal;
         let mut last_clip = None;
         for &id in &*cx.topology.topo_sorted_entities {
-            let rect = cx.outputs.out_rects.get(id).copied().unwrap_or_default();
+            let rect = *cx.outputs.out_rects.at(id);
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
-            let clip = cx
-                .outputs
-                .out_clip_rects
-                .get(id)
-                .copied()
-                .unwrap_or_default();
+            let clip = *cx.outputs.out_clip_rects.at(id);
 
-            let basic = cx
-                .layouts
-                .lay_resolved_basic
-                .get(id)
-                .copied()
-                .unwrap_or_default();
-            let flex = cx
-                .layouts
-                .lay_resolved_flex
-                .get(id)
-                .copied()
-                .unwrap_or_default();
+            let basic = cx.layouts.lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
+            let flex = cx.layouts.lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
             let grid = cx
                 .layouts
                 .lay_resolved_grid
                 .get(id)
                 .cloned()
                 .unwrap_or_default();
-            let visual = cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
+            let visual = cx.renders.rnd_visual.get_or(id, &default_visual);
 
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-            let scroll = cx
-                .states
-                .scroll
-                .sc_offsets
-                .get(id)
-                .copied()
-                .unwrap_or_default();
+            let scroll = cx.states.scroll.sc_offsets.get_or_default(id);
 
             // トランスフォームブランチの場合のみその場で累積を解決
             // それ以外は IDENTITY_MATRIX
-            let eff_transform =
-                if cx.topology.topo_active_masks[id].has(ComponentMask::STATE_TRANSFORM_ACTIVE) {
-                    RenderStore::resolve_effective_transform(
-                        id,
-                        &cx.topology.topo_parents,
-                        &cx.renders.rnd_visual,
-                    )
-                } else {
-                    IDENTITY_MATRIX
-                };
-
-            let params = CommonParameters::new(id, rect, &basic, visual, eff_transform);
-
-            let is_webview = cx
+            let eff_transform = if cx
                 .topology
                 .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_webveiw2_content);
+                .at(id)
+                .has(ComponentMask::STATE_TRANSFORM_ACTIVE)
+            {
+                RenderStore::resolve_effective_transform(
+                    id,
+                    &cx.topology.topo_parents,
+                    &cx.renders.rnd_visual,
+                )
+            } else {
+                IDENTITY_MATRIX
+            };
+
+            let params = CommonParameters::new(id, rect, basic, visual, eff_transform);
+
+            let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
             let is_webview_ready = is_webview && cx.renders.rnd_active_webviews.contains(&id);
             // WebView (アクティブ) の個別処理
@@ -958,8 +928,8 @@ impl Pipeline {
             let is_external_texture = cx
                 .topology
                 .topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT));
+                .at(id)
+                .has(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
             if is_external_texture {
                 // 既存UIインスタンスをフラッシュ
                 Pipeline::flush_batch(
@@ -1035,7 +1005,7 @@ impl Pipeline {
                     &buffer,
                     border,
                     padding,
-                    &flex,
+                    flex,
                     &cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                 );
@@ -1054,11 +1024,7 @@ impl Pipeline {
             }
 
             // 背景色とテキスト
-            let is_text = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_text_content);
+            let is_text = cx.topology.topo_active_masks.at(id).has_text_content();
             let has_bg = visual.bg_color.is_some()
                 || visual.bg_gradient.is_some()
                 || visual.border_color.is_some()
@@ -1087,7 +1053,7 @@ impl Pipeline {
                     &buffer,
                     border,
                     padding,
-                    &flex,
+                    flex,
                     &cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                 );
@@ -1098,7 +1064,7 @@ impl Pipeline {
                     .get(id)
                     .map_or(&[][..], Vec::as_slice);
                 let resolved_color =
-                    Pipeline::resolv_text_color(id, visual, &cx.contents.cont_input_contents);
+                    Pipeline::resolve_text_color(id, visual, &cx.contents.cont_input_contents);
 
                 Pipeline::push_text_background_instances(
                     id,
@@ -1147,11 +1113,7 @@ impl Pipeline {
             }
 
             // インプット要素のキャレット
-            let is_input = cx
-                .topology
-                .topo_active_masks
-                .get(id)
-                .is_some_and(ComponentMask::has_input_content);
+            let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
             let is_focused = cx.events.evt_interaction_states.focused == Some(id);
 
             if is_input && is_focused {
@@ -1162,7 +1124,7 @@ impl Pipeline {
                     border,
                     padding,
                     scroll,
-                    &flex,
+                    flex,
                     visual,
                     cx.window.win_scale_factor,
                     &cx.contents.cont_input_contents,
@@ -1271,7 +1233,7 @@ impl Pipeline {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparseSecondary,
+        lay_resolved_grid: &ResolvedGridSparse,
         bar_styles: &ScrollbarStylesSecondary,
     ) {
         for &id in lay_dirty_entities {
@@ -1279,8 +1241,8 @@ impl Pipeline {
                 continue;
             }
 
-            let basic = lay_resolved_basic.get(id).copied().unwrap_or_default();
-            let flex = lay_resolved_flex.get(id).copied().unwrap_or_default();
+            let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
+            let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
             let grid = lay_resolved_grid.get(id).cloned();
 
             // トランジション（アニメーション）中プロパティの現在値による上書き
@@ -1290,9 +1252,8 @@ impl Pipeline {
             let taffy_style =
                 LayoutStore::resolve_taffy_style(id, &basic, &flex, grid.as_ref(), bar_styles);
 
-            if let Some(taffy_node) = lay_taffy_nodes.get(id) {
-                lay_taffy_tree.set_style(*taffy_node, taffy_style).unwrap();
-            }
+            let taffy_node = *lay_taffy_nodes.at(id);
+            lay_taffy_tree.set_style(taffy_node, taffy_style).unwrap();
         }
     }
 
@@ -1300,7 +1261,7 @@ impl Pipeline {
     fn update_element_output_rect_and_clip(
         id: EntityId,
         window_size: LayoutSize,
-        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparse,
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -1325,11 +1286,11 @@ impl Pipeline {
 
         out_rects.insert(id, abs_rect);
 
-        let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+        let mask = topo_active_masks.at(id);
 
-        if mask.has_input_content()
-            && let Some(contents) = cont_input_contents.get_mut(id)
-        {
+        if mask.has_input_content() {
+            // マスクがあるなら Some のはず
+            let contents = cont_input_contents.at_mut(id);
             contents.last_bounds = Some(abs_rect);
         }
 
@@ -1348,7 +1309,7 @@ impl Pipeline {
         scrollbar_el_ids: &HashSet<EntityId>,
         window_size: LayoutSize,
         window_resized: bool,
-        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparse,
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -1380,25 +1341,21 @@ impl Pipeline {
                 out_prev_clip_rects,
             );
 
-            let has_style_changed = topo_active_masks
-                .get(id)
-                .is_some_and(|m| m.has(ComponentMask::STATE_QUEUED_LAYOUT));
+            let has_style_changed = topo_active_masks.at(id).has_queued_layout();
 
             // 静的キャッシュの判定と適用
             // 自分自身のスタイルが変わっておらず、親も動いていない、かつモニターリサイズもされていないならキャッシュ利用
-            if !window_resized
-                && !has_style_changed
-                && !parent_changed
-                && let Some(&cached_rect) = out_prev_rects.get(id)
-                && let Some(&cached_clip) = out_prev_clip_rects.get(id)
-            {
+            if !window_resized && !has_style_changed && !parent_changed {
+                let cached_rect = *out_prev_rects.at(id);
+                let cached_clip = *out_prev_clip_rects.at(id);
+
                 out_rects.insert(id, cached_rect);
                 out_clip_rects.insert(id, cached_clip);
                 topo_active_entities.push(id);
                 continue;
             }
 
-            // キャッシュが無効な場合は、共通ヘルパーで再計算
+            // キャッシュが無効な場合は共通ヘルパーで再計算
             Pipeline::update_element_output_rect_and_clip(
                 id,
                 window_size,
@@ -1419,7 +1376,7 @@ impl Pipeline {
     /// 最終的な出力領域決定（スクロールバー要素を含む一括同期）
     fn resolve_final_pass_rects(
         window_size: LayoutSize,
-        cont_input_contents: &mut InputContentsSparseSecondary,
+        cont_input_contents: &mut InputContentsSparse,
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -1500,7 +1457,7 @@ impl Pipeline {
         padding: EdgeInsets,
         flex: &FlexLayout,
         sys_text_engine: &TextEngine,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
     ) -> LayoutPoint {
         let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
             if let Some(l) = c.last_layout {
@@ -1536,9 +1493,9 @@ impl Pipeline {
         sys_text_engine: &mut TextEngine,
         win_scale_factor: f32,
         topo_active_masks: &ActiveMasksSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_text_contents: &TextContentsSparse,
+        cont_text_spans: &TextSpansSparse,
+        cont_input_contents: &InputContentsSparse,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> bool {
         let mut atlas_cleared = false;
@@ -1563,29 +1520,32 @@ impl Pipeline {
     }
 
     #[inline]
-    fn resolv_text_color(
+    fn resolve_text_color(
         id: EntityId,
         visual: &VisualProperty,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
     ) -> Color {
-        let is_ime_active = cont_input_contents
-            .get(id)
-            .and_then(|c| c.ime_state.as_ref())
+        // 通常のテキスト色
+        let default_color = visual.text_color.unwrap_or(Color::WHITE);
+
+        // そもそも入力コンポーネントを持っていないなら通常色を返して終了
+        let Some(input) = cont_input_contents.get(id) else {
+            return default_color;
+        };
+
+        // IME変換中かどうか
+        let is_ime_active = input
+            .ime_state
+            .as_ref()
             .is_some_and(|ime| !ime.composition_text.is_empty());
 
-        let base_text_empty = cont_input_contents
-            .get(id)
-            .is_some_and(|c| c.text.0.get().is_empty());
-
-        let placeholder_color = cont_input_contents
-            .get(id)
-            .and_then(|p| p.placeholder_color)
-            .unwrap_or(Color::rgb_f32(0.5, 0.5, 0.5));
-
-        if base_text_empty && !is_ime_active {
-            placeholder_color
+        // テキストが空 かつ IME非アクティブならプレースホルダー色を採用
+        if input.text_empty() && !is_ime_active {
+            input
+                .placeholder_color
+                .unwrap_or(Color::rgb_f32(0.5, 0.5, 0.5))
         } else {
-            visual.text_color.unwrap_or(Color::WHITE)
+            default_color
         }
     }
 
@@ -1986,12 +1946,11 @@ impl Pipeline {
         flex: &FlexLayout,
         visual: &VisualProperty,
         win_scale_factor: f32,
-        cont_input_contents: &InputContentsSparseSecondary,
+        cont_input_contents: &InputContentsSparse,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
     ) {
-        let Some(contents) = cont_input_contents.get(id) else {
-            return;
-        };
+        // キャレットがあるなら入力コンポーネントもあるはず
+        let contents = cont_input_contents.at(id);
 
         if !ContentStore::should_show_caret(contents) {
             return;
@@ -2073,9 +2032,9 @@ impl Pipeline {
         id: EntityId,
         render_data: &mut RenderData,
         params: &CommonParameters,
-        cont_external_textures: &ExternalTextureSparseSecondary,
+        cont_external_textures: &ExternalTextureSparse,
     ) {
-        let provider = cont_external_textures.get(id).unwrap();
+        let provider = cont_external_textures.at(id);
         let meta = provider.metadata();
 
         let alpha_val = match meta.alpha_mode {

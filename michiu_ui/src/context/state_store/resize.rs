@@ -1,12 +1,13 @@
 use crate::{
-    ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary,
-    ComponentMask, CursorIcon, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId,
-    ActiveInteractionStates, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
-    ParentsSecondary, Position, Rect, RectsSecondary, TaffyNodesSecondary, TaffyTreeEntityId,
-    TopologyStore, Val, VisualPropertiesSecondary,
+    ActiveInteractionStates, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayout,
+    BasicLayoutsSecondary, ComponentMask, CursorIcon, DEFAULT_BASIC, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
+    MichiuSoA, OutputStore, ParentsSecondary, Position, Rect, RectsSecondary, Size,
+    TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val, VisualPropertiesSecondary,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub(crate) enum ResizeDirection {
     Top,
     Right,
@@ -146,8 +147,8 @@ impl ResizeStore {
         let mut current_id = target_id;
         let mut found_resize_hover = None;
         while let Some(id) = current_id {
-            if topo_active_masks[id].has(ComponentMask::STYLE_RESIZABLE) {
-                let rect = out_rects.get(id).copied().unwrap_or_default();
+            if topo_active_masks.at(id).has(ComponentMask::STYLE_RESIZABLE) {
+                let rect = *out_rects.at(id);
                 let resizable_flags = lay_basic.get(id).map_or([false; 4], |l| l.resizable);
 
                 // 境界外周に 6.0px のあそびを持たせてヒット判定
@@ -163,7 +164,7 @@ impl ResizeStore {
                     break; // 最も前面寄りのリサイズ親要素を優先採用
                 }
             }
-            current_id = topo_parents.get(id).copied().flatten();
+            current_id = *topo_parents.at(id);
         }
         (current_id, found_resize_hover)
     }
@@ -179,10 +180,10 @@ impl ResizeStore {
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         out_rects: &RectsSecondary,
     ) {
-        let rect = out_rects.get(id).copied().unwrap_or_default();
+        let rect = out_rects.get_or_default(id);
         let (position, mut start_inset) = lay_basic
             .get(id)
-            .map_or((Position::Relative, BasicLayout::default().inset), |l| {
+            .map_or((Position::default(), BasicLayout::default().inset), |l| {
                 (l.position, l.inset)
             });
 
@@ -192,10 +193,10 @@ impl ResizeStore {
         };
 
         // 親要素の矩形と、その左・上ボーダーの厚みを取得
-        let parent_id = topo_parents.get(id).copied().flatten();
+        let parent_id = topo_parents.at(id);
         let (parent_rect, parent_border_left, parent_border_top) =
             parent_id.map_or((LayoutRect::ZERO, 0.0, 0.0), |p_id| {
-                let p_rect = out_rects.get(p_id).copied().unwrap_or_default();
+                let p_rect = *out_rects.at(p_id);
                 // ボーダー幅の抽出
                 let (border_l, border_t) = lay_basic.get(p_id).map_or((0.0, 0.0), |l| {
                     let left = resolve_length(l.border.left, p_rect.width);
@@ -243,7 +244,7 @@ impl ResizeStore {
     pub(crate) fn sync_resizing_drag(
         logical_pos: LayoutPoint,
         state: &ResizingState,
-        win_last_size: Option<&LayoutSize>,
+        win_last_size: Option<LayoutSize>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
@@ -258,14 +259,13 @@ impl ResizeStore {
         let delta_x = logical_pos.x - state.start_mouse_pos.x;
         let delta_y = logical_pos.y - state.start_mouse_pos.y;
 
+        let basic = lay_basic.get_or(id, &DEFAULT_BASIC);
+
         let start_rect = state.start_rect;
-        let position = lay_basic.get(id).map(|l| l.position).unwrap_or_default();
 
         // 最小サイズ・最大クランプ値の解決
         let (min_w, max_w, min_h, max_h) = {
-            let basic = lay_basic.get(id).copied().unwrap_or_default();
-
-            let rect = out_rects.get(id).copied().unwrap_or_default();
+            let rect = *out_rects.at(id);
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -322,7 +322,7 @@ impl ResizeStore {
         if let Some(factor) = h_factor {
             new_w = (start_rect.width + delta_x * factor).clamp(min_w, max_w);
             // 絶対配置（Absolute）で、左側へサイズを伸ばした（縮めた）場合はインセットを同期補正
-            if position == Position::Absolute && factor < 0.0 {
+            if basic.position == Position::Absolute && factor < 0.0 {
                 delta_inset_left = start_rect.width - new_w;
             }
         }
@@ -330,7 +330,7 @@ impl ResizeStore {
         if let Some(factor) = v_factor {
             new_h = (start_rect.height + delta_y * factor).clamp(min_h, max_h);
             // 絶対配置（Absolute）で、上側へサイズを伸ばした（縮めた）場合はインセットを同期補正
-            if position == Position::Absolute && factor < 0.0 {
+            if basic.position == Position::Absolute && factor < 0.0 {
                 delta_inset_top = start_rect.height - new_h;
             }
         }
@@ -341,7 +341,7 @@ impl ResizeStore {
             layout.size.width = Val::Px(new_w);
             layout.size.height = Val::Px(new_h);
 
-            if position != Position::Absolute {
+            if layout.position != Position::Absolute {
                 continue;
             }
 

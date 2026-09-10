@@ -2,6 +2,7 @@ use crate::{AnimationCurve, BoxShadow, Color, CornerRadius, LayoutPoint, Propert
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[repr(u8)]
 pub(crate) enum TransitionValue {
     Color(Color),
     Opacity(f32),

@@ -77,6 +77,7 @@ impl Default for QuadInstance {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub(crate) enum BatchType {
     Normal,
     Punchout,

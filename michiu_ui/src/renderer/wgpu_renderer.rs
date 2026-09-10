@@ -1,9 +1,6 @@
 #![allow(dead_code)]
 use crate::{
-    BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DrawBatch,
-    EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, OutputStore,
-    Pipeline, QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue,
-    TextSpan, TextureAtlas, Vertex, VisualProperty,
+    BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DrawBatch, EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, Pipeline, QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue, TextSpan, TextureAtlas, Vertex, VisualProperty,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -720,24 +717,9 @@ impl WgpuRenderer {
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> (QuadInstance, bool) {
-        let basic = &cx
-            .layouts
-            .lay_resolved_basic
-            .get(entity_id)
-            .copied()
-            .unwrap_or_default();
-        let flex = &cx
-            .layouts
-            .lay_resolved_flex
-            .get(entity_id)
-            .copied()
-            .unwrap_or_default();
-        let _grid = &cx
-            .layouts
-            .lay_resolved_grid
-            .get(entity_id)
-            .cloned()
-            .unwrap_or_default();
+        let basic = &cx.layouts.lay_resolved_basic.get_or(entity_id, &DEFAULT_BASIC);
+        let flex = &cx.layouts.lay_resolved_flex.get_or(entity_id, &DEFAULT_FLEX);
+        let _grid = &cx.layouts.lay_resolved_grid.get_or_default(entity_id);
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders
@@ -792,14 +774,18 @@ impl WgpuRenderer {
                 // WebViewアクティブ（DCompブレンド時）の濃さの補正
                 let mut has_active_webview_parent = false;
                 let mut curr_id = entity_id;
-                while let Some(Some(parent_id)) = cx.topology.topo_parents.get(curr_id) {
-                    if cx.topology.topo_active_masks[*parent_id].has_webveiw2_content()
-                        && cx.renders.rnd_active_webviews.contains(parent_id)
+                while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
+                    if cx
+                        .topology
+                        .topo_active_masks
+                        .at(parent_id)
+                        .has_webveiw2_content()
+                        && cx.renders.rnd_active_webviews.contains(&parent_id)
                     {
                         has_active_webview_parent = true;
                         break;
                     }
-                    curr_id = *parent_id;
+                    curr_id = parent_id;
                 }
                 if has_active_webview_parent {
                     color.a *= 0.45;

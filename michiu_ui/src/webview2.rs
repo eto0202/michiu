@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 
 #[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
 pub enum WebView2Source {
     /// 外部のWebサイトやローカルのサーバー
     Url(Cow<'static, str>),

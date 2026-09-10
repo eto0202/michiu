@@ -106,6 +106,7 @@ pub enum UnderlineStyle {
 
 /// 部分的な打ち消し線（取り消し線）のスタイル
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum StrikethroughStyle {
     /// 通常の細い取り消し線
     Solid,
@@ -606,5 +607,10 @@ impl InputContents {
         let r = f(&mut m);
         self.text.1.set(m.into());
         r
+    }
+
+    #[inline]
+    pub(crate) fn text_empty(&self) -> bool {
+        self.text.0.with(std::string::String::is_empty)
     }
 }

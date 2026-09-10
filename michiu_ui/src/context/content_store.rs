@@ -1,29 +1,62 @@
 use crate::{
     ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, FlexLayout, InputContents,
-    LayoutRect, MichiuString, RenderStore, TextBufferSparseSecondary, TextEngine, TextSpan,
-    VisualPropertiesSecondary, WebView2Contents,
+    LayoutRect, MichiuSoA, MichiuString, RenderStore, TextBufferSparse, TextEngine, TextSpan,
+    VisualPropertiesSecondary, WebView2Contents, define_sparse_secondary,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
+    ops::Deref,
     sync::Arc,
     time::{Duration, Instant},
 };
 use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
-pub(crate) type TextContentsSparseSecondary = SparseSecondaryMap<EntityId, MichiuString>;
-pub(crate) type TextSpansSparseSecondary = SparseSecondaryMap<EntityId, Vec<TextSpan>>;
-pub(crate) type InputContentsSparseSecondary = SparseSecondaryMap<EntityId, InputContents>;
-pub(crate) type ExternalTextureSparseSecondary =
-    SparseSecondaryMap<EntityId, Arc<dyn ExternalTexture>>;
-pub(crate) type WebviewContentsSparseSecondary = SparseSecondaryMap<EntityId, WebView2Contents>;
+define_sparse_secondary!(pub(crate) struct TextContentsSparse(MichiuString));
+define_sparse_secondary!(pub(crate) struct TextSpansSparse(Vec<TextSpan>));
+define_sparse_secondary!(pub(crate) struct InputContentsSparse(InputContents));
+define_sparse_secondary!(pub(crate) struct WebviewContentsSparse(WebView2Contents));
+
+#[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+#[into_iterator(owned, ref, ref_mut)]
+pub(crate) struct ExternalTextureSparse(
+    pub(crate) SparseSecondaryMap<EntityId, Arc<dyn ExternalTexture>>,
+);
+
+impl MichiuSoA for ExternalTextureSparse {
+    type Item = Arc<dyn ExternalTexture>;
+    #[inline]
+    fn get(&self, id: EntityId) -> Option<&Self::Item> {
+        self.0.get(id)
+    }
+    #[inline]
+    fn get_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+        self.0.get_mut(id)
+    }
+}
+impl std::fmt::Debug for ExternalTextureSparse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut map = f.debug_map();
+        for (id, tex) in &self.0 {
+            map.entry(
+                &id,
+                &format_args!(
+                    "ExternalTexture {{ ptr: {:p}, meta: {:?} }}",
+                    Arc::as_ptr(tex),
+                    tex.metadata()
+                ),
+            );
+        }
+        map.finish()
+    }
+}
 
 pub struct ContentStore {
-    pub(crate) cont_text_contents: TextContentsSparseSecondary,
-    pub(crate) cont_text_spans: TextSpansSparseSecondary,
-    pub(crate) cont_input_contents: InputContentsSparseSecondary,
-    pub(crate) cont_external_textures: ExternalTextureSparseSecondary,
-    pub(crate) cont_webview_contents: WebviewContentsSparseSecondary,
+    pub(crate) cont_text_contents: TextContentsSparse,
+    pub(crate) cont_text_spans: TextSpansSparse,
+    pub(crate) cont_input_contents: InputContentsSparse,
+    pub(crate) cont_external_textures: ExternalTextureSparse,
+    pub(crate) cont_webview_contents: WebviewContentsSparse,
     pub(crate) cont_cut_text: Option<MichiuString>,
 }
 
@@ -38,11 +71,11 @@ impl ContentStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            cont_text_contents: SparseSecondaryMap::new(),
-            cont_text_spans: SparseSecondaryMap::new(),
-            cont_input_contents: SparseSecondaryMap::new(),
-            cont_external_textures: SparseSecondaryMap::new(),
-            cont_webview_contents: SparseSecondaryMap::new(),
+            cont_text_contents: TextContentsSparse(SparseSecondaryMap::new()),
+            cont_text_spans: TextSpansSparse(SparseSecondaryMap::new()),
+            cont_input_contents: InputContentsSparse(SparseSecondaryMap::new()),
+            cont_external_textures: ExternalTextureSparse(SparseSecondaryMap::new()),
+            cont_webview_contents: WebviewContentsSparse(SparseSecondaryMap::new()),
             cont_cut_text: None,
         }
     }
@@ -51,11 +84,19 @@ impl ContentStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            cont_text_contents: SparseSecondaryMap::with_capacity(c.edit_selections),
-            cont_text_spans: SparseSecondaryMap::with_capacity(c.cont_text_spans),
-            cont_input_contents: SparseSecondaryMap::with_capacity(c.cont_input_contents),
-            cont_external_textures: SparseSecondaryMap::with_capacity(c.cont_external_textures),
-            cont_webview_contents: SparseSecondaryMap::with_capacity(c.cont_webview_contents),
+            cont_text_contents: TextContentsSparse(SparseSecondaryMap::with_capacity(
+                c.edit_selections,
+            )),
+            cont_text_spans: TextSpansSparse(SparseSecondaryMap::with_capacity(c.cont_text_spans)),
+            cont_input_contents: InputContentsSparse(SparseSecondaryMap::with_capacity(
+                c.cont_input_contents,
+            )),
+            cont_external_textures: ExternalTextureSparse(SparseSecondaryMap::with_capacity(
+                c.cont_external_textures,
+            )),
+            cont_webview_contents: WebviewContentsSparse(SparseSecondaryMap::with_capacity(
+                c.cont_webview_contents,
+            )),
             ..Default::default()
         }
     }
@@ -107,14 +148,6 @@ impl ContentStore {
         (now / freq).is_multiple_of(2)
     }
 
-    #[inline]
-    pub(crate) fn get_text_span(
-        id: EntityId,
-        cont_text_spans: &TextSpansSparseSecondary,
-    ) -> &[TextSpan] {
-        cont_text_spans.get(id).map_or(&[], Vec::as_slice)
-    }
-
     /// テキストやインプットのサイズを cosmic-text を用いて計測し、Taffy 向けサイズを返します。
     pub(crate) fn measure_content(
         id: EntityId,
@@ -122,19 +155,20 @@ impl ContentStore {
         available_space: taffy::Size<taffy::AvailableSpace>,
         flex: &FlexLayout,
         sys_text_engine: &mut TextEngine,
-        cont_input_contents: &mut InputContentsSparseSecondary,
-        cont_text_contents: &TextContentsSparseSecondary,
-        cont_text_spans: &TextSpansSparseSecondary,
+        cont_input_contents: &mut InputContentsSparse,
+        cont_text_contents: &TextContentsSparse,
+        cont_text_spans: &TextSpansSparse,
         topo_active_masks: &ActiveMasksSecondary,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> taffy::Size<f32> {
-        let mask = topo_active_masks.get(id).copied().unwrap_or_default();
+        let mask = topo_active_masks.at(id);
         let has_input = mask.has_input_content();
         let has_text = mask.has_text_content();
 
         // キャッシュの取得
         let layout_rect = if has_input {
-            cont_input_contents.get(id).and_then(|c| c.last_layout)
+            // has_input が true なら Some のはず
+            cont_input_contents.at(id).last_layout
         } else {
             None
         };
@@ -193,19 +227,13 @@ impl ContentStore {
             };
         }
 
-        let Some(text) = cont_text_contents.get(id) else {
-            return taffy::Size {
-                width: known_dims.width.unwrap_or(0.0),
-                height: known_dims.height.unwrap_or(0.0),
-            };
-        };
-
+        let text = cont_text_contents.at(id);
         let font = rnd_visual
             .get(id)
             .map(|v| v.font.clone())
             .unwrap_or_default();
 
-        let spans = ContentStore::get_text_span(id, cont_text_spans);
+        let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
 
         let size = sys_text_engine.measure_text(
             text,
@@ -217,7 +245,9 @@ impl ContentStore {
         );
 
         // 計測した文字自体の正確なサイズをここでインプット要素にキャッシュする
-        if has_input && let Some(contents) = cont_input_contents.get_mut(id) {
+        if has_input {
+            // has_input が true なら Some のはず
+            let contents = cont_input_contents.at_mut(id);
             contents.last_layout = Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
         }
 

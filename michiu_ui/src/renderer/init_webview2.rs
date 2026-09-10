@@ -35,7 +35,7 @@ pub(crate) unsafe fn init_webview2_composition(
     hwnd: HWND,
     webview_visual: IDCompositionVisual2,
     controller_slot: Rc<RefCell<Option<ICoreWebView2Controller>>>,
-    settings: WebView2Contents,
+    settings: &WebView2Contents,
     rect: LayoutRect,
     scale_factor: f32,
     env_slot: Rc<RefCell<Option<ICoreWebView2Environment3>>>,

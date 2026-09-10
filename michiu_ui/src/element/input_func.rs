@@ -2,9 +2,9 @@ use std::{ops::Range, time::Instant};
 
 use crate::{
     ByteIndex, ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
-    InputContents, InputOp, LayoutPoint, MichiuString, Modifiers, MouseButton, OutputStore, Prop,
-    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SystemStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey, with_context,
+    InputContents, InputOp, LayoutPoint, MichiuSoA, MichiuString, Modifiers, MouseButton,
+    OutputStore, Prop, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEngine,
+    TextSelectionsSparse, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
 use cosmic_text::Buffer;
 
@@ -116,9 +116,9 @@ impl Element {
         id: EntityId,
         contents: &mut InputContents,
         caret: ByteIndex,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        edit_selected_rects: Option<&mut SelectedRectsSparseSecondary>,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
+        edit_selected_rects: Option<&mut SelectedRectsSparse>,
     ) {
         contents.selected_range = caret..caret;
         contents.selection_reversed = false;
@@ -137,7 +137,7 @@ impl Element {
         contents: &mut InputContents,
         range: Range<ByteIndex>,
         selection_reversed: bool,
-        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
     ) {
         contents.selected_range = range.clone();
         contents.selection_reversed = selection_reversed;
@@ -309,27 +309,23 @@ impl Element {
     }
 
     fn handle_input_char_typed(cx: &mut Context, id: EntityId, ch: &mut char) {
-        // IME未変換の入力中 (composition_textがある間) は文字入力を無視
-        let is_ime_active = cx
-            .contents
-            .cont_input_contents
-            .get(id)
-            .and_then(|c| c.ime_state.as_ref())
-            .is_some_and(|s| !s.composition_text.is_empty());
+        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+            return;
+        };
 
-        if is_ime_active {
+        // IME未変換の入力中 (composition_textがある間) は文字入力を無視
+        if contents
+            .ime_state
+            .as_ref()
+            .is_some_and(|s| !s.composition_text.is_empty())
+        {
             return;
         }
 
         let mut is_allowed = !ch.is_control();
-        let is_multiline = cx
-            .contents
-            .cont_input_contents
-            .get(id)
-            .is_some_and(|c| c.is_multiline);
 
         // 複数行入力時に、Enterキー（'\r' / '\n'）が押された場合は改行コードとして許可
-        if is_multiline && (*ch == '\r' || *ch == '\n') {
+        if contents.is_multiline && (*ch == '\r' || *ch == '\n') {
             *ch = '\n';
             is_allowed = true;
         }
@@ -337,10 +333,6 @@ impl Element {
         if !is_allowed {
             return;
         }
-
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
-            return;
-        };
 
         // 数値制限フィルター
         if contents.numeric_only && !ch.is_numeric() && *ch != '.' && *ch != '-' {
@@ -383,8 +375,8 @@ impl Element {
         contents: &mut InputContents,
         caret: ByteIndex,
         text_val: &MichiuString,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.clone(), range.clone());
@@ -412,8 +404,8 @@ impl Element {
         contents: &mut InputContents,
         caret: ByteIndex,
         text_val: &MichiuString,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.clone(), range.clone());
@@ -442,9 +434,9 @@ impl Element {
         text_val: &MichiuString,
         caret: ByteIndex,
         mods: Modifiers,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) -> bool {
         let range = contents.selected_range.clone();
 
@@ -503,9 +495,9 @@ impl Element {
         text_val: &MichiuString,
         caret: ByteIndex,
         mods: Modifiers,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) -> bool {
         let range = contents.selected_range.clone();
         // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時（全選択中での右移動に完全対応）
@@ -525,7 +517,7 @@ impl Element {
             let new_caret = text_val.next_char_boundary(caret);
 
             if mods.shift {
-                let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+                let anchor = *edit_selection_start_index.get_or(id, &caret);
                 if !edit_selection_start_index.contains_key(id) {
                     edit_selection_start_index.insert(id, caret);
                 }
@@ -559,8 +551,8 @@ impl Element {
         text_val: &MichiuString,
         mods: Modifiers,
         sys_text_engine: &mut TextEngine,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) -> bool {
         if !contents.is_multiline {
             return false;
@@ -580,7 +572,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+            let anchor = *edit_selection_start_index.get_or(id, &caret);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }
@@ -613,8 +605,8 @@ impl Element {
         text_val: &MichiuString,
         mods: Modifiers,
         sys_text_engine: &mut TextEngine,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) -> bool {
         if !contents.is_multiline {
             return false;
@@ -634,7 +626,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+            let anchor = *edit_selection_start_index.get_or(id, &caret);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }
@@ -866,7 +858,10 @@ impl Element {
         // IME の未確定状態（未確定波線、変換フォーカス太線/細線）を TextSpan に自動マッピング
         if ime.composition_text.is_empty() {
             cx.contents.cont_text_spans.remove(id);
-            cx.topology.topo_active_masks[id].unset(ComponentMask::STYLE_TEXT_SPANS);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .unset(ComponentMask::STYLE_TEXT_SPANS);
         } else {
             let mut spans = Vec::new();
             let caret = contents.selected_range.start;
@@ -937,7 +932,10 @@ impl Element {
             }
 
             cx.contents.cont_text_spans.insert(id, spans);
-            cx.topology.topo_active_masks[id].set(ComponentMask::STYLE_TEXT_SPANS);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::STYLE_TEXT_SPANS);
         }
 
         // IMEイベント終了（または変換中）に表示テキストとキャレット位置を再計算・同期させる
@@ -965,7 +963,9 @@ impl Element {
         c.selected_range = current_len..current_len;
 
         cx.contents.cont_input_contents.insert(id, c);
-        cx.topology.topo_active_masks[id]
+        cx.topology
+            .topo_active_masks
+            .at_mut(id)
             .set(ComponentMask::COMP_INPUT_CONTENT | ComponentMask::COMP_TEXT_CONTENT);
 
         self.get_or_create_listeners(|l| {
