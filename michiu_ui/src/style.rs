@@ -1560,9 +1560,7 @@ impl ThisStyle {
                     let s = get_s();
                     let w = get_w();
                     cx.get_basic_layout_mut(id, target).border = w;
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.border_styles = Some([s; 4]);
-                    }
+                    cx.get_visual_property_mut(id, target).border_styles = Some([s; 4]);
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -1642,11 +1640,11 @@ impl ThisStyle {
                     let s = get_s();
                     let v = get_v();
                     cx.get_basic_layout_mut(id, target).border.top = v;
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
-                        styles[0] = s;
-                        vis.border_styles = Some(styles);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+                    styles[0] = s;
+                    vis.border_styles = Some(styles);
+
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -1698,11 +1696,11 @@ impl ThisStyle {
                     let s = get_s();
                     let v = get_v();
                     cx.get_basic_layout_mut(id, target).border.right = v;
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
-                        styles[1] = s;
-                        vis.border_styles = Some(styles);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+                    styles[1] = s;
+                    vis.border_styles = Some(styles);
+
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -1754,11 +1752,11 @@ impl ThisStyle {
                     let s = get_s();
                     let v = get_v();
                     cx.get_basic_layout_mut(id, target).border.bottom = v;
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
-                        styles[2] = s;
-                        vis.border_styles = Some(styles);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+                    styles[2] = s;
+                    vis.border_styles = Some(styles);
+
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -1810,11 +1808,11 @@ impl ThisStyle {
                     let s = get_s();
                     let v = get_v();
                     cx.get_basic_layout_mut(id, target).border.left = v;
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
-                        styles[3] = s;
-                        vis.border_styles = Some(styles);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    let mut styles = vis.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+                    styles[3] = s;
+                    vis.border_styles = Some(styles);
+
                     cx.mark_layout_dirty(id);
                 }));
             }
@@ -1843,14 +1841,13 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let v = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.border_lengths = Some(EdgeInsets {
-                            top: v.top,
-                            right: v.right,
-                            bottom: v.bottom,
-                            left: v.left,
-                        });
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    vis.border_lengths = Some(EdgeInsets {
+                        top: v.top,
+                        right: v.right,
+                        bottom: v.bottom,
+                        left: v.left,
+                    });
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -1877,11 +1874,11 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
-                        lengths.top = val;
-                        vis.border_lengths = Some(lengths);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+                    lengths.top = val;
+                    vis.border_lengths = Some(lengths);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -1908,11 +1905,11 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
-                        lengths.right = val;
-                        vis.border_lengths = Some(lengths);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+                    lengths.right = val;
+                    vis.border_lengths = Some(lengths);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -1939,11 +1936,11 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
-                        lengths.bottom = val;
-                        vis.border_lengths = Some(lengths);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+                    lengths.bottom = val;
+                    vis.border_lengths = Some(lengths);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -1970,11 +1967,11 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
-                        lengths.left = val;
-                        vis.border_lengths = Some(lengths);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    let mut lengths = vis.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+                    lengths.left = val;
+                    vis.border_lengths = Some(lengths);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -1997,9 +1994,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.border_alignments = Some([val; 4]);
-                    }
+                    cx.get_visual_property_mut(id, target).border_alignments = Some([val; 4]);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2022,9 +2017,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.border_alignments = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).border_alignments = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2053,12 +2046,11 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BORDER);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        let mut aligns =
-                            vis.border_alignments.unwrap_or([BorderAlignment::Start; 4]);
-                        aligns[idx] = val;
-                        vis.border_alignments = Some(aligns);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    let mut aligns = vis.border_alignments.unwrap_or([BorderAlignment::Start; 4]);
+                    aligns[idx] = val;
+                    vis.border_alignments = Some(aligns);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2129,15 +2121,15 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let w = get_w();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.outline_width = Some(EdgeInsets {
-                            top: w.top.into(),
-                            right: w.right.into(),
-                            bottom: w.bottom.into(),
-                            left: w.left.into(),
-                        });
-                        vis.outline_styles = Some([s; 4]);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    vis.outline_width = Some(EdgeInsets {
+                        top: w.top.into(),
+                        right: w.right.into(),
+                        bottom: w.bottom.into(),
+                        left: w.left.into(),
+                    });
+                    vis.outline_styles = Some([s; 4]);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2220,12 +2212,12 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.outline_width.get_or_insert_default().top = v.into();
-                        let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
-                        styles[0] = s;
-                        vis.outline_styles = Some(styles);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    vis.outline_width.get_or_insert_default().top = v.into();
+                    let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+                    styles[0] = s;
+                    vis.outline_styles = Some(styles);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2280,12 +2272,12 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.outline_width.get_or_insert_default().right = v.into();
-                        let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
-                        styles[1] = s;
-                        vis.outline_styles = Some(styles);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    vis.outline_width.get_or_insert_default().right = v.into();
+                    let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+                    styles[1] = s;
+                    vis.outline_styles = Some(styles);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2340,12 +2332,12 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.outline_width.get_or_insert_default().bottom = v.into();
-                        let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
-                        styles[2] = s;
-                        vis.outline_styles = Some(styles);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    vis.outline_width.get_or_insert_default().bottom = v.into();
+                    let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+                    styles[2] = s;
+                    vis.outline_styles = Some(styles);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2400,12 +2392,12 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let s = get_s();
                     let v = get_v();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.outline_width.get_or_insert_default().left = v.into();
-                        let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
-                        styles[3] = s;
-                        vis.outline_styles = Some(styles);
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    vis.outline_width.get_or_insert_default().left = v.into();
+                    let mut styles = vis.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+                    styles[3] = s;
+                    vis.outline_styles = Some(styles);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2428,9 +2420,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.outline_color = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).outline_color = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2453,9 +2443,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.outline_offset = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).outline_offset = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2483,14 +2471,14 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let v = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.outline_lengths = Some(EdgeInsets {
-                            top: v.top,
-                            right: v.right,
-                            bottom: v.bottom,
-                            left: v.left,
-                        });
-                    }
+                    let vis = cx.get_visual_property_mut(id, target);
+                    vis.outline_lengths = Some(EdgeInsets {
+                        top: v.top,
+                        right: v.right,
+                        bottom: v.bottom,
+                        left: v.left,
+                    });
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2513,9 +2501,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.outline_alignments = Some([val; 4]);
-                    }
+                    cx.get_visual_property_mut(id, target).outline_alignments = Some([val; 4]);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -2537,9 +2523,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_OUTLINE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.outline_alignments = Some([val; 4]);
-                    }
+                    cx.get_visual_property_mut(id, target).outline_alignments = Some([val; 4]);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3517,9 +3501,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BG_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.bg_color = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).bg_color = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3542,9 +3524,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BORDER_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.border_color = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).border_color = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3567,9 +3547,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_CORNER_RADIUS);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.corner_radius = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).corner_radius = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3666,9 +3644,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_OPACITY);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.opacity = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).opacity = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3710,10 +3686,10 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BOX_SHADOW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.shadow_params = Some(val);
-                        v.shadow_color = Some(val.color);
-                    }
+                    let v = cx.get_visual_property_mut(id, target);
+                    v.shadow_params = Some(val);
+                    v.shadow_color = Some(val.color);
+
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3736,9 +3712,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BOX_SHADOW);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.shadow_color = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).shadow_color = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3761,9 +3735,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_Z_INDEX);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.z_index = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).z_index = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3810,9 +3782,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_CURSOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.cursor = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).cursor = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3913,9 +3883,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BACKDROP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.backdrop = val;
-                    }
+                    cx.get_visual_property_mut(id, target).backdrop = val;
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -3962,9 +3930,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_TEXT_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.text_color = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).text_color = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -4951,9 +4917,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.renders.rnd_base_visual.get_mut(id) {
-                            v.pointer_events = Some(val);
-                        }
+                        cx.get_visual_property_mut(id, target).pointer_events = Some(val);
                         cx.mark_render_dirty(id);
                     }
                 }));
@@ -4991,9 +4955,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_TRANSFORM);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.transform = Some(val.matrix);
-                    }
+                    cx.get_visual_property_mut(id, target).transform = Some(val.matrix);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5015,9 +4977,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_TRANSFORM);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.transform_origin = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).transform_origin = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5075,9 +5035,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_TRANSFORM_INHERIT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.transform_inherit = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).transform_inherit = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5101,9 +5059,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.renders.rnd_base_visual.get_mut(id) {
-                            v.transitions.push(val);
-                        }
+                        cx.get_visual_property_mut(id, target).transitions.push(val);
                         cx.mark_render_dirty(id);
                     }
                 }));
@@ -5186,9 +5142,9 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.renders.rnd_base_visual.get_mut(id) {
-                            v.keyframe_animations.push(val);
-                        }
+                        cx.get_visual_property_mut(id, target)
+                            .keyframe_animations
+                            .push(val);
                         cx.mark_render_dirty(id);
                     }
                 }));
@@ -5212,9 +5168,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_BG_COLOR);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.bg_gradient = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).bg_gradient = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5237,9 +5191,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_FONT_STYLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.font.family = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).font.family = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5262,9 +5214,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_FONT_STYLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.font.weight = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).font.weight = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5287,9 +5237,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.font.size = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).font.size = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5312,9 +5260,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_FONT_STYLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.font.style = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).font.style = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5324,7 +5270,7 @@ impl ThisStyle {
 
     #[inline]
     #[must_use]
-    pub fn text_auto_wrap(mut self, value: impl IntoStyleValue<bool>) -> Self {
+    pub fn auto_wrap(mut self, value: impl IntoStyleValue<bool>) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -5336,9 +5282,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_AUTO_WRAP);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(vis) = cx.get_visual_property_mut(id, target) {
-                        vis.auto_wrap = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).auto_wrap = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5361,9 +5305,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_USER_SELECT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.user_select = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).user_select = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5406,9 +5348,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_USER_SELECT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.select_bg_color = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).select_bg_color = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5430,9 +5370,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_USER_SELECT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.select_text_color = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).select_text_color = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5456,9 +5394,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_FOCUSABLE);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.focusable = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).focusable = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5535,9 +5471,7 @@ impl ThisStyle {
                 inner.mask.set(ComponentMask::STYLE_PREVENT_FOCUS_STEAL);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.prevent_focus_steal = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target).prevent_focus_steal = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5564,9 +5498,8 @@ impl ThisStyle {
                     .set(ComponentMask::STYLE_PREVENT_FOCUS_STEAL_WITHIN);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
-                    if let Some(v) = cx.get_visual_property_mut(id, target) {
-                        v.prevent_focus_steal_within = Some(val);
-                    }
+                    cx.get_visual_property_mut(id, target)
+                        .prevent_focus_steal_within = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }
@@ -5657,7 +5590,8 @@ impl ThisStyle {
                                 .rnd_interaction
                                 .insert(id, InteractionStyles::default());
                         }
-                        let styles = cx.renders.rnd_interaction.get_mut(id).unwrap();
+                        // 上で入れたばっかなので Some のはず
+                        let styles = cx.renders.rnd_interaction.at_mut(id);
 
                         // 動的に解決されたスタイルを対応する疑似フィールドへ上書きマウント
                         match target {

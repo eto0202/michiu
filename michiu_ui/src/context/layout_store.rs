@@ -3,7 +3,7 @@ pub mod scrollbar;
 pub use scrollbar::*;
 
 use crate::{
-    ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseVisualPropertiesSecondary,
+    ActiveMasksSecondary, ActiveTransitionsSparse, BaseVisualPropertiesSecondary,
     BasicLayout, CapacityConfig, ChildrenSecondary, ComponentMask, ContentStore, Context,
     DirtyRenderEntitiesVec, Display, EdgeInsets, EntityId, FlexLayout, GridLayout,
     InputContentsSparse, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
@@ -157,7 +157,7 @@ impl LayoutStore {
         lay_grid: &GridLayoutsSparse,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
         let mut basic = lay_basic.get_or_default(id);
         let mut flex = lay_flex.get_or_default(id);
@@ -213,7 +213,7 @@ impl LayoutStore {
         lay_grid: &GridLayoutsSparse,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
     ) {
         let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
             id,
@@ -248,7 +248,8 @@ impl LayoutStore {
             if !rnd_interaction.contains_key(id) {
                 rnd_interaction.insert(id, InteractionStyles::default());
             }
-            let styles = rnd_interaction.get_mut(id).unwrap();
+            // 上で入れたばっかだから Some のはず
+            let styles = rnd_interaction.at_mut(id);
             let style_ref = styles.get_style_target_mut(target);
             &mut Arc::make_mut(&mut style_ref.inner).basic_layout
         }
@@ -266,7 +267,8 @@ impl LayoutStore {
             if !rnd_interaction.contains_key(id) {
                 rnd_interaction.insert(id, InteractionStyles::default());
             }
-            let styles = rnd_interaction.get_mut(id).unwrap();
+            // 上で入れたばっかだから Some のはず
+            let styles = rnd_interaction.at_mut(id);
             let style_ref = styles.get_style_target_mut(target);
             &mut Arc::make_mut(&mut style_ref.inner).flex_layout
         }
@@ -274,7 +276,7 @@ impl LayoutStore {
 
     pub(crate) fn is_transition_currently_running(
         id: EntityId,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
     ) -> (bool, bool) {
         let Some(list) = rnd_active_transitions.get(id) else {
             return (false, false);

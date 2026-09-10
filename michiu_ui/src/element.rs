@@ -257,7 +257,8 @@ impl Element {
             mask.has_visual_property() || inner.visual_property.border_lengths.is_some();
         if has_visual {
             if merge && cx.renders.rnd_base_visual.contains_key(id) {
-                let vis = cx.renders.rnd_base_visual.get_mut(id).unwrap();
+                // マスクがあるなら Some のはず
+                let vis = cx.renders.rnd_base_visual.at_mut(id);
                 vis.override_with(&inner.visual_property, mask);
             } else {
                 cx.renders
@@ -271,7 +272,8 @@ impl Element {
             || mask.has(ComponentMask::STYLE_INTERACTION_PARENT)
         {
             if merge && cx.renders.rnd_interaction.contains_key(id) {
-                let interaction = cx.renders.rnd_interaction.get_mut(id).unwrap();
+                // マスクがあるなら Some のはず
+                let interaction = cx.renders.rnd_interaction.at_mut(id);
                 interaction.override_with(&inner.interaction_styles, mask);
             } else {
                 cx.renders

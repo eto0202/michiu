@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::SparseSecondaryMap;
 use smallvec::SmallVec;
@@ -211,7 +211,7 @@ impl ScrollbarStore {
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
@@ -455,7 +455,7 @@ impl ScrollbarStore {
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &mut BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
         sc_sizes: &ScrollSizesSecondary,
@@ -722,7 +722,7 @@ pub(crate) struct ScrollbarSyncContext<'a> {
     pub rnd_visual: &'a mut VisualPropertiesSecondary,
     pub rnd_base_visual: &'a mut BaseVisualPropertiesSecondary,
     pub rnd_interaction: &'a InteractionPropertiesSecondary,
-    pub rnd_active_transitions: &'a ActiveTransitionsSparseSecondary,
+    pub rnd_active_transitions: &'a ActiveTransitionsSparse,
 }
 
 impl ScrollbarSyncContext<'_> {
@@ -820,7 +820,7 @@ impl ScrollbarStore {
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &mut BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
     ) {
         ScrollbarStore::update_scrollbar_element_layout(
             id,

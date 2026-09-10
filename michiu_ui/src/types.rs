@@ -1429,6 +1429,7 @@ impl std::fmt::Debug for EventListeners {
 
 /// 伝播用のグローバルカーソル種別
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum GlobalCursorIcon {
     Default(Option<HCURSOR>),
     Pointer(Option<HCURSOR>),
@@ -1443,6 +1444,7 @@ pub enum GlobalCursorIcon {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
 pub enum CursorIcon {
     Default(Option<HCURSOR>),
     Pointer(Option<HCURSOR>),

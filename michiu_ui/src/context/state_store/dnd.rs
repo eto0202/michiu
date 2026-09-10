@@ -228,17 +228,16 @@ impl DndStore {
         cx.layouts.lay_base_basic.insert(placeholder_id, basic);
         cx.layouts.lay_basic.insert(placeholder_id, basic);
 
-        if let Some(visual) = cx.renders.rnd_base_visual.get(pressed_id).cloned() {
-            cx.renders
-                .rnd_base_visual
-                .insert(placeholder_id, visual.clone());
-            cx.renders.rnd_visual.insert(placeholder_id, visual);
-        }
-        if let Some(interaction) = cx.renders.rnd_interaction.get(pressed_id).cloned() {
-            cx.renders
-                .rnd_interaction
-                .insert(placeholder_id, interaction);
-        }
+        let visual = cx.renders.rnd_base_visual.at(pressed_id).clone();
+        cx.renders
+            .rnd_base_visual
+            .insert(placeholder_id, visual.clone());
+        cx.renders.rnd_visual.insert(placeholder_id, visual);
+
+        let interaction = cx.renders.rnd_interaction.at(pressed_id).clone();
+        cx.renders
+            .rnd_interaction
+            .insert(placeholder_id, interaction);
 
         // ドラッグ元とプレースホルダーの状態を同期
         Pipeline::update_state(cx, pressed_id, ComponentMask::STATE_DND_DRAGGING, true);

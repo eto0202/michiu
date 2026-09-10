@@ -823,32 +823,17 @@ impl Pipeline {
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
-            let clip = cx
-                .outputs
-                .out_clip_rects
-                .get(id)
-                .copied()
-                .unwrap_or_default();
+            let clip = *cx.outputs.out_clip_rects.at(id);
 
-            let basic = cx
-                .layouts
-                .lay_resolved_basic
-                .get(id)
-                .copied()
-                .unwrap_or_default();
-            let flex = cx
-                .layouts
-                .lay_resolved_flex
-                .get(id)
-                .copied()
-                .unwrap_or_default();
+            let basic = cx.layouts.lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
+            let flex = cx.layouts.lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
             let grid = cx
                 .layouts
                 .lay_resolved_grid
                 .get(id)
                 .cloned()
                 .unwrap_or_default();
-            let visual = cx.renders.rnd_visual.get(id).unwrap_or(&default_visual);
+            let visual = cx.renders.rnd_visual.get_or(id, &default_visual);
 
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -877,7 +862,7 @@ impl Pipeline {
                 IDENTITY_MATRIX
             };
 
-            let params = CommonParameters::new(id, rect, &basic, visual, eff_transform);
+            let params = CommonParameters::new(id, rect, basic, visual, eff_transform);
 
             let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
@@ -1026,7 +1011,7 @@ impl Pipeline {
                     &buffer,
                     border,
                     padding,
-                    &flex,
+                    flex,
                     &cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                 );
@@ -1074,7 +1059,7 @@ impl Pipeline {
                     &buffer,
                     border,
                     padding,
-                    &flex,
+                    flex,
                     &cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                 );
@@ -1145,7 +1130,7 @@ impl Pipeline {
                     border,
                     padding,
                     scroll,
-                    &flex,
+                    flex,
                     visual,
                     cx.window.win_scale_factor,
                     &cx.contents.cont_input_contents,

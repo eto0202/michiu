@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparseSecondary,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
     BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
     CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DEFAULT_BASIC,
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlatDfsSequenceVec,
@@ -82,7 +82,7 @@ impl ScrollStore {
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
@@ -149,7 +149,7 @@ impl ScrollStore {
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
@@ -310,7 +310,7 @@ impl ScrollStore {
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
@@ -350,7 +350,7 @@ impl ScrollStore {
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
@@ -425,7 +425,7 @@ impl ScrollStore {
         bar_styles: &ScrollbarStylesSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparseSecondary,
+        rnd_active_transitions: &ActiveTransitionsSparse,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
     ) -> LayoutSize {
