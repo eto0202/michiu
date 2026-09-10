@@ -1,7 +1,7 @@
 use crate::{
     ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, FlexLayout, InputContents,
-    LayoutRect, MichiuSoA, MichiuString, RenderStore, TextBufferSparseSecondary, TextEngine,
-    TextSpan, VisualPropertiesSecondary, WebView2Contents, define_sparse_secondary,
+    LayoutRect, MichiuSoA, MichiuString, RenderStore, TextBufferSparse, TextEngine, TextSpan,
+    VisualPropertiesSecondary, WebView2Contents, define_sparse_secondary,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{

@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
 };
 use slotmap::SparseSecondaryMap;
 use smallvec::SmallVec;
@@ -235,8 +235,8 @@ impl ScrollbarStore {
         // 親スクロールコンテナ
         let sb_state = bar_styles.get(c_id).cloned().unwrap();
         let container_rect = *out_rects.at(c_id);
-        let scroll_size = sc_sizes.get(c_id).copied().unwrap_or_default();
-        let offset = sc_offsets.get(c_id).copied().unwrap_or_default();
+        let scroll_size = sc_sizes.get_or_default(c_id);
+        let offset = sc_offsets.get_or_default(c_id);
 
         match component {
             ScrollbarComponent::VThumb | ScrollbarComponent::HThumb => {
@@ -326,7 +326,7 @@ impl ScrollbarStore {
                     sc_sizes,
                 );
 
-                let new_offset = sc_offsets.get(c_id).copied().unwrap_or_default();
+                let new_offset = sc_offsets.get_or_default(c_id);
                 if let Some(st) = bar_styles.get_mut(c_id) {
                     if is_vertical {
                         st.v_thumb_dragged = true;
@@ -465,8 +465,8 @@ impl ScrollbarStore {
         for id in scrollbar_ids {
             let sb_state = bar_styles.get(id).cloned().unwrap();
             let rect = *out_rects.at(id);
-            let scroll_size = sc_sizes.get(id).copied().unwrap_or_default();
-            let current_scroll = sc_offsets.get(id).copied().unwrap_or_default();
+            let scroll_size = sc_sizes.get_or_default(id);
+            let current_scroll = sc_offsets.get_or_default(id);
 
             let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
             let (border, padding) =

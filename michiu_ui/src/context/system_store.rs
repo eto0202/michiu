@@ -4,14 +4,14 @@ use crate::{
     EntityId, EventStore, FlexLayout, FontDate, InputContents, InputContentsSparse,
     InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutStore, MichiuSoA, MichiuString,
     OutputStore, ParentsSecondary, RectsSecondary, RenderStore, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
-    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, TextContentsSparse,
-    TextEngine, TextSelectionsSparseSecondary, TextSpansSparse, UiaValue,
-    VisualPropertiesSecondary, WindowStore,
+    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, SelectedRectsSparse,
+    SelectionStartIndexSparse, TextContentsSparse, TextEngine, TextSelectionsSparse,
+    TextSpansSparse, UiaValue, VisualPropertiesSecondary, WindowStore, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
+    borrow::Borrow,
     cell::RefCell,
     rc::Rc,
     sync::{Arc, mpsc::Receiver},
@@ -65,16 +65,18 @@ impl TaskSender {
     }
 }
 
-pub(crate) type TextBufferSparseSecondary = RefCell<SparseSecondaryMap<EntityId, Rc<Buffer>>>;
-pub(crate) type UiaPropertiesSparseSecondary = SparseSecondaryMap<EntityId, Vec<(i32, UiaValue)>>;
+define_sparse_secondary!(pub(crate) struct TextBufferSparseInner(Rc<Buffer>));
+define_sparse_secondary!(pub(crate) struct UiaPropertiesSparse(Vec<(i32, UiaValue)>));
+
+pub(crate) type TextBufferSparse = RefCell<TextBufferSparseInner>;
 pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;
 
 pub struct SystemStore {
     pub(crate) sys_text_engine: TextEngine,
-    pub(crate) sys_text_buffers: TextBufferSparseSecondary,
+    pub(crate) sys_text_buffers: TextBufferSparse,
     pub(crate) sys_task_sender: TaskSender,
     pub(crate) sys_task_receiver: Receiver<TaskRecv>,
-    pub(crate) sys_uia_properties: UiaPropertiesSparseSecondary,
+    pub(crate) sys_uia_properties: UiaPropertiesSparse,
 }
 
 impl SystemStore {
@@ -83,10 +85,10 @@ impl SystemStore {
     pub fn new(sys_task_sender: TaskSender, sys_task_receiver: Receiver<TaskRecv>) -> Self {
         Self {
             sys_text_engine: TextEngine::new(),
-            sys_text_buffers: RefCell::new(SparseSecondaryMap::new()),
+            sys_text_buffers: RefCell::new(TextBufferSparseInner(SparseSecondaryMap::new())),
             sys_task_sender,
             sys_task_receiver,
-            sys_uia_properties: SparseSecondaryMap::new(),
+            sys_uia_properties: UiaPropertiesSparse(SparseSecondaryMap::new()),
         }
     }
 
@@ -99,10 +101,12 @@ impl SystemStore {
     ) -> Self {
         Self {
             sys_text_engine: TextEngine::new(),
-            sys_text_buffers: RefCell::new(SparseSecondaryMap::with_capacity(c.sys_text_buffers)),
+            sys_text_buffers: RefCell::new(TextBufferSparseInner(SparseSecondaryMap::with_capacity(
+                c.sys_text_buffers,
+            ))),
             sys_task_sender,
             sys_task_receiver,
-            sys_uia_properties: SparseSecondaryMap::new(),
+            sys_uia_properties: UiaPropertiesSparse(SparseSecondaryMap::new()),
         }
     }
 
@@ -123,7 +127,7 @@ impl SystemStore {
 impl SystemStore {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
-    pub(crate) fn clear_layout_cache(id: EntityId, sys_text_buffers: &TextBufferSparseSecondary) {
+    pub(crate) fn clear_layout_cache(id: EntityId, sys_text_buffers: &TextBufferSparse) {
         sys_text_buffers.borrow_mut().remove(id);
     }
 
@@ -132,7 +136,7 @@ impl SystemStore {
     pub(crate) fn get_or_create_layout(
         id: EntityId,
         sys_text_engine: &mut TextEngine,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &TextContentsSparse,
         cont_text_spans: &TextSpansSparse,
         lay_resolved_basic: &ResolvedBasicSecondary,

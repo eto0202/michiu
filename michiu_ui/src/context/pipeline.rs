@@ -11,7 +11,7 @@ use crate::{
     ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
     ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextCacheKey,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextCacheKey,
     TextContentsSparse, TextEditStore, TextEngine, TextSpan, TextSpansSparse, TopologyStore,
     UnderlineStyle, Val, VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore,
     bind_context, execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
@@ -837,13 +837,7 @@ impl Pipeline {
 
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-            let scroll = cx
-                .states
-                .scroll
-                .sc_offsets
-                .get(id)
-                .copied()
-                .unwrap_or_default();
+            let scroll = cx.states.scroll.sc_offsets.get_or_default(id);
 
             // トランスフォームブランチの場合のみその場で累積を解決
             // それ以外は IDENTITY_MATRIX

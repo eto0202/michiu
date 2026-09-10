@@ -9,13 +9,14 @@ use crate::{
     LayoutRect, LayoutSize, LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount,
     Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay,
     ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextBufferSparseSecondary, ThisStyle, TopologyStore, TransitionValue, UserSelect, Val,
-    VisualProperty, WindowStore, define_secondary, define_sparse_secondary, define_vec,
+    TextBufferSparse, ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty,
+    WindowStore, define_secondary, define_sparse_secondary, define_vec,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
+    cell::RefCell,
     collections::HashSet,
     sync::Arc,
     time::{Duration, Instant},
@@ -787,7 +788,7 @@ impl RenderStore {
         id: EntityId,
         allow_transition: bool,
         win_last_size: Option<LayoutSize>,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
@@ -979,7 +980,7 @@ impl RenderStore {
     fn resolve_visual_styles(
         id: EntityId,
         allow_transition: bool,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         react_element_effects: &ElementEffectsSecondary,
         cont_input_contents: &InputContentsSparse,
         topo_active_masks: &mut ActiveMasksSecondary,

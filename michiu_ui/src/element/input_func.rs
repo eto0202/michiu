@@ -3,9 +3,8 @@ use std::{ops::Range, time::Instant};
 use crate::{
     ByteIndex, ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
     InputContents, InputOp, LayoutPoint, MichiuSoA, MichiuString, Modifiers, MouseButton,
-    OutputStore, Prop, SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary,
-    SystemStore, TextEngine, TextSelectionsSparseSecondary, TextSpan, UnderlineStyle, VirtualKey,
-    with_context,
+    OutputStore, Prop, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEngine,
+    TextSelectionsSparse, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
 use cosmic_text::Buffer;
 
@@ -117,9 +116,9 @@ impl Element {
         id: EntityId,
         contents: &mut InputContents,
         caret: ByteIndex,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        edit_selected_rects: Option<&mut SelectedRectsSparseSecondary>,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
+        edit_selected_rects: Option<&mut SelectedRectsSparse>,
     ) {
         contents.selected_range = caret..caret;
         contents.selection_reversed = false;
@@ -138,7 +137,7 @@ impl Element {
         contents: &mut InputContents,
         range: Range<ByteIndex>,
         selection_reversed: bool,
-        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
     ) {
         contents.selected_range = range.clone();
         contents.selection_reversed = selection_reversed;
@@ -376,8 +375,8 @@ impl Element {
         contents: &mut InputContents,
         caret: ByteIndex,
         text_val: &MichiuString,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.clone(), range.clone());
@@ -405,8 +404,8 @@ impl Element {
         contents: &mut InputContents,
         caret: ByteIndex,
         text_val: &MichiuString,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) {
         let range = contents.selected_range.clone();
         contents.record_undo(text_val.clone(), range.clone());
@@ -435,9 +434,9 @@ impl Element {
         text_val: &MichiuString,
         caret: ByteIndex,
         mods: Modifiers,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) -> bool {
         let range = contents.selected_range.clone();
 
@@ -496,9 +495,9 @@ impl Element {
         text_val: &MichiuString,
         caret: ByteIndex,
         mods: Modifiers,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) -> bool {
         let range = contents.selected_range.clone();
         // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時（全選択中での右移動に完全対応）
@@ -518,7 +517,7 @@ impl Element {
             let new_caret = text_val.next_char_boundary(caret);
 
             if mods.shift {
-                let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+                let anchor = *edit_selection_start_index.get_or(id, &caret);
                 if !edit_selection_start_index.contains_key(id) {
                     edit_selection_start_index.insert(id, caret);
                 }
@@ -552,8 +551,8 @@ impl Element {
         text_val: &MichiuString,
         mods: Modifiers,
         sys_text_engine: &mut TextEngine,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) -> bool {
         if !contents.is_multiline {
             return false;
@@ -573,7 +572,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+            let anchor = *edit_selection_start_index.get_or(id, &caret);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }
@@ -606,8 +605,8 @@ impl Element {
         text_val: &MichiuString,
         mods: Modifiers,
         sys_text_engine: &mut TextEngine,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) -> bool {
         if !contents.is_multiline {
             return false;
@@ -627,7 +626,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = edit_selection_start_index.get(id).copied().unwrap_or(caret);
+            let anchor = *edit_selection_start_index.get_or(id, &caret);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }

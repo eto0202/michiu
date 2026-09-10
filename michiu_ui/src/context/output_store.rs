@@ -11,7 +11,7 @@ use crate::{
     Position, PropertyList, QuadInstance, ReactiveStore, RenderData, RenderStore, RendererView,
     ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
     ScrollStore, ScrollbarStylesSecondary, SortCacheVec, SortedEntitiesVec, StrikethroughStyle,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextBufferSparseSecondary,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextBufferSparse,
     TextCacheKey, TextCacheValue, TextContentsSparse, TextEngine, TextSpan, TextSpansSparse,
     TextureAtlas, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
     VisualPropertiesSecondary, VisualProperty, WindowStore, define_secondary,
@@ -133,7 +133,7 @@ impl OutputStore {
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-        let scroll = sc_offsets.get(id).copied().unwrap_or_default();
+        let scroll = sc_offsets.get_or_default(id);
 
         let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.get(id) {
             let size = contents
@@ -191,7 +191,7 @@ impl OutputStore {
             return (local_rect, initial_clip);
         };
 
-        let s_offsets = sc_offsets.get(parent_id).copied().unwrap_or_default();
+        let s_offsets = sc_offsets.get_or_default(parent_id);
         // データが無い要素が Absolute になることは絶対にない
         let is_absolute = lay_basic
             .get(id)

@@ -1,4 +1,4 @@
-use std::{ops::Range, rc::Rc};
+use std::{cell::RefCell, ops::Range, rc::Rc};
 
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
@@ -9,8 +9,8 @@ use crate::{
     MichiuString, OutputStore, ParentsSecondary, RangeExt, RectsSecondary, RenderStore,
     ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
     ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparse, TextEngine, TextSpansSparse,
-    TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary,
+    TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse,
+    TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -36,14 +36,14 @@ pub enum InputOp {
     Redo,
 }
 
-pub(crate) type SelectedRectsSparseSecondary = SparseSecondaryMap<EntityId, Vec<LayoutRect>>;
-pub(crate) type TextSelectionsSparseSecondary = SparseSecondaryMap<EntityId, Range<ByteIndex>>;
-pub(crate) type SelectionStartIndexSparseSecondary = SparseSecondaryMap<EntityId, ByteIndex>;
+define_sparse_secondary!(pub(crate) struct SelectedRectsSparse(Vec<LayoutRect>));
+define_sparse_secondary!(pub(crate) struct TextSelectionsSparse(Range<ByteIndex>));
+define_sparse_secondary!(pub(crate) struct SelectionStartIndexSparse(ByteIndex));
 
 pub(crate) struct TextEditStore {
-    pub(crate) edit_selections: TextSelectionsSparseSecondary,
-    pub(crate) edit_selection_start_index: SelectionStartIndexSparseSecondary,
-    pub(crate) edit_selected_rects: SelectedRectsSparseSecondary,
+    pub(crate) edit_selections: TextSelectionsSparse,
+    pub(crate) edit_selection_start_index: SelectionStartIndexSparse,
+    pub(crate) edit_selected_rects: SelectedRectsSparse,
 }
 
 impl Default for TextEditStore {
@@ -57,9 +57,9 @@ impl TextEditStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            edit_selections: SparseSecondaryMap::new(),
-            edit_selection_start_index: SparseSecondaryMap::new(),
-            edit_selected_rects: SparseSecondaryMap::new(),
+            edit_selections: TextSelectionsSparse(SparseSecondaryMap::new()),
+            edit_selection_start_index: SelectionStartIndexSparse(SparseSecondaryMap::new()),
+            edit_selected_rects: SelectedRectsSparse(SparseSecondaryMap::new()),
         }
     }
 
@@ -67,10 +67,14 @@ impl TextEditStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            edit_selections: SparseSecondaryMap::with_capacity(c.edit_selections),
-            edit_selected_rects: SparseSecondaryMap::with_capacity(c.edit_selected_rects),
-            edit_selection_start_index: SparseSecondaryMap::with_capacity(
-                c.edit_selection_start_index,
+            edit_selections: TextSelectionsSparse(SparseSecondaryMap::with_capacity(
+                c.edit_selections,
+            )),
+            edit_selected_rects: SelectedRectsSparse(SparseSecondaryMap::with_capacity(
+                c.edit_selected_rects,
+            )),
+            edit_selection_start_index: SelectionStartIndexSparse(
+                SparseSecondaryMap::with_capacity(c.edit_selection_start_index),
             ),
         }
     }
@@ -127,8 +131,8 @@ impl TextEditStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         cont_input_contents: &mut InputContentsSparse,
         cont_text_spans: &mut TextSpansSparse,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) {
         edit_selections.remove(id);
         edit_selected_rects.remove(id);
@@ -255,8 +259,8 @@ impl TextEditStore {
     pub(crate) fn update_selection_rects(
         id: EntityId,
         buffer: &Rc<Buffer>,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
-        edit_selections: &TextSelectionsSparseSecondary,
+        edit_selected_rects: &mut SelectedRectsSparse,
+        edit_selections: &TextSelectionsSparse,
         cont_input_contents: &InputContentsSparse,
     ) {
         if let Some(range) = edit_selections.get(id).cloned()
@@ -283,7 +287,7 @@ impl TextEditStore {
         evt_interaction_states: &ActiveInteractionStates,
         cont_text_contents: &TextContentsSparse,
         rnd_visual: &VisualPropertiesSecondary,
-        edit_selections: &TextSelectionsSparseSecondary,
+        edit_selections: &TextSelectionsSparse,
     ) -> Option<MichiuString> {
         // フォーカスされている要素を最優先とし、
         // 無い場合は現在有効な空ではない選択範囲を持つ最初の要素を逆引き
@@ -300,7 +304,8 @@ impl TextEditStore {
             .unwrap_or_default();
 
         if user_select == UserSelect::Text {
-            let range = edit_selections.get(target_id)?;
+            // テキストを選択してるなら Some のはず
+            let range = edit_selections.at(target_id);
             if range.start < range.end {
                 let text = cont_text_contents.at(target_id);
                 let byte_range = range.clone();
@@ -337,7 +342,7 @@ impl TextEditStore {
         pointer_pos: LayoutPoint,
         pressed_shift: bool,
         sys_text_engine: &mut TextEngine,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &TextContentsSparse,
         cont_text_spans: &TextSpansSparse,
         cont_input_contents: &InputContentsSparse,
@@ -350,9 +355,9 @@ impl TextEditStore {
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
     ) {
@@ -435,7 +440,7 @@ impl TextEditStore {
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &mut TextContentsSparse,
         cont_input_contents: &mut InputContentsSparse,
         cont_text_spans: &TextSpansSparse,
@@ -455,8 +460,8 @@ impl TextEditStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) {
@@ -544,7 +549,7 @@ impl TextEditStore {
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &mut TextContentsSparse,
         cont_input_contents: &mut InputContentsSparse,
         cont_text_spans: &TextSpansSparse,
@@ -564,8 +569,8 @@ impl TextEditStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) {
@@ -639,9 +644,7 @@ impl TextEditStore {
         } else {
             // 通常のテキスト要素
             let text_len = cont_text_contents.at(id).byte_len();
-            let full_range = ByteIndex(0)..text_len;
-
-            edit_selections.insert(id, full_range.clone());
+            edit_selections.insert(id, ByteIndex(0)..text_len);
             TextEditStore::update_selection_rects(
                 id,
                 &engine,
@@ -659,7 +662,7 @@ impl TextEditStore {
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &mut TextContentsSparse,
         cont_input_contents: &mut InputContentsSparse,
         cont_text_spans: &TextSpansSparse,
@@ -678,8 +681,8 @@ impl TextEditStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) {
@@ -825,7 +828,7 @@ impl TextEditStore {
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &mut TextContentsSparse,
         cont_input_contents: &mut InputContentsSparse,
         cont_text_spans: &TextSpansSparse,
@@ -843,7 +846,7 @@ impl TextEditStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
-        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) {
@@ -877,7 +880,7 @@ impl TextEditStore {
 
         let should_scroll = contents.needs_scroll_to_caret;
 
-        let mut scroll_offset = sc_offsets.get(id).copied().unwrap_or_default();
+        let mut scroll_offset = sc_offsets.get_or_default(id);
 
         if should_scroll && rect.width > 0.0 && rect.height > 0.0 {
             let viewport = OutputStore::calc_viewport_size(rect, border, padding);
@@ -961,7 +964,7 @@ impl TextEditStore {
     pub(crate) fn ime_caret_info(
         id: EntityId,
         sys_text_engine: &mut TextEngine,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &mut TextContentsSparse,
         cont_input_contents: &mut InputContentsSparse,
         cont_text_spans: &TextSpansSparse,
@@ -969,7 +972,7 @@ impl TextEditStore {
         lay_resolved_flex: &ResolvedFlexSecondary,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
-        edit_selections: &mut TextSelectionsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
         out_rects: &RectsSecondary,
     ) -> Option<(LayoutRect, f32, bool)> {
         let contents = cont_input_contents.get_mut(id)?;

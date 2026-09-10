@@ -1,8 +1,3 @@
-use std::{
-    collections::HashSet,
-    time::{Duration, Instant},
-};
-
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
     BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
@@ -12,15 +7,20 @@ use crate::{
     LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary,
     Position, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
     ResolvedGridSparse, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparseSecondary, TextContentsSparse,
-    TextEngine, TextSpansSparse, ThisStyle, UserSelect, Val, VisualPropertiesSecondary,
-    WindowStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine,
+    TextSpansSparse, ThisStyle, UserSelect, Val, VisualPropertiesSecondary, WindowStore,
+    define_secondary,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
+use std::{
+    cell::RefCell,
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 
-pub(crate) type ScrollOffsetsSecondary = SecondaryMap<EntityId, LayoutPoint>;
-pub(crate) type ScrollSizesSecondary = SecondaryMap<EntityId, LayoutSize>;
+define_secondary!(pub(crate) struct ScrollOffsetsSecondary(LayoutPoint));
+define_secondary!(pub(crate) struct ScrollSizesSecondary(LayoutSize));
 
 pub(crate) struct ScrollStore {
     pub(crate) sc_offsets: ScrollOffsetsSecondary,
@@ -38,8 +38,8 @@ impl ScrollStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            sc_offsets: SecondaryMap::new(),
-            sc_sizes: SecondaryMap::new(),
+            sc_offsets: ScrollOffsetsSecondary(SecondaryMap::new()),
+            sc_sizes: ScrollSizesSecondary(SecondaryMap::new()),
         }
     }
 
@@ -47,8 +47,8 @@ impl ScrollStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            sc_offsets: SecondaryMap::with_capacity(c.sc_offsets),
-            sc_sizes: SecondaryMap::with_capacity(c.sc_sizes),
+            sc_offsets: ScrollOffsetsSecondary(SecondaryMap::with_capacity(c.sc_offsets)),
+            sc_sizes: ScrollSizesSecondary(SecondaryMap::with_capacity(c.sc_sizes)),
         }
     }
 
@@ -89,7 +89,7 @@ impl ScrollStore {
     ) -> bool {
         let rect = *out_rects.at(id);
 
-        let scroll_size = sc_sizes.get(id).copied().unwrap_or_default();
+        let scroll_size = sc_sizes.get_or_default(id);
 
         // 親コンテナのボーダーおよびパディング厚を取得
         let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
@@ -111,7 +111,8 @@ impl ScrollStore {
             sc_offsets.insert(id, LayoutPoint::ZERO);
         }
 
-        let current = sc_offsets.get_mut(id).unwrap();
+        // 上で入れたばっかなので Some のはず
+        let current = sc_offsets.at_mut(id);
         if (current.x - x).abs() > 0.01 || (current.y - y).abs() > 0.01 {
             current.x = x;
             current.y = y;
@@ -190,7 +191,7 @@ impl ScrollStore {
         let (sb_state, container_rect, scroll_size) = {
             let sb_state = bar_styles.get(current_id).cloned().unwrap_or_default();
             let container_rect = *out_rects.at(current_id);
-            let scroll_size = sc_sizes.get(current_id).copied().unwrap_or_default();
+            let scroll_size = sc_sizes.get_or_default(current_id);
             (sb_state, container_rect, scroll_size)
         };
 
@@ -315,7 +316,7 @@ impl ScrollStore {
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
     ) -> bool {
-        let current = sc_offsets.get(id).copied().unwrap_or_default();
+        let current = sc_offsets.get_or_default(id);
         ScrollStore::scroll_to(
             id,
             current.x + dx,
@@ -413,7 +414,7 @@ impl ScrollStore {
     pub(crate) fn get_scroll_size(
         id: EntityId,
         sys_text_engine: &mut TextEngine,
-        sys_text_buffers: &TextBufferSparseSecondary,
+        sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &TextContentsSparse,
         cont_text_spans: &TextSpansSparse,
         cont_input_contents: &InputContentsSparse,
@@ -492,7 +493,7 @@ impl ScrollStore {
 
             let child_rect = *out_rects.at(child_id);
             let parent_rect = *out_rects.at(id);
-            let scroll_offset = sc_offsets.get(id).copied().unwrap_or_default();
+            let scroll_offset = sc_offsets.get_or_default(id);
 
             // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
             let local_right =

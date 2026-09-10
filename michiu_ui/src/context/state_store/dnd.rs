@@ -6,9 +6,9 @@ use crate::{
     DirtyRenderEntitiesVec, Element, EntitiesSlot, EntityId, EventStore, FlexLayoutsSecondary,
     LayoutPoint, LayoutRect, LayoutStore, Length, MichiuSoA, ParentsSecondary, Pipeline,
     PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec,
-    TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val, handle_on_dnd_drag_start,
-    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
-    handle_on_dnd_id_drop, handle_on_drag,
+    TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val, define_sparse_secondary,
+    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
+    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
 };
 
 /// プレースホルダーを挿入してマウントする親先祖の制御方法
@@ -75,12 +75,12 @@ pub(crate) struct PlaceholderAttachment {
     pub(crate) border_top: f32,
 }
 
-pub(crate) type DndDragPropertiesSparseSecondary = SparseSecondaryMap<EntityId, DndDragProperty>;
-pub(crate) type DndDropPropertiesSparseSecondary = SparseSecondaryMap<EntityId, DndDropProperty>;
+define_sparse_secondary!(pub(crate) struct DndDragPropertiesSparse(DndDragProperty));
+define_sparse_secondary!(pub(crate) struct DndDropPropertiesSparse(DndDropProperty));
 
 pub(crate) struct DndStore {
-    pub(crate) dnd_drag_properties: DndDragPropertiesSparseSecondary,
-    pub(crate) dnd_drop_properties: DndDropPropertiesSparseSecondary,
+    pub(crate) dnd_drag_properties: DndDragPropertiesSparse,
+    pub(crate) dnd_drop_properties: DndDropPropertiesSparse,
     pub(crate) dnd_active_drag_state: Option<ActiveDragState>,
 }
 
@@ -95,8 +95,8 @@ impl DndStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            dnd_drag_properties: SparseSecondaryMap::new(),
-            dnd_drop_properties: SparseSecondaryMap::new(),
+            dnd_drag_properties: DndDragPropertiesSparse(SparseSecondaryMap::new()),
+            dnd_drop_properties: DndDropPropertiesSparse(SparseSecondaryMap::new()),
             dnd_active_drag_state: None,
         }
     }
@@ -105,8 +105,12 @@ impl DndStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            dnd_drag_properties: SparseSecondaryMap::with_capacity(c.dnd_drag_properties),
-            dnd_drop_properties: SparseSecondaryMap::with_capacity(c.dnd_drop_properties),
+            dnd_drag_properties: DndDragPropertiesSparse(SparseSecondaryMap::with_capacity(
+                c.dnd_drag_properties,
+            )),
+            dnd_drop_properties: DndDropPropertiesSparse(SparseSecondaryMap::with_capacity(
+                c.dnd_drop_properties,
+            )),
             ..Default::default()
         }
     }
@@ -306,13 +310,7 @@ impl DndStore {
     }
 
     fn start_dnd_drag_session(cx: &mut Context, pressed_id: EntityId, logical_pos: LayoutPoint) {
-        let drag_prop = cx
-            .states
-            .dnd
-            .dnd_drag_properties
-            .get(pressed_id)
-            .copied()
-            .unwrap();
+        let drag_prop = *cx.states.dnd.dnd_drag_properties.at(pressed_id);
         let start_rect = *cx.outputs.out_rects.at(pressed_id);
 
         // 開始時のクリック位置と要素左上の相対的なズレを計算
@@ -718,7 +716,7 @@ impl DndStore {
         // トポロジー書き換え（要素移動時のみ）
         if let Some(target_id) = drop_success
             && drag_prop.drag_mode == DndDragPayload::Element
-            && let Some(_prop) = cx.states.dnd.dnd_drop_properties.get(target_id).copied()
+            && cx.states.dnd.dnd_drop_properties.contains(target_id)
         {
             DndStore::remove_dragged_elemet(
                 src_id,

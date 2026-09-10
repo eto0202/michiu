@@ -698,7 +698,7 @@ impl Element {
         if !cx.system.sys_uia_properties.contains_key(self.id) {
             cx.system.sys_uia_properties.insert(self.id, Vec::new());
         }
-        let list = cx.system.sys_uia_properties.get_mut(self.id).unwrap();
+        let list = cx.system.sys_uia_properties.at_mut(self.id);
         if let Some(pos) = list.iter().position(|(k, _)| *k == property_id) {
             list[pos].1 = value;
         } else {

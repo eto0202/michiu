@@ -12,11 +12,11 @@ use crate::{
     RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore, ResizeStore,
     ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
     ScrollSizesSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSecondary,
-    SelectedRectsSparseSecondary, SelectionStartIndexSparseSecondary, SessionSpawnedVec,
-    SortCacheVec, SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextAlign, TextBufferSparseSecondary, TextContentsSparse, TextEditStore, TextEngine,
-    TextSelectionsSparseSecondary, TextSpansSparse, TopologyStore, UserSelect, UsizeRangeExt, Val,
-    VirtualKey, VisualPropertiesSecondary, WindowStore, bind_context, define_sparse_secondary,
+    SelectedRectsSparse, SelectionStartIndexSparse, SessionSpawnedVec, SortCacheVec,
+    SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
+    TextBufferSparse, TextContentsSparse, TextEditStore, TextEngine, TextSelectionsSparse,
+    TextSpansSparse, TopologyStore, UserSelect, UsizeRangeExt, Val, VirtualKey,
+    VisualPropertiesSecondary, WindowStore, bind_context, define_sparse_secondary,
     handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
     handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
     handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
@@ -422,13 +422,7 @@ impl EventStore {
         let src_id = drag_state.source_entity;
         let placeholder_id = drag_state.placeholder_entity;
 
-        let drag_prop = cx
-            .states
-            .dnd
-            .dnd_drag_properties
-            .get(src_id)
-            .copied()
-            .unwrap();
+        let drag_prop = *cx.states.dnd.dnd_drag_properties.at(src_id);
 
         // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従
         DndStore::update_inset_based_relative_local(
@@ -1017,8 +1011,8 @@ impl EventStore {
         focused_id: EntityId,
         text: &MichiuString,
         contents: &mut InputContents,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) {
         let text_val = contents.to_michiu();
         let range = contents.selected_range.clone();
@@ -1155,8 +1149,8 @@ impl EventStore {
         prev_sel: Range<ByteIndex>,
         prev_text: MichiuString,
         contents: &mut InputContents,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) {
         contents.apply_undo(prev_text, prev_sel.clone());
 
@@ -1235,9 +1229,9 @@ impl EventStore {
         next_sel: Range<ByteIndex>,
         next_text: MichiuString,
         contents: &mut InputContents,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
-        edit_selection_start_index: &mut SelectionStartIndexSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
+        edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) {
         // InputContents 側の状態復元
         contents.apply_redo(next_text, next_sel.clone());
@@ -1311,8 +1305,8 @@ impl EventStore {
         focused_id: EntityId,
         range: Range<ByteIndex>,
         contents: &mut InputContents,
-        edit_selections: &mut TextSelectionsSparseSecondary,
-        edit_selected_rects: &mut SelectedRectsSparseSecondary,
+        edit_selections: &mut TextSelectionsSparse,
+        edit_selected_rects: &mut SelectedRectsSparse,
     ) {
         // 削除前の履歴セーブ
         let current_text = contents.to_michiu();
@@ -1342,7 +1336,8 @@ impl EventStore {
             return None;
         }
 
-        let range = cx.states.edit.edit_selections.get(focused_id)?;
+        // テキストを選択してるなら Some のはず
+        let range = cx.states.edit.edit_selections.at(focused_id);
 
         // 空の選択範囲の場合
         if range.start >= range.end {
