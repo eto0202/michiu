@@ -1,7 +1,7 @@
 use crate::{
     CapacityConfig, Context, EffectId, EntitiesSlot, EntityId, FlatDfsSequenceVec, MichiuSoA,
-    ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal, define_slotmap,
-    execute_effect,
+    ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal, define_secondary,
+    define_slotmap, define_sparse_secondary, define_vec, execute_effect,
 };
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
@@ -36,16 +36,16 @@ impl fmt::Debug for Effects {
     }
 }
 
-define_slotmap!(pub(crate) struct SignalsSlot(SignalId => Box<dyn std::any::Any>););
-define_slotmap!(pub(crate) struct EffectsSlot(EffectId => Effects););
+define_slotmap!(pub(crate) struct SignalsSlot(SignalId, Box<dyn std::any::Any>));
+define_slotmap!(pub(crate) struct EffectsSlot(EffectId, Effects));
 
-pub(crate) type SubscribersSecondary = SecondaryMap<SignalId, SmallVec<[EffectId; 8]>>;
-pub(crate) type ElementEffectsSecondary =
-    SecondaryMap<EntityId, SmallVec<[(EffectCategory, EffectId); 8]>>;
-pub(crate) type EffectToElementSecondary = SecondaryMap<EffectId, EntityId>;
-pub(crate) type PendingElementEffectsVec = Vec<EffectId>;
-pub(crate) type ProvidersSparseSecondary =
-    SparseSecondaryMap<EntityId, FxHashMap<std::any::TypeId, SignalId>>;
+define_secondary!(pub(crate) struct SubscribersSecondary(SignalId, SmallVec<[EffectId; 8]>));
+define_secondary!(pub(crate) struct ElementEffectsSecondary(SmallVec<[(EffectCategory, EffectId); 8]>));
+define_secondary!(pub(crate) struct EffectToElementSecondary(EffectId, EntityId));
+
+define_sparse_secondary!(pub(crate) struct ProvidersSparseSecondary(FxHashMap<std::any::TypeId, SignalId>));
+
+define_vec!(pub(crate) struct PendingElementEffectsVec(EffectId));
 
 pub struct ReactiveStore {
     pub(crate) react_signals: SignalsSlot,
@@ -70,11 +70,11 @@ impl ReactiveStore {
         Self {
             react_signals: SignalsSlot(SlotMap::with_key()),
             react_effects: EffectsSlot(SlotMap::with_key()),
-            react_subscribers: SecondaryMap::new(),
-            react_element_effects: SecondaryMap::new(),
-            react_effect_to_element: SecondaryMap::new(),
-            react_pending_element_effects: Vec::new(),
-            react_providers: SparseSecondaryMap::new(),
+            react_subscribers: SubscribersSecondary(SecondaryMap::new()),
+            react_element_effects: ElementEffectsSecondary(SecondaryMap::new()),
+            react_effect_to_element: EffectToElementSecondary(SecondaryMap::new()),
+            react_pending_element_effects: PendingElementEffectsVec(Vec::new()),
+            react_providers: ProvidersSparseSecondary(SparseSecondaryMap::new()),
         }
     }
 
@@ -84,11 +84,21 @@ impl ReactiveStore {
         Self {
             react_signals: SignalsSlot(SlotMap::with_capacity_and_key(c.react_signals)),
             react_effects: EffectsSlot(SlotMap::with_capacity_and_key(c.react_effects)),
-            react_subscribers: SecondaryMap::with_capacity(c.react_subscribers),
-            react_element_effects: SecondaryMap::with_capacity(c.react_element_effects),
-            react_effect_to_element: SecondaryMap::with_capacity(c.react_effect_to_element),
-            react_pending_element_effects: Vec::with_capacity(c.react_pending_element_effects),
-            react_providers: SparseSecondaryMap::with_capacity(c.react_providers),
+            react_subscribers: SubscribersSecondary(SecondaryMap::with_capacity(
+                c.react_subscribers,
+            )),
+            react_element_effects: ElementEffectsSecondary(SecondaryMap::with_capacity(
+                c.react_element_effects,
+            )),
+            react_effect_to_element: EffectToElementSecondary(SecondaryMap::with_capacity(
+                c.react_effect_to_element,
+            )),
+            react_pending_element_effects: PendingElementEffectsVec(Vec::with_capacity(
+                c.react_pending_element_effects,
+            )),
+            react_providers: ProvidersSparseSecondary(SparseSecondaryMap::with_capacity(
+                c.react_providers,
+            )),
         }
     }
 

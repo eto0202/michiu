@@ -756,11 +756,9 @@ impl DndStore {
         }
 
         // 子要素のツリー構造復元
-        let ph_children = cx.topology.topo_children.at(holder).clone();
         TopologyStore::restore_child(
             src_id,
             holder,
-            ph_children,
             &mut cx.topology.topo_parents,
             &mut cx.topology.topo_children,
             &mut cx.layouts.lay_taffy_tree,

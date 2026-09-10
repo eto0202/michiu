@@ -80,7 +80,7 @@ impl<T: 'static> ReadSignal<T> {
                             subs.push(active_effect_id);
                         }
                     } else {
-                        let mut subs: smallvec::SmallVec<[EffectId; 8]> = smallvec::SmallVec::new();
+                        let mut subs: SmallVec<[EffectId; 8]> = SmallVec::new();
                         subs.push(active_effect_id);
                         cx.reactive.react_subscribers.insert(self.id, subs);
                     }
@@ -95,7 +95,7 @@ impl<T: 'static> ReadSignal<T> {
         self.track();
 
         with_context(|cx| {
-            let any_val = &cx.reactive.react_signals[self.id];
+            let any_val = cx.reactive.react_signals.get(self.id).unwrap();
             let val = any_val.downcast_ref::<T>().expect("Signal type mismatch");
             f(val)
         })
@@ -165,7 +165,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
     #[must_use]
     pub fn get_untracked(&self) -> T {
         with_context(|cx| {
-            let any_val = &cx.reactive.react_signals[self.id];
+            let any_val = cx.reactive.react_signals.get(self.id).unwrap();
             any_val
                 .downcast_ref::<T>()
                 .cloned()
@@ -318,7 +318,7 @@ impl<T: Send + 'static> WriteSignal<T> {
 
         with_context(|cx| {
             // 新しい値に差し替え
-            cx.reactive.react_signals[self.id] = Box::new(new_value);
+            *cx.reactive.react_signals.get_mut(self.id).unwrap() = Box::new(new_value);
 
             // 依存しているエフェクトIDのリストをクローン
             if let Some(subs) = cx.reactive.react_subscribers.get(self.id) {

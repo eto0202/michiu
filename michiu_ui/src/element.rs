@@ -1,6 +1,8 @@
 pub mod handler;
 pub mod input_func;
 
+use smallvec::SmallVec;
+
 use crate::{
     BasicLayout, ComponentMask, Context, EffectCategory, EntityId, ExternalTexture, MichiuSoA,
     ReadSignal, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle, UiaValue,
@@ -487,17 +489,17 @@ impl Element {
                 let id = self.id;
                 with_context(|cx| {
                     // 静的なコンテンツ上書き時のみ古い動的評価エフェクト（Contentsカテゴリ）を一括破棄
-                    if let Some(react_effects) = cx.reactive.react_element_effects.get_mut(id)
-                        && let Some(pos) = react_effects
+                    if let Some(effects) = cx.reactive.react_element_effects.get_mut(id)
+                        && let Some(i) = effects
                             .iter()
                             .position(|(cat, _)| *cat == EffectCategory::Contents)
                     {
-                        let (_, old_effect_id) = react_effects.remove(pos);
-                        cx.reactive.react_effects.remove(old_effect_id);
-                        cx.reactive.react_effect_to_element.remove(old_effect_id);
+                        let (_, old_effect) = effects.remove(i);
+                        cx.reactive.react_effects.remove(old_effect);
+                        cx.reactive.react_effect_to_element.remove(old_effect);
                         cx.reactive
                             .react_pending_element_effects
-                            .retain(|&x| x != old_effect_id);
+                            .retain(|&x| x != old_effect);
                     }
                     self.set_contents_internal(cx, new_child);
                 });
@@ -508,7 +510,7 @@ impl Element {
                     cx.create_element_effect(id, EffectCategory::Contents, move |cx| {
                         let new_child = f();
                         let container = Element { id };
-                        // Dynamic 実行時は自身を自殺させないためそのままマウントを実行
+                        // Dynamic 実行時は自殺させないためそのままマウントを実行
                         container.set_contents_internal(cx, new_child);
                     });
                 });
@@ -540,7 +542,7 @@ impl Element {
 
         // 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
         let children_list = cx.topology.topo_children.at(id);
-        let old_children: Vec<EntityId> = children_list.iter().copied().collect();
+        let old_children: SmallVec<[EntityId; 8]> = children_list.iter().copied().collect();
         for child_id in old_children {
             if !scrollbar_ids.contains(&child_id) {
                 cx.despawn_internal(child_id);

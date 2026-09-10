@@ -18,10 +18,10 @@ struct StackFrame {
     clip: LayoutRect,
 }
 
-define_slotmap!(pub(crate) struct EntitiesSlot(EntityId => ()));
+define_slotmap!(pub(crate) struct EntitiesSlot(EntityId, ()));
 
 define_secondary!(pub(crate) struct ParentsSecondary(Option<EntityId>));
-define_secondary!(pub(crate) struct ChildrenSecondary(SmallVec<[EntityId; 4]>));
+define_secondary!(pub(crate) struct ChildrenSecondary(SmallVec<[EntityId; 8]>));
 define_secondary!(pub(crate) struct ActiveMasksSecondary(ComponentMask));
 define_secondary!(pub(crate) struct EffectiveZindicesSecondary(i32));
 define_secondary!(pub(crate) struct DfsIndicesSecondary(u32));
@@ -810,13 +810,12 @@ impl TopologyStore {
     pub(crate) fn restore_child(
         src_id: EntityId,
         holder: EntityId,
-        ph_children: SmallVec<[EntityId; 4]>,
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
     ) {
-        for child_id in ph_children {
+        for child_id in topo_children.at(holder).clone() {
             // 子要素の親ポインタを元の要素に書き戻し
             topo_parents.insert(child_id, Some(src_id));
 

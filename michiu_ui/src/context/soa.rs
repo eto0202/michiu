@@ -96,7 +96,7 @@ pub(crate) trait MichiuSoA {
 
 #[macro_export]
 macro_rules! define_slotmap {
-    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty => $item:ty) $(;)?) => {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty, $item:ty) $(;)?) => {
         $(#[$meta])*
         #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut)]
         $vis struct $name(pub(crate) slotmap::SlotMap<$key, $item>);
@@ -119,7 +119,7 @@ macro_rules! define_secondary {
         }
     };
 
-    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty => $item:ty) $(;)?) => {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty, $item:ty) $(;)?) => {
         $(#[$meta])*
         #[derive(Debug, Default, Clone, derive_more::Deref, derive_more::DerefMut)]
         $vis struct $name(pub(crate) slotmap::SecondaryMap<$key, $item>);
@@ -142,7 +142,7 @@ macro_rules! define_sparse_secondary {
         }
     };
 
-    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty => $item:ty) $(;)?) => {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident($key:ty, $item:ty) $(;)?) => {
         $(#[$meta])*
         #[derive(Debug, Default, Clone, derive_more::Deref, derive_more::DerefMut)]
         $vis struct $name(pub(crate) slotmap::SparseSecondaryMap<$key, $item>);
