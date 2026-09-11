@@ -1,6 +1,7 @@
 #![allow(unused)]
 pub mod config;
 pub mod content_store;
+pub mod debug_store;
 pub mod event_store;
 pub mod layout_store;
 pub mod output_store;
@@ -15,6 +16,7 @@ pub mod window_store;
 
 pub use config::*;
 pub use content_store::*;
+pub use debug_store::*;
 pub use event_store::*;
 pub use layout_store::*;
 pub use output_store::*;
@@ -75,6 +77,7 @@ pub struct Context {
     pub layouts: LayoutStore,
     pub renders: RenderStore,
     pub outputs: OutputStore,
+    pub debug: DebugStore,
 }
 
 impl Default for Context {
@@ -105,6 +108,7 @@ impl Context {
                 },
                 rx,
             ),
+            debug: DebugStore::new(),
         }
     }
 
@@ -130,6 +134,7 @@ impl Context {
             layouts: LayoutStore::with_capacity(capacity),
             renders: RenderStore::with_capacity(capacity),
             outputs: OutputStore::with_capacity(capacity),
+            debug: DebugStore::new(),
         }
     }
 

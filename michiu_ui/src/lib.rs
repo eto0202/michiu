@@ -10,7 +10,6 @@ mod bitmap;
 mod context;
 mod dss;
 mod element;
-mod error;
 mod input;
 mod key;
 mod renderer;
@@ -26,7 +25,6 @@ pub use bitmap::*;
 pub use context::*;
 pub use dss::*;
 pub use element::*;
-pub use error::*;
 pub use input::*;
 pub use key::*;
 #[allow(unused)]

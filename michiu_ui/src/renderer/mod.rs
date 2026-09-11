@@ -16,7 +16,7 @@ use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct QuadInstance {
     pub(crate) rect: LayoutRect,            // 16B
     pub(crate) transform: [[f32; 4]; 3],    // 48B
@@ -84,6 +84,7 @@ pub(crate) enum BatchType {
 }
 
 /// 同じクリップ範囲で描画できるインスタンスの塊
+#[derive(Debug, Clone, PartialEq)]
 pub struct DrawBatch {
     pub scissor_rect: LayoutRect,
     // フラットバッファ上のインデックス範囲
@@ -99,7 +100,7 @@ pub(crate) struct RendererView<'a> {
     pub(crate) queue: &'a wgpu::Queue,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct RenderData {
     pub batches: Vec<DrawBatch>,
     // 1フレーム分の全インスタンス
