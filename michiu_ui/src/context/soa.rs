@@ -1,4 +1,4 @@
-use crate::{EntityId, MichiuError};
+use crate::{EntityId, MichiuError, Result};
 
 pub(crate) trait MichiuSoA {
     type Item;
@@ -11,7 +11,7 @@ pub(crate) trait MichiuSoA {
 
     /// 存在しない場合は Err を返す
     #[inline]
-    fn require(&self, id: EntityId) -> Result<&Self::Item, MichiuError> {
+    fn require(&self, id: EntityId) -> Result<&Self::Item> {
         self.get(id).ok_or_else(|| MichiuError::ComponentNotFound {
             id,
             component: std::any::type_name::<Self>(),
@@ -20,7 +20,7 @@ pub(crate) trait MichiuSoA {
 
     /// 可変参照用
     #[inline]
-    fn require_mut(&mut self, id: EntityId) -> Result<&mut Self::Item, MichiuError> {
+    fn require_mut(&mut self, id: EntityId) -> Result<&mut Self::Item> {
         let component = std::any::type_name::<Self>();
         self.get_mut(id)
             .ok_or(MichiuError::ComponentNotFound { id, component })

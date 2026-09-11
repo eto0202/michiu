@@ -25,7 +25,7 @@ use windows::Win32::Foundation::HWND;
 ///
 /// Most variants contain a `source` field which is a `windows::core::Error`.
 /// You can extract the `HRESULT` or the localized system message from it.
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum MichiuError {
     /// Failed to register a window class via `RegisterClassExW`.
     #[error("Failed to register window class '{class_name}'. System error: {source}")]

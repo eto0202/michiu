@@ -1,6 +1,8 @@
 use crate::{EffectId, EntityId, SignalId};
 use thiserror::Error;
 
+pub type Result<T> = std::result::Result<T, MichiuError>;
+
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum MichiuError {
     #[error(
@@ -35,3 +37,6 @@ pub enum MichiuError {
     )]
     EffectDisposed(EffectId),
 }
+
+unsafe impl Send for MichiuError {}
+unsafe impl Sync for MichiuError {}
