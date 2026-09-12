@@ -387,6 +387,7 @@ impl Context {
             &mut self.states.scroll.sc_offsets,
             &self.outputs.out_rects,
             &self.states.scroll.sc_sizes,
+            &mut self.debug,
         )
     }
 

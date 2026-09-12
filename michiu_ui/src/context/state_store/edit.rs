@@ -3,14 +3,15 @@ use std::{cell::RefCell, ops::Range, rc::Rc};
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
     BaseVisualPropertiesSecondary, ByteIndex, CapacityConfig, CharIndex, ChildrenSecondary, Color,
-    ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec,
+    ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
-    MichiuString, OutputStore, ParentsSecondary, RangeExt, RectsSecondary, RenderStore,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
-    ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse,
-    TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary, define_sparse_secondary,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStage, LayoutStore,
+    MichiuSoA, MichiuString, MichiuTrace, OutputStore, ParentsSecondary, RangeExt,
+    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse,
+    TextEngine, TextSpansSparse, TopologyStore, UserSelect, UsizeRangeExt,
+    VisualPropertiesSecondary, define_sparse_secondary, trace,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -464,6 +465,7 @@ impl TextEditStore {
         edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
         let Some(buffer) = buffer else {
             return;
@@ -537,6 +539,7 @@ impl TextEditStore {
                 edit_selected_rects,
                 out_rects,
                 sc_sizes,
+                debug,
             );
         } else {
             RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
@@ -573,6 +576,7 @@ impl TextEditStore {
         edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
         let Some(engine) = SystemStore::get_or_create_layout(
             id,
@@ -640,6 +644,7 @@ impl TextEditStore {
                 edit_selected_rects,
                 out_rects,
                 sc_sizes,
+                debug,
             );
         } else {
             // 通常のテキスト要素
@@ -685,6 +690,7 @@ impl TextEditStore {
         edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
         // 直前までハイライトが描画されていたか
         let has_selection_before = edit_selected_rects.contains_key(id);
@@ -750,6 +756,7 @@ impl TextEditStore {
                     edit_selections,
                     out_rects,
                     sc_sizes,
+                    debug,
                 );
                 RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
             }
@@ -785,6 +792,7 @@ impl TextEditStore {
                     edit_selections,
                     out_rects,
                     sc_sizes,
+                    debug,
                 );
                 TopologyStore::mark_dirty(
                     id,
@@ -849,7 +857,9 @@ impl TextEditStore {
         edit_selections: &mut TextSelectionsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
+
         let ime_caret_info = TextEditStore::ime_caret_info(
             id,
             sys_text_engine,
@@ -943,6 +953,7 @@ impl TextEditStore {
                 sc_offsets,
                 out_rects,
                 sc_sizes,
+                debug,
             );
 
             contents.needs_scroll_to_caret = false;
@@ -1164,6 +1175,7 @@ impl Context {
             &mut self.states.edit.edit_selected_rects,
             &self.outputs.out_rects,
             &self.states.scroll.sc_sizes,
+            &mut self.debug,
         );
     }
 }

@@ -2,14 +2,15 @@ use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
     BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
     CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DEFAULT_BASIC,
-    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlatDfsSequenceVec,
-    FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary,
-    Position, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparse, ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine,
-    TextSpansSparse, ThisStyle, UserSelect, Val, VisualPropertiesSecondary, WindowStore,
-    define_secondary,
+    DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId,
+    FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStage, LayoutStore, Length,
+    MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary, Position, Rect,
+    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse,
+    ThisStyle, TimeStamp, UserSelect, Val, VisualPropertiesSecondary, WindowStore,
+    define_secondary, trace,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -86,6 +87,7 @@ impl ScrollStore {
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) -> bool {
         let rect = *out_rects.at(id);
 
@@ -131,6 +133,7 @@ impl ScrollStore {
                 lay_taffy_tree,
                 lay_taffy_nodes,
             );
+
             true
         } else {
             false
@@ -154,6 +157,7 @@ impl ScrollStore {
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
         #[derive(Clone, Copy, PartialEq, Eq)]
         enum DragDirection {
@@ -291,6 +295,7 @@ impl ScrollStore {
                 sc_offsets,
                 out_rects,
                 sc_sizes,
+                debug,
             );
         }
 
@@ -315,6 +320,7 @@ impl ScrollStore {
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) -> bool {
         let current = sc_offsets.get_or_default(id);
         ScrollStore::scroll_to(
@@ -335,6 +341,7 @@ impl ScrollStore {
             sc_offsets,
             out_rects,
             sc_sizes,
+            debug,
         )
     }
 
@@ -356,6 +363,7 @@ impl ScrollStore {
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) -> (bool, Option<LayoutPoint>) {
         // ポインタ位置、またはクリップ領域がない場合
         let Some(pointer_pos) = evt_current_pointer_position else {
@@ -401,6 +409,7 @@ impl ScrollStore {
             sc_offsets,
             out_rects,
             sc_sizes,
+            debug,
         );
 
         if scroll {
@@ -429,6 +438,7 @@ impl ScrollStore {
         rnd_active_transitions: &ActiveTransitionsSparse,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) -> LayoutSize {
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;

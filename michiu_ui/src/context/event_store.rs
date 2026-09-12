@@ -25,7 +25,7 @@ use crate::{
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
-use std::{borrow::Cow, ops::Range, path::PathBuf};
+use std::{borrow::Cow, ops::Range, path::PathBuf, sync::Arc};
 use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
 /// 実行時にウィンドウ内で現在アクティブ（排他的）になっている、各状態の対象要素（EntityId）を管理します。
@@ -209,6 +209,7 @@ impl EventStore {
             &mut cx.states.scroll.sc_offsets,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
 
         // ヒットテストのキャッシュ
@@ -390,6 +391,7 @@ impl EventStore {
                     &mut cx.states.edit.edit_selected_rects,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
+                    &mut cx.debug,
                 );
             }
         }
@@ -506,6 +508,7 @@ impl EventStore {
                 &mut cx.states.scroll.sc_offsets,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
 
             if clicked_scrollbar {
@@ -776,6 +779,7 @@ impl EventStore {
                 &mut cx.states.edit.edit_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
         } else {
             RenderStore::mark_render_dirty(
@@ -853,6 +857,7 @@ impl EventStore {
                         &mut cx.states.scroll.sc_offsets,
                         &cx.outputs.out_rects,
                         &cx.states.scroll.sc_sizes,
+                        &mut cx.debug,
                     )
                 {
                     break; // スクロールを実行したためバブリングを終了
@@ -933,6 +938,7 @@ impl EventStore {
                     &mut cx.states.edit.edit_selected_rects,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
+                    &mut cx.debug,
                 );
                 return;
             }
@@ -1111,6 +1117,7 @@ impl EventStore {
             &mut cx.states.edit.edit_selections,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
         TextEditStore::apply_input_update(
             focused_id,
@@ -1141,6 +1148,7 @@ impl EventStore {
             &mut cx.states.edit.edit_selected_rects,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
     }
 
@@ -1221,6 +1229,7 @@ impl EventStore {
             &mut cx.states.edit.edit_selected_rects,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
     }
 
@@ -1298,6 +1307,7 @@ impl EventStore {
             &mut cx.states.edit.edit_selected_rects,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
     }
 
@@ -1394,6 +1404,7 @@ impl EventStore {
                 &mut cx.states.edit.edit_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
         }
         // Input・非Inputに関わらず切り出されたテキストを返す

@@ -63,6 +63,8 @@ features = [
 [features]
 serde = ["dep:serde"]
 dhat-heap = ["dep:dhat"]
+default = ["logging"]
+logging = []
 
 [package.metadata.docs.rs]
 all-features = true

@@ -1,6 +1,7 @@
 use crate::{
-    AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, EntityId, LayoutPoint,
-    LayoutRect, LayoutSize, MichiuSoA, PlaybackCount, PropertyList, WebView2Contents, WgpuRenderer,
+    AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, DebugStore, EntityId,
+    LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, PlaybackCount, PropertyList, WebView2Contents,
+    WgpuRenderer, flush_trace,
 };
 use std::{
     cell::RefCell,
@@ -212,6 +213,7 @@ impl ComposedRenderer {
     pub fn draw(&mut self, cx: &mut Context) {
         self.wgpu_renderer.render(cx, self.scale_factor);
         let _ = unsafe { self.dcomp_device.Commit() };
+        flush_trace!(&mut cx.debug);
     }
 
     pub fn update_composition_tree(&mut self, cx: &mut Context) {

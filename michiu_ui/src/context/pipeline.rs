@@ -2,20 +2,22 @@ use crate::{
     ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseBasicLayoutsSecondary,
     BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing,
     ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
-    CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets,
-    EffectId, ElementState, EntityId, EventStore, ExternalTextureAlphaMode, ExternalTextureSparse,
-    ExtractedThumb, FlatDfsSequenceVec, FlexLayout, FocusStore, GridLayout, IDENTITY_MATRIX,
-    ImeState, InputContents, InputContentsSparse, InputOp, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, Length, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
-    PointerEvents, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt,
-    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
+    CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, DrawBatch,
+    EdgeInsets, EffectId, ElementState, EntityId, EventStore, ExternalTextureAlphaMode,
+    ExternalTextureSparse, ExtractedThumb, FlatDfsSequenceVec, FlexLayout, FocusStore, GridLayout,
+    IDENTITY_MATRIX, ImeState, InputContents, InputContentsSparse, InputOp, LayoutPoint,
+    LayoutRect, LayoutSize, LayoutStage, LayoutStore, Length, MichiuSoA,
+    MichiuTrace, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
+    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt, ReactiveStore,
+    RectsSecondary, RenderData, RenderStage, RenderStore, RendererView, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
     ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextCacheKey,
-    TextContentsSparse, TextEditStore, TextEngine, TextSpan, TextSpansSparse, TopologyStore,
-    UnderlineStyle, Val, VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore,
-    bind_context, execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
-    handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextCacheKey, TextContentsSparse,
+    TextEditStore, TextEngine, TextSpan, TextSpansSparse, TimeStamp, TopologyStore, UnderlineStyle,
+    Val, VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context,
+    execute_effect, flush_trace, handle_on_active,
+    handle_on_char_input, handle_on_disable, handle_on_file_dropped, handle_on_ime,
+    handle_on_select, trace, with_context,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -194,6 +196,7 @@ impl Pipeline {
                 &cx.renders.rnd_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
+                &mut cx.debug,
             );
         };
 
@@ -315,6 +318,11 @@ impl Pipeline {
         root: EntityId,
         window_size: LayoutSize,
     ) {
+        trace!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::Start,
+            add: None,
+        });
+
         let _context_guard = bind_context(cx);
 
         /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に実行
@@ -370,6 +378,7 @@ impl Pipeline {
                 &cx.renders.rnd_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
+                &mut cx.debug,
             );
         }
 
@@ -386,6 +395,7 @@ impl Pipeline {
             &cx.layouts.lay_resolved_flex,
             &cx.layouts.lay_resolved_grid,
             &cx.layouts.scrollbar.bar_styles,
+            &mut cx.debug,
         );
 
         // Taffy 1回目レイアウト計算
@@ -427,6 +437,7 @@ impl Pipeline {
                     &cx.contents.cont_text_spans,
                     &cx.topology.topo_active_masks,
                     &cx.renders.rnd_visual,
+                    &mut cx.debug,
                 )
             })
         };
@@ -473,6 +484,7 @@ impl Pipeline {
             &cx.outputs.out_prev_rects,
             &cx.outputs.out_prev_clip_rects,
             &cx.states.scroll.sc_offsets,
+            &mut cx.debug,
         );
 
         // 全スクロールコンテナの scroll_size を事前計算
@@ -502,6 +514,7 @@ impl Pipeline {
                     &cx.renders.rnd_active_transitions,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_offsets,
+                    &mut cx.debug,
                 );
                 cx.states.scroll.sc_sizes.insert(id, size);
             }
@@ -529,6 +542,7 @@ impl Pipeline {
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_offsets,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
 
         // Taffy の 2回目レイアウト計算（スクロールバー配置確定後）
@@ -587,6 +601,7 @@ impl Pipeline {
             &mut cx.outputs.out_rects,
             &mut cx.outputs.out_clip_rects,
             &cx.states.scroll.sc_offsets,
+            &mut cx.debug,
         );
 
         // リサイズ追従に伴い、インプットのキャレット・選択ハイライトを同期
@@ -621,6 +636,7 @@ impl Pipeline {
                     &mut cx.states.edit.edit_selections,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
+                    &mut cx.debug,
                 );
             }
         }
@@ -649,6 +665,7 @@ impl Pipeline {
                 &mut cx.states.scroll.sc_offsets,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
         }
 
@@ -721,6 +738,7 @@ impl Pipeline {
                 &cx.outputs.out_rects,
                 &cx.outputs.out_clip_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
 
             if autoscroll_occurred && let Some(pos) = active_pos {
@@ -787,6 +805,7 @@ impl Pipeline {
                 }
             }
         }
+
         if force_full_scan {
             for &id in &*cx.topology.topo_sorted_entities {
                 let engines = cx.system.sys_text_buffers.borrow();
@@ -818,6 +837,7 @@ impl Pipeline {
         let mut last_flushed_offset = 0;
         let mut current_batch_type = BatchType::Normal;
         let mut last_clip = None;
+
         for &id in &*cx.topology.topo_sorted_entities {
             let rect = *cx.outputs.out_rects.at(id);
             if rect.width <= 0.0 || rect.height <= 0.0 {
@@ -873,6 +893,7 @@ impl Pipeline {
                 );
 
                 Pipeline::push_punchout_instance(id, view.render_data, &params);
+
                 // くり抜き用のバッチとして即座にフラッシュ
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
@@ -902,6 +923,7 @@ impl Pipeline {
                 );
 
                 Pipeline::push_static_instance(id, view.render_data, &params);
+
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
                     view.render_data.instances.len(),
@@ -912,6 +934,7 @@ impl Pipeline {
 
                 // 前面インスタンス
                 Pipeline::push_static_front_instance(id, view.render_data, &params);
+
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
                     view.render_data.instances.len(),
@@ -946,6 +969,7 @@ impl Pipeline {
                     &params,
                     &cx.contents.cont_external_textures,
                 );
+
                 // テクスチャが固有に切り替わるため独立してバッチをフラッシュ
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
@@ -957,6 +981,7 @@ impl Pipeline {
 
                 // 前面インスタンス
                 Pipeline::push_static_front_instance(id, view.render_data, &params);
+
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
                     view.render_data.instances.len(),
@@ -979,6 +1004,7 @@ impl Pipeline {
                         prev_clip,
                         current_batch_type,
                     );
+
                     last_clip = Some(clip);
                 }
             } else {
@@ -1132,6 +1158,7 @@ impl Pipeline {
                 );
             }
         }
+
         Pipeline::flush_batch(
             &mut view.render_data.batches,
             view.render_data.instances.len(),
@@ -1235,6 +1262,7 @@ impl Pipeline {
         lay_resolved_flex: &ResolvedFlexSecondary,
         lay_resolved_grid: &ResolvedGridSparse,
         bar_styles: &ScrollbarStylesSecondary,
+        debug: &mut DebugStore,
     ) {
         for &id in lay_dirty_entities {
             if scrollbar_el_ids.contains(&id) {
@@ -1271,6 +1299,7 @@ impl Pipeline {
         out_rects: &mut RectsSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) {
         let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
             id,
@@ -1322,6 +1351,7 @@ impl Pipeline {
         out_prev_rects: &PrevRectsSecondary,
         out_prev_clip_rects: &PrevClipRectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) {
         topo_active_entities.clear();
 
@@ -1369,6 +1399,7 @@ impl Pipeline {
                 out_rects,
                 out_clip_rects,
                 sc_offsets,
+                debug,
             );
         }
     }
@@ -1387,7 +1418,9 @@ impl Pipeline {
         out_rects: &mut RectsSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) {
+
         topo_active_entities.clear();
 
         for &id in topo_flat_dfs_sequence {
@@ -1404,6 +1437,7 @@ impl Pipeline {
                 out_rects,
                 out_clip_rects,
                 sc_offsets,
+                debug,
             );
         }
     }

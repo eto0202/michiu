@@ -7,28 +7,40 @@ use slotmap::SecondaryMap;
 use std::{
     borrow::Cow,
     ops::Range,
+    panic::Location,
     path::PathBuf,
     sync::{
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
         mpsc::{Receiver, Sender, SyncSender},
     },
     time::{Duration, Instant},
 };
 use thiserror::Error;
 
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "logging")]
 #[derive(
     Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator,
 )]
 #[into_iterator(owned, ref, ref_mut)]
-pub(crate) struct InspecterSecondary(SecondaryMap<EntityId, MichiuTrace>);
+pub(crate) struct InspecterSecondary(SecondaryMap<EntityId, MichiuTraceRecord>);
 
+#[cfg(feature = "logging")]
 #[derive(
     Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator,
 )]
 #[into_iterator(owned, ref, ref_mut)]
-pub(crate) struct MichiuTraceVec(Vec<(EntityId, MichiuTrace)>);
+pub struct MichiuTraceVec(Vec<MichiuTraceRecord>);
 
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "logging")]
 pub struct DebugStore {
+    /// Context が起動した時間を0秒とする
+    pub(crate) boot_time: Instant,
     // グローバルなエラー用にルート要素のIDを持っておく。
     pub(crate) dbg_root: Option<EntityId>,
     pub(crate) dbg_tx: Option<InspectorSender>,
@@ -36,17 +48,31 @@ pub struct DebugStore {
     pub(crate) dbg_trace_queue: MichiuTraceVec,
 }
 
+#[cfg(not(feature = "logging"))]
+pub(crate) struct DebugStore {
+    pub(crate) dbg_root: Option<EntityId>,
+}
+#[cfg(not(feature = "logging"))]
+impl DebugStore {
+    pub(crate) fn new() -> Self {
+        Self { dbg_root: None }
+    }
+}
+
+#[cfg(feature = "logging")]
 impl Default for DebugStore {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "logging")]
 impl DebugStore {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
         Self {
+            boot_time: Instant::now(),
             dbg_root: None,
             dbg_tx: None,
             dbg_trace_queue: MichiuTraceVec(Vec::new()),
@@ -60,9 +86,9 @@ impl DebugStore {
 
     /// ループ中の各所で呼ぶ。チャネルには投げず一時キューに詰めるだけ
     #[inline]
-    pub(crate) fn trace(id: EntityId, debug: &mut DebugStore, trace: MichiuTrace) {
+    pub(crate) fn trace(id: Option<EntityId>, debug: &mut DebugStore, trace: MichiuTraceRecord) {
         if debug.dbg_tx.is_some() {
-            debug.dbg_trace_queue.push((id, trace));
+            debug.dbg_trace_queue.push(trace);
         }
     }
 
@@ -76,34 +102,25 @@ impl DebugStore {
             tx.send_batch(batch);
         }
     }
+
+    /// 起動時からの経過時間を取得
+    #[inline]
+    pub(crate) fn elapsed(&self) -> TimeStamp {
+        TimeStamp::Start(self.boot_time.elapsed())
+    }
 }
 
 // ================================================================
-/*
- メインスレッド（UI・描画）
-   - ループ中：dbg_trace_queue.push((id, trace))
-   - フレーム末：take してワーカーへ送信
-───────────────────────────────────────────────────────
- 転送: Vec<(EntityId, MichiuTrace)>
-───────────────────────────────────────────────────────
- ワーカースレッド
-   - 届いた Vec をループして SecondaryMap に詰め替える
-   - 最新状態を shared_storage に反映
-───────────────────────────────────────────────────────
- 読み取り (get)
-───────────────────────────────────────────────────────
- ユーザー / デバッグツール
-   ・inspector.get(id) で Entity ごとの最新状態を取得
-───────────────────────────────────────────────────────
- */
 // ================================================================
 
+#[cfg(feature = "logging")]
 #[derive(Debug, Clone)]
 pub struct InspectorSender {
     // 1フレーム分のバッチを丸ごと送るチャネル
     tx: SyncSender<MichiuTraceVec>,
 }
 
+#[cfg(feature = "logging")]
 impl InspectorSender {
     #[inline]
     pub(crate) fn send_batch(&self, batch: MichiuTraceVec) {
@@ -116,74 +133,128 @@ impl InspectorSender {
 // ================================================================
 // ================================================================
 
-#[derive(Debug, Clone)]
-pub struct MichiuInspector {
-    sender: InspectorSender,
-    // ワーカースレッドが更新し、ユーザーが読み取るための共有ストレージ
-    storage: Arc<RwLock<InspecterSecondary>>,
+// 購読者に届くデータ型（1フレーム分のバッチ）
+#[cfg(feature = "logging")]
+pub type TraceBatch = Arc<MichiuTraceVec>;
+
+// サブスクライバのハンドル
+#[cfg(feature = "logging")]
+pub struct TraceSubscription {
+    rx: Receiver<TraceBatch>,
+}
+
+#[cfg(feature = "logging")]
+impl TraceSubscription {
+    /// 次のバッチを待つ（ブロッキング）
+    pub fn recv(&self) -> std::result::Result<TraceBatch, std::sync::mpsc::RecvError> {
+        self.rx.recv()
+    }
+
+    /// ノンブロッキングで取得を試みる
+    pub fn try_recv(&self) -> std::result::Result<TraceBatch, std::sync::mpsc::TryRecvError> {
+        self.rx.try_recv()
+    }
 }
 
 // ================================================================
 // ================================================================
 
+#[cfg(feature = "logging")]
+#[derive(Debug, Clone)]
+pub struct MichiuInspector {
+    sender: InspectorSender,
+    // ワーカースレッドが更新し、ユーザーが読み取るための共有ストレージ
+    storage: Arc<RwLock<InspecterSecondary>>,
+    // サブスクライバの送信口を束ねて管理
+    subscribers: Arc<Mutex<Vec<SyncSender<TraceBatch>>>>,
+}
+
+#[cfg(feature = "logging")]
 impl Default for MichiuInspector {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "logging")]
 impl MichiuInspector {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
         let (tx, rx) = std::sync::mpsc::sync_channel(256);
         let storage = Arc::new(RwLock::new(InspecterSecondary(SecondaryMap::new())));
+        let subscribers: Arc<Mutex<Vec<SyncSender<TraceBatch>>>> = Arc::new(Mutex::new(Vec::new()));
 
         let storage_clone = Arc::clone(&storage);
-        // ワーカースレッド起動
+        let subs_clone = Arc::clone(&subscribers);
+
+        // ワーカースレッド
         std::thread::spawn(move || {
-            Self::worker_loop(&rx, &storage_clone);
+            let mut local_storage = InspecterSecondary(SecondaryMap::new());
+
+            while let Ok(batch) = rx.recv() {
+                let shared_batch = Arc::new(batch);
+
+                // 購読者全員へ一斉配信（詰まっている、切断されたものは破棄）
+                if let Ok(mut subs) = subs_clone.lock() {
+                    subs.retain(|sub_tx| {
+                        // try_send で送れない場合は捨てるか、
+                        // 接続が切れていればリストから除去する
+                        match sub_tx.try_send(Arc::clone(&shared_batch)) {
+                            Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                                // サブスクライバ側が遅延して溢れた場合（接続は維持）
+                                true
+                            }
+                            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                                // サブスクライバがdropされたので登録解除
+                                false
+                            }
+                        }
+                    });
+                }
+
+                // 最新状態をローカルに反映
+                for trace in shared_batch.iter() {
+                    if let Some(id) = trace.id {
+                        local_storage.insert(id, trace.clone());
+                    }
+                }
+
+                // 最新スナップショットの公開
+                if let Ok(mut lock) = storage_clone.write() {
+                    *lock = local_storage.clone();
+                }
+            }
         });
 
         Self {
             sender: InspectorSender { tx },
             storage,
+            subscribers,
         }
     }
 
+    /// 新しいイベント購読を開始する
+    /// `buffer_size` が None の場合、デフォルトで 128
     #[inline]
-    fn worker_loop(
-        rx: &Receiver<MichiuTraceVec>,
-        shared_storage: &Arc<RwLock<InspecterSecondary>>,
-    ) {
-        // ワーカースレッドのローカルなデータ
-        let mut local_storage = InspecterSecondary(SecondaryMap::new());
-
-        while let Ok(batch) = rx.recv() {
-            // ローカルデータをバッチで更新
-            // 同一フレーム内に複数回同じEntityが来ても、
-            // 順番に処理されるので最終的に一番最後の最新状態が残る
-            // 後々リングバッファ等に保存してタイムラインとして残すことも検討
-            for (entity, trace) in batch {
-                local_storage.insert(entity, trace);
-            }
-
-            // 詰め替え終わった最新スナップショットを共有ストレージに反映
-            if let Ok(mut lock) = shared_storage.write() {
-                *lock = local_storage.clone();
-            }
-        }
+    #[must_use]
+    pub fn subscribe(&self, buffer_size: Option<usize>) -> TraceSubscription {
+        let bs = buffer_size.unwrap_or(128);
+        let (tx, rx) = std::sync::mpsc::sync_channel(bs);
+        self.subscribers.lock().unwrap().push(tx);
+        TraceSubscription { rx }
     }
 
     #[inline]
     #[must_use]
-    pub fn sender(&self) -> InspectorSender {
+    pub(crate) fn sender(&self) -> InspectorSender {
         self.sender.clone()
     }
 
+    /// 最新のスナップショットを取得する
     #[inline]
     #[must_use]
-    pub fn get(&self, id: EntityId) -> Option<MichiuTrace> {
+    pub fn get(&self, id: EntityId) -> Option<MichiuTraceRecord> {
         self.storage.read().unwrap().get(id).cloned()
     }
 }
@@ -192,18 +263,21 @@ impl MichiuInspector {
 // ================================================================
 
 impl Context {
+    #[cfg(feature = "logging")]
     #[inline]
     pub fn set_inspector(&mut self, inspector: &MichiuInspector) {
         DebugStore::set_inspector(&mut self.debug, inspector);
     }
 
     /// ループ中の各所で呼ぶ。チャネルには投げず一時キューに詰めるだけ
+    #[cfg(feature = "logging")]
     #[inline]
-    pub(crate) fn trace(&mut self, id: EntityId, trace: MichiuTrace) {
+    pub(crate) fn trace(&mut self, id: Option<EntityId>, trace: MichiuTraceRecord) {
         DebugStore::trace(id, &mut self.debug, trace);
     }
 
     /// フレームの最後で呼んで一括転送
+    #[cfg(feature = "logging")]
     #[inline]
     pub(crate) fn flush_trace(&mut self) {
         DebugStore::flush_trace(&mut self.debug);
@@ -213,109 +287,78 @@ impl Context {
 // ================================================================
 // ================================================================
 
-// グローバルなエラーについて要検討
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum MichiuTrace {
+    None,
     Spawn(Arc<SpawnTrace>),
     HitTest {
-        time: TimeStamp,
-        target: EntityId,
+        target: Option<EntityId>,
         x: f32,
         y: f32,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     Reactive {
-        time: TimeStamp,
         signal: Option<SignalId>,
         effect: Option<EffectId>,
         kinds: ReactiveKinds,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     Event {
-        time: TimeStamp,
         kinds: TraceEventList,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     StateUpdate {
-        time: TimeStamp,
         flag: ComponentMask,
         current: ComponentMask,
         actived: bool,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     QueueDirty(Arc<QueueDirtyTrace>),
     Dfs {
-        time: TimeStamp,
         after: Arc<[EntityId]>,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     Layout {
-        time: TimeStamp,
         stage: LayoutStage,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     Text {
-        time: TimeStamp,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     Frame {
-        time: TimeStamp,
         kinds: FrameKinds,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     Sorted {
-        time: TimeStamp,
         after: Arc<[EntityId]>,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     PrepareRender {
-        time: TimeStamp,
         stage: RenderStage,
-        data: Arc<[RenderData]>,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        data: Option<Arc<[RenderData]>>,
+        add: Option<&'static str>,
     },
     WriteBuffer {
-        time: TimeStamp,
         staging: Arc<[QuadInstance]>,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     Present {
-        time: TimeStamp,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     Commit {
-        time: TimeStamp,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     Despawn {
-        time: TimeStamp,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
     // 特定のエンティティに帰属させにくいエラーは、
     // この画面、あるいはアプリ全体のルートコンポーネントがアセットを読み込もうとして失敗したと解釈し、
     // とりあえずルート要素のIDにまとめる
     Error {
-        root: EntityId,
-        time: TimeStamp,
         detail: MichiuError,
         fallback: Option<&'static str>,
-        func: &'static str,
-        add: Option<Cow<'static, str>>,
+        add: Option<&'static str>,
     },
 }
 
@@ -324,29 +367,50 @@ pub enum MichiuTrace {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTrace {
-    time: TimeStamp,
-    entities: Vec<EntityId>,
-    root: EntityId,
-    parents: Vec<EntityId>,
-    children: Vec<EntityId>,
-    func: &'static str,
-    add: Option<Cow<'static, str>>,
+    pub time: TimeStamp,
+    pub entities: Option<Vec<EntityId>>,
+    pub root: Option<EntityId>,
+    pub parents: Option<Vec<EntityId>>,
+    pub children: Option<Vec<EntityId>>,
+    pub func: &'static str,
+    pub loc: &'static Location<'static>,
+    pub add: Option<&'static str>,
 }
+
+// ================================================================
+// ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct QueueDirtyTrace {
-    time: TimeStamp,
-    layout: Vec<EntityId>,
-    render: Vec<EntityId>,
-    sort: bool,
-    structure: bool,
-    func: &'static str,
-    add: Option<Cow<'static, str>>,
+    pub time: TimeStamp,
+    pub kinds: QueueDirtyKinds,
+    pub masks: Option<ComponentMask>,
+    pub entities: Option<Vec<EntityId>>,
+    pub sort: Option<bool>,
+    pub structure: Option<bool>,
+    pub func: &'static str,
+    pub loc: &'static Location<'static>,
+    pub add: Option<&'static str>,
 }
+
+// ================================================================
+// ================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
+pub enum QueueDirtyKinds {
+    None,
+    Layout,
+    Render,
+}
+
+// ================================================================
+// ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum ReactiveKinds {
+    None,
     /// Signal の作成
     CreateSignal,
     /// 指定された要素、もしくはルート要素に対してシグナルコンテキストを提供
@@ -375,11 +439,15 @@ pub enum ReactiveKinds {
     PendingEffect,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+// ================================================================
+// ================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 pub enum LayoutStage {
+    None,
     /// レイアウト計算の開始
-    Enter,
+    Start,
     /// 溜めてある初回評価を実行
     FirstEffects,
     /// 計算が必要ない場合は早期リターン
@@ -392,10 +460,16 @@ pub enum LayoutStage {
     SyncTaffy,
     /// 1回目のレイアウト計算
     FirstMeasure,
+    /// レイアウト計算中
+    ProcessingMeasure,
     /// テキストレイアウト計算
     TextMeasure,
+    /// テキストレイアウト計算中
+    ProcessingTextMeasure,
     /// 1回目の出力領域
     FirstOutputRect,
+    /// 出力領域の処理中
+    ProcessingOutputRect,
     /// スクロールサイズ計算
     ScrollSize,
     /// スクロールバーのスタイルの同期
@@ -414,40 +488,54 @@ pub enum LayoutStage {
     End,
 }
 
+// ================================================================
+// ================================================================
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum RenderStage {
+    None,
     /// レンダリングフェーズ開始
-    Enter,
+    Start,
+    /// 実効 `z_index` の計算と可視性、それらに基づく要素のソート
+    SortedEntities,
     /// 指定された要素に含まれるすべての文字をアトラスにキャッシュ
     FirstGlyphsCache,
     /// アトラスのクリアが起きた場合、アトラスを再構築して再度キャッシュ
     FullGlyphsCache,
-    /// パッキング開始
-    CollectData,
+    /// パッキング
+    CollectDate,
     /// バッチのフラッシュ
     FlushBatch,
-    /// インスタンス作成
-    CreateInstance,
+    /// インスタンスを追加
+    PushInstance,
     /// ダーティフラグのクリア
     ClearDirty,
     /// 終了
     End,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+// ================================================================
+// ================================================================
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeStamp {
-    /// 計測開始
-    Start(Instant),
+    None,
+    /// 計測開始（アプリ起動からの経過時間）
+    Start(MichiuDuration),
     /// 途中のステージ（直前のステージからの経過時間）
-    Elapsed(Duration),
+    Elapsed(MichiuDuration),
     /// 計測終了（全体の合計時間）
     End(Duration),
 }
 
+// ================================================================
+// ================================================================
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum TraceEventList {
+    None,
     PointerMove {
         x: f32,
         y: f32,
@@ -493,21 +581,198 @@ pub enum TraceEventList {
         text: Cow<'static, str>,
     },
     Undo {
-        current: Cow<'static, str>,
+        previous: Cow<'static, str>,
         list: Vec<Cow<'static, str>>,
     },
     Redo {
-        text: Cow<'static, str>,
+        previous: Cow<'static, str>,
         list: Vec<Cow<'static, str>>,
     },
 }
 
+// ================================================================
+// ================================================================
+
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
 pub enum FrameKinds {
+    None,
     Transition,
     Animation,
     AutoScroll,
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "logging")]
+#[derive(Debug, Clone)]
+pub struct MichiuTraceRecord {
+    pub id: Option<EntityId>,
+    pub time: TimeStamp,
+    pub func: &'static str,
+    pub loc: &'static Location<'static>,
+    pub trace: MichiuTrace,
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "logging")]
+type MichiuInstant = Instant;
+#[cfg(feature = "logging")]
+type MichiuDuration = Duration;
+
+#[cfg(not(feature = "logging"))]
+type MichiuInstant = [u8; 0];
+#[cfg(not(feature = "logging"))]
+type MichiuDuration = [u8; 0];
+
+#[cfg(feature = "logging")]
+pub(crate) struct MichiuStopwatch {
+    pub(crate) start: MichiuInstant,
+    pub(crate) last: MichiuInstant,
+}
+
+#[cfg(feature = "logging")]
+impl MichiuStopwatch {
+    #[inline]
+    pub(crate) fn new() -> Self {
+        let now = Instant::now();
+        Self {
+            start: now,
+            last: now,
+        }
+    }
+
+    // 途中の経過時間を作って記録を更新
+    #[inline]
+    pub(crate) fn elapsed(&mut self) -> TimeStamp {
+        let now = Instant::now();
+        let diff = now.duration_since(self.last);
+        self.last = now;
+        TimeStamp::Elapsed(diff)
+    }
+
+    // 最後の合計時間を出す
+    #[inline]
+    pub(crate) fn total(&self) -> TimeStamp {
+        TimeStamp::End(Instant::now().duration_since(self.start))
+    }
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "logging")]
+#[inline]
+#[track_caller]
+pub(crate) const fn caller_location() -> &'static Location<'static> {
+    Location::caller()
+}
+
+// ================================================================
+// ================================================================
+
+/// 実行中の関数名を取得するマクロ
+#[cfg(feature = "logging")]
+#[macro_export]
+macro_rules! current_fn {
+    () => {{
+        fn __f() {}
+        fn __type_name_of<T>(_: T) -> &'static str {
+            std::any::type_name::<T>()
+        }
+        let mut name = __type_name_of(__f);
+        if let Some(stripped) = name.strip_suffix("::__f") {
+            name = stripped;
+        }
+        while let Some(stripped) = name.strip_suffix("::{{closure}}") {
+            name = stripped;
+        }
+        name
+    }};
+}
+
+#[cfg(not(feature = "logging"))]
+#[macro_export]
+macro_rules! current_fn {
+    () => {
+        ""
+    };
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "logging")]
+#[macro_export]
+macro_rules! trace {
+    (None, $debug:expr, $trace_fn:expr) => {
+        let id: Option<EntityId> = None;
+        $crate::trace!(id, $debug, $trace_fn);
+    };
+
+    ($id:expr, $debug:expr, $trace_fn:expr) => {
+        let debug = &mut *$debug;
+        let _: &DebugStore = debug;
+        let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
+
+        if debug.dbg_tx.is_some() {
+            let record = $crate::MichiuTraceRecord {
+                id: $id,
+                time: debug.elapsed(),
+                func: $crate::current_fn!(),
+                loc: $crate::caller_location(),
+                trace: $trace_fn(),
+            };
+            debug.dbg_trace_queue.push(record);
+        }
+    };
+}
+
+#[cfg(not(feature = "logging"))]
+#[macro_export]
+macro_rules! trace {
+    (None, $debug:expr, $trace_fn:expr) => {
+        let id: Option<EntityId> = None;
+        $crate::trace!(id, $debug, $trace_fn);
+    };
+
+    ($id:expr, $debug:expr, $trace_fn:expr) => {
+        let debug = &mut *$debug;
+        let _: &DebugStore = debug;
+        let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
+    };
+}
+
+// ================================================================
+// ================================================================
+
+/// `ComposedRenderer` の `draw()` の最後でフラッシュする。
+#[cfg(feature = "logging")]
+#[macro_export]
+macro_rules! flush_trace {
+    ($debug:expr) => {
+        let debug = &mut *$debug;
+        let _: &DebugStore = debug;
+
+        if let Some(ref tx) = debug.dbg_tx
+            && !debug.dbg_trace_queue.is_empty()
+        {
+            let batch = std::mem::take(&mut debug.dbg_trace_queue);
+            tx.send_batch(batch);
+        }
+    };
+}
+
+#[cfg(not(feature = "logging"))]
+#[macro_export]
+macro_rules! flush_trace {
+    ($debug:expr) => {
+        let debug = &mut *$debug;
+        let _: &DebugStore = debug;
+    };
 }
 
 // ================================================================
@@ -553,34 +818,3 @@ pub enum MichiuError {
 
 // ================================================================
 // ================================================================
-
-pub(crate) struct MichiuStopwatch {
-    pub(crate) start: Instant,
-    pub(crate) last: Instant,
-}
-
-impl MichiuStopwatch {
-    #[inline]
-    pub(crate) fn new() -> Self {
-        let now = Instant::now();
-        Self {
-            start: now,
-            last: now,
-        }
-    }
-
-    // 途中の経過時間を作って記録を更新
-    #[inline]
-    pub(crate) fn elapsed(&mut self) -> TimeStamp {
-        let now = Instant::now();
-        let diff = now.duration_since(self.last);
-        self.last = now;
-        TimeStamp::Elapsed(diff)
-    }
-
-    // 最後の合計時間を出す
-    #[inline]
-    pub(crate) fn total(&self) -> TimeStamp {
-        TimeStamp::End(Instant::now().duration_since(self.start))
-    }
-}
