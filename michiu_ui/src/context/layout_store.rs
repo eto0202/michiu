@@ -3,7 +3,15 @@ pub mod scrollbar;
 pub use scrollbar::*;
 
 use crate::{
-    ActiveMasksSecondary, ActiveTransitionsSparse, BaseVisualPropertiesSecondary, BasicLayout, CapacityConfig, ChildrenSecondary, ComponentMask, ContentStore, Context, DebugStore, DirtyRenderEntitiesVec, Display, EdgeInsets, EntityId, FlexLayout, GridLayout, InputContentsSparse, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint, LayoutRect, LayoutSize, LayoutStage, Length, MichiuSoA, MichiuTrace, NormalLayout, OutputStore, ParentsSecondary, Position, PropertyList, QueueDirtyTrace, Rect, RectsSecondary, RenderStore, ResizingState, ScrollOffsetsSecondary, ScrollSizesSecondary, Size, StyleTarget, SystemStore, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, TopologyStore, Val, VisualPropertiesSecondary, WindowStore, define_secondary, define_sparse_secondary, define_vec, trace,
+    ActiveMasksSecondary, ActiveTransitionsSparse, BaseVisualPropertiesSecondary, BasicLayout,
+    CapacityConfig, ChildrenSecondary, ComponentMask, ContentStore, Context, DebugStore,
+    DirtyQueueTrace, DirtyRenderEntitiesVec, Display, EdgeInsets, EntityId, FlexLayout, GridLayout,
+    InputContentsSparse, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
+    LayoutRect, LayoutSize, LayoutStage, Length, MichiuSoA, MichiuTrace, NormalLayout, OutputStore,
+    ParentsSecondary, Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizingState,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, Size, StyleTarget, SystemStore, TextBufferSparse,
+    TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, TopologyStore, Val,
+    VisualPropertiesSecondary, WindowStore, define_secondary, define_sparse_secondary, define_vec,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -21,20 +29,20 @@ pub(crate) type BaseLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 pub(crate) type ResolvedLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 // ======================================================
 
-define_secondary!(pub(crate) struct TaffyNodesSecondary(taffy::NodeId));
-define_secondary!(pub(crate) struct BasicLayoutsSecondary(BasicLayout));
-define_secondary!(pub(crate) struct FlexLayoutsSecondary(FlexLayout));
-define_secondary!(pub(crate) struct BaseBasicLayoutsSecondary(BasicLayout));
-define_secondary!(pub(crate) struct BaseFlexLayoutsSecondary(FlexLayout));
-define_secondary!(pub(crate) struct ResolvedBasicSecondary(BasicLayout));
-define_secondary!(pub(crate) struct ResolvedFlexSecondary(FlexLayout));
+define_secondary!(pub struct TaffyNodesSecondary(taffy::NodeId));
+define_secondary!(pub struct BasicLayoutsSecondary(BasicLayout));
+define_secondary!(pub struct FlexLayoutsSecondary(FlexLayout));
+define_secondary!(pub struct BaseBasicLayoutsSecondary(BasicLayout));
+define_secondary!(pub struct BaseFlexLayoutsSecondary(FlexLayout));
+define_secondary!(pub struct ResolvedBasicSecondary(BasicLayout));
+define_secondary!(pub struct ResolvedFlexSecondary(FlexLayout));
 
-define_sparse_secondary!(pub(crate) struct GridLayoutsSparse(GridLayout));
-define_sparse_secondary!(pub(crate) struct ResolvedGridSparse(GridLayout));
+define_sparse_secondary!(pub struct GridLayoutsSparse(GridLayout));
+define_sparse_secondary!(pub struct ResolvedGridSparse(GridLayout));
 
-define_vec!(pub(crate) struct DirtyLayoutEntitiesVec(EntityId));
+define_vec!(pub struct DirtyLayoutEntitiesVec(EntityId));
 
-pub(crate) type TaffyTreeEntityId = taffy::TaffyTree<EntityId>;
+pub type TaffyTreeEntityId = taffy::TaffyTree<EntityId>;
 
 pub struct LayoutStore {
     pub(crate) scrollbar: ScrollbarStore,
@@ -207,7 +215,6 @@ impl LayoutStore {
         rnd_active_transitions: &ActiveTransitionsSparse,
         debug: &mut DebugStore,
     ) {
-
         let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
             id,
             topo_active_masks,

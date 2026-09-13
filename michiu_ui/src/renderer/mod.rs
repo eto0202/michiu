@@ -18,34 +18,34 @@ use rustc_hash::FxHashMap;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct QuadInstance {
-    pub(crate) rect: LayoutRect,            // 16B
-    pub(crate) transform: [[f32; 4]; 3],    // 48B
-    pub(crate) color: Color,                // 16B.
-    pub(crate) corner_radius: CornerRadius, // 16B
-    pub(crate) border_width: EdgeInsets,    // 16B
-    pub(crate) border_color: Color,         // 16B
+    pub rect: LayoutRect,            // 16B
+    pub transform: [[f32; 4]; 3],    // 48B
+    pub color: Color,                // 16B.
+    pub corner_radius: CornerRadius, // 16B
+    pub border_width: EdgeInsets,    // 16B
+    pub border_color: Color,         // 16B
 
-    pub(crate) opacity_mode_sizing: [f32; 4], // 16B ([opacity, mode, sizing, 0.0])
+    pub opacity_mode_sizing: [f32; 4], // 16B ([opacity, mode, sizing, 0.0])
 
-    pub(crate) uv_min: [f32; 2], // 8B
-    pub(crate) uv_max: [f32; 2], // 8B
+    pub uv_min: [f32; 2], // 8B
+    pub uv_max: [f32; 2], // 8B
 
-    pub(crate) gradient_end_color: Color, // 16B
+    pub gradient_end_color: Color, // 16B
 
-    pub(crate) gradient_angle: f32,        // 4B
-    pub(crate) transform_origin: [f32; 2], // 8B
-    pub(crate) _padding: f32,              // 4B.
+    pub gradient_angle: f32,        // 4B
+    pub transform_origin: [f32; 2], // 8B
+    pub _padding: f32,              // 4B.
 
-    pub(crate) shadow_color: Color,     // 16B.
-    pub(crate) shadow_params: [f32; 4], // 16B.
+    pub shadow_color: Color,     // 16B.
+    pub shadow_params: [f32; 4], // 16B.
 
-    pub(crate) border_lengths: EdgeInsets, // 16B
+    pub border_lengths: EdgeInsets, // 16B
 
-    pub(crate) outline_width: EdgeInsets,          // 16B.
-    pub(crate) outline_color: Color,               // 16B
-    pub(crate) outline_lengths: EdgeInsets,        // 16B
-    pub(crate) outline_offset_and_flags: [f32; 4], // 16B (flags: [offset, flags, 0.0, 0.0])
-    pub(crate) alpha_mode_y_flip_srgb: [f32; 4],   // 16B ([alpha_mode, y_flip, srbg, 0.0])
+    pub outline_width: EdgeInsets,          // 16B.
+    pub outline_color: Color,               // 16B
+    pub outline_lengths: EdgeInsets,        // 16B
+    pub outline_offset_and_flags: [f32; 4], // 16B (flags: [offset, flags, 0.0, 0.0])
+    pub alpha_mode_y_flip_srgb: [f32; 4],   // 16B ([alpha_mode, y_flip, srbg, 0.0])
 }
 
 impl Default for QuadInstance {

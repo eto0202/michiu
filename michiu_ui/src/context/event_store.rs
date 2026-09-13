@@ -30,7 +30,7 @@ use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
 /// 実行時にウィンドウ内で現在アクティブ（排他的）になっている、各状態の対象要素（EntityId）を管理します。
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub(crate) struct ActiveInteractionStates {
+pub struct ActiveInteractionStates {
     pub hovered: Option<EntityId>,
     pub focused: Option<EntityId>,
     pub pressed: Option<EntityId>,

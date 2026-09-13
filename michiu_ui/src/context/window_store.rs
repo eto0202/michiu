@@ -1,6 +1,7 @@
 use crate::{Context, EntityId, LayoutRect, LayoutSize};
 use windows::Win32::UI::Input::Ime::HIMC;
 
+#[derive(Clone)]
 pub struct WindowStore {
     pub win_scale_factor: f32,
     pub win_is_resizing: bool,

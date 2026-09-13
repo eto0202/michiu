@@ -6,12 +6,12 @@ use crate::{
     ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents, InputContentsSparse,
     InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStage, LayoutStore,
-    MichiuSoA, MichiuString, MichiuTrace, OutputStore, ParentsSecondary, RangeExt,
-    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    MichiuSoA, MichiuString, MichiuTrace, OutputStore, ParentsSecondary, RangeExt, RectsSecondary,
+    RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
     ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary,
     SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse,
     TextEngine, TextSpansSparse, TopologyStore, UserSelect, UsizeRangeExt,
-    VisualPropertiesSecondary, define_sparse_secondary, trace,
+    VisualPropertiesSecondary, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -37,9 +37,9 @@ pub enum InputOp {
     Redo,
 }
 
-define_sparse_secondary!(pub(crate) struct SelectedRectsSparse(Vec<LayoutRect>));
-define_sparse_secondary!(pub(crate) struct TextSelectionsSparse(Range<ByteIndex>));
-define_sparse_secondary!(pub(crate) struct SelectionStartIndexSparse(ByteIndex));
+define_sparse_secondary!(pub struct SelectedRectsSparse(Vec<LayoutRect>));
+define_sparse_secondary!(pub struct TextSelectionsSparse(Range<ByteIndex>));
+define_sparse_secondary!(pub struct SelectionStartIndexSparse(ByteIndex));
 
 pub(crate) struct TextEditStore {
     pub(crate) edit_selections: TextSelectionsSparse,
@@ -859,7 +859,6 @@ impl TextEditStore {
         sc_sizes: &ScrollSizesSecondary,
         debug: &mut DebugStore,
     ) {
-
         let ime_caret_info = TextEditStore::ime_caret_info(
             id,
             sys_text_engine,

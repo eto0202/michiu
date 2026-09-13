@@ -85,25 +85,26 @@ pub struct ComposedRenderer {
     pub(crate) resize_cooldown_frames: u32,
 }
 
-pub(crate) struct PendingDcompRelease {
-    pub(crate) entity_id: EntityId,
-    pub(crate) frames_left: u32,
+#[derive(Debug, Clone)]
+pub struct PendingDcompRelease {
+    pub entity_id: EntityId,
+    pub frames_left: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PromotedVisual {
     /// 昇格した要素の ID
-    pub(crate) entity_id: EntityId,
+    pub entity_id: EntityId,
     /// `DirectComposition` 側の Visual オブジェクト
-    pub(crate) visual: IDCompositionVisual2,
+    pub visual: IDCompositionVisual2,
     /// 適用しているトランスフォームオブジェクト (COM参照を維持するために保持)
-    pub(crate) transform: Option<windows::core::IUnknown>,
+    pub transform: Option<windows::core::IUnknown>,
     /// 各昇格要素ごとに独立した `WebView2` 非同期スロットを配備する
-    pub(crate) webview_controller: Rc<RefCell<Option<ICoreWebView2Controller>>>,
+    pub webview_controller: Rc<RefCell<Option<ICoreWebView2Controller>>>,
     /// 現在バックグラウンドで非同期キャプチャ（スナップショット）を実行中かどうかのフラグ
     pub is_capturing: bool,
     // DCompツリーにマウントされており、コントローラーが可視状態であるか
-    pub(crate) is_visible: bool,
+    pub is_visible: bool,
 }
 
 impl ComposedRenderer {
@@ -213,7 +214,7 @@ impl ComposedRenderer {
     pub fn draw(&mut self, cx: &mut Context) {
         self.wgpu_renderer.render(cx, self.scale_factor);
         let _ = unsafe { self.dcomp_device.Commit() };
-        flush_trace!(&mut cx.debug);
+        flush_trace!(cx, self);
     }
 
     pub fn update_composition_tree(&mut self, cx: &mut Context) {

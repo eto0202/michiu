@@ -19,7 +19,9 @@ thread_local! {
 /// ユーザーがコンポーネントを評価する際に呼び出すグローバルラッパー
 pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     let old = ACTIVE_CONTEXT.get();
-    ACTIVE_CONTEXT.set(Some(std::ptr::from_mut::<Context>(cx)));
+    let ptr = std::ptr::from_mut::<Context>(cx);
+
+    ACTIVE_CONTEXT.set(Some(ptr));
     let _guard = ContextGuard { old };
 
     let marker = cx.start_session();

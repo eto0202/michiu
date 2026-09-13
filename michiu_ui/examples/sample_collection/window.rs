@@ -138,7 +138,7 @@ unsafe extern "system" fn wnd_proc(
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
                 app.renderer.draw(&mut app.context);
-                app.context.clear_render_dirty();
+                app.context.clear_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
                 let draw_elapsed = draw_start.elapsed();

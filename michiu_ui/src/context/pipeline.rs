@@ -6,18 +6,17 @@ use crate::{
     EdgeInsets, EffectId, ElementState, EntityId, EventStore, ExternalTextureAlphaMode,
     ExternalTextureSparse, ExtractedThumb, FlatDfsSequenceVec, FlexLayout, FocusStore, GridLayout,
     IDENTITY_MATRIX, ImeState, InputContents, InputContentsSparse, InputOp, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStage, LayoutStore, Length, MichiuSoA,
-    MichiuTrace, Modifiers, MouseButton, OutputStore, ParentsSecondary, PointerEvents,
-    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt, ReactiveStore,
-    RectsSecondary, RenderData, RenderStage, RenderStore, RendererView, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextCacheKey, TextContentsSparse,
-    TextEditStore, TextEngine, TextSpan, TextSpansSparse, TimeStamp, TopologyStore, UnderlineStyle,
-    Val, VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context,
-    execute_effect, flush_trace, handle_on_active,
-    handle_on_char_input, handle_on_disable, handle_on_file_dropped, handle_on_ime,
-    handle_on_select, trace, with_context,
+    LayoutRect, LayoutSize, LayoutStage, LayoutStore, Length, MichiuSoA, MichiuTrace, Modifiers,
+    MouseButton, OutputStore, ParentsSecondary, PointerEvents, PrevClipRectsSecondary,
+    PrevRectsSecondary, QuadInstance, RangeExt, ReactiveStore, RectsSecondary, RenderData,
+    RenderStage, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore, ScrollbarStore,
+    ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextBufferSparse, TextCacheKey, TextContentsSparse, TextEditStore,
+    TextEngine, TextSpan, TextSpansSparse, TimeStamp, TopologyStore, UnderlineStyle, Val,
+    VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context,
+    execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
+    handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -318,11 +317,6 @@ impl Pipeline {
         root: EntityId,
         window_size: LayoutSize,
     ) {
-        trace!(None, &mut cx.debug, || MichiuTrace::Layout {
-            stage: LayoutStage::Start,
-            add: None,
-        });
-
         let _context_guard = bind_context(cx);
 
         /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に実行
@@ -668,13 +662,6 @@ impl Pipeline {
                 &mut cx.debug,
             );
         }
-
-        // 全ての座標確定と絶対クリップ範囲の同期が完了した最末尾で、
-        // 一括して Dirty フラグの完全クリアおよびキューリストのリセットを実行
-        LayoutStore::clear_layout_dirty(
-            &mut cx.topology.topo_active_masks,
-            &mut cx.layouts.lay_dirty_entities,
-        );
     }
 
     #[inline]
@@ -1420,7 +1407,6 @@ impl Pipeline {
         sc_offsets: &ScrollOffsetsSecondary,
         debug: &mut DebugStore,
     ) {
-
         topo_active_entities.clear();
 
         for &id in topo_flat_dfs_sequence {

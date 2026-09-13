@@ -11,10 +11,10 @@ use crate::{
     Position, PropertyList, QuadInstance, ReactiveStore, RenderData, RenderStore, RendererView,
     ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
     ScrollStore, ScrollbarStylesSecondary, SortCacheVec, SortedEntitiesVec, StrikethroughStyle,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextBufferSparse,
-    TextCacheKey, TextCacheValue, TextContentsSparse, TextEngine, TextSpan, TextSpansSparse,
-    TextureAtlas, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
-    VisualPropertiesSecondary, VisualProperty, WindowStore, define_secondary,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextBufferSparse, TextCacheKey,
+    TextCacheValue, TextContentsSparse, TextEngine, TextSpan, TextSpansSparse, TextureAtlas,
+    TopologyStore, Transform, UnderlineStyle, UserSelect, Val, VisualPropertiesSecondary,
+    VisualProperty, WindowStore, define_secondary,
 };
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
@@ -28,10 +28,10 @@ use std::{
     time::Instant,
 };
 
-define_secondary!(pub(crate) struct RectsSecondary(LayoutRect));
-define_secondary!(pub(crate) struct ClipRectsSecondary(LayoutRect));
-define_secondary!(pub(crate) struct PrevRectsSecondary(LayoutRect));
-define_secondary!(pub(crate) struct PrevClipRectsSecondary(LayoutRect));
+define_secondary!(pub struct RectsSecondary(LayoutRect));
+define_secondary!(pub struct ClipRectsSecondary(LayoutRect));
+define_secondary!(pub struct PrevRectsSecondary(LayoutRect));
+define_secondary!(pub struct PrevClipRectsSecondary(LayoutRect));
 
 pub struct OutputStore {
     pub(crate) out_rects: RectsSecondary,

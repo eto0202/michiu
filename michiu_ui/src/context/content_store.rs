@@ -2,7 +2,7 @@ use crate::{
     ActiveMasksSecondary, CapacityConfig, DebugStore, EntityId, ExternalTexture, FlexLayout,
     InputContents, LayoutRect, LayoutStage, MichiuSoA, MichiuString, MichiuTrace, RenderStore,
     TextBufferSparse, TextEngine, TextSpan, TimeStamp, VisualPropertiesSecondary, WebView2Contents,
-    define_sparse_secondary, trace,
+    define_sparse_secondary,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
@@ -13,16 +13,14 @@ use std::{
 };
 use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
-define_sparse_secondary!(pub(crate) struct TextContentsSparse(MichiuString));
-define_sparse_secondary!(pub(crate) struct TextSpansSparse(Vec<TextSpan>));
-define_sparse_secondary!(pub(crate) struct InputContentsSparse(InputContents));
-define_sparse_secondary!(pub(crate) struct WebviewContentsSparse(WebView2Contents));
+define_sparse_secondary!(pub struct TextContentsSparse(MichiuString));
+define_sparse_secondary!(pub struct TextSpansSparse(Vec<TextSpan>));
+define_sparse_secondary!(pub struct InputContentsSparse(InputContents));
+define_sparse_secondary!(pub struct WebviewContentsSparse(WebView2Contents));
 
 #[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
-pub(crate) struct ExternalTextureSparse(
-    pub(crate) SparseSecondaryMap<EntityId, Arc<dyn ExternalTexture>>,
-);
+pub struct ExternalTextureSparse(pub SparseSecondaryMap<EntityId, Arc<dyn ExternalTexture>>);
 
 impl MichiuSoA for ExternalTextureSparse {
     type Item = Arc<dyn ExternalTexture>;

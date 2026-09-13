@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
-pub(crate) enum TransitionValue {
+pub enum TransitionValue {
     Color(Color),
     Opacity(f32),
     Transform([[f32; 4]; 4]),
@@ -95,13 +95,13 @@ impl TransitionValue {
 
 /// 現在駆動中のアクティブなトランジション
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ActiveTransition {
-    pub(crate) property_list: PropertyList,
-    pub(crate) start_time: Option<Instant>,
-    pub(crate) duration: Duration,
-    pub(crate) curve: AnimationCurve,
-    pub(crate) start_value: TransitionValue,
-    pub(crate) end_value: TransitionValue,
+pub struct ActiveTransition {
+    pub property_list: PropertyList,
+    pub start_time: Option<Instant>,
+    pub duration: Duration,
+    pub curve: AnimationCurve,
+    pub start_value: TransitionValue,
+    pub end_value: TransitionValue,
 }
 
 #[derive(Debug, Clone, Copy)]

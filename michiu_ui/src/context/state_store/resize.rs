@@ -8,7 +8,7 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub(crate) enum ResizeDirection {
+pub enum ResizeDirection {
     Top,
     Right,
     Bottom,
@@ -20,15 +20,15 @@ pub(crate) enum ResizeDirection {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ResizingState {
-    pub(crate) entity_id: EntityId,
-    pub(crate) direction: ResizeDirection,
-    pub(crate) start_mouse_pos: LayoutPoint,
-    pub(crate) start_rect: LayoutRect,
-    pub(crate) start_inset: Rect<Val>,
+pub struct ResizingState {
+    pub entity_id: EntityId,
+    pub direction: ResizeDirection,
+    pub start_mouse_pos: LayoutPoint,
+    pub start_rect: LayoutRect,
+    pub start_inset: Rect<Val>,
 }
 
-pub(crate) type ActiveResizeHoverOption = Option<(EntityId, ResizeDirection)>;
+pub type ActiveResizeHoverOption = Option<(EntityId, ResizeDirection)>;
 
 pub(crate) struct ResizeStore {
     pub(crate) res_resizing_state: Option<ResizingState>,

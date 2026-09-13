@@ -7,7 +7,6 @@ use michiu_ui::{
     CapacityConfig, ComposedRenderer, Dss, DssSet, EntityId, MichiuInspector, MichiuTrace,
     prelude::*,
 };
-use slotmap::Key;
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
@@ -67,46 +66,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hwnd = create_window(h_instance, class_name)?;
 
     let inspector = MichiuInspector::new();
-
-    let mut context = Context::with_capacity(&CapacityConfig::from_base_nodes(1024));
-    context.set_inspector(&inspector);
-
     let sub = inspector.subscribe(None);
+
+    let mut context =
+        Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector);
+
     // デバッグログ用のスレッド
     std::thread::spawn(move || {
         while let Ok(batch) = sub.recv() {
             for record in batch.iter() {
-                // None か ルート要素のみ追う
-                if record.id.is_none()
-                    || record.id.is_some_and(|id| (id.data().as_ffi() as u32) == 1)
-                {
-                    let (entity, time, loc, func) =
-                        (record.id, record.time, record.loc, record.func);
-
-                    match record.trace {
-                        MichiuTrace::Layout { stage, add } => {
-                            println!(
-                                "===========================\n\
-                                 [Layout] {stage:?}\n\
-                                  - Entity : {entity:?}\n\
-                                  - Time   : {time:?}\n\
-                                  - Loc    : {loc}\n\
-                                  - Func   : {func}\n\
-                                  - Add    : {add:?}"
-                            );
-                        }
-                        MichiuTrace::Spawn(_) => {
-                            println!(
-                                "===========================\n\
-                                 [Spawn] \n\
-                                  - Entity : {entity:?}\n\
-                                  - Time   : {time:?}\n\
-                                  - Loc    : {loc}\n\
-                                  - Func   : {func}"
-                            );
-                        }
-                        _ => {}
-                    }
+                let (entity, time, loc, func, frame) = (
+                    record.id,
+                    record.time,
+                    record.loc,
+                    record.func,
+                    record.frame,
+                );
+                if let MichiuTrace::Error { detail, .. } = &record.trace {
+                    eprintln!(
+                        "
+                            [{frame} Error]\n\
+                             - Entity : {entity:?}\n\
+                             - Time   : {time:?}\n\
+                             - Loc    : {loc}\n\
+                             - Func   : {func}\n\
+                             - Detail :\n\
+                                {detail}"
+                    );
                 }
             }
         }

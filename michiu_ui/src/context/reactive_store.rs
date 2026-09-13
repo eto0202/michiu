@@ -10,7 +10,7 @@ use std::{collections::HashMap, fmt, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub(crate) enum EffectCategory {
+pub enum EffectCategory {
     None,
     Style,
     Text,
@@ -39,13 +39,13 @@ impl fmt::Debug for Effects {
 define_slotmap!(pub(crate) struct SignalsSlot(SignalId, Box<dyn std::any::Any>));
 define_slotmap!(pub(crate) struct EffectsSlot(EffectId, Effects));
 
-define_secondary!(pub(crate) struct SubscribersSecondary(SignalId, SmallVec<[EffectId; 8]>));
-define_secondary!(pub(crate) struct ElementEffectsSecondary(SmallVec<[(EffectCategory, EffectId); 8]>));
-define_secondary!(pub(crate) struct EffectToElementSecondary(EffectId, EntityId));
+define_secondary!(pub struct SubscribersSecondary(SignalId, SmallVec<[EffectId; 8]>));
+define_secondary!(pub struct ElementEffectsSecondary(SmallVec<[(EffectCategory, EffectId); 8]>));
+define_secondary!(pub struct EffectToElementSecondary(EffectId, EntityId));
 
-define_sparse_secondary!(pub(crate) struct ProvidersSparseSecondary(FxHashMap<std::any::TypeId, SignalId>));
+define_sparse_secondary!(pub struct ProvidersSparseSecondary(FxHashMap<std::any::TypeId, SignalId>));
 
-define_vec!(pub(crate) struct PendingElementEffectsVec(EffectId));
+define_vec!(pub struct PendingElementEffectsVec(EffectId));
 
 pub struct ReactiveStore {
     pub(crate) react_signals: SignalsSlot,

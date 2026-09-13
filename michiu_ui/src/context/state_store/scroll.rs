@@ -5,12 +5,11 @@ use crate::{
     DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId,
     FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse,
     InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStage, LayoutStore, Length,
-    MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary, Position, Rect,
-    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
-    ScrollBarState, ScrollbarStylesSecondary, Size, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse,
-    ThisStyle, TimeStamp, UserSelect, Val, VisualPropertiesSecondary, WindowStore,
-    define_secondary, trace,
+    MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary, Position, Rect, RectsSecondary,
+    RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollBarState,
+    ScrollbarStylesSecondary, Size, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, TimeStamp,
+    UserSelect, Val, VisualPropertiesSecondary, WindowStore, define_secondary,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use smallvec::SmallVec;
@@ -20,8 +19,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-define_secondary!(pub(crate) struct ScrollOffsetsSecondary(LayoutPoint));
-define_secondary!(pub(crate) struct ScrollSizesSecondary(LayoutSize));
+define_secondary!(pub struct ScrollOffsetsSecondary(LayoutPoint));
+define_secondary!(pub struct ScrollSizesSecondary(LayoutSize));
 
 pub(crate) struct ScrollStore {
     pub(crate) sc_offsets: ScrollOffsetsSecondary,

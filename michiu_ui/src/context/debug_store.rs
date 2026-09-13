@@ -1,9 +1,28 @@
 use crate::{
-    ComponentMask, Context, DrawBatch, EffectId, ElementState, EntityId, LayoutPoint, LayoutRect,
-    Modifiers, MouseButton, Point, QuadInstance, RenderData, SignalId, UserAction, VirtualKey,
+    ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveInteractionStates,
+    ActiveMasksSecondary, ActiveResizeHoverOption, ActiveTransitionsSparse, ActiveWebviewsHashSet,
+    Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary, BaseVisualPropertiesSecondary,
+    BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask,
+    ComposedRenderer, Context, DespawnedQueueVec, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, DndDragPropertiesSparse, DndDropPropertiesSparse, DrawBatch, EffectId,
+    EffectToElementSecondary, EffectiveZindicesSecondary, ElementEffectsSecondary, ElementState,
+    EntitiesSlot, EntityId, ExternalTextureSparse, FlatDfsSequenceVec, FlexLayoutsSecondary,
+    GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
+    LayoutRect, LayoutSize, MichiuString, Modifiers, MouseButton, ParentsSecondary,
+    PendingDcompRelease, PendingElementEffectsVec, Point, PrevClipRectsSecondary,
+    PrevRectsSecondary, PromotedVisual, ProvidersSparseSecondary, QuadInstance, RectsSecondary,
+    RenderData, ResizingState, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSecondary, SelectedRectsSparse,
+    SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
+    SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextBufferSparse, TextBufferSparseInner, TextCacheKey, TextCacheValue, TextContentsSparse,
+    TextSelectionsSparse, TextSpansSparse, TextureAtlas, UiaPropertiesSparse, UserAction,
+    VirtualKey, VisualPropertiesSecondary, WebviewContentsSparse, WebviewEntitiesVec,
     define_secondary,
 };
-use slotmap::SecondaryMap;
+use cosmic_text::Buffer;
+use rustc_hash::FxHashMap;
+use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
     ops::Range,
@@ -16,31 +35,42 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
+use webview2_com::Microsoft::Web::WebView2::Win32::{
+    ICoreWebView2Controller, ICoreWebView2Environment3,
+};
+use windows::Win32::{
+    Foundation::HWND,
+    Graphics::{
+        DirectComposition::{
+            IDCompositionDesktopDevice, IDCompositionTarget, IDCompositionVisual2,
+        },
+        Imaging::IWICImagingFactory,
+    },
+    UI::Input::Ime::HIMC,
+};
+use windows_core::{AgileReference, IUnknown, Interface};
 
 // ================================================================
 // ================================================================
 
-#[cfg(feature = "logging")]
-#[derive(
-    Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator,
-)]
+#[cfg(feature = "trace-error")]
+#[derive(Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
 pub(crate) struct InspecterSecondary(SecondaryMap<EntityId, MichiuTraceRecord>);
 
-#[cfg(feature = "logging")]
-#[derive(
-    Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator,
-)]
+#[cfg(feature = "trace-error")]
+#[derive(Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
 pub struct MichiuTraceVec(Vec<MichiuTraceRecord>);
 
 // ================================================================
 // ================================================================
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 pub struct DebugStore {
     /// Context が起動した時間を0秒とする
     pub(crate) boot_time: Instant,
+    pub(crate) frame: u64,
     // グローバルなエラー用にルート要素のIDを持っておく。
     pub(crate) dbg_root: Option<EntityId>,
     pub(crate) dbg_tx: Option<InspectorSender>,
@@ -48,31 +78,32 @@ pub struct DebugStore {
     pub(crate) dbg_trace_queue: MichiuTraceVec,
 }
 
-#[cfg(not(feature = "logging"))]
+#[cfg(not(feature = "trace-error"))]
 pub(crate) struct DebugStore {
     pub(crate) dbg_root: Option<EntityId>,
 }
-#[cfg(not(feature = "logging"))]
+#[cfg(not(feature = "trace-error"))]
 impl DebugStore {
     pub(crate) fn new() -> Self {
         Self { dbg_root: None }
     }
 }
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 impl Default for DebugStore {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 impl DebugStore {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
         Self {
             boot_time: Instant::now(),
+            frame: 0,
             dbg_root: None,
             dbg_tx: None,
             dbg_trace_queue: MichiuTraceVec(Vec::new()),
@@ -80,27 +111,20 @@ impl DebugStore {
     }
 
     #[inline]
+    #[must_use]
+    pub fn with_inspector(inspector: &MichiuInspector) -> Self {
+        Self {
+            boot_time: Instant::now(),
+            frame: 0,
+            dbg_root: None,
+            dbg_tx: Some(inspector.sender()),
+            dbg_trace_queue: MichiuTraceVec(Vec::new()),
+        }
+    }
+
+    #[inline]
     pub(crate) fn set_inspector(debug: &mut DebugStore, inspector: &MichiuInspector) {
         debug.dbg_tx = Some(inspector.sender());
-    }
-
-    /// ループ中の各所で呼ぶ。チャネルには投げず一時キューに詰めるだけ
-    #[inline]
-    pub(crate) fn trace(id: Option<EntityId>, debug: &mut DebugStore, trace: MichiuTraceRecord) {
-        if debug.dbg_tx.is_some() {
-            debug.dbg_trace_queue.push(trace);
-        }
-    }
-
-    /// フレームの最後で呼んで一括転送
-    #[inline]
-    pub(crate) fn flush_trace(debug: &mut DebugStore) {
-        if let Some(ref tx) = debug.dbg_tx
-            && !debug.dbg_trace_queue.is_empty()
-        {
-            let batch = std::mem::take(&mut debug.dbg_trace_queue);
-            tx.send_batch(batch);
-        }
     }
 
     /// 起動時からの経過時間を取得
@@ -113,14 +137,14 @@ impl DebugStore {
 // ================================================================
 // ================================================================
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 #[derive(Debug, Clone)]
 pub struct InspectorSender {
     // 1フレーム分のバッチを丸ごと送るチャネル
     tx: SyncSender<MichiuTraceVec>,
 }
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 impl InspectorSender {
     #[inline]
     pub(crate) fn send_batch(&self, batch: MichiuTraceVec) {
@@ -134,16 +158,16 @@ impl InspectorSender {
 // ================================================================
 
 // 購読者に届くデータ型（1フレーム分のバッチ）
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 pub type TraceBatch = Arc<MichiuTraceVec>;
 
 // サブスクライバのハンドル
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 pub struct TraceSubscription {
     rx: Receiver<TraceBatch>,
 }
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 impl TraceSubscription {
     /// 次のバッチを待つ（ブロッキング）
     pub fn recv(&self) -> std::result::Result<TraceBatch, std::sync::mpsc::RecvError> {
@@ -159,8 +183,8 @@ impl TraceSubscription {
 // ================================================================
 // ================================================================
 
-#[cfg(feature = "logging")]
-#[derive(Debug, Clone)]
+#[cfg(feature = "trace-error")]
+#[derive(Clone)]
 pub struct MichiuInspector {
     sender: InspectorSender,
     // ワーカースレッドが更新し、ユーザーが読み取るための共有ストレージ
@@ -169,14 +193,14 @@ pub struct MichiuInspector {
     subscribers: Arc<Mutex<Vec<SyncSender<TraceBatch>>>>,
 }
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 impl Default for MichiuInspector {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 impl MichiuInspector {
     #[inline]
     #[must_use]
@@ -263,103 +287,140 @@ impl MichiuInspector {
 // ================================================================
 
 impl Context {
-    #[cfg(feature = "logging")]
+    #[cfg(feature = "trace-error")]
     #[inline]
     pub fn set_inspector(&mut self, inspector: &MichiuInspector) {
         DebugStore::set_inspector(&mut self.debug, inspector);
-    }
-
-    /// ループ中の各所で呼ぶ。チャネルには投げず一時キューに詰めるだけ
-    #[cfg(feature = "logging")]
-    #[inline]
-    pub(crate) fn trace(&mut self, id: Option<EntityId>, trace: MichiuTraceRecord) {
-        DebugStore::trace(id, &mut self.debug, trace);
-    }
-
-    /// フレームの最後で呼んで一括転送
-    #[cfg(feature = "logging")]
-    #[inline]
-    pub(crate) fn flush_trace(&mut self) {
-        DebugStore::flush_trace(&mut self.debug);
     }
 }
 
 // ================================================================
 // ================================================================
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone)]
 #[repr(u8)]
 pub enum MichiuTrace {
+    #[cfg(feature = "trace-error")]
     None,
+
+    #[cfg(feature = "trace-lifecycle")]
+    Frame(u64),
+
+    #[cfg(feature = "trace-lifecycle")]
+    Init {
+        capacity: Option<Arc<CapacityConfig>>,
+        add: Option<&'static str>,
+    },
+
+    #[cfg(feature = "trace-lifecycle")]
+    Build {
+        old_addr: Option<usize>,
+        new_addr: usize,
+        marker: usize,
+        root: EntityId,
+        add: Option<&'static str>,
+    },
+
+    #[cfg(feature = "trace-lifecycle")]
     Spawn(Arc<SpawnTrace>),
+
+    #[cfg(feature = "trace-lifecycle")]
     HitTest {
         target: Option<EntityId>,
         x: f32,
         y: f32,
         add: Option<&'static str>,
     },
+
+    #[cfg(feature = "trace-lifecycle")]
     Reactive {
         signal: Option<SignalId>,
         effect: Option<EffectId>,
         kinds: ReactiveKinds,
         add: Option<&'static str>,
     },
+
+    #[cfg(feature = "trace-lifecycle")]
     Event {
         kinds: TraceEventList,
         add: Option<&'static str>,
     },
+
+    #[cfg(feature = "trace-lifecycle")]
     StateUpdate {
         flag: ComponentMask,
-        current: ComponentMask,
+        current_masks: ComponentMask,
         actived: bool,
         add: Option<&'static str>,
     },
-    QueueDirty(Arc<QueueDirtyTrace>),
+
+    #[cfg(feature = "trace-lifecycle")]
+    QueueDirty(Arc<DirtyQueueTrace>),
+
+    #[cfg(feature = "trace-lifecycle")]
     Dfs {
         after: Arc<[EntityId]>,
         add: Option<&'static str>,
     },
+
+    #[cfg(feature = "trace-lifecycle")]
     Layout {
         stage: LayoutStage,
         add: Option<&'static str>,
     },
-    Text {
-        add: Option<&'static str>,
-    },
-    Frame {
+
+    #[cfg(feature = "trace-lifecycle")]
+    Text { add: Option<&'static str> },
+
+    #[cfg(feature = "trace-lifecycle")]
+    Animation {
         kinds: FrameKinds,
         add: Option<&'static str>,
     },
+
+    #[cfg(feature = "trace-lifecycle")]
     Sorted {
         after: Arc<[EntityId]>,
         add: Option<&'static str>,
     },
+
+    #[cfg(feature = "trace-lifecycle")]
     PrepareRender {
         stage: RenderStage,
         data: Option<Arc<[RenderData]>>,
         add: Option<&'static str>,
     },
+
+    #[cfg(feature = "trace-lifecycle")]
     WriteBuffer {
         staging: Arc<[QuadInstance]>,
         add: Option<&'static str>,
     },
-    Present {
-        add: Option<&'static str>,
-    },
-    Commit {
-        add: Option<&'static str>,
-    },
-    Despawn {
-        add: Option<&'static str>,
-    },
-    // 特定のエンティティに帰属させにくいエラーは、
-    // この画面、あるいはアプリ全体のルートコンポーネントがアセットを読み込もうとして失敗したと解釈し、
-    // とりあえずルート要素のIDにまとめる
-    Error {
-        detail: MichiuError,
+
+    #[cfg(feature = "trace-lifecycle")]
+    Present { add: Option<&'static str> },
+
+    #[cfg(feature = "trace-lifecycle")]
+    Commit { add: Option<&'static str> },
+
+    #[cfg(feature = "trace-lifecycle")]
+    Despawn { add: Option<&'static str> },
+
+    #[cfg(feature = "trace-lifecycle")]
+    Warn {
+        detail: MichiuWarn,
         fallback: Option<&'static str>,
         add: Option<&'static str>,
     },
+
+    #[cfg(feature = "trace-error")]
+    Error {
+        detail: MichiuError,
+        add: Option<&'static str>,
+    },
+
+    #[cfg(feature = "snapshot")]
+    Snapshot,
 }
 
 // ================================================================
@@ -367,13 +428,10 @@ pub enum MichiuTrace {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTrace {
-    pub time: TimeStamp,
     pub entities: Option<Vec<EntityId>>,
     pub root: Option<EntityId>,
     pub parents: Option<Vec<EntityId>>,
     pub children: Option<Vec<EntityId>>,
-    pub func: &'static str,
-    pub loc: &'static Location<'static>,
     pub add: Option<&'static str>,
 }
 
@@ -381,15 +439,12 @@ pub struct SpawnTrace {
 // ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct QueueDirtyTrace {
-    pub time: TimeStamp,
+pub struct DirtyQueueTrace {
     pub kinds: QueueDirtyKinds,
     pub masks: Option<ComponentMask>,
-    pub entities: Option<Vec<EntityId>>,
+    pub dirty_entities: Option<Vec<EntityId>>,
     pub sort: Option<bool>,
     pub structure: Option<bool>,
-    pub func: &'static str,
-    pub loc: &'static Location<'static>,
     pub add: Option<&'static str>,
 }
 
@@ -605,36 +660,53 @@ pub enum FrameKinds {
 // ================================================================
 // ================================================================
 
-#[cfg(feature = "logging")]
-#[derive(Debug, Clone)]
-pub struct MichiuTraceRecord {
-    pub id: Option<EntityId>,
-    pub time: TimeStamp,
-    pub func: &'static str,
-    pub loc: &'static Location<'static>,
-    pub trace: MichiuTrace,
+#[derive(Debug, Clone, PartialEq)]
+#[repr(u8)]
+pub enum MichiuWarn {
+    None,
+    ValueNotFound,
+    CacheNotFound,
+    CacheChanged,
 }
 
 // ================================================================
 // ================================================================
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
+#[derive(Clone)]
+pub struct MichiuTraceRecord {
+    pub id: Option<EntityId>,
+    pub frame: u64,
+    pub time: TimeStamp,
+    pub func: &'static str,
+    pub loc: &'static Location<'static>,
+    pub trace: MichiuTrace,
+    #[cfg(feature = "snapshot")]
+    pub cx: Option<Arc<ContextSnapshot>>,
+    #[cfg(feature = "snapshot")]
+    pub renderer: Option<Arc<RendererSnapshot>>,
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "trace-error")]
 type MichiuInstant = Instant;
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 type MichiuDuration = Duration;
 
-#[cfg(not(feature = "logging"))]
+#[cfg(not(feature = "trace-error"))]
 type MichiuInstant = [u8; 0];
-#[cfg(not(feature = "logging"))]
+#[cfg(not(feature = "trace-error"))]
 type MichiuDuration = [u8; 0];
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 pub(crate) struct MichiuStopwatch {
     pub(crate) start: MichiuInstant,
     pub(crate) last: MichiuInstant,
 }
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 impl MichiuStopwatch {
     #[inline]
     pub(crate) fn new() -> Self {
@@ -664,7 +736,7 @@ impl MichiuStopwatch {
 // ================================================================
 // ================================================================
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 #[inline]
 #[track_caller]
 pub(crate) const fn caller_location() -> &'static Location<'static> {
@@ -675,7 +747,7 @@ pub(crate) const fn caller_location() -> &'static Location<'static> {
 // ================================================================
 
 /// 実行中の関数名を取得するマクロ
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
 #[macro_export]
 macro_rules! current_fn {
     () => {{
@@ -694,7 +766,7 @@ macro_rules! current_fn {
     }};
 }
 
-#[cfg(not(feature = "logging"))]
+#[cfg(not(feature = "trace-error"))]
 #[macro_export]
 macro_rules! current_fn {
     () => {
@@ -705,7 +777,114 @@ macro_rules! current_fn {
 // ================================================================
 // ================================================================
 
-#[cfg(feature = "logging")]
+#[cfg(feature = "trace-error")]
+#[macro_export]
+macro_rules! trace_error {
+    (None, $debug:expr, $trace_fn:expr) => {
+        let id: Option<$crate::EntityId> = None;
+        $crate::trace_error!(id, $debug, $trace_fn);
+    };
+
+    ($id:expr, $debug:expr, $trace_fn:expr) => {
+        let debug = &mut *$debug;
+        let _: &DebugStore = debug;
+        let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
+
+        if $debug.dbg_tx.is_some() {
+            let record = $crate::MichiuTraceRecord {
+                id: $id,
+                frame: $debug.frame,
+                time: $debug.elapsed(),
+                func: $crate::current_fn!(),
+                loc: $crate::caller_location(),
+                trace: $trace_fn(),
+            };
+            $debug.dbg_trace_queue.push(record);
+        }
+    };
+}
+
+#[cfg(not(feature = "trace-error"))]
+#[macro_export]
+macro_rules! trace_error {
+    ($id:expr, $debug:expr, $trace_fn:expr) => {
+        let _ = ($id, $debug);
+    };
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "trace-lifecycle")]
+#[macro_export]
+macro_rules! trace_lifecycle {
+    ($debug:expr, $trace_fn:expr) => {
+        let debug = &mut *$debug;
+        let _: &$crate::DebugStore = debug;
+        let _: &mut dyn FnMut() -> $crate::MichiuTrace = &mut $trace_fn;
+
+        if $debug.dbg_tx.is_some() {
+            let record = $crate::MichiuTraceRecord {
+                id: None,
+                time: $debug.elapsed(),
+                func: $crate::current_fn!(),
+                loc: $crate::caller_location(),
+                trace: $trace_fn(),
+            };
+            $debug.dbg_trace_queue.push(record);
+        }
+    };
+}
+
+#[cfg(not(feature = "trace-lifecycle"))]
+#[macro_export]
+macro_rules! trace_lifecycle {
+    ($debug:expr, $trace_fn:expr) => {
+        let _ = $debug;
+    };
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "trace-entity")]
+#[macro_export]
+macro_rules! trace_entity {
+    (None, $debug:expr, $trace_fn:expr) => {
+        let id: Option<$crate::EntityId> = None;
+        $crate::trace!(id, $debug, $trace_fn);
+    };
+
+    ($id:expr, $debug:expr, $trace_fn:expr) => {
+        let debug = &mut *$debug;
+        let _: &DebugStore = debug;
+        let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
+
+        if debug.dbg_tx.is_some() {
+            let record = $crate::MichiuTraceRecord {
+                id: $id,
+                frame: debug.frame,
+                time: debug.elapsed(),
+                func: $crate::current_fn!(),
+                loc: $crate::caller_location(),
+                trace: $trace_fn(),
+            };
+            debug.dbg_trace_queue.push(record);
+        }
+    };
+}
+
+#[cfg(not(feature = "trace-entity"))]
+#[macro_export]
+macro_rules! trace_entity {
+    ($id:expr, $debug:expr, $trace_fn:expr) => {
+        let _ = ($id, $debug);
+    };
+}
+
+// ================================================================
+// ================================================================
+#[cfg(feature = "snapshot")]
 #[macro_export]
 macro_rules! trace {
     (None, $debug:expr, $trace_fn:expr) => {
@@ -721,17 +900,20 @@ macro_rules! trace {
         if debug.dbg_tx.is_some() {
             let record = $crate::MichiuTraceRecord {
                 id: $id,
+                frame: debug.frame,
                 time: debug.elapsed(),
                 func: $crate::current_fn!(),
                 loc: $crate::caller_location(),
                 trace: $trace_fn(),
+                cx: None,
+                renderer: None,
             };
             debug.dbg_trace_queue.push(record);
         }
     };
 }
 
-#[cfg(not(feature = "logging"))]
+#[cfg(not(feature = "trace-error"))]
 #[macro_export]
 macro_rules! trace {
     (None, $debug:expr, $trace_fn:expr) => {
@@ -750,29 +932,464 @@ macro_rules! trace {
 // ================================================================
 
 /// `ComposedRenderer` の `draw()` の最後でフラッシュする。
-#[cfg(feature = "logging")]
+#[cfg(feature = "snapshot")]
 #[macro_export]
 macro_rules! flush_trace {
-    ($debug:expr) => {
-        let debug = &mut *$debug;
-        let _: &DebugStore = debug;
+    ($cx:expr, $r:expr) => {
+        let _: &Context = $cx;
+        let _: &ComposedRenderer = $r;
 
-        if let Some(ref tx) = debug.dbg_tx
-            && !debug.dbg_trace_queue.is_empty()
-        {
-            let batch = std::mem::take(&mut debug.dbg_trace_queue);
+        if let Some(ref tx) = $cx.debug.dbg_tx.clone() {
+            $cx.debug.frame += 1;
+            let record = $crate::MichiuTraceRecord {
+                id: None,
+                frame: $cx.debug.frame,
+                time: $cx.debug.elapsed(),
+                func: $crate::current_fn!(),
+                loc: $crate::caller_location(),
+                trace: $crate::MichiuTrace::Snapshot,
+                cx: Some(std::sync::Arc::new($crate::ContextSnapshot::flush($cx))),
+                renderer: Some(std::sync::Arc::new($crate::RendererSnapshot::flush(
+                    $cx, $r,
+                ))),
+            };
+            $cx.debug.dbg_trace_queue.push(record);
+            let batch = std::mem::take(&mut $cx.debug.dbg_trace_queue);
             tx.send_batch(batch);
         }
     };
 }
 
-#[cfg(not(feature = "logging"))]
+#[cfg(all(feature = "trace-error", not(feature = "snapshot")))]
 #[macro_export]
 macro_rules! flush_trace {
-    ($debug:expr) => {
-        let debug = &mut *$debug;
-        let _: &DebugStore = debug;
+    ($cx:expr, $r:expr) => {
+        let _: &$crate::Context = $cx;
+        let _: &$crate::ComposedRenderer = $r;
+
+        if let Some(tx) = $cx.debug.dbg_tx.clone() {
+            $cx.debug.frame += 1;
+            let batch = std::mem::take(&mut $cx.debug.dbg_trace_queue);
+            tx.send_batch(batch);
+        }
     };
+}
+
+#[cfg(not(feature = "trace-error"))]
+#[macro_export]
+macro_rules! flush_trace {
+    ($cx:expr, $r:expr) => {
+        let _ = ($cx, $r);
+    };
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "snapshot")]
+#[derive(Clone)]
+pub struct ContextSnapshot {
+    pub frame: u64,
+    pub window: WindowStoreSnapshot,
+    pub system: SystemStoreSnapshot,
+    pub reactive: ReactiveStoreSnapshot,
+    pub events: EventStoreSnapshot,
+    pub contents: ContentStoreSnapshot,
+    pub topology: TopologyStoreSnapshot,
+    pub states: StateStoreSnapshot,
+    pub layouts: LayoutStoreSnapshot,
+    pub renders: RenderStoreSnapshot,
+    pub outputs: OutputStoreSnapshot,
+}
+
+#[derive(Clone)]
+pub struct WindowStoreSnapshot {
+    pub win_scale_factor: f32,
+    pub win_is_resizing: bool,
+    pub win_last_size: Option<LayoutSize>,
+    pub win_default_himc: Option<usize>,
+}
+
+#[derive(Clone)]
+pub struct SystemStoreSnapshot {
+    pub sys_text_buffers: SparseSecondaryMap<EntityId, Buffer>,
+    pub sys_uia_properties: UiaPropertiesSparse,
+}
+
+#[derive(Clone)]
+pub struct ReactiveStoreSnapshot {
+    pub react_subscribers: SubscribersSecondary,
+    pub react_element_effects: ElementEffectsSecondary,
+    pub react_effect_to_element: EffectToElementSecondary,
+    pub react_pending_element_effects: PendingElementEffectsVec,
+    pub react_providers: ProvidersSparseSecondary,
+}
+
+#[derive(Clone)]
+pub struct EventStoreSnapshot {
+    pub evt_interaction_states: ActiveInteractionStates,
+    pub evt_current_pointer_position: Option<LayoutPoint>,
+}
+
+#[derive(Clone)]
+pub struct ContentStoreSnapshot {
+    pub cont_text_contents: TextContentsSparse,
+    pub cont_text_spans: TextSpansSparse,
+    pub cont_input_contents: InputContentsSparse,
+    pub cont_external_textures: ExternalTextureSparse,
+    pub cont_webview_contents: WebviewContentsSparse,
+    pub cont_cut_text: Option<MichiuString>,
+}
+
+#[derive(Clone)]
+pub struct TopologyStoreSnapshot {
+    pub topo_entities: EntitiesSlot,
+    pub topo_active_entities: ActiveEntitiesVec,
+    pub topo_active_masks: ActiveMasksSecondary,
+    pub topo_parents: ParentsSecondary,
+    pub topo_children: ChildrenSecondary,
+    pub topo_session_spawned: SessionSpawnedVec,
+    pub topo_session_roots: SessionRootsVec,
+    pub topo_flat_dfs_sequence: FlatDfsSequenceVec,
+    pub topo_dfs_indices: DfsIndicesSecondary,
+    pub topo_effective_z_indices: EffectiveZindicesSecondary,
+    pub topo_sorted_entities: SortedEntitiesVec,
+    pub topo_sort_cache: SortCacheVec,
+    pub topo_is_structure_dirty: bool,
+    pub topo_is_sort_dirty: bool,
+    pub topo_webview_entities: WebviewEntitiesVec,
+    pub topo_despawned_queue: DespawnedQueueVec,
+}
+
+#[derive(Clone)]
+pub struct StateStoreSnapshot {
+    pub dnd: DndStoreSnapshot,
+    pub resize: ResizeStoreSnapshot,
+    pub scroll: ScrollStoreSnapshot,
+    pub edit: TextEditStoreSnapshot,
+}
+
+#[derive(Clone)]
+pub struct DndStoreSnapshot {
+    pub dnd_drag_properties: DndDragPropertiesSparse,
+    pub dnd_drop_properties: DndDropPropertiesSparse,
+    pub dnd_active_drag_state: Option<ActiveDragState>,
+}
+
+#[derive(Clone)]
+pub struct ResizeStoreSnapshot {
+    pub res_resizing_state: Option<ResizingState>,
+    pub res_active_resize_hover: ActiveResizeHoverOption,
+}
+
+#[derive(Clone)]
+pub struct ScrollStoreSnapshot {
+    pub sc_offsets: ScrollOffsetsSecondary,
+    pub sc_sizes: ScrollSizesSecondary,
+}
+
+#[derive(Clone)]
+pub struct TextEditStoreSnapshot {
+    pub edit_selections: TextSelectionsSparse,
+    pub edit_selection_start_index: SelectionStartIndexSparse,
+    pub edit_selected_rects: SelectedRectsSparse,
+}
+
+#[derive(Clone)]
+pub struct LayoutStoreSnapshot {
+    pub scrollbar: ScrollbarStoreSnapshot,
+    pub lay_dirty_entities: DirtyLayoutEntitiesVec,
+    pub lay_taffy_tree: SendTaffyTree<EntityId>,
+    pub lay_taffy_nodes: TaffyNodesSecondary,
+    pub lay_basic: BasicLayoutsSecondary,
+    pub lay_flex: FlexLayoutsSecondary,
+    pub lay_grid: GridLayoutsSparse,
+    pub lay_base_basic: BaseBasicLayoutsSecondary,
+    pub lay_base_flex: BaseFlexLayoutsSecondary,
+    pub lay_resolved_basic: ResolvedBasicSecondary,
+    pub lay_resolved_flex: ResolvedFlexSecondary,
+    pub lay_resolved_grid: ResolvedGridSparse,
+}
+
+#[derive(Clone, derive_more::Deref, derive_more::DerefMut)]
+pub struct SendTaffyTree<T>(pub taffy::TaffyTree<T>);
+
+unsafe impl<T: Send> Send for SendTaffyTree<T> {}
+unsafe impl<T: Sync> Sync for SendTaffyTree<T> {}
+
+impl<T> From<taffy::TaffyTree<T>> for SendTaffyTree<T> {
+    #[inline]
+    fn from(tree: taffy::TaffyTree<T>) -> Self {
+        Self(tree)
+    }
+}
+
+#[derive(Clone)]
+pub struct ScrollbarStoreSnapshot {
+    pub bar_styles: ScrollbarStylesSecondary,
+}
+
+#[cfg(feature = "snapshot")]
+#[derive(Clone)]
+pub struct RenderStoreSnapshot {
+    pub rnd_dirty_entities: DirtyRenderEntitiesVec,
+    pub rnd_visual: VisualPropertiesSecondary,
+    pub rnd_base_visual: BaseVisualPropertiesSecondary,
+    pub rnd_interaction: InteractionPropertiesSecondary,
+    pub rnd_active_transitions: ActiveTransitionsSparse,
+    pub rnd_active_animations: ActiveAnimationsSparse,
+    pub rnd_active_webviews: ActiveWebviewsHashSet,
+    pub rnd_last_tick_time: Option<Instant>,
+}
+
+#[derive(Clone)]
+pub struct OutputStoreSnapshot {
+    pub out_rects: RectsSecondary,
+    pub out_clip_rects: ClipRectsSecondary,
+    pub out_prev_rects: PrevRectsSecondary,
+    pub out_prev_clip_rects: PrevClipRectsSecondary,
+}
+
+#[derive(Clone)]
+pub struct RendererSnapshot {
+    pub frame: u64,
+    pub wgpu: WgpuRendererSnapshot,
+    pub dcomp: ComposedRendererSnapshot,
+}
+
+#[derive(Clone)]
+pub struct WgpuRendererSnapshot {
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub config: wgpu::SurfaceConfiguration,
+    pub pipeline: wgpu::RenderPipeline,
+    pub punchout_pipeline: wgpu::RenderPipeline,
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
+    pub instance_buffer: wgpu::Buffer,
+    pub instance_buffer_capacity: usize,
+    pub instance_staging: Vec<QuadInstance>,
+    pub config_buffer: wgpu::Buffer,
+    pub config_bind_group: wgpu::BindGroup,
+    pub config_bind_group_layout: wgpu::BindGroupLayout,
+    pub atlas: TextureAtlas,
+    pub temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
+    pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
+    pub webview_static_caches: FxHashMap<EntityId, wgpu::TextureView>,
+    pub render_data: RenderData,
+    pub external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
+}
+
+// I で始まる COM だけ AgileReference で包む
+#[derive(Clone)]
+pub struct ComposedRendererSnapshot {
+    pub hwnd: usize,
+    pub layout_size: LayoutSize,
+    pub scale_factor: f32,
+    pub wic_factory: usize,
+    pub dcomp_device: usize,
+    pub dcomp_target: usize,
+    pub root_visual: usize,
+    pub wgpu_visual: usize,
+    pub webview_env: Option<usize>,
+    pub promoted_visuals: Vec<PromotedVisualSnapshot>,
+    pub pending_removals: Vec<(EntityId, Option<wgpu::Texture>)>,
+    pub pending_dcomp_releases: Vec<PendingDcompRelease>,
+    pub current_backdrop: Backdrop,
+    pub resize_cooldown_frames: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct PromotedVisualSnapshot {
+    pub entity_id: EntityId,
+    pub visual: usize,
+    pub transform: Option<usize>,
+    pub webview_controller: Option<usize>,
+    pub is_capturing: bool,
+    pub is_visible: bool,
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "snapshot")]
+impl ContextSnapshot {
+    #[inline]
+    pub(crate) fn flush(cx: &Context) -> Self {
+        Self {
+            frame: cx.debug.frame,
+            window: WindowStoreSnapshot {
+                win_scale_factor: cx.window.win_scale_factor,
+                win_is_resizing: cx.window.win_is_resizing,
+                win_last_size: cx.window.win_last_size,
+                win_default_himc: cx.window.win_default_himc.map(|h| h.0 as usize),
+            },
+            system: SystemStoreSnapshot {
+                sys_text_buffers: cx
+                    .system
+                    .sys_text_buffers
+                    .borrow()
+                    .iter()
+                    .map(|(id, rc_buf)| (id, (**rc_buf).clone()))
+                    .collect(),
+                sys_uia_properties: cx.system.sys_uia_properties.clone(),
+            },
+            reactive: ReactiveStoreSnapshot {
+                react_subscribers: cx.reactive.react_subscribers.clone(),
+                react_element_effects: cx.reactive.react_element_effects.clone(),
+                react_effect_to_element: cx.reactive.react_effect_to_element.clone(),
+                react_pending_element_effects: cx.reactive.react_pending_element_effects.clone(),
+                react_providers: cx.reactive.react_providers.clone(),
+            },
+            events: EventStoreSnapshot {
+                evt_interaction_states: cx.events.evt_interaction_states,
+                evt_current_pointer_position: cx.events.evt_current_pointer_position,
+            },
+            contents: ContentStoreSnapshot {
+                cont_text_contents: cx.contents.cont_text_contents.clone(),
+                cont_text_spans: cx.contents.cont_text_spans.clone(),
+                cont_input_contents: cx.contents.cont_input_contents.clone(),
+                cont_external_textures: cx.contents.cont_external_textures.clone(),
+                cont_webview_contents: cx.contents.cont_webview_contents.clone(),
+                cont_cut_text: cx.contents.cont_cut_text.clone(),
+            },
+            topology: TopologyStoreSnapshot {
+                topo_entities: cx.topology.topo_entities.clone(),
+                topo_active_entities: cx.topology.topo_active_entities.clone(),
+                topo_active_masks: cx.topology.topo_active_masks.clone(),
+                topo_parents: cx.topology.topo_parents.clone(),
+                topo_children: cx.topology.topo_children.clone(),
+                topo_session_spawned: cx.topology.topo_session_spawned.clone(),
+                topo_session_roots: cx.topology.topo_session_roots.clone(),
+                topo_flat_dfs_sequence: cx.topology.topo_flat_dfs_sequence.clone(),
+                topo_dfs_indices: cx.topology.topo_dfs_indices.clone(),
+                topo_effective_z_indices: cx.topology.topo_effective_z_indices.clone(),
+                topo_sorted_entities: cx.topology.topo_sorted_entities.clone(),
+                topo_sort_cache: cx.topology.topo_sort_cache.clone(),
+                topo_is_structure_dirty: cx.topology.topo_is_structure_dirty,
+                topo_is_sort_dirty: cx.topology.topo_is_sort_dirty,
+                topo_webview_entities: cx.topology.topo_webview_entities.clone(),
+                topo_despawned_queue: cx.topology.topo_despawned_queue.clone(),
+            },
+            states: StateStoreSnapshot {
+                dnd: DndStoreSnapshot {
+                    dnd_drag_properties: cx.states.dnd.dnd_drag_properties.clone(),
+                    dnd_drop_properties: cx.states.dnd.dnd_drop_properties.clone(),
+                    dnd_active_drag_state: cx.states.dnd.dnd_active_drag_state.clone(),
+                },
+                resize: ResizeStoreSnapshot {
+                    res_resizing_state: cx.states.resize.res_resizing_state.clone(),
+                    res_active_resize_hover: cx.states.resize.res_active_resize_hover,
+                },
+                scroll: ScrollStoreSnapshot {
+                    sc_offsets: cx.states.scroll.sc_offsets.clone(),
+                    sc_sizes: cx.states.scroll.sc_sizes.clone(),
+                },
+                edit: TextEditStoreSnapshot {
+                    edit_selections: cx.states.edit.edit_selections.clone(),
+                    edit_selection_start_index: cx.states.edit.edit_selection_start_index.clone(),
+                    edit_selected_rects: cx.states.edit.edit_selected_rects.clone(),
+                },
+            },
+            layouts: LayoutStoreSnapshot {
+                scrollbar: ScrollbarStoreSnapshot {
+                    bar_styles: cx.layouts.scrollbar.bar_styles.clone(),
+                },
+                lay_dirty_entities: cx.layouts.lay_dirty_entities.clone(),
+                lay_taffy_tree: cx.layouts.lay_taffy_tree.clone().into(),
+                lay_taffy_nodes: cx.layouts.lay_taffy_nodes.clone(),
+                lay_basic: cx.layouts.lay_basic.clone(),
+                lay_flex: cx.layouts.lay_flex.clone(),
+                lay_grid: cx.layouts.lay_grid.clone(),
+                lay_base_basic: cx.layouts.lay_base_basic.clone(),
+                lay_base_flex: cx.layouts.lay_base_flex.clone(),
+                lay_resolved_basic: cx.layouts.lay_resolved_basic.clone(),
+                lay_resolved_flex: cx.layouts.lay_resolved_flex.clone(),
+                lay_resolved_grid: cx.layouts.lay_resolved_grid.clone(),
+            },
+            renders: RenderStoreSnapshot {
+                rnd_dirty_entities: cx.renders.rnd_dirty_entities.clone(),
+                rnd_visual: cx.renders.rnd_visual.clone(),
+                rnd_base_visual: cx.renders.rnd_base_visual.clone(),
+                rnd_interaction: cx.renders.rnd_interaction.clone(),
+                rnd_active_transitions: cx.renders.rnd_active_transitions.clone(),
+                rnd_active_animations: cx.renders.rnd_active_animations.clone(),
+                rnd_active_webviews: cx.renders.rnd_active_webviews.clone(),
+                rnd_last_tick_time: cx.renders.rnd_last_tick_time,
+            },
+            outputs: OutputStoreSnapshot {
+                out_rects: cx.outputs.out_rects.clone(),
+                out_clip_rects: cx.outputs.out_clip_rects.clone(),
+                out_prev_rects: cx.outputs.out_prev_rects.clone(),
+                out_prev_clip_rects: cx.outputs.out_prev_clip_rects.clone(),
+            },
+        }
+    }
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "snapshot")]
+impl RendererSnapshot {
+    #[inline]
+    pub(crate) fn flush(cx: &Context, r: &ComposedRenderer) -> Self {
+        Self {
+            frame: cx.debug.frame,
+            wgpu: WgpuRendererSnapshot {
+                device: r.wgpu_renderer.device.clone(),
+                queue: r.wgpu_renderer.queue.clone(),
+                config: r.wgpu_renderer.config.clone(),
+                pipeline: r.wgpu_renderer.pipeline.clone(),
+                punchout_pipeline: r.wgpu_renderer.punchout_pipeline.clone(),
+                vertex_buffer: r.wgpu_renderer.vertex_buffer.clone(),
+                index_buffer: r.wgpu_renderer.index_buffer.clone(),
+                instance_buffer: r.wgpu_renderer.instance_buffer.clone(),
+                instance_buffer_capacity: r.wgpu_renderer.instance_buffer_capacity,
+                instance_staging: r.wgpu_renderer.instance_staging.clone(),
+                config_buffer: r.wgpu_renderer.config_buffer.clone(),
+                config_bind_group: r.wgpu_renderer.config_bind_group.clone(),
+                config_bind_group_layout: r.wgpu_renderer.config_bind_group_layout.clone(),
+                atlas: r.wgpu_renderer.atlas.clone(),
+                temp_uv_map: r.wgpu_renderer.temp_uv_map.clone(),
+                text_cache: r.wgpu_renderer.text_cache.clone(),
+                webview_static_caches: r.wgpu_renderer.webview_static_caches.clone(),
+                render_data: r.wgpu_renderer.render_data.clone(),
+                external_bind_groups: r.wgpu_renderer.external_bind_groups.clone(),
+            },
+            dcomp: ComposedRendererSnapshot {
+                hwnd: r.hwnd.0 as usize,
+                layout_size: r.layout_size,
+                scale_factor: r.scale_factor,
+                wic_factory: r.wic_factory.as_raw() as usize,
+                dcomp_device: r.dcomp_device.as_raw() as usize,
+                dcomp_target: r.dcomp_target.as_raw() as usize,
+                root_visual: r.root_visual.as_raw() as usize,
+                wgpu_visual: r.wgpu_visual.as_raw() as usize,
+                webview_env: r.webview_env.borrow().as_ref().map(|w| w.as_raw() as usize),
+                promoted_visuals: r
+                    .promoted_visuals
+                    .iter()
+                    .map(|v| PromotedVisualSnapshot {
+                        entity_id: v.entity_id,
+                        visual: v.visual.as_raw() as usize,
+                        transform: v.transform.clone().map(|t| t.as_raw() as usize),
+                        webview_controller: v
+                            .webview_controller
+                            .borrow()
+                            .as_ref()
+                            .map(|w| w.as_raw() as usize),
+                        is_capturing: v.is_capturing,
+                        is_visible: v.is_visible,
+                    })
+                    .collect(),
+                pending_removals: r.pending_removals.borrow().clone(),
+                pending_dcomp_releases: r.pending_dcomp_releases.clone(),
+                current_backdrop: r.current_backdrop,
+                resize_cooldown_frames: r.resize_cooldown_frames,
+            },
+        }
+    }
 }
 
 // ================================================================
@@ -818,3 +1435,75 @@ pub enum MichiuError {
 
 // ================================================================
 // ================================================================
+
+pub trait OptionTraceExt<T> {
+    /// 値があれば返し、None ならトレースを記録して即座にフラッシュしたあとパニックする
+    #[track_caller]
+    fn unwrap_or_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, err: F) -> T
+    where
+        F: FnOnce() -> MichiuError;
+}
+
+impl<T> OptionTraceExt<T> for Option<T> {
+    #[allow(clippy::panic)]
+    #[track_caller]
+    #[inline]
+    fn unwrap_or_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, err: F) -> T
+    where
+        F: FnOnce() -> MichiuError,
+    {
+        if let Some(val) = self {
+            val
+        } else {
+            let error_detail = err();
+
+            #[cfg(feature = "trace-error")]
+            {
+                trace_error!(id, debug, || MichiuTrace::Error {
+                    detail: error_detail.clone(),
+                    add: None,
+                });
+
+                if let Some(ref tx) = debug.dbg_tx {
+                    let batch = std::mem::take(&mut debug.dbg_trace_queue);
+                    tx.send_batch(batch);
+                }
+            }
+
+            panic!("unwrap_or_trace: {error_detail}");
+        }
+    }
+}
+
+pub trait ResultTraceExt<T> {
+    /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
+    #[track_caller]
+    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
+}
+
+impl<T> ResultTraceExt<T> for Result<T> {
+    #[allow(clippy::panic)]
+    #[track_caller]
+    #[inline]
+    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T {
+        match self {
+            Ok(val) => val,
+            Err(e) => {
+                #[cfg(feature = "trace-error")]
+                {
+                    trace_error!(id, debug, || MichiuTrace::Error {
+                        detail: e.clone(),
+                        add: None,
+                    });
+
+                    if let Some(ref tx) = debug.dbg_tx {
+                        let batch = std::mem::take(&mut debug.dbg_trace_queue);
+                        tx.send_batch(batch);
+                    }
+                }
+
+                panic!("unwrap_or_trace: {e}");
+            }
+        }
+    }
+}

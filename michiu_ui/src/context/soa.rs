@@ -153,7 +153,7 @@ macro_rules! define_sparse_secondary {
 macro_rules! define_vec {
     ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty) $(;)?) => {
         $(#[$meta])*
-        #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+        #[derive(Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
         #[into_iterator(owned, ref, ref_mut)]
         $vis struct $name(pub(crate) Vec<$item>);
     };
@@ -164,7 +164,7 @@ macro_rules! define_vec {
 macro_rules! define_smallvec {
     ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty, $size:expr) $(;)?) => {
         $(#[$meta])*
-        #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+        #[derive(Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
         $vis struct $name(pub(crate) smallvec::SmallVec<[$item; $size]>);
     };
 }

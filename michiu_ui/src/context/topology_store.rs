@@ -4,11 +4,10 @@ use crate::{
     ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
     ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection, FlexLayoutsSecondary,
-    IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
-    MichiuTrace, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
-    SpawnTrace, StateStore, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TimeStamp,
-    VisualPropertiesSecondary, WindowStore, define_secondary, define_slotmap, define_smallvec,
-    define_vec,
+    IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace,
+    OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore, SpawnTrace, StateStore,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TimeStamp, VisualPropertiesSecondary,
+    WindowStore, define_secondary, define_slotmap, define_smallvec, define_vec,
 };
 use derive_more::{Deref, DerefMut, IntoIterator};
 use slotmap::{SecondaryMap, SlotMap};
@@ -21,23 +20,27 @@ struct StackFrame {
     clip: LayoutRect,
 }
 
-define_slotmap!(pub(crate) struct EntitiesSlot(EntityId, ()));
+#[derive(
+    Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator,
+)]
+#[into_iterator(owned, ref, ref_mut)]
+pub struct EntitiesSlot(pub(crate) SlotMap<EntityId, ()>);
 
-define_secondary!(pub(crate) struct ParentsSecondary(Option<EntityId>));
-define_secondary!(pub(crate) struct ChildrenSecondary(SmallVec<[EntityId; 8]>));
-define_secondary!(pub(crate) struct ActiveMasksSecondary(ComponentMask));
-define_secondary!(pub(crate) struct EffectiveZindicesSecondary(i32));
-define_secondary!(pub(crate) struct DfsIndicesSecondary(u32));
+define_secondary!(pub struct ParentsSecondary(Option<EntityId>));
+define_secondary!(pub struct ChildrenSecondary(SmallVec<[EntityId; 8]>));
+define_secondary!(pub struct ActiveMasksSecondary(ComponentMask));
+define_secondary!(pub struct EffectiveZindicesSecondary(i32));
+define_secondary!(pub struct DfsIndicesSecondary(u32));
 
-define_vec!(pub(crate) struct ActiveEntitiesVec(EntityId));
-define_vec!(pub(crate) struct SessionSpawnedVec(EntityId));
-define_vec!(pub(crate) struct FlatDfsSequenceVec(EntityId));
-define_vec!(pub(crate) struct SortedEntitiesVec(EntityId));
-define_vec!(pub(crate) struct SortCacheVec((EntityId, i32, u32)));
+define_vec!(pub struct ActiveEntitiesVec(EntityId));
+define_vec!(pub struct SessionSpawnedVec(EntityId));
+define_vec!(pub struct FlatDfsSequenceVec(EntityId));
+define_vec!(pub struct SortedEntitiesVec(EntityId));
+define_vec!(pub struct SortCacheVec((EntityId, i32, u32)));
 
-define_smallvec!(pub(crate) struct SessionRootsVec(EntityId, 4));
-define_smallvec!(pub(crate) struct WebviewEntitiesVec(EntityId, 4));
-define_smallvec!(pub(crate) struct DespawnedQueueVec(EntityId, 4));
+define_smallvec!(pub struct SessionRootsVec(EntityId, 4));
+define_smallvec!(pub struct WebviewEntitiesVec(EntityId, 4));
+define_smallvec!(pub struct DespawnedQueueVec(EntityId, 4));
 
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ

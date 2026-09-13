@@ -138,6 +138,24 @@ impl Context {
         }
     }
 
+    #[cfg(feature = "trace-error")]
+    #[inline]
+    #[must_use]
+    pub fn with_inspector(inspector: &MichiuInspector) -> Self {
+        let mut cx = Self::new();
+        cx.set_inspector(inspector);
+        cx
+    }
+
+    #[cfg(feature = "trace-error")]
+    #[inline]
+    #[must_use]
+    pub fn with_capacity_and_inspector(cap: &CapacityConfig, inspector: &MichiuInspector) -> Self {
+        let mut cx = Self::with_capacity(cap);
+        cx.set_inspector(inspector);
+        cx
+    }
+
     /// 一括解放
     #[inline]
     pub fn clear(&mut self) {
@@ -307,11 +325,8 @@ impl Context {
     /// 現在イベントハンドラを実行している要素（自分自身） を取得します
     #[inline]
     pub fn current(&self) -> Element {
-        Element {
-            id: self
-                .current_element_id()
-                .expect("Context::current() called outside event dispatch"),
-        }
+        let id = self.current_element_id().unwrap();
+        Element { id }
     }
 
     #[inline]
@@ -332,6 +347,18 @@ impl Context {
         LayoutStore::clear_layout_dirty(
             &mut self.topology.topo_active_masks,
             &mut self.layouts.lay_dirty_entities,
+        );
+    }
+
+    #[inline]
+    pub fn clear_dirty(&mut self) {
+        LayoutStore::clear_layout_dirty(
+            &mut self.topology.topo_active_masks,
+            &mut self.layouts.lay_dirty_entities,
+        );
+        RenderStore::clear_render_dirty(
+            &mut self.topology.topo_active_masks,
+            &mut self.renders.rnd_dirty_entities,
         );
     }
 

@@ -6,12 +6,12 @@ use crate::{
     CapacityConfig, ChildrenSecondary, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary,
     GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutSize, LayoutStage, LayoutStore, Length, MichiuSoA, MichiuTrace,
-    OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    LayoutSize, LayoutStage, LayoutStore, Length, MichiuSoA, MichiuTrace, OutputStore,
+    ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
     ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse,
     TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, Val, VisualPropertiesSecondary,
-    WindowStore, trace,
+    WindowStore,
 };
 use slotmap::SparseSecondaryMap;
 use smallvec::SmallVec;
@@ -127,26 +127,26 @@ enum ScrollbarComponent {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ScrollBarState {
-    pub(crate) style: ScrollbarStyle,
+pub struct ScrollBarState {
+    pub style: ScrollbarStyle,
 
     // レイアウトツリーに動的挿入される Element の EntityId
-    pub(crate) v_track_id: Option<EntityId>,
-    pub(crate) v_thumb_id: Option<EntityId>,
-    pub(crate) h_track_id: Option<EntityId>,
-    pub(crate) h_thumb_id: Option<EntityId>,
+    pub v_track_id: Option<EntityId>,
+    pub v_thumb_id: Option<EntityId>,
+    pub h_track_id: Option<EntityId>,
+    pub h_thumb_id: Option<EntityId>,
 
     // ホバー・ドラッグのランタイム状態
-    pub(crate) v_thumb_hovered: bool,
-    pub(crate) v_thumb_dragged: bool,
-    pub(crate) h_thumb_hovered: bool,
-    pub(crate) h_thumb_dragged: bool,
+    pub v_thumb_hovered: bool,
+    pub v_thumb_dragged: bool,
+    pub h_thumb_hovered: bool,
+    pub h_thumb_dragged: bool,
 
-    pub(crate) drag_start_mouse: LayoutPoint,
-    pub(crate) drag_start_offset: LayoutPoint,
+    pub drag_start_mouse: LayoutPoint,
+    pub drag_start_offset: LayoutPoint,
 
     // 一時表示（Transient）モードの表示制御用
-    pub(crate) last_scroll_time: Option<std::time::Instant>,
+    pub last_scroll_time: Option<std::time::Instant>,
 }
 
 pub(crate) type ScrollbarStylesSecondary = SparseSecondaryMap<EntityId, ScrollBarState>;

@@ -24,28 +24,28 @@ use std::{
 
 /// CPU 側で現在再生中の動的なキーフレームアニメーションの状態
 #[derive(Debug, Clone)]
-pub(crate) struct ActiveAnimation {
-    pub(crate) property: PropertyList,
-    pub(crate) start_time: Instant,
-    pub(crate) duration: Duration,
-    pub(crate) iteration_count: PlaybackCount,
-    pub(crate) curve: AnimationCurve,
+pub struct ActiveAnimation {
+    pub property: PropertyList,
+    pub start_time: Instant,
+    pub duration: Duration,
+    pub iteration_count: PlaybackCount,
+    pub curve: AnimationCurve,
 
     // 回転アニメーションなどのために、現在の周回（ループ）における開始ベース値と目標値を定義
-    pub(crate) start_value: TransitionValue,
-    pub(crate) end_value: TransitionValue,
+    pub start_value: TransitionValue,
+    pub end_value: TransitionValue,
 }
 
-define_secondary!(pub(crate) struct VisualPropertiesSecondary(VisualProperty));
-define_secondary!(pub(crate) struct BaseVisualPropertiesSecondary(VisualProperty));
-define_secondary!(pub(crate) struct InteractionPropertiesSecondary(InteractionStyles));
+define_secondary!(pub struct VisualPropertiesSecondary(VisualProperty));
+define_secondary!(pub struct BaseVisualPropertiesSecondary(VisualProperty));
+define_secondary!(pub struct InteractionPropertiesSecondary(InteractionStyles));
 
-define_sparse_secondary!(pub(crate) struct ActiveTransitionsSparse(Vec<ActiveTransition>));
-define_sparse_secondary!(pub(crate) struct ActiveAnimationsSparse(Vec<ActiveAnimation>));
+define_sparse_secondary!(pub struct ActiveTransitionsSparse(Vec<ActiveTransition>));
+define_sparse_secondary!(pub struct ActiveAnimationsSparse(Vec<ActiveAnimation>));
 
-define_vec!(pub(crate) struct DirtyRenderEntitiesVec(EntityId));
+define_vec!(pub struct DirtyRenderEntitiesVec(EntityId));
 
-pub(crate) type ActiveWebviewsHashSet = FxHashSet<EntityId>;
+pub type ActiveWebviewsHashSet = FxHashSet<EntityId>;
 
 pub struct RenderStore {
     pub(crate) rnd_dirty_entities: DirtyRenderEntitiesVec,

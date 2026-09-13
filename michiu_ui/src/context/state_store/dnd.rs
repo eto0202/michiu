@@ -57,17 +57,18 @@ pub struct DndDropProperty {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ActiveDragState {
-    pub(crate) source_entity: EntityId,      // ドラッグ元の要素
-    pub(crate) placeholder_entity: EntityId, // ルートまたは親に浮かせているプレースホルダー
-    pub(crate) current_drop_target: Option<EntityId>, // 現在ホバー侵入中のドロップターゲット要素
-    pub(crate) start_mouse_pos: LayoutPoint, // ドラッグ開始時のマウス座標
-    pub(crate) start_rect: LayoutRect,       // ドラッグ元の初期サイズ・座標
-    pub(crate) click_offset: LayoutPoint,    // ドラッグ開始時のマウスと要素左上端の相対的なズレ
-    pub(crate) original_parent: Option<EntityId>,
+pub struct ActiveDragState {
+    pub source_entity: EntityId,               // ドラッグ元の要素
+    pub placeholder_entity: EntityId,          // ルートまたは親に浮かせているプレースホルダー
+    pub current_drop_target: Option<EntityId>, // 現在ホバー侵入中のドロップターゲット要素
+    pub start_mouse_pos: LayoutPoint,          // ドラッグ開始時のマウス座標
+    pub start_rect: LayoutRect,                // ドラッグ元の初期サイズ・座標
+    pub click_offset: LayoutPoint,             // ドラッグ開始時のマウスと要素左上端の相対的なズレ
+    pub original_parent: Option<EntityId>,
 }
 
 /// プレースホルダーをアタッチする際の親要素の情報
+#[derive(Debug, Clone)]
 pub(crate) struct PlaceholderAttachment {
     pub(crate) parent_id: Option<EntityId>,
     pub(crate) rect: LayoutRect,
@@ -75,8 +76,8 @@ pub(crate) struct PlaceholderAttachment {
     pub(crate) border_top: f32,
 }
 
-define_sparse_secondary!(pub(crate) struct DndDragPropertiesSparse(DndDragProperty));
-define_sparse_secondary!(pub(crate) struct DndDropPropertiesSparse(DndDropProperty));
+define_sparse_secondary!(pub struct DndDragPropertiesSparse(DndDragProperty));
+define_sparse_secondary!(pub struct DndDropPropertiesSparse(DndDropProperty));
 
 pub(crate) struct DndStore {
     pub(crate) dnd_drag_properties: DndDragPropertiesSparse,

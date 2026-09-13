@@ -14,39 +14,39 @@ use wgpu::wgt::CommandEncoderDescriptor;
 use wgpu::{CurrentSurfaceTexture, PipelineCompilationOptions};
 
 pub struct WgpuRenderer {
-    pub(crate) surface: wgpu::Surface<'static>,
-    pub(crate) device: wgpu::Device,
-    pub(crate) queue: wgpu::Queue,
-    pub(crate) config: wgpu::SurfaceConfiguration,
+    pub surface: wgpu::Surface<'static>,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub config: wgpu::SurfaceConfiguration,
 
-    pub(crate) pipeline: wgpu::RenderPipeline,
-    pub(crate) punchout_pipeline: wgpu::RenderPipeline,
+    pub pipeline: wgpu::RenderPipeline,
+    pub punchout_pipeline: wgpu::RenderPipeline,
 
     // 頂点データ（共通の 1x1 矩形）
-    pub(crate) vertex_buffer: wgpu::Buffer,
-    pub(crate) index_buffer: wgpu::Buffer,
+    pub vertex_buffer: wgpu::Buffer,
+    pub index_buffer: wgpu::Buffer,
 
     // インスタンスデータ（可変長バッファ）
-    pub(crate) instance_buffer: wgpu::Buffer,
-    pub(crate) instance_buffer_capacity: usize,
-    pub(crate) instance_staging: Vec<QuadInstance>,
+    pub instance_buffer: wgpu::Buffer,
+    pub instance_buffer_capacity: usize,
+    pub instance_staging: Vec<QuadInstance>,
 
     // スクリーン投影用 Uniform
-    pub(crate) config_buffer: wgpu::Buffer,
-    pub(crate) config_bind_group: wgpu::BindGroup,
+    pub config_buffer: wgpu::Buffer,
+    pub config_bind_group: wgpu::BindGroup,
     // ebView2 の静止画を描画する際にバインドグループを動的生成するため保持
-    pub(crate) config_bind_group_layout: wgpu::BindGroupLayout,
+    pub config_bind_group_layout: wgpu::BindGroupLayout,
 
-    pub(crate) atlas: TextureAtlas,
-    pub(crate) temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
-    pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
+    pub atlas: TextureAtlas,
+    pub temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
+    pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
     // 非アクティブ状態の WebView2 の静止画キャッシュ
-    pub(crate) webview_static_caches: FxHashMap<EntityId, wgpu::TextureView>,
+    pub webview_static_caches: FxHashMap<EntityId, wgpu::TextureView>,
 
-    pub(crate) render_data: RenderData,
+    pub render_data: RenderData,
 
     /// 外部テクスチャ用の `BindGroup` キャッシュ
-    pub(crate) external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
+    pub external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
 }
 
 #[repr(C)]
@@ -614,9 +614,6 @@ impl WgpuRenderer {
         }
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
-
-        // 描画が完了したため蓄積された描画Dirtyをクリア
-        cx.clear_render_dirty();
 
         // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュ
         self.device.poll(wgpu::PollType::Poll);

@@ -19,18 +19,18 @@ pub(crate) struct TextEngine {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TextCacheKey {
-    pub(crate) cache_key: CacheKey,
+pub struct TextCacheKey {
+    pub cache_key: CacheKey,
 }
 
 #[derive(Clone, Debug, Copy)]
-pub(crate) struct TextCacheValue {
-    pub(crate) uv_min: [f32; 2],
-    pub(crate) uv_max: [f32; 2],
-    pub(crate) offset_x: i32,
-    pub(crate) offset_y: i32,
-    pub(crate) width: f32,
-    pub(crate) height: f32,
+pub struct TextCacheValue {
+    pub uv_min: [f32; 2],
+    pub uv_max: [f32; 2],
+    pub offset_x: i32,
+    pub offset_y: i32,
+    pub width: f32,
+    pub height: f32,
 }
 
 impl TextCacheValue {
@@ -442,17 +442,18 @@ impl TextEngine {
     }
 }
 
-pub(crate) struct TextureAtlas {
-    pub(crate) texture: wgpu::Texture,
-    pub(crate) view: wgpu::TextureView,
-    pub(crate) sampler: wgpu::Sampler,
-    pub(crate) size: u32,
+#[derive(Debug, Clone)]
+pub struct TextureAtlas {
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
+    pub sampler: wgpu::Sampler,
+    pub size: u32,
 
     // パッキング状態
-    pub(crate) current_x: u32,
-    pub(crate) current_y: u32,
-    pub(crate) row_max_height: u32,
-    pub(crate) padding: u32,
+    pub current_x: u32,
+    pub current_y: u32,
+    pub row_max_height: u32,
+    pub padding: u32,
 }
 
 impl TextureAtlas {

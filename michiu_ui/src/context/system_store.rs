@@ -65,10 +65,10 @@ impl TaskSender {
     }
 }
 
-define_sparse_secondary!(pub(crate) struct TextBufferSparseInner(Rc<Buffer>));
-define_sparse_secondary!(pub(crate) struct UiaPropertiesSparse(Vec<(i32, UiaValue)>));
+define_sparse_secondary!(pub struct TextBufferSparseInner(Rc<Buffer>));
+define_sparse_secondary!(pub struct UiaPropertiesSparse(Vec<(i32, UiaValue)>));
 
-pub(crate) type TextBufferSparse = RefCell<TextBufferSparseInner>;
+pub type TextBufferSparse = RefCell<TextBufferSparseInner>;
 pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;
 
 pub struct SystemStore {
@@ -101,9 +101,9 @@ impl SystemStore {
     ) -> Self {
         Self {
             sys_text_engine: TextEngine::new(),
-            sys_text_buffers: RefCell::new(TextBufferSparseInner(SparseSecondaryMap::with_capacity(
-                c.sys_text_buffers,
-            ))),
+            sys_text_buffers: RefCell::new(TextBufferSparseInner(
+                SparseSecondaryMap::with_capacity(c.sys_text_buffers),
+            )),
             sys_task_sender,
             sys_task_receiver,
             sys_uia_properties: UiaPropertiesSparse(SparseSecondaryMap::new()),

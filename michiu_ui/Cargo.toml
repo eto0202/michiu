@@ -63,8 +63,15 @@ features = [
 [features]
 serde = ["dep:serde"]
 dhat-heap = ["dep:dhat"]
-default = ["logging"]
-logging = []
+default = ["trace-error"]
+# エラーのみ。
+trace-error = []
+# ライフサイクルなど。マクロな追跡。
+trace-lifecycle = ["trace-error"]
+# 全エンティティ。ミクロな追跡。
+trace-entity = ["trace-lifecycle"]
+# Context などのスナップショット
+snapshot = ["trace-error"]
 
 [package.metadata.docs.rs]
 all-features = true
