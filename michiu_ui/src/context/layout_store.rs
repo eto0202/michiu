@@ -149,8 +149,8 @@ impl LayoutStore {
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
-        let mut basic = lay_basic.get_or_default(id);
-        let mut flex = lay_flex.get_or_default(id);
+        let mut basic = lay_basic.find_or_default(id);
+        let mut flex = lay_flex.find_or_default(id);
         let mut grid = lay_grid.find(id).cloned();
 
         let active_mask = topo_active_masks.at(id);

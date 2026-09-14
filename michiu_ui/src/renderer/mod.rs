@@ -15,6 +15,7 @@ use crate::{Color, CornerRadius, EdgeInsets, EntityId, LayoutRect};
 use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 
+#[allow(clippy::pub_underscore_fields)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct QuadInstance {

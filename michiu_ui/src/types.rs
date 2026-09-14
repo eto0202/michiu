@@ -10,12 +10,9 @@ pub use index::*;
 pub use layout_data::*;
 pub use string::*;
 
-use crate::{
-    Context, Element, EntityId, ImeState, MichiuError, PropertyList, ResultTraceExt, VirtualKey,
-    rgba, trace_error,
-};
+use crate::{Context, Element, EntityId, ImeState, MichiuError, PropertyList, VirtualKey, rgba};
 use bytemuck::{Pod, Zeroable};
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use windows::Win32::{
     Graphics::Gdi::{
         BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
@@ -1478,7 +1475,7 @@ impl CursorIcon {
     /// Windows API の HCURSOR 物理ハンドルを安全にロードして返却します。
     /// 独自の HCURSOR が指定されている場合はそれを最優先し、None の場合はOSのシステム標準をロードします。
     #[must_use]
-    pub fn to_hcursor(self) -> windows_core::Result<HCURSOR> {
+    pub fn to_hcursor(self) -> crate::Result<HCURSOR> {
         use windows::Win32::UI::WindowsAndMessaging::{
             IDC_ARROW, IDC_HAND, IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
             IDC_SIZENWSE, IDC_SIZEWE, LoadCursorW,
@@ -1536,7 +1533,7 @@ impl CursorIcon {
                 CursorIcon::ResizeNwse(None) => IDC_SIZENWSE,
             };
 
-            LoadCursorW(None, idc)
+            LoadCursorW(None, idc).map_err(|e| MichiuError::WindowsApiError { source: e })
         }
     }
 
@@ -1547,15 +1544,21 @@ impl CursorIcon {
         height: u32,
         hotspot_x: u32,
         hotspot_y: u32,
-    ) -> Result<HCURSOR, Box<dyn std::error::Error>> {
-        if rgba_pixels.len() != (width * height * 4) as usize {
-            return Err("Pixel buffer size mismatch for the given width and height".into());
+    ) -> crate::Result<HCURSOR> {
+        let len = rgba_pixels.len();
+        if len != (width * height * 4) as usize {
+            return Err(MichiuError::CursorCreationFailed(
+                "The pixel buffer size ({len}) does not match the resolution ({width} * {height} * 4)."
+                    .into()
+            ));
         }
 
         unsafe {
             let h_dc = GetDC(None);
             if h_dc.is_invalid() {
-                return Err("Failed to get DC".into());
+                return Err(MichiuError::CursorCreationFailed(
+                    "Failed to obtain device context (DC).".into(),
+                ));
             }
 
             let bmi = BITMAPINFO {
@@ -1579,12 +1582,17 @@ impl CursorIcon {
                 &raw mut pv_bits,
                 None,
                 0,
-            )?;
+            )
+            .map_err(|e| {
+                MichiuError::CursorCreationFailed(format!("Failed to create DIBSection.: {e}"))
+            })?;
 
             if pv_bits.is_null() {
                 let _ = ReleaseDC(None, h_dc);
                 let _ = DeleteObject(HGDIOBJ(hbm_color.0));
-                return Err("Failed to allocate DIB Section memory".into());
+                return Err(MichiuError::CursorCreationFailed(
+                    "DIBSection memory allocation failed.".into(),
+                ));
             }
 
             let dest_slice =
@@ -1606,7 +1614,9 @@ impl CursorIcon {
                 hbmColor: hbm_color,
             };
 
-            let h_icon = CreateIconIndirect(&raw const icon_info)?;
+            let h_icon = CreateIconIndirect(&raw const icon_info).map_err(|e| {
+                MichiuError::CursorCreationFailed(format!("IconIndirect generation failed.: {e}"))
+            })?;
             let h_cursor = windows::Win32::UI::WindowsAndMessaging::HCURSOR(h_icon.0);
 
             let _ = DeleteObject(HGDIOBJ(hbm_color.0));
@@ -1622,8 +1632,12 @@ impl CursorIcon {
         path: impl AsRef<std::path::Path>,
         hotspot_x: u32,
         hotspot_y: u32,
-    ) -> Result<HCURSOR, Box<dyn std::error::Error>> {
-        let img = image::open(path)?;
+    ) -> crate::Result<HCURSOR> {
+        let p_clone = path.as_ref().to_path_buf();
+        let img = image::open(path).map_err(|e| MichiuError::ImageLoadFailed {
+            path: p_clone,
+            source: Arc::new(e),
+        })?;
         let rgba_img = img.to_rgba8();
         let (width, height) = rgba_img.dimensions();
 

@@ -233,7 +233,7 @@ impl ContentStore {
 
         let size = sys_text_engine.measure_text(
             text,
-            font,
+            &font,
             flex.text_align,
             max_width,
             Some(auto_wrap),

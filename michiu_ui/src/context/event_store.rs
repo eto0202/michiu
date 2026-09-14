@@ -1,12 +1,5 @@
 use crate::{
-    ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC, DndStore,
-    ElementState, EntityId, EventListeners, FocusStore, InputContents, InputOp, LayoutPoint,
-    LayoutStore, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, Pipeline,
-    RenderStore, ResizeStore, ScrollStore, ScrollbarStore, SelectedRectsSparse,
-    SelectionStartIndexSparse, SystemStore, TextEditStore, TextSelectionsSparse, TopologyStore,
-    UserSelect, VirtualKey, handle_on_click, handle_on_cursor_moved, handle_on_hover,
-    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
-    handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
+    ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC, DndStore, ElementState, EntityId, EventListeners, FocusStore, InputContents, InputOp, LayoutPoint, LayoutStore, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, Pipeline, RenderStore, ResizeStore, ScrollStore, ScrollbarStore, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEditStore, TextEngine, TextSelectionsSparse, TopologyStore, UserSelect, VirtualKey, handle_on_click, handle_on_cursor_moved, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
 use std::ops::Range;
@@ -187,9 +180,6 @@ impl EventStore {
             &cx.layouts.lay_taffy_nodes,
             &cx.layouts.lay_resolved_basic,
             &mut cx.renders.rnd_dirty_entities,
-            &cx.renders.rnd_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
@@ -329,17 +319,11 @@ impl EventStore {
                 let local = OutputStore::pressed_local_point(
                     pressed_id,
                     logical_pos,
-                    buffer.as_ref(),
-                    &mut cx.system.sys_text_engine,
+                    &buffer,
                     &cx.contents.cont_input_contents,
-                    &cx.topology.topo_active_masks,
-                    &cx.topology.topo_parents,
                     &cx.layouts.lay_resolved_basic,
                     &cx.layouts.lay_resolved_flex,
                     &cx.layouts.lay_resolved_grid,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
-                    &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_offsets,
                 );
@@ -348,7 +332,7 @@ impl EventStore {
                     pressed_id,
                     start_pos,
                     local,
-                    buffer.as_ref(),
+                    &buffer,
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
                     &mut cx.system.sys_text_engine,
@@ -358,7 +342,6 @@ impl EventStore {
                     &cx.contents.cont_text_spans,
                     &mut cx.topology.topo_active_masks,
                     &cx.topology.topo_parents,
-                    &cx.topology.topo_children,
                     &mut cx.layouts.lay_dirty_entities,
                     &mut cx.layouts.lay_taffy_tree,
                     &mut cx.layouts.scrollbar.bar_styles,
@@ -369,8 +352,6 @@ impl EventStore {
                     &mut cx.renders.rnd_dirty_entities,
                     &mut cx.renders.rnd_visual,
                     &cx.renders.rnd_base_visual,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
                     &mut cx.states.scroll.sc_offsets,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selected_rects,
@@ -488,9 +469,6 @@ impl EventStore {
                 &cx.layouts.lay_taffy_nodes,
                 &cx.layouts.lay_resolved_basic,
                 &mut cx.renders.rnd_dirty_entities,
-                &cx.renders.rnd_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
@@ -537,14 +515,11 @@ impl EventStore {
                 &cx.contents.cont_text_spans,
                 &cx.contents.cont_input_contents,
                 &mut cx.topology.topo_active_masks,
-                &cx.topology.topo_parents,
                 &cx.layouts.lay_resolved_basic,
                 &cx.layouts.lay_resolved_flex,
                 &cx.layouts.lay_resolved_grid,
                 &mut cx.renders.rnd_dirty_entities,
                 &cx.renders.rnd_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selection_start_index,
                 &mut cx.states.edit.edit_selected_rects,
@@ -682,7 +657,7 @@ impl EventStore {
 
         let text = cx.contents.cont_text_contents.at(target_id);
 
-        let Some(buffer) = SystemStore::get_or_create_layout(
+        let buffer = SystemStore::get_or_create_layout(
             target_id,
             &mut cx.system.sys_text_engine,
             &cx.system.sys_text_buffers,
@@ -692,26 +667,22 @@ impl EventStore {
             &cx.layouts.lay_resolved_flex,
             &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
-        ) else {
-            return;
-        };
+        );
 
         // ヒット先があるなら Some のはず
         let rect = *cx.outputs.out_rects.at(target_id);
         let basic = cx
             .layouts
             .lay_resolved_basic
-            .get_or(target_id, &DEFAULT_BASIC);
+            .find_or(target_id, &DEFAULT_BASIC);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
         let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
         let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
 
-        let (clicked_index, _) = cx
-            .system
-            .sys_text_engine
-            .hit_test_point(&buffer, LayoutPoint::new(local_x, local_y));
+        let (clicked_index, _) =
+            TextEngine::hit_test_point(&buffer, LayoutPoint::new(local_x, local_y));
 
         let range = text.find_word_boundaries(clicked_index);
 
@@ -758,8 +729,6 @@ impl EventStore {
                 &mut cx.renders.rnd_dirty_entities,
                 &mut cx.renders.rnd_visual,
                 &cx.renders.rnd_base_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selected_rects,
@@ -803,7 +772,7 @@ impl EventStore {
                 let basic = cx
                     .layouts
                     .lay_resolved_basic
-                    .get_or(curr_id, &DEFAULT_BASIC);
+                    .find_or(curr_id, &DEFAULT_BASIC);
 
                 // スクロール可能な軸の移動量
                 let dy = if scroll_y != 0.0
@@ -837,9 +806,6 @@ impl EventStore {
                         &mut cx.layouts.scrollbar.bar_styles,
                         &cx.layouts.lay_taffy_nodes,
                         &cx.layouts.lay_resolved_basic,
-                        &cx.renders.rnd_visual,
-                        &cx.renders.rnd_interaction,
-                        &cx.renders.rnd_active_transitions,
                         &mut cx.states.scroll.sc_offsets,
                         &cx.outputs.out_rects,
                         &cx.states.scroll.sc_sizes,
@@ -906,7 +872,6 @@ impl EventStore {
                     &cx.contents.cont_text_spans,
                     &mut cx.topology.topo_active_masks,
                     &cx.topology.topo_parents,
-                    &cx.topology.topo_children,
                     &mut cx.layouts.lay_dirty_entities,
                     &mut cx.layouts.lay_taffy_tree,
                     &mut cx.layouts.scrollbar.bar_styles,
@@ -917,8 +882,6 @@ impl EventStore {
                     &mut cx.renders.rnd_dirty_entities,
                     &mut cx.renders.rnd_visual,
                     &cx.renders.rnd_base_visual,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
                     &mut cx.states.scroll.sc_offsets,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selected_rects,
@@ -1097,8 +1060,6 @@ impl EventStore {
             &cx.layouts.lay_resolved_grid,
             &mut cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &mut cx.states.edit.edit_selections,
             &cx.outputs.out_rects,
@@ -1127,8 +1088,6 @@ impl EventStore {
             &mut cx.renders.rnd_dirty_entities,
             &mut cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &mut cx.states.edit.edit_selections,
             &mut cx.states.edit.edit_selected_rects,
@@ -1208,8 +1167,6 @@ impl EventStore {
             &mut cx.renders.rnd_dirty_entities,
             &mut cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &mut cx.states.edit.edit_selections,
             &mut cx.states.edit.edit_selected_rects,
@@ -1286,8 +1243,6 @@ impl EventStore {
             &mut cx.renders.rnd_dirty_entities,
             &mut cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &mut cx.states.edit.edit_selections,
             &mut cx.states.edit.edit_selected_rects,
@@ -1383,8 +1338,6 @@ impl EventStore {
                 &mut cx.renders.rnd_dirty_entities,
                 &mut cx.renders.rnd_visual,
                 &cx.renders.rnd_base_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selected_rects,

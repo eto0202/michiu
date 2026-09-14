@@ -157,7 +157,7 @@ impl Element {
             return;
         };
 
-        let engine = SystemStore::get_or_create_layout(
+        let buffer = SystemStore::get_or_create_layout(
             id,
             &mut cx.system.sys_text_engine,
             &cx.system.sys_text_buffers,
@@ -172,17 +172,11 @@ impl Element {
         let local = OutputStore::pressed_local_point(
             id,
             pointer_pos,
-            engine.as_ref(),
-            &mut cx.system.sys_text_engine,
+            &buffer,
             &cx.contents.cont_input_contents,
-            &cx.topology.topo_active_masks,
-            &cx.topology.topo_parents,
             &cx.layouts.lay_resolved_basic,
             &cx.layouts.lay_resolved_flex,
             &cx.layouts.lay_resolved_grid,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
-            &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_offsets,
         );
@@ -211,20 +205,6 @@ impl Element {
                 Some(&mut cx.states.edit.edit_selected_rects),
             );
         } else {
-            let Some(buffer) = SystemStore::get_or_create_layout(
-                id,
-                &mut cx.system.sys_text_engine,
-                &cx.system.sys_text_buffers,
-                &cx.contents.cont_text_contents,
-                &cx.contents.cont_text_spans,
-                &cx.layouts.lay_resolved_basic,
-                &cx.layouts.lay_resolved_flex,
-                &cx.renders.rnd_visual,
-                &cx.outputs.out_rects,
-            ) else {
-                return;
-            };
-
             // 表示テキストを取得
             let display_text = cx
                 .contents
@@ -235,8 +215,7 @@ impl Element {
 
             // 表示バッファ上でヒットテスト
             // 返ってくるのは表示テキスト上のバイト位置
-            let (display_caret, is_trailing) =
-                cx.system.sys_text_engine.hit_test_point(&buffer, local);
+            let (display_caret, is_trailing) = TextEngine::hit_test_point(&buffer, local);
 
             // 表示テキスト基準で次の文字境界へ進める
             let final_display_caret = if is_trailing {
@@ -516,7 +495,7 @@ impl Element {
             let new_caret = text_val.next_char_boundary(caret);
 
             if mods.shift {
-                let anchor = *edit_selection_start_index.get_or(id, &caret);
+                let anchor = *edit_selection_start_index.find_or(id, &caret);
                 if !edit_selection_start_index.contains_key(id) {
                     edit_selection_start_index.insert(id, caret);
                 }
@@ -549,7 +528,6 @@ impl Element {
         caret: ByteIndex,
         text_val: &MichiuString,
         mods: Modifiers,
-        sys_text_engine: &mut TextEngine,
         edit_selections: &mut TextSelectionsSparse,
         edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) -> bool {
@@ -557,12 +535,12 @@ impl Element {
             return false;
         }
 
-        let (cx_offset, cy_offset, ch_height) = sys_text_engine.get_caret_position(buffer, caret);
+        let (cx_offset, cy_offset, ch_height) = TextEngine::get_caret_position(buffer, caret);
 
         let target_y = (cy_offset - ch_height * 0.5).max(0.0);
 
         let (new_caret, is_trailing) =
-            sys_text_engine.hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
+            TextEngine::hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
 
         let final_caret = if is_trailing {
             text_val.next_char_boundary(new_caret)
@@ -571,7 +549,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = *edit_selection_start_index.get_or(id, &caret);
+            let anchor = *edit_selection_start_index.find_or(id, &caret);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }
@@ -603,7 +581,6 @@ impl Element {
         caret: ByteIndex,
         text_val: &MichiuString,
         mods: Modifiers,
-        sys_text_engine: &mut TextEngine,
         edit_selections: &mut TextSelectionsSparse,
         edit_selection_start_index: &mut SelectionStartIndexSparse,
     ) -> bool {
@@ -611,12 +588,12 @@ impl Element {
             return false;
         }
 
-        let (cx_offset, cy_offset, ch_height) = sys_text_engine.get_caret_position(buffer, caret);
+        let (cx_offset, cy_offset, ch_height) = TextEngine::get_caret_position(buffer, caret);
 
         let target_y = cy_offset + ch_height * 1.5;
 
         let (new_caret, is_trailing) =
-            sys_text_engine.hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
+            TextEngine::hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
 
         let final_caret = if is_trailing {
             text_val.next_char_boundary(new_caret)
@@ -625,7 +602,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = *edit_selection_start_index.get_or(id, &caret);
+            let anchor = *edit_selection_start_index.find_or(id, &caret);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }
@@ -661,9 +638,7 @@ impl Element {
             return;
         }
 
-        let Some(buffer) = cx.get_or_create_layout(id) else {
-            return;
-        };
+        let buffer = cx.get_or_create_layout(id);
 
         let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;
@@ -738,7 +713,6 @@ impl Element {
                     caret,
                     &text_val,
                     mods,
-                    &mut cx.system.sys_text_engine,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
                 );
@@ -751,7 +725,6 @@ impl Element {
                     caret,
                     &text_val,
                     mods,
-                    &mut cx.system.sys_text_engine,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
                 );

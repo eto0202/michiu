@@ -123,7 +123,7 @@ impl SystemStore {
         lay_resolved_flex: &ResolvedFlexSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         out_rects: &RectsSecondary,
-    ) -> Option<Rc<Buffer>> {
+    ) -> Rc<Buffer> {
         let text = cont_text_contents.at(id);
 
         let font = rnd_visual
@@ -132,9 +132,9 @@ impl SystemStore {
             .unwrap_or_default();
         let auto_wrap = rnd_visual.find(id).and_then(|v| v.auto_wrap);
 
-        let basic = lay_resolved_basic.get_or_default(id);
-        let flex = lay_resolved_flex.get_or_default(id);
-        let rect = out_rects.get_or_default(id); // 初回実行の場合、存在しない可能性
+        let basic = lay_resolved_basic.find_or_default(id);
+        let flex = lay_resolved_flex.find_or_default(id);
+        let rect = out_rects.find_or_default(id); // 初回実行の場合、存在しない可能性
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -160,7 +160,7 @@ impl SystemStore {
             };
 
             if is_width_matched {
-                return Some(buffer);
+                return buffer;
             }
         }
         sys_text_buffers.borrow_mut().remove(id);
@@ -169,7 +169,7 @@ impl SystemStore {
 
         let buffer = sys_text_engine.create_buffer(
             text,
-            font,
+            &font,
             flex.text_align,
             max_width_opt,
             auto_wrap,
@@ -179,7 +179,7 @@ impl SystemStore {
         let buffer = Rc::new(buffer);
 
         sys_text_buffers.borrow_mut().insert(id, buffer.clone());
-        Some(buffer)
+        buffer
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -308,7 +308,7 @@ impl Context {
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
-    pub(crate) fn get_or_create_layout(&mut self, id: EntityId) -> Option<Rc<Buffer>> {
+    pub(crate) fn get_or_create_layout(&mut self, id: EntityId) -> Rc<Buffer> {
         SystemStore::get_or_create_layout(
             id,
             &mut self.system.sys_text_engine,

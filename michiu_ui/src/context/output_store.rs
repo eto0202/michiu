@@ -1,11 +1,10 @@
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse, AlignItems,
-    BasicLayoutsSecondary, CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, EdgeInsets, EntityId,
-    InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, MichiuSoA, ParentsSecondary, Position, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextAlign, TextEngine, UserSelect, Val, VisualPropertiesSecondary,
-    define_secondary,
+    ActiveInteractionStates, ActiveMasksSecondary, AlignItems, BasicLayoutsSecondary,
+    CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, EdgeInsets, EntityId, InputContentsSparse,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, ParentsSecondary, Position,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextEngine, UserSelect, Val,
+    VisualPropertiesSecondary, define_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SecondaryMap;
@@ -93,40 +92,32 @@ impl OutputStore {
     pub(crate) fn pressed_local_point(
         id: EntityId,
         logical_pos: LayoutPoint,
-        buffer: Option<&Rc<Buffer>>,
-        sys_text_engine: &mut TextEngine,
+        buffer: &Rc<Buffer>,
         cont_input_contents: &InputContentsSparse,
-        topo_active_masks: &ActiveMasksSecondary,
-        topo_parents: &ParentsSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
         lay_resolved_grid: &ResolvedGridSparse,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparse,
-        rnd_visual: &VisualPropertiesSecondary,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
     ) -> LayoutPoint {
         let rect = *out_rects.at(id);
 
-        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
-        let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
-        let _ = lay_resolved_grid.get_or_default(id); // TODO: Grid実装時用
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
+        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX);
+        let _ = lay_resolved_grid.find_or_default(id); // TODO: Grid実装時用
 
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-        let scroll = sc_offsets.get_or_default(id);
+        let scroll = sc_offsets.find_or_default(id);
 
         let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.find(id) {
             let size = contents
                 .last_layout
                 .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
             (size, contents.is_multiline)
-        } else if let Some(buffer) = buffer {
-            (sys_text_engine.get_layout_size(buffer), false)
         } else {
-            (LayoutSize::ZERO, false)
+            (TextEngine::get_layout_size(buffer), false)
         };
 
         let align_offset = OutputStore::calc_align_offset(
@@ -174,7 +165,7 @@ impl OutputStore {
             return (local_rect, initial_clip);
         };
 
-        let s_offsets = sc_offsets.get_or_default(parent_id);
+        let s_offsets = sc_offsets.find_or_default(parent_id);
         // データが無い要素が Absolute になることは絶対にない
         let is_absolute = lay_basic
             .find(id)
@@ -218,9 +209,9 @@ impl OutputStore {
         win_last_size: Option<LayoutSize>,
         topo_parents: &ParentsSecondary,
         out_rects: &RectsSecondary,
-    ) -> Option<f32> {
+    ) -> f32 {
         match val {
-            Val::Px(v) => Some(v),
+            Val::Px(v) => v,
             Val::Percent(p) => {
                 // 親要素の確定サイズを優先取得
                 let parent_size = topo_parents
@@ -229,20 +220,19 @@ impl OutputStore {
                     .map(|r| LayoutSize::new(r.width, r.height));
 
                 // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
-                let ref_size = parent_size.or(win_last_size)?;
+                let ref_size = parent_size.or(win_last_size).unwrap_or_default();
                 let ref_val = if is_width {
                     ref_size.width
                 } else {
                     ref_size.height
                 };
 
-                Some(ref_val * (p / 100.0))
+                ref_val * (p / 100.0)
             }
             Val::Auto => {
                 // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
-                // ルート要素の場合は早期リターン
-                let r = out_rects.find(id)?;
-                Some(if is_width { r.width } else { r.height })
+                let r = out_rects.find_or_default(id);
+                if is_width { r.width } else { r.height }
             }
         }
     }

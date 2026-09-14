@@ -168,6 +168,7 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
+            &mut self.debug,
         );
     }
 
@@ -388,9 +389,6 @@ impl Context {
             &mut self.layouts.scrollbar.bar_styles,
             &self.layouts.lay_taffy_nodes,
             &self.layouts.lay_resolved_basic,
-            &self.renders.rnd_visual,
-            &self.renders.rnd_interaction,
-            &self.renders.rnd_active_transitions,
             &mut self.states.scroll.sc_offsets,
             &self.outputs.out_rects,
             &self.states.scroll.sc_sizes,

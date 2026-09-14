@@ -10,9 +10,7 @@ pub use focus::*;
 pub use resize::*;
 pub use scroll::*;
 
-use crate::{CapacityConfig, EntityId, LayoutPoint, LayoutRect, LayoutSize};
-use slotmap::{SecondaryMap, SparseSecondaryMap};
-use std::ops::Range;
+use crate::{CapacityConfig, EntityId};
 
 pub struct StateStore {
     pub(crate) dnd: DndStore,

@@ -4,8 +4,8 @@ use std::ops::Range;
 
 use crate::types::LayoutSize;
 use crate::{
-    ByteIndex, EdgeInsets, FontDate, LayoutPoint, LayoutRect, MichiuString, RendererView,
-    TextAlign, TextSpan, VisualProperty,
+    ByteIndex, DebugStore, EdgeInsets, FontDate, LayoutPoint, LayoutRect, MichiuError,
+    MichiuString, OptionTraceExt, RendererView, TextAlign, TextSpan, VisualProperty,
 };
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
@@ -55,7 +55,7 @@ impl TextEngine {
     pub(crate) fn create_buffer(
         &mut self,
         text: &MichiuString,
-        font: FontDate,
+        font: &FontDate,
         text_align: TextAlign,
         max_width: Option<f32>,
         auto_wrap: Option<bool>,
@@ -162,7 +162,7 @@ impl TextEngine {
     pub(crate) fn measure_text(
         &mut self,
         text: &MichiuString,
-        font: FontDate,
+        font: &FontDate,
         text_align: TextAlign,
         max_width: Option<f32>,
         auto_wrap: Option<bool>,
@@ -174,10 +174,10 @@ impl TextEngine {
 
         let buffer = self.create_buffer(text, font, text_align, max_width, auto_wrap, spans);
 
-        self.get_layout_size(&buffer)
+        Self::get_layout_size(&buffer)
     }
 
-    pub(crate) fn get_layout_size(&self, buffer: &Buffer) -> LayoutSize {
+    pub(crate) fn get_layout_size(buffer: &Buffer) -> LayoutSize {
         let mut width = 0.0f32;
         let mut height = 0.0f32;
 
@@ -189,7 +189,7 @@ impl TextEngine {
         LayoutSize::new(width, height)
     }
 
-    pub(crate) fn get_caret_position(&self, buffer: &Buffer, index: ByteIndex) -> (f32, f32, f32) {
+    pub(crate) fn get_caret_position(buffer: &Buffer, index: ByteIndex) -> (f32, f32, f32) {
         let mut x = 0.0f32;
         let mut y = 0.0f32;
         let mut height = 0.0f32;
@@ -314,7 +314,7 @@ impl TextEngine {
         ByteIndex(flat_idx + cursor.index)
     }
 
-    pub(crate) fn hit_test_point(&self, buffer: &Buffer, point: LayoutPoint) -> (ByteIndex, bool) {
+    pub(crate) fn hit_test_point(buffer: &Buffer, point: LayoutPoint) -> (ByteIndex, bool) {
         if let Some(cursor) = buffer.hit(point.x, point.y) {
             // 2D位置をフラットなバイトインデックスに変換
             let flat_index = Self::cursor_to_flat_idx(buffer, &cursor);
@@ -329,6 +329,7 @@ impl TextEngine {
         cache_key: CacheKey,
         view: &mut RendererView,
         scale_factor: f32,
+        debug: &mut DebugStore,
     ) -> (TextCacheValue, bool) {
         let key = TextCacheKey { cache_key };
         if let Some(cached) = view.text_cache.get(&key) {
@@ -360,7 +361,13 @@ impl TextEngine {
             cleared = true;
         }
 
-        let (x, y) = alloc_res.expect("Glyph exceeds maximum atlas size");
+        let (x, y) =
+            alloc_res.unwrap_or_trace(None, debug, || MichiuError::GlyphAllocationFailed {
+                width,
+                height,
+                atlas_w: view.atlas.size,
+                atlas_h: view.atlas.size,
+            });
 
         view.queue.write_texture(
             wgpu::TexelCopyTextureInfo {

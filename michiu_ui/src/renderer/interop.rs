@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::{LayoutSize, WgpuRenderer};
+use crate::{LayoutSize, MichiuError, WgpuRenderer};
 use webview2_com::CapturePreviewCompletedHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, ICoreWebView2,
@@ -44,6 +44,7 @@ use windows::{
         },
     },
 };
+use windows_core::HRESULT;
 
 /// `WebView2` から非アクティブ時の静止画（1フレーム）をキャプチャし、
 /// wgpu 側の `wgpu::Texture` へとピクセルデータを転送します。
@@ -55,9 +56,9 @@ pub(crate) unsafe fn trigger_capture_async<F>(
     wgpu_queue: wgpu::Queue,
     wic_factory: IWICImagingFactory,
     on_complete: F,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> crate::Result<()>
 where
-    F: FnOnce(Result<wgpu::Texture, Box<dyn std::error::Error>>) + 'static,
+    F: FnOnce(crate::Result<wgpu::Texture>) + 'static,
 {
     unsafe {
         // 1. メモリ上に COM の IStream を作成
@@ -75,7 +76,10 @@ where
             // 完了ハンドラー
             &CapturePreviewCompletedHandler::create(Box::new(move |result| {
                 // このクロージャは、WebView2 側の処理完了時にメインスレッド（STA）上で呼び出されます
-                let on_complete = on_complete_opt.take().expect("Callback already executed");
+                let on_complete = on_complete_opt.take().ok_or_else(|| {
+                    // とりあえず E_FAIL を返しておく
+                    windows_core::Error::from_hresult(HRESULT(0x8000_4005_u32.cast_signed()))
+                })?;
 
                 if let Err(e) = result {
                     on_complete(Err(e.into()));
@@ -111,14 +115,14 @@ unsafe fn process_captured_stream(
     stream: &IStream,
     width: u32,
     height: u32,
-) -> Result<wgpu::Texture, Box<dyn std::error::Error>> {
+) -> crate::Result<wgpu::Texture> {
     unsafe {
         let hglobal = GetHGlobalFromStream(stream)?;
         let data_ptr = GlobalLock(hglobal);
 
         // ポインタが null の場合は早期リターン
         if data_ptr.is_null() {
-            return Err("GlobalLock returned null pointer".into());
+            return Err(MichiuError::GlobalLockFailed);
         }
 
         let size = GlobalSize(hglobal);
@@ -126,7 +130,7 @@ unsafe fn process_captured_stream(
         // 正常な PNG ファイルとして不十分なサイズの場合は即座にエラーとする
         if size < 128 {
             let _ = GlobalUnlock(hglobal);
-            return Err("Captured stream contains insufficient PNG data".into());
+            return Err(MichiuError::InvalidImageData);
         }
 
         let png_bytes = std::slice::from_raw_parts(data_ptr as *const u8, size);
@@ -209,81 +213,4 @@ unsafe fn process_captured_stream(
 
         Ok(wgpu_texture)
     }
-}
-
-/// wgpu (D3D12) 側のインポート処理
-/// 外部の D3D11 からエクスポートされた共有 NT ハンドル（HANDLE）をインポートし、
-/// コピーを介さずに 100% 同一の VRAM アドレスを指す `wgpu::Texture` を構築します。
-pub(crate) unsafe fn import_shared_texture(
-    wgpu_renderer: &WgpuRenderer,
-    shared_handle: HANDLE,
-    size: LayoutSize,
-) -> Result<wgpu::Texture, Box<dyn std::error::Error>> {
-    unsafe {
-        // 1. wgpu::Device から wgpu_hal の生 D3D12 デバイス（ID3D12Device）を取得する
-        let hal_device = wgpu_renderer
-            .device
-            .as_hal::<wgpu::wgc::api::Dx12>()
-            .ok_or("Not a DX12 backend device")?;
-        let raw_d3d12_device = hal_device.raw_device();
-
-        // 2. ID3D12Device::OpenSharedHandle を呼び出し、同じ VRAM 領域を指す ID3D12Resource を開く
-        let mut raw_resource: Option<ID3D12Resource> = None;
-        raw_d3d12_device.OpenSharedHandle(shared_handle, &raw mut raw_resource)?;
-        let resource = raw_resource.ok_or("Failed to open shared handle on D3D12 device")?;
-
-        // 3. wgpu が扱うテクスチャ記述子（wgpu::TextureDescriptor）を正確に定義する
-        let ext_size = wgpu::Extent3d {
-            width: size.width.ceil() as u32,
-            height: size.height.ceil() as u32,
-            depth_or_array_layers: 1,
-        };
-
-        let desc = wgpu::TextureDescriptor {
-            label: Some("Shared WebView2 Texture"),
-            size: ext_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8Unorm, // D3D11 側と一致させる
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC, // キャッシュフラッシュ等に対応
-            view_formats: &[],
-        };
-
-        // 4. wgpu_hal を用いて生リソース（ID3D12Resource）を wgpu_hal::dx12::Texture にラッピングする
-        let hal_texture = <wgpu::wgc::api::Dx12 as wgpu::hal::Api>::Device::texture_from_raw(
-            resource,
-            desc.format,
-            desc.dimension,
-            desc.size,
-            desc.mip_level_count,
-            desc.sample_count,
-        );
-
-        // 5. HAL テクスチャを、通常の wgpu::Texture インターフェースに適合・養子縁組（Adopt）させる
-        let texture = wgpu_renderer
-            .device
-            .create_texture_from_hal::<wgpu::wgc::api::Dx12>(hal_texture, &desc);
-
-        Ok(texture)
-    }
-}
-
-/// D3D11 側のエクスポート処理
-pub(crate) unsafe fn export_shared_handle(
-    texture: &ID3D11Texture2D,
-) -> Result<HANDLE, Box<dyn std::error::Error>> {
-    // D3D11 テクスチャを IDXGIResource1 にキャスト
-    let dxgi_resource: IDXGIResource1 = texture.cast()?;
-
-    // wgpu 側（D3D12）で読み書きできるよう、共有 NT ハンドルをエクスポート
-    let shared_handle = unsafe {
-        dxgi_resource.CreateSharedHandle(
-            None,
-            DXGI_SHARED_RESOURCE_READ.0 | DXGI_SHARED_RESOURCE_WRITE.0,
-            None,
-        )
-    }?;
-
-    Ok(shared_handle)
 }

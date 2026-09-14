@@ -177,6 +177,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
     }
 
     /// 依存関係を追跡せずに現在のシグナルの値を即時取得します。
+    #[track_caller]
     #[inline]
     #[must_use]
     pub fn get_untracked(&self) -> T {
@@ -330,6 +331,7 @@ impl<T> WriteSignal<T> {
 }
 
 impl<T: Send + 'static> WriteSignal<T> {
+    #[track_caller]
     #[inline]
     #[must_use]
     pub fn id(&self) -> SignalId {
@@ -423,6 +425,8 @@ impl<T: Send + 'static> SignalSender<T> {
 }
 
 /// 指定されたエフェクトをメインスレッドのコンテキスト下で評価（実行）する内部ユーティリティ。
+#[track_caller]
+#[inline]
 pub(crate) fn execute_effect(effect_id: EffectId) {
     with_context(|cx| {
         // このダミーが呼び出されたということは、

@@ -2,11 +2,11 @@ use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayoutsSecondary,
     CapacityConfig, ChildrenSecondary, ComponentMask, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Element, EntitiesSlot, EntityId, EventStore, FlexLayoutsSecondary,
-    LayoutPoint, LayoutRect, LayoutStore, MichiuSoA, ParentsSecondary, Pipeline, PointerEvents,
-    Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec, TaffyNodesSecondary,
-    TaffyTreeEntityId, TopologyStore, Val, define_sparse_secondary, handle_on_dnd_drag_start,
-    handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag,
-    handle_on_dnd_id_drop, handle_on_drag,
+    LayoutPoint, LayoutRect, LayoutStore, MichiuError, MichiuSoA, OptionTraceExt, ParentsSecondary,
+    Pipeline, PointerEvents, Position, Rect, RectsSecondary, RenderStore, ResultTraceExt,
+    SessionSpawnedVec, TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val,
+    define_sparse_secondary, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
+    handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
 };
 use slotmap::SparseSecondaryMap;
 
@@ -168,7 +168,6 @@ impl DndStore {
 
     fn spawn_dnd_placeholder(
         root: EntityId,
-        pressed_id: EntityId,
         drag_prop: &DndDragProperty,
         topo_entities: &mut EntitiesSlot,
         topo_active_entities: &mut ActiveEntitiesVec,
@@ -202,6 +201,7 @@ impl DndStore {
             lay_taffy_tree,
             lay_taffy_nodes,
             rnd_dirty_entities,
+            debug,
         );
 
         if let Some(p_id) = placeholder.parent_id {
@@ -292,8 +292,12 @@ impl DndStore {
             let ph_node = *lay_taffy_nodes.at(placeholder_id);
             let child_node = *lay_taffy_nodes.at(child_id);
 
-            lay_taffy_tree.remove_child(src_node, child_node).unwrap();
-            lay_taffy_tree.add_child(ph_node, child_node).unwrap();
+            lay_taffy_tree
+                .remove_child(src_node, child_node)
+                .unwrap_or_trace(Some(child_id), debug);
+            lay_taffy_tree
+                .add_child(ph_node, child_node)
+                .unwrap_or_trace(Some(child_id), debug);
         }
 
         // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
@@ -327,12 +331,11 @@ impl DndStore {
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
         )
-        .expect("Root EntityId not found in Context");
+        .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
 
         // プレースホルダーをアタッチ先親の直下へ spawn して生成
         let placeholder_id = DndStore::spawn_dnd_placeholder(
             root,
-            pressed_id,
             &drag_prop,
             &mut cx.topology.topo_entities,
             &mut cx.topology.topo_active_entities,
@@ -598,7 +601,6 @@ impl DndStore {
         target_id: EntityId,
         holder: EntityId,
         drag_prop: &DndDragProperty,
-        drag_state: &ActiveDragState,
         evt_current_pointer_position: Option<LayoutPoint>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &mut ParentsSecondary,
@@ -750,7 +752,6 @@ impl DndStore {
                 target_id,
                 holder,
                 &drag_prop,
-                drag_state,
                 cx.events.evt_current_pointer_position,
                 &mut cx.topology.topo_active_masks,
                 &mut cx.topology.topo_parents,
@@ -778,6 +779,7 @@ impl DndStore {
             &mut cx.topology.topo_children,
             &mut cx.layouts.lay_taffy_tree,
             &mut cx.layouts.lay_taffy_nodes,
+            &mut cx.debug,
         );
         cx.topology.topo_children.at_mut(holder).clear();
 
@@ -820,6 +822,7 @@ impl DndStore {
             &mut cx.layouts,
             &mut cx.renders,
             &mut cx.outputs,
+            &mut cx.debug,
         );
 
         if let Some(pos) = cx.events.evt_current_pointer_position {

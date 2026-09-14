@@ -329,7 +329,6 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn cascade_interaction_flag<'a>(
-        id: EntityId,
         interaction: &'a InteractionStyles,
         focused_style_resolved: Option<&'a ThisStyle>,
         focused_visible_style_resolved: Option<&'a ThisStyle>,
@@ -363,7 +362,6 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn cascade_within_interaction_flag(
-        id: EntityId,
         interaction: &InteractionStyles,
     ) -> [(u128, &Option<ThisStyle>); 10] {
         [
@@ -391,7 +389,6 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn cascade_parent_interaction_flag(
-        id: EntityId,
         interaction: &InteractionStyles,
     ) -> [(u128, &Option<ThisStyle>); 10] {
         [
@@ -468,7 +465,6 @@ impl RenderStore {
         };
 
         let cascade = RenderStore::cascade_interaction_flag(
-            id,
             interaction,
             focused_style_resolved,
             focused_visible_style_resolved,
@@ -506,7 +502,7 @@ impl RenderStore {
         };
 
         // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
-        let cascade_within = RenderStore::cascade_within_interaction_flag(id, interaction);
+        let cascade_within = RenderStore::cascade_within_interaction_flag(interaction);
 
         for (state, style_opt) in cascade_within {
             let Some(style) = style_opt else {
@@ -561,7 +557,6 @@ impl RenderStore {
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
         if !active_mask.has(ComponentMask::STYLE_INTERACTION_PARENT) {
@@ -571,7 +566,7 @@ impl RenderStore {
             return;
         };
 
-        let cascade_parent = RenderStore::cascade_parent_interaction_flag(id, interaction);
+        let cascade_parent = RenderStore::cascade_parent_interaction_flag(interaction);
 
         for (state, style_opt) in cascade_parent {
             let Some(style) = style_opt else {
@@ -644,7 +639,6 @@ impl RenderStore {
             topo_entities,
             topo_active_masks,
             topo_parents,
-            topo_children,
             rnd_interaction,
         );
         RenderStore::cascade_within_interaction(
@@ -759,8 +753,7 @@ impl RenderStore {
                 PropertyList::Transform => {
                     let start = TransitionValue::Transform(IDENTITY_MATRIX);
                     // Z軸を1周（2PI）回転させる行列を終点にする
-                    let mut end_transform =
-                        crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
+                    let end_transform = crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
                     let end = TransitionValue::Transform(end_transform.matrix);
                     (start, end)
                 }
@@ -883,8 +876,8 @@ impl RenderStore {
             return;
         }
 
-        let active_layout = lay_basic.get_or(id, &DEFAULT_BASIC);
-        let base_layout = lay_base_basic.get_or_default(id);
+        let active_layout = lay_basic.find_or(id, &DEFAULT_BASIC);
+        let base_layout = lay_base_basic.find_or_default(id);
         let mut target_layout = base_layout;
 
         RenderStore::cascade_basic_layout(id, &mut target_layout, active_mask, rnd_interaction);
@@ -922,13 +915,12 @@ impl RenderStore {
         if allow_transition
             && can_trigger_width
             && has_active_layout
-            && let (Some(cw), Some(tw)) = (current_w, target_w)
-            && (cw - tw).abs() > 0.01
+            && (current_w - target_w).abs() > 0.01
         {
             width_triggered = if_needed(
                 PropertyList::Width,
-                TransitionValue::Width(cw),
-                TransitionValue::Width(tw),
+                TransitionValue::Width(current_w),
+                TransitionValue::Width(target_w),
             );
         }
 
@@ -941,13 +933,12 @@ impl RenderStore {
         if allow_transition
             && can_trigger_height
             && has_active_layout
-            && let (Some(ch), Some(th)) = (current_h, target_h)
-            && (ch - th).abs() > 0.01
+            && (current_h - target_h).abs() > 0.01
         {
             height_triggered = if_needed(
                 PropertyList::Height,
-                TransitionValue::Height(ch),
-                TransitionValue::Height(th),
+                TransitionValue::Height(current_h),
+                TransitionValue::Height(target_h),
             );
         }
 
@@ -962,10 +953,10 @@ impl RenderStore {
         *active_layout_mut = target_layout;
 
         if width_triggered {
-            active_layout_mut.size.width = Val::Px(current_w.unwrap());
+            active_layout_mut.size.width = Val::Px(current_w);
         }
         if height_triggered {
-            active_layout_mut.size.height = Val::Px(current_h.unwrap());
+            active_layout_mut.size.height = Val::Px(current_h);
         }
 
         if is_layout_changed {
@@ -1460,7 +1451,6 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn get_transform_and_origin(
-        id: EntityId,
         visual: &VisualProperty,
         full_transform: [[f32; 4]; 4],
     ) -> ([[f32; 4]; 3], [f32; 2]) {

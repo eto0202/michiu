@@ -180,7 +180,7 @@ impl ResizeStore {
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         out_rects: &RectsSecondary,
     ) {
-        let rect = out_rects.get_or_default(id);
+        let rect = out_rects.find_or_default(id);
         let (position, mut start_inset) = lay_basic
             .find(id)
             .map_or((Position::default(), BasicLayout::default().inset), |l| {
@@ -260,7 +260,7 @@ impl ResizeStore {
         let delta_x = logical_pos.x - state.start_mouse_pos.x;
         let delta_y = logical_pos.y - state.start_mouse_pos.y;
 
-        let basic = lay_basic.get_or(id, &DEFAULT_BASIC);
+        let basic = lay_basic.find_or(id, &DEFAULT_BASIC);
 
         let start_rect = state.start_rect;
 
@@ -284,8 +284,7 @@ impl ResizeStore {
                     win_last_size,
                     topo_parents,
                     out_rects,
-                )
-                .unwrap_or(fallback),
+                ),
                 Val::Auto => fallback,
             };
 

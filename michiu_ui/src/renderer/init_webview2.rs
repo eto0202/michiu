@@ -28,19 +28,19 @@ use windows::{
 };
 use windows_core::HSTRING;
 
-use crate::{LayoutRect, TaskSender, WebView2Contents, WebView2Source};
+use crate::{LayoutRect, MichiuError, TaskSender, WebView2Contents, WebView2Source};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) unsafe fn init_webview2_composition(
     hwnd: HWND,
-    webview_visual: IDCompositionVisual2,
-    controller_slot: Rc<RefCell<Option<ICoreWebView2Controller>>>,
+    webview_visual: &IDCompositionVisual2,
+    controller_slot: &Rc<RefCell<Option<ICoreWebView2Controller>>>,
     settings: &WebView2Contents,
     rect: LayoutRect,
     scale_factor: f32,
-    env_slot: Rc<RefCell<Option<ICoreWebView2Environment3>>>,
-    sys_task_sender: TaskSender,
-) -> Result<(), Box<dyn std::error::Error>> {
+    env_slot: &Rc<RefCell<Option<ICoreWebView2Environment3>>>,
+    sys_task_sender: &TaskSender,
+) -> crate::Result<()> {
     let webview_visual_clone = webview_visual.clone();
     let controller_slot_clone = controller_slot.clone();
     let settings_clone = settings.clone();
@@ -53,10 +53,11 @@ pub(crate) unsafe fn init_webview2_composition(
         let handler = webview2_com::CreateCoreWebView2CompositionControllerCompletedHandler::create(
             Box::new(
                 move |res, controller: Option<ICoreWebView2CompositionController>| {
-                    // このクロージャは、後から非同期にブラウザの初期化が終わった瞬間に実行されます。
+                    // このクロージャは後から非同期にブラウザの初期化が終わった瞬間に実行。
                     res.map_err(webview2_com::Error::WindowsError);
 
-                    let comp_controller = controller.unwrap();
+                    let comp_controller =
+                        controller.ok_or_else(windows_core::Error::from_thread)?;
                     unsafe { comp_controller.SetRootVisualTarget(&webview_visual_clone) }?;
 
                     let base_controller: ICoreWebView2Controller = comp_controller.cast()?;
@@ -180,7 +181,7 @@ pub(crate) unsafe fn init_webview2_composition(
     let handler = webview2_com::CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(
         move |res, environment: Option<ICoreWebView2Environment>| {
             res.map_err(webview2_com::Error::WindowsError);
-            let env = environment.unwrap();
+            let env = environment.ok_or_else(windows_core::Error::from_thread)?;
             let env3: ICoreWebView2Environment3 = env.cast()?;
 
             // 環境スロットにキャッシュを保存
@@ -195,7 +196,8 @@ pub(crate) unsafe fn init_webview2_composition(
                     Box::new(
                         move |res, controller: Option<ICoreWebView2CompositionController>| {
                             res.map_err(webview2_com::Error::WindowsError);
-                            let comp_controller = controller.unwrap();
+                            let comp_controller =
+                                controller.ok_or_else(windows_core::Error::from_thread)?;
                             unsafe { comp_controller.SetRootVisualTarget(&webview_visual_clone2) }?;
 
                             let base_controller: ICoreWebView2Controller =

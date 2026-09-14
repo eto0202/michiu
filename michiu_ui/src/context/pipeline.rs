@@ -8,12 +8,11 @@ use crate::{
     LayoutStore, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
     PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
     RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore, ScrollbarStore,
-    ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextContentsSparse, TextEditStore, TextEngine, TextSpan, TextSpansSparse, TopologyStore,
-    UnderlineStyle, VirtualKey, VisualPropertiesSecondary, VisualProperty, bind_context,
-    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
-    handle_on_ime, handle_on_select,
+    ResolvedGridSparse, ResultTraceExt, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
+    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextEditStore, TextEngine, TextSpan, TopologyStore, UnderlineStyle,
+    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
+    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -150,7 +149,7 @@ impl Pipeline {
             mask.unset(state_flag);
         }
 
-        let mut resolve_element = |cx: &mut Context, id: EntityId| {
+        let resolve_element = |cx: &mut Context, id: EntityId| {
             RenderStore::resolve_element_style_state(
                 id,
                 true,
@@ -309,6 +308,7 @@ impl Pipeline {
         }
     }
 
+    #[track_caller]
     #[inline]
     pub(crate) fn sync_layout_and_render(
         cx: &mut Context,
@@ -444,7 +444,7 @@ impl Pipeline {
                 },
                 measure_func,
             )
-            .unwrap();
+            .unwrap_or_trace(Some(root), &mut cx.debug);
 
         // ダブルバッファをスワップし、1回目の出力座標を決定
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの out_rects のみを確定
@@ -496,14 +496,11 @@ impl Pipeline {
                     &cx.contents.cont_text_spans,
                     &cx.contents.cont_input_contents,
                     &cx.topology.topo_active_masks,
-                    &cx.topology.topo_parents,
                     &cx.topology.topo_children,
                     &cx.layouts.lay_resolved_basic,
                     &cx.layouts.lay_resolved_flex,
                     &cx.layouts.scrollbar.bar_styles,
                     &cx.renders.rnd_visual,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_offsets,
                     &mut cx.debug,
@@ -577,7 +574,7 @@ impl Pipeline {
                     })
                 },
             )
-            .unwrap();
+            .unwrap_or_trace(Some(root), &mut cx.debug);
 
         // スクロールバーも加えた、最終的な出力座標の決定
         Pipeline::resolve_final_pass_rects(
@@ -622,8 +619,6 @@ impl Pipeline {
                     &cx.layouts.lay_resolved_grid,
                     &mut cx.renders.rnd_visual,
                     &cx.renders.rnd_base_visual,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
                     &mut cx.states.scroll.sc_offsets,
                     &mut cx.states.edit.edit_selections,
                     &cx.outputs.out_rects,
@@ -651,9 +646,6 @@ impl Pipeline {
                 &mut cx.layouts.scrollbar.bar_styles,
                 &cx.layouts.lay_taffy_nodes,
                 &cx.layouts.lay_resolved_basic,
-                &cx.renders.rnd_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
@@ -719,8 +711,6 @@ impl Pipeline {
                 &cx.layouts.lay_taffy_nodes,
                 &cx.layouts.lay_resolved_basic,
                 &cx.renders.rnd_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &cx.outputs.out_rects,
                 &cx.outputs.out_clip_rects,
@@ -763,8 +753,8 @@ impl Pipeline {
 
         let mut force_full_scan = false;
         for &id in &*cx.topology.topo_sorted_entities {
-            let engines = cx.system.sys_text_buffers.borrow();
-            let Some(engine) = engines.find(id) else {
+            let buffers = cx.system.sys_text_buffers.borrow();
+            let Some(buffer) = buffers.find(id) else {
                 continue;
             };
 
@@ -773,17 +763,11 @@ impl Pipeline {
 
             if is_dirty_text {
                 let cleared = Pipeline::scan_and_register_element_glyphs(
-                    id,
                     view,
-                    engine,
-                    &default_visual,
+                    buffer,
                     &mut cx.system.sys_text_engine,
                     cx.window.win_scale_factor,
-                    &cx.topology.topo_active_masks,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
-                    &cx.contents.cont_input_contents,
-                    &cx.renders.rnd_visual,
+                    &mut cx.debug,
                 );
 
                 if cleared {
@@ -795,8 +779,8 @@ impl Pipeline {
 
         if force_full_scan {
             for &id in &*cx.topology.topo_sorted_entities {
-                let engines = cx.system.sys_text_buffers.borrow();
-                let Some(engine) = engines.find(id) else {
+                let buffers = cx.system.sys_text_buffers.borrow();
+                let Some(buffer) = buffers.find(id) else {
                     continue;
                 };
 
@@ -804,17 +788,11 @@ impl Pipeline {
 
                 if has_text_content {
                     let _ = Pipeline::scan_and_register_element_glyphs(
-                        id,
                         view,
-                        engine,
-                        &default_visual,
+                        buffer,
                         &mut cx.system.sys_text_engine,
                         cx.window.win_scale_factor,
-                        &cx.topology.topo_active_masks,
-                        &cx.contents.cont_text_contents,
-                        &cx.contents.cont_text_spans,
-                        &cx.contents.cont_input_contents,
-                        &cx.renders.rnd_visual,
+                        &mut cx.debug,
                     );
                 }
             }
@@ -832,19 +810,19 @@ impl Pipeline {
             }
             let clip = *cx.outputs.out_clip_rects.at(id);
 
-            let basic = cx.layouts.lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
-            let flex = cx.layouts.lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
-            let grid = cx
+            let basic = cx.layouts.lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
+            let flex = cx.layouts.lay_resolved_flex.find_or(id, &DEFAULT_FLEX);
+            let _grid = cx
                 .layouts
                 .lay_resolved_grid
                 .find(id)
                 .cloned()
                 .unwrap_or_default();
-            let visual = cx.renders.rnd_visual.get_or(id, &default_visual);
+            let visual = cx.renders.rnd_visual.find_or(id, &default_visual);
 
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-            let scroll = cx.states.scroll.sc_offsets.get_or_default(id);
+            let scroll = cx.states.scroll.sc_offsets.find_or_default(id);
 
             // トランスフォームブランチの場合のみその場で累積を解決
             // それ以外は IDENTITY_MATRIX
@@ -863,7 +841,7 @@ impl Pipeline {
                 IDENTITY_MATRIX
             };
 
-            let params = CommonParameters::new(id, rect, basic, visual, eff_transform);
+            let params = CommonParameters::new(rect, basic, visual, eff_transform);
 
             let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
@@ -999,8 +977,8 @@ impl Pipeline {
             }
 
             // 選択ハイライト背景
-            if let Some(sel_rects) = cx.states.edit.edit_selected_rects.find(id)
-                && let Some(buffer) = SystemStore::get_or_create_layout(
+            if let Some(sel_rects) = cx.states.edit.edit_selected_rects.find(id) {
+                let buffer = SystemStore::get_or_create_layout(
                     id,
                     &mut cx.system.sys_text_engine,
                     &cx.system.sys_text_buffers,
@@ -1010,8 +988,8 @@ impl Pipeline {
                     &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
-                )
-            {
+                );
+
                 let align_offset = Pipeline::text_size_to_align_offset(
                     id,
                     &params,
@@ -1019,7 +997,6 @@ impl Pipeline {
                     border,
                     padding,
                     flex,
-                    &cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                 );
 
@@ -1047,8 +1024,8 @@ impl Pipeline {
                 Pipeline::push_background_instance(id, view.render_data, &params, visual);
             }
 
-            if is_text
-                && let Some(buffer) = SystemStore::get_or_create_layout(
+            if is_text {
+                let buffer = SystemStore::get_or_create_layout(
                     id,
                     &mut cx.system.sys_text_engine,
                     &cx.system.sys_text_buffers,
@@ -1058,8 +1035,8 @@ impl Pipeline {
                     &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
-                )
-            {
+                );
+
                 let align_offset = Pipeline::text_size_to_align_offset(
                     id,
                     &params,
@@ -1067,7 +1044,6 @@ impl Pipeline {
                     border,
                     padding,
                     flex,
-                    &cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                 );
 
@@ -1103,6 +1079,7 @@ impl Pipeline {
                     align_offset,
                     cx.window.win_scale_factor,
                     &mut cx.system.sys_text_engine,
+                    &mut cx.debug,
                 );
 
                 Pipeline::push_text_front_instances(
@@ -1175,14 +1152,13 @@ struct CommonParameters {
 impl CommonParameters {
     #[inline]
     fn new(
-        id: EntityId,
         rect: LayoutRect,
         basic: &BasicLayout,
         visual: &VisualProperty,
         eff_transform: [[f32; 4]; 4],
     ) -> Self {
         let (transform, transform_origin) =
-            RenderStore::get_transform_and_origin(id, visual, eff_transform);
+            RenderStore::get_transform_and_origin(visual, eff_transform);
         let (outline_width, outline_color, outline_lengths, outline_offset_and_flags) =
             RenderStore::get_outline_params(visual);
         let corner_radius = visual.corner_radius.unwrap_or_default();
@@ -1240,6 +1216,7 @@ impl Pipeline {
     }
 
     /// Taffy永続ツリーへのスタイル差分同期
+    #[track_caller]
     fn sync_dirty_styles_to_taffy(
         scrollbar_el_ids: &HashSet<EntityId>,
         lay_taffy_tree: &mut TaffyTreeEntityId,
@@ -1256,8 +1233,8 @@ impl Pipeline {
                 continue;
             }
 
-            let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
-            let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
+            let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
+            let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX);
             let grid = lay_resolved_grid.find(id).cloned();
 
             // トランジション（アニメーション）中プロパティの現在値による上書き
@@ -1265,10 +1242,12 @@ impl Pipeline {
             // if let Some(active_list) = rnd_active_transitions.get(id) {}
 
             let taffy_style =
-                LayoutStore::resolve_taffy_style(id, &basic, &flex, grid.as_ref(), bar_styles);
+                LayoutStore::resolve_taffy_style(id, basic, flex, grid.as_ref(), bar_styles);
 
             let taffy_node = *lay_taffy_nodes.at(id);
-            lay_taffy_tree.set_style(taffy_node, taffy_style).unwrap();
+            lay_taffy_tree
+                .set_style(taffy_node, taffy_style)
+                .unwrap_or_trace(Some(id), debug);
         }
     }
 
@@ -1453,22 +1432,6 @@ impl Pipeline {
         *last_flushed_offset = instances_len;
     }
 
-    /// UTF-16スライスからサロゲートペアを考慮して1文字を抽出、進めるべき長さを返す
-    #[inline]
-    fn get_char_and_u16_len(text_u16: &[u16], char_idx: usize) -> (char, usize) {
-        if char_idx + 1 < text_u16.len() && (0xD800..=0xDBFF).contains(&text_u16[char_idx]) {
-            let u16_chars = &text_u16[char_idx..char_idx + 2];
-            let character = String::from_utf16(u16_chars)
-                .ok()
-                .and_then(|s| s.chars().next())
-                .unwrap_or(' ');
-            (character, 2)
-        } else {
-            let character = char::from_u32(text_u16[char_idx] as u32).unwrap_or(' ');
-            (character, 1)
-        }
-    }
-
     fn text_size_to_align_offset(
         id: EntityId,
         params: &CommonParameters,
@@ -1476,7 +1439,6 @@ impl Pipeline {
         border: EdgeInsets,
         padding: EdgeInsets,
         flex: &FlexLayout,
-        sys_text_engine: &TextEngine,
         cont_input_contents: &InputContentsSparse,
     ) -> LayoutPoint {
         let (text_size, is_multiline) = if let Some(c) = cont_input_contents.find(id) {
@@ -1485,11 +1447,11 @@ impl Pipeline {
                 (LayoutSize::new(l.width, l.height), c.is_multiline)
             } else {
                 // コンテンツはあるがレイアウトがない場合
-                (sys_text_engine.get_layout_size(buffer), c.is_multiline)
+                (TextEngine::get_layout_size(buffer), c.is_multiline)
             }
         } else {
             // コンテンツ自体が存在しない場合
-            (sys_text_engine.get_layout_size(buffer), false)
+            (TextEngine::get_layout_size(buffer), false)
         };
         OutputStore::calc_align_offset(
             params.rect,
@@ -1506,17 +1468,11 @@ impl Pipeline {
     /// このフレームでアトラスの一括クリアが起きた場合は true
     #[inline]
     fn scan_and_register_element_glyphs(
-        id: EntityId,
         view: &mut RendererView,
         buffer: &Buffer,
-        default_visual: &VisualProperty,
         sys_text_engine: &mut TextEngine,
         win_scale_factor: f32,
-        topo_active_masks: &ActiveMasksSecondary,
-        cont_text_contents: &TextContentsSparse,
-        cont_text_spans: &TextSpansSparse,
-        cont_input_contents: &InputContentsSparse,
-        rnd_visual: &VisualPropertiesSecondary,
+        debug: &mut DebugStore,
     ) -> bool {
         let mut atlas_cleared = false;
 
@@ -1529,6 +1485,7 @@ impl Pipeline {
                     physical.cache_key,
                     view,
                     win_scale_factor,
+                    debug,
                 );
                 if cleared {
                     atlas_cleared = true;
@@ -1744,7 +1701,7 @@ impl Pipeline {
     ) {
         for span in spans {
             if let Some(bg_color) = span.bg_color {
-                let rects = TextEditStore::calc_selection_rects(id, buffer, span.range.clone());
+                let rects = TextEditStore::calc_selection_rects(buffer, span.range.clone());
 
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
@@ -1783,6 +1740,7 @@ impl Pipeline {
         align_offset: LayoutPoint,
         win_scale_factor: f32,
         sys_text_engine: &mut TextEngine,
+        debug: &mut DebugStore,
     ) {
         for run in buffer.layout_runs() {
             for glyph in run.glyphs {
@@ -1802,6 +1760,7 @@ impl Pipeline {
                     physical.cache_key,
                     view,
                     win_scale_factor,
+                    debug,
                 );
 
                 // 最終的なポリゴンの左上 ＝ グリフ原点 ＋ 画像オフセット
@@ -1859,7 +1818,7 @@ impl Pipeline {
                 continue;
             }
 
-            let rects = TextEditStore::calc_selection_rects(id, buffer, span.range.clone());
+            let rects = TextEditStore::calc_selection_rects(buffer, span.range.clone());
 
             for metric_rect in rects {
                 let start_x =

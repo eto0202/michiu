@@ -74,7 +74,7 @@ pub trait MichiuSoA {
 
     /// デフォルト値でフォールバック
     #[inline]
-    fn get_or_default(&self, id: EntityId) -> Self::Item
+    fn find_or_default(&self, id: EntityId) -> Self::Item
     where
         Self::Item: Default + Clone,
     {
@@ -83,7 +83,7 @@ pub trait MichiuSoA {
 
     /// 指定の値でフォールバック
     #[inline]
-    fn get_or<'a>(&'a self, id: EntityId, fallback: &'a Self::Item) -> &'a Self::Item {
+    fn find_or<'a>(&'a self, id: EntityId, fallback: &'a Self::Item) -> &'a Self::Item {
         self.find(id).unwrap_or(fallback)
     }
 

@@ -1378,7 +1378,7 @@ impl RendererSnapshot {
 pub type Result<T> = std::result::Result<T, MichiuError>;
 
 // 後々追加
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Error, Debug, Clone)]
 pub enum MichiuError {
     #[error(
         "Entity {id:?} not found.\n\
@@ -1387,6 +1387,13 @@ pub enum MichiuError {
             - An uninitialized or dummy EntityId was used."
     )]
     EntityNotFound { id: EntityId },
+
+    #[error(
+        "Roor entity not found.\n\
+            Possible causes:\n\
+            - The entity was already despawned/destroyed (dangling ID)."
+    )]
+    RootEntityNotFound,
 
     #[error(
         "Signal {id:?} not found.\n\
@@ -1460,11 +1467,88 @@ pub enum MichiuError {
     )]
     RecursiveEffectDetected { effect_id: EffectId },
 
-    #[error("Windows API Error: {0}")]
-    WindowsApiError(#[from] windows_core::Error),
+    #[error("Windows API Error: {source}")]
+    WindowsApiError {
+        #[source]
+        #[from]
+        source: windows_core::Error,
+    },
 
-    #[error("Taffy Error: {0}")]
-    TaffyError(#[from] taffy::TaffyError),
+    #[error("Taffy Error: {source}")]
+    TaffyError {
+        #[source]
+        #[from]
+        source: taffy::TaffyError,
+    },
+
+    #[error("Failded surface creation: {source}")]
+    CreateSurfaceError {
+        #[source]
+        #[from]
+        source: wgpu::CreateSurfaceError,
+    },
+
+    #[error("Failded surface creation: {source}")]
+    RequestAdapterError {
+        #[source]
+        #[from]
+        source: wgpu::RequestAdapterError,
+    },
+
+    #[error("Failded request device: {source}")]
+    RequestDeviceError {
+        #[source]
+        #[from]
+        source: wgpu::RequestDeviceError,
+    },
+
+    #[error("Failed to create D3D11 hardware device.")]
+    D3d11DeviceCreationFailed,
+
+    #[error(
+        "DCompDeviceManager has not been initialized.\n\
+         Please perform the initialization process first."
+    )]
+    UninitializedDeviceManager,
+
+    #[error("Failed to initialize webview2: {source}")]
+    WebView2Error {
+        #[source]
+        source: windows_core::Error,
+    },
+
+    #[error("Failed to lock the OS's global memory. (GlobalLock returned null)")]
+    GlobalLockFailed,
+
+    #[error("The image data is invalid or insufficient in size. (PNG header size < 128)")]
+    InvalidImageData,
+
+    #[error("Internal error: Callback was executed multiple times.")]
+    DuplicateCallback,
+
+    #[error(
+        "Failed to place glyphs in the texture atlas.\n\
+         Either the character size exceeds the maximum limit, or the atlas is too small.\n\
+         Requested glyph: {width}x{height}\n\
+         Current atlas max capacity: {atlas_w}x{atlas_h}
+         "
+    )]
+    GlyphAllocationFailed {
+        width: u32,
+        height: u32,
+        atlas_w: u32,
+        atlas_h: u32,
+    },
+
+    #[error("Image '{path}' loading failed: {source}")]
+    ImageLoadFailed {
+        path: std::path::PathBuf,
+        #[source]
+        source: Arc<image::ImageError>,
+    },
+
+    #[error("Failed to create custom cursor: {0}")]
+    CursorCreationFailed(String),
 }
 
 // ================================================================
@@ -1559,7 +1643,40 @@ impl<T> ResultTraceExt<T> for taffy::TaffyResult<T> {
                 #[cfg(feature = "trace-error")]
                 {
                     trace_error!(id, debug, || MichiuTrace::Error {
-                        detail: MichiuError::TaffyError(e.clone()),
+                        detail: MichiuError::TaffyError { source: e.clone() },
+                        add: None,
+                    });
+
+                    if let Some(ref tx) = debug.dbg_tx {
+                        let batch = std::mem::take(&mut debug.dbg_trace_queue);
+                        tx.send_batch(batch);
+                    }
+                }
+
+                panic!("unwrap_or_trace: {e}");
+            }
+        }
+    }
+}
+
+pub trait WindowsResultTraceExt<T> {
+    /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
+    #[track_caller]
+    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
+}
+
+impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
+    #[allow(clippy::panic)]
+    #[track_caller]
+    #[inline]
+    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T {
+        match self {
+            Ok(val) => val,
+            Err(e) => {
+                #[cfg(feature = "trace-error")]
+                {
+                    trace_error!(id, debug, || MichiuTrace::Error {
+                        detail: MichiuError::WindowsApiError { source: e.clone() },
                         add: None,
                     });
 

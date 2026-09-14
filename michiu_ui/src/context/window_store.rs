@@ -1,4 +1,4 @@
-use crate::{Context, EntityId, LayoutRect, LayoutSize};
+use crate::{EntityId, LayoutRect, LayoutSize};
 use windows::Win32::UI::Input::Ime::HIMC;
 
 #[derive(Clone)]

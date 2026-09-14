@@ -3,8 +3,8 @@ use crate::{
     ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection, FlexLayoutsSecondary,
     IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, OutputStore,
-    PointerEvents, ReactiveStore, RectsSecondary, RenderStore, StateStore, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
+    PointerEvents, ReactiveStore, RectsSecondary, RenderStore, ResultTraceExt, StateStore,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
     define_secondary, define_smallvec, define_vec,
 };
 use slotmap::{SecondaryMap, SlotMap};
@@ -181,6 +181,7 @@ impl TopologyStore {
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+        debug: &mut DebugStore,
     ) -> EntityId {
         let id = topo_entities.insert(());
         topo_parents.insert(id, parent_id);
@@ -191,7 +192,7 @@ impl TopologyStore {
         // Taffyノードとの同期
         let node = lay_taffy_tree
             .new_leaf_with_context(taffy::Style::default(), id)
-            .unwrap();
+            .unwrap_or_trace(Some(id), debug);
         lay_taffy_nodes.insert(id, node);
 
         *topo_is_structure_dirty = true;
@@ -237,7 +238,7 @@ impl TopologyStore {
             {
                 lay_taffy_tree
                     .remove_child(old_parent_node, child_node)
-                    .unwrap();
+                    .unwrap_or_trace(Some(old_parent), debug);
             }
 
             // 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
@@ -272,7 +273,9 @@ impl TopologyStore {
         // 新しい親の Taffy ツリーの親子関係を永続的に更新
         let parent_node = *lay_taffy_nodes.at(parent);
         let child_node = *lay_taffy_nodes.at(child);
-        lay_taffy_tree.add_child(parent_node, child_node).unwrap();
+        lay_taffy_tree
+            .add_child(parent_node, child_node)
+            .unwrap_or_trace(Some(parent), debug);
 
         LayoutStore::mark_layout_dirty(
             parent,
@@ -309,7 +312,7 @@ impl TopologyStore {
         layouts
             .lay_taffy_tree
             .add_child(parent_node, new_node)
-            .unwrap();
+            .unwrap_or_trace(Some(parent), debug);
 
         TopologyStore::replace_child_node(
             parent,
@@ -324,7 +327,7 @@ impl TopologyStore {
         // 古い子要素（およびその子孫）を完全に安全デスポーン
         TopologyStore::despawn_internal(
             old_child, window, system, reactive, events, contents, topology, states, layouts,
-            renders, outputs,
+            renders, outputs, debug,
         );
 
         LayoutStore::mark_layout_dirty(
@@ -352,6 +355,7 @@ impl TopologyStore {
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
+        debug: &mut DebugStore,
     ) {
         if !topology.topo_entities.contains_key(id) {
             return;
@@ -368,13 +372,16 @@ impl TopologyStore {
         if let Some(parent_id) = *topology.topo_parents.at(id) {
             // 親も自分もレイアウトノードを持っている場合のみTaffyツリーからのデタッチ
             if let Some(&parent_node) = layouts.lay_taffy_nodes.find(parent_id) {
-                let child_node = *layouts.lay_taffy_nodes.at(id); // 自分はあるはず！
-                let taffy_children = layouts.lay_taffy_tree.children(parent_node).unwrap();
+                let child_node = *layouts.lay_taffy_nodes.at(id); // 自分はあるはず
+                let taffy_children = layouts
+                    .lay_taffy_tree
+                    .children(parent_node)
+                    .unwrap_or_trace(Some(parent_id), debug);
                 if taffy_children.contains(&child_node) {
                     layouts
                         .lay_taffy_tree
                         .remove_child(parent_node, child_node)
-                        .unwrap();
+                        .unwrap_or_trace(Some(parent_id), debug);
                 }
             }
 
@@ -394,7 +401,7 @@ impl TopologyStore {
             for child_id in children_list {
                 TopologyStore::despawn_internal(
                     child_id, window, system, reactive, events, contents, topology, states,
-                    layouts, renders, outputs,
+                    layouts, renders, outputs, debug,
                 );
             }
         }
@@ -426,6 +433,7 @@ impl TopologyStore {
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
+        debug: &mut DebugStore,
     ) {
         // start_marker 以降に生成された要素をスキャン
         let spawned_in_session: Vec<EntityId> = topology
@@ -442,7 +450,7 @@ impl TopologyStore {
             if has_no_parent && is_not_root {
                 TopologyStore::despawn_internal(
                     id, window, system, reactive, events, contents, topology, states, layouts,
-                    renders, outputs,
+                    renders, outputs, debug,
                 );
             }
         }
@@ -728,7 +736,7 @@ impl TopologyStore {
 
             // クリップ矩形のインライン累積
             let rect = *out_rects.at(id);
-            let eff_clip = *out_clip_rects.get_or(id, &default_clip);
+            let eff_clip = *out_clip_rects.find_or(id, &default_clip);
 
             // トランスフォームの適用されているブランチか伝播判定
             let is_parent_transform = parent_id.is_some_and(|p| {
@@ -823,6 +831,7 @@ impl TopologyStore {
         topo_children: &mut ChildrenSecondary,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         for child_id in topo_children.at(holder).clone() {
             // 子要素の親ポインタを元の要素に書き戻し
@@ -836,8 +845,12 @@ impl TopologyStore {
             let ph_node = *lay_taffy_nodes.at(holder);
             let child_node = *lay_taffy_nodes.at(child_id);
 
-            lay_taffy_tree.remove_child(ph_node, child_node).unwrap();
-            lay_taffy_tree.add_child(src_node, child_node).unwrap();
+            lay_taffy_tree
+                .remove_child(ph_node, child_node)
+                .unwrap_or_trace(Some(child_id), debug);
+            lay_taffy_tree
+                .add_child(src_node, child_node)
+                .unwrap_or_trace(Some(child_id), debug);
         }
     }
 
@@ -954,6 +967,7 @@ impl Context {
             &mut self.layouts.lay_taffy_tree,
             &mut self.layouts.lay_taffy_nodes,
             &mut self.renders.rnd_dirty_entities,
+            &mut self.debug,
         )
     }
 
@@ -1029,6 +1043,7 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
+            &mut self.debug,
         );
     }
 
@@ -1047,6 +1062,7 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
+            &mut self.debug,
         );
     }
 

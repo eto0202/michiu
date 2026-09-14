@@ -1,9 +1,9 @@
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius,
     DEFAULT_BASIC, DEFAULT_FLEX, DrawBatch, EdgeInsets, EntityId, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, Pipeline, QuadInstance, RenderData,
-    RendererView, TextAlign, TextCacheKey, TextCacheValue, TextSpan, TextureAtlas, Vertex,
-    VisualProperty,
+    LayoutSize, LayoutStore, Length, MichiuError, MichiuSoA, OutputStore, Pipeline, QuadInstance,
+    RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue, TextSpan, TextureAtlas,
+    Vertex, VisualProperty,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -65,14 +65,18 @@ impl WgpuRenderer {
         visual: *mut std::ffi::c_void, // 背面ビジュアル
         size: LayoutSize,
         scale_factor: f32,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> crate::Result<Self> {
         // インスタンス生成（DX12を明示的に指定）
         let instance = WgpuRenderer::create_instance();
 
         // Surface の作成 (CompositionVisual を使用)
         // create_surface_unsafe を利用して渡された生ポインタから Surface を構築
         let target = unsafe { wgpu::SurfaceTargetUnsafe::CompositionVisual(visual) };
-        let surface = unsafe { instance.create_surface_unsafe(target)? };
+        let surface = unsafe {
+            instance
+                .create_surface_unsafe(target)
+                .map_err(|e| MichiuError::CreateSurfaceError { source: e })?
+        };
 
         // アダプターの取得
         let adapter = instance
@@ -82,7 +86,7 @@ impl WgpuRenderer {
                 force_fallback_adapter: false,
             })
             .await
-            .map_err(|_| "Failed to find an appropriate adapter")?;
+            .map_err(|e| MichiuError::RequestAdapterError { source: e })?;
 
         // デバイスとキューの取得
         let mut custom_limits = wgpu::Limits::downlevel_defaults();
@@ -100,7 +104,8 @@ impl WgpuRenderer {
                 experimental_features: wgpu::ExperimentalFeatures::default(),
                 trace: wgpu::Trace::Off,
             })
-            .await?;
+            .await
+            .map_err(|e| MichiuError::RequestDeviceError { source: e })?;
 
         // Surface 設定
         let config = WgpuRenderer::surface_config(size, &surface, &adapter);
@@ -720,12 +725,12 @@ impl WgpuRenderer {
         let basic = &cx
             .layouts
             .lay_resolved_basic
-            .get_or(entity_id, &DEFAULT_BASIC);
+            .find_or(entity_id, &DEFAULT_BASIC);
         let flex = &cx
             .layouts
             .lay_resolved_flex
-            .get_or(entity_id, &DEFAULT_FLEX);
-        let _grid = &cx.layouts.lay_resolved_grid.get_or_default(entity_id);
+            .find_or(entity_id, &DEFAULT_FLEX);
+        let _grid = &cx.layouts.lay_resolved_grid.find_or_default(entity_id);
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders
