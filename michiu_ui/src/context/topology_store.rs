@@ -3,9 +3,9 @@ use crate::{
     ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection, FlexLayoutsSecondary,
     IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, OutputStore,
-    PointerEvents, ReactiveStore, RectsSecondary, RenderStore, ResultTraceExt, StateStore,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
-    define_secondary, define_smallvec, define_vec,
+    PointerEvents, ReactiveStore, RectsSecondary, RenderStore, StateStore, SystemStore,
+    TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, VisualPropertiesSecondary,
+    WindowStore, define_secondary, define_smallvec, define_vec,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -681,6 +681,7 @@ impl TopologyStore {
         rnd_visual: &VisualPropertiesSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
         if !*topo_is_sort_dirty {
             return;
@@ -736,7 +737,7 @@ impl TopologyStore {
 
             // クリップ矩形のインライン累積
             let rect = *out_rects.at(id);
-            let eff_clip = *out_clip_rects.find_or(id, &default_clip);
+            let eff_clip = *out_clip_rects.find_or(id, &default_clip, debug);
 
             // トランスフォームの適用されているブランチか伝播判定
             let is_parent_transform = parent_id.is_some_and(|p| {
@@ -897,6 +898,7 @@ impl TopologyStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> Option<EntityId> {
         TopologyStore::prepare_sorted_entities(
             win_last_size,
@@ -912,6 +914,7 @@ impl TopologyStore {
             rnd_visual,
             out_clip_rects,
             out_rects,
+            debug,
         );
         for &id in topo_sorted_entities.iter().rev() {
             let is_drag_over = topo_active_masks

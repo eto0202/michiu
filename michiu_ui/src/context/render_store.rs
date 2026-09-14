@@ -876,14 +876,22 @@ impl RenderStore {
             return;
         }
 
-        let active_layout = lay_basic.find_or(id, &DEFAULT_BASIC);
-        let base_layout = lay_base_basic.find_or_default(id);
+        let active_layout = lay_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let base_layout = lay_base_basic.find_or_default(id, debug);
         let mut target_layout = base_layout;
 
         RenderStore::cascade_basic_layout(id, &mut target_layout, active_mask, rnd_interaction);
 
-        let to_px = |val, is_width| {
-            OutputStore::val_to_px(id, val, is_width, win_last_size, topo_parents, out_rects)
+        let mut to_px = |val, is_width| {
+            OutputStore::val_to_px(
+                id,
+                val,
+                is_width,
+                win_last_size,
+                topo_parents,
+                out_rects,
+                debug,
+            )
         };
 
         let target_w = to_px(target_layout.size.width, true);

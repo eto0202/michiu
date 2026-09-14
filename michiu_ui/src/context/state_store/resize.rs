@@ -179,8 +179,9 @@ impl ResizeStore {
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
-        let rect = out_rects.find_or_default(id);
+        let rect = out_rects.find_or_default(id, debug);
         let (position, mut start_inset) = lay_basic
             .find(id)
             .map_or((Position::default(), BasicLayout::default().inset), |l| {
@@ -260,7 +261,7 @@ impl ResizeStore {
         let delta_x = logical_pos.x - state.start_mouse_pos.x;
         let delta_y = logical_pos.y - state.start_mouse_pos.y;
 
-        let basic = lay_basic.find_or(id, &DEFAULT_BASIC);
+        let basic = lay_basic.find_or(id, &DEFAULT_BASIC, debug);
 
         let start_rect = state.start_rect;
 
@@ -275,7 +276,7 @@ impl ResizeStore {
             let abs_min_h = border.top + border.bottom + padding.top + padding.bottom;
 
             // 指定値を物理ピクセルに解決する
-            let resolve_val = |val: Val, is_width: bool, fallback: f32| match val {
+            let mut resolve_val = |val: Val, is_width: bool, fallback: f32| match val {
                 Val::Px(v) => v,
                 Val::Percent(_) => OutputStore::val_to_px(
                     id,
@@ -284,6 +285,7 @@ impl ResizeStore {
                     win_last_size,
                     topo_parents,
                     out_rects,
+                    debug,
                 ),
                 Val::Auto => fallback,
             };

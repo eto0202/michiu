@@ -331,6 +331,7 @@ impl TextEditStore {
         edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) {
         let buffer = SystemStore::get_or_create_layout(
             id,
@@ -342,6 +343,7 @@ impl TextEditStore {
             lay_resolved_flex,
             rnd_visual,
             out_rects,
+            debug,
         );
 
         let local = OutputStore::pressed_local_point(
@@ -354,6 +356,7 @@ impl TextEditStore {
             lay_resolved_grid,
             out_rects,
             sc_offsets,
+            debug,
         );
         let (clicked_index, is_trailing) = TextEngine::hit_test_point(&buffer, local);
 
@@ -538,6 +541,7 @@ impl TextEditStore {
             lay_resolved_flex,
             rnd_visual,
             out_rects,
+            debug,
         );
 
         // Input 要素の場合は生テキストの長さで全選択範囲を作る
@@ -656,6 +660,7 @@ impl TextEditStore {
                 lay_resolved_flex,
                 rnd_visual,
                 out_rects,
+                debug,
             );
             TextEditStore::update_selection_rects(
                 id,
@@ -811,15 +816,16 @@ impl TextEditStore {
             rnd_base_visual,
             edit_selections,
             out_rects,
+            debug,
         );
 
         let Some((caret, caret_offset, is_multiline)) = ime_caret_info else {
             return;
         };
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
-        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX);
-        let _grid = lay_resolved_grid.find_or_default(id);
-        let rect = out_rects.find_or_default(id); // 初回実行の場合、存在しない可能性
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+        let _grid = lay_resolved_grid.find_or_default(id, debug);
+        let rect = out_rects.find_or_default(id, debug); // 初回実行の場合、存在しない可能性
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -828,7 +834,7 @@ impl TextEditStore {
 
         let should_scroll = contents.needs_scroll_to_caret;
 
-        let mut scroll_offset = sc_offsets.find_or_default(id);
+        let mut scroll_offset = sc_offsets.find_or_default(id, debug);
 
         if should_scroll && rect.width > 0.0 && rect.height > 0.0 {
             let viewport = OutputStore::calc_viewport_size(rect, border, padding);
@@ -920,6 +926,7 @@ impl TextEditStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         edit_selections: &mut TextSelectionsSparse,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> Option<(LayoutRect, f32, bool)> {
         let contents = cont_input_contents.find_mut(id)?;
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
@@ -997,6 +1004,7 @@ impl TextEditStore {
             lay_resolved_flex,
             rnd_visual,
             out_rects,
+            debug,
         );
 
         let text_size = TextEngine::get_layout_size(&buffer);

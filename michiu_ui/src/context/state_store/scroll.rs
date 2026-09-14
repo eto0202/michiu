@@ -78,10 +78,10 @@ impl ScrollStore {
     ) -> bool {
         let rect = *out_rects.at(id);
 
-        let scroll_size = sc_sizes.find_or_default(id);
+        let scroll_size = sc_sizes.find_or_default(id, debug);
 
         // 親コンテナのボーダーおよびパディング厚を取得
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -176,9 +176,9 @@ impl ScrollStore {
         };
 
         let (sb_state, container_rect, scroll_size) = {
-            let sb_state = bar_styles.find(current_id).cloned().unwrap_or_default();
+            let sb_state = bar_styles.find_or_default(current_id, debug);
             let container_rect = *out_rects.at(current_id);
-            let scroll_size = sc_sizes.find_or_default(current_id);
+            let scroll_size = sc_sizes.find_or_default(current_id, debug);
             (sb_state, container_rect, scroll_size)
         };
 
@@ -299,7 +299,7 @@ impl ScrollStore {
         sc_sizes: &ScrollSizesSecondary,
         debug: &mut DebugStore,
     ) -> bool {
-        let current = sc_offsets.find_or_default(id);
+        let current = sc_offsets.find_or_default(id, debug);
         ScrollStore::scroll_to(
             id,
             current.x + dx,
@@ -429,6 +429,7 @@ impl ScrollStore {
                 lay_resolved_flex,
                 rnd_visual,
                 out_rects,
+                debug,
             );
             let size = TextEngine::get_layout_size(&buffer);
             max_x = size.width;
@@ -436,7 +437,7 @@ impl ScrollStore {
         }
 
         // 親要素自体のボーダー・パディング厚を取得
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
         let rect = *out_rects.at(id);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
@@ -468,7 +469,7 @@ impl ScrollStore {
 
             let child_rect = *out_rects.at(child_id);
             let parent_rect = *out_rects.at(id);
-            let scroll_offset = sc_offsets.find_or_default(id);
+            let scroll_offset = sc_offsets.find_or_default(id, debug);
 
             // 親の左上（border+padding除外）を原点 (0,0) とした子要素の右下端
             let local_right =

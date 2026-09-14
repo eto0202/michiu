@@ -1,5 +1,12 @@
 use crate::{
-    ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC, DndStore, ElementState, EntityId, EventListeners, FocusStore, InputContents, InputOp, LayoutPoint, LayoutStore, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, Pipeline, RenderStore, ResizeStore, ScrollStore, ScrollbarStore, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEditStore, TextEngine, TextSelectionsSparse, TopologyStore, UserSelect, VirtualKey, handle_on_click, handle_on_cursor_moved, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
+    ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC, DndStore,
+    ElementState, EntityId, EventListeners, FocusStore, InputContents, InputOp, LayoutPoint,
+    LayoutStore, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, Pipeline,
+    RenderStore, ResizeStore, ScrollStore, ScrollbarStore, SelectedRectsSparse,
+    SelectionStartIndexSparse, SystemStore, TextEditStore, TextEngine, TextSelectionsSparse,
+    TopologyStore, UserSelect, VirtualKey, handle_on_click, handle_on_cursor_moved,
+    handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input,
+    handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
 use std::ops::Range;
@@ -204,6 +211,7 @@ impl EventStore {
             &cx.renders.rnd_base_visual,
             &mut cx.outputs.out_clip_rects,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
@@ -315,6 +323,7 @@ impl EventStore {
                     &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
+                    &mut cx.debug,
                 );
                 let local = OutputStore::pressed_local_point(
                     pressed_id,
@@ -326,6 +335,7 @@ impl EventStore {
                     &cx.layouts.lay_resolved_grid,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_offsets,
+                    &mut cx.debug,
                 );
 
                 TextEditStore::handle_text_selection_click(
@@ -443,6 +453,7 @@ impl EventStore {
                 &mut cx.layouts.lay_basic,
                 &mut cx.layouts.lay_base_basic,
                 &cx.outputs.out_rects,
+                &mut cx.debug,
             );
             RenderStore::mark_render_dirty(
                 id,
@@ -525,6 +536,7 @@ impl EventStore {
                 &mut cx.states.edit.edit_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_offsets,
+                &mut cx.debug,
             );
         }
 
@@ -667,6 +679,7 @@ impl EventStore {
             &cx.layouts.lay_resolved_flex,
             &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         // ヒット先があるなら Some のはず
@@ -674,7 +687,7 @@ impl EventStore {
         let basic = cx
             .layouts
             .lay_resolved_basic
-            .find_or(target_id, &DEFAULT_BASIC);
+            .find_or(target_id, &DEFAULT_BASIC, &mut cx.debug);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -769,10 +782,10 @@ impl EventStore {
                 .at(curr_id)
                 .has(ComponentMask::STYLE_OVERFLOW);
             if has_overflow {
-                let basic = cx
-                    .layouts
-                    .lay_resolved_basic
-                    .find_or(curr_id, &DEFAULT_BASIC);
+                let basic =
+                    cx.layouts
+                        .lay_resolved_basic
+                        .find_or(curr_id, &DEFAULT_BASIC, &mut cx.debug);
 
                 // スクロール可能な軸の移動量
                 let dy = if scroll_y != 0.0

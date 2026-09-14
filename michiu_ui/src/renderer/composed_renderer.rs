@@ -1,10 +1,8 @@
-#[cfg(feature = "trace-error")]
-use crate::trace_error;
 use crate::{
     AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, DebugStore, EntityId,
     LayoutPoint, LayoutRect, LayoutSize, MichiuError, MichiuSoA, MichiuTrace, PlaybackCount,
     PropertyList, ResultTraceExt, WebView2Contents, WgpuRenderer, WindowsResultTraceExt,
-    flush_trace,
+    flush_trace, trace_error,
 };
 use std::{
     cell::RefCell,
@@ -222,6 +220,9 @@ impl ComposedRenderer {
                 .Commit()
                 .unwrap_or_trace(None, &mut cx.debug);
         };
+        // ダーティフラグをクリア
+        cx.clear_dirty();
+        // ログを送信
         flush_trace!(cx, self);
     }
 
@@ -353,7 +354,7 @@ impl ComposedRenderer {
 
                 // 要素の物理サイズが前フレームから微細変動（リサイズドラッグなど）しているか判定
                 let rect = *cx.outputs.out_rects.at(id);
-                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id);
+                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
                 let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
                     || (rect.height - prev_rect.height).abs() > 0.01;
 
@@ -495,7 +496,7 @@ impl ComposedRenderer {
                             });
 
                 let rect = *cx.outputs.out_rects.at(id);
-                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id);
+                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
                 let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
                     || (rect.height - prev_rect.height).abs() > 0.01;
 
@@ -592,8 +593,11 @@ impl ComposedRenderer {
                 // 移動中・リサイズ中におけるDCompスワップチェーンの子の影の点滅を防止するため、
                 // 要素の絶対座標（rect）およびクリップ境界（clip_rect）が前回から1ピクセルも変化していない場合は、
                 // DComp側へのOffset/Clip/Boundsの再設定を完全にスキップして早期スルー。
-                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id);
-                let prev_clip = cx.outputs.out_prev_clip_rects.find_or_default(id);
+                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
+                let prev_clip = cx
+                    .outputs
+                    .out_prev_clip_rects
+                    .find_or_default(id, &mut cx.debug);
 
                 // 要素の物理サイズが変化した場合、古いキャッシュテクスチャを即座に破棄（無効化）
                 //  初期サイズ決定時（prev_rect が ZERO の起動時フレーム）を除外

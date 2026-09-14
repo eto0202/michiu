@@ -75,24 +75,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // デバッグログ用のスレッド
     std::thread::spawn(move || {
         while let Ok(batch) = sub.recv() {
+            use std::io::Write;
+            let mut stderr = std::io::stderr().lock();
+
             for record in batch.iter() {
-                let (entity, time, loc, func, frame) = (
-                    record.id,
-                    record.time,
-                    record.loc,
-                    record.func,
-                    record.frame,
-                );
                 if let MichiuTrace::Error { detail, .. } = &record.trace {
-                    eprintln!(
-                        "
-                            [{frame} Error]\n\
-                             - Entity : {entity:?}\n\
-                             - Time   : {time:?}\n\
-                             - Loc    : {loc}\n\
-                             - Func   : {func}\n\
-                             - Detail :\n\
-                                {detail}"
+                    let _ = writeln!(
+                        stderr,
+                        "\n[{frame} Error]\n\
+                         - Entity : {entity:?}\n\
+                         - Time   : {time:?}\n\
+                         - Loc    : {loc}\n\
+                         - Func   : {func}\n\
+                         - Detail :\n  \
+                           {detail}",
+                        frame = record.frame,
+                        entity = record.id,
+                        time = record.time,
+                        loc = record.loc,
+                        func = record.func,
                     );
                 }
             }

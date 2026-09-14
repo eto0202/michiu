@@ -718,19 +718,22 @@ impl WgpuRenderer {
 
     /// `QuadInstance` に静的バインドする
     fn build_quad_instance_for_entity(
-        cx: &Context,
+        cx: &mut Context,
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> (QuadInstance, bool) {
-        let basic = &cx
-            .layouts
-            .lay_resolved_basic
-            .find_or(entity_id, &DEFAULT_BASIC);
+        let basic =
+            &cx.layouts
+                .lay_resolved_basic
+                .find_or(entity_id, &DEFAULT_BASIC, &mut cx.debug);
         let flex = &cx
             .layouts
             .lay_resolved_flex
-            .find_or(entity_id, &DEFAULT_FLEX);
-        let _grid = &cx.layouts.lay_resolved_grid.find_or_default(entity_id);
+            .find_or(entity_id, &DEFAULT_FLEX, &mut cx.debug);
+        let _grid = &cx
+            .layouts
+            .lay_resolved_grid
+            .find_or_default(entity_id, &mut cx.debug);
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders

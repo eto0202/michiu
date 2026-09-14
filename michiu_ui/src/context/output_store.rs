@@ -1,10 +1,10 @@
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, AlignItems, BasicLayoutsSecondary,
-    CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, EdgeInsets, EntityId, InputContentsSparse,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, ParentsSecondary, Position,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextEngine, UserSelect, Val,
-    VisualPropertiesSecondary, define_secondary,
+    CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, EdgeInsets, EntityId,
+    InputContentsSparse, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
+    ParentsSecondary, Position, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollOffsetsSecondary, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextEngine,
+    UserSelect, Val, VisualPropertiesSecondary, define_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SecondaryMap;
@@ -99,17 +99,18 @@ impl OutputStore {
         lay_resolved_grid: &ResolvedGridSparse,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) -> LayoutPoint {
         let rect = *out_rects.at(id);
 
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
-        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX);
-        let _ = lay_resolved_grid.find_or_default(id); // TODO: Grid実装時用
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+        let _ = lay_resolved_grid.find_or_default(id, debug); // TODO: Grid実装時用
 
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-        let scroll = sc_offsets.find_or_default(id);
+        let scroll = sc_offsets.find_or_default(id, debug);
 
         let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.find(id) {
             let size = contents
@@ -151,6 +152,7 @@ impl OutputStore {
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) -> (LayoutRect, LayoutRect) {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
         let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy_tree, lay_taffy_nodes);
@@ -165,7 +167,7 @@ impl OutputStore {
             return (local_rect, initial_clip);
         };
 
-        let s_offsets = sc_offsets.find_or_default(parent_id);
+        let s_offsets = sc_offsets.find_or_default(parent_id, debug);
         // データが無い要素が Absolute になることは絶対にない
         let is_absolute = lay_basic
             .find(id)
@@ -209,6 +211,7 @@ impl OutputStore {
         win_last_size: Option<LayoutSize>,
         topo_parents: &ParentsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> f32 {
         match val {
             Val::Px(v) => v,
@@ -231,7 +234,7 @@ impl OutputStore {
             }
             Val::Auto => {
                 // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
-                let r = out_rects.find_or_default(id);
+                let r = out_rects.find_or_default(id, debug);
                 if is_width { r.width } else { r.height }
             }
         }

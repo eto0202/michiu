@@ -126,8 +126,6 @@ unsafe extern "system" fn wnd_proc(
 
                 // 描画実行
                 app.renderer.draw(&mut app.context);
-                app.context.clear_layout_dirty();
-                app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
 

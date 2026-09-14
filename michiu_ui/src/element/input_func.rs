@@ -1,6 +1,6 @@
 use crate::{
-    ByteIndex, ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
-    InputContents, InputOp, LayoutPoint, MichiuSoA, MichiuString, Modifiers, MouseButton,
+    ByteIndex, ComponentMask, Context, DebugStore, EffectCategory, Element, ElementState, EntityId,
+    ImeState, InputContents, InputOp, LayoutPoint, MichiuSoA, MichiuString, Modifiers, MouseButton,
     OutputStore, Prop, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEngine,
     TextSelectionsSparse, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
@@ -167,6 +167,7 @@ impl Element {
             &cx.layouts.lay_resolved_flex,
             &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         let local = OutputStore::pressed_local_point(
@@ -179,6 +180,7 @@ impl Element {
             &cx.layouts.lay_resolved_grid,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_offsets,
+            &mut cx.debug,
         );
 
         let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
@@ -476,6 +478,7 @@ impl Element {
         edit_selections: &mut TextSelectionsSparse,
         edit_selection_start_index: &mut SelectionStartIndexSparse,
         edit_selected_rects: &mut SelectedRectsSparse,
+        debug: &mut DebugStore,
     ) -> bool {
         let range = contents.selected_range.clone();
         // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時（全選択中での右移動に完全対応）
@@ -495,7 +498,7 @@ impl Element {
             let new_caret = text_val.next_char_boundary(caret);
 
             if mods.shift {
-                let anchor = *edit_selection_start_index.find_or(id, &caret);
+                let anchor = *edit_selection_start_index.find_or(id, &caret, debug);
                 if !edit_selection_start_index.contains_key(id) {
                     edit_selection_start_index.insert(id, caret);
                 }
@@ -530,6 +533,7 @@ impl Element {
         mods: Modifiers,
         edit_selections: &mut TextSelectionsSparse,
         edit_selection_start_index: &mut SelectionStartIndexSparse,
+        debug: &mut DebugStore,
     ) -> bool {
         if !contents.is_multiline {
             return false;
@@ -549,7 +553,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = *edit_selection_start_index.find_or(id, &caret);
+            let anchor = *edit_selection_start_index.find_or(id, &caret, debug);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }
@@ -583,6 +587,7 @@ impl Element {
         mods: Modifiers,
         edit_selections: &mut TextSelectionsSparse,
         edit_selection_start_index: &mut SelectionStartIndexSparse,
+        debug: &mut DebugStore,
     ) -> bool {
         if !contents.is_multiline {
             return false;
@@ -602,7 +607,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = *edit_selection_start_index.find_or(id, &caret);
+            let anchor = *edit_selection_start_index.find_or(id, &caret, debug);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }
@@ -703,6 +708,7 @@ impl Element {
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
                     &mut cx.states.edit.edit_selected_rects,
+                    &mut cx.debug,
                 );
             }
             VirtualKey::UP => {
@@ -715,6 +721,7 @@ impl Element {
                     mods,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
+                    &mut cx.debug,
                 );
             }
             VirtualKey::DOWN => {
@@ -727,6 +734,7 @@ impl Element {
                     mods,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
+                    &mut cx.debug,
                 );
             }
             _ => {}

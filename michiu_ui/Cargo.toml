@@ -63,14 +63,14 @@ features = [
 [features]
 serde = ["dep:serde"]
 dhat-heap = ["dep:dhat"]
-default = ["trace-error"]
-# エラーのみ。
+default = ["trace-lifecycle"]
+# エラーのみ。優しい。
 trace-error = []
-# ライフサイクルなど。マクロな追跡。
+# ライフサイクルなど。マクロな追跡。普通。
 trace-lifecycle = ["trace-error"]
-# 全エンティティ。ミクロな追跡。
+# 全エンティティ。ミクロな追跡。ちょー危険。
 trace-entity = ["trace-lifecycle"]
-# Context などのスナップショット
+# Context などのフレーム最後のスナップショット。まあまあ危険。
 snapshot = ["trace-error"]
 
 [package.metadata.docs.rs]

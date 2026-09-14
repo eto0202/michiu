@@ -1,4 +1,4 @@
-use crate::{EntityId, MichiuError, Result};
+use crate::{DebugStore, EntityId, MichiuError, Result};
 
 pub trait MichiuSoA {
     type Item;
@@ -31,10 +31,10 @@ pub trait MichiuSoA {
     #[track_caller]
     #[allow(clippy::panic)]
     fn at(&self, id: EntityId) -> &Self::Item {
-        let type_name = std::any::type_name::<Self>();
-        let caller = std::panic::Location::caller();
-
         self.find(id).unwrap_or_else(|| {
+            let type_name = std::any::type_name::<Self>();
+            let caller = std::panic::Location::caller();
+
             panic!(
                 "[Michiu UI] SoA Component Access Failed\n\
                     Caller Loc    : {caller}\n\
@@ -54,10 +54,10 @@ pub trait MichiuSoA {
     #[track_caller]
     #[allow(clippy::panic)]
     fn at_mut(&mut self, id: EntityId) -> &mut Self::Item {
-        let type_name = std::any::type_name::<Self>();
-        let caller = std::panic::Location::caller();
-
         self.find_mut(id).unwrap_or_else(|| {
+            let type_name = std::any::type_name::<Self>();
+            let caller = std::panic::Location::caller();
+
             panic!(
                 "[Michiu UI] SoA Component Mutable Access Failed\n\
                     Caller Loc    : {caller}\n\
@@ -74,17 +74,65 @@ pub trait MichiuSoA {
 
     /// デフォルト値でフォールバック
     #[inline]
-    fn find_or_default(&self, id: EntityId) -> Self::Item
+    #[track_caller]
+    fn find_or_default(&self, id: EntityId, debug: &mut DebugStore) -> Self::Item
     where
-        Self::Item: Default + Clone,
+        Self::Item: Default + Clone + std::fmt::Debug + Send + Sync + 'static,
     {
-        self.find(id).cloned().unwrap_or_default()
+        #[cfg(not(feature = "trace-lifecycle"))]
+        {
+            let _ = debug;
+            self.find(id).cloned().unwrap_or_default()
+        }
+
+        #[cfg(feature = "trace-lifecycle")]
+        if let Some(val) = self.find(id) {
+            val.clone()
+        } else {
+            use crate::{MichiuInfo, MichiuTrace, trace_lifecycle};
+            use std::sync::Arc;
+
+            trace_lifecycle!(Some(id), debug, || MichiuTrace::Info {
+                detail: MichiuInfo::ValueNotFound,
+                fallback: Some(Arc::new(Self::Item::default())),
+                add: Some(std::any::type_name::<Self::Item>()),
+            });
+            Self::Item::default()
+        }
     }
 
     /// 指定の値でフォールバック
     #[inline]
-    fn find_or<'a>(&'a self, id: EntityId, fallback: &'a Self::Item) -> &'a Self::Item {
-        self.find(id).unwrap_or(fallback)
+    #[track_caller]
+    fn find_or<'a>(
+        &'a self,
+        id: EntityId,
+        fallback: &'a Self::Item,
+        debug: &mut DebugStore,
+    ) -> &'a Self::Item
+    where
+        Self::Item: Default + Clone + std::fmt::Debug + Send + Sync + 'static,
+    {
+        #[cfg(not(feature = "trace-lifecycle"))]
+        {
+            let _ = debug;
+            self.find(id).unwrap_or(fallback)
+        }
+
+        #[cfg(feature = "trace-lifecycle")]
+        if let Some(val) = self.find(id) {
+            val
+        } else {
+            use crate::{MichiuInfo, MichiuTrace, trace_lifecycle};
+            use std::sync::Arc;
+
+            trace_lifecycle!(Some(id), debug, || MichiuTrace::Info {
+                detail: MichiuInfo::ValueNotFound,
+                fallback: Some(Arc::new(fallback.clone())),
+                add: Some(std::any::type_name::<Self::Item>()),
+            });
+            fallback
+        }
     }
 
     /// その要素がコンポーネントを保持しているか

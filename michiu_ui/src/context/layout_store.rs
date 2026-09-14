@@ -6,7 +6,7 @@ use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayout, CapacityConfig, ChildrenSecondary,
     ComponentMask, Context, DebugStore, EdgeInsets, EntityId, FlexLayout, GridLayout,
     InteractionPropertiesSecondary, InteractionStyles, LayoutRect, Length, MichiuSoA, NormalLayout,
-    ParentsSecondary, PropertyList, Rect, RenderStore, ResultTraceExt, StyleTarget, ThisStyle,
+    ParentsSecondary, PropertyList, Rect, RenderStore, StyleTarget, TaffyResultTraceExt, ThisStyle,
     VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -148,9 +148,10 @@ impl LayoutStore {
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
+        debug: &mut DebugStore,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
-        let mut basic = lay_basic.find_or_default(id);
-        let mut flex = lay_flex.find_or_default(id);
+        let mut basic = lay_basic.find_or_default(id, debug);
+        let mut flex = lay_flex.find_or_default(id, debug);
         let mut grid = lay_grid.find(id).cloned();
 
         let active_mask = topo_active_masks.at(id);
@@ -216,6 +217,7 @@ impl LayoutStore {
             rnd_visual,
             rnd_interaction,
             rnd_active_transitions,
+            debug,
         );
 
         lay_resolved_basic.insert(id, basic);

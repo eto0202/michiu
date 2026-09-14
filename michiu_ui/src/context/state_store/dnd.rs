@@ -3,8 +3,8 @@ use crate::{
     CapacityConfig, ChildrenSecondary, ComponentMask, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Element, EntitiesSlot, EntityId, EventStore, FlexLayoutsSecondary,
     LayoutPoint, LayoutRect, LayoutStore, MichiuError, MichiuSoA, OptionTraceExt, ParentsSecondary,
-    Pipeline, PointerEvents, Position, Rect, RectsSecondary, RenderStore, ResultTraceExt,
-    SessionSpawnedVec, TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val,
+    Pipeline, PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec,
+    TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TopologyStore, Val,
     define_sparse_secondary, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
     handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
 };

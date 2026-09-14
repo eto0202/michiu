@@ -8,11 +8,12 @@ use crate::{
     LayoutStore, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
     PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
     RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparse, ResultTraceExt, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextEditStore, TextEngine, TextSpan, TopologyStore, UnderlineStyle,
-    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
-    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select,
+    ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore, ScrollbarStore,
+    ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
+    TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore, TextEngine, TextSpan, TopologyStore,
+    UnderlineStyle, VirtualKey, VisualProperty, bind_context, handle_on_active,
+    handle_on_char_input, handle_on_disable, handle_on_file_dropped, handle_on_ime,
+    handle_on_select,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -749,6 +750,7 @@ impl Pipeline {
             &cx.renders.rnd_visual,
             &mut cx.outputs.out_clip_rects,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         let mut force_full_scan = false;
@@ -810,19 +812,32 @@ impl Pipeline {
             }
             let clip = *cx.outputs.out_clip_rects.at(id);
 
-            let basic = cx.layouts.lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
-            let flex = cx.layouts.lay_resolved_flex.find_or(id, &DEFAULT_FLEX);
+            let basic = cx
+                .layouts
+                .lay_resolved_basic
+                .find_or(id, &DEFAULT_BASIC, &mut cx.debug);
+            let flex = cx
+                .layouts
+                .lay_resolved_flex
+                .find_or(id, &DEFAULT_FLEX, &mut cx.debug);
             let _grid = cx
                 .layouts
                 .lay_resolved_grid
                 .find(id)
                 .cloned()
                 .unwrap_or_default();
-            let visual = cx.renders.rnd_visual.find_or(id, &default_visual);
+            let visual = cx
+                .renders
+                .rnd_visual
+                .find_or(id, &default_visual, &mut cx.debug);
 
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-            let scroll = cx.states.scroll.sc_offsets.find_or_default(id);
+            let scroll = cx
+                .states
+                .scroll
+                .sc_offsets
+                .find_or_default(id, &mut cx.debug);
 
             // トランスフォームブランチの場合のみその場で累積を解決
             // それ以外は IDENTITY_MATRIX
@@ -988,6 +1003,7 @@ impl Pipeline {
                     &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
+                    &mut cx.debug,
                 );
 
                 let align_offset = Pipeline::text_size_to_align_offset(
@@ -1035,6 +1051,7 @@ impl Pipeline {
                     &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
+                    &mut cx.debug,
                 );
 
                 let align_offset = Pipeline::text_size_to_align_offset(
@@ -1233,8 +1250,8 @@ impl Pipeline {
                 continue;
             }
 
-            let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
-            let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX);
+            let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+            let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
             let grid = lay_resolved_grid.find(id).cloned();
 
             // トランジション（アニメーション）中プロパティの現在値による上書き
@@ -1277,6 +1294,7 @@ impl Pipeline {
             out_rects,
             out_clip_rects,
             sc_offsets,
+            debug,
         );
 
         out_rects.insert(id, abs_rect);

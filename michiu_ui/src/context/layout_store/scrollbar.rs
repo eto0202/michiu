@@ -5,9 +5,9 @@ use crate::{
     DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse,
     InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA,
     OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ResultTraceExt, ScrollOffsetsSecondary,
-    ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle,
-    Val, VisualPropertiesSecondary, WindowStore, define_sparse_secondary,
+    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
+    ScrollStore, Size, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, ThisStyle, Val,
+    VisualPropertiesSecondary, WindowStore, define_sparse_secondary,
 };
 use slotmap::SparseSecondaryMap;
 use smallvec::SmallVec;
@@ -240,8 +240,8 @@ impl ScrollbarStore {
         // 親スクロールコンテナ
         let sb_state = bar_styles.at(c_id);
         let container_rect = *out_rects.at(c_id);
-        let scroll_size = sc_sizes.find_or_default(c_id);
-        let offset = sc_offsets.find_or_default(c_id);
+        let scroll_size = sc_sizes.find_or_default(c_id, debug);
+        let offset = sc_offsets.find_or_default(c_id, debug);
 
         match component {
             ScrollbarComponent::VThumb | ScrollbarComponent::HThumb => {
@@ -329,7 +329,7 @@ impl ScrollbarStore {
                     debug,
                 );
 
-                let new_offset = sc_offsets.find_or_default(c_id);
+                let new_offset = sc_offsets.find_or_default(c_id, debug);
                 if let Some(st) = bar_styles.find_mut(c_id) {
                     if is_vertical {
                         st.v_thumb_dragged = true;
@@ -469,10 +469,10 @@ impl ScrollbarStore {
         for id in scrollbar_ids {
             let sb_state = bar_styles.at(id);
             let rect = *out_rects.at(id);
-            let scroll_size = sc_sizes.find_or_default(id);
-            let current_scroll = sc_offsets.find_or_default(id);
+            let scroll_size = sc_sizes.find_or_default(id, debug);
+            let current_scroll = sc_offsets.find_or_default(id, debug);
 
-            let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
+            let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -849,8 +849,8 @@ impl ScrollbarStore {
             debug,
         );
 
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC);
-        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX);
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
         let grid = lay_resolved_grid.find(id); // Grid実装時用
 
         LayoutStore::set_taffy_style(

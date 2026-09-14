@@ -1,8 +1,8 @@
 use crate::{
-    CapacityConfig, Context, EdgeInsets, EntityId, InputContents, LayoutPoint, LayoutRect,
-    LayoutStore, MichiuSoA, RectsSecondary, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    TextContentsSparse, TextEngine, TextSpansSparse, UiaValue, VisualPropertiesSecondary,
-    define_sparse_secondary,
+    CapacityConfig, Context, DebugStore, EdgeInsets, EntityId, InputContents, LayoutPoint,
+    LayoutRect, LayoutStore, MichiuSoA, RectsSecondary, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, TextContentsSparse, TextEngine, TextSpansSparse, UiaValue,
+    VisualPropertiesSecondary, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -123,6 +123,7 @@ impl SystemStore {
         lay_resolved_flex: &ResolvedFlexSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> Rc<Buffer> {
         let text = cont_text_contents.at(id);
 
@@ -132,9 +133,9 @@ impl SystemStore {
             .unwrap_or_default();
         let auto_wrap = rnd_visual.find(id).and_then(|v| v.auto_wrap);
 
-        let basic = lay_resolved_basic.find_or_default(id);
-        let flex = lay_resolved_flex.find_or_default(id);
-        let rect = out_rects.find_or_default(id); // 初回実行の場合、存在しない可能性
+        let basic = lay_resolved_basic.find_or_default(id, debug);
+        let flex = lay_resolved_flex.find_or_default(id, debug);
+        let rect = out_rects.find_or_default(id, debug); // 初回実行の場合、存在しない可能性
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -319,6 +320,7 @@ impl Context {
             &self.layouts.lay_resolved_flex,
             &self.renders.rnd_visual,
             &self.outputs.out_rects,
+            &mut self.debug,
         )
     }
 }

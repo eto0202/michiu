@@ -618,6 +618,7 @@ impl Context {
             &self.renders.rnd_base_visual,
             &mut self.outputs.out_clip_rects,
             &self.outputs.out_rects,
+            &mut self.debug,
         )
     }
 

@@ -1,11 +1,14 @@
+#[allow(unused)]
 use crate::{
-    ActiveDragState, ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary,
-    ActiveResizeHoverOption, Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary,
-    BasicLayoutsSecondary, ChildrenSecondary, ClipRectsSecondary, ComponentMask, Context,
-    DespawnedQueueVec, DfsIndicesSecondary, DirtyLayoutEntitiesVec, DndDragPropertiesSparse,
-    DndDropPropertiesSparse, EffectId, EffectToElementSecondary, EffectiveZindicesSecondary,
-    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, ExternalTextureSparse,
-    FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, LayoutPoint,
+    ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveInteractionStates,
+    ActiveMasksSecondary, ActiveResizeHoverOption, ActiveTransitionsSparse, ActiveWebviewsHashSet,
+    Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary, BaseVisualPropertiesSecondary,
+    BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask,
+    ComposedRenderer, Context, DespawnedQueueVec, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, DndDragPropertiesSparse, DndDropPropertiesSparse, EffectId,
+    EffectToElementSecondary, EffectiveZindicesSecondary, ElementEffectsSecondary, ElementState,
+    EntitiesSlot, EntityId, ExternalTextureSparse, FlatDfsSequenceVec, FlexLayoutsSecondary,
+    GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
     LayoutSize, MichiuString, Modifiers, MouseButton, ParentsSecondary, PendingDcompRelease,
     PendingElementEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
     QuadInstance, RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary,
@@ -13,8 +16,8 @@ use crate::{
     ScrollbarStylesSparse, SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec,
     SessionSpawnedVec, SignalId, SortCacheVec, SortedEntitiesVec, SubscribersSecondary,
     TaffyNodesSecondary, TextCacheKey, TextCacheValue, TextContentsSparse, TextSelectionsSparse,
-    TextSpansSparse, TextureAtlas, UiaPropertiesSparse, VirtualKey, WebviewContentsSparse,
-    WebviewEntitiesVec,
+    TextSpansSparse, TextureAtlas, UiaPropertiesSparse, VirtualKey, VisualPropertiesSecondary,
+    WebviewContentsSparse, WebviewEntitiesVec,
 };
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
@@ -30,6 +33,8 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
+#[cfg(feature = "snapshot")]
+use windows_core::Interface;
 
 // ================================================================
 // ================================================================
@@ -110,8 +115,19 @@ impl DebugStore {
 
     /// 起動時からの経過時間を取得
     #[inline]
-    pub(crate) fn elapsed(&self) -> TimeStamp {
-        TimeStamp::Start(self.boot_time.elapsed())
+    pub(crate) fn since_boot(&self) -> TimeStamp {
+        TimeStamp::SinceBoot(self.boot_time.elapsed())
+    }
+
+    #[inline]
+    pub(crate) fn take_trace_queue(&mut self) -> MichiuTraceVec {
+        // 直前の容量を取得
+        let next_capacity = self.dbg_trace_queue.capacity().max(512);
+
+        std::mem::replace(
+            &mut self.dbg_trace_queue,
+            MichiuTraceVec(Vec::with_capacity(next_capacity)),
+        )
     }
 }
 
@@ -218,16 +234,13 @@ impl MichiuInspector {
                     });
                 }
 
-                // 最新状態をローカルに反映
-                for trace in shared_batch.iter() {
-                    if let Some(id) = trace.id {
-                        local_storage.insert(id, trace.clone());
+                if let Ok(mut storage) = storage_clone.write() {
+                    for trace in shared_batch.iter() {
+                        if let Some(id) = trace.id {
+                            // trace 自体も clone せず Arc<MichiuTraceRecord> にする？
+                            storage.insert(id, trace.clone());
+                        }
                     }
-                }
-
-                // 最新スナップショットの公開
-                if let Ok(mut lock) = storage_clone.write() {
-                    *lock = local_storage.clone();
                 }
             }
         });
@@ -281,7 +294,6 @@ impl Context {
 #[derive(Clone)]
 #[repr(u8)]
 pub enum MichiuTrace {
-    #[cfg(feature = "trace-error")]
     None,
 
     #[cfg(feature = "trace-lifecycle")]
@@ -351,7 +363,9 @@ pub enum MichiuTrace {
     },
 
     #[cfg(feature = "trace-lifecycle")]
-    Text { add: Option<&'static str> },
+    Text {
+        add: Option<&'static str>,
+    },
 
     #[cfg(feature = "trace-lifecycle")]
     Animation {
@@ -379,18 +393,24 @@ pub enum MichiuTrace {
     },
 
     #[cfg(feature = "trace-lifecycle")]
-    Present { add: Option<&'static str> },
+    Present {
+        add: Option<&'static str>,
+    },
 
     #[cfg(feature = "trace-lifecycle")]
-    Commit { add: Option<&'static str> },
+    Commit {
+        add: Option<&'static str>,
+    },
 
     #[cfg(feature = "trace-lifecycle")]
-    Despawn { add: Option<&'static str> },
+    Despawn {
+        add: Option<&'static str>,
+    },
 
     #[cfg(feature = "trace-lifecycle")]
-    Warn {
-        detail: MichiuWarn,
-        fallback: Option<&'static str>,
+    Info {
+        detail: MichiuInfo,
+        fallback: Option<Arc<dyn std::fmt::Debug + Send + Sync>>,
         add: Option<&'static str>,
     },
 
@@ -557,7 +577,9 @@ pub enum RenderStage {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeStamp {
     None,
-    /// 計測開始（アプリ起動からの経過時間）
+    /// 初期化からの経過時間
+    SinceBoot(MichiuDuration),
+    /// 計測開始
     Start(MichiuDuration),
     /// 途中のステージ（直前のステージからの経過時間）
     Elapsed(MichiuDuration),
@@ -643,7 +665,7 @@ pub enum FrameKinds {
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
-pub enum MichiuWarn {
+pub enum MichiuInfo {
     None,
     ValueNotFound,
     CacheNotFound,
@@ -733,17 +755,7 @@ pub(crate) const fn caller_location() -> &'static Location<'static> {
 macro_rules! current_fn {
     () => {{
         fn __f() {}
-        fn __type_name_of<T>(_: T) -> &'static str {
-            std::any::type_name::<T>()
-        }
-        let mut name = __type_name_of(__f);
-        if let Some(stripped) = name.strip_suffix("::__f") {
-            name = stripped;
-        }
-        while let Some(stripped) = name.strip_suffix("::{{closure}}") {
-            name = stripped;
-        }
-        name
+        std::any::type_name_of_val(&__f)
     }};
 }
 
@@ -752,6 +764,29 @@ macro_rules! current_fn {
 macro_rules! current_fn {
     () => {
         ""
+    };
+}
+
+// ================================================================
+// ================================================================
+
+#[cfg(feature = "trace-error")]
+#[macro_export]
+#[doc(hidden)]
+macro_rules! _make_record {
+    ($id:expr, $debug:expr, $trace:expr) => {
+        $crate::MichiuTraceRecord {
+            id: $id,
+            frame: $debug.frame,
+            time: $debug.since_boot(),
+            func: $crate::current_fn!(),
+            loc: $crate::caller_location(),
+            trace: $trace,
+            #[cfg(feature = "snapshot")]
+            cx: None,
+            #[cfg(feature = "snapshot")]
+            renderer: None,
+        }
     };
 }
 
@@ -771,16 +806,9 @@ macro_rules! trace_error {
         let _: &DebugStore = debug;
         let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
 
-        if $debug.dbg_tx.is_some() {
-            let record = $crate::MichiuTraceRecord {
-                id: $id,
-                frame: $debug.frame,
-                time: $debug.elapsed(),
-                func: $crate::current_fn!(),
-                loc: $crate::caller_location(),
-                trace: $trace_fn(),
-            };
-            $debug.dbg_trace_queue.push(record);
+        if debug.dbg_tx.is_some() {
+            let record = $crate::_make_record!($id, debug, $trace_fn());
+            debug.dbg_trace_queue.push(record);
         }
     };
 }
@@ -799,20 +827,19 @@ macro_rules! trace_error {
 #[cfg(feature = "trace-lifecycle")]
 #[macro_export]
 macro_rules! trace_lifecycle {
-    ($debug:expr, $trace_fn:expr) => {
+    (None, $debug:expr, $trace_fn:expr) => {
+        let id: Option<$crate::EntityId> = None;
+        $crate::trace_lifecycle!(id, $debug, $trace_fn);
+    };
+    
+    ($id:expr, $debug:expr, $trace_fn:expr) => {
         let debug = &mut *$debug;
         let _: &$crate::DebugStore = debug;
         let _: &mut dyn FnMut() -> $crate::MichiuTrace = &mut $trace_fn;
 
-        if $debug.dbg_tx.is_some() {
-            let record = $crate::MichiuTraceRecord {
-                id: None,
-                time: $debug.elapsed(),
-                func: $crate::current_fn!(),
-                loc: $crate::caller_location(),
-                trace: $trace_fn(),
-            };
-            $debug.dbg_trace_queue.push(record);
+        if debug.dbg_tx.is_some() {
+            let record = $crate::_make_record!($id, debug, $trace_fn());
+            debug.dbg_trace_queue.push(record);
         }
     };
 }
@@ -820,7 +847,7 @@ macro_rules! trace_lifecycle {
 #[cfg(not(feature = "trace-lifecycle"))]
 #[macro_export]
 macro_rules! trace_lifecycle {
-    ($debug:expr, $trace_fn:expr) => {
+    ($id:expr, $debug:expr, $trace_fn:expr) => {
         let _ = $debug;
     };
 }
@@ -842,14 +869,7 @@ macro_rules! trace_entity {
         let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
 
         if debug.dbg_tx.is_some() {
-            let record = $crate::MichiuTraceRecord {
-                id: $id,
-                frame: debug.frame,
-                time: debug.elapsed(),
-                func: $crate::current_fn!(),
-                loc: $crate::caller_location(),
-                trace: $trace_fn(),
-            };
+            let record = $crate::_make_record!($id, debug, $trace_fn());
             debug.dbg_trace_queue.push(record);
         }
     };
@@ -860,52 +880,6 @@ macro_rules! trace_entity {
 macro_rules! trace_entity {
     ($id:expr, $debug:expr, $trace_fn:expr) => {
         let _ = ($id, $debug);
-    };
-}
-
-// ================================================================
-// ================================================================
-#[cfg(feature = "snapshot")]
-#[macro_export]
-macro_rules! trace {
-    (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<EntityId> = None;
-        $crate::trace!(id, $debug, $trace_fn);
-    };
-
-    ($id:expr, $debug:expr, $trace_fn:expr) => {
-        let debug = &mut *$debug;
-        let _: &DebugStore = debug;
-        let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
-
-        if debug.dbg_tx.is_some() {
-            let record = $crate::MichiuTraceRecord {
-                id: $id,
-                frame: debug.frame,
-                time: debug.elapsed(),
-                func: $crate::current_fn!(),
-                loc: $crate::caller_location(),
-                trace: $trace_fn(),
-                cx: None,
-                renderer: None,
-            };
-            debug.dbg_trace_queue.push(record);
-        }
-    };
-}
-
-#[cfg(not(feature = "trace-error"))]
-#[macro_export]
-macro_rules! trace {
-    (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<EntityId> = None;
-        $crate::trace!(id, $debug, $trace_fn);
-    };
-
-    ($id:expr, $debug:expr, $trace_fn:expr) => {
-        let debug = &mut *$debug;
-        let _: &DebugStore = debug;
-        let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
     };
 }
 
@@ -935,7 +909,7 @@ macro_rules! flush_trace {
                 ))),
             };
             $cx.debug.dbg_trace_queue.push(record);
-            let batch = std::mem::take(&mut $cx.debug.dbg_trace_queue);
+            let batch = $cx.debug.take_trace_queue();
             tx.send_batch(batch);
         }
     };
@@ -950,7 +924,7 @@ macro_rules! flush_trace {
 
         if let Some(tx) = $cx.debug.dbg_tx.clone() {
             $cx.debug.frame += 1;
-            let batch = std::mem::take(&mut $cx.debug.dbg_trace_queue);
+            let batch = $cx.debug.take_trace_queue();
             tx.send_batch(batch);
         }
     };
@@ -1173,7 +1147,7 @@ pub struct ComposedRendererSnapshot {
     pub wgpu_visual: usize,
     pub webview_env: Option<usize>,
     pub promoted_visuals: Vec<PromotedVisualSnapshot>,
-    pub pending_removals: Vec<(EntityId, Option<wgpu::Texture>)>,
+    pub pending_removals: Vec<(EntityId, Option<wgpu::Texture>, Option<MichiuError>)>,
     pub pending_dcomp_releases: Vec<PendingDcompRelease>,
     pub current_backdrop: Backdrop,
     pub resize_cooldown_frames: u32,
@@ -1632,7 +1606,7 @@ pub trait TaffyResultTraceExt<T> {
     fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
 }
 
-impl<T> ResultTraceExt<T> for taffy::TaffyResult<T> {
+impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
     #[allow(clippy::panic)]
     #[track_caller]
     #[inline]
