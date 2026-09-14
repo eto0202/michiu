@@ -6,7 +6,6 @@ use crate::{
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use smallvec::SmallVec;
-use std::{collections::HashMap, fmt, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -30,8 +29,8 @@ pub enum EffectCategory {
 }
 
 pub(crate) struct Effects(pub(crate) Box<dyn FnMut(&mut Context)>);
-impl fmt::Debug for Effects {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for Effects {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Effects(<closure>)")
     }
 }
@@ -150,9 +149,7 @@ impl ReactiveStore {
     ) -> Option<EntityId> {
         // ACTIVE_EFFECT（エフェクト実行中）から解決
         if let Some(effect_id) = crate::ACTIVE_EFFECT.with(std::cell::Cell::get) {
-            return Some(react_effect_to_element.get(effect_id).copied().expect(
-                "use_provided failed: active effect is not associated with any UI Element",
-            ));
+            return react_effect_to_element.get(effect_id).copied();
         }
 
         // ACTIVE_EFFECT が None であれば、ACTIVE_ELEMENT にフォールバック

@@ -1,21 +1,18 @@
-use std::{cell::RefCell, ops::Range, rc::Rc};
-
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
     BaseVisualPropertiesSecondary, ByteIndex, CapacityConfig, CharIndex, ChildrenSecondary, Color,
     ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStage, LayoutStore,
-    MichiuSoA, MichiuString, MichiuTrace, OutputStore, ParentsSecondary, RangeExt, RectsSecondary,
-    RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse,
-    TextEngine, TextSpansSparse, TopologyStore, UserSelect, UsizeRangeExt,
-    VisualPropertiesSecondary, define_sparse_secondary,
+    DirtyRenderEntitiesVec, EdgeInsets, EntityId, InputContents, InputContentsSparse,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
+    MichiuString, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
+    ScrollSizesSecondary, ScrollStore, ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse,
+    TopologyStore, UserSelect, VisualPropertiesSecondary, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
-use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
+use std::{ops::Range, rc::Rc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -450,7 +447,7 @@ impl TextEditStore {
         topo_children: &ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
@@ -561,7 +558,7 @@ impl TextEditStore {
         topo_children: &ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
@@ -675,7 +672,7 @@ impl TextEditStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
@@ -844,7 +841,7 @@ impl TextEditStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,

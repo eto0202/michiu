@@ -1,54 +1,35 @@
 use crate::{
-    ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveInteractionStates,
-    ActiveMasksSecondary, ActiveResizeHoverOption, ActiveTransitionsSparse, ActiveWebviewsHashSet,
-    Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary, BaseVisualPropertiesSecondary,
-    BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask,
-    ComposedRenderer, Context, DespawnedQueueVec, DfsIndicesSecondary, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, DndDragPropertiesSparse, DndDropPropertiesSparse, DrawBatch, EffectId,
-    EffectToElementSecondary, EffectiveZindicesSecondary, ElementEffectsSecondary, ElementState,
-    EntitiesSlot, EntityId, ExternalTextureSparse, FlatDfsSequenceVec, FlexLayoutsSecondary,
-    GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutRect, LayoutSize, MichiuString, Modifiers, MouseButton, ParentsSecondary,
-    PendingDcompRelease, PendingElementEffectsVec, Point, PrevClipRectsSecondary,
-    PrevRectsSecondary, PromotedVisual, ProvidersSparseSecondary, QuadInstance, RectsSecondary,
-    RenderData, ResizingState, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSecondary, SelectedRectsSparse,
-    SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
-    SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextBufferSparse, TextBufferSparseInner, TextCacheKey, TextCacheValue, TextContentsSparse,
-    TextSelectionsSparse, TextSpansSparse, TextureAtlas, UiaPropertiesSparse, UserAction,
-    VirtualKey, VisualPropertiesSecondary, WebviewContentsSparse, WebviewEntitiesVec,
-    define_secondary,
+    ActiveDragState, ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary,
+    ActiveResizeHoverOption, Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary,
+    BasicLayoutsSecondary, ChildrenSecondary, ClipRectsSecondary, ComponentMask, Context,
+    DespawnedQueueVec, DfsIndicesSecondary, DirtyLayoutEntitiesVec, DndDragPropertiesSparse,
+    DndDropPropertiesSparse, EffectId, EffectToElementSecondary, EffectiveZindicesSecondary,
+    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, ExternalTextureSparse,
+    FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, LayoutPoint,
+    LayoutSize, MichiuString, Modifiers, MouseButton, ParentsSecondary, PendingDcompRelease,
+    PendingElementEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
+    QuadInstance, RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
+    ScrollbarStylesSparse, SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec,
+    SessionSpawnedVec, SignalId, SortCacheVec, SortedEntitiesVec, SubscribersSecondary,
+    TaffyNodesSecondary, TextCacheKey, TextCacheValue, TextContentsSparse, TextSelectionsSparse,
+    TextSpansSparse, TextureAtlas, UiaPropertiesSparse, VirtualKey, WebviewContentsSparse,
+    WebviewEntitiesVec,
 };
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
-    ops::Range,
     panic::Location,
     path::PathBuf,
     sync::{
         Arc, Mutex, RwLock,
-        mpsc::{Receiver, Sender, SyncSender},
+        mpsc::{Receiver, SyncSender},
     },
     time::{Duration, Instant},
 };
 use thiserror::Error;
-use webview2_com::Microsoft::Web::WebView2::Win32::{
-    ICoreWebView2Controller, ICoreWebView2Environment3,
-};
-use windows::Win32::{
-    Foundation::HWND,
-    Graphics::{
-        DirectComposition::{
-            IDCompositionDesktopDevice, IDCompositionTarget, IDCompositionVisual2,
-        },
-        Imaging::IWICImagingFactory,
-    },
-    UI::Input::Ime::HIMC,
-};
-use windows_core::{AgileReference, IUnknown, Interface};
 
 // ================================================================
 // ================================================================
@@ -1126,7 +1107,7 @@ impl<T> From<taffy::TaffyTree<T>> for SendTaffyTree<T> {
 
 #[derive(Clone)]
 pub struct ScrollbarStoreSnapshot {
-    pub bar_styles: ScrollbarStylesSecondary,
+    pub bar_styles: ScrollbarStylesSparse,
 }
 
 #[cfg(feature = "snapshot")]
@@ -1409,6 +1390,22 @@ pub enum MichiuError {
     EntityNotFound { id: EntityId },
 
     #[error(
+        "Signal {id:?} not found.\n\
+            Possible causes:\n\
+            - The signal was already despawned/destroyed (dangling ID).\n\
+            - An uninitialized or dummy SignalId was used."
+    )]
+    SignalNotFound { id: SignalId },
+
+    #[error(
+        "Effect {id:?} not found.\n\
+            Possible causes:\n\
+            - The effect was already despawned/destroyed (dangling ID).\n\
+            - An uninitialized or dummy EffectId was used."
+    )]
+    EffectNotFound { id: EffectId },
+
+    #[error(
         "Component '{component}' not found for Entity {id:?}.\n\
             Possible causes:\n\
             - The component was not registered during spawn.\n
@@ -1431,6 +1428,41 @@ pub enum MichiuError {
             Possible causes: It has already been disposed or never registered."
     )]
     EffectDisposed(EffectId),
+
+    #[error(
+        "No active UI element found in the current thread.\n\
+            Possible causes:\n\
+            - Called a function that requires an element context outside of element build/update lifecycle."
+    )]
+    NoActiveElement,
+
+    #[error(
+        "No active effect found in the current thread.\n\
+            Possible causes:\n\
+            - Attempted to track reactive dependencies outside of an effect evaluation scope."
+    )]
+    NoActiveEffect,
+
+    #[error(
+        "'{caller}' must be called inside a dynamic reactive context or an active event handler context."
+    )]
+    ScopeViolation { caller: &'static str },
+
+    #[error("'{caller}' Not supported dynamic nested elements inside")]
+    UnsupportedDynamicNesting { caller: &'static str },
+
+    #[error("Downcast failed: Expected type `{expected}`, but the actual type did not match.")]
+    DowncastFailed { expected: &'static str },
+
+    #[error(
+        "Cyclic dependency / Infinite loop detected.\n\
+         Effect {effect_id:?} recursively triggered itself.
+         To prevent stack overflow, this recursive run has been skipped."
+    )]
+    RecursiveEffectDetected { effect_id: EffectId },
+
+    #[error("Windows API Error: {0}")]
+    WindowsApiError(#[from] windows_core::Error),
 }
 
 // ================================================================

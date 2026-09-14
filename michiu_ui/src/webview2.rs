@@ -17,6 +17,7 @@ impl Default for WebView2Source {
 
 impl WebView2Source {
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self::Url("about:blank".into())
     }
@@ -56,6 +57,7 @@ impl Default for WebView2Contents {
 
 impl WebView2Contents {
     #[inline]
+    #[must_use]
     pub fn new(source: WebView2Source) -> Self {
         Self {
             source,

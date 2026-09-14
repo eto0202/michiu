@@ -10,7 +10,10 @@ pub use index::*;
 pub use layout_data::*;
 pub use string::*;
 
-use crate::{Context, Element, EntityId, ImeState, PropertyList, VirtualKey, rgba};
+use crate::{
+    Context, Element, EntityId, ImeState, MichiuError, PropertyList, ResultTraceExt, VirtualKey,
+    rgba, trace_error,
+};
 use bytemuck::{Pod, Zeroable};
 use std::{path::PathBuf, time::Duration};
 use windows::Win32::{
@@ -1475,7 +1478,7 @@ impl CursorIcon {
     /// Windows API の HCURSOR 物理ハンドルを安全にロードして返却します。
     /// 独自の HCURSOR が指定されている場合はそれを最優先し、None の場合はOSのシステム標準をロードします。
     #[must_use]
-    pub fn to_hcursor(self) -> HCURSOR {
+    pub fn to_hcursor(self) -> windows_core::Result<HCURSOR> {
         use windows::Win32::UI::WindowsAndMessaging::{
             IDC_ARROW, IDC_HAND, IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
             IDC_SIZENWSE, IDC_SIZEWE, LoadCursorW,
@@ -1492,7 +1495,7 @@ impl CursorIcon {
                 | CursorIcon::ResizeNs(Some(h))
                 | CursorIcon::ResizeEw(Some(h))
                 | CursorIcon::ResizeNesw(Some(h))
-                | CursorIcon::ResizeNwse(Some(h)) => return h,
+                | CursorIcon::ResizeNwse(Some(h)) => return Ok(h),
                 CursorIcon::Global(global_icon) => {
                     match global_icon {
                         GlobalCursorIcon::Default(Some(h))
@@ -1504,7 +1507,7 @@ impl CursorIcon {
                         | GlobalCursorIcon::ResizeNs(Some(h))
                         | GlobalCursorIcon::ResizeEw(Some(h))
                         | GlobalCursorIcon::ResizeNesw(Some(h))
-                        | GlobalCursorIcon::ResizeNwse(Some(h)) => return h,
+                        | GlobalCursorIcon::ResizeNwse(Some(h)) => return Ok(h),
                         _ => {}
                     }
                     // None 時は標準システムカーソルにフォールバック
@@ -1533,7 +1536,7 @@ impl CursorIcon {
                 CursorIcon::ResizeNwse(None) => IDC_SIZENWSE,
             };
 
-            LoadCursorW(None, idc).unwrap()
+            LoadCursorW(None, idc)
         }
     }
 

@@ -1,40 +1,20 @@
 use crate::{
-    ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayoutsSecondary, CapacityConfig,
-    ContentStore, Context, DEFAULT_BASIC, DEFAULT_FLEX, DirtyRenderEntitiesVec, EdgeInsets,
-    EntityId, EventStore, FlexLayout, FontDate, InputContents, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutStore, MichiuSoA, MichiuString,
-    OutputStore, ParentsSecondary, RectsSecondary, RenderStore, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, SelectedRectsSparse,
-    SelectionStartIndexSparse, TextContentsSparse, TextEngine, TextSelectionsSparse,
-    TextSpansSparse, UiaValue, VisualPropertiesSecondary, WindowStore, define_sparse_secondary,
+    CapacityConfig, Context, EdgeInsets, EntityId, InputContents, LayoutPoint, LayoutRect,
+    LayoutStore, MichiuSoA, RectsSecondary, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    TextContentsSparse, TextEngine, TextSpansSparse, UiaValue, VisualPropertiesSecondary,
+    define_sparse_secondary,
 };
 use cosmic_text::Buffer;
-use slotmap::{SecondaryMap, SparseSecondaryMap};
-use std::{
-    borrow::Borrow,
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, mpsc::Receiver},
-};
-use windows::Win32::{
-    Foundation::{HANDLE, HGLOBAL},
-    Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout},
-    System::{
-        DataExchange::{
-            CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
-        },
-        Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
+use slotmap::SparseSecondaryMap;
+use std::{cell::RefCell, rc::Rc, sync::mpsc::Receiver};
+use windows::Win32::UI::Input::{
+    Ime::{
+        CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, CPS_COMPLETE, HIMC,
+        ImmAssociateContext, ImmGetContext, ImmNotifyIME, ImmReleaseContext, ImmSetCandidateWindow,
+        ImmSetCompositionWindow, NI_COMPOSITIONSTR,
     },
-    UI::Input::{
-        Ime::{
-            CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, CPS_COMPLETE, HIMC,
-            ImmAssociateContext, ImmGetContext, ImmNotifyIME, ImmReleaseContext,
-            ImmSetCandidateWindow, ImmSetCompositionWindow, NI_COMPOSITIONSTR,
-        },
-        KeyboardAndMouse::GetFocus,
-    },
+    KeyboardAndMouse::GetFocus,
 };
-use windows_core::Ref;
 
 pub(crate) type TaskSenderType =
     std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Context) + Send + 'static>>;

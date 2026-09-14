@@ -1,20 +1,17 @@
-use std::time::{Duration, Instant};
-
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
     BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
-    CapacityConfig, ChildrenSecondary, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
-    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary,
-    GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutSize, LayoutStage, LayoutStore, Length, MichiuSoA, MichiuTrace, OutputStore,
-    ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA,
+    OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
-    ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse,
-    TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, Val, VisualPropertiesSecondary,
-    WindowStore,
+    ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, ThisStyle, Val,
+    VisualPropertiesSecondary, WindowStore, define_sparse_secondary,
 };
 use slotmap::SparseSecondaryMap;
 use smallvec::SmallVec;
+use std::time::{Duration, Instant};
 
 /// スクロールバーを表示する配置モード
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -149,10 +146,10 @@ pub struct ScrollBarState {
     pub last_scroll_time: Option<std::time::Instant>,
 }
 
-pub(crate) type ScrollbarStylesSecondary = SparseSecondaryMap<EntityId, ScrollBarState>;
+define_sparse_secondary!(pub struct ScrollbarStylesSparse(ScrollBarState));
 
 pub(crate) struct ScrollbarStore {
-    pub(crate) bar_styles: ScrollbarStylesSecondary,
+    pub(crate) bar_styles: ScrollbarStylesSparse,
 }
 
 impl Default for ScrollbarStore {
@@ -166,7 +163,7 @@ impl ScrollbarStore {
     #[inline]
     pub fn new() -> Self {
         Self {
-            bar_styles: SparseSecondaryMap::new(),
+            bar_styles: ScrollbarStylesSparse(SparseSecondaryMap::new()),
         }
     }
 
@@ -174,7 +171,7 @@ impl ScrollbarStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            bar_styles: SparseSecondaryMap::with_capacity(c.bar_styles),
+            bar_styles: ScrollbarStylesSparse(SparseSecondaryMap::with_capacity(c.bar_styles)),
         }
     }
 
@@ -192,11 +189,11 @@ impl ScrollbarStore {
 impl ScrollbarStore {
     #[inline]
     pub(crate) fn get_scrollbar_dirty_ids(
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
     ) -> SmallVec<[EntityId; 4]> {
         let mut dirty_ids = SmallVec::<[EntityId; 4]>::new();
 
-        for (id, state) in bar_styles {
+        for (id, state) in bar_styles.iter_mut() {
             if state.v_thumb_dragged || state.h_thumb_dragged {
                 state.v_thumb_dragged = false;
                 state.h_thumb_dragged = false;
@@ -215,7 +212,7 @@ impl ScrollbarStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
@@ -463,7 +460,7 @@ impl ScrollbarStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSparse,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &mut BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
@@ -732,7 +729,7 @@ pub(crate) struct ScrollbarSyncContext<'a> {
     pub lay_taffy_nodes: &'a TaffyNodesSecondary,
     pub lay_flex: &'a FlexLayoutsSecondary,
     pub lay_grid: &'a GridLayoutsSparse,
-    pub bar_styles: &'a ScrollbarStylesSecondary,
+    pub bar_styles: &'a ScrollbarStylesSparse,
     pub rnd_visual: &'a mut VisualPropertiesSecondary,
     pub rnd_base_visual: &'a mut BaseVisualPropertiesSecondary,
     pub rnd_interaction: &'a InteractionPropertiesSecondary,
@@ -832,7 +829,7 @@ impl ScrollbarStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSparse,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &mut BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,

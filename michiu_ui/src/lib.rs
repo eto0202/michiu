@@ -20,18 +20,16 @@ mod types;
 mod utils;
 mod webview2;
 
-#[allow(unused)]
 pub use bitmap::*;
 pub use context::*;
 pub use dss::*;
 pub use element::*;
 pub use input::*;
 pub use key::*;
-#[allow(unused)]
 pub use renderer::*;
 pub use signal::*;
+pub use soa::MichiuSoA;
 pub use style::*;
-#[allow(unused)]
 pub use transition::*;
 pub use types::*;
 pub use utils::*;

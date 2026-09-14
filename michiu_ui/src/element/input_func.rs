@@ -1,5 +1,3 @@
-use std::{ops::Range, time::Instant};
-
 use crate::{
     ByteIndex, ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
     InputContents, InputOp, LayoutPoint, MichiuSoA, MichiuString, Modifiers, MouseButton,
@@ -7,6 +5,7 @@ use crate::{
     TextSelectionsSparse, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
 use cosmic_text::Buffer;
+use std::{ops::Range, time::Instant};
 
 impl Element {
     /// このコンテナを入力フィールド（テキストボックス）化し、IME制御や入力ロジックをバインドします。

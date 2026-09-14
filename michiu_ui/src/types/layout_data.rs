@@ -459,6 +459,8 @@ pub struct InteractionStyles {
 
 impl InteractionStyles {
     /// 与えられた疑似状態（StyleTarget）に対応する Option<ThisStyle> フィールドの実体可変参照を取得します
+    #[track_caller]
+    #[allow(clippy::unreachable)]
     #[inline]
     pub(crate) fn get_style_target_mut(&mut self, target: StyleTarget) -> &mut ThisStyle {
         match target {
@@ -485,7 +487,18 @@ impl InteractionStyles {
             StyleTarget::SelectedWithin => self.selected_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::DraggedWithin => self.dragged_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::AnyWithin => self.any_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Base => unreachable!("Base target must be handled individually"),
+            StyleTarget::Base => {
+                unreachable!(
+                    "\n\
+                    Internal invariant violated. This is a bug in michiu_ui.\n\
+                    Please report this issue at https://github.com/eto0202/michiu/issues\n\
+                     [InteractionStyles]\n\
+                     [target]      : {target:?},\n\
+                     [loc]         : {}\n\
+                    ",
+                    std::panic::Location::caller()
+                )
+            }
 
             StyleTarget::HoveredParent => self.hovered_parent.get_or_insert_with(ThisStyle::new),
             StyleTarget::FocusedParent => self.focused_parent.get_or_insert_with(ThisStyle::new),

@@ -1,4 +1,3 @@
-#![allow(unused)]
 pub mod config;
 pub mod content_store;
 pub mod debug_store;
@@ -23,38 +22,18 @@ pub use output_store::*;
 pub use pipeline::*;
 pub use reactive_store::*;
 pub use render_store::*;
-pub use soa::*;
 pub use state_store::*;
 pub use system_store::*;
 pub use topology_store::*;
 pub use window_store::*;
 
 use crate::{
-    BasicLayout, ComponentMask, CursorIcon, Element, ElementState, FlexLayout, GridLayout,
-    ImeState, InteractionState, LayoutPoint, LayoutRect, LayoutSize, Modifiers, MouseButton,
-    Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, RendererView, SignalId,
-    TextAlign, TransitionValue, UserSelect, Val, VirtualKey, VisualProperty, WriteSignal,
-    bind_context, handle_on_char_input, handle_on_click, handle_on_dnd_entity_drop,
-    handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime, handle_on_keyboard_input,
-    handle_on_mouse_input, handle_on_right_click, with_context,
+    BasicLayout, ComponentMask, CursorIcon, Element, FlexLayout, GridLayout, InteractionState,
+    LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
+    bind_context, handle_on_click,
 };
-use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
-use smallvec::SmallVec;
-use std::{
-    any::TypeId,
-    borrow::Cow,
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    marker::PhantomData,
-    path::PathBuf,
-    sync::{
-        Arc,
-        mpsc::{Receiver, Sender},
-    },
-    time::{Duration, Instant},
-};
-use taffy::TaffyTree;
-use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
+use slotmap::new_key_type;
+use std::{borrow::Cow, sync::Arc};
 
 new_key_type! {
     /// UI内の各要素（Entity）を識別する一意な世代管理ID
@@ -310,23 +289,23 @@ impl Context {
             || self.topology.topo_is_structure_dirty
     }
 
-    /// 現在イベントハンドラを実行している要素（自分自身）の `EntityId` を取得します
+    /// 現在イベントハンドラを実行している要素を取得します。
     #[inline]
-    pub fn current_element_id(&self) -> Option<EntityId> {
-        crate::signal::ACTIVE_ELEMENT.with(std::cell::Cell::get)
+    pub fn find_current(&self) -> Option<Element> {
+        crate::signal::ACTIVE_ELEMENT
+            .with(std::cell::Cell::get)
+            .map(Element::from)
     }
 
-    /// 現在イベントハンドラを実行している要素（自分自身） を取得します
+    /// 現在イベントハンドラを実行している要素（自分自身）を取得します。
+    /// 見つからない場合はトレースを送信してパニック。
+    #[track_caller]
     #[inline]
-    pub fn try_current(&self) -> Option<Element> {
-        self.current_element_id().map(|id| Element { id })
-    }
-
-    /// 現在イベントハンドラを実行している要素（自分自身） を取得します
-    #[inline]
-    pub fn current(&self) -> Element {
-        let id = self.current_element_id().unwrap();
-        Element { id }
+    pub fn current(&mut self) -> Element {
+        let el = self
+            .find_current()
+            .unwrap_or_trace(None, &mut self.debug, || MichiuError::NoActiveElement);
+        Element::from(el.id)
     }
 
     #[inline]
@@ -383,7 +362,7 @@ impl Context {
             &self.renders.rnd_visual,
             &self.states.edit.edit_selections,
         )
-        .map(|m| m.into())
+        .map(std::convert::Into::into)
     }
 
     /// 現在のスクロール位置 (x, y) を取得
@@ -452,45 +431,47 @@ impl Context {
 
     /// 現在のスレッドローカルコンテキストから、
     /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+    #[track_caller]
     #[inline]
-    pub fn use_provided_setter<T: Send + 'static>(&self) -> WriteSignal<T> {
-        let element_id = ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "use_provided_setter must be called inside a dynamic reactive context or an active event handler context"
-                    );
+    pub fn use_provided_setter<T: Send + 'static>(&mut self) -> WriteSignal<T> {
+        let element_id =
+            ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
+                .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+                    caller: "use_provided_setter",
                 });
 
-        ReactiveStore::use_provided_setter_from::<T>(element_id, &self.reactive.react_providers, &self.topology.topo_parents)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Dependency resolution failed: No Provider Setter found in ancestor sub-tree for type: '{}'",
-                        std::any::type_name::<T>()
-                    )
-                })
+        ReactiveStore::use_provided_setter_from::<T>(
+            element_id,
+            &self.reactive.react_providers,
+            &self.topology.topo_parents,
+        )
+        .unwrap_or_trace(Some(element_id), &mut self.debug, || {
+            MichiuError::EntityNotFound { id: element_id }
+        })
     }
 
     /// 現在のスレッドローカルコンテキスト（アクティブなエフェクト、またはイベントハンドラ）から、
     /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の `ReadSignal` を解決します。
+    #[track_caller]
     #[inline]
-    pub fn use_provided<T: Clone + 'static>(&self) -> ReadSignal<T> {
-        let element_id = ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "use_provided must be called inside a dynamic style, text, content closure, or an active event handler context"
-                    );
+    pub fn use_provided<T: Clone + 'static>(&mut self) -> ReadSignal<T> {
+        let element_id =
+            ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
+                .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+                    caller: "use_provided_setter",
                 });
 
-        ReactiveStore::use_provided_from::<T>(element_id, &self.reactive.react_providers, &self.topology.topo_parents)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
-                        std::any::type_name::<T>()
-                    )
-                })
+        ReactiveStore::use_provided_from::<T>(
+            element_id,
+            &self.reactive.react_providers,
+            &self.topology.topo_parents,
+        )
+        .unwrap_or_trace(Some(element_id), &mut self.debug, || {
+            MichiuError::EntityNotFound { id: element_id }
+        })
     }
 
-    pub fn try_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
+    pub fn find_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
         let element_id =
             ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)?;
         ReactiveStore::use_provided_from::<T>(

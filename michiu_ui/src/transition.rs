@@ -1,5 +1,8 @@
 use crate::{AnimationCurve, BoxShadow, Color, CornerRadius, LayoutPoint, PropertyList};
-use std::time::{Duration, Instant};
+use std::{
+    f32::consts::PI,
+    time::{Duration, Instant},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
@@ -13,9 +16,12 @@ pub enum TransitionValue {
     BoxShadow(BoxShadow),
 }
 
+const TWO_PI: f32 = PI * 2.0;
+
 impl TransitionValue {
     /// 進行度 t (0.0 ～ 1.0) に基づいて、自己と目標値を線形補間（Lerp）します
-    pub fn lerp(&self, other: &Self, t: f32) -> Self {
+    #[inline]
+    pub(crate) fn lerp(&self, other: &Self, t: f32) -> Self {
         match (self, other) {
             (TransitionValue::Color(s), TransitionValue::Color(e)) => {
                 TransitionValue::Color(Color {
@@ -43,8 +49,7 @@ impl TransitionValue {
 
                 // 境界 (-PI ～ PI) での逆逆回転を防ぐ最短軌道での角度差分補間
                 let mut diff = d_end.rotation - d_start.rotation;
-                const PI: f32 = std::f32::consts::PI;
-                const TWO_PI: f32 = PI * 2.0;
+
                 diff = (diff + PI).rem_euclid(TWO_PI) - PI; // 最短角度差にクランプ
 
                 let rotation = d_start.rotation + diff * t;

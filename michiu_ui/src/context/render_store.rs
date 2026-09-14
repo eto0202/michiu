@@ -1,23 +1,20 @@
 use crate::{
-    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition,
-    AnimationCurve, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment,
-    BorderStyle, BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color,
-    ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DEFAULT_BASIC,
-    DirtyLayoutEntitiesVec, Display, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary,
-    EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, FontDate,
-    GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionStyles, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount,
-    Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay,
-    ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextBufferSparse, ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty,
-    WindowStore, define_secondary, define_sparse_secondary, define_vec,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition, AnimationCurve,
+    BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
+    BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask,
+    Context, CornerRadius, CursorIcon, DEFAULT_BASIC, DirtyLayoutEntitiesVec, EdgeInsets,
+    EffectCategory, ElementEffectsSecondary, EntitiesSlot, EntityId, FocusTrigger, Focusable,
+    FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionStyles,
+    LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount,
+    Point, PointerEvents, PropertyList, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSparse,
+    StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, ThisStyle,
+    TopologyStore, TransitionValue, Val, VisualProperty, define_secondary, define_sparse_secondary,
+    define_vec,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
-    cell::RefCell,
-    collections::HashSet,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -187,7 +184,7 @@ impl RenderStore {
         evt_interaction_states: &ActiveInteractionStates,
         evt_current_pointer_position: Option<&LayoutPoint>,
         cont_input_contents: &InputContentsSparse,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
         rnd_active_animations: &ActiveAnimationsSparse,

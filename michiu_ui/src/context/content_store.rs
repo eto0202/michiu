@@ -1,17 +1,13 @@
 use crate::{
     ActiveMasksSecondary, CapacityConfig, DebugStore, EntityId, ExternalTexture, FlexLayout,
-    InputContents, LayoutRect, LayoutStage, MichiuSoA, MichiuString, MichiuTrace, RenderStore,
-    TextBufferSparse, TextEngine, TextSpan, TimeStamp, VisualPropertiesSecondary, WebView2Contents,
-    define_sparse_secondary,
+    InputContents, LayoutRect, MichiuString, TextEngine, TextSpan, VisualPropertiesSecondary,
+    WebView2Contents, define_sparse_secondary, soa::MichiuSoA,
 };
-use slotmap::{SecondaryMap, SparseSecondaryMap};
+use slotmap::SparseSecondaryMap;
 use std::{
-    borrow::Cow,
-    ops::Deref,
     sync::Arc,
     time::{Duration, Instant},
 };
-use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
 define_sparse_secondary!(pub struct TextContentsSparse(MichiuString));
 define_sparse_secondary!(pub struct TextSpansSparse(Vec<TextSpan>));
@@ -187,7 +183,7 @@ impl ContentStore {
             .and_then(|v| v.auto_wrap)
             .unwrap_or(false);
 
-        let mut max_width = if auto_wrap {
+        let max_width = if auto_wrap {
             known_dims.width.or({
                 if let taffy::AvailableSpace::Definite(w) = available_space.width {
                     Some(w)

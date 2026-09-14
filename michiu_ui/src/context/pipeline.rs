@@ -1,27 +1,23 @@
 use crate::{
-    ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseBasicLayoutsSecondary,
-    BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing,
-    ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
-    CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, DrawBatch,
-    EdgeInsets, EffectId, ElementState, EntityId, EventStore, ExternalTextureAlphaMode,
-    ExternalTextureSparse, ExtractedThumb, FlatDfsSequenceVec, FlexLayout, FocusStore, GridLayout,
-    IDENTITY_MATRIX, ImeState, InputContents, InputContentsSparse, InputOp, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStage, LayoutStore, Length, MichiuSoA, MichiuTrace, Modifiers,
-    MouseButton, OutputStore, ParentsSecondary, PointerEvents, PrevClipRectsSecondary,
-    PrevRectsSecondary, QuadInstance, RangeExt, ReactiveStore, RectsSecondary, RenderData,
-    RenderStage, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseVisualPropertiesSecondary,
+    BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing, ClipRectsSecondary, Color,
+    ComponentMask, ContentStore, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
+    DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets, ElementState, EntityId, EventStore,
+    ExternalTextureAlphaMode, ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FocusStore,
+    IDENTITY_MATRIX, ImeState, InputContentsSparse, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
+    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
+    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
     ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore, ScrollbarStore,
-    ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextBufferSparse, TextCacheKey, TextContentsSparse, TextEditStore,
-    TextEngine, TextSpan, TextSpansSparse, TimeStamp, TopologyStore, UnderlineStyle, Val,
-    VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore, bind_context,
-    execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
-    handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
+    ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
+    TextContentsSparse, TextEditStore, TextEngine, TextSpan, TextSpansSparse, TopologyStore,
+    UnderlineStyle, VirtualKey, VisualPropertiesSecondary, VisualProperty, bind_context,
+    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
+    handle_on_ime, handle_on_select,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
-use std::{borrow::Cow, collections::HashSet, ops::Range, path::PathBuf};
-use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
+use std::{borrow::Cow, collections::HashSet, path::PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
 #[repr(u8)]
@@ -319,7 +315,7 @@ impl Pipeline {
     ) {
         let _context_guard = bind_context(cx);
 
-        /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に実行
+        // トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に実行
         ReactiveStore::evaluate_pending_element_effects(
             &mut cx.reactive.react_pending_element_effects,
             &cx.reactive.react_effects,
@@ -1248,7 +1244,7 @@ impl Pipeline {
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
         lay_resolved_grid: &ResolvedGridSparse,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
         debug: &mut DebugStore,
     ) {
         for &id in lay_dirty_entities {

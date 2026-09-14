@@ -1,6 +1,9 @@
-#![allow(dead_code)]
 use crate::{
-    BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DrawBatch, EdgeInsets, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, Pipeline, QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue, TextSpan, TextureAtlas, Vertex, VisualProperty,
+    BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius,
+    DEFAULT_BASIC, DEFAULT_FLEX, DrawBatch, EdgeInsets, EntityId, LayoutPoint, LayoutRect,
+    LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, Pipeline, QuadInstance, RenderData,
+    RendererView, TextAlign, TextCacheKey, TextCacheValue, TextSpan, TextureAtlas, Vertex,
+    VisualProperty,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -714,8 +717,14 @@ impl WgpuRenderer {
         entity_id: EntityId,
         instance: &QuadInstance,
     ) -> (QuadInstance, bool) {
-        let basic = &cx.layouts.lay_resolved_basic.get_or(entity_id, &DEFAULT_BASIC);
-        let flex = &cx.layouts.lay_resolved_flex.get_or(entity_id, &DEFAULT_FLEX);
+        let basic = &cx
+            .layouts
+            .lay_resolved_basic
+            .get_or(entity_id, &DEFAULT_BASIC);
+        let flex = &cx
+            .layouts
+            .lay_resolved_flex
+            .get_or(entity_id, &DEFAULT_FLEX);
         let _grid = &cx.layouts.lay_resolved_grid.get_or_default(entity_id);
         let default_visual = VisualProperty::default();
         let visual = cx

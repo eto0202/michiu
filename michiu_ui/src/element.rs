@@ -1,13 +1,13 @@
 pub mod handler;
 pub mod input_func;
 
-use smallvec::SmallVec;
-
 use crate::{
-    BasicLayout, ComponentMask, Context, EffectCategory, EntityId, ExternalTexture, MichiuSoA,
-    ReadSignal, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, ThisStyle, UiaValue,
-    Val, WebView2Contents, create_effect, div_n,
+    BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
+    MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState, ScrollbarDisplay,
+    ScrollbarStyle, StyleTarget, ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n,
+    trace_error,
 };
+use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
 thread_local! {
@@ -38,12 +38,26 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     result
 }
 
-/// スレッドローカルから安全にContextへのアクセスを解決する内部ヘルパー
+/// スレッドローカルから安全にContextへのアクセスを解決する内部ヘルパー\n\
+/// Context が無く、トレースが送信出来ないためパニックで落とす。
+#[track_caller]
+#[allow(clippy::panic)]
 #[inline]
 pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
-    let ptr = ACTIVE_CONTEXT
-        .get()
-        .expect("No active UI Context found in this thread context");
+    let ptr = ACTIVE_CONTEXT.get().unwrap_or_else(|| {
+        let caller = std::panic::Location::caller();
+        panic!(
+            "\n=======================================================\n\
+            [Michiu UI Fatal Error: No Active Context]\n\
+            Called at: {caller}\n\
+            \n\
+            Possible causes:\n\
+             - Calling UI / Reactive APIs from a background thread (must be called on the UI main thread).\n\
+             - Accessing Context before it was initialized or after it was dropped.\n\
+             - Calling UI methods outside of the application event loop.\n\
+            ======================================================="
+            );
+        });
     // UIスレッドは単一かつ非同期にまたがらないため、ポインタの生存期間は保証される。
     unsafe { f(&mut *ptr) }
 }
@@ -395,7 +409,9 @@ impl Element {
 
     /// プロバイダー `P` から動的に複数の子要素（コレクション）を解決して、
     /// `中間コンテナ（div_n）を挟むことなく、親要素の直下へフラットに一括追加・置換します`。
-    // children_c を持つコンテナには他の静的子要素を混在させない
+    #[allow(clippy::panic)]
+    #[allow(clippy::missing_panics_doc)]
+    #[track_caller]
     #[must_use]
     #[inline]
     pub fn children_d<P, F, I, E>(self, f: F) -> Self
@@ -419,13 +435,28 @@ impl Element {
                 let val = signal.get();
 
                 // 新しい子要素群の生成
-                let new_elements: Vec<Element> = f(&val)
-                    .into_iter()
-                    .map(|e| match e.into() {
-                        Prop::Static(el) => el,
-                        _ => panic!("Dynamic nested elements inside children_c are not supported"),
-                    })
-                    .collect();
+                let mut new_elements: SmallVec<[Element; 8]> = SmallVec::new();
+
+                for e in f(&val) {
+                    if let Prop::Static(el) = e.into() {
+                        new_elements.push(el);
+                    } else {
+                        #[cfg(feature = "trace-error")]
+                        trace_error!(Some(parent_id), &mut cx.debug, || MichiuTrace::Error {
+                            detail: MichiuError::UnsupportedDynamicNesting {
+                                caller: "children_d"
+                            },
+                            add: None,
+                        });
+
+                        #[cfg(debug_assertions)]
+                        panic!(
+                            "children_d: Not supported dynamic nested elements inside children_d"
+                        );
+
+                        // リリースビルド時は None を返す代わりにこの要素を無視して次のループへ
+                    }
+                }
 
                 // 前回マウントした古い子要素群を安全に一括破棄（Taffyツリーからのデタッチ含む）
                 let mut old_children = current_children_clone.borrow_mut();
@@ -760,7 +791,7 @@ impl Element {
             );
         }
 
-        let mut state = cx.layouts.scrollbar.bar_styles.get(id).cloned().unwrap();
+        let mut state = cx.layouts.scrollbar.bar_styles.at(id).clone();
         state.style = sb.clone();
         let mut changed = false;
 
@@ -873,7 +904,7 @@ impl Element {
         }
 
         if changed {
-            *cx.layouts.scrollbar.bar_styles.get_mut(id).unwrap() = state;
+            *cx.layouts.scrollbar.bar_styles.at_mut(id) = state;
             cx.topology.topo_is_structure_dirty = true; // topo_flat_dfs_sequence の更新契機
             cx.topology.topo_is_sort_dirty = true;
         }

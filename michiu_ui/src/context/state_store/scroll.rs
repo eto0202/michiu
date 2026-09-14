@@ -1,23 +1,14 @@
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
-    BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
-    CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask, DEFAULT_BASIC,
-    DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId,
-    FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStage, LayoutStore, Length,
-    MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary, Position, Rect, RectsSecondary,
-    RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollBarState,
-    ScrollbarStylesSecondary, Size, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, TimeStamp,
-    UserSelect, Val, VisualPropertiesSecondary, WindowStore, define_secondary,
+    ActiveMasksSecondary, ActiveTransitionsSparse, CapacityConfig, ChildrenSecondary,
+    ClipRectsSecondary, DEFAULT_BASIC, DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec,
+    EntityId, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutSize,
+    LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, Position, RectsSecondary, RenderStore,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ScrollbarStylesSparse, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine,
+    TextSpansSparse, UserSelect, Val, VisualPropertiesSecondary, WindowStore, define_secondary,
 };
-use slotmap::{SecondaryMap, SparseSecondaryMap};
-use smallvec::SmallVec;
-use std::{
-    cell::RefCell,
-    collections::HashSet,
-    time::{Duration, Instant},
-};
+use slotmap::SecondaryMap;
+use std::time::Instant;
 
 define_secondary!(pub struct ScrollOffsetsSecondary(LayoutPoint));
 define_secondary!(pub struct ScrollSizesSecondary(LayoutSize));
@@ -77,7 +68,7 @@ impl ScrollStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
@@ -146,7 +137,7 @@ impl ScrollStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
@@ -310,7 +301,7 @@ impl ScrollStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
@@ -352,7 +343,7 @@ impl ScrollStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_visual: &VisualPropertiesSecondary,
@@ -431,7 +422,7 @@ impl ScrollStore {
         topo_children: &ChildrenSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,

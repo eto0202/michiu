@@ -3,27 +3,18 @@ pub mod scrollbar;
 pub use scrollbar::*;
 
 use crate::{
-    ActiveMasksSecondary, ActiveTransitionsSparse, BaseVisualPropertiesSecondary, BasicLayout,
-    CapacityConfig, ChildrenSecondary, ComponentMask, ContentStore, Context, DebugStore,
-    DirtyQueueTrace, DirtyRenderEntitiesVec, Display, EdgeInsets, EntityId, FlexLayout, GridLayout,
-    InputContentsSparse, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStage, Length, MichiuSoA, MichiuTrace, NormalLayout, OutputStore,
-    ParentsSecondary, Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizingState,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, Size, StyleTarget, SystemStore, TextBufferSparse,
-    TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, TopologyStore, Val,
-    VisualPropertiesSecondary, WindowStore, define_secondary, define_sparse_secondary, define_vec,
+    ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayout, CapacityConfig, ChildrenSecondary,
+    ComponentMask, Context, DebugStore, EdgeInsets, EntityId, FlexLayout, GridLayout,
+    InteractionPropertiesSecondary, InteractionStyles, LayoutRect, Length, MichiuSoA, NormalLayout,
+    ParentsSecondary, PropertyList, Rect, RenderStore, StyleTarget, ThisStyle,
+    VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
-use smallvec::SmallVec;
-use std::{
-    collections::HashSet,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::sync::Arc;
 use taffy::TaffyTree;
 
 // ======================================================
-// まとめるかどうか要検討
+// まとめる？
 pub(crate) type LayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 pub(crate) type BaseLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 pub(crate) type ResolvedLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
@@ -358,7 +349,7 @@ impl LayoutStore {
         basic: &BasicLayout,
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
     ) -> taffy::Style {
         let sb_style = bar_styles.get(id).map(|s| &s.style);
 
@@ -471,7 +462,7 @@ impl LayoutStore {
         grid: Option<&GridLayout>,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
     ) {
         let taffy_style = LayoutStore::resolve_taffy_style(id, basic, flex, grid, bar_styles);
         let nodes = *lay_taffy_nodes.at(id);

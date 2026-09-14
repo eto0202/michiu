@@ -1,6 +1,6 @@
 use crate::{EntityId, MichiuError, Result};
 
-pub(crate) trait MichiuSoA {
+pub trait MichiuSoA {
     type Item;
 
     /// 存在しない場合は None を返す

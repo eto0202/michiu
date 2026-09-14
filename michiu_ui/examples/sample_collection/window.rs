@@ -610,7 +610,7 @@ unsafe extern "system" fn wnd_proc(
                             let cursor_icon = app.context.resolve_cursor(hovered_id);
 
                             // 物理 HCURSOR ハンドルを取得（独自カーソルがあればそれ、なければ IDC_ARROW 等を標準ロード）
-                            let hcursor = cursor_icon.to_hcursor();
+                            let hcursor = cursor_icon.to_hcursor().unwrap();
 
                             // OS の物理カーソルとしてセット
                             unsafe { SetCursor(Some(hcursor)) };
