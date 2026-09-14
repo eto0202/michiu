@@ -1,5 +1,12 @@
 use crate::{
-    ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC, DndStore, ElementState, EntityId, EventListeners, FocusStore, InputContents, InputOp, LayoutPoint, LayoutStore, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, Pipeline, RenderStore, ResizeStore, ScrollStore, ScrollbarStore, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEditStore, TextSelectionsSparse, TopologyStore, UserSelect, VirtualKey, handle_on_click, handle_on_cursor_moved, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
+    ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC, DndStore,
+    ElementState, EntityId, EventListeners, FocusStore, InputContents, InputOp, LayoutPoint,
+    LayoutStore, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, Pipeline,
+    RenderStore, ResizeStore, ScrollStore, ScrollbarStore, SelectedRectsSparse,
+    SelectionStartIndexSparse, SystemStore, TextEditStore, TextSelectionsSparse, TopologyStore,
+    UserSelect, VirtualKey, handle_on_click, handle_on_cursor_moved, handle_on_hover,
+    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
+    handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
 use std::ops::Range;
@@ -42,11 +49,11 @@ pub(crate) struct EventListenersSparse(SparseSecondaryMap<EntityId, EventListene
 impl MichiuSoA for EventListenersSparse {
     type Item = EventListeners;
     #[inline]
-    fn get(&self, id: EntityId) -> Option<&Self::Item> {
+    fn find(&self, id: EntityId) -> Option<&Self::Item> {
         self.0.get(id)
     }
     #[inline]
-    fn get_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
         self.0.get_mut(id)
     }
 }
@@ -134,7 +141,7 @@ impl EventStore {
         let has_listener = cx
             .events
             .evt_listeners
-            .get(id)
+            .find(id)
             .is_some_and(|l| l.on_cursor_moved.is_some());
 
         if has_listener {
@@ -164,6 +171,7 @@ impl EventStore {
                 &cx.layouts.lay_taffy_nodes,
                 &mut cx.renders.rnd_dirty_entities,
                 &cx.outputs.out_rects,
+                &mut cx.debug,
             );
             return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
         }
@@ -268,6 +276,7 @@ impl EventStore {
                     &cx.renders.rnd_base_visual,
                     &cx.renders.rnd_interaction,
                     &cx.outputs.out_rects,
+                    &mut cx.debug,
                 );
                 RenderStore::mark_render_dirty(
                     prev_id,
@@ -281,7 +290,7 @@ impl EventStore {
             let user_select = cx
                 .renders
                 .rnd_visual
-                .get(pressed_id)
+                .find(pressed_id)
                 .and_then(|v| v.user_select)
                 .unwrap_or_default();
 
@@ -290,11 +299,11 @@ impl EventStore {
                     .states
                     .edit
                     .edit_selection_start_index
-                    .get(pressed_id)
+                    .find(pressed_id)
                     .copied()
             {
                 // プレースホルダー選択のドラッグ遮断
-                if let Some(contents) = cx.contents.cont_input_contents.get(pressed_id) {
+                if let Some(contents) = cx.contents.cont_input_contents.find(pressed_id) {
                     let is_placeholder = contents.to_michiu().is_empty();
                     let is_ime = contents
                         .ime_state
@@ -418,6 +427,7 @@ impl EventStore {
             &cx.layouts.lay_taffy_nodes,
             &mut cx.renders.rnd_dirty_entities,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         // 現在ホバー侵入中のドロップターゲット要素を検知
@@ -504,7 +514,7 @@ impl EventStore {
         let user_select = cx
             .renders
             .rnd_visual
-            .get(target_id)
+            .find(target_id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
         let is_input = cx
@@ -602,7 +612,7 @@ impl EventStore {
             Pipeline::update_state(cx, pressed_id, ComponentMask::STATE_DRAGGED, false);
             cx.events.evt_interaction_states.dragged = None;
 
-            if let Some(contents) = cx.contents.cont_input_contents.get_mut(pressed_id) {
+            if let Some(contents) = cx.contents.cont_input_contents.find_mut(pressed_id) {
                 contents.is_selecting = false;
             }
 
@@ -647,7 +657,7 @@ impl EventStore {
         let user_select = cx
             .renders
             .rnd_visual
-            .get(target_id)
+            .find(target_id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
         if user_select != UserSelect::Text {
@@ -658,7 +668,7 @@ impl EventStore {
             return;
         };
 
-        if let Some(contents) = cx.contents.cont_input_contents.get(target_id) {
+        if let Some(contents) = cx.contents.cont_input_contents.find(target_id) {
             let is_placeholder = contents.to_michiu().is_empty()
                 && contents
                     .ime_state
@@ -723,7 +733,7 @@ impl EventStore {
             &cx.contents.cont_input_contents,
         );
 
-        if let Some(contents) = cx.contents.cont_input_contents.get_mut(target_id) {
+        if let Some(contents) = cx.contents.cont_input_contents.find_mut(target_id) {
             contents.selected_range = range;
             contents.selection_reversed = false; // キャレットは右端に配置
             TextEditStore::apply_input_update(
@@ -775,7 +785,7 @@ impl EventStore {
             let has_listener = cx
                 .events
                 .evt_listeners
-                .get(curr_id)
+                .find(curr_id)
                 .is_some_and(|l| l.on_mouse_wheel.is_some());
 
             if has_listener {
@@ -881,7 +891,7 @@ impl EventStore {
             let user_select = cx
                 .renders
                 .rnd_visual
-                .get(focused_id)
+                .find(focused_id)
                 .and_then(|v| v.user_select)
                 .unwrap_or_default();
             if user_select == UserSelect::Text {
@@ -1314,7 +1324,7 @@ impl EventStore {
         let user_select = cx
             .renders
             .rnd_visual
-            .get(focused_id)
+            .find(focused_id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
 

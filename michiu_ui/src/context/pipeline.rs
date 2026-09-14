@@ -175,6 +175,7 @@ impl Pipeline {
                 &cx.renders.rnd_base_visual,
                 &cx.renders.rnd_interaction,
                 &cx.outputs.out_rects,
+                &mut cx.debug,
             );
 
             // この要素のアクティブレイアウトキャッシュを差分更新
@@ -204,6 +205,7 @@ impl Pipeline {
                     &mut cx.layouts.lay_dirty_entities,
                     &mut cx.layouts.lay_taffy_tree,
                     &cx.layouts.lay_taffy_nodes,
+                    &mut cx.debug,
                 );
             }
             RenderStore::mark_render_dirty(
@@ -412,7 +414,7 @@ impl Pipeline {
                 let flex = cx
                     .layouts
                     .lay_resolved_flex
-                    .get(id)
+                    .find(id)
                     .copied()
                     .unwrap_or_default();
 
@@ -567,7 +569,7 @@ impl Pipeline {
                         // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
                         cx.outputs
                             .out_rects
-                            .get(id)
+                            .find(id)
                             .map_or(taffy::Size::ZERO, |rect| taffy::Size {
                                 width: known_dims.width.unwrap_or(rect.width),
                                 height: known_dims.height.unwrap_or(rect.height),
@@ -633,7 +635,7 @@ impl Pipeline {
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
         for &id in &cx.topology.topo_flat_dfs_sequence {
-            let Some(current) = cx.states.scroll.sc_offsets.get(id).copied() else {
+            let Some(current) = cx.states.scroll.sc_offsets.find(id).copied() else {
                 continue;
             };
             // 枠サイズの変更など、現在のスクロール位置からはみ出していれば自動クランプ調整
@@ -680,6 +682,7 @@ impl Pipeline {
                 &mut cx.renders.rnd_visual,
                 &mut cx.renders.rnd_active_transitions,
                 &mut cx.renders.rnd_last_tick_time,
+                &mut cx.debug,
             );
         }
         if *tick == TickType::Animation
@@ -697,6 +700,7 @@ impl Pipeline {
                 &mut cx.renders.rnd_dirty_entities,
                 &mut cx.renders.rnd_visual,
                 &mut cx.renders.rnd_active_animations,
+                &mut cx.debug,
             );
         }
         if *tick == TickType::AutoScroll || *tick == TickType::All {
@@ -760,7 +764,7 @@ impl Pipeline {
         let mut force_full_scan = false;
         for &id in &*cx.topology.topo_sorted_entities {
             let engines = cx.system.sys_text_buffers.borrow();
-            let Some(engine) = engines.get(id) else {
+            let Some(engine) = engines.find(id) else {
                 continue;
             };
 
@@ -792,7 +796,7 @@ impl Pipeline {
         if force_full_scan {
             for &id in &*cx.topology.topo_sorted_entities {
                 let engines = cx.system.sys_text_buffers.borrow();
-                let Some(engine) = engines.get(id) else {
+                let Some(engine) = engines.find(id) else {
                     continue;
                 };
 
@@ -833,7 +837,7 @@ impl Pipeline {
             let grid = cx
                 .layouts
                 .lay_resolved_grid
-                .get(id)
+                .find(id)
                 .cloned()
                 .unwrap_or_default();
             let visual = cx.renders.rnd_visual.get_or(id, &default_visual);
@@ -995,7 +999,7 @@ impl Pipeline {
             }
 
             // 選択ハイライト背景
-            if let Some(sel_rects) = cx.states.edit.edit_selected_rects.get(id)
+            if let Some(sel_rects) = cx.states.edit.edit_selected_rects.find(id)
                 && let Some(buffer) = SystemStore::get_or_create_layout(
                     id,
                     &mut cx.system.sys_text_engine,
@@ -1070,7 +1074,7 @@ impl Pipeline {
                 let spans = cx
                     .contents
                     .cont_text_spans
-                    .get(id)
+                    .find(id)
                     .map_or(&[][..], Vec::as_slice);
                 let resolved_color =
                     Pipeline::resolve_text_color(id, visual, &cx.contents.cont_input_contents);
@@ -1254,7 +1258,7 @@ impl Pipeline {
 
             let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
             let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
-            let grid = lay_resolved_grid.get(id).cloned();
+            let grid = lay_resolved_grid.find(id).cloned();
 
             // トランジション（アニメーション）中プロパティの現在値による上書き
             // 削除：resolve_active_layouts の段階でアニメーション中のサイズが正しく反映されたレイアウト）が返ってくるため
@@ -1475,7 +1479,7 @@ impl Pipeline {
         sys_text_engine: &TextEngine,
         cont_input_contents: &InputContentsSparse,
     ) -> LayoutPoint {
-        let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
+        let (text_size, is_multiline) = if let Some(c) = cont_input_contents.find(id) {
             if let Some(l) = c.last_layout {
                 // コンテンツが存在し前回のレイアウトもある場合
                 (LayoutSize::new(l.width, l.height), c.is_multiline)
@@ -1545,7 +1549,7 @@ impl Pipeline {
         let default_color = visual.text_color.unwrap_or(Color::WHITE);
 
         // そもそも入力コンポーネントを持っていないなら通常色を返して終了
-        let Some(input) = cont_input_contents.get(id) else {
+        let Some(input) = cont_input_contents.find(id) else {
             return default_color;
         };
 
@@ -2000,7 +2004,7 @@ impl Pipeline {
 
         let c_color = contents
             .caret_color
-            .or(rnd_base_visual.get(id).and_then(|v| v.text_color))
+            .or(rnd_base_visual.find(id).and_then(|v| v.text_color))
             .or(visual.text_color)
             .unwrap_or(Color::WHITE);
 

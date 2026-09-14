@@ -127,10 +127,10 @@ impl SystemStore {
         let text = cont_text_contents.at(id);
 
         let font = rnd_visual
-            .get(id)
+            .find(id)
             .map(|v| v.font.clone())
             .unwrap_or_default();
-        let auto_wrap = rnd_visual.get(id).and_then(|v| v.auto_wrap);
+        let auto_wrap = rnd_visual.find(id).and_then(|v| v.auto_wrap);
 
         let basic = lay_resolved_basic.get_or_default(id);
         let flex = lay_resolved_flex.get_or_default(id);
@@ -147,7 +147,7 @@ impl SystemStore {
         };
 
         // キャッシュ存在時に現在の幅の制約と一致しているか検証
-        if let Some(buffer) = sys_text_buffers.borrow().get(id).cloned() {
+        if let Some(buffer) = sys_text_buffers.borrow().find(id).cloned() {
             let cached_size = buffer.size().0; // Option<f32>
 
             let is_width_matched = match (cached_size, max_width_opt) {
@@ -165,7 +165,7 @@ impl SystemStore {
         }
         sys_text_buffers.borrow_mut().remove(id);
 
-        let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
+        let spans = cont_text_spans.find(id).map_or(&[][..], Vec::as_slice);
 
         let buffer = sys_text_engine.create_buffer(
             text,

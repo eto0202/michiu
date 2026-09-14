@@ -194,28 +194,28 @@ impl Context {
     #[inline]
     #[must_use]
     pub fn try_basic_layout(&self, id: EntityId) -> Option<BasicLayout> {
-        self.layouts.lay_basic.get(id).copied()
+        self.layouts.lay_basic.find(id).copied()
     }
 
     /// 指定された要素に現在設定されている最新の `FlexLayout` を取得
     #[inline]
     #[must_use]
     pub fn get_flex_layout(&self, id: EntityId) -> Option<FlexLayout> {
-        self.layouts.lay_flex.get(id).copied()
+        self.layouts.lay_flex.find(id).copied()
     }
 
     /// 指定された要素に現在設定されている最新の `GridLayout` を取得
     #[inline]
     #[must_use]
     pub fn get_grid_layout(&self, id: EntityId) -> Option<GridLayout> {
-        self.layouts.lay_grid.get(id).cloned()
+        self.layouts.lay_grid.find(id).cloned()
     }
 
     /// 指定された要素に現在設定されている最新の `VisualProperty` を取得
     #[inline]
     #[must_use]
     pub fn get_visual_property(&self, id: EntityId) -> Option<VisualProperty> {
-        self.renders.rnd_visual.get(id).cloned()
+        self.renders.rnd_visual.find(id).cloned()
     }
 
     /// 指定された要素が現在マウスホバーされているか判定します
@@ -318,6 +318,7 @@ impl Context {
             &mut self.layouts.lay_taffy_tree,
             &self.layouts.lay_taffy_nodes,
             &mut self.renders.rnd_dirty_entities,
+            &mut self.debug,
         );
     }
 
@@ -344,13 +345,13 @@ impl Context {
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
     #[inline]
     pub fn rect(&self, id: EntityId) -> Option<LayoutRect> {
-        self.outputs.out_rects.get(id).copied()
+        self.outputs.out_rects.find(id).copied()
     }
 
     /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
     #[inline]
     pub fn clip_rect(&self, id: EntityId) -> Option<LayoutRect> {
-        self.outputs.out_clip_rects.get(id).copied()
+        self.outputs.out_clip_rects.find(id).copied()
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
@@ -369,7 +370,7 @@ impl Context {
     #[inline]
     #[must_use]
     pub fn scroll_offset(&self, id: EntityId) -> Option<LayoutPoint> {
-        self.states.scroll.sc_offsets.get(id).copied()
+        self.states.scroll.sc_offsets.find(id).copied()
     }
 
     /// 現在のスクロール位置から相対移動します。

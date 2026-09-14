@@ -1,9 +1,9 @@
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayout,
-    BasicLayoutsSecondary, ComponentMask, CursorIcon, DEFAULT_BASIC, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, EntityId, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length,
-    MichiuSoA, OutputStore, ParentsSecondary, Position, Rect, RectsSecondary, TaffyNodesSecondary,
-    TaffyTreeEntityId, TopologyStore, Val, VisualPropertiesSecondary,
+    BasicLayoutsSecondary, ComponentMask, CursorIcon, DEFAULT_BASIC, DebugStore,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Position, Rect, RectsSecondary,
+    TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val, VisualPropertiesSecondary,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -149,7 +149,7 @@ impl ResizeStore {
         while let Some(id) = current_id {
             if topo_active_masks.at(id).has(ComponentMask::STYLE_RESIZABLE) {
                 let rect = *out_rects.at(id);
-                let resizable_flags = lay_basic.get(id).map_or([false; 4], |l| l.resizable);
+                let resizable_flags = lay_basic.find(id).map_or([false; 4], |l| l.resizable);
 
                 // 境界外周に 6.0px のあそびを持たせてヒット判定
                 let detect_border = 6.0f32;
@@ -182,7 +182,7 @@ impl ResizeStore {
     ) {
         let rect = out_rects.get_or_default(id);
         let (position, mut start_inset) = lay_basic
-            .get(id)
+            .find(id)
             .map_or((Position::default(), BasicLayout::default().inset), |l| {
                 (l.position, l.inset)
             });
@@ -198,7 +198,7 @@ impl ResizeStore {
             parent_id.map_or((LayoutRect::ZERO, 0.0, 0.0), |p_id| {
                 let p_rect = *out_rects.at(p_id);
                 // ボーダー幅の抽出
-                let (border_l, border_t) = lay_basic.get(p_id).map_or((0.0, 0.0), |l| {
+                let (border_l, border_t) = lay_basic.find(p_id).map_or((0.0, 0.0), |l| {
                     let left = resolve_length(l.border.left, p_rect.width);
                     let top = resolve_length(l.border.top, p_rect.height);
                     (left, top)
@@ -254,6 +254,7 @@ impl ResizeStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
         let id = state.entity_id;
         let delta_x = logical_pos.x - state.start_mouse_pos.x;
@@ -362,6 +363,7 @@ impl ResizeStore {
             lay_taffy_tree,
             lay_taffy_nodes,
             rnd_dirty_entities,
+            debug,
         );
     }
 }

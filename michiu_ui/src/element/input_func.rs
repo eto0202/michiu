@@ -187,7 +187,7 @@ impl Element {
             &cx.states.scroll.sc_offsets,
         );
 
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+        let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;
         };
 
@@ -229,7 +229,7 @@ impl Element {
             let display_text = cx
                 .contents
                 .cont_text_contents
-                .get(id)
+                .find(id)
                 .cloned()
                 .unwrap_or_default();
 
@@ -299,7 +299,7 @@ impl Element {
     }
 
     fn handle_input_focus_gained(cx: &mut Context, id: EntityId) {
-        if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
+        if let Some(contents) = cx.contents.cont_input_contents.find_mut(id) {
             contents.is_selecting = false;
             // フォーカス獲得時も操作時刻を記録して即座にキャレットを表示
             contents.last_interacted_time = Some(Instant::now());
@@ -308,7 +308,7 @@ impl Element {
     }
 
     fn handle_input_char_typed(cx: &mut Context, id: EntityId, ch: &mut char) {
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+        let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;
         };
 
@@ -459,7 +459,7 @@ impl Element {
             if mods.shift {
                 // Shiftキー押下中：選択の拡張
                 let anchor = edit_selection_start_index
-                    .get(id)
+                    .find(id)
                     .copied()
                     .unwrap_or(new_caret);
                 if !edit_selection_start_index.contains_key(id) {
@@ -665,7 +665,7 @@ impl Element {
             return;
         };
 
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+        let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;
         };
 
@@ -765,7 +765,7 @@ impl Element {
     }
 
     fn handle_input_ime_updated(cx: &mut Context, id: EntityId, ime: &ImeState) {
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+        let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;
         };
 
@@ -948,7 +948,7 @@ impl Element {
         // シグナル更新やテーマ変更、親コンポーネントの再レンダリングによる
         // キャレット位置（selected_range）や Undo/Redo 履歴の末尾への強制初期化を防止
         // 既存の状態を検知した場合はデザイン設定のみを上書き
-        if let Some(existing) = cx.contents.cont_input_contents.get_mut(id) {
+        if let Some(existing) = cx.contents.cont_input_contents.find_mut(id) {
             Element::sync_existing_input_properties(existing, c);
             // 早期リターンを抜ける前に、最新の文字列状態を SoA / DWrite 側へ即座に同期・反映
             cx.apply_input_update(id, InputOp::Init);
@@ -1014,7 +1014,7 @@ impl Element {
         });
 
         cx.create_element_effect(id, EffectCategory::Text, move |cx| {
-            if let Some(contents) = cx.contents.cont_input_contents.get(id) {
+            if let Some(contents) = cx.contents.cont_input_contents.find(id) {
                 let _base_text_val = contents.text.0.get();
             }
             cx.apply_input_update(id, InputOp::TextEffect);

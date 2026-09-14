@@ -138,7 +138,7 @@ impl ReactiveStore {
         // 親要素へ遡るイテレータを生成
         std::iter::successors(Some(id), |&curr_id| *topo_parents.at(curr_id)).find_map(|curr_id| {
             react_providers
-                .get(curr_id)
+                .find(curr_id)
                 .and_then(|map| map.get(&type_id))
                 .map(|&signal_id| ReadSignal::new(signal_id))
         })
@@ -171,7 +171,7 @@ impl ReactiveStore {
         // 親要素へ遡るイテレータを生成
         std::iter::successors(Some(id), |&curr_id| *topo_parents.at(curr_id)).find_map(|curr_id| {
             react_providers
-                .get(curr_id)
+                .find(curr_id)
                 .and_then(|map| map.get(&type_id))
                 .map(|&signal_id| WriteSignal::new(signal_id))
         })
@@ -190,7 +190,7 @@ impl ReactiveStore {
         react_pending_element_effects: &mut PendingElementEffectsVec,
     ) {
         // 既に登録済みの場合は、更新処理を行って早期リターン
-        if let Some(e) = react_element_effects.get_mut(element_id) {
+        if let Some(e) = react_element_effects.find_mut(element_id) {
             if let Some(pos) = e.iter().position(|(cat, _)| *cat == category) {
                 let (_, old_id) = e.remove(pos);
                 react_effects.remove(old_id); // エフェクト実体を削除

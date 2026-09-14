@@ -1,10 +1,11 @@
 use crate::{
     ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
-    ComponentMask, ContentStore, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId,
-    EventStore, FlexDirection, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, MichiuSoA, OutputStore, PointerEvents, ReactiveStore, RectsSecondary,
-    RenderStore, StateStore, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec, define_vec,
+    ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection, FlexLayoutsSecondary,
+    IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, OutputStore,
+    PointerEvents, ReactiveStore, RectsSecondary, RenderStore, StateStore, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore,
+    define_secondary, define_smallvec, define_vec,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -213,6 +214,7 @@ impl TopologyStore {
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         // 子がすでに別の親に属している場合は、古い親からデタッチ
         if let Some(old_parent) = *topo_parents.at(child)
@@ -244,6 +246,7 @@ impl TopologyStore {
                 topo_children,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
             LayoutStore::mark_layout_dirty(
                 old_parent,
@@ -252,6 +255,7 @@ impl TopologyStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
 
@@ -277,6 +281,7 @@ impl TopologyStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
     }
 
@@ -296,6 +301,7 @@ impl TopologyStore {
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
+        debug: &mut DebugStore,
     ) {
         // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
         let parent_node = *layouts.lay_taffy_nodes.at(parent);
@@ -328,6 +334,7 @@ impl TopologyStore {
             &mut layouts.lay_dirty_entities,
             &mut layouts.lay_taffy_tree,
             &layouts.lay_taffy_nodes,
+            debug,
         );
     }
 
@@ -360,7 +367,7 @@ impl TopologyStore {
         // 自身がルート要素の場合親は None
         if let Some(parent_id) = *topology.topo_parents.at(id) {
             // 親も自分もレイアウトノードを持っている場合のみTaffyツリーからのデタッチ
-            if let Some(&parent_node) = layouts.lay_taffy_nodes.get(parent_id) {
+            if let Some(&parent_node) = layouts.lay_taffy_nodes.find(parent_id) {
                 let child_node = *layouts.lay_taffy_nodes.at(id); // 自分はあるはず！
                 let taffy_children = layouts.lay_taffy_tree.children(parent_node).unwrap();
                 if taffy_children.contains(&child_node) {
@@ -372,7 +379,7 @@ impl TopologyStore {
             }
 
             // 親がまだ生きていれば外す
-            if let Some(parent_children) = topology.topo_children.get_mut(parent_id) {
+            if let Some(parent_children) = topology.topo_children.find_mut(parent_id) {
                 parent_children.retain(|x| *x != id);
             }
         }
@@ -605,7 +612,7 @@ impl TopologyStore {
         out_rects: &RectsSecondary,
     ) -> usize {
         let flex_direction = lay_flex
-            .get(parent)
+            .find(parent)
             .map_or(FlexDirection::default(), |f| f.flex_direction);
         let is_row =
             flex_direction == FlexDirection::Row || flex_direction == FlexDirection::RowReverse;
@@ -697,13 +704,13 @@ impl TopologyStore {
             };
 
             // 実効 z_index のカスケード計算
-            let self_z = rnd_visual.get(id).and_then(|v| v.z_index);
-            let parent_z = parent_id.and_then(|pid| topo_effective_z_indices.get(pid).copied());
+            let self_z = rnd_visual.find(id).and_then(|v| v.z_index);
+            let parent_z = parent_id.and_then(|pid| topo_effective_z_indices.find(pid).copied());
             let eff_z = self_z.or(parent_z).unwrap_or(0);
             topo_effective_z_indices.insert(id, eff_z);
 
             // トランスフォームのインライン累積
-            let (self_transform, transform_inherit) = match rnd_visual.get(id) {
+            let (self_transform, transform_inherit) = match rnd_visual.find(id) {
                 Some(v) => (
                     v.transform.unwrap_or(IDENTITY_MATRIX),
                     v.transform_inherit.unwrap_or(false),
@@ -729,7 +736,7 @@ impl TopologyStore {
                     .at(p)
                     .has(ComponentMask::STATE_TRANSFORM_ACTIVE)
             });
-            let has_self_transform = rnd_visual.get(id).is_some_and(|v| v.transform.is_some());
+            let has_self_transform = rnd_visual.find(id).is_some_and(|v| v.transform.is_some());
             let is_transform_active = is_parent_transform || has_self_transform;
 
             if is_transform_active {
@@ -843,6 +850,7 @@ impl TopologyStore {
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+        debug: &mut DebugStore,
     ) {
         LayoutStore::mark_layout_dirty(
             id,
@@ -851,6 +859,7 @@ impl TopologyStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
     }
@@ -913,9 +922,9 @@ impl TopologyStore {
 
             // pointer-events 設定の解決
             let pointer_events = rnd_visual
-                .get(id)
+                .find(id)
                 .and_then(|v| v.pointer_events)
-                .or_else(|| rnd_base_visual.get(id).and_then(|v| v.pointer_events))
+                .or_else(|| rnd_base_visual.find(id).and_then(|v| v.pointer_events))
                 .unwrap_or_default();
 
             if pointer_events == PointerEvents::None {
@@ -962,6 +971,7 @@ impl Context {
             &mut self.layouts.lay_dirty_entities,
             &mut self.layouts.lay_taffy_tree,
             &mut self.layouts.lay_taffy_nodes,
+            &mut self.debug,
         );
     }
 
@@ -987,6 +997,7 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
+            &mut self.debug,
         );
     }
 

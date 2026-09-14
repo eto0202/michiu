@@ -241,7 +241,7 @@ impl ScrollbarStore {
         };
 
         // 親スクロールコンテナ
-        let sb_state = bar_styles.get(c_id).cloned().unwrap();
+        let sb_state = bar_styles.find(c_id).cloned().unwrap();
         let container_rect = *out_rects.at(c_id);
         let scroll_size = sc_sizes.get_or_default(c_id);
         let offset = sc_offsets.get_or_default(c_id);
@@ -249,7 +249,7 @@ impl ScrollbarStore {
         match component {
             ScrollbarComponent::VThumb | ScrollbarComponent::HThumb => {
                 // サムをクリックした場合：ドラッグを開始
-                if let Some(st) = bar_styles.get_mut(c_id) {
+                if let Some(st) = bar_styles.find_mut(c_id) {
                     if component == ScrollbarComponent::VThumb {
                         st.v_thumb_dragged = true;
                     } else {
@@ -273,7 +273,7 @@ impl ScrollbarStore {
                 // ヒット先があるなら Some のはず
                 let track_rect = *out_rects.at(target_id);
                 let thumb_rect = thumb_id
-                    .and_then(|i| out_rects.get(i).copied())
+                    .and_then(|i| out_rects.find(i).copied())
                     .unwrap_or_default();
                 let visible_size = WindowStore::calc_visible_size(container_rect, win_last_size);
 
@@ -336,7 +336,7 @@ impl ScrollbarStore {
                 );
 
                 let new_offset = sc_offsets.get_or_default(c_id);
-                if let Some(st) = bar_styles.get_mut(c_id) {
+                if let Some(st) = bar_styles.find_mut(c_id) {
                     if is_vertical {
                         st.v_thumb_dragged = true;
                     } else {
@@ -473,7 +473,7 @@ impl ScrollbarStore {
         let scrollbar_ids: Vec<EntityId> = bar_styles.keys().collect();
 
         for id in scrollbar_ids {
-            let sb_state = bar_styles.get(id).cloned().unwrap();
+            let sb_state = bar_styles.find(id).cloned().unwrap();
             let rect = *out_rects.at(id);
             let scroll_size = sc_sizes.get_or_default(id);
             let current_scroll = sc_offsets.get_or_default(id);
@@ -787,7 +787,7 @@ impl ScrollbarStore {
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
     ) {
-        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
+        let layouts = [lay_basic.find_mut(id), lay_base_basic.find_mut(id)];
 
         for layout in layouts.into_iter().flatten() {
             layout.display = Display::Flex;
@@ -804,7 +804,7 @@ impl ScrollbarStore {
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &mut BaseVisualPropertiesSecondary,
     ) {
-        let visuals = [rnd_visual.get_mut(id), rnd_base_visual.get_mut(id)];
+        let visuals = [rnd_visual.find_mut(id), rnd_base_visual.find_mut(id)];
 
         for vis in visuals.into_iter().flatten() {
             vis.opacity = Some(opacity);
@@ -866,7 +866,7 @@ impl ScrollbarStore {
 
         let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
         let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
-        let grid = lay_resolved_grid.get(id); // Grid実装時用
+        let grid = lay_resolved_grid.find(id); // Grid実装時用
 
         LayoutStore::set_taffy_style(
             id,
@@ -888,7 +888,7 @@ impl ScrollbarStore {
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
     ) {
-        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
+        let layouts = [lay_basic.find_mut(id), lay_base_basic.find_mut(id)];
 
         for layout in layouts.into_iter().flatten() {
             layout.display = Display::None;

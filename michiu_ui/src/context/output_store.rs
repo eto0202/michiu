@@ -85,8 +85,8 @@ impl OutputStore {
             return false;
         };
 
-        out_prev_rects.get(parent_id) != out_rects.get(parent_id)
-            || out_prev_clip_rects.get(parent_id) != out_clip_rects.get(parent_id)
+        out_prev_rects.find(parent_id) != out_rects.find(parent_id)
+            || out_prev_clip_rects.find(parent_id) != out_clip_rects.find(parent_id)
             || topo_active_masks.at(parent_id).has_queued_layout()
     }
 
@@ -118,7 +118,7 @@ impl OutputStore {
 
         let scroll = sc_offsets.get_or_default(id);
 
-        let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.get(id) {
+        let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.find(id) {
             let size = contents
                 .last_layout
                 .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
@@ -169,7 +169,7 @@ impl OutputStore {
         };
 
         let (Some(&parent_rect), Some(&parent_clip)) =
-            (out_rects.get(parent_id), out_clip_rects.get(parent_id))
+            (out_rects.find(parent_id), out_clip_rects.find(parent_id))
         else {
             return (local_rect, initial_clip);
         };
@@ -177,7 +177,7 @@ impl OutputStore {
         let s_offsets = sc_offsets.get_or_default(parent_id);
         // データが無い要素が Absolute になることは絶対にない
         let is_absolute = lay_basic
-            .get(id)
+            .find(id)
             .is_some_and(|l| l.position == Position::Absolute);
 
         let parent_scroll = if is_absolute {
@@ -225,7 +225,7 @@ impl OutputStore {
                 // 親要素の確定サイズを優先取得
                 let parent_size = topo_parents
                     .at(id)
-                    .and_then(|p_id| out_rects.get(p_id))
+                    .and_then(|p_id| out_rects.find(p_id))
                     .map(|r| LayoutSize::new(r.width, r.height));
 
                 // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
@@ -241,7 +241,7 @@ impl OutputStore {
             Val::Auto => {
                 // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
                 // ルート要素の場合は早期リターン
-                let r = out_rects.get(id)?;
+                let r = out_rects.find(id)?;
                 Some(if is_width { r.width } else { r.height })
             }
         }
@@ -391,7 +391,7 @@ impl OutputStore {
         let clip = out_clip_rects.at(id);
 
         let user_select = rnd_visual
-            .get(id)
+            .find(id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
 

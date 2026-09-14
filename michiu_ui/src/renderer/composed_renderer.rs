@@ -225,7 +225,7 @@ impl ComposedRenderer {
 
             // ルート要素（root_node）のスタイルから DWM アクリル効果を自動検出して同期
             if let Some(&root_id) = cx.topology.topo_active_entities.first()
-                && let Some(visual_prop) = cx.renders.rnd_visual.get(root_id)
+                && let Some(visual_prop) = cx.renders.rnd_visual.find(root_id)
             {
                 let target_backdrop = visual_prop.backdrop;
 
@@ -310,7 +310,7 @@ impl ComposedRenderer {
                 let is_transitioning =
                     cx.renders
                         .rnd_active_transitions
-                        .get(id)
+                        .find(id)
                         .is_some_and(|list| {
                             list.iter().any(|t| {
                                 t.property_list == PropertyList::Width
@@ -322,7 +322,7 @@ impl ComposedRenderer {
                         || cx
                             .renders
                             .rnd_active_animations
-                            .get(id)
+                            .find(id)
                             .is_some_and(|list| {
                                 list.iter().any(|a| {
                                     a.property == PropertyList::Width
@@ -444,7 +444,7 @@ impl ComposedRenderer {
                 let is_always_active = cx
                     .contents
                     .cont_webview_contents
-                    .get(id)
+                    .find(id)
                     .is_some_and(|c| c.always_active);
                 let is_interactive = has_interactive_descendant(cx, id);
                 let has_no_cache = !self.wgpu_renderer.webview_static_caches.contains_key(&id);
@@ -452,7 +452,7 @@ impl ComposedRenderer {
                 let is_transitioning =
                     cx.renders
                         .rnd_active_transitions
-                        .get(id)
+                        .find(id)
                         .is_some_and(|list| {
                             list.iter().any(|t| {
                                 t.property_list == PropertyList::Width
@@ -464,7 +464,7 @@ impl ComposedRenderer {
                         || cx
                             .renders
                             .rnd_active_animations
-                            .get(id)
+                            .find(id)
                             .is_some_and(|list| {
                                 list.iter().any(|a| {
                                     a.property == PropertyList::Width
@@ -585,7 +585,7 @@ impl ComposedRenderer {
                 let has_active_transform_anim = cx
                     .renders
                     .rnd_active_transitions
-                    .get(id)
+                    .find(id)
                     .is_some_and(|list| {
                         list.iter()
                             .any(|t| t.property_list == PropertyList::Transform)
@@ -609,7 +609,7 @@ impl ComposedRenderer {
                 visual.SetOffsetY2(phys_y).unwrap();
 
                 // DComp 側への 2D アフィン変換行列 (Matrix3x2) の同期を追加
-                if let Some(visual_prop) = cx.renders.rnd_visual.get(id) {
+                if let Some(visual_prop) = cx.renders.rnd_visual.find(id) {
                     if let Some(m) = visual_prop.transform {
                         let m11 = m[0][0];
                         let m12 = m[0][1];
@@ -656,7 +656,7 @@ impl ComposedRenderer {
                 }
 
                 // DComp の仕様に則り、通常の CreateRectangleClip から角丸設定を行います
-                if let Some(visual_prop) = cx.renders.rnd_visual.get(id) {
+                if let Some(visual_prop) = cx.renders.rnd_visual.find(id) {
                     // 1. 通常の RectangleClip オブジェクトをデバイスから生成
                     let dcomp_device = self.dcomp_device.clone();
                     let rectangle_clip = dcomp_device.CreateRectangleClip().unwrap();

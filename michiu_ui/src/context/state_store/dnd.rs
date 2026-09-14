@@ -1,6 +1,6 @@
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayoutsSecondary,
-    CapacityConfig, ChildrenSecondary, ComponentMask, Context, DirtyLayoutEntitiesVec,
+    CapacityConfig, ChildrenSecondary, ComponentMask, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Element, EntitiesSlot, EntityId, EventStore, FlexLayoutsSecondary,
     LayoutPoint, LayoutRect, LayoutStore, MichiuSoA, ParentsSecondary, Pipeline, PointerEvents,
     Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec, TaffyNodesSecondary,
@@ -152,7 +152,7 @@ impl DndStore {
             DndDragPlaceholderParent::Custom(p_id) => {
                 let rect = *out_rects.at(p_id);
                 let (border_left, border_top) = lay_basic
-                    .get(p_id)
+                    .find(p_id)
                     .map(|l| (l.border.left.to_px_or_zero(), l.border.top.to_px_or_zero()))
                     .unwrap_or_default();
 
@@ -184,6 +184,7 @@ impl DndStore {
         lay_basic: &BasicLayoutsSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> EntityId {
         let placeholder =
             DndStore::resolve_dnd_placeholder_parent(root, drag_prop, lay_basic, out_rects);
@@ -215,6 +216,7 @@ impl DndStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
 
@@ -276,6 +278,7 @@ impl DndStore {
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         for child_id in topo_children.at(pressed_id).clone() {
             // 子要素の親ポインタをプレースホルダーに付け替え
@@ -305,6 +308,7 @@ impl DndStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
     }
@@ -344,6 +348,7 @@ impl DndStore {
             &cx.layouts.lay_basic,
             &mut cx.renders.rnd_dirty_entities,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         // プレースホルダーの初期スタイル・透過・状態情報をセットアップ
@@ -359,6 +364,7 @@ impl DndStore {
             &mut cx.layouts.lay_dirty_entities,
             &mut cx.layouts.lay_taffy_tree,
             &cx.layouts.lay_taffy_nodes,
+            &mut cx.debug,
         );
 
         // プレースホルダーアタッチ前の、本当の元の親要素のIDを記録
@@ -443,6 +449,7 @@ impl DndStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
         // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
         let (parent_rect, b_l, b_t) =
@@ -471,6 +478,7 @@ impl DndStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
         RenderStore::mark_render_dirty(placeholder, topo_active_masks, rnd_dirty_entities);
     }
@@ -558,6 +566,7 @@ impl DndStore {
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         let Some(src_parent_id) = drag_state.original_parent else {
             return;
@@ -571,6 +580,7 @@ impl DndStore {
             topo_children,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
         LayoutStore::mark_layout_dirty(
             src_parent_id,
@@ -579,6 +589,7 @@ impl DndStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
     }
 
@@ -601,6 +612,7 @@ impl DndStore {
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
         let basic = lay_basic.at_mut(src_id);
 
@@ -642,6 +654,7 @@ impl DndStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
 
             return;
@@ -667,6 +680,7 @@ impl DndStore {
                 topo_children,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         } else {
             // 自動更新オフの場合は末尾に通常アタッチ
@@ -681,6 +695,7 @@ impl DndStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
         LayoutStore::mark_layout_dirty(
@@ -690,6 +705,7 @@ impl DndStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
     }
 
@@ -698,7 +714,7 @@ impl DndStore {
         let src_id = drag_state.source_entity;
         let holder = drag_state.placeholder_entity;
 
-        let Some(drag_prop) = cx.states.dnd.dnd_drag_properties.get(src_id).copied() else {
+        let Some(drag_prop) = cx.states.dnd.dnd_drag_properties.find(src_id).copied() else {
             return;
         };
 
@@ -727,6 +743,7 @@ impl DndStore {
                 &mut cx.layouts.lay_dirty_entities,
                 &mut cx.layouts.lay_taffy_tree,
                 &cx.layouts.lay_taffy_nodes,
+                &mut cx.debug,
             );
             DndStore::dnd_rewrite_tree_topology(
                 src_id,
@@ -747,6 +764,7 @@ impl DndStore {
                 &mut cx.layouts.lay_base_basic,
                 &cx.layouts.lay_flex,
                 &cx.outputs.out_rects,
+                &mut cx.debug,
             );
             cx.topology.topo_is_structure_dirty = true;
             cx.topology.topo_is_sort_dirty = true;
@@ -771,6 +789,7 @@ impl DndStore {
                 &mut cx.layouts.lay_dirty_entities,
                 &mut cx.layouts.lay_taffy_tree,
                 &cx.layouts.lay_taffy_nodes,
+                &mut cx.debug,
             );
         }
 

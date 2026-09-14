@@ -314,7 +314,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.find_mut(id) {
                             v.style = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -344,7 +344,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.find_mut(id) {
                             v.style.width = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -374,7 +374,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.find_mut(id) {
                             v.style.display = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -427,7 +427,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.find_mut(id) {
                             v.style.mode = val;
                         }
                         cx.mark_layout_dirty(id);

@@ -524,7 +524,7 @@ impl Element {
                 let id = self.id;
                 with_context(|cx| {
                     // 静的なコンテンツ上書き時のみ古い動的評価エフェクト（Contentsカテゴリ）を一括破棄
-                    if let Some(effects) = cx.reactive.react_element_effects.get_mut(id)
+                    if let Some(effects) = cx.reactive.react_element_effects.find_mut(id)
                         && let Some(i) = effects
                             .iter()
                             .position(|(cat, _)| *cat == EffectCategory::Contents)
@@ -560,7 +560,7 @@ impl Element {
 
         // 親コンテナに紐づくスクロールバー専用要素のIDを安全に抽出
         let mut scrollbar_ids = std::collections::HashSet::new();
-        if let Some(sb) = cx.layouts.scrollbar.bar_styles.get(id) {
+        if let Some(sb) = cx.layouts.scrollbar.bar_styles.find(id) {
             if let Some(tid) = sb.v_track_id {
                 scrollbar_ids.insert(tid);
             }

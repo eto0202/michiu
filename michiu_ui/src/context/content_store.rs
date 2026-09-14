@@ -21,11 +21,11 @@ pub struct ExternalTextureSparse(pub SparseSecondaryMap<EntityId, Arc<dyn Extern
 impl MichiuSoA for ExternalTextureSparse {
     type Item = Arc<dyn ExternalTexture>;
     #[inline]
-    fn get(&self, id: EntityId) -> Option<&Self::Item> {
+    fn find(&self, id: EntityId) -> Option<&Self::Item> {
         self.0.get(id)
     }
     #[inline]
-    fn get_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
         self.0.get_mut(id)
     }
 }
@@ -179,7 +179,7 @@ impl ContentStore {
 
         // 折り返し設定と最大幅
         let auto_wrap = rnd_visual
-            .get(id)
+            .find(id)
             .and_then(|v| v.auto_wrap)
             .unwrap_or(false);
 
@@ -225,11 +225,11 @@ impl ContentStore {
 
         let text = cont_text_contents.at(id);
         let font = rnd_visual
-            .get(id)
+            .find(id)
             .map(|v| v.font.clone())
             .unwrap_or_default();
 
-        let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
+        let spans = cont_text_spans.find(id).map_or(&[][..], Vec::as_slice);
 
         let size = sys_text_engine.measure_text(
             text,

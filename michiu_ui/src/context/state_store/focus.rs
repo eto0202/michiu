@@ -46,7 +46,7 @@ impl FocusStore {
                 && cx
                     .renders
                     .rnd_visual
-                    .get(curr_id)
+                    .find(curr_id)
                     .and_then(|v| v.prevent_focus_steal)
                     .unwrap_or(false)
             {
@@ -57,7 +57,7 @@ impl FocusStore {
                 && cx
                     .renders
                     .rnd_visual
-                    .get(curr_id)
+                    .find(curr_id)
                     .and_then(|v| v.prevent_focus_steal_within)
                     .unwrap_or(false)
             {
@@ -74,7 +74,7 @@ impl FocusStore {
         topo_active_masks: &ActiveMasksSecondary,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> bool {
-        let focusable = rnd_visual.get(id).and_then(|v| v.focusable).or_else(|| {
+        let focusable = rnd_visual.find(id).and_then(|v| v.focusable).or_else(|| {
             let mask = topo_active_masks.at(id);
             if mask.has_input_content() || mask.has_webveiw2_content() {
                 Some(Focusable::Inherit(FocusTrigger::Both)) // 未指定時はキーボードフォーカス
@@ -201,7 +201,7 @@ impl FocusStore {
         }
 
         // 暗黙的または明示的にキーボードフォーカスを要求しているか
-        let focusable = rnd_visual.get(id).and_then(|v| v.focusable);
+        let focusable = rnd_visual.find(id).and_then(|v| v.focusable);
         let is_target = match focusable {
             // 明示的にフォーカス設定がある場合
             Some(Focusable::SelfStyle(trigger) | Focusable::Inherit(trigger)) => {
@@ -219,7 +219,7 @@ impl FocusStore {
         // 自分自身、および親先祖ツリーに非表示（Display::None）が1つも含まれていないか検証
         let mut curr = Some(id);
         while let Some(curr_id) = curr {
-            if let Some(layout) = lay_basic.get(curr_id)
+            if let Some(layout) = lay_basic.find(curr_id)
                 && layout.display == Display::None
             {
                 return false;

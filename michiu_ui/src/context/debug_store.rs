@@ -488,7 +488,7 @@ pub enum LayoutStage {
     FirstEffects,
     /// 計算が必要ない場合は早期リターン
     EarlyReturn,
-    /// DFS配列の高速再構築
+    /// DFS配列の再構築
     RebuildDfs,
     /// 各スタイルの解決
     ResolveStyle,
@@ -1161,7 +1161,6 @@ pub struct WgpuRendererSnapshot {
     pub external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
 }
 
-// I で始まる COM だけ AgileReference で包む
 #[derive(Clone)]
 pub struct ComposedRendererSnapshot {
     pub hwnd: usize,
@@ -1463,6 +1462,9 @@ pub enum MichiuError {
 
     #[error("Windows API Error: {0}")]
     WindowsApiError(#[from] windows_core::Error),
+
+    #[error("Taffy Error: {0}")]
+    TaffyError(#[from] taffy::TaffyError),
 }
 
 // ================================================================
@@ -1525,6 +1527,39 @@ impl<T> ResultTraceExt<T> for Result<T> {
                 {
                     trace_error!(id, debug, || MichiuTrace::Error {
                         detail: e.clone(),
+                        add: None,
+                    });
+
+                    if let Some(ref tx) = debug.dbg_tx {
+                        let batch = std::mem::take(&mut debug.dbg_trace_queue);
+                        tx.send_batch(batch);
+                    }
+                }
+
+                panic!("unwrap_or_trace: {e}");
+            }
+        }
+    }
+}
+
+pub trait TaffyResultTraceExt<T> {
+    /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
+    #[track_caller]
+    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
+}
+
+impl<T> ResultTraceExt<T> for taffy::TaffyResult<T> {
+    #[allow(clippy::panic)]
+    #[track_caller]
+    #[inline]
+    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T {
+        match self {
+            Ok(val) => val,
+            Err(e) => {
+                #[cfg(feature = "trace-error")]
+                {
+                    trace_error!(id, debug, || MichiuTrace::Error {
+                        detail: MichiuError::TaffyError(e.clone()),
                         add: None,
                     });
 

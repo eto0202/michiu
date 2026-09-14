@@ -4,15 +4,15 @@ pub trait MichiuSoA {
     type Item;
 
     /// 存在しない場合は None を返す
-    fn get(&self, id: EntityId) -> Option<&Self::Item>;
+    fn find(&self, id: EntityId) -> Option<&Self::Item>;
 
     /// 可変参照用
-    fn get_mut(&mut self, id: EntityId) -> Option<&mut Self::Item>;
+    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item>;
 
     /// 存在しない場合は Err を返す
     #[inline]
     fn require(&self, id: EntityId) -> Result<&Self::Item> {
-        self.get(id).ok_or_else(|| MichiuError::ComponentNotFound {
+        self.find(id).ok_or_else(|| MichiuError::ComponentNotFound {
             id,
             component: std::any::type_name::<Self>(),
         })
@@ -22,7 +22,7 @@ pub trait MichiuSoA {
     #[inline]
     fn require_mut(&mut self, id: EntityId) -> Result<&mut Self::Item> {
         let component = std::any::type_name::<Self>();
-        self.get_mut(id)
+        self.find_mut(id)
             .ok_or(MichiuError::ComponentNotFound { id, component })
     }
 
@@ -34,7 +34,7 @@ pub trait MichiuSoA {
         let type_name = std::any::type_name::<Self>();
         let caller = std::panic::Location::caller();
 
-        self.get(id).unwrap_or_else(|| {
+        self.find(id).unwrap_or_else(|| {
             panic!(
                 "[Michiu UI] SoA Component Access Failed\n\
                     Caller Loc    : {caller}\n\
@@ -57,7 +57,7 @@ pub trait MichiuSoA {
         let type_name = std::any::type_name::<Self>();
         let caller = std::panic::Location::caller();
 
-        self.get_mut(id).unwrap_or_else(|| {
+        self.find_mut(id).unwrap_or_else(|| {
             panic!(
                 "[Michiu UI] SoA Component Mutable Access Failed\n\
                     Caller Loc    : {caller}\n\
@@ -78,19 +78,19 @@ pub trait MichiuSoA {
     where
         Self::Item: Default + Clone,
     {
-        self.get(id).cloned().unwrap_or_default()
+        self.find(id).cloned().unwrap_or_default()
     }
 
     /// 指定の値でフォールバック
     #[inline]
     fn get_or<'a>(&'a self, id: EntityId, fallback: &'a Self::Item) -> &'a Self::Item {
-        self.get(id).unwrap_or(fallback)
+        self.find(id).unwrap_or(fallback)
     }
 
     /// その要素がコンポーネントを保持しているか
     #[inline]
     fn contains(&self, id: EntityId) -> bool {
-        self.get(id).is_some()
+        self.find(id).is_some()
     }
 }
 
@@ -113,9 +113,9 @@ macro_rules! define_secondary {
         impl $crate::MichiuSoA for $name {
             type Item = $item;
             #[inline]
-            fn get(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
+            fn find(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
             #[inline]
-            fn get_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
+            fn find_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
         }
     };
 
@@ -136,9 +136,9 @@ macro_rules! define_sparse_secondary {
         impl $crate::MichiuSoA for $name {
             type Item = $item;
             #[inline]
-            fn get(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
+            fn find(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
             #[inline]
-            fn get_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
+            fn find_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
         }
     };
 

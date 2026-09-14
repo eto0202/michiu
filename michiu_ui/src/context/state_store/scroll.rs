@@ -110,7 +110,7 @@ impl ScrollStore {
             current.y = y;
 
             // スクロールバー状態の最終スクロール時刻を更新
-            if let Some(sb_state) = bar_styles.get_mut(id) {
+            if let Some(sb_state) = bar_styles.find_mut(id) {
                 sb_state.last_scroll_time = Some(Instant::now());
             }
 
@@ -122,6 +122,7 @@ impl ScrollStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
 
             true
@@ -183,7 +184,7 @@ impl ScrollStore {
         };
 
         let (sb_state, container_rect, scroll_size) = {
-            let sb_state = bar_styles.get(current_id).cloned().unwrap_or_default();
+            let sb_state = bar_styles.find(current_id).cloned().unwrap_or_default();
             let container_rect = *out_rects.at(current_id);
             let scroll_size = sc_sizes.get_or_default(current_id);
             (sb_state, container_rect, scroll_size)
@@ -258,11 +259,11 @@ impl ScrollStore {
 
             let (target_x, target_y) = match direction {
                 DragDirection::Vertical => {
-                    let current_x = sc_offsets.get(current_id).map_or(0.0, |o| o.x);
+                    let current_x = sc_offsets.find(current_id).map_or(0.0, |o| o.x);
                     (current_x, target_scroll)
                 }
                 DragDirection::Horizontal => {
-                    let current_y = sc_offsets.get(current_id).map_or(0.0, |o| o.y);
+                    let current_y = sc_offsets.find(current_id).map_or(0.0, |o| o.y);
                     (target_scroll, current_y)
                 }
             };
@@ -363,7 +364,7 @@ impl ScrollStore {
 
         // テキスト選択状態
         let user_select = rnd_visual
-            .get(id)
+            .find(id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
         if user_select != UserSelect::Text {
@@ -470,7 +471,7 @@ impl ScrollStore {
         let offset_y = border.top + padding.top;
 
         // スクロールバー要素のIDを取得して除外対象にする
-        let (v_track_opt, h_track_opt) = if let Some(sb_state) = bar_styles.get(id) {
+        let (v_track_opt, h_track_opt) = if let Some(sb_state) = bar_styles.find(id) {
             (sb_state.v_track_id, sb_state.h_track_id)
         } else {
             (None, None)
@@ -485,7 +486,7 @@ impl ScrollStore {
 
             // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
             let is_absolute = lay_resolved_basic
-                .get(child_id)
+                .find(child_id)
                 .is_some_and(|l| l.position == Position::Absolute);
             if is_absolute {
                 continue;

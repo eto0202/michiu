@@ -730,7 +730,7 @@ impl WgpuRenderer {
         let visual = cx
             .renders
             .rnd_visual
-            .get(entity_id)
+            .find(entity_id)
             .unwrap_or(&default_visual);
 
         let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);

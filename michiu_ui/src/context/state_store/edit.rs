@@ -134,7 +134,7 @@ impl TextEditStore {
     ) {
         edit_selections.remove(id);
         edit_selected_rects.remove(id);
-        if let Some(contents) = cont_input_contents.get_mut(id) {
+        if let Some(contents) = cont_input_contents.find_mut(id) {
             contents.selected_range = ByteIndex(0)..ByteIndex(0);
             // 進行中の IME コンポジションをリセットして波線を消去
             contents.ime_state = None;
@@ -503,7 +503,7 @@ impl TextEditStore {
             cont_input_contents,
         );
 
-        if let Some(contents) = cont_input_contents.get_mut(id) {
+        if let Some(contents) = cont_input_contents.find_mut(id) {
             contents.selection_reversed = is_reversed;
             contents.selected_range = range;
 
@@ -590,7 +590,7 @@ impl TextEditStore {
         };
 
         // Input 要素の場合は生テキストの長さで全選択範囲を作る
-        let input_full_range = if let Some(contents) = cont_input_contents.get_mut(id) {
+        let input_full_range = if let Some(contents) = cont_input_contents.find_mut(id) {
             let raw_text = contents.to_michiu();
             let full_range = ByteIndex(0)..raw_text.byte_len();
 
@@ -720,7 +720,7 @@ impl TextEditStore {
             );
         }
 
-        if let Some(c) = cont_input_contents.get_mut(id) {
+        if let Some(c) = cont_input_contents.find_mut(id) {
             c.needs_scroll_to_caret = true;
         }
 
@@ -799,6 +799,7 @@ impl TextEditStore {
                     lay_taffy_tree,
                     lay_taffy_nodes,
                     rnd_dirty_entities,
+                    debug,
                 );
             }
 
@@ -821,6 +822,7 @@ impl TextEditStore {
                     lay_taffy_tree,
                     lay_taffy_nodes,
                     rnd_dirty_entities,
+                    debug,
                 );
             }
         }
@@ -982,7 +984,7 @@ impl TextEditStore {
         edit_selections: &mut TextSelectionsSparse,
         out_rects: &RectsSecondary,
     ) -> Option<(LayoutRect, f32, bool)> {
-        let contents = cont_input_contents.get_mut(id)?;
+        let contents = cont_input_contents.find_mut(id)?;
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
         edit_selections.insert(id, contents.selected_range.clone());
 
@@ -1109,7 +1111,7 @@ impl TextEditStore {
         // 最終表示用テキストを Context 側に反映
         cont_text_contents.insert(id, display_text);
 
-        let visual = rnd_visual.get_mut(id)?;
+        let visual = rnd_visual.find_mut(id)?;
         let is_ime_active = contents
             .ime_state
             .as_ref()
