@@ -2,7 +2,7 @@ use crate::{
     AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, DebugStore, EntityId,
     LayoutPoint, LayoutRect, LayoutSize, MichiuError, MichiuSoA, MichiuTrace, PlaybackCount,
     PropertyList, ResultTraceExt, WebView2Contents, WgpuRenderer, WindowsResultTraceExt,
-    flush_trace, trace_error,
+    flush_trace, trace_error, trace_lifecycle,
 };
 use std::{
     cell::RefCell,
@@ -215,11 +215,35 @@ impl ComposedRenderer {
     #[track_caller]
     pub fn draw(&mut self, cx: &mut Context) {
         self.wgpu_renderer.render(cx, self.scale_factor);
+
         unsafe {
             self.dcomp_device
                 .Commit()
                 .unwrap_or_trace(None, &mut cx.debug);
         };
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Commit { add: None });
+
+        #[cfg(feature = "trace-lifecycle")]
+        {
+            let total_entities = cx.topology.topo_entities.len();
+            let active_entities = cx.topology.topo_active_entities.len();
+            let dirty_layouts = cx.layouts.lay_dirty_entities.len();
+            let dirty_renders = cx.renders.rnd_dirty_entities.len();
+
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::ClearDirtyEntities {
+                total_entities,
+                active_entities,
+                dirty_layouts,
+                dirty_renders,
+                add: Some(
+                    "Immediately after this recording, the dirty flag is cleared and the log is sent."
+                ),
+            });
+        }
+
         // ダーティフラグをクリア
         cx.clear_dirty();
         // ログを送信

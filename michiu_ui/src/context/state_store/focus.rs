@@ -5,7 +5,6 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
-#[repr(u8)]
 pub enum FocusTrigger {
     Mouse,
     Keyboard,
@@ -15,7 +14,6 @@ pub enum FocusTrigger {
 
 /// 実際に発生したフォーカスイベントの物理入力ソース
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
 pub enum ActiveFocusTrigger {
     Mouse,
     Keyboard,
@@ -23,7 +21,6 @@ pub enum ActiveFocusTrigger {
 
 /// フォーカスを受け入れる際の挙動およびスタイルの継承ポリシー
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
-#[repr(u8)]
 pub enum Focusable {
     #[default]
     None, // フォーカス不可能

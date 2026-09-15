@@ -1,3 +1,5 @@
+#[cfg(feature = "trace-entity")]
+use crate::{ActiveAnimation, ActiveTransition};
 #[allow(unused)]
 use crate::{
     ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveInteractionStates,
@@ -19,11 +21,15 @@ use crate::{
     TextSpansSparse, TextureAtlas, UiaPropertiesSparse, VirtualKey, VisualPropertiesSecondary,
     WebviewContentsSparse, WebviewEntitiesVec,
 };
+#[cfg(feature = "trace-lifecycle")]
+use crate::{BasicLayout, CurrentStyle, StyleInner, ThisStyle, VisualProperty};
+use crate::{BatchType, LayoutRect};
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
+    fmt::Debug,
     panic::Location,
     path::PathBuf,
     sync::{
@@ -292,136 +298,225 @@ impl Context {
 // ================================================================
 
 #[derive(Clone)]
-#[repr(u8)]
 pub enum MichiuTrace {
     None,
 
-    #[cfg(feature = "trace-lifecycle")]
-    Frame(u64),
-
+    /// アプリ初期化地点を記録
     #[cfg(feature = "trace-lifecycle")]
     Init {
         capacity: Option<Arc<CapacityConfig>>,
         add: Option<&'static str>,
     },
 
+    /// ルート要素の作成と `Context` の生ポインタを記録
     #[cfg(feature = "trace-lifecycle")]
-    Build {
-        old_addr: Option<usize>,
-        new_addr: usize,
-        marker: usize,
+    BuildElement {
+        old: Option<usize>,
+        current: usize,
         root: EntityId,
         add: Option<&'static str>,
     },
 
+    /// スレッドローカルにあるバインドされた `Context` を記録
     #[cfg(feature = "trace-lifecycle")]
-    Spawn(Arc<SpawnTrace>),
-
-    #[cfg(feature = "trace-lifecycle")]
-    HitTest {
-        target: Option<EntityId>,
-        x: f32,
-        y: f32,
+    Context {
+        current: Option<usize>,
+        state: ContextState,
         add: Option<&'static str>,
     },
 
+    /// 要素のスポーンを記録
+    #[cfg(feature = "trace-entity")]
+    EntitySpawn {
+        parent: Option<EntityId>,
+        node_id: taffy::NodeId,
+        add: Option<&'static str>,
+    },
+
+    /// 要素のスタイル解決を記録
+    #[cfg(feature = "trace-entity")]
+    EntityStyle {
+        stage: StyleStage,
+        mask: ComponentMask,
+        style: Option<Arc<StyleInner>>,
+        resolved_visual: Option<Arc<VisualProperty>>,
+        resolved_layout: Option<Arc<BasicLayout>>,
+        add: Option<&'static str>,
+    },
+
+    /// ヒットテストを記録
     #[cfg(feature = "trace-lifecycle")]
-    Reactive {
+    HitTest {
+        found: Option<EntityId>,
+        hit_x: f32,
+        hit_y: f32,
+        add: Option<&'static str>,
+    },
+
+    /// 要素のリアクティビティを記録
+    #[cfg(feature = "trace-entity")]
+    EntityReactive {
         signal: Option<SignalId>,
         effect: Option<EffectId>,
         kinds: ReactiveKinds,
         add: Option<&'static str>,
     },
 
+    /// 要素のイベントの発生を記録
     #[cfg(feature = "trace-lifecycle")]
     Event {
-        kinds: TraceEventList,
+        kinds: Arc<TraceEventList>,
         add: Option<&'static str>,
     },
 
-    #[cfg(feature = "trace-lifecycle")]
-    StateUpdate {
+    /// 要素が持つ疑似クラスの変更を記録
+    #[cfg(feature = "trace-entity")]
+    EntityStateUpdate {
         flag: ComponentMask,
         current_masks: ComponentMask,
         actived: bool,
         add: Option<&'static str>,
     },
 
-    #[cfg(feature = "trace-lifecycle")]
-    QueueDirty(Arc<DirtyQueueTrace>),
+    #[cfg(feature = "trace-entity")]
+    EntityAnimation {
+        kinds: FrameKinds,
+        animation: Option<Arc<[ActiveAnimation]>>,
+        transition: Option<Arc<[ActiveTransition]>>,
+        add: Option<&'static str>,
+    },
 
+    /// 要素にダーティフラグが立てられた瞬間を記録
+    #[cfg(feature = "trace-entity")]
+    EntityDirtyQueue(Arc<DirtyQueueTrace>),
+
+    /// DFS順配列の構築を記録
     #[cfg(feature = "trace-lifecycle")]
     Dfs {
         after: Arc<[EntityId]>,
         add: Option<&'static str>,
     },
 
+    /// レイアウト解決フェーズを記録
     #[cfg(feature = "trace-lifecycle")]
     Layout {
         stage: LayoutStage,
         add: Option<&'static str>,
     },
 
-    #[cfg(feature = "trace-lifecycle")]
-    Text {
+    /// Webivew2要素の更新
+    #[cfg(feature = "trace-entity")]
+    EntityWebview2 {
         add: Option<&'static str>,
     },
 
+    /// 要素が持つテキストレイアウトの計算を記録
+    #[cfg(feature = "trace-entity")]
+    EntityText {
+        add: Option<&'static str>,
+    },
+
+    /// アニメーション、トランジション、オートスクロールの発生を記録
     #[cfg(feature = "trace-lifecycle")]
     Animation {
         kinds: FrameKinds,
         add: Option<&'static str>,
     },
 
+    /// 可視性、z-index を元にしたソート済み配列の作成を記録
     #[cfg(feature = "trace-lifecycle")]
     Sorted {
         after: Arc<[EntityId]>,
         add: Option<&'static str>,
     },
 
+    /// 描画データの収集と `QuadInstance` の構築を記録
     #[cfg(feature = "trace-lifecycle")]
     PrepareRender {
         stage: RenderStage,
-        data: Option<Arc<[RenderData]>>,
+        data: Option<Arc<RendererViewTrace>>,
         add: Option<&'static str>,
     },
 
+    /// Wgpu の `write_buffer` を記録
     #[cfg(feature = "trace-lifecycle")]
     WriteBuffer {
         staging: Arc<[QuadInstance]>,
         add: Option<&'static str>,
     },
 
+    /// Wgpu の `present` を記録
     #[cfg(feature = "trace-lifecycle")]
     Present {
         add: Option<&'static str>,
     },
 
+    /// `DirectComposition` の `Commit` を記録
     #[cfg(feature = "trace-lifecycle")]
     Commit {
         add: Option<&'static str>,
     },
 
+    /// 総要素数とダーティフラグを持つ要素数の記録
     #[cfg(feature = "trace-lifecycle")]
-    Despawn {
+    ClearDirtyEntities {
+        total_entities: usize,
+        active_entities: usize,
+        dirty_layouts: usize,
+        dirty_renders: usize,
         add: Option<&'static str>,
     },
 
-    #[cfg(feature = "trace-lifecycle")]
-    Info {
+    /// デスポーンしたEntityIdを記録
+    #[cfg(feature = "trace-entity")]
+    EntityDespawn {
+        add: Option<&'static str>,
+    },
+
+    /// フォールバックやキャッシュミスを記録
+    #[cfg(feature = "trace-entity")]
+    EntityInfo {
         detail: MichiuInfo,
         fallback: Option<Arc<dyn std::fmt::Debug + Send + Sync>>,
         add: Option<&'static str>,
     },
 
+    /// 内部で発生した全エラーを記録
     #[cfg(feature = "trace-error")]
     Error {
         detail: MichiuError,
         add: Option<&'static str>,
     },
+}
 
-    #[cfg(feature = "snapshot")]
-    Snapshot,
+// ================================================================
+// ================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContextState {
+    Bind,
+    Drop,
+}
+
+// ================================================================
+// ================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleState {
+    None,
+    Static,
+    Dynamic,
+}
+
+// ================================================================
+// ================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum StyleStage {
+    Build,
+    ResolvedVisual,
+    ResolvedLayout,
+    TriggerAnimations,
 }
 
 // ================================================================
@@ -429,10 +524,9 @@ pub enum MichiuTrace {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTrace {
-    pub entities: Option<Vec<EntityId>>,
-    pub root: Option<EntityId>,
-    pub parents: Option<Vec<EntityId>>,
-    pub children: Option<Vec<EntityId>>,
+    pub id: EntityId,
+    pub parent: Option<EntityId>,
+    pub node_id: taffy::NodeId,
     pub add: Option<&'static str>,
 }
 
@@ -442,7 +536,6 @@ pub struct SpawnTrace {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DirtyQueueTrace {
     pub kinds: QueueDirtyKinds,
-    pub masks: Option<ComponentMask>,
     pub dirty_entities: Option<Vec<EntityId>>,
     pub sort: Option<bool>,
     pub structure: Option<bool>,
@@ -453,7 +546,6 @@ pub struct DirtyQueueTrace {
 // ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
 pub enum QueueDirtyKinds {
     None,
     Layout,
@@ -464,7 +556,6 @@ pub enum QueueDirtyKinds {
 // ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
 pub enum ReactiveKinds {
     None,
     /// Signal の作成
@@ -499,7 +590,6 @@ pub enum ReactiveKinds {
 // ================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(u8)]
 pub enum LayoutStage {
     None,
     /// レイアウト計算の開始
@@ -507,11 +597,11 @@ pub enum LayoutStage {
     /// 溜めてある初回評価を実行
     FirstEffects,
     /// 計算が必要ない場合は早期リターン
-    EarlyReturn,
+    EarlyReturn(DirtyReason),
     /// DFS配列の再構築
     RebuildDfs,
     /// 各スタイルの解決
-    ResolveStyle,
+    ResolveLayout,
     /// Taffy ツリーへの差分同期
     SyncTaffy,
     /// 1回目のレイアウト計算
@@ -529,7 +619,7 @@ pub enum LayoutStage {
     /// スクロールサイズ計算
     ScrollSize,
     /// スクロールバーのスタイルの同期
-    ResolveScrollBar,
+    SyncScrollBar,
     /// 2回目レイアウト計算
     FinalMeasure,
     /// 最終的な出力領域
@@ -544,11 +634,18 @@ pub enum LayoutStage {
     End,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DirtyReason {
+    pub window_resized: bool,
+    pub has_dirty_entities: bool,
+    pub is_structure_dirty: bool,
+    pub is_empty_output_rect: bool,
+}
+
 // ================================================================
 // ================================================================
 
-#[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RenderStage {
     None,
     /// レンダリングフェーズ開始
@@ -560,15 +657,44 @@ pub enum RenderStage {
     /// アトラスのクリアが起きた場合、アトラスを再構築して再度キャッシュ
     FullGlyphsCache,
     /// パッキング
-    CollectDate,
+    CollectDate(InstanceKinds),
     /// バッチのフラッシュ
-    FlushBatch,
+    FlushBatch(FlatBufferTrace),
     /// インスタンスを追加
     PushInstance,
     /// ダーティフラグのクリア
     ClearDirty,
     /// 終了
     End,
+}
+
+#[derive(Debug, Clone)]
+pub struct RendererViewTrace {
+    pub render_data: RenderData,
+    pub atlas: TextureAtlas,
+    pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
+    pub queue: wgpu::Queue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InstanceKinds {
+    pub has_webview_ready: bool,
+    pub has_webview_static: bool,
+    pub has_external_texture: bool,
+    pub has_normal_element: bool,
+    pub has_selection_highlight: bool,
+    pub has_background: bool,
+    pub has_text: bool,
+    pub has_fallback_border: bool,
+    pub has_caret: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FlatBufferTrace {
+    pub instances_len: usize,
+    pub last_flushed_offset: usize,
+    pub scissor_rect: LayoutRect,
+    pub batch_type: BatchType,
 }
 
 // ================================================================
@@ -591,7 +717,6 @@ pub enum TimeStamp {
 // ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
 pub enum TraceEventList {
     None,
     PointerMove {
@@ -638,21 +763,14 @@ pub enum TraceEventList {
     Cut {
         text: Cow<'static, str>,
     },
-    Undo {
-        previous: Cow<'static, str>,
-        list: Vec<Cow<'static, str>>,
-    },
-    Redo {
-        previous: Cow<'static, str>,
-        list: Vec<Cow<'static, str>>,
-    },
+    Undo,
+    Redo,
 }
 
 // ================================================================
 // ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
 pub enum FrameKinds {
     None,
     Transition,
@@ -664,7 +782,6 @@ pub enum FrameKinds {
 // ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
 pub enum MichiuInfo {
     None,
     ValueNotFound,
@@ -831,7 +948,7 @@ macro_rules! trace_lifecycle {
         let id: Option<$crate::EntityId> = None;
         $crate::trace_lifecycle!(id, $debug, $trace_fn);
     };
-    
+
     ($id:expr, $debug:expr, $trace_fn:expr) => {
         let debug = &mut *$debug;
         let _: &$crate::DebugStore = debug;
@@ -1534,6 +1651,30 @@ pub trait OptionTraceExt<T> {
     fn unwrap_or_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, err: F) -> T
     where
         F: FnOnce() -> MichiuError;
+
+    /// 値があれば返し、None ならトレースを記録して Default 値を返す
+    #[track_caller]
+    fn unwrap_or_default_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T
+    where
+        T: Default + Debug + Send + Sync + 'static;
+
+    /// 値があれば返し、None ならトレースを記録して指定のフォールバック値を返す
+    #[track_caller]
+    fn unwrap_or_fallback_trace(
+        self,
+        id: Option<EntityId>,
+        fallback: T,
+        debug: &mut DebugStore,
+    ) -> T
+    where
+        T: Clone + Debug + Send + Sync + 'static;
+
+    /// 値があれば返し、None ならトレースを記録してクロージャでフォールバック値を生成する
+    #[track_caller]
+    fn unwrap_or_else_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, f: F) -> T
+    where
+        T: Default + Clone + Debug + Send + Sync + 'static,
+        F: FnOnce() -> T;
 }
 
 impl<T> OptionTraceExt<T> for Option<T> {
@@ -1563,6 +1704,91 @@ impl<T> OptionTraceExt<T> for Option<T> {
             }
 
             panic!("unwrap_or_trace: {error_detail}");
+        }
+    }
+
+    #[track_caller]
+    #[inline]
+    fn unwrap_or_default_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T
+    where
+        T: Default + Debug + Send + Sync + 'static,
+    {
+        #[cfg(not(feature = "trace-entity"))]
+        {
+            let _ = (id, debug);
+            self.unwrap_or_default()
+        }
+
+        #[cfg(feature = "trace-entity")]
+        if let Some(val) = self {
+            val
+        } else {
+            trace_entity!(id, debug, || MichiuTrace::Info {
+                detail: MichiuInfo::ValueNotFound,
+                fallback: Some(Arc::new(T::default())),
+                add: Some(std::any::type_name::<T>()),
+            });
+
+            T::default()
+        }
+    }
+
+    #[track_caller]
+    #[inline]
+    fn unwrap_or_fallback_trace(
+        self,
+        id: Option<EntityId>,
+        fallback: T,
+        debug: &mut DebugStore,
+    ) -> T
+    where
+        T: Clone + Debug + Send + Sync + 'static,
+    {
+        #[cfg(not(feature = "trace-entity"))]
+        {
+            let _ = (id, debug);
+            self.unwrap_or(fallback)
+        }
+
+        #[cfg(feature = "trace-entity")]
+        if let Some(val) = self {
+            val
+        } else {
+            trace_entity!(id, debug, || MichiuTrace::Info {
+                detail: MichiuInfo::ValueNotFound,
+                fallback: Some(Arc::new(fallback.clone())),
+                add: Some(std::any::type_name::<T>()),
+            });
+
+            fallback
+        }
+    }
+
+    #[track_caller]
+    #[inline]
+    fn unwrap_or_else_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, f: F) -> T
+    where
+        T: Default + Clone + Debug + Send + Sync + 'static,
+        F: FnOnce() -> T,
+    {
+        #[cfg(not(feature = "trace-entity"))]
+        {
+            let _ = (id, debug);
+            self.unwrap_or_else(f)
+        }
+
+        #[cfg(feature = "trace-entity")]
+        if let Some(val) = self {
+            val
+        } else {
+            let val = f();
+            trace_entity!(id, debug, || MichiuTrace::Info {
+                detail: MichiuInfo::ValueNotFound,
+                fallback: Some(Arc::new(val.clone())),
+                add: Some(std::any::type_name::<T>()),
+            });
+
+            val
         }
     }
 }

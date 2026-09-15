@@ -12,7 +12,6 @@ use slotmap::SparseSecondaryMap;
 
 /// プレースホルダーを挿入してマウントする親先祖の制御方法
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
 pub enum DndDragPlaceholderParent {
     Root,             // 自動的に最上位ルート要素の子としてアタッチ
     Custom(EntityId), // ユーザーが指定した特定の親コンテナの子としてアタッチ（範囲制限）
@@ -20,7 +19,6 @@ pub enum DndDragPlaceholderParent {
 
 /// ドラッグ＆ドロップ動作の論理形式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
 pub enum DndDragPayload {
     /// Element 自体を移動する。
     /// ドロップ時に UI ツリーが自動的に更新される。
@@ -42,7 +40,6 @@ pub struct DndDragProperty {
 
 /// ドロップ受け入れ先での取り込み形式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
 pub enum DndDropTarget {
     Child,   // ドロップ先の子要素として取り込む
     Sibling, // ドロップ先の兄弟要素（隣接位置）として取り込む

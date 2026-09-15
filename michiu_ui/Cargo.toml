@@ -68,7 +68,7 @@ default = ["trace-lifecycle"]
 trace-error = []
 # ライフサイクルなど。マクロな追跡。普通。
 trace-lifecycle = ["trace-error"]
-# 全エンティティ。ミクロな追跡。ちょー危険。
+# 全エンティティ。ミクロな追跡。くっそ細かいので注意。
 trace-entity = ["trace-lifecycle"]
 # Context などのフレーム最後のスナップショット。まあまあ危険。
 snapshot = ["trace-error"]

@@ -27,19 +27,19 @@ pub struct ThisStyle {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct StyleInner {
-    pub(crate) mask: ComponentMask,
-    pub(crate) basic_layout: BasicLayout,
-    pub(crate) flex_layout: FlexLayout,
-    pub(crate) grid_layout: Option<GridLayout>,
-    pub(crate) visual_property: VisualProperty,
-    pub(crate) interaction_styles: InteractionStyles,
-    pub(crate) scrollbar_style: Option<ScrollbarStyle>,
+pub struct StyleInner {
+    pub mask: ComponentMask,
+    pub basic_layout: BasicLayout,
+    pub flex_layout: FlexLayout,
+    pub grid_layout: Option<GridLayout>,
+    pub visual_property: VisualProperty,
+    pub interaction_styles: InteractionStyles,
+    pub scrollbar_style: Option<ScrollbarStyle>,
     // 動的にスタイルプロパティを更新するためのクローン可能なセッターリスト
-    pub(crate) dynamic_setters: DynamicSettersType,
+    pub dynamic_setters: DynamicSettersType,
 
-    pub(crate) drag_property: Option<DndDragProperty>,
-    pub(crate) drop_property: Option<DndDropProperty>,
+    pub drag_property: Option<DndDragProperty>,
+    pub drop_property: Option<DndDropProperty>,
 }
 
 type DynamicSettersType = Vec<Arc<dyn Fn(&mut Context, EntityId, StyleTarget) + Send + Sync>>;

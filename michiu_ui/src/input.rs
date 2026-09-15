@@ -106,7 +106,6 @@ pub enum UnderlineStyle {
 
 /// 部分的な打ち消し線（取り消し線）のスタイル
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
 pub enum StrikethroughStyle {
     /// 通常の細い取り消し線
     Solid,

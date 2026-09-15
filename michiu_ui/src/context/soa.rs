@@ -1,4 +1,4 @@
-use crate::{DebugStore, EntityId, MichiuError, Result};
+use crate::{DebugStore, EntityId, MichiuError, OptionTraceExt, Result};
 
 pub trait MichiuSoA {
     type Item;
@@ -79,26 +79,9 @@ pub trait MichiuSoA {
     where
         Self::Item: Default + Clone + std::fmt::Debug + Send + Sync + 'static,
     {
-        #[cfg(not(feature = "trace-lifecycle"))]
-        {
-            let _ = debug;
-            self.find(id).cloned().unwrap_or_default()
-        }
-
-        #[cfg(feature = "trace-lifecycle")]
-        if let Some(val) = self.find(id) {
-            val.clone()
-        } else {
-            use crate::{MichiuInfo, MichiuTrace, trace_lifecycle};
-            use std::sync::Arc;
-
-            trace_lifecycle!(Some(id), debug, || MichiuTrace::Info {
-                detail: MichiuInfo::ValueNotFound,
-                fallback: Some(Arc::new(Self::Item::default())),
-                add: Some(std::any::type_name::<Self::Item>()),
-            });
-            Self::Item::default()
-        }
+        self.find(id)
+            .cloned()
+            .unwrap_or_default_trace(Some(id), debug)
     }
 
     /// 指定の値でフォールバック
@@ -113,20 +96,20 @@ pub trait MichiuSoA {
     where
         Self::Item: Default + Clone + std::fmt::Debug + Send + Sync + 'static,
     {
-        #[cfg(not(feature = "trace-lifecycle"))]
+        #[cfg(not(feature = "trace-entity"))]
         {
             let _ = debug;
             self.find(id).unwrap_or(fallback)
         }
 
-        #[cfg(feature = "trace-lifecycle")]
+        #[cfg(feature = "trace-entity")]
         if let Some(val) = self.find(id) {
             val
         } else {
-            use crate::{MichiuInfo, MichiuTrace, trace_lifecycle};
+            use crate::{MichiuInfo, MichiuTrace, trace_entity};
             use std::sync::Arc;
 
-            trace_lifecycle!(Some(id), debug, || MichiuTrace::Info {
+            trace_entity!(Some(id), debug, || MichiuTrace::Info {
                 detail: MichiuInfo::ValueNotFound,
                 fallback: Some(Arc::new(fallback.clone())),
                 add: Some(std::any::type_name::<Self::Item>()),

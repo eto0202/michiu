@@ -2,10 +2,10 @@ pub mod handler;
 pub mod input_func;
 
 use crate::{
-    BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
-    MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState, ScrollbarDisplay,
-    ScrollbarStyle, StyleTarget, ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n,
-    trace_error,
+    BasicLayout, ComponentMask, Context, ContextState, DebugStore, DirtyQueueTrace, EffectCategory,
+    EntityId, ExternalTexture, MichiuError, MichiuSoA, MichiuTrace, QueueDirtyKinds, ReadSignal,
+    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleStage, StyleState, StyleTarget,
+    ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n, trace_error, trace_lifecycle,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
@@ -19,21 +19,32 @@ thread_local! {
 /// ユーザーがコンポーネントを評価する際に呼び出すグローバルラッパー
 pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     let old = ACTIVE_CONTEXT.get();
-    let ptr = std::ptr::from_mut::<Context>(cx);
+    let current = std::ptr::from_mut::<Context>(cx);
 
-    ACTIVE_CONTEXT.set(Some(ptr));
-    let _guard = ContextGuard { old };
+    ACTIVE_CONTEXT.set(Some(current));
+    let _guard = ContextGuard { current, old };
 
-    let marker = cx.start_session();
+    // // 未定義動作を避けるためこれ以降は `cx` を直接触らない
+    let marker = unsafe { (*current).start_session() };
     let result = f();
-    // 戻り値に含まれるハンドルをルート要素として登録
-    cx.register_root(result.id);
-    // 親子関係に組み込まれなかった無駄な孤児を自動一掃
-    cx.end_session(marker);
+    unsafe {
+        // 戻り値に含まれるハンドルをルート要素として登録
+        (*current).register_root(result.id);
+        // 親子関係に組み込まれなかった無駄な孤児を自動一掃
+        (*current).end_session(marker);
 
-    // ツリーのすべてのトポロジーおよび provide 関係が組み上がったこの瞬間に、
-    // キューされて保留されていた全子孫要素のエフェクトを一括して初回評価
-    cx.evaluate_pending_element_effects();
+        // ツリーのすべてのトポロジーおよび provide 関係が組み上がったこの瞬間に、
+        // キューされて保留されていた全子孫要素のエフェクトを一括して初回評価
+        (*current).evaluate_pending_element_effects();
+    }
+
+    #[cfg(feature = "trace-lifecycle")]
+    trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::BuildElement {
+        old: old.map(<*mut Context>::addr),
+        current: <*mut Context>::addr(current),
+        root: result.id,
+        add: None,
+    });
 
     result
 }
@@ -64,28 +75,52 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
 
 // コンテキストを復元するための一時的なガード構造体
 pub(crate) struct ContextGuard {
+    // drop 時にログを出すために自身がバインドしたポインタを保持
+    current: *mut Context,
+    // drop 時に復元するために過去のポインタを保持
     old: Option<*mut Context>,
 }
 
 /// `現在のスレッドローカル（ACTIVE_CONTEXT）に` Context を一時的にバインドします。
 /// 戻り値のガードオブジェクト（ContextGuard）がスコープを抜ける際、自動的に元のコンテキストに復元されます。
+#[track_caller]
 #[inline]
-pub(crate) fn bind_context(cx: &Context) -> ContextGuard {
+pub(crate) fn bind_context(cx: &mut Context) -> ContextGuard {
     let old = ACTIVE_CONTEXT.get();
-    // 借用チェッカーと衝突しないよう生ポインタキャストを行ってスレッドローカルに格納
-    ACTIVE_CONTEXT.set(Some(std::ptr::from_ref::<Context>(cx).cast_mut()));
-    ContextGuard { old }
+    let current = std::ptr::from_mut::<Context>(cx);
+
+    ACTIVE_CONTEXT.set(Some(current));
+
+    // 生ポインタから直接フィールドの可変参照を取り、cx の他の部分との衝突やエイリアス規則違反を防ぐ
+    #[cfg(feature = "trace-lifecycle")]
+    trace_lifecycle!(None, unsafe { &mut (*current).debug }, || {
+        MichiuTrace::Context {
+            current: Some(<*mut Context>::addr(current)),
+            state: ContextState::Bind,
+            add: None,
+        }
+    });
+
+    ContextGuard { current, old }
 }
 
 impl Drop for ContextGuard {
     #[inline]
     fn drop(&mut self) {
+        #[cfg(feature = "trace-lifecycle")]
+        unsafe {
+            trace_lifecycle!(None, &mut (*self.current).debug, || MichiuTrace::Context {
+                current: Some(<*mut Context>::addr(self.current)), // 解除される自身のポインタアドレス
+                state: ContextState::Drop,
+                add: None
+            });
+        }
+
         ACTIVE_CONTEXT.set(self.old);
     }
 }
 
 /// 静的な値、または動的に変化する値（Signalやクロージャ）を抽象化する型
-#[repr(u8)]
 pub enum Prop<T> {
     None,
     Static(T),
@@ -206,6 +241,7 @@ impl Element {
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Style, move |cx| {
                         let s = f();
+
                         // 動的評価された最新スタイルは蓄積を避けるため置換（merge = false）
                         // 修正: 動的評価されたスタイルもマージ（true）としてマウント
                         Element::style_internal(cx, id, &s, true);
@@ -251,10 +287,13 @@ impl Element {
         // 実行時にのみ制御されるべきなのでここでは除外する
         let property_only_mask = mask.0 & !ComponentMask::STYLE_INTERACTION_PROPERTY;
 
+        let mut need_push_dirty = false;
+
         cx.topology
             .topo_active_masks
             .at_mut(id)
             .set(property_only_mask);
+
         if mask.has_basic_layout()
             || mask.has(ComponentMask::STYLE_FONT_SIZE)
             || mask.has(ComponentMask::STYLE_AUTO_WRAP)
@@ -266,7 +305,7 @@ impl Element {
                 // 前回の設定蓄積をクリアして置換
                 cx.layouts.lay_base_basic.insert(id, inner.basic_layout);
             }
-            cx.mark_layout_dirty(id);
+            need_push_dirty = true;
         }
 
         let has_visual =
@@ -305,21 +344,21 @@ impl Element {
             } else {
                 cx.layouts.lay_flex.insert(id, inner.flex_layout);
             }
-            cx.mark_layout_dirty(id);
+            need_push_dirty = true;
         }
 
         if mask.has_grid_layout()
             && let Some(ref grid) = inner.grid_layout
         {
             cx.layouts.lay_grid.insert(id, grid.clone());
-            cx.mark_layout_dirty(id);
+            need_push_dirty = true;
         }
 
         if mask.has(ComponentMask::STYLE_SCROLLBAR)
             && let Some(ref sb) = inner.scrollbar_style
         {
             Element::ensure_scrollbar_elements(cx, id, sb, merge);
-            cx.mark_layout_dirty(id);
+            need_push_dirty = true;
         }
 
         if mask.has(ComponentMask::STYLE_DND_DRAGGABLE)
@@ -331,6 +370,10 @@ impl Element {
             && let Some(dp) = inner.drop_property
         {
             cx.states.dnd.dnd_drop_properties.insert(id, dp);
+        }
+
+        if need_push_dirty {
+            cx.mark_layout_dirty(id);
         }
 
         cx.resolve_element_style_state(id, false);

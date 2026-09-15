@@ -14,7 +14,6 @@ use slotmap::SparseSecondaryMap;
 use std::{ops::Range, rc::Rc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
 pub enum InputOp {
     // 初期化用
     Init,

@@ -1,14 +1,16 @@
 use crate::{
     ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
-    ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
+    ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec, DirtyQueueTrace,
     DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection, FlexLayoutsSecondary,
-    IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, OutputStore,
-    PointerEvents, ReactiveStore, RectsSecondary, RenderStore, StateStore, SystemStore,
-    TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, VisualPropertiesSecondary,
-    WindowStore, define_secondary, define_smallvec, define_vec,
+    IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace,
+    OutputStore, PointerEvents, QueueDirtyKinds, ReactiveStore, RectsSecondary, RenderStore,
+    SpawnTrace, StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt,
+    TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec,
+    define_vec, trace_lifecycle,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
+use std::sync::Arc;
 
 // ソート計算用
 struct StackFrame {
@@ -524,6 +526,7 @@ impl TopologyStore {
         topo_flat_dfs_sequence: &mut FlatDfsSequenceVec,
         topo_is_structure_dirty: &mut bool,
         topo_children: &ChildrenSecondary,
+        debug: &mut DebugStore,
     ) {
         topo_flat_dfs_sequence.clear();
         let mut stack = smallvec::SmallVec::<[EntityId; 32]>::new();
@@ -540,6 +543,12 @@ impl TopologyStore {
             }
         }
         *topo_is_structure_dirty = false;
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, debug, || MichiuTrace::Dfs {
+            after: Arc::from(topo_flat_dfs_sequence.0.clone()),
+            add: Some("Here, the is_structure_dirty flag changes to false.")
+        });
     }
 
     /// 子孫要素のインタラクション状態を走査
@@ -822,6 +831,12 @@ impl TopologyStore {
         topo_sorted_entities.extend(topo_sort_cache.iter().map(|&(id, _, _)| id));
 
         *topo_is_sort_dirty = false;
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, debug, || MichiuTrace::Sorted {
+            after: Arc::from(topo_sorted_entities.0.clone()),
+            add: Some("Here, the is_sort_dirty flag changes to false.")
+        });
     }
 
     #[inline]
@@ -947,8 +962,25 @@ impl TopologyStore {
                 continue; // 透過設定
             }
 
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, debug, || MichiuTrace::HitTest {
+                found: Some(id),
+                hit_x: point.x,
+                hit_y: point.y,
+                add: None
+            });
+
             return Some(id);
         }
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, debug, || MichiuTrace::HitTest {
+            found: None,
+            hit_x: point.x,
+            hit_y: point.y,
+            add: None
+        });
+
         None
     }
 }

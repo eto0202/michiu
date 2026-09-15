@@ -164,7 +164,8 @@ impl SystemStore {
                 return buffer;
             }
         }
-        sys_text_buffers.borrow_mut().remove(id);
+        
+        SystemStore::clear_layout_cache(id, sys_text_buffers);
 
         let spans = cont_text_spans.find(id).map_or(&[][..], Vec::as_slice);
 

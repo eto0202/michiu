@@ -5,7 +5,6 @@ use std::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-#[repr(u8)]
 pub enum TransitionValue {
     Color(Color),
     Opacity(f32),

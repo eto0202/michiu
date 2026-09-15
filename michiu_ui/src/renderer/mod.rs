@@ -78,8 +78,7 @@ impl Default for QuadInstance {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub(crate) enum BatchType {
+pub enum BatchType {
     Normal,
     Punchout,
 }
@@ -91,9 +90,10 @@ pub struct DrawBatch {
     // フラットバッファ上のインデックス範囲
     pub instance_offset: usize,
     pub instance_count: usize,
-    pub(crate) batch_type: BatchType,
+    pub batch_type: BatchType,
 }
 
+#[derive(Debug)]
 pub(crate) struct RendererView<'a> {
     pub(crate) render_data: &'a mut RenderData,
     pub(crate) atlas: &'a mut TextureAtlas,

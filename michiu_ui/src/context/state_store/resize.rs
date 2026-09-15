@@ -7,7 +7,6 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
 pub enum ResizeDirection {
     Top,
     Right,

@@ -1,7 +1,10 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
-use crate::window::{
-    client_rect, create_renderer, create_window, message_loop, register_class, show_window,
+use crate::{
+    logger::logger,
+    window::{
+        client_rect, create_renderer, create_window, message_loop, register_class, show_window,
+    },
 };
 use michiu_ui::{
     CapacityConfig, ComposedRenderer, Dss, DssSet, EntityId, MichiuInspector, MichiuTrace,
@@ -23,6 +26,7 @@ use windows::Win32::{
 
 mod app;
 mod components;
+mod logger;
 mod window;
 
 /// ウィンドウメッセージ処理時に Context と Renderer を一元管理するためのアプリケーション状態
@@ -73,32 +77,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector);
 
     // デバッグログ用のスレッド
-    std::thread::spawn(move || {
-        while let Ok(batch) = sub.recv() {
-            use std::io::Write;
-            let mut stderr = std::io::stderr().lock();
-
-            for record in batch.iter() {
-                if let MichiuTrace::Error { detail, .. } = &record.trace {
-                    let _ = writeln!(
-                        stderr,
-                        "\n[{frame} Error]\n\
-                         - Entity : {entity:?}\n\
-                         - Time   : {time:?}\n\
-                         - Loc    : {loc}\n\
-                         - Func   : {func}\n\
-                         - Detail :\n  \
-                           {detail}",
-                        frame = record.frame,
-                        entity = record.id,
-                        time = record.time,
-                        loc = record.loc,
-                        func = record.func,
-                    );
-                }
-            }
-        }
-    });
+    #[cfg(feature = "trace-lifecycle")]
+    logger(sub);
 
     let send_hwnd = SendHwnd(hwnd);
 

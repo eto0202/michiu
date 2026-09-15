@@ -1,9 +1,9 @@
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius,
     DEFAULT_BASIC, DEFAULT_FLEX, DrawBatch, EdgeInsets, EntityId, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, Length, MichiuError, MichiuSoA, OutputStore, Pipeline, QuadInstance,
-    RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue, TextSpan, TextureAtlas,
-    Vertex, VisualProperty,
+    LayoutSize, LayoutStore, Length, MichiuError, MichiuSoA, MichiuTrace, OutputStore, Pipeline,
+    QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue, TextSpan,
+    TextureAtlas, Vertex, VisualProperty, trace_lifecycle,
 };
 use raw_window_handle::{
     RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
@@ -12,6 +12,7 @@ use rustc_hash::FxHashMap;
 use slotmap::SecondaryMap;
 use std::collections::HashMap;
 use std::num::NonZeroIsize;
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::wgt::CommandEncoderDescriptor;
 use wgpu::{CurrentSurfaceTexture, PipelineCompilationOptions};
@@ -534,6 +535,12 @@ impl WgpuRenderer {
             bytemuck::cast_slice(&self.instance_staging),
         );
 
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::WriteBuffer {
+            staging: Arc::from(self.instance_staging.clone()),
+            add: None,
+        });
+
         // 背面の描画実行
         let mut encoder = self
             .device
@@ -622,6 +629,9 @@ impl WgpuRenderer {
         }
         self.queue.submit(Some(encoder.finish()));
         surface_texture.present();
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Present { add: None });
 
         // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュ
         self.device.poll(wgpu::PollType::Poll);

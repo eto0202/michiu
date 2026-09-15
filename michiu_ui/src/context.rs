@@ -30,7 +30,7 @@ pub use window_store::*;
 use crate::{
     BasicLayout, ComponentMask, CursorIcon, Element, FlexLayout, GridLayout, InteractionState,
     LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
-    bind_context, handle_on_click,
+    bind_context, handle_on_click, trace_lifecycle,
 };
 use slotmap::new_key_type;
 use std::{borrow::Cow, sync::Arc};
@@ -123,6 +123,13 @@ impl Context {
     pub fn with_inspector(inspector: &MichiuInspector) -> Self {
         let mut cx = Self::new();
         cx.set_inspector(inspector);
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Init {
+            capacity: None,
+            add: None,
+        });
+
         cx
     }
 
@@ -132,6 +139,13 @@ impl Context {
     pub fn with_capacity_and_inspector(cap: &CapacityConfig, inspector: &MichiuInspector) -> Self {
         let mut cx = Self::with_capacity(cap);
         cx.set_inspector(inspector);
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Init {
+            capacity: Some(Arc::new(*cap)),
+            add: None,
+        });
+
         cx
     }
 

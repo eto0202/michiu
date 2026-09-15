@@ -5,11 +5,11 @@ use crate::{
     Context, CornerRadius, CursorIcon, DEFAULT_BASIC, DebugStore, DirtyLayoutEntitiesVec,
     EdgeInsets, EffectCategory, ElementEffectsSecondary, EntitiesSlot, EntityId, FocusTrigger,
     Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionStyles,
-    LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount,
-    Point, PointerEvents, PropertyList, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSparse,
-    StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, ThisStyle,
-    TopologyStore, TransitionValue, Val, VisualProperty, define_secondary, define_sparse_secondary,
-    define_vec,
+    LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary,
+    PlaybackCount, Point, PointerEvents, PropertyList, RectsSecondary, ScrollbarDisplay,
+    ScrollbarStylesSparse, StyleStage, StyleTarget, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextBufferSparse, ThisStyle, TopologyStore, TransitionValue, Val,
+    VisualProperty, define_secondary, define_sparse_secondary, define_vec, trace_lifecycle,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -1192,6 +1192,7 @@ impl RenderStore {
             if !rnd_visual.contains_key(id) {
                 rnd_visual.insert(id, VisualProperty::default());
             }
+
             let active_vis = rnd_visual.at_mut(id);
 
             if !bg_triggered {
