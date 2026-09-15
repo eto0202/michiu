@@ -1,40 +1,20 @@
 use crate::{
-    ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayoutsSecondary, CapacityConfig,
-    ContentStore, Context, DEFAULT_BASIC, DEFAULT_FLEX, DirtyRenderEntitiesVec, EdgeInsets,
-    EntityId, EventStore, FlexLayout, FontDate, InputContents, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutStore, MichiuSoA, MichiuString,
-    OutputStore, ParentsSecondary, RectsSecondary, RenderStore, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, SelectedRectsSparse,
-    SelectionStartIndexSparse, TextContentsSparse, TextEngine, TextSelectionsSparse,
-    TextSpansSparse, UiaValue, VisualPropertiesSecondary, WindowStore, define_sparse_secondary,
+    CapacityConfig, Context, DebugStore, EdgeInsets, EntityId, InputContents, LayoutPoint,
+    LayoutRect, LayoutStore, MichiuSoA, RectsSecondary, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, TextContentsSparse, TextEngine, TextSpansSparse, UiaValue,
+    VisualPropertiesSecondary, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
-use slotmap::{SecondaryMap, SparseSecondaryMap};
-use std::{
-    borrow::Borrow,
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, mpsc::Receiver},
-};
-use windows::Win32::{
-    Foundation::{HANDLE, HGLOBAL},
-    Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout},
-    System::{
-        DataExchange::{
-            CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
-        },
-        Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock},
+use slotmap::SparseSecondaryMap;
+use std::{cell::RefCell, rc::Rc, sync::mpsc::Receiver};
+use windows::Win32::UI::Input::{
+    Ime::{
+        CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, CPS_COMPLETE, HIMC,
+        ImmAssociateContext, ImmGetContext, ImmNotifyIME, ImmReleaseContext, ImmSetCandidateWindow,
+        ImmSetCompositionWindow, NI_COMPOSITIONSTR,
     },
-    UI::Input::{
-        Ime::{
-            CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, CPS_COMPLETE, HIMC,
-            ImmAssociateContext, ImmGetContext, ImmNotifyIME, ImmReleaseContext,
-            ImmSetCandidateWindow, ImmSetCompositionWindow, NI_COMPOSITIONSTR,
-        },
-        KeyboardAndMouse::GetFocus,
-    },
+    KeyboardAndMouse::GetFocus,
 };
-use windows_core::Ref;
 
 pub(crate) type TaskSenderType =
     std::sync::mpsc::Sender<Box<dyn FnOnce(&mut Context) + Send + 'static>>;
@@ -65,10 +45,10 @@ impl TaskSender {
     }
 }
 
-define_sparse_secondary!(pub(crate) struct TextBufferSparseInner(Rc<Buffer>));
-define_sparse_secondary!(pub(crate) struct UiaPropertiesSparse(Vec<(i32, UiaValue)>));
+define_sparse_secondary!(pub struct TextBufferSparseInner(Rc<Buffer>));
+define_sparse_secondary!(pub struct UiaPropertiesSparse(Vec<(i32, UiaValue)>));
 
-pub(crate) type TextBufferSparse = RefCell<TextBufferSparseInner>;
+pub type TextBufferSparse = RefCell<TextBufferSparseInner>;
 pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;
 
 pub struct SystemStore {
@@ -101,9 +81,9 @@ impl SystemStore {
     ) -> Self {
         Self {
             sys_text_engine: TextEngine::new(),
-            sys_text_buffers: RefCell::new(TextBufferSparseInner(SparseSecondaryMap::with_capacity(
-                c.sys_text_buffers,
-            ))),
+            sys_text_buffers: RefCell::new(TextBufferSparseInner(
+                SparseSecondaryMap::with_capacity(c.sys_text_buffers),
+            )),
             sys_task_sender,
             sys_task_receiver,
             sys_uia_properties: UiaPropertiesSparse(SparseSecondaryMap::new()),
@@ -143,18 +123,19 @@ impl SystemStore {
         lay_resolved_flex: &ResolvedFlexSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         out_rects: &RectsSecondary,
-    ) -> Option<Rc<Buffer>> {
+        debug: &mut DebugStore,
+    ) -> Rc<Buffer> {
         let text = cont_text_contents.at(id);
 
         let font = rnd_visual
-            .get(id)
+            .find(id)
             .map(|v| v.font.clone())
             .unwrap_or_default();
-        let auto_wrap = rnd_visual.get(id).and_then(|v| v.auto_wrap);
+        let auto_wrap = rnd_visual.find(id).and_then(|v| v.auto_wrap);
 
-        let basic = lay_resolved_basic.get_or_default(id);
-        let flex = lay_resolved_flex.get_or_default(id);
-        let rect = out_rects.get_or_default(id); // 初回実行の場合、存在しない可能性
+        let basic = lay_resolved_basic.find_or_default(id, debug);
+        let flex = lay_resolved_flex.find_or_default(id, debug);
+        let rect = out_rects.find_or_default(id, debug); // 初回実行の場合、存在しない可能性
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -167,7 +148,7 @@ impl SystemStore {
         };
 
         // キャッシュ存在時に現在の幅の制約と一致しているか検証
-        if let Some(buffer) = sys_text_buffers.borrow().get(id).cloned() {
+        if let Some(buffer) = sys_text_buffers.borrow().find(id).cloned() {
             let cached_size = buffer.size().0; // Option<f32>
 
             let is_width_matched = match (cached_size, max_width_opt) {
@@ -180,16 +161,17 @@ impl SystemStore {
             };
 
             if is_width_matched {
-                return Some(buffer);
+                return buffer;
             }
         }
-        sys_text_buffers.borrow_mut().remove(id);
+        
+        SystemStore::clear_layout_cache(id, sys_text_buffers);
 
-        let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
+        let spans = cont_text_spans.find(id).map_or(&[][..], Vec::as_slice);
 
         let buffer = sys_text_engine.create_buffer(
             text,
-            font,
+            &font,
             flex.text_align,
             max_width_opt,
             auto_wrap,
@@ -199,7 +181,7 @@ impl SystemStore {
         let buffer = Rc::new(buffer);
 
         sys_text_buffers.borrow_mut().insert(id, buffer.clone());
-        Some(buffer)
+        buffer
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -328,7 +310,7 @@ impl Context {
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
-    pub(crate) fn get_or_create_layout(&mut self, id: EntityId) -> Option<Rc<Buffer>> {
+    pub(crate) fn get_or_create_layout(&mut self, id: EntityId) -> Rc<Buffer> {
         SystemStore::get_or_create_layout(
             id,
             &mut self.system.sys_text_engine,
@@ -339,6 +321,7 @@ impl Context {
             &self.layouts.lay_resolved_flex,
             &self.renders.rnd_visual,
             &self.outputs.out_rects,
+            &mut self.debug,
         )
     }
 }

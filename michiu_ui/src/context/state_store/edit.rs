@@ -1,23 +1,19 @@
-use std::{cell::RefCell, ops::Range, rc::Rc};
-
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
-    BaseVisualPropertiesSecondary, ByteIndex, CapacityConfig, CharIndex, ChildrenSecondary, Color,
-    ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, EdgeInsets, EntityId, EventStore, InputContents, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
-    MichiuString, OutputStore, ParentsSecondary, RangeExt, RectsSecondary, RenderStore,
+    ActiveInteractionStates, ActiveMasksSecondary, BaseVisualPropertiesSecondary, ByteIndex,
+    CapacityConfig, CharIndex, Color, ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX,
+    DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EdgeInsets, EntityId,
+    InputContents, InputContentsSparse, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
+    MichiuSoA, MichiuString, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
     ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
-    ScrollSizesSecondary, ScrollStore, ScrollbarStylesSecondary, SystemStore, TaffyNodesSecondary,
+    ScrollSizesSecondary, ScrollStore, ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary,
     TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse,
-    TopologyStore, UserSelect, UsizeRangeExt, VisualPropertiesSecondary, define_sparse_secondary,
+    TopologyStore, UserSelect, VisualPropertiesSecondary, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
-use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
+use std::{ops::Range, rc::Rc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
 pub enum InputOp {
     // 初期化用
     Init,
@@ -36,9 +32,9 @@ pub enum InputOp {
     Redo,
 }
 
-define_sparse_secondary!(pub(crate) struct SelectedRectsSparse(Vec<LayoutRect>));
-define_sparse_secondary!(pub(crate) struct TextSelectionsSparse(Range<ByteIndex>));
-define_sparse_secondary!(pub(crate) struct SelectionStartIndexSparse(ByteIndex));
+define_sparse_secondary!(pub struct SelectedRectsSparse(Vec<LayoutRect>));
+define_sparse_secondary!(pub struct TextSelectionsSparse(Range<ByteIndex>));
+define_sparse_secondary!(pub struct SelectionStartIndexSparse(ByteIndex));
 
 pub(crate) struct TextEditStore {
     pub(crate) edit_selections: TextSelectionsSparse,
@@ -136,7 +132,7 @@ impl TextEditStore {
     ) {
         edit_selections.remove(id);
         edit_selected_rects.remove(id);
-        if let Some(contents) = cont_input_contents.get_mut(id) {
+        if let Some(contents) = cont_input_contents.find_mut(id) {
             contents.selected_range = ByteIndex(0)..ByteIndex(0);
             // 進行中の IME コンポジションをリセットして波線を消去
             contents.ime_state = None;
@@ -187,7 +183,6 @@ impl TextEditStore {
     }
 
     pub(crate) fn calc_selection_rects(
-        id: EntityId,
         buffer: &Buffer,
         range: Range<ByteIndex>,
     ) -> Vec<LayoutRect> {
@@ -274,7 +269,7 @@ impl TextEditStore {
                 range
             };
 
-            let out_rects = TextEditStore::calc_selection_rects(id, buffer, display_range);
+            let out_rects = TextEditStore::calc_selection_rects(buffer, display_range);
             edit_selected_rects.insert(id, out_rects);
             return;
         }
@@ -315,28 +310,6 @@ impl TextEditStore {
         None
     }
 
-    #[inline]
-    pub(crate) fn calculate_text_selection(
-        start_pos: ByteIndex,
-        local: LayoutPoint,
-        buffer: &Rc<Buffer>,
-        sys_text_engine: &mut TextEngine,
-    ) -> (Range<ByteIndex>, bool) {
-        let (current_index, is_trailing) = sys_text_engine.hit_test_point(buffer, local);
-
-        let final_index = if is_trailing {
-            current_index + 1
-        } else {
-            current_index
-        };
-
-        if start_pos <= final_index {
-            (start_pos..final_index, false)
-        } else {
-            (final_index..start_pos, true)
-        }
-    }
-
     pub(crate) fn handle_user_select_text(
         id: EntityId,
         pointer_pos: LayoutPoint,
@@ -347,21 +320,19 @@ impl TextEditStore {
         cont_text_spans: &TextSpansSparse,
         cont_input_contents: &InputContentsSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
-        topo_parents: &ParentsSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
         lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &VisualPropertiesSecondary,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparse,
         edit_selections: &mut TextSelectionsSparse,
         edit_selection_start_index: &mut SelectionStartIndexSparse,
         edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) {
-        let Some(buffer) = SystemStore::get_or_create_layout(
+        let buffer = SystemStore::get_or_create_layout(
             id,
             sys_text_engine,
             sys_text_buffers,
@@ -371,28 +342,22 @@ impl TextEditStore {
             lay_resolved_flex,
             rnd_visual,
             out_rects,
-        ) else {
-            return;
-        };
+            debug,
+        );
 
         let local = OutputStore::pressed_local_point(
             id,
             pointer_pos,
-            Some(&buffer),
-            sys_text_engine,
+            &buffer,
             cont_input_contents,
-            topo_active_masks,
-            topo_parents,
             lay_resolved_basic,
             lay_resolved_flex,
             lay_resolved_grid,
-            rnd_interaction,
-            rnd_active_transitions,
-            rnd_visual,
             out_rects,
             sc_offsets,
+            debug,
         );
-        let (clicked_index, is_trailing) = sys_text_engine.hit_test_point(&buffer, local);
+        let (clicked_index, is_trailing) = TextEngine::hit_test_point(&buffer, local);
 
         let final_index = if is_trailing {
             clicked_index + 1
@@ -436,7 +401,7 @@ impl TextEditStore {
         id: EntityId,
         start_pos: ByteIndex,
         local: LayoutPoint,
-        buffer: Option<&Rc<Buffer>>,
+        buffer: &Rc<Buffer>,
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
@@ -446,10 +411,9 @@ impl TextEditStore {
         cont_text_spans: &TextSpansSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
@@ -457,19 +421,14 @@ impl TextEditStore {
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         edit_selections: &mut TextSelectionsSparse,
         edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
-        let Some(buffer) = buffer else {
-            return;
-        };
-
-        let (display_index, is_trailing) = sys_text_engine.hit_test_point(buffer, local);
+        let (display_index, is_trailing) = TextEngine::hit_test_point(buffer, local);
 
         // 表示テキストの文字境界を進める
         let display_text = cont_text_contents.at(id);
@@ -504,7 +463,7 @@ impl TextEditStore {
             cont_input_contents,
         );
 
-        if let Some(contents) = cont_input_contents.get_mut(id) {
+        if let Some(contents) = cont_input_contents.find_mut(id) {
             contents.selection_reversed = is_reversed;
             contents.selected_range = range;
 
@@ -530,13 +489,12 @@ impl TextEditStore {
                 rnd_dirty_entities,
                 rnd_visual,
                 rnd_base_visual,
-                rnd_interaction,
-                rnd_active_transitions,
                 sc_offsets,
                 edit_selections,
                 edit_selected_rects,
                 out_rects,
                 sc_sizes,
+                debug,
             );
         } else {
             RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
@@ -555,10 +513,9 @@ impl TextEditStore {
         cont_text_spans: &TextSpansSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
@@ -566,15 +523,14 @@ impl TextEditStore {
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         edit_selections: &mut TextSelectionsSparse,
         edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
-        let Some(engine) = SystemStore::get_or_create_layout(
+        let buffer = SystemStore::get_or_create_layout(
             id,
             sys_text_engine,
             sys_text_buffers,
@@ -584,12 +540,11 @@ impl TextEditStore {
             lay_resolved_flex,
             rnd_visual,
             out_rects,
-        ) else {
-            return;
-        };
+            debug,
+        );
 
         // Input 要素の場合は生テキストの長さで全選択範囲を作る
-        let input_full_range = if let Some(contents) = cont_input_contents.get_mut(id) {
+        let input_full_range = if let Some(contents) = cont_input_contents.find_mut(id) {
             let raw_text = contents.to_michiu();
             let full_range = ByteIndex(0)..raw_text.byte_len();
 
@@ -605,7 +560,7 @@ impl TextEditStore {
 
             TextEditStore::update_selection_rects(
                 id,
-                &engine,
+                &buffer,
                 edit_selected_rects,
                 edit_selections,
                 cont_input_contents,
@@ -633,13 +588,12 @@ impl TextEditStore {
                 rnd_dirty_entities,
                 rnd_visual,
                 rnd_base_visual,
-                rnd_interaction,
-                rnd_active_transitions,
                 sc_offsets,
                 edit_selections,
                 edit_selected_rects,
                 out_rects,
                 sc_sizes,
+                debug,
             );
         } else {
             // 通常のテキスト要素
@@ -647,7 +601,7 @@ impl TextEditStore {
             edit_selections.insert(id, ByteIndex(0)..text_len);
             TextEditStore::update_selection_rects(
                 id,
-                &engine,
+                &buffer,
                 edit_selected_rects,
                 edit_selections,
                 cont_input_contents,
@@ -670,7 +624,7 @@ impl TextEditStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
@@ -678,13 +632,12 @@ impl TextEditStore {
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         edit_selections: &mut TextSelectionsSparse,
         edit_selected_rects: &mut SelectedRectsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
         // 直前までハイライトが描画されていたか
         let has_selection_before = edit_selected_rects.contains_key(id);
@@ -695,8 +648,8 @@ impl TextEditStore {
             .is_some_and(|c| c.selected_range.start != c.selected_range.end);
 
         // 選択範囲の描画を更新
-        if (has_selection_before || has_selection_after)
-            && let Some(buffer) = SystemStore::get_or_create_layout(
+        if has_selection_before || has_selection_after {
+            let buffer = SystemStore::get_or_create_layout(
                 id,
                 sys_text_engine,
                 sys_text_buffers,
@@ -706,8 +659,8 @@ impl TextEditStore {
                 lay_resolved_flex,
                 rnd_visual,
                 out_rects,
-            )
-        {
+                debug,
+            );
             TextEditStore::update_selection_rects(
                 id,
                 &buffer,
@@ -717,7 +670,7 @@ impl TextEditStore {
             );
         }
 
-        if let Some(c) = cont_input_contents.get_mut(id) {
+        if let Some(c) = cont_input_contents.find_mut(id) {
             c.needs_scroll_to_caret = true;
         }
 
@@ -744,12 +697,11 @@ impl TextEditStore {
                     lay_resolved_grid,
                     rnd_visual,
                     rnd_base_visual,
-                    rnd_interaction,
-                    rnd_active_transitions,
                     sc_offsets,
                     edit_selections,
                     out_rects,
                     sc_sizes,
+                    debug,
                 );
                 RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
             }
@@ -779,12 +731,11 @@ impl TextEditStore {
                     lay_resolved_grid,
                     rnd_visual,
                     rnd_base_visual,
-                    rnd_interaction,
-                    rnd_active_transitions,
                     sc_offsets,
                     edit_selections,
                     out_rects,
                     sc_sizes,
+                    debug,
                 );
                 TopologyStore::mark_dirty(
                     id,
@@ -794,6 +745,7 @@ impl TextEditStore {
                     lay_taffy_tree,
                     lay_taffy_nodes,
                     rnd_dirty_entities,
+                    debug,
                 );
             }
 
@@ -816,6 +768,7 @@ impl TextEditStore {
                     lay_taffy_tree,
                     lay_taffy_nodes,
                     rnd_dirty_entities,
+                    debug,
                 );
             }
         }
@@ -836,19 +789,18 @@ impl TextEditStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
         lay_resolved_grid: &ResolvedGridSparse,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         edit_selections: &mut TextSelectionsSparse,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
         let ime_caret_info = TextEditStore::ime_caret_info(
             id,
@@ -863,15 +815,16 @@ impl TextEditStore {
             rnd_base_visual,
             edit_selections,
             out_rects,
+            debug,
         );
 
         let Some((caret, caret_offset, is_multiline)) = ime_caret_info else {
             return;
         };
-        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
-        let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
-        let _grid = lay_resolved_grid.get_or_default(id);
-        let rect = out_rects.get_or_default(id); // 初回実行の場合、存在しない可能性
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+        let _grid = lay_resolved_grid.find_or_default(id, debug);
+        let rect = out_rects.find_or_default(id, debug); // 初回実行の場合、存在しない可能性
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -880,7 +833,7 @@ impl TextEditStore {
 
         let should_scroll = contents.needs_scroll_to_caret;
 
-        let mut scroll_offset = sc_offsets.get_or_default(id);
+        let mut scroll_offset = sc_offsets.find_or_default(id, debug);
 
         if should_scroll && rect.width > 0.0 && rect.height > 0.0 {
             let viewport = OutputStore::calc_viewport_size(rect, border, padding);
@@ -937,12 +890,10 @@ impl TextEditStore {
                 bar_styles,
                 lay_taffy_nodes,
                 lay_resolved_basic,
-                rnd_visual,
-                rnd_interaction,
-                rnd_active_transitions,
                 sc_offsets,
                 out_rects,
                 sc_sizes,
+                debug,
             );
 
             contents.needs_scroll_to_caret = false;
@@ -974,8 +925,9 @@ impl TextEditStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         edit_selections: &mut TextSelectionsSparse,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> Option<(LayoutRect, f32, bool)> {
-        let contents = cont_input_contents.get_mut(id)?;
+        let contents = cont_input_contents.find_mut(id)?;
         // 入力エンジン側の最新カーソル位置を描画SoA側に同期
         edit_selections.insert(id, contents.selected_range.clone());
 
@@ -1051,9 +1003,10 @@ impl TextEditStore {
             lay_resolved_flex,
             rnd_visual,
             out_rects,
-        )?;
+            debug,
+        );
 
-        let text_size = sys_text_engine.get_layout_size(&buffer);
+        let text_size = TextEngine::get_layout_size(&buffer);
         contents.last_layout = Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));
 
         let composition_offset = if let Some(ref ime) = contents.ime_state
@@ -1090,7 +1043,7 @@ impl TextEditStore {
 
         // プレースホルダーに干渉されない純粋なキャレット位置を算出
         let (cx_offset, cy_offset, ch_height) =
-            sys_text_engine.get_caret_position(&buffer, caret_index);
+            TextEngine::get_caret_position(&buffer, caret_index);
 
         contents.measured_caret = LayoutPoint::new(cx_offset, cy_offset);
         contents.caret_line_height = ch_height;
@@ -1102,7 +1055,7 @@ impl TextEditStore {
         // 最終表示用テキストを Context 側に反映
         cont_text_contents.insert(id, display_text);
 
-        let visual = rnd_visual.get_mut(id)?;
+        let visual = rnd_visual.find_mut(id)?;
         let is_ime_active = contents
             .ime_state
             .as_ref()
@@ -1157,13 +1110,12 @@ impl Context {
             &mut self.renders.rnd_dirty_entities,
             &mut self.renders.rnd_visual,
             &self.renders.rnd_base_visual,
-            &self.renders.rnd_interaction,
-            &self.renders.rnd_active_transitions,
             &mut self.states.scroll.sc_offsets,
             &mut self.states.edit.edit_selections,
             &mut self.states.edit.edit_selected_rects,
             &self.outputs.out_rects,
             &self.states.scroll.sc_sizes,
+            &mut self.debug,
         );
     }
 }

@@ -1,37 +1,19 @@
 use crate::{
-    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
-    ActiveWebviewsHashSet, AlignItems, BaseVisualPropertiesSecondary, BasicLayout,
-    BasicLayoutsSecondary, BatchType, BoxSizing, CapacityConfig, ChildrenSecondary, Color,
-    ComponentMask, ContentStore, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX,
-    DfsIndicesSecondary, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DrawBatch, EdgeInsets,
-    EffectiveZindicesSecondary, EntityId, EventStore, ExternalTextureAlphaMode,
-    ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, GridLayoutsSparse,
-    IDENTITY_MATRIX, InputContents, InputContentsSparse, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, ParentsSecondary, PointerEvents,
-    Position, PropertyList, QuadInstance, ReactiveStore, RenderData, RenderStore, RendererView,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
-    ScrollStore, ScrollbarStylesSecondary, SortCacheVec, SortedEntitiesVec, StrikethroughStyle,
-    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextBufferSparse,
-    TextCacheKey, TextCacheValue, TextContentsSparse, TextEngine, TextSpan, TextSpansSparse,
-    TextureAtlas, TopologyStore, Transform, UnderlineStyle, UserSelect, Val,
-    VisualPropertiesSecondary, VisualProperty, WindowStore, define_secondary,
+    ActiveInteractionStates, ActiveMasksSecondary, AlignItems, BasicLayoutsSecondary,
+    CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, EdgeInsets, EntityId,
+    InputContentsSparse, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
+    ParentsSecondary, Position, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollOffsetsSecondary, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextEngine,
+    UserSelect, Val, VisualPropertiesSecondary, define_secondary,
 };
 use cosmic_text::Buffer;
-use rustc_hash::FxHashMap;
-use slotmap::{SecondaryMap, SparseSecondaryMap};
-use std::{
-    borrow::Cow,
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    ops::Range,
-    rc::Rc,
-    time::Instant,
-};
+use slotmap::SecondaryMap;
+use std::rc::Rc;
 
-define_secondary!(pub(crate) struct RectsSecondary(LayoutRect));
-define_secondary!(pub(crate) struct ClipRectsSecondary(LayoutRect));
-define_secondary!(pub(crate) struct PrevRectsSecondary(LayoutRect));
-define_secondary!(pub(crate) struct PrevClipRectsSecondary(LayoutRect));
+define_secondary!(pub struct RectsSecondary(LayoutRect));
+define_secondary!(pub struct ClipRectsSecondary(LayoutRect));
+define_secondary!(pub struct PrevRectsSecondary(LayoutRect));
+define_secondary!(pub struct PrevClipRectsSecondary(LayoutRect));
 
 pub struct OutputStore {
     pub(crate) out_rects: RectsSecondary,
@@ -102,48 +84,41 @@ impl OutputStore {
             return false;
         };
 
-        out_prev_rects.get(parent_id) != out_rects.get(parent_id)
-            || out_prev_clip_rects.get(parent_id) != out_clip_rects.get(parent_id)
+        out_prev_rects.find(parent_id) != out_rects.find(parent_id)
+            || out_prev_clip_rects.find(parent_id) != out_clip_rects.find(parent_id)
             || topo_active_masks.at(parent_id).has_queued_layout()
     }
 
     pub(crate) fn pressed_local_point(
         id: EntityId,
         logical_pos: LayoutPoint,
-        buffer: Option<&Rc<Buffer>>,
-        sys_text_engine: &mut TextEngine,
+        buffer: &Rc<Buffer>,
         cont_input_contents: &InputContentsSparse,
-        topo_active_masks: &ActiveMasksSecondary,
-        topo_parents: &ParentsSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
         lay_resolved_grid: &ResolvedGridSparse,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparse,
-        rnd_visual: &VisualPropertiesSecondary,
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) -> LayoutPoint {
         let rect = *out_rects.at(id);
 
-        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
-        let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
-        let _ = lay_resolved_grid.get_or_default(id); // TODO: Grid実装時用
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+        let _ = lay_resolved_grid.find_or_default(id, debug); // TODO: Grid実装時用
 
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
-        let scroll = sc_offsets.get_or_default(id);
+        let scroll = sc_offsets.find_or_default(id, debug);
 
-        let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.get(id) {
+        let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.find(id) {
             let size = contents
                 .last_layout
                 .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
             (size, contents.is_multiline)
-        } else if let Some(buffer) = buffer {
-            (sys_text_engine.get_layout_size(buffer), false)
         } else {
-            (LayoutSize::ZERO, false)
+            (TextEngine::get_layout_size(buffer), false)
         };
 
         let align_offset = OutputStore::calc_align_offset(
@@ -177,6 +152,7 @@ impl OutputStore {
         out_rects: &RectsSecondary,
         out_clip_rects: &ClipRectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) -> (LayoutRect, LayoutRect) {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
         let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy_tree, lay_taffy_nodes);
@@ -186,15 +162,15 @@ impl OutputStore {
         };
 
         let (Some(&parent_rect), Some(&parent_clip)) =
-            (out_rects.get(parent_id), out_clip_rects.get(parent_id))
+            (out_rects.find(parent_id), out_clip_rects.find(parent_id))
         else {
             return (local_rect, initial_clip);
         };
 
-        let s_offsets = sc_offsets.get_or_default(parent_id);
+        let s_offsets = sc_offsets.find_or_default(parent_id, debug);
         // データが無い要素が Absolute になることは絶対にない
         let is_absolute = lay_basic
-            .get(id)
+            .find(id)
             .is_some_and(|l| l.position == Position::Absolute);
 
         let parent_scroll = if is_absolute {
@@ -235,31 +211,31 @@ impl OutputStore {
         win_last_size: Option<LayoutSize>,
         topo_parents: &ParentsSecondary,
         out_rects: &RectsSecondary,
-    ) -> Option<f32> {
+        debug: &mut DebugStore,
+    ) -> f32 {
         match val {
-            Val::Px(v) => Some(v),
+            Val::Px(v) => v,
             Val::Percent(p) => {
                 // 親要素の確定サイズを優先取得
                 let parent_size = topo_parents
                     .at(id)
-                    .and_then(|p_id| out_rects.get(p_id))
+                    .and_then(|p_id| out_rects.find(p_id))
                     .map(|r| LayoutSize::new(r.width, r.height));
 
                 // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
-                let ref_size = parent_size.or(win_last_size)?;
+                let ref_size = parent_size.or(win_last_size).unwrap_or_default();
                 let ref_val = if is_width {
                     ref_size.width
                 } else {
                     ref_size.height
                 };
 
-                Some(ref_val * (p / 100.0))
+                ref_val * (p / 100.0)
             }
             Val::Auto => {
                 // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
-                // ルート要素の場合は早期リターン
-                let r = out_rects.get(id)?;
-                Some(if is_width { r.width } else { r.height })
+                let r = out_rects.find_or_default(id, debug);
+                if is_width { r.width } else { r.height }
             }
         }
     }
@@ -408,7 +384,7 @@ impl OutputStore {
         let clip = out_clip_rects.at(id);
 
         let user_select = rnd_visual
-            .get(id)
+            .find(id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
 

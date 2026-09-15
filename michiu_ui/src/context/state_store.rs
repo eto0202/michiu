@@ -1,18 +1,16 @@
 pub mod dnd;
+pub mod edit;
 pub mod focus;
 pub mod resize;
 pub mod scroll;
-pub mod edit;
 
 pub use dnd::*;
+pub use edit::*;
 pub use focus::*;
 pub use resize::*;
 pub use scroll::*;
-pub use edit::*;
 
-use crate::{CapacityConfig, EntityId, LayoutPoint, LayoutRect, LayoutSize};
-use slotmap::{SecondaryMap, SparseSecondaryMap};
-use std::ops::Range;
+use crate::{CapacityConfig, EntityId};
 
 pub struct StateStore {
     pub(crate) dnd: DndStore,

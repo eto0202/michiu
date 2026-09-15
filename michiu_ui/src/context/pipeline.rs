@@ -1,29 +1,26 @@
 use crate::{
-    ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseBasicLayoutsSecondary,
-    BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing,
-    ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask, ContentStore, Context,
-    CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets,
-    EffectId, ElementState, EntityId, EventStore, ExternalTextureAlphaMode, ExternalTextureSparse,
-    ExtractedThumb, FlatDfsSequenceVec, FlexLayout, FocusStore, GridLayout, IDENTITY_MATRIX,
-    ImeState, InputContents, InputContentsSparse, InputOp, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, Length, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
-    PointerEvents, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, RangeExt,
-    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSecondary, Size, StrikethroughStyle, SystemStore,
-    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextCacheKey,
-    TextContentsSparse, TextEditStore, TextEngine, TextSpan, TextSpansSparse, TopologyStore,
-    UnderlineStyle, Val, VirtualKey, VisualPropertiesSecondary, VisualProperty, WindowStore,
-    bind_context, execute_effect, handle_on_active, handle_on_char_input, handle_on_disable,
-    handle_on_file_dropped, handle_on_ime, handle_on_select, with_context,
+    ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseVisualPropertiesSecondary,
+    BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing, ClipRectsSecondary, Color,
+    ComponentMask, ContentStore, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
+    DirtyLayoutEntitiesVec, DirtyReason, DrawBatch, EdgeInsets, ElementState, EntityId, EventStore,
+    ExternalTextureAlphaMode, ExternalTextureSparse, FlatBufferTrace, FlatDfsSequenceVec,
+    FlexLayout, FocusStore, FrameKinds, IDENTITY_MATRIX, ImeState, InputContentsSparse,
+    InstanceKinds, LayoutPoint, LayoutRect, LayoutSize, LayoutStage, LayoutStore, MichiuSoA,
+    MichiuTrace, Modifiers, MouseButton, OutputStore, ParentsSecondary, PrevClipRectsSecondary,
+    PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStage,
+    RenderStore, RendererView, RendererViewTrace, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore, ScrollbarStore,
+    ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
+    TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore, TextEngine, TextSpan, TopologyStore,
+    TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context, handle_on_active,
+    handle_on_char_input, handle_on_disable, handle_on_file_dropped, handle_on_ime,
+    handle_on_select, trace_lifecycle,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
-use std::{borrow::Cow, collections::HashSet, ops::Range, path::PathBuf};
-use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
+use std::{borrow::Cow, collections::HashSet, path::PathBuf, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
 pub enum UserAction {
     PointerMove(LayoutPoint),
     PointerButton {
@@ -53,7 +50,6 @@ pub enum UserAction {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
 pub enum TickType {
     All,
     Transition,
@@ -63,7 +59,6 @@ pub enum TickType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-#[repr(u8)]
 pub enum StateFlag {
     Hovered,
     Focused,
@@ -85,51 +80,160 @@ impl Pipeline {
     pub(crate) fn inject_user_action(cx: &mut Context, action: UserAction) {
         let _context_guard = bind_context(cx);
 
+        let mut event_trace = TraceEventList::None;
+
         match action {
             UserAction::PointerMove(layout_point) => {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::PointerMove {
+                        x: layout_point.x,
+                        y: layout_point.y,
+                    };
+                }
+
                 EventStore::inject_pointer_move(cx, layout_point);
             }
             UserAction::PointerButton {
                 button,
                 state,
                 modifiers,
-            } => EventStore::inject_pointer_button(cx, button, state, modifiers),
+            } => {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::PointerButton {
+                        button,
+                        state,
+                        modifiers,
+                    };
+                }
+
+                EventStore::inject_pointer_button(cx, button, state, modifiers);
+            }
             UserAction::PointerDoubleClick { modifiers } => {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::PointerDoubleClick { modifiers };
+                }
+
                 EventStore::inject_pointer_double_click(cx, modifiers);
             }
             UserAction::MouseWheel { scroll_x, scroll_y } => {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::MouseWheel {
+                        x: scroll_x,
+                        y: scroll_y,
+                    };
+                }
+
                 EventStore::inject_mouse_wheel(cx, scroll_x, scroll_y);
             }
             UserAction::KeyboardKey {
                 key,
                 state,
                 modifiers,
-            } => EventStore::inject_keyboard_key(cx, key, state, modifiers),
+            } => {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::Keyboard {
+                        key,
+                        state,
+                        modifiers,
+                    };
+                }
+
+                EventStore::inject_keyboard_key(cx, key, state, modifiers);
+            }
             UserAction::Character(c) => {
                 let Some(focused_id) = cx.events.evt_interaction_states.focused else {
                     return;
                 };
+
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::Character { char: c };
+                }
+
                 handle_on_char_input(cx, focused_id, c);
             }
             UserAction::Ime(ime_state) => {
                 let Some(focused_id) = cx.events.evt_interaction_states.focused else {
                     return;
                 };
+
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::Ime {
+                        is_open: ime_state.is_open,
+                        conversion_mode: ime_state.conversion_mode,
+                        sentence_mode: ime_state.sentence_mode,
+                        keyboard_layout_id: ime_state.keyboard_layout_id,
+                        composition_text: ime_state.composition_text.0.clone(),
+                        result_text: ime_state.result_text.0.clone(),
+                        caret_position: ime_state.caret_position,
+                        composition_cursor: ime_state.composition_cursor.0,
+                        composition_attrs: ime_state.composition_attrs.clone(),
+                    };
+                }
+
                 handle_on_ime(cx, focused_id, ime_state);
             }
             UserAction::FileDropped(path_bufs) => {
                 let Some(target_id) = cx.events.evt_interaction_states.hovered else {
                     return;
                 };
+
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::FileDropped {
+                        path: Arc::from(path_bufs.clone()),
+                    };
+                }
+
                 handle_on_file_dropped(cx, target_id, path_bufs);
             }
-            UserAction::Paste(text) => EventStore::inject_paste(cx, &text.into()),
-            UserAction::Cut => {
-                cx.contents.cont_cut_text = EventStore::inject_cut(cx);
+            UserAction::Paste(text) => {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::Paste { text: text.clone() };
+                }
+
+                EventStore::inject_paste(cx, &text.into());
             }
-            UserAction::Undo => EventStore::inject_undo(cx),
-            UserAction::Redo => EventStore::inject_redo(cx),
+            UserAction::Cut => {
+                let cut = EventStore::inject_cut(cx);
+
+                #[cfg(feature = "trace-lifecycle")]
+                if let Some(text) = cut.clone() {
+                    event_trace = TraceEventList::Cut { text: text.0 };
+                }
+
+                cx.contents.cont_cut_text = cut;
+            }
+            UserAction::Undo => {
+                EventStore::inject_undo(cx);
+
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::Undo;
+                }
+            }
+            UserAction::Redo => {
+                EventStore::inject_redo(cx);
+
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    event_trace = TraceEventList::Undo;
+                }
+            }
         }
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Event {
+            kinds: Arc::new(event_trace.clone()),
+            add: None,
+        });
     }
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
@@ -153,7 +257,7 @@ impl Pipeline {
             mask.unset(state_flag);
         }
 
-        let mut resolve_element = |cx: &mut Context, id: EntityId| {
+        let resolve_element = |cx: &mut Context, id: EntityId| {
             RenderStore::resolve_element_style_state(
                 id,
                 true,
@@ -178,6 +282,7 @@ impl Pipeline {
                 &cx.renders.rnd_base_visual,
                 &cx.renders.rnd_interaction,
                 &cx.outputs.out_rects,
+                &mut cx.debug,
             );
 
             // この要素のアクティブレイアウトキャッシュを差分更新
@@ -194,6 +299,7 @@ impl Pipeline {
                 &cx.renders.rnd_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
+                &mut cx.debug,
             );
         };
 
@@ -206,6 +312,7 @@ impl Pipeline {
                     &mut cx.layouts.lay_dirty_entities,
                     &mut cx.layouts.lay_taffy_tree,
                     &cx.layouts.lay_taffy_nodes,
+                    &mut cx.debug,
                 );
             }
             RenderStore::mark_render_dirty(
@@ -309,6 +416,7 @@ impl Pipeline {
         }
     }
 
+    #[track_caller]
     #[inline]
     pub(crate) fn sync_layout_and_render(
         cx: &mut Context,
@@ -317,22 +425,44 @@ impl Pipeline {
     ) {
         let _context_guard = bind_context(cx);
 
-        /// トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に実行
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::Start,
+            add: None,
+        });
+
+        // トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に実行
         ReactiveStore::evaluate_pending_element_effects(
             &mut cx.reactive.react_pending_element_effects,
             &cx.reactive.react_effects,
         );
 
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::FirstEffects,
+            add: None,
+        });
+
         // ウィンドウサイズの変更検知
-        let window_resized = cx.window.win_last_size.replace(window_size) != Some(window_size);
+        let window_resized = !(cx.window.win_last_size.replace(window_size) != Some(window_size));
+        let no_dirty_entities = cx.layouts.lay_dirty_entities.is_empty();
+        let no_structure_dirty = !cx.topology.topo_is_structure_dirty;
+        let not_empty_output_rect = !cx.outputs.out_rects.is_empty();
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // すべてスキップして早期リターン。
-        if cx.layouts.lay_dirty_entities.is_empty()
-            && !cx.topology.topo_is_structure_dirty
-            && !window_resized
-            && !cx.outputs.out_rects.is_empty()
-        {
+        if no_dirty_entities && no_structure_dirty && window_resized && not_empty_output_rect {
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+                stage: LayoutStage::EarlyReturn(DirtyReason {
+                    window_resized,
+                    has_dirty_entities: no_dirty_entities,
+                    is_structure_dirty: no_structure_dirty,
+                    is_empty_output_rect: not_empty_output_rect
+                }),
+                add: None,
+            });
+
             return;
         }
 
@@ -348,7 +478,17 @@ impl Pipeline {
                 &mut cx.topology.topo_flat_dfs_sequence,
                 &mut cx.topology.topo_is_structure_dirty,
                 &cx.topology.topo_children,
+                &mut cx.debug,
             );
+
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+                stage: LayoutStage::RebuildDfs,
+                add: Some(
+                    "The fact that this is recorded means that there has been a change in the tree structure\n\
+                     (is_structure_dirty = true)."
+                ),
+            });
         }
 
         // 全アクティブ要素のアクティブレイアウトを一度に解決してキャッシュ
@@ -370,8 +510,15 @@ impl Pipeline {
                 &cx.renders.rnd_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
+                &mut cx.debug,
             );
         }
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::ResolveLayout,
+            add: None,
+        });
 
         // 全スクロールバー関連IDを一括抽出
         let scrollbar_el_ids = Pipeline::scrollbar_el_ids(&cx.layouts.scrollbar.bar_styles);
@@ -386,7 +533,14 @@ impl Pipeline {
             &cx.layouts.lay_resolved_flex,
             &cx.layouts.lay_resolved_grid,
             &cx.layouts.scrollbar.bar_styles,
+            &mut cx.debug,
         );
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::SyncTaffy,
+            add: None,
+        });
 
         // Taffy 1回目レイアウト計算
         let root_node = *cx.layouts.lay_taffy_nodes.at(root);
@@ -412,7 +566,7 @@ impl Pipeline {
                 let flex = cx
                     .layouts
                     .lay_resolved_flex
-                    .get(id)
+                    .find(id)
                     .copied()
                     .unwrap_or_default();
 
@@ -427,6 +581,7 @@ impl Pipeline {
                     &cx.contents.cont_text_spans,
                     &cx.topology.topo_active_masks,
                     &cx.renders.rnd_visual,
+                    &mut cx.debug,
                 )
             })
         };
@@ -441,7 +596,16 @@ impl Pipeline {
                 },
                 measure_func,
             )
-            .unwrap();
+            .unwrap_or_trace(Some(root), &mut cx.debug);
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::FirstMeasure,
+            add: Some(
+                "The first layout calculation takes time\n\
+                 because there is no cache and text layout calculations are also performed."
+            ),
+        });
 
         // ダブルバッファをスワップし、1回目の出力座標を決定
         // scroll_size を正しく算出するため、スワップおよび一旦コンテンツの out_rects のみを確定
@@ -473,7 +637,14 @@ impl Pipeline {
             &cx.outputs.out_prev_rects,
             &cx.outputs.out_prev_clip_rects,
             &cx.states.scroll.sc_offsets,
+            &mut cx.debug,
         );
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::FirstOutputRect,
+            add: Some("The scrollbar layout is not included in the calculations here."),
+        });
 
         // 全スクロールコンテナの scroll_size を事前計算
         cx.states.scroll.sc_sizes.clear();
@@ -492,20 +663,24 @@ impl Pipeline {
                     &cx.contents.cont_text_spans,
                     &cx.contents.cont_input_contents,
                     &cx.topology.topo_active_masks,
-                    &cx.topology.topo_parents,
                     &cx.topology.topo_children,
                     &cx.layouts.lay_resolved_basic,
                     &cx.layouts.lay_resolved_flex,
                     &cx.layouts.scrollbar.bar_styles,
                     &cx.renders.rnd_visual,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_offsets,
+                    &mut cx.debug,
                 );
                 cx.states.scroll.sc_sizes.insert(id, size);
             }
         }
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::ScrollSize,
+            add: None,
+        });
 
         // スクロールバー要素（Track & Thumb）のサイズ・配置・不透明度を一括同期更新
         ScrollbarStore::sync_bar_styles(
@@ -529,7 +704,14 @@ impl Pipeline {
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_offsets,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::SyncScrollBar,
+            add: None,
+        });
 
         // Taffy の 2回目レイアウト計算（スクロールバー配置確定後）
         let root_node = *cx.layouts.lay_taffy_nodes.at(root);
@@ -563,7 +745,7 @@ impl Pipeline {
                         // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
                         cx.outputs
                             .out_rects
-                            .get(id)
+                            .find(id)
                             .map_or(taffy::Size::ZERO, |rect| taffy::Size {
                                 width: known_dims.width.unwrap_or(rect.width),
                                 height: known_dims.height.unwrap_or(rect.height),
@@ -571,7 +753,13 @@ impl Pipeline {
                     })
                 },
             )
-            .unwrap();
+            .unwrap_or_trace(Some(root), &mut cx.debug);
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::FinalMeasure,
+            add: None,
+        });
 
         // スクロールバーも加えた、最終的な出力座標の決定
         Pipeline::resolve_final_pass_rects(
@@ -587,7 +775,14 @@ impl Pipeline {
             &mut cx.outputs.out_rects,
             &mut cx.outputs.out_clip_rects,
             &cx.states.scroll.sc_offsets,
+            &mut cx.debug,
         );
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::FinalOutputRect,
+            add: Some("Final calculation including scrollbar"),
+        });
 
         // リサイズ追従に伴い、インプットのキャレット・選択ハイライトを同期
         for &id in &cx.topology.topo_flat_dfs_sequence {
@@ -615,19 +810,24 @@ impl Pipeline {
                     &cx.layouts.lay_resolved_grid,
                     &mut cx.renders.rnd_visual,
                     &cx.renders.rnd_base_visual,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
                     &mut cx.states.scroll.sc_offsets,
                     &mut cx.states.edit.edit_selections,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
+                    &mut cx.debug,
                 );
             }
         }
 
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::UpdateInputContents,
+            add: None,
+        });
+
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
         for &id in &cx.topology.topo_flat_dfs_sequence {
-            let Some(current) = cx.states.scroll.sc_offsets.get(id).copied() else {
+            let Some(current) = cx.states.scroll.sc_offsets.find(id).copied() else {
                 continue;
             };
             // 枠サイズの変更など、現在のスクロール位置からはみ出していれば自動クランプ調整
@@ -643,21 +843,18 @@ impl Pipeline {
                 &mut cx.layouts.scrollbar.bar_styles,
                 &cx.layouts.lay_taffy_nodes,
                 &cx.layouts.lay_resolved_basic,
-                &cx.renders.rnd_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
         }
 
-        // 全ての座標確定と絶対クリップ範囲の同期が完了した最末尾で、
-        // 一括して Dirty フラグの完全クリアおよびキューリストのリセットを実行
-        LayoutStore::clear_layout_dirty(
-            &mut cx.topology.topo_active_masks,
-            &mut cx.layouts.lay_dirty_entities,
-        );
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
+            stage: LayoutStage::SyncScrollOffsets,
+            add: None,
+        });
     }
 
     #[inline]
@@ -680,7 +877,14 @@ impl Pipeline {
                 &mut cx.renders.rnd_visual,
                 &mut cx.renders.rnd_active_transitions,
                 &mut cx.renders.rnd_last_tick_time,
+                &mut cx.debug,
             );
+
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Animation {
+                kinds: FrameKinds::Transition,
+                add: None,
+            });
         }
         if *tick == TickType::Animation
             || *tick == TickType::TransitionAndAnimation
@@ -697,7 +901,14 @@ impl Pipeline {
                 &mut cx.renders.rnd_dirty_entities,
                 &mut cx.renders.rnd_visual,
                 &mut cx.renders.rnd_active_animations,
+                &mut cx.debug,
             );
+
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Animation {
+                kinds: FrameKinds::Animation,
+                add: None,
+            });
         }
         if *tick == TickType::AutoScroll || *tick == TickType::All {
             let Some(id) = cx.events.evt_interaction_states.pressed else {
@@ -715,13 +926,18 @@ impl Pipeline {
                 &cx.layouts.lay_taffy_nodes,
                 &cx.layouts.lay_resolved_basic,
                 &cx.renders.rnd_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &cx.outputs.out_rects,
                 &cx.outputs.out_clip_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
+
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Animation {
+                kinds: FrameKinds::AutoScroll,
+                add: None,
+            });
 
             if autoscroll_occurred && let Some(pos) = active_pos {
                 // スクロールによりテキストが流れたため、
@@ -739,6 +955,18 @@ impl Pipeline {
 
     #[inline]
     pub(crate) fn collect_render_data(cx: &mut Context, view: &mut RendererView) {
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::PrepareRender {
+            stage: RenderStage::Start,
+            data: Some(Arc::new(RendererViewTrace {
+                render_data: view.render_data.clone(),
+                atlas: view.atlas.clone(),
+                text_cache: view.text_cache.clone(),
+                queue: view.queue.clone()
+            })),
+            add: None,
+        });
+
         let default_visual = VisualProperty::default();
         TopologyStore::prepare_sorted_entities(
             cx.window.win_last_size,
@@ -754,12 +982,20 @@ impl Pipeline {
             &cx.renders.rnd_visual,
             &mut cx.outputs.out_clip_rects,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::PrepareRender {
+            stage: RenderStage::SortedEntities,
+            data: None,
+            add: Some("The RendererView hasn't changed, so we won't record it here."),
+        });
 
         let mut force_full_scan = false;
         for &id in &*cx.topology.topo_sorted_entities {
-            let engines = cx.system.sys_text_buffers.borrow();
-            let Some(engine) = engines.get(id) else {
+            let buffers = cx.system.sys_text_buffers.borrow();
+            let Some(buffer) = buffers.find(id) else {
                 continue;
             };
 
@@ -768,17 +1004,11 @@ impl Pipeline {
 
             if is_dirty_text {
                 let cleared = Pipeline::scan_and_register_element_glyphs(
-                    id,
                     view,
-                    engine,
-                    &default_visual,
+                    buffer,
                     &mut cx.system.sys_text_engine,
                     cx.window.win_scale_factor,
-                    &cx.topology.topo_active_masks,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
-                    &cx.contents.cont_input_contents,
-                    &cx.renders.rnd_visual,
+                    &mut cx.debug,
                 );
 
                 if cleared {
@@ -787,10 +1017,23 @@ impl Pipeline {
                 }
             }
         }
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::PrepareRender {
+            stage: RenderStage::FirstGlyphsCache,
+            data: Some(Arc::new(RendererViewTrace {
+                render_data: view.render_data.clone(),
+                atlas: view.atlas.clone(),
+                text_cache: view.text_cache.clone(),
+                queue: view.queue.clone()
+            })),
+            add: None,
+        });
+
         if force_full_scan {
             for &id in &*cx.topology.topo_sorted_entities {
-                let engines = cx.system.sys_text_buffers.borrow();
-                let Some(engine) = engines.get(id) else {
+                let buffers = cx.system.sys_text_buffers.borrow();
+                let Some(buffer) = buffers.find(id) else {
                     continue;
                 };
 
@@ -798,26 +1041,43 @@ impl Pipeline {
 
                 if has_text_content {
                     let _ = Pipeline::scan_and_register_element_glyphs(
-                        id,
                         view,
-                        engine,
-                        &default_visual,
+                        buffer,
                         &mut cx.system.sys_text_engine,
                         cx.window.win_scale_factor,
-                        &cx.topology.topo_active_masks,
-                        &cx.contents.cont_text_contents,
-                        &cx.contents.cont_text_spans,
-                        &cx.contents.cont_input_contents,
-                        &cx.renders.rnd_visual,
+                        &mut cx.debug,
                     );
                 }
             }
+
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::PrepareRender {
+                stage: RenderStage::FullGlyphsCache,
+                data: Some(Arc::new(RendererViewTrace {
+                    render_data: view.render_data.clone(),
+                    atlas: view.atlas.clone(),
+                    text_cache: view.text_cache.clone(),
+                    queue: view.queue.clone()
+                })),
+                add: Some("The fact that this is recorded means that Atlas has been cleared."),
+            });
         }
 
         view.render_data.clear();
         let mut last_flushed_offset = 0;
         let mut current_batch_type = BatchType::Normal;
         let mut last_clip = None;
+
+        let mut has_webview_ready = false;
+        let mut has_webview_static = false;
+        let mut has_external_texture = false;
+        let mut has_normal_element = false;
+        let mut has_selection_highlight = false;
+        let mut has_background = false;
+        let mut has_text = false;
+        let mut has_fallback_border = false;
+        let mut has_caret = false;
+
         for &id in &*cx.topology.topo_sorted_entities {
             let rect = *cx.outputs.out_rects.at(id);
             if rect.width <= 0.0 || rect.height <= 0.0 {
@@ -825,19 +1085,32 @@ impl Pipeline {
             }
             let clip = *cx.outputs.out_clip_rects.at(id);
 
-            let basic = cx.layouts.lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
-            let flex = cx.layouts.lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
-            let grid = cx
+            let basic = cx
+                .layouts
+                .lay_resolved_basic
+                .find_or(id, &DEFAULT_BASIC, &mut cx.debug);
+            let flex = cx
+                .layouts
+                .lay_resolved_flex
+                .find_or(id, &DEFAULT_FLEX, &mut cx.debug);
+            let _grid = cx
                 .layouts
                 .lay_resolved_grid
-                .get(id)
+                .find(id)
                 .cloned()
                 .unwrap_or_default();
-            let visual = cx.renders.rnd_visual.get_or(id, &default_visual);
+            let visual = cx
+                .renders
+                .rnd_visual
+                .find_or(id, &default_visual, &mut cx.debug);
 
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-            let scroll = cx.states.scroll.sc_offsets.get_or_default(id);
+            let scroll = cx
+                .states
+                .scroll
+                .sc_offsets
+                .find_or_default(id, &mut cx.debug);
 
             // トランスフォームブランチの場合のみその場で累積を解決
             // それ以外は IDENTITY_MATRIX
@@ -856,11 +1129,17 @@ impl Pipeline {
                 IDENTITY_MATRIX
             };
 
-            let params = CommonParameters::new(id, rect, basic, visual, eff_transform);
+            let params = CommonParameters::new(rect, basic, visual, eff_transform);
 
             let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
             let is_webview_ready = is_webview && cx.renders.rnd_active_webviews.contains(&id);
+
+            #[cfg(feature = "trace-lifecycle")]
+            {
+                has_webview_ready = is_webview_ready;
+            }
+
             // WebView (アクティブ) の個別処理
             if is_webview_ready {
                 // 溜まっている通常のバッチがあれば一旦フラッシュ
@@ -873,6 +1152,7 @@ impl Pipeline {
                 );
 
                 Pipeline::push_punchout_instance(id, view.render_data, &params);
+
                 // くり抜き用のバッチとして即座にフラッシュ
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
@@ -886,11 +1166,18 @@ impl Pipeline {
 
                 current_batch_type = BatchType::Normal;
                 last_clip = Some(clip);
+
                 continue;
             }
 
             // WebView (非アクティブ・静止キャッシュ) の処理
             let is_webview_static = is_webview && !is_webview_ready;
+
+            #[cfg(feature = "trace-lifecycle")]
+            {
+                has_webview_static = is_webview_static;
+            }
+
             if is_webview_static {
                 // 一般UIインスタンスがあれば強制フラッシュ
                 Pipeline::flush_batch(
@@ -902,6 +1189,7 @@ impl Pipeline {
                 );
 
                 Pipeline::push_static_instance(id, view.render_data, &params);
+
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
                     view.render_data.instances.len(),
@@ -912,6 +1200,7 @@ impl Pipeline {
 
                 // 前面インスタンス
                 Pipeline::push_static_front_instance(id, view.render_data, &params);
+
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
                     view.render_data.instances.len(),
@@ -921,6 +1210,7 @@ impl Pipeline {
                 );
 
                 last_clip = Some(clip);
+
                 continue;
             }
 
@@ -930,6 +1220,12 @@ impl Pipeline {
                 .topo_active_masks
                 .at(id)
                 .has(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
+
+            #[cfg(feature = "trace-lifecycle")]
+            {
+                has_external_texture = is_external_texture;
+            }
+
             if is_external_texture {
                 // 既存UIインスタンスをフラッシュ
                 Pipeline::flush_batch(
@@ -946,6 +1242,7 @@ impl Pipeline {
                     &params,
                     &cx.contents.cont_external_textures,
                 );
+
                 // テクスチャが固有に切り替わるため独立してバッチをフラッシュ
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
@@ -957,6 +1254,7 @@ impl Pipeline {
 
                 // 前面インスタンス
                 Pipeline::push_static_front_instance(id, view.render_data, &params);
+
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
                     view.render_data.instances.len(),
@@ -966,6 +1264,7 @@ impl Pipeline {
                 );
 
                 last_clip = Some(clip);
+
                 continue;
             }
 
@@ -979,15 +1278,26 @@ impl Pipeline {
                         prev_clip,
                         current_batch_type,
                     );
+
                     last_clip = Some(clip);
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        has_normal_element = true;
+                    }
                 }
             } else {
                 last_clip = Some(clip);
             }
 
             // 選択ハイライト背景
-            if let Some(sel_rects) = cx.states.edit.edit_selected_rects.get(id)
-                && let Some(buffer) = SystemStore::get_or_create_layout(
+            if let Some(sel_rects) = cx.states.edit.edit_selected_rects.find(id) {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    has_selection_highlight = true;
+                }
+
+                let buffer = SystemStore::get_or_create_layout(
                     id,
                     &mut cx.system.sys_text_engine,
                     &cx.system.sys_text_buffers,
@@ -997,8 +1307,9 @@ impl Pipeline {
                     &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
-                )
-            {
+                    &mut cx.debug,
+                );
+
                 let align_offset = Pipeline::text_size_to_align_offset(
                     id,
                     &params,
@@ -1006,7 +1317,6 @@ impl Pipeline {
                     border,
                     padding,
                     flex,
-                    &cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                 );
 
@@ -1030,12 +1340,19 @@ impl Pipeline {
                 || visual.border_color.is_some()
                 || visual.shadow_params.is_some();
 
+            #[cfg(feature = "trace-lifecycle")]
+            {
+                has_background = has_bg;
+                has_text = is_text;
+                has_fallback_border = !is_text && !has_bg;
+            }
+
             if has_bg {
                 Pipeline::push_background_instance(id, view.render_data, &params, visual);
             }
 
-            if is_text
-                && let Some(buffer) = SystemStore::get_or_create_layout(
+            if is_text {
+                let buffer = SystemStore::get_or_create_layout(
                     id,
                     &mut cx.system.sys_text_engine,
                     &cx.system.sys_text_buffers,
@@ -1045,8 +1362,9 @@ impl Pipeline {
                     &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
-                )
-            {
+                    &mut cx.debug,
+                );
+
                 let align_offset = Pipeline::text_size_to_align_offset(
                     id,
                     &params,
@@ -1054,14 +1372,13 @@ impl Pipeline {
                     border,
                     padding,
                     flex,
-                    &cx.system.sys_text_engine,
                     &cx.contents.cont_input_contents,
                 );
 
                 let spans = cx
                     .contents
                     .cont_text_spans
-                    .get(id)
+                    .find(id)
                     .map_or(&[][..], Vec::as_slice);
                 let resolved_color =
                     Pipeline::resolve_text_color(id, visual, &cx.contents.cont_input_contents);
@@ -1090,6 +1407,7 @@ impl Pipeline {
                     align_offset,
                     cx.window.win_scale_factor,
                     &mut cx.system.sys_text_engine,
+                    &mut cx.debug,
                 );
 
                 Pipeline::push_text_front_instances(
@@ -1116,6 +1434,11 @@ impl Pipeline {
             let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
             let is_focused = cx.events.evt_interaction_states.focused == Some(id);
 
+            #[cfg(feature = "trace-lifecycle")]
+            {
+                has_caret = is_input && is_focused;
+            }
+
             if is_input && is_focused {
                 Pipeline::push_caret_instance(
                     id,
@@ -1132,13 +1455,51 @@ impl Pipeline {
                 );
             }
         }
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::PrepareRender {
+            stage: RenderStage::CollectDate(InstanceKinds {
+                has_webview_ready,
+                has_webview_static,
+                has_external_texture,
+                has_normal_element,
+                has_selection_highlight,
+                has_background,
+                has_text,
+                has_fallback_border,
+                has_caret
+            }),
+            data: Some(Arc::new(RendererViewTrace {
+                render_data: view.render_data.clone(),
+                atlas: view.atlas.clone(),
+                text_cache: view.text_cache.clone(),
+                queue: view.queue.clone()
+            })),
+            add: Some("The fact that this is recorded means that Atlas has been cleared."),
+        });
+
+        let instances_len = view.render_data.instances.len();
+        let scissor_rect = last_clip.unwrap_or_default();
+
         Pipeline::flush_batch(
             &mut view.render_data.batches,
-            view.render_data.instances.len(),
+            instances_len,
             &mut last_flushed_offset,
-            last_clip.unwrap_or_default(),
+            scissor_rect,
             current_batch_type,
         );
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::PrepareRender {
+            stage: RenderStage::FlushBatch(FlatBufferTrace {
+                instances_len,
+                last_flushed_offset,
+                scissor_rect,
+                batch_type: current_batch_type
+            }),
+            data: None,
+            add: Some("RendererViewTrace refers to RenderStage::CollectDate.")
+        });
     }
 }
 
@@ -1161,14 +1522,13 @@ struct CommonParameters {
 impl CommonParameters {
     #[inline]
     fn new(
-        id: EntityId,
         rect: LayoutRect,
         basic: &BasicLayout,
         visual: &VisualProperty,
         eff_transform: [[f32; 4]; 4],
     ) -> Self {
         let (transform, transform_origin) =
-            RenderStore::get_transform_and_origin(id, visual, eff_transform);
+            RenderStore::get_transform_and_origin(visual, eff_transform);
         let (outline_width, outline_color, outline_lengths, outline_offset_and_flags) =
             RenderStore::get_outline_params(visual);
         let corner_radius = visual.corner_radius.unwrap_or_default();
@@ -1226,6 +1586,7 @@ impl Pipeline {
     }
 
     /// Taffy永続ツリーへのスタイル差分同期
+    #[track_caller]
     fn sync_dirty_styles_to_taffy(
         scrollbar_el_ids: &HashSet<EntityId>,
         lay_taffy_tree: &mut TaffyTreeEntityId,
@@ -1234,26 +1595,29 @@ impl Pipeline {
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
         lay_resolved_grid: &ResolvedGridSparse,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
+        debug: &mut DebugStore,
     ) {
         for &id in lay_dirty_entities {
             if scrollbar_el_ids.contains(&id) {
                 continue;
             }
 
-            let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
-            let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
-            let grid = lay_resolved_grid.get(id).cloned();
+            let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+            let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+            let grid = lay_resolved_grid.find(id).cloned();
 
             // トランジション（アニメーション）中プロパティの現在値による上書き
             // 削除：resolve_active_layouts の段階でアニメーション中のサイズが正しく反映されたレイアウト）が返ってくるため
             // if let Some(active_list) = rnd_active_transitions.get(id) {}
 
             let taffy_style =
-                LayoutStore::resolve_taffy_style(id, &basic, &flex, grid.as_ref(), bar_styles);
+                LayoutStore::resolve_taffy_style(id, basic, flex, grid.as_ref(), bar_styles);
 
             let taffy_node = *lay_taffy_nodes.at(id);
-            lay_taffy_tree.set_style(taffy_node, taffy_style).unwrap();
+            lay_taffy_tree
+                .set_style(taffy_node, taffy_style)
+                .unwrap_or_trace(Some(id), debug);
         }
     }
 
@@ -1271,6 +1635,7 @@ impl Pipeline {
         out_rects: &mut RectsSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) {
         let (abs_rect, parent_clip) = OutputStore::calc_local_rect(
             id,
@@ -1282,6 +1647,7 @@ impl Pipeline {
             out_rects,
             out_clip_rects,
             sc_offsets,
+            debug,
         );
 
         out_rects.insert(id, abs_rect);
@@ -1322,6 +1688,7 @@ impl Pipeline {
         out_prev_rects: &PrevRectsSecondary,
         out_prev_clip_rects: &PrevClipRectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) {
         topo_active_entities.clear();
 
@@ -1369,6 +1736,7 @@ impl Pipeline {
                 out_rects,
                 out_clip_rects,
                 sc_offsets,
+                debug,
             );
         }
     }
@@ -1387,6 +1755,7 @@ impl Pipeline {
         out_rects: &mut RectsSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
+        debug: &mut DebugStore,
     ) {
         topo_active_entities.clear();
 
@@ -1404,6 +1773,7 @@ impl Pipeline {
                 out_rects,
                 out_clip_rects,
                 sc_offsets,
+                debug,
             );
         }
     }
@@ -1433,22 +1803,6 @@ impl Pipeline {
         *last_flushed_offset = instances_len;
     }
 
-    /// UTF-16スライスからサロゲートペアを考慮して1文字を抽出、進めるべき長さを返す
-    #[inline]
-    fn get_char_and_u16_len(text_u16: &[u16], char_idx: usize) -> (char, usize) {
-        if char_idx + 1 < text_u16.len() && (0xD800..=0xDBFF).contains(&text_u16[char_idx]) {
-            let u16_chars = &text_u16[char_idx..char_idx + 2];
-            let character = String::from_utf16(u16_chars)
-                .ok()
-                .and_then(|s| s.chars().next())
-                .unwrap_or(' ');
-            (character, 2)
-        } else {
-            let character = char::from_u32(text_u16[char_idx] as u32).unwrap_or(' ');
-            (character, 1)
-        }
-    }
-
     fn text_size_to_align_offset(
         id: EntityId,
         params: &CommonParameters,
@@ -1456,20 +1810,19 @@ impl Pipeline {
         border: EdgeInsets,
         padding: EdgeInsets,
         flex: &FlexLayout,
-        sys_text_engine: &TextEngine,
         cont_input_contents: &InputContentsSparse,
     ) -> LayoutPoint {
-        let (text_size, is_multiline) = if let Some(c) = cont_input_contents.get(id) {
+        let (text_size, is_multiline) = if let Some(c) = cont_input_contents.find(id) {
             if let Some(l) = c.last_layout {
                 // コンテンツが存在し前回のレイアウトもある場合
                 (LayoutSize::new(l.width, l.height), c.is_multiline)
             } else {
                 // コンテンツはあるがレイアウトがない場合
-                (sys_text_engine.get_layout_size(buffer), c.is_multiline)
+                (TextEngine::get_layout_size(buffer), c.is_multiline)
             }
         } else {
             // コンテンツ自体が存在しない場合
-            (sys_text_engine.get_layout_size(buffer), false)
+            (TextEngine::get_layout_size(buffer), false)
         };
         OutputStore::calc_align_offset(
             params.rect,
@@ -1486,17 +1839,11 @@ impl Pipeline {
     /// このフレームでアトラスの一括クリアが起きた場合は true
     #[inline]
     fn scan_and_register_element_glyphs(
-        id: EntityId,
         view: &mut RendererView,
         buffer: &Buffer,
-        default_visual: &VisualProperty,
         sys_text_engine: &mut TextEngine,
         win_scale_factor: f32,
-        topo_active_masks: &ActiveMasksSecondary,
-        cont_text_contents: &TextContentsSparse,
-        cont_text_spans: &TextSpansSparse,
-        cont_input_contents: &InputContentsSparse,
-        rnd_visual: &VisualPropertiesSecondary,
+        debug: &mut DebugStore,
     ) -> bool {
         let mut atlas_cleared = false;
 
@@ -1509,6 +1856,7 @@ impl Pipeline {
                     physical.cache_key,
                     view,
                     win_scale_factor,
+                    debug,
                 );
                 if cleared {
                     atlas_cleared = true;
@@ -1529,7 +1877,7 @@ impl Pipeline {
         let default_color = visual.text_color.unwrap_or(Color::WHITE);
 
         // そもそも入力コンポーネントを持っていないなら通常色を返して終了
-        let Some(input) = cont_input_contents.get(id) else {
+        let Some(input) = cont_input_contents.find(id) else {
             return default_color;
         };
 
@@ -1724,7 +2072,7 @@ impl Pipeline {
     ) {
         for span in spans {
             if let Some(bg_color) = span.bg_color {
-                let rects = TextEditStore::calc_selection_rects(id, buffer, span.range.clone());
+                let rects = TextEditStore::calc_selection_rects(buffer, span.range.clone());
 
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
@@ -1763,6 +2111,7 @@ impl Pipeline {
         align_offset: LayoutPoint,
         win_scale_factor: f32,
         sys_text_engine: &mut TextEngine,
+        debug: &mut DebugStore,
     ) {
         for run in buffer.layout_runs() {
             for glyph in run.glyphs {
@@ -1782,6 +2131,7 @@ impl Pipeline {
                     physical.cache_key,
                     view,
                     win_scale_factor,
+                    debug,
                 );
 
                 // 最終的なポリゴンの左上 ＝ グリフ原点 ＋ 画像オフセット
@@ -1839,7 +2189,7 @@ impl Pipeline {
                 continue;
             }
 
-            let rects = TextEditStore::calc_selection_rects(id, buffer, span.range.clone());
+            let rects = TextEditStore::calc_selection_rects(buffer, span.range.clone());
 
             for metric_rect in rects {
                 let start_x =
@@ -1984,7 +2334,7 @@ impl Pipeline {
 
         let c_color = contents
             .caret_color
-            .or(rnd_base_visual.get(id).and_then(|v| v.text_color))
+            .or(rnd_base_visual.find(id).and_then(|v| v.text_color))
             .or(visual.text_color)
             .unwrap_or(Color::WHITE);
 

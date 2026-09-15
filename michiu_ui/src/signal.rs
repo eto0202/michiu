@@ -1,4 +1,9 @@
-use crate::{Context, Effects, TaskSender, with_context};
+#[cfg(feature = "trace-error")]
+use crate::trace_error;
+use crate::{
+    Context, DebugStore, Effects, MichiuError, MichiuTrace, OptionTraceExt, TaskSender,
+    with_context,
+};
 use slotmap::new_key_type;
 use smallvec::SmallVec;
 use std::cell::Cell;
@@ -71,7 +76,7 @@ impl<T> ReadSignal<T> {
 impl<T: 'static> ReadSignal<T> {
     /// 依存関係の自動トラッキング
     #[inline]
-    fn track(&self) {
+    fn track(self) {
         ACTIVE_EFFECT.with(|cell| {
             if let Some(active_effect_id) = cell.get() {
                 with_context(|cx| {
@@ -90,13 +95,24 @@ impl<T: 'static> ReadSignal<T> {
     }
 
     /// 参照 `&T` を使って処理を行い結果だけを取り出す
+    #[track_caller]
     #[inline]
     pub fn with<U>(&self, f: impl FnOnce(&T) -> U) -> U {
         self.track();
 
         with_context(|cx| {
-            let any_val = cx.reactive.react_signals.get(self.id).unwrap();
-            let val = any_val.downcast_ref::<T>().expect("Signal type mismatch");
+            let any_val =
+                cx.reactive
+                    .react_signals
+                    .get(self.id)
+                    .unwrap_or_trace(None, &mut cx.debug, || MichiuError::SignalNotFound {
+                        id: self.id,
+                    });
+            let val = any_val
+                .downcast_ref::<T>()
+                .unwrap_or_trace(None, &mut cx.debug, || MichiuError::DowncastFailed {
+                    expected: std::any::type_name::<T>(),
+                });
             f(val)
         })
     }
@@ -161,15 +177,24 @@ impl<T: Clone + 'static> ReadSignal<T> {
     }
 
     /// 依存関係を追跡せずに現在のシグナルの値を即時取得します。
+    #[track_caller]
     #[inline]
     #[must_use]
     pub fn get_untracked(&self) -> T {
         with_context(|cx| {
-            let any_val = cx.reactive.react_signals.get(self.id).unwrap();
+            let any_val =
+                cx.reactive
+                    .react_signals
+                    .get(self.id)
+                    .unwrap_or_trace(None, &mut cx.debug, || MichiuError::SignalNotFound {
+                        id: self.id,
+                    });
             any_val
                 .downcast_ref::<T>()
                 .cloned()
-                .expect("Signal type mismatch")
+                .unwrap_or_trace(None, &mut cx.debug, || MichiuError::DowncastFailed {
+                    expected: std::any::type_name::<T>(),
+                })
         })
     }
 
@@ -306,6 +331,7 @@ impl<T> WriteSignal<T> {
 }
 
 impl<T: Send + 'static> WriteSignal<T> {
+    #[track_caller]
     #[inline]
     #[must_use]
     pub fn id(&self) -> SignalId {
@@ -318,7 +344,11 @@ impl<T: Send + 'static> WriteSignal<T> {
 
         with_context(|cx| {
             // 新しい値に差し替え
-            *cx.reactive.react_signals.get_mut(self.id).unwrap() = Box::new(new_value);
+            *cx.reactive.react_signals.get_mut(self.id).unwrap_or_trace(
+                None,
+                &mut cx.debug,
+                || MichiuError::SignalNotFound { id: self.id },
+            ) = Box::new(new_value);
 
             // 依存しているエフェクトIDのリストをクローン
             if let Some(subs) = cx.reactive.react_subscribers.get(self.id) {
@@ -395,27 +425,32 @@ impl<T: Send + 'static> SignalSender<T> {
 }
 
 /// 指定されたエフェクトをメインスレッドのコンテキスト下で評価（実行）する内部ユーティリティ。
+#[track_caller]
+#[inline]
 pub(crate) fn execute_effect(effect_id: EffectId) {
     with_context(|cx| {
-        // エフェクトのクロージャを一時的にダミーのプレースホルダと入れ替えて安全に取り出す
-        // slotMap のキーやバージョンを完全に維持しつつ、多重借用を回避
-        let mut effect_closure = std::mem::replace(
-            cx.reactive
-                .react_effects
-                .get_mut(effect_id)
-                .expect("Effect lost"),
-            Effects(Box::new(move |_| {
-                // このプレースホルダが呼び出されたということは、
-                // 元のクロージャがまだ実行中（返却前）に、同一のエフェクトが再帰トリガーされたことを意味する
-                eprintln!(
-                    "Warning: Cyclic dependency / Infinite loop detected! \
-                                     Effect {effect_id:?} recursively triggered itself. \
-                                     To prevent stack overflow, this recursive run has been skipped."
-                );
-            })),
-        );
+        // このダミーが呼び出されたということは、
+        // 元のクロージャがまだ実行中（返却前）に、同一のエフェクトが再帰トリガーされたことを意味する
+        let dummy = Effects(Box::new(move |cx| {
+            #[cfg(feature = "trace-error")]
+            trace_error!(None, &mut cx.debug, || MichiuTrace::Error {
+                detail: MichiuError::RecursiveEffectDetected { effect_id },
+                add: None,
+            });
+        }));
 
-        // 2. 依存追跡状態を退避・更新
+        let slot = cx
+            .reactive
+            .react_effects
+            .get_mut(effect_id)
+            .unwrap_or_trace(None, &mut cx.debug, || MichiuError::EffectNotFound {
+                id: effect_id,
+            });
+
+        // エフェクトのクロージャを一時的にダミーのプレースホルダと入れ替えて安全に取り出す
+        let mut effect_closure = std::mem::replace(slot, dummy);
+
+        // 依存追跡状態を退避・更新
         let prev_effect = ACTIVE_EFFECT.with(|cell| {
             let prev = cell.get();
             cell.set(Some(effect_id));

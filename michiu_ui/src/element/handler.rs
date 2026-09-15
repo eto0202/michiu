@@ -1,9 +1,8 @@
-use std::path::PathBuf;
-
 use crate::{
     Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImeState,
-    LayoutPoint, MichiuSoA, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,
+    LayoutPoint, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,MichiuSoA
 };
+use std::path::PathBuf;
 
 impl Element {
     /// この要素に対応する `EventListeners` が `SoA` 上に存在しない場合は新規に作成し、

@@ -1,51 +1,48 @@
 use crate::{
-    ActiveEntitiesVec, ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition,
-    AnimationCurve, BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment,
-    BorderStyle, BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color,
-    ComponentMask, ContentStore, Context, CornerRadius, CursorIcon, DEFAULT_BASIC,
-    DirtyLayoutEntitiesVec, Display, EdgeInsets, EffectCategory, EffectId, ElementEffectsSecondary,
-    EntitiesSlot, EntityId, FlatDfsSequenceVec, FocusTrigger, Focusable, FontDate,
-    GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionStyles, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, PlaybackCount,
-    Point, PointerEvents, PropertyList, ReactiveStore, RectsSecondary, ScrollbarDisplay,
-    ScrollbarStylesSecondary, StyleTarget, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    TextBufferSparse, ThisStyle, TopologyStore, TransitionValue, UserSelect, Val, VisualProperty,
-    WindowStore, define_secondary, define_sparse_secondary, define_vec,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition, AnimationCurve,
+    BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
+    BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask,
+    Context, CornerRadius, CursorIcon, DEFAULT_BASIC, DebugStore, DirtyLayoutEntitiesVec,
+    EdgeInsets, EffectCategory, ElementEffectsSecondary, EntitiesSlot, EntityId, FocusTrigger,
+    Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionStyles,
+    LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary,
+    PlaybackCount, Point, PointerEvents, PropertyList, RectsSecondary, ScrollbarDisplay,
+    ScrollbarStylesSparse, StyleStage, StyleTarget, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TextBufferSparse, ThisStyle, TopologyStore, TransitionValue, Val,
+    VisualProperty, define_secondary, define_sparse_secondary, define_vec, trace_lifecycle,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
     borrow::Cow,
-    cell::RefCell,
-    collections::HashSet,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 /// CPU 側で現在再生中の動的なキーフレームアニメーションの状態
 #[derive(Debug, Clone)]
-pub(crate) struct ActiveAnimation {
-    pub(crate) property: PropertyList,
-    pub(crate) start_time: Instant,
-    pub(crate) duration: Duration,
-    pub(crate) iteration_count: PlaybackCount,
-    pub(crate) curve: AnimationCurve,
+pub struct ActiveAnimation {
+    pub property: PropertyList,
+    pub start_time: Instant,
+    pub duration: Duration,
+    pub iteration_count: PlaybackCount,
+    pub curve: AnimationCurve,
 
     // 回転アニメーションなどのために、現在の周回（ループ）における開始ベース値と目標値を定義
-    pub(crate) start_value: TransitionValue,
-    pub(crate) end_value: TransitionValue,
+    pub start_value: TransitionValue,
+    pub end_value: TransitionValue,
 }
 
-define_secondary!(pub(crate) struct VisualPropertiesSecondary(VisualProperty));
-define_secondary!(pub(crate) struct BaseVisualPropertiesSecondary(VisualProperty));
-define_secondary!(pub(crate) struct InteractionPropertiesSecondary(InteractionStyles));
+define_secondary!(pub struct VisualPropertiesSecondary(VisualProperty));
+define_secondary!(pub struct BaseVisualPropertiesSecondary(VisualProperty));
+define_secondary!(pub struct InteractionPropertiesSecondary(InteractionStyles));
 
-define_sparse_secondary!(pub(crate) struct ActiveTransitionsSparse(Vec<ActiveTransition>));
-define_sparse_secondary!(pub(crate) struct ActiveAnimationsSparse(Vec<ActiveAnimation>));
+define_sparse_secondary!(pub struct ActiveTransitionsSparse(Vec<ActiveTransition>));
+define_sparse_secondary!(pub struct ActiveAnimationsSparse(Vec<ActiveAnimation>));
 
-define_vec!(pub(crate) struct DirtyRenderEntitiesVec(EntityId));
+define_vec!(pub struct DirtyRenderEntitiesVec(EntityId));
 
-pub(crate) type ActiveWebviewsHashSet = FxHashSet<EntityId>;
+pub type ActiveWebviewsHashSet = FxHashSet<EntityId>;
 
 pub struct RenderStore {
     pub(crate) rnd_dirty_entities: DirtyRenderEntitiesVec,
@@ -154,7 +151,7 @@ impl RenderStore {
     ) {
         for id in rnd_dirty_entities.drain(..) {
             // 過去に詰まれたIDのため、破棄されて死んでいる可能性がある
-            let Some(mask) = topo_active_masks.get_mut(id) else {
+            let Some(mask) = topo_active_masks.find_mut(id) else {
                 continue;
             };
             mask.unset(ComponentMask::STATE_QUEUED_RENDER);
@@ -187,7 +184,7 @@ impl RenderStore {
         evt_interaction_states: &ActiveInteractionStates,
         evt_current_pointer_position: Option<&LayoutPoint>,
         cont_input_contents: &InputContentsSparse,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
         rnd_active_animations: &ActiveAnimationsSparse,
@@ -212,7 +209,7 @@ impl RenderStore {
         // フォーカスされたインプットがあり、キャレット点滅が有効な間は描画ループを駆動
         let has_blinking_input = evt_interaction_states
             .focused
-            .and_then(|id| cont_input_contents.get(id))
+            .and_then(|id| cont_input_contents.find(id))
             .is_some_and(|c| c.has_caret && c.is_blink);
 
         // 一時的表示スクロールバーのフェード進行中は描画更新ループを継続
@@ -237,7 +234,7 @@ impl RenderStore {
         state_flag: u128,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) -> bool {
-        let Some(interaction) = rnd_interaction.get(id) else {
+        let Some(interaction) = rnd_interaction.find(id) else {
             return false;
         };
 
@@ -282,7 +279,7 @@ impl RenderStore {
         if !active_mask.has(state_flag) {
             return None;
         }
-        let self_style = rnd_interaction.get(id).and_then(|interaction| {
+        let self_style = rnd_interaction.find(id).and_then(|interaction| {
             if state_flag == ComponentMask::STATE_FOCUSED_VISIBLE {
                 interaction.focused_visible.clone()
             } else {
@@ -295,7 +292,7 @@ impl RenderStore {
         }
 
         let focus_mode = rnd_visual
-            .get(id)
+            .find(id)
             .and_then(|v| v.focusable)
             .unwrap_or_default();
 
@@ -314,7 +311,7 @@ impl RenderStore {
         // 親先祖を上に辿り、最初に focused 疑似スタイルを定義している要素の設定をそのまま借用する
         let mut curr = *topo_parents.at(id);
         while let Some(curr_id) = curr {
-            if let Some(parent_interaction) = rnd_interaction.get(curr_id) {
+            if let Some(parent_interaction) = rnd_interaction.find(curr_id) {
                 let parent_style = if state_flag == ComponentMask::STATE_FOCUSED_VISIBLE {
                     &parent_interaction.focused_visible
                 } else {
@@ -332,7 +329,6 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn cascade_interaction_flag<'a>(
-        id: EntityId,
         interaction: &'a InteractionStyles,
         focused_style_resolved: Option<&'a ThisStyle>,
         focused_visible_style_resolved: Option<&'a ThisStyle>,
@@ -366,7 +362,6 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn cascade_within_interaction_flag(
-        id: EntityId,
         interaction: &InteractionStyles,
     ) -> [(u128, &Option<ThisStyle>); 10] {
         [
@@ -394,7 +389,6 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn cascade_parent_interaction_flag(
-        id: EntityId,
         interaction: &InteractionStyles,
     ) -> [(u128, &Option<ThisStyle>); 10] {
         [
@@ -427,7 +421,7 @@ impl RenderStore {
         active_mask: &ComponentMask,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
-        let Some(interaction) = rnd_interaction.get(id) else {
+        let Some(interaction) = rnd_interaction.find(id) else {
             return;
         };
 
@@ -466,12 +460,11 @@ impl RenderStore {
         focused_visible_style_resolved: Option<&ThisStyle>,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
-        let Some(interaction) = rnd_interaction.get(id) else {
+        let Some(interaction) = rnd_interaction.find(id) else {
             return;
         };
 
         let cascade = RenderStore::cascade_interaction_flag(
-            id,
             interaction,
             focused_style_resolved,
             focused_visible_style_resolved,
@@ -504,12 +497,12 @@ impl RenderStore {
             return;
         }
 
-        let Some(interaction) = rnd_interaction.get(id) else {
+        let Some(interaction) = rnd_interaction.find(id) else {
             return;
         };
 
         // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
-        let cascade_within = RenderStore::cascade_within_interaction_flag(id, interaction);
+        let cascade_within = RenderStore::cascade_within_interaction_flag(interaction);
 
         for (state, style_opt) in cascade_within {
             let Some(style) = style_opt else {
@@ -564,17 +557,16 @@ impl RenderStore {
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
         if !active_mask.has(ComponentMask::STYLE_INTERACTION_PARENT) {
             return;
         }
-        let Some(interaction) = rnd_interaction.get(id) else {
+        let Some(interaction) = rnd_interaction.find(id) else {
             return;
         };
 
-        let cascade_parent = RenderStore::cascade_parent_interaction_flag(id, interaction);
+        let cascade_parent = RenderStore::cascade_parent_interaction_flag(interaction);
 
         for (state, style_opt) in cascade_parent {
             let Some(style) = style_opt else {
@@ -647,7 +639,6 @@ impl RenderStore {
             topo_entities,
             topo_active_masks,
             topo_parents,
-            topo_children,
             rnd_interaction,
         );
         RenderStore::cascade_within_interaction(
@@ -673,6 +664,7 @@ impl RenderStore {
         lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_visual: &mut VisualPropertiesSecondary,
+        debug: &mut DebugStore,
     ) {
         if !rnd_visual.contains_key(id) {
             rnd_visual.insert(id, VisualProperty::default());
@@ -725,6 +717,7 @@ impl RenderStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
     }
@@ -734,7 +727,7 @@ impl RenderStore {
         rnd_active_animations: &mut ActiveAnimationsSparse,
         rnd_visual: &VisualPropertiesSecondary,
     ) {
-        let Some(visual) = rnd_visual.get(id) else {
+        let Some(visual) = rnd_visual.find(id) else {
             return;
         };
         if visual.keyframe_animations.is_empty() {
@@ -760,8 +753,7 @@ impl RenderStore {
                 PropertyList::Transform => {
                     let start = TransitionValue::Transform(IDENTITY_MATRIX);
                     // Z軸を1周（2PI）回転させる行列を終点にする
-                    let mut end_transform =
-                        crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
+                    let end_transform = crate::Transform::new().rotate(std::f32::consts::PI * 2.0);
                     let end = TransitionValue::Transform(end_transform.matrix);
                     (start, end)
                 }
@@ -808,6 +800,7 @@ impl RenderStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
         RenderStore::resolve_visual_styles(
             id,
@@ -828,6 +821,7 @@ impl RenderStore {
             rnd_active_transitions,
             rnd_base_visual,
             rnd_interaction,
+            debug,
         );
 
         RenderStore::resolve_layout_styles(
@@ -847,6 +841,7 @@ impl RenderStore {
             rnd_base_visual,
             rnd_interaction,
             out_rects,
+            debug,
         );
 
         // スタイル解決が完了した結果、自身に新しくキーフレームアニメーション定義が
@@ -871,6 +866,7 @@ impl RenderStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
         let active_mask = topo_active_masks.at(id);
         let has_base_layout = lay_base_basic.contains_key(id);
@@ -880,14 +876,22 @@ impl RenderStore {
             return;
         }
 
-        let active_layout = lay_basic.get_or(id, &DEFAULT_BASIC);
-        let base_layout = lay_base_basic.get_or_default(id);
+        let active_layout = lay_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let base_layout = lay_base_basic.find_or_default(id, debug);
         let mut target_layout = base_layout;
 
         RenderStore::cascade_basic_layout(id, &mut target_layout, active_mask, rnd_interaction);
 
-        let to_px = |val, is_width| {
-            OutputStore::val_to_px(id, val, is_width, win_last_size, topo_parents, out_rects)
+        let mut to_px = |val, is_width| {
+            OutputStore::val_to_px(
+                id,
+                val,
+                is_width,
+                win_last_size,
+                topo_parents,
+                out_rects,
+                debug,
+            )
         };
 
         let target_w = to_px(target_layout.size.width, true);
@@ -910,7 +914,7 @@ impl RenderStore {
             )
         };
 
-        let can_trigger_width = rnd_visual.get(id).is_some_and(|v| {
+        let can_trigger_width = rnd_visual.find(id).is_some_and(|v| {
             v.transitions.iter().any(|t| {
                 t.property_list == PropertyList::Width || t.property_list == PropertyList::Size
             })
@@ -919,17 +923,16 @@ impl RenderStore {
         if allow_transition
             && can_trigger_width
             && has_active_layout
-            && let (Some(cw), Some(tw)) = (current_w, target_w)
-            && (cw - tw).abs() > 0.01
+            && (current_w - target_w).abs() > 0.01
         {
             width_triggered = if_needed(
                 PropertyList::Width,
-                TransitionValue::Width(cw),
-                TransitionValue::Width(tw),
+                TransitionValue::Width(current_w),
+                TransitionValue::Width(target_w),
             );
         }
 
-        let can_trigger_height = rnd_visual.get(id).is_some_and(|v| {
+        let can_trigger_height = rnd_visual.find(id).is_some_and(|v| {
             v.transitions.iter().any(|t| {
                 t.property_list == PropertyList::Height || t.property_list == PropertyList::Size
             })
@@ -938,13 +941,12 @@ impl RenderStore {
         if allow_transition
             && can_trigger_height
             && has_active_layout
-            && let (Some(ch), Some(th)) = (current_h, target_h)
-            && (ch - th).abs() > 0.01
+            && (current_h - target_h).abs() > 0.01
         {
             height_triggered = if_needed(
                 PropertyList::Height,
-                TransitionValue::Height(ch),
-                TransitionValue::Height(th),
+                TransitionValue::Height(current_h),
+                TransitionValue::Height(target_h),
             );
         }
 
@@ -959,10 +961,10 @@ impl RenderStore {
         *active_layout_mut = target_layout;
 
         if width_triggered {
-            active_layout_mut.size.width = Val::Px(current_w.unwrap());
+            active_layout_mut.size.width = Val::Px(current_w);
         }
         if height_triggered {
-            active_layout_mut.size.height = Val::Px(current_h.unwrap());
+            active_layout_mut.size.height = Val::Px(current_h);
         }
 
         if is_layout_changed {
@@ -973,6 +975,7 @@ impl RenderStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
     }
@@ -996,6 +999,7 @@ impl RenderStore {
         rnd_active_transitions: &mut ActiveTransitionsSparse,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
+        debug: &mut DebugStore,
     ) {
         let active_mask = topo_active_masks.at(id);
         let has_base_visual = rnd_base_visual.contains_key(id);
@@ -1037,7 +1041,7 @@ impl RenderStore {
         );
 
         let mut is_placeholder_active = false;
-        if let Some(contents) = cont_input_contents.get(id) {
+        if let Some(contents) = cont_input_contents.find(id) {
             let has_no_ime = contents
                 .ime_state
                 .as_ref()
@@ -1188,6 +1192,7 @@ impl RenderStore {
             if !rnd_visual.contains_key(id) {
                 rnd_visual.insert(id, VisualProperty::default());
             }
+
             let active_vis = rnd_visual.at_mut(id);
 
             if !bg_triggered {
@@ -1240,7 +1245,7 @@ impl RenderStore {
 
             active_vis.pointer_events = target.pointer_events;
 
-            if let Some(base_vis) = rnd_base_visual.get(id) {
+            if let Some(base_vis) = rnd_base_visual.find(id) {
                 active_vis.z_index = base_vis.z_index;
                 active_vis.backdrop = base_vis.backdrop;
                 active_vis.bg_gradient = base_vis.bg_gradient;
@@ -1264,6 +1269,7 @@ impl RenderStore {
                     lay_dirty_entities,
                     lay_taffy_tree,
                     lay_taffy_nodes,
+                    debug,
                 );
             }
 
@@ -1303,7 +1309,7 @@ impl RenderStore {
             return false;
         }
 
-        let Some(visual) = rnd_base_visual.get(id) else {
+        let Some(visual) = rnd_base_visual.find(id) else {
             return false;
         };
 
@@ -1379,9 +1385,9 @@ impl RenderStore {
 
         while let Some(id) = curr {
             let cursor_opt = rnd_visual
-                .get(id)
+                .find(id)
                 .and_then(|v| v.cursor)
-                .or_else(|| rnd_base_visual.get(id).and_then(|v| v.cursor));
+                .or_else(|| rnd_base_visual.find(id).and_then(|v| v.cursor));
 
             if let Some(cursor) = cursor_opt {
                 match cursor {
@@ -1430,7 +1436,7 @@ impl RenderStore {
         let mut result = IDENTITY_MATRIX;
 
         while let Some(curr_id) = curr {
-            let (self_transform, transform_inherit) = match rnd_visual.get(curr_id) {
+            let (self_transform, transform_inherit) = match rnd_visual.find(curr_id) {
                 Some(v) => (
                     v.transform.unwrap_or(IDENTITY_MATRIX),
                     v.transform_inherit.unwrap_or(false),
@@ -1454,7 +1460,6 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn get_transform_and_origin(
-        id: EntityId,
         visual: &VisualProperty,
         full_transform: [[f32; 4]; 4],
     ) -> ([[f32; 4]; 3], [f32; 2]) {
@@ -1517,6 +1522,7 @@ impl RenderStore {
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_active_animations: &mut ActiveAnimationsSparse,
+        debug: &mut DebugStore,
     ) {
         let now = Instant::now();
 
@@ -1548,6 +1554,7 @@ impl RenderStore {
                         lay_basic,
                         lay_taffy_nodes,
                         rnd_visual,
+                        debug,
                     );
                     return false;
                 }
@@ -1576,6 +1583,7 @@ impl RenderStore {
                     lay_basic,
                     lay_taffy_nodes,
                     rnd_visual,
+                    debug,
                 );
 
                 if anim.property == PropertyList::Transform {
@@ -1604,6 +1612,7 @@ impl RenderStore {
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_active_transitions: &mut ActiveTransitionsSparse,
         rnd_last_tick_time: &mut Option<Instant>,
+        debug: &mut DebugStore,
     ) {
         const FRAME_TIME_120FPS: Duration = Duration::from_nanos(8_333_333);
         let now = Instant::now();
@@ -1633,7 +1642,7 @@ impl RenderStore {
                 // 補間された値を書き戻す
                 match current_val {
                     TransitionValue::Color(c) => {
-                        if let Some(v) = rnd_visual.get_mut(id) {
+                        if let Some(v) = rnd_visual.find_mut(id) {
                             if t_state.property_list == PropertyList::BackgroundColor {
                                 v.bg_color = Some(c);
                             } else if t_state.property_list == PropertyList::BorderColor {
@@ -1643,13 +1652,13 @@ impl RenderStore {
                         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
                     }
                     TransitionValue::Opacity(o) => {
-                        if let Some(v) = rnd_visual.get_mut(id) {
+                        if let Some(v) = rnd_visual.find_mut(id) {
                             v.opacity = Some(o);
                         }
                         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
                     }
                     TransitionValue::Transform(m) => {
-                        if let Some(v) = rnd_visual.get_mut(id) {
+                        if let Some(v) = rnd_visual.find_mut(id) {
                             v.transform = Some(m);
                         }
                         // トランスフォームが実際に動いているためソート（カリング判定）を汚染
@@ -1657,7 +1666,7 @@ impl RenderStore {
                         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
                     }
                     TransitionValue::CornerRadius(cr) => {
-                        if let Some(v) = rnd_visual.get_mut(id) {
+                        if let Some(v) = rnd_visual.find_mut(id) {
                             v.corner_radius = Some(cr);
                         }
                         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
@@ -1672,6 +1681,7 @@ impl RenderStore {
                             lay_dirty_entities,
                             lay_taffy_tree,
                             lay_taffy_nodes,
+                            debug,
                         );
                     }
                     // 縦幅（Height）の毎フレームアニメーション補間
@@ -1685,11 +1695,12 @@ impl RenderStore {
                             lay_dirty_entities,
                             lay_taffy_tree,
                             lay_taffy_nodes,
+                            debug,
                         );
                     }
                     // 影（BoxShadow）の毎フレームの書き戻し処理
                     TransitionValue::BoxShadow(shadow) => {
-                        if let Some(v) = rnd_visual.get_mut(id) {
+                        if let Some(v) = rnd_visual.find_mut(id) {
                             v.shadow_params = Some(shadow);
                             v.shadow_color = Some(shadow.color);
                         }
@@ -1759,7 +1770,7 @@ impl RenderStore {
         rnd_visual: &VisualPropertiesSecondary,
     ) -> CurrentStyle {
         rnd_visual
-            .get(id)
+            .find(id)
             .map(|v| CurrentStyle {
                 bg_color: v.bg_color.unwrap_or(Color::TRANSPARENT),
                 border_color: v.border_color.unwrap_or(Color::TRANSPARENT),
@@ -1821,7 +1832,7 @@ impl RenderStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
     ) -> TargetStyle {
         rnd_base_visual
-            .get(id)
+            .find(id)
             .map(|v| TargetStyle {
                 pointer_events: v.pointer_events,
                 cursor: v.cursor,
@@ -2011,6 +2022,7 @@ impl Context {
             &self.renders.rnd_base_visual,
             &self.renders.rnd_interaction,
             &self.outputs.out_rects,
+            &mut self.debug,
         );
     }
 }

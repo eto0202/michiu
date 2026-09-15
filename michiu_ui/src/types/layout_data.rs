@@ -250,6 +250,9 @@ pub struct GridLayout {
     pub grid_column: GridLine<GridPlacement<String>>,
 }
 
+unsafe impl Send for GridLayout {}
+unsafe impl Sync for GridLayout {}
+
 impl Default for GridLayout {
     fn default() -> Self {
         // Taffyデフォルト値と完全に一致するように空のVecで初期化
@@ -419,43 +422,45 @@ impl VisualProperty {
 /// インタラクション（動的状態）ごとにオーバーライドして適用される、追加のスタイル表現。
 /// 滅多に使われない、かつ再帰的な構造を持つため、StyleInner の直下ではなくこの構造体に隠蔽して管理。
 #[derive(Debug, Clone, Default)]
-pub(crate) struct InteractionStyles {
-    pub(crate) hovered: Option<ThisStyle>,
-    pub(crate) focused: Option<ThisStyle>,
-    pub(crate) focused_visible: Option<ThisStyle>,
-    pub(crate) pressed: Option<ThisStyle>,
-    pub(crate) disabled: Option<ThisStyle>,
-    pub(crate) actived: Option<ThisStyle>,
-    pub(crate) selected: Option<ThisStyle>,
-    pub(crate) dragged: Option<ThisStyle>,
+pub struct InteractionStyles {
+    pub hovered: Option<ThisStyle>,
+    pub focused: Option<ThisStyle>,
+    pub focused_visible: Option<ThisStyle>,
+    pub pressed: Option<ThisStyle>,
+    pub disabled: Option<ThisStyle>,
+    pub actived: Option<ThisStyle>,
+    pub selected: Option<ThisStyle>,
+    pub dragged: Option<ThisStyle>,
 
-    pub(crate) dragging: Option<ThisStyle>,
-    pub(crate) drag_in: Option<ThisStyle>,
-    pub(crate) drag_over: Option<ThisStyle>,
+    pub dragging: Option<ThisStyle>,
+    pub drag_in: Option<ThisStyle>,
+    pub drag_over: Option<ThisStyle>,
 
-    pub(crate) hovered_within: Option<ThisStyle>,
-    pub(crate) focused_within: Option<ThisStyle>,
-    pub(crate) focused_visible_within: Option<ThisStyle>,
-    pub(crate) pressed_within: Option<ThisStyle>,
-    pub(crate) disabled_within: Option<ThisStyle>,
-    pub(crate) actived_within: Option<ThisStyle>,
-    pub(crate) selected_within: Option<ThisStyle>,
-    pub(crate) dragged_within: Option<ThisStyle>,
-    pub(crate) any_within: Option<ThisStyle>, // All（いずれかのインタラクションがあればON）
+    pub hovered_within: Option<ThisStyle>,
+    pub focused_within: Option<ThisStyle>,
+    pub focused_visible_within: Option<ThisStyle>,
+    pub pressed_within: Option<ThisStyle>,
+    pub disabled_within: Option<ThisStyle>,
+    pub actived_within: Option<ThisStyle>,
+    pub selected_within: Option<ThisStyle>,
+    pub dragged_within: Option<ThisStyle>,
+    pub any_within: Option<ThisStyle>, // All（いずれかのインタラクションがあればON）
 
-    pub(crate) hovered_parent: Option<ThisStyle>,
-    pub(crate) focused_parent: Option<ThisStyle>,
-    pub(crate) focused_visible_parent: Option<ThisStyle>,
-    pub(crate) pressed_parent: Option<ThisStyle>,
-    pub(crate) disabled_parent: Option<ThisStyle>,
-    pub(crate) actived_parent: Option<ThisStyle>,
-    pub(crate) selected_parent: Option<ThisStyle>,
-    pub(crate) dragged_parent: Option<ThisStyle>,
-    pub(crate) any_parent: Option<ThisStyle>,
+    pub hovered_parent: Option<ThisStyle>,
+    pub focused_parent: Option<ThisStyle>,
+    pub focused_visible_parent: Option<ThisStyle>,
+    pub pressed_parent: Option<ThisStyle>,
+    pub disabled_parent: Option<ThisStyle>,
+    pub actived_parent: Option<ThisStyle>,
+    pub selected_parent: Option<ThisStyle>,
+    pub dragged_parent: Option<ThisStyle>,
+    pub any_parent: Option<ThisStyle>,
 }
 
 impl InteractionStyles {
     /// 与えられた疑似状態（StyleTarget）に対応する Option<ThisStyle> フィールドの実体可変参照を取得します
+    #[track_caller]
+    #[allow(clippy::unreachable)]
     #[inline]
     pub(crate) fn get_style_target_mut(&mut self, target: StyleTarget) -> &mut ThisStyle {
         match target {
@@ -482,7 +487,18 @@ impl InteractionStyles {
             StyleTarget::SelectedWithin => self.selected_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::DraggedWithin => self.dragged_within.get_or_insert_with(ThisStyle::new),
             StyleTarget::AnyWithin => self.any_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Base => unreachable!("Base target must be handled individually"),
+            StyleTarget::Base => {
+                unreachable!(
+                    "\n\
+                    Internal invariant violated. This is a bug in michiu_ui.\n\
+                    Please report this issue at https://github.com/eto0202/michiu/issues\n\
+                     [InteractionStyles]\n\
+                     [target]      : {target:?},\n\
+                     [loc]         : {}\n\
+                    ",
+                    std::panic::Location::caller()
+                )
+            }
 
             StyleTarget::HoveredParent => self.hovered_parent.get_or_insert_with(ThisStyle::new),
             StyleTarget::FocusedParent => self.focused_parent.get_or_insert_with(ThisStyle::new),

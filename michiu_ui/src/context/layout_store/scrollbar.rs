@@ -1,10 +1,17 @@
-use std::time::{Duration, Instant};
-
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, DEFAULT_BASIC, DEFAULT_FLEX, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
+    BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
+    CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA,
+    OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
+    ScrollStore, Size, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, ThisStyle, Val,
+    VisualPropertiesSecondary, WindowStore, define_sparse_secondary,
 };
 use slotmap::SparseSecondaryMap;
 use smallvec::SmallVec;
+use std::time::{Duration, Instant};
 
 /// スクロールバーを表示する配置モード
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -117,32 +124,32 @@ enum ScrollbarComponent {
 }
 
 #[derive(Debug, Clone, Default)]
-pub(crate) struct ScrollBarState {
-    pub(crate) style: ScrollbarStyle,
+pub struct ScrollBarState {
+    pub style: ScrollbarStyle,
 
     // レイアウトツリーに動的挿入される Element の EntityId
-    pub(crate) v_track_id: Option<EntityId>,
-    pub(crate) v_thumb_id: Option<EntityId>,
-    pub(crate) h_track_id: Option<EntityId>,
-    pub(crate) h_thumb_id: Option<EntityId>,
+    pub v_track_id: Option<EntityId>,
+    pub v_thumb_id: Option<EntityId>,
+    pub h_track_id: Option<EntityId>,
+    pub h_thumb_id: Option<EntityId>,
 
     // ホバー・ドラッグのランタイム状態
-    pub(crate) v_thumb_hovered: bool,
-    pub(crate) v_thumb_dragged: bool,
-    pub(crate) h_thumb_hovered: bool,
-    pub(crate) h_thumb_dragged: bool,
+    pub v_thumb_hovered: bool,
+    pub v_thumb_dragged: bool,
+    pub h_thumb_hovered: bool,
+    pub h_thumb_dragged: bool,
 
-    pub(crate) drag_start_mouse: LayoutPoint,
-    pub(crate) drag_start_offset: LayoutPoint,
+    pub drag_start_mouse: LayoutPoint,
+    pub drag_start_offset: LayoutPoint,
 
     // 一時表示（Transient）モードの表示制御用
-    pub(crate) last_scroll_time: Option<std::time::Instant>,
+    pub last_scroll_time: Option<std::time::Instant>,
 }
 
-pub(crate) type ScrollbarStylesSecondary = SparseSecondaryMap<EntityId, ScrollBarState>;
+define_sparse_secondary!(pub struct ScrollbarStylesSparse(ScrollBarState));
 
 pub(crate) struct ScrollbarStore {
-    pub(crate) bar_styles: ScrollbarStylesSecondary,
+    pub(crate) bar_styles: ScrollbarStylesSparse,
 }
 
 impl Default for ScrollbarStore {
@@ -156,7 +163,7 @@ impl ScrollbarStore {
     #[inline]
     pub fn new() -> Self {
         Self {
-            bar_styles: SparseSecondaryMap::new(),
+            bar_styles: ScrollbarStylesSparse(SparseSecondaryMap::new()),
         }
     }
 
@@ -164,7 +171,7 @@ impl ScrollbarStore {
     #[must_use]
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
-            bar_styles: SparseSecondaryMap::with_capacity(c.bar_styles),
+            bar_styles: ScrollbarStylesSparse(SparseSecondaryMap::with_capacity(c.bar_styles)),
         }
     }
 
@@ -182,11 +189,11 @@ impl ScrollbarStore {
 impl ScrollbarStore {
     #[inline]
     pub(crate) fn get_scrollbar_dirty_ids(
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
     ) -> SmallVec<[EntityId; 4]> {
         let mut dirty_ids = SmallVec::<[EntityId; 4]>::new();
 
-        for (id, state) in bar_styles {
+        for (id, state) in bar_styles.iter_mut() {
             if state.v_thumb_dragged || state.h_thumb_dragged {
                 state.v_thumb_dragged = false;
                 state.h_thumb_dragged = false;
@@ -205,16 +212,14 @@ impl ScrollbarStore {
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
-        bar_styles: &mut ScrollbarStylesSecondary,
+        bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
-        rnd_visual: &VisualPropertiesSecondary,
-        rnd_interaction: &InteractionPropertiesSecondary,
-        rnd_active_transitions: &ActiveTransitionsSparse,
         sc_offsets: &mut ScrollOffsetsSecondary,
         out_rects: &RectsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) -> bool {
         let Some((c_id, component)) = bar_styles.iter().find_map(|(c_id, sb_state)| {
             if sb_state.v_thumb_id == Some(target_id) {
@@ -233,15 +238,15 @@ impl ScrollbarStore {
         };
 
         // 親スクロールコンテナ
-        let sb_state = bar_styles.get(c_id).cloned().unwrap();
+        let sb_state = bar_styles.at(c_id);
         let container_rect = *out_rects.at(c_id);
-        let scroll_size = sc_sizes.get_or_default(c_id);
-        let offset = sc_offsets.get_or_default(c_id);
+        let scroll_size = sc_sizes.find_or_default(c_id, debug);
+        let offset = sc_offsets.find_or_default(c_id, debug);
 
         match component {
             ScrollbarComponent::VThumb | ScrollbarComponent::HThumb => {
                 // サムをクリックした場合：ドラッグを開始
-                if let Some(st) = bar_styles.get_mut(c_id) {
+                if let Some(st) = bar_styles.find_mut(c_id) {
                     if component == ScrollbarComponent::VThumb {
                         st.v_thumb_dragged = true;
                     } else {
@@ -265,7 +270,7 @@ impl ScrollbarStore {
                 // ヒット先があるなら Some のはず
                 let track_rect = *out_rects.at(target_id);
                 let thumb_rect = thumb_id
-                    .and_then(|i| out_rects.get(i).copied())
+                    .and_then(|i| out_rects.find(i).copied())
                     .unwrap_or_default();
                 let visible_size = WindowStore::calc_visible_size(container_rect, win_last_size);
 
@@ -318,16 +323,14 @@ impl ScrollbarStore {
                     bar_styles,
                     lay_taffy_nodes,
                     lay_resolved_basic,
-                    rnd_visual,
-                    rnd_interaction,
-                    rnd_active_transitions,
                     sc_offsets,
                     out_rects,
                     sc_sizes,
+                    debug,
                 );
 
-                let new_offset = sc_offsets.get_or_default(c_id);
-                if let Some(st) = bar_styles.get_mut(c_id) {
+                let new_offset = sc_offsets.find_or_default(c_id, debug);
+                if let Some(st) = bar_styles.find_mut(c_id) {
                     if is_vertical {
                         st.v_thumb_dragged = true;
                     } else {
@@ -451,7 +454,7 @@ impl ScrollbarStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSparse,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &mut BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
@@ -459,16 +462,17 @@ impl ScrollbarStore {
         out_rects: &RectsSecondary,
         sc_offsets: &ScrollOffsetsSecondary,
         sc_sizes: &ScrollSizesSecondary,
+        debug: &mut DebugStore,
     ) {
         let scrollbar_ids: Vec<EntityId> = bar_styles.keys().collect();
 
         for id in scrollbar_ids {
-            let sb_state = bar_styles.get(id).cloned().unwrap();
+            let sb_state = bar_styles.at(id);
             let rect = *out_rects.at(id);
-            let scroll_size = sc_sizes.get_or_default(id);
-            let current_scroll = sc_offsets.get_or_default(id);
+            let scroll_size = sc_sizes.find_or_default(id, debug);
+            let current_scroll = sc_offsets.find_or_default(id, debug);
 
-            let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
+            let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
             let (border, padding) =
                 LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
@@ -511,6 +515,7 @@ impl ScrollbarStore {
                 rnd_base_visual,
                 rnd_interaction,
                 rnd_active_transitions,
+                debug,
             };
 
             // 縦トラック (V-Track) の同期
@@ -718,11 +723,12 @@ pub(crate) struct ScrollbarSyncContext<'a> {
     pub lay_taffy_nodes: &'a TaffyNodesSecondary,
     pub lay_flex: &'a FlexLayoutsSecondary,
     pub lay_grid: &'a GridLayoutsSparse,
-    pub bar_styles: &'a ScrollbarStylesSecondary,
+    pub bar_styles: &'a ScrollbarStylesSparse,
     pub rnd_visual: &'a mut VisualPropertiesSecondary,
     pub rnd_base_visual: &'a mut BaseVisualPropertiesSecondary,
     pub rnd_interaction: &'a InteractionPropertiesSecondary,
     pub rnd_active_transitions: &'a ActiveTransitionsSparse,
+    pub debug: &'a mut DebugStore,
 }
 
 impl ScrollbarSyncContext<'_> {
@@ -749,6 +755,7 @@ impl ScrollbarSyncContext<'_> {
             self.rnd_base_visual,
             self.rnd_interaction,
             self.rnd_active_transitions,
+            self.debug,
         );
     }
     #[inline]
@@ -759,6 +766,7 @@ impl ScrollbarSyncContext<'_> {
             self.lay_basic,
             self.lay_base_basic,
             self.lay_taffy_nodes,
+            self.debug,
         );
     }
 }
@@ -769,12 +777,10 @@ impl ScrollbarStore {
         id: EntityId,
         size: Size<Val>,
         inset: Rect<Val>,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
-        lay_taffy_nodes: &TaffyNodesSecondary,
     ) {
-        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
+        let layouts = [lay_basic.find_mut(id), lay_base_basic.find_mut(id)];
 
         for layout in layouts.into_iter().flatten() {
             layout.display = Display::Flex;
@@ -791,7 +797,7 @@ impl ScrollbarStore {
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &mut BaseVisualPropertiesSecondary,
     ) {
-        let visuals = [rnd_visual.get_mut(id), rnd_base_visual.get_mut(id)];
+        let visuals = [rnd_visual.find_mut(id), rnd_base_visual.find_mut(id)];
 
         for vis in visuals.into_iter().flatten() {
             vis.opacity = Some(opacity);
@@ -816,21 +822,14 @@ impl ScrollbarStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_flex: &FlexLayoutsSecondary,
         lay_grid: &GridLayoutsSparse,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &mut BaseVisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
+        debug: &mut DebugStore,
     ) {
-        ScrollbarStore::update_scrollbar_element_layout(
-            id,
-            size,
-            inset,
-            lay_taffy_tree,
-            lay_basic,
-            lay_base_basic,
-            lay_taffy_nodes,
-        );
+        ScrollbarStore::update_scrollbar_element_layout(id, size, inset, lay_basic, lay_base_basic);
         ScrollbarStore::update_scrollbar_element_opacity(id, opacity, rnd_visual, rnd_base_visual);
 
         // 変更されたスクロールバー要素のキャッシュを更新
@@ -847,16 +846,17 @@ impl ScrollbarStore {
             rnd_visual,
             rnd_interaction,
             rnd_active_transitions,
+            debug,
         );
 
-        let basic = lay_resolved_basic.get_or(id, &DEFAULT_BASIC);
-        let flex = lay_resolved_flex.get_or(id, &DEFAULT_FLEX);
-        let grid = lay_resolved_grid.get(id); // Grid実装時用
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+        let grid = lay_resolved_grid.find(id); // Grid実装時用
 
         LayoutStore::set_taffy_style(
             id,
-            &basic,
-            &flex,
+            basic,
+            flex,
             grid,
             lay_taffy_tree,
             lay_taffy_nodes,
@@ -872,8 +872,9 @@ impl ScrollbarStore {
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
-        let layouts = [lay_basic.get_mut(id), lay_base_basic.get_mut(id)];
+        let layouts = [lay_basic.find_mut(id), lay_base_basic.find_mut(id)];
 
         for layout in layouts.into_iter().flatten() {
             layout.display = Display::None;
@@ -889,6 +890,6 @@ impl ScrollbarStore {
                     ..Default::default()
                 },
             )
-            .unwrap();
+            .unwrap_or_trace(Some(id), debug);
     }
 }

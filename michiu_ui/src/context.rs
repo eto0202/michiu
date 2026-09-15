@@ -1,6 +1,6 @@
-#![allow(unused)]
 pub mod config;
 pub mod content_store;
+pub mod debug_store;
 pub mod event_store;
 pub mod layout_store;
 pub mod output_store;
@@ -15,44 +15,25 @@ pub mod window_store;
 
 pub use config::*;
 pub use content_store::*;
+pub use debug_store::*;
 pub use event_store::*;
 pub use layout_store::*;
 pub use output_store::*;
 pub use pipeline::*;
 pub use reactive_store::*;
 pub use render_store::*;
-pub use soa::*;
 pub use state_store::*;
 pub use system_store::*;
 pub use topology_store::*;
 pub use window_store::*;
 
 use crate::{
-    BasicLayout, ComponentMask, CursorIcon, Element, ElementState, FlexLayout, GridLayout,
-    ImeState, InteractionState, LayoutPoint, LayoutRect, LayoutSize, Modifiers, MouseButton,
-    Overflow, PlaybackCount, PointerEvents, PropertyList, ReadSignal, RendererView, SignalId,
-    TextAlign, TransitionValue, UserSelect, Val, VirtualKey, VisualProperty, WriteSignal,
-    bind_context, handle_on_char_input, handle_on_click, handle_on_dnd_entity_drop,
-    handle_on_dnd_id_drop, handle_on_file_dropped, handle_on_ime, handle_on_keyboard_input,
-    handle_on_mouse_input, handle_on_right_click, with_context,
+    BasicLayout, ComponentMask, CursorIcon, Element, FlexLayout, GridLayout, InteractionState,
+    LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
+    bind_context, handle_on_click, trace_lifecycle,
 };
-use slotmap::{KeyData, SecondaryMap, SlotMap, SparseSecondaryMap, new_key_type};
-use smallvec::SmallVec;
-use std::{
-    any::TypeId,
-    borrow::Cow,
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    marker::PhantomData,
-    path::PathBuf,
-    sync::{
-        Arc,
-        mpsc::{Receiver, Sender},
-    },
-    time::{Duration, Instant},
-};
-use taffy::TaffyTree;
-use windows::Win32::Graphics::DirectWrite::{DWRITE_HIT_TEST_METRICS, IDWriteTextLayout};
+use slotmap::new_key_type;
+use std::{borrow::Cow, sync::Arc};
 
 new_key_type! {
     /// UI内の各要素（Entity）を識別する一意な世代管理ID
@@ -75,6 +56,7 @@ pub struct Context {
     pub layouts: LayoutStore,
     pub renders: RenderStore,
     pub outputs: OutputStore,
+    pub debug: DebugStore,
 }
 
 impl Default for Context {
@@ -105,6 +87,7 @@ impl Context {
                 },
                 rx,
             ),
+            debug: DebugStore::new(),
         }
     }
 
@@ -130,7 +113,40 @@ impl Context {
             layouts: LayoutStore::with_capacity(capacity),
             renders: RenderStore::with_capacity(capacity),
             outputs: OutputStore::with_capacity(capacity),
+            debug: DebugStore::new(),
         }
+    }
+
+    #[cfg(feature = "trace-error")]
+    #[inline]
+    #[must_use]
+    pub fn with_inspector(inspector: &MichiuInspector) -> Self {
+        let mut cx = Self::new();
+        cx.set_inspector(inspector);
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Init {
+            capacity: None,
+            add: None,
+        });
+
+        cx
+    }
+
+    #[cfg(feature = "trace-error")]
+    #[inline]
+    #[must_use]
+    pub fn with_capacity_and_inspector(cap: &CapacityConfig, inspector: &MichiuInspector) -> Self {
+        let mut cx = Self::with_capacity(cap);
+        cx.set_inspector(inspector);
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Init {
+            capacity: Some(Arc::new(*cap)),
+            add: None,
+        });
+
+        cx
     }
 
     /// 一括解放
@@ -166,6 +182,7 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
+            &mut self.debug,
         );
     }
 
@@ -192,28 +209,28 @@ impl Context {
     #[inline]
     #[must_use]
     pub fn try_basic_layout(&self, id: EntityId) -> Option<BasicLayout> {
-        self.layouts.lay_basic.get(id).copied()
+        self.layouts.lay_basic.find(id).copied()
     }
 
     /// 指定された要素に現在設定されている最新の `FlexLayout` を取得
     #[inline]
     #[must_use]
     pub fn get_flex_layout(&self, id: EntityId) -> Option<FlexLayout> {
-        self.layouts.lay_flex.get(id).copied()
+        self.layouts.lay_flex.find(id).copied()
     }
 
     /// 指定された要素に現在設定されている最新の `GridLayout` を取得
     #[inline]
     #[must_use]
     pub fn get_grid_layout(&self, id: EntityId) -> Option<GridLayout> {
-        self.layouts.lay_grid.get(id).cloned()
+        self.layouts.lay_grid.find(id).cloned()
     }
 
     /// 指定された要素に現在設定されている最新の `VisualProperty` を取得
     #[inline]
     #[must_use]
     pub fn get_visual_property(&self, id: EntityId) -> Option<VisualProperty> {
-        self.renders.rnd_visual.get(id).cloned()
+        self.renders.rnd_visual.find(id).cloned()
     }
 
     /// 指定された要素が現在マウスホバーされているか判定します
@@ -287,26 +304,23 @@ impl Context {
             || self.topology.topo_is_structure_dirty
     }
 
-    /// 現在イベントハンドラを実行している要素（自分自身）の `EntityId` を取得します
+    /// 現在イベントハンドラを実行している要素を取得します。
     #[inline]
-    pub fn current_element_id(&self) -> Option<EntityId> {
-        crate::signal::ACTIVE_ELEMENT.with(std::cell::Cell::get)
+    pub fn find_current(&self) -> Option<Element> {
+        crate::signal::ACTIVE_ELEMENT
+            .with(std::cell::Cell::get)
+            .map(Element::from)
     }
 
-    /// 現在イベントハンドラを実行している要素（自分自身） を取得します
+    /// 現在イベントハンドラを実行している要素（自分自身）を取得します。
+    /// 見つからない場合はトレースを送信してパニック。
+    #[track_caller]
     #[inline]
-    pub fn try_current(&self) -> Option<Element> {
-        self.current_element_id().map(|id| Element { id })
-    }
-
-    /// 現在イベントハンドラを実行している要素（自分自身） を取得します
-    #[inline]
-    pub fn current(&self) -> Element {
-        Element {
-            id: self
-                .current_element_id()
-                .expect("Context::current() called outside event dispatch"),
-        }
+    pub fn current(&mut self) -> Element {
+        let el = self
+            .find_current()
+            .unwrap_or_trace(None, &mut self.debug, || MichiuError::NoActiveElement);
+        Element::from(el.id)
     }
 
     #[inline]
@@ -319,6 +333,7 @@ impl Context {
             &mut self.layouts.lay_taffy_tree,
             &self.layouts.lay_taffy_nodes,
             &mut self.renders.rnd_dirty_entities,
+            &mut self.debug,
         );
     }
 
@@ -330,16 +345,28 @@ impl Context {
         );
     }
 
+    #[inline]
+    pub fn clear_dirty(&mut self) {
+        LayoutStore::clear_layout_dirty(
+            &mut self.topology.topo_active_masks,
+            &mut self.layouts.lay_dirty_entities,
+        );
+        RenderStore::clear_render_dirty(
+            &mut self.topology.topo_active_masks,
+            &mut self.renders.rnd_dirty_entities,
+        );
+    }
+
     /// 指定した要素の画面上の絶対座標（LayoutRect）を取得します。
     #[inline]
     pub fn rect(&self, id: EntityId) -> Option<LayoutRect> {
-        self.outputs.out_rects.get(id).copied()
+        self.outputs.out_rects.find(id).copied()
     }
 
     /// 指定した要素の画面上のクリップ境界（LayoutRect）を取得します。
     #[inline]
     pub fn clip_rect(&self, id: EntityId) -> Option<LayoutRect> {
-        self.outputs.out_clip_rects.get(id).copied()
+        self.outputs.out_clip_rects.find(id).copied()
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
@@ -351,14 +378,14 @@ impl Context {
             &self.renders.rnd_visual,
             &self.states.edit.edit_selections,
         )
-        .map(|m| m.into())
+        .map(std::convert::Into::into)
     }
 
     /// 現在のスクロール位置 (x, y) を取得
     #[inline]
     #[must_use]
     pub fn scroll_offset(&self, id: EntityId) -> Option<LayoutPoint> {
-        self.states.scroll.sc_offsets.get(id).copied()
+        self.states.scroll.sc_offsets.find(id).copied()
     }
 
     /// 現在のスクロール位置から相対移動します。
@@ -376,12 +403,10 @@ impl Context {
             &mut self.layouts.scrollbar.bar_styles,
             &self.layouts.lay_taffy_nodes,
             &self.layouts.lay_resolved_basic,
-            &self.renders.rnd_visual,
-            &self.renders.rnd_interaction,
-            &self.renders.rnd_active_transitions,
             &mut self.states.scroll.sc_offsets,
             &self.outputs.out_rects,
             &self.states.scroll.sc_sizes,
+            &mut self.debug,
         )
     }
 
@@ -419,45 +444,47 @@ impl Context {
 
     /// 現在のスレッドローカルコンテキストから、
     /// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+    #[track_caller]
     #[inline]
-    pub fn use_provided_setter<T: Send + 'static>(&self) -> WriteSignal<T> {
-        let element_id = ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "use_provided_setter must be called inside a dynamic reactive context or an active event handler context"
-                    );
+    pub fn use_provided_setter<T: Send + 'static>(&mut self) -> WriteSignal<T> {
+        let element_id =
+            ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
+                .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+                    caller: "use_provided_setter",
                 });
 
-        ReactiveStore::use_provided_setter_from::<T>(element_id, &self.reactive.react_providers, &self.topology.topo_parents)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Dependency resolution failed: No Provider Setter found in ancestor sub-tree for type: '{}'",
-                        std::any::type_name::<T>()
-                    )
-                })
+        ReactiveStore::use_provided_setter_from::<T>(
+            element_id,
+            &self.reactive.react_providers,
+            &self.topology.topo_parents,
+        )
+        .unwrap_or_trace(Some(element_id), &mut self.debug, || {
+            MichiuError::EntityNotFound { id: element_id }
+        })
     }
 
     /// 現在のスレッドローカルコンテキスト（アクティブなエフェクト、またはイベントハンドラ）から、
     /// 自動的に対象の要素を特定し、親ツリーを遡って型 T の `ReadSignal` を解決します。
+    #[track_caller]
     #[inline]
-    pub fn use_provided<T: Clone + 'static>(&self) -> ReadSignal<T> {
-        let element_id = ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "use_provided must be called inside a dynamic style, text, content closure, or an active event handler context"
-                    );
+    pub fn use_provided<T: Clone + 'static>(&mut self) -> ReadSignal<T> {
+        let element_id =
+            ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
+                .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+                    caller: "use_provided_setter",
                 });
 
-        ReactiveStore::use_provided_from::<T>(element_id, &self.reactive.react_providers, &self.topology.topo_parents)
-                .unwrap_or_else(|| {
-                    panic!(
-                        "Dependency resolution failed: No Provider found in ancestor sub-tree for type: '{}'",
-                        std::any::type_name::<T>()
-                    )
-                })
+        ReactiveStore::use_provided_from::<T>(
+            element_id,
+            &self.reactive.react_providers,
+            &self.topology.topo_parents,
+        )
+        .unwrap_or_trace(Some(element_id), &mut self.debug, || {
+            MichiuError::EntityNotFound { id: element_id }
+        })
     }
 
-    pub fn try_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
+    pub fn find_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
         let element_id =
             ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)?;
         ReactiveStore::use_provided_from::<T>(
@@ -605,6 +632,7 @@ impl Context {
             &self.renders.rnd_base_visual,
             &mut self.outputs.out_clip_rects,
             &self.outputs.out_rects,
+            &mut self.debug,
         )
     }
 

@@ -1,12 +1,11 @@
-use std::{ops::Range, time::Instant};
-
 use crate::{
-    ByteIndex, ComponentMask, Context, EffectCategory, Element, ElementState, EntityId, ImeState,
-    InputContents, InputOp, LayoutPoint, MichiuSoA, MichiuString, Modifiers, MouseButton,
+    ByteIndex, ComponentMask, Context, DebugStore, EffectCategory, Element, ElementState, EntityId,
+    ImeState, InputContents, InputOp, LayoutPoint, MichiuSoA, MichiuString, Modifiers, MouseButton,
     OutputStore, Prop, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEngine,
     TextSelectionsSparse, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
 use cosmic_text::Buffer;
+use std::{ops::Range, time::Instant};
 
 impl Element {
     /// このコンテナを入力フィールド（テキストボックス）化し、IME制御や入力ロジックをバインドします。
@@ -158,7 +157,7 @@ impl Element {
             return;
         };
 
-        let engine = SystemStore::get_or_create_layout(
+        let buffer = SystemStore::get_or_create_layout(
             id,
             &mut cx.system.sys_text_engine,
             &cx.system.sys_text_buffers,
@@ -168,27 +167,23 @@ impl Element {
             &cx.layouts.lay_resolved_flex,
             &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         let local = OutputStore::pressed_local_point(
             id,
             pointer_pos,
-            engine.as_ref(),
-            &mut cx.system.sys_text_engine,
+            &buffer,
             &cx.contents.cont_input_contents,
-            &cx.topology.topo_active_masks,
-            &cx.topology.topo_parents,
             &cx.layouts.lay_resolved_basic,
             &cx.layouts.lay_resolved_flex,
             &cx.layouts.lay_resolved_grid,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
-            &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_offsets,
+            &mut cx.debug,
         );
 
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+        let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;
         };
 
@@ -212,32 +207,17 @@ impl Element {
                 Some(&mut cx.states.edit.edit_selected_rects),
             );
         } else {
-            let Some(buffer) = SystemStore::get_or_create_layout(
-                id,
-                &mut cx.system.sys_text_engine,
-                &cx.system.sys_text_buffers,
-                &cx.contents.cont_text_contents,
-                &cx.contents.cont_text_spans,
-                &cx.layouts.lay_resolved_basic,
-                &cx.layouts.lay_resolved_flex,
-                &cx.renders.rnd_visual,
-                &cx.outputs.out_rects,
-            ) else {
-                return;
-            };
-
             // 表示テキストを取得
             let display_text = cx
                 .contents
                 .cont_text_contents
-                .get(id)
+                .find(id)
                 .cloned()
                 .unwrap_or_default();
 
             // 表示バッファ上でヒットテスト
             // 返ってくるのは表示テキスト上のバイト位置
-            let (display_caret, is_trailing) =
-                cx.system.sys_text_engine.hit_test_point(&buffer, local);
+            let (display_caret, is_trailing) = TextEngine::hit_test_point(&buffer, local);
 
             // 表示テキスト基準で次の文字境界へ進める
             let final_display_caret = if is_trailing {
@@ -300,7 +280,7 @@ impl Element {
     }
 
     fn handle_input_focus_gained(cx: &mut Context, id: EntityId) {
-        if let Some(contents) = cx.contents.cont_input_contents.get_mut(id) {
+        if let Some(contents) = cx.contents.cont_input_contents.find_mut(id) {
             contents.is_selecting = false;
             // フォーカス獲得時も操作時刻を記録して即座にキャレットを表示
             contents.last_interacted_time = Some(Instant::now());
@@ -309,7 +289,7 @@ impl Element {
     }
 
     fn handle_input_char_typed(cx: &mut Context, id: EntityId, ch: &mut char) {
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+        let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;
         };
 
@@ -460,7 +440,7 @@ impl Element {
             if mods.shift {
                 // Shiftキー押下中：選択の拡張
                 let anchor = edit_selection_start_index
-                    .get(id)
+                    .find(id)
                     .copied()
                     .unwrap_or(new_caret);
                 if !edit_selection_start_index.contains_key(id) {
@@ -498,6 +478,7 @@ impl Element {
         edit_selections: &mut TextSelectionsSparse,
         edit_selection_start_index: &mut SelectionStartIndexSparse,
         edit_selected_rects: &mut SelectedRectsSparse,
+        debug: &mut DebugStore,
     ) -> bool {
         let range = contents.selected_range.clone();
         // 選択範囲が存在し、かつ Shiftキーが押されていない通常移動時（全選択中での右移動に完全対応）
@@ -517,7 +498,7 @@ impl Element {
             let new_caret = text_val.next_char_boundary(caret);
 
             if mods.shift {
-                let anchor = *edit_selection_start_index.get_or(id, &caret);
+                let anchor = *edit_selection_start_index.find_or(id, &caret, debug);
                 if !edit_selection_start_index.contains_key(id) {
                     edit_selection_start_index.insert(id, caret);
                 }
@@ -550,20 +531,20 @@ impl Element {
         caret: ByteIndex,
         text_val: &MichiuString,
         mods: Modifiers,
-        sys_text_engine: &mut TextEngine,
         edit_selections: &mut TextSelectionsSparse,
         edit_selection_start_index: &mut SelectionStartIndexSparse,
+        debug: &mut DebugStore,
     ) -> bool {
         if !contents.is_multiline {
             return false;
         }
 
-        let (cx_offset, cy_offset, ch_height) = sys_text_engine.get_caret_position(buffer, caret);
+        let (cx_offset, cy_offset, ch_height) = TextEngine::get_caret_position(buffer, caret);
 
         let target_y = (cy_offset - ch_height * 0.5).max(0.0);
 
         let (new_caret, is_trailing) =
-            sys_text_engine.hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
+            TextEngine::hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
 
         let final_caret = if is_trailing {
             text_val.next_char_boundary(new_caret)
@@ -572,7 +553,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = *edit_selection_start_index.get_or(id, &caret);
+            let anchor = *edit_selection_start_index.find_or(id, &caret, debug);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }
@@ -604,20 +585,20 @@ impl Element {
         caret: ByteIndex,
         text_val: &MichiuString,
         mods: Modifiers,
-        sys_text_engine: &mut TextEngine,
         edit_selections: &mut TextSelectionsSparse,
         edit_selection_start_index: &mut SelectionStartIndexSparse,
+        debug: &mut DebugStore,
     ) -> bool {
         if !contents.is_multiline {
             return false;
         }
 
-        let (cx_offset, cy_offset, ch_height) = sys_text_engine.get_caret_position(buffer, caret);
+        let (cx_offset, cy_offset, ch_height) = TextEngine::get_caret_position(buffer, caret);
 
         let target_y = cy_offset + ch_height * 1.5;
 
         let (new_caret, is_trailing) =
-            sys_text_engine.hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
+            TextEngine::hit_test_point(buffer, LayoutPoint::new(cx_offset, target_y));
 
         let final_caret = if is_trailing {
             text_val.next_char_boundary(new_caret)
@@ -626,7 +607,7 @@ impl Element {
         };
 
         if mods.shift {
-            let anchor = *edit_selection_start_index.get_or(id, &caret);
+            let anchor = *edit_selection_start_index.find_or(id, &caret, debug);
             if !edit_selection_start_index.contains_key(id) {
                 edit_selection_start_index.insert(id, caret);
             }
@@ -662,11 +643,9 @@ impl Element {
             return;
         }
 
-        let Some(buffer) = cx.get_or_create_layout(id) else {
-            return;
-        };
+        let buffer = cx.get_or_create_layout(id);
 
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+        let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;
         };
 
@@ -729,6 +708,7 @@ impl Element {
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
                     &mut cx.states.edit.edit_selected_rects,
+                    &mut cx.debug,
                 );
             }
             VirtualKey::UP => {
@@ -739,9 +719,9 @@ impl Element {
                     caret,
                     &text_val,
                     mods,
-                    &mut cx.system.sys_text_engine,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
+                    &mut cx.debug,
                 );
             }
             VirtualKey::DOWN => {
@@ -752,9 +732,9 @@ impl Element {
                     caret,
                     &text_val,
                     mods,
-                    &mut cx.system.sys_text_engine,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selection_start_index,
+                    &mut cx.debug,
                 );
             }
             _ => {}
@@ -766,7 +746,7 @@ impl Element {
     }
 
     fn handle_input_ime_updated(cx: &mut Context, id: EntityId, ime: &ImeState) {
-        let Some(contents) = cx.contents.cont_input_contents.get_mut(id) else {
+        let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;
         };
 
@@ -949,7 +929,7 @@ impl Element {
         // シグナル更新やテーマ変更、親コンポーネントの再レンダリングによる
         // キャレット位置（selected_range）や Undo/Redo 履歴の末尾への強制初期化を防止
         // 既存の状態を検知した場合はデザイン設定のみを上書き
-        if let Some(existing) = cx.contents.cont_input_contents.get_mut(id) {
+        if let Some(existing) = cx.contents.cont_input_contents.find_mut(id) {
             Element::sync_existing_input_properties(existing, c);
             // 早期リターンを抜ける前に、最新の文字列状態を SoA / DWrite 側へ即座に同期・反映
             cx.apply_input_update(id, InputOp::Init);
@@ -1015,7 +995,7 @@ impl Element {
         });
 
         cx.create_element_effect(id, EffectCategory::Text, move |cx| {
-            if let Some(contents) = cx.contents.cont_input_contents.get(id) {
+            if let Some(contents) = cx.contents.cont_input_contents.find(id) {
                 let _base_text_val = contents.text.0.get();
             }
             cx.apply_input_update(id, InputOp::TextEffect);

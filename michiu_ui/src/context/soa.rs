@@ -1,18 +1,18 @@
-use crate::{EntityId, MichiuError};
+use crate::{DebugStore, EntityId, MichiuError, OptionTraceExt, Result};
 
-pub(crate) trait MichiuSoA {
+pub trait MichiuSoA {
     type Item;
 
     /// 存在しない場合は None を返す
-    fn get(&self, id: EntityId) -> Option<&Self::Item>;
+    fn find(&self, id: EntityId) -> Option<&Self::Item>;
 
     /// 可変参照用
-    fn get_mut(&mut self, id: EntityId) -> Option<&mut Self::Item>;
+    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item>;
 
     /// 存在しない場合は Err を返す
     #[inline]
-    fn require(&self, id: EntityId) -> Result<&Self::Item, MichiuError> {
-        self.get(id).ok_or_else(|| MichiuError::ComponentNotFound {
+    fn require(&self, id: EntityId) -> Result<&Self::Item> {
+        self.find(id).ok_or_else(|| MichiuError::ComponentNotFound {
             id,
             component: std::any::type_name::<Self>(),
         })
@@ -20,9 +20,9 @@ pub(crate) trait MichiuSoA {
 
     /// 可変参照用
     #[inline]
-    fn require_mut(&mut self, id: EntityId) -> Result<&mut Self::Item, MichiuError> {
+    fn require_mut(&mut self, id: EntityId) -> Result<&mut Self::Item> {
         let component = std::any::type_name::<Self>();
-        self.get_mut(id)
+        self.find_mut(id)
             .ok_or(MichiuError::ComponentNotFound { id, component })
     }
 
@@ -31,10 +31,10 @@ pub(crate) trait MichiuSoA {
     #[track_caller]
     #[allow(clippy::panic)]
     fn at(&self, id: EntityId) -> &Self::Item {
-        let type_name = std::any::type_name::<Self>();
-        let caller = std::panic::Location::caller();
+        self.find(id).unwrap_or_else(|| {
+            let type_name = std::any::type_name::<Self>();
+            let caller = std::panic::Location::caller();
 
-        self.get(id).unwrap_or_else(|| {
             panic!(
                 "[Michiu UI] SoA Component Access Failed\n\
                     Caller Loc    : {caller}\n\
@@ -54,10 +54,10 @@ pub(crate) trait MichiuSoA {
     #[track_caller]
     #[allow(clippy::panic)]
     fn at_mut(&mut self, id: EntityId) -> &mut Self::Item {
-        let type_name = std::any::type_name::<Self>();
-        let caller = std::panic::Location::caller();
+        self.find_mut(id).unwrap_or_else(|| {
+            let type_name = std::any::type_name::<Self>();
+            let caller = std::panic::Location::caller();
 
-        self.get_mut(id).unwrap_or_else(|| {
             panic!(
                 "[Michiu UI] SoA Component Mutable Access Failed\n\
                     Caller Loc    : {caller}\n\
@@ -74,23 +74,54 @@ pub(crate) trait MichiuSoA {
 
     /// デフォルト値でフォールバック
     #[inline]
-    fn get_or_default(&self, id: EntityId) -> Self::Item
+    #[track_caller]
+    fn find_or_default(&self, id: EntityId, debug: &mut DebugStore) -> Self::Item
     where
-        Self::Item: Default + Clone,
+        Self::Item: Default + Clone + std::fmt::Debug + Send + Sync + 'static,
     {
-        self.get(id).cloned().unwrap_or_default()
+        self.find(id)
+            .cloned()
+            .unwrap_or_default_trace(Some(id), debug)
     }
 
     /// 指定の値でフォールバック
     #[inline]
-    fn get_or<'a>(&'a self, id: EntityId, fallback: &'a Self::Item) -> &'a Self::Item {
-        self.get(id).unwrap_or(fallback)
+    #[track_caller]
+    fn find_or<'a>(
+        &'a self,
+        id: EntityId,
+        fallback: &'a Self::Item,
+        debug: &mut DebugStore,
+    ) -> &'a Self::Item
+    where
+        Self::Item: Default + Clone + std::fmt::Debug + Send + Sync + 'static,
+    {
+        #[cfg(not(feature = "trace-entity"))]
+        {
+            let _ = debug;
+            self.find(id).unwrap_or(fallback)
+        }
+
+        #[cfg(feature = "trace-entity")]
+        if let Some(val) = self.find(id) {
+            val
+        } else {
+            use crate::{MichiuInfo, MichiuTrace, trace_entity};
+            use std::sync::Arc;
+
+            trace_entity!(Some(id), debug, || MichiuTrace::Info {
+                detail: MichiuInfo::ValueNotFound,
+                fallback: Some(Arc::new(fallback.clone())),
+                add: Some(std::any::type_name::<Self::Item>()),
+            });
+            fallback
+        }
     }
 
     /// その要素がコンポーネントを保持しているか
     #[inline]
     fn contains(&self, id: EntityId) -> bool {
-        self.get(id).is_some()
+        self.find(id).is_some()
     }
 }
 
@@ -113,9 +144,9 @@ macro_rules! define_secondary {
         impl $crate::MichiuSoA for $name {
             type Item = $item;
             #[inline]
-            fn get(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
+            fn find(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
             #[inline]
-            fn get_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
+            fn find_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
         }
     };
 
@@ -136,9 +167,9 @@ macro_rules! define_sparse_secondary {
         impl $crate::MichiuSoA for $name {
             type Item = $item;
             #[inline]
-            fn get(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
+            fn find(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
             #[inline]
-            fn get_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
+            fn find_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
         }
     };
 
@@ -153,7 +184,7 @@ macro_rules! define_sparse_secondary {
 macro_rules! define_vec {
     ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty) $(;)?) => {
         $(#[$meta])*
-        #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+        #[derive(Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
         #[into_iterator(owned, ref, ref_mut)]
         $vis struct $name(pub(crate) Vec<$item>);
     };
@@ -164,7 +195,7 @@ macro_rules! define_vec {
 macro_rules! define_smallvec {
     ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty, $size:expr) $(;)?) => {
         $(#[$meta])*
-        #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+        #[derive(Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
         $vis struct $name(pub(crate) smallvec::SmallVec<[$item; $size]>);
     };
 }

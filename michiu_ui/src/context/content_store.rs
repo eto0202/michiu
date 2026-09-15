@@ -1,36 +1,31 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, FlexLayout, InputContents,
-    LayoutRect, MichiuSoA, MichiuString, RenderStore, TextBufferSparse, TextEngine, TextSpan,
-    VisualPropertiesSecondary, WebView2Contents, define_sparse_secondary,
+    ActiveMasksSecondary, CapacityConfig, DebugStore, EntityId, ExternalTexture, FlexLayout,
+    InputContents, LayoutRect, MichiuString, TextEngine, TextSpan, VisualPropertiesSecondary,
+    WebView2Contents, define_sparse_secondary, soa::MichiuSoA,
 };
-use slotmap::{SecondaryMap, SparseSecondaryMap};
+use slotmap::SparseSecondaryMap;
 use std::{
-    borrow::Cow,
-    ops::Deref,
     sync::Arc,
     time::{Duration, Instant},
 };
-use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
 
-define_sparse_secondary!(pub(crate) struct TextContentsSparse(MichiuString));
-define_sparse_secondary!(pub(crate) struct TextSpansSparse(Vec<TextSpan>));
-define_sparse_secondary!(pub(crate) struct InputContentsSparse(InputContents));
-define_sparse_secondary!(pub(crate) struct WebviewContentsSparse(WebView2Contents));
+define_sparse_secondary!(pub struct TextContentsSparse(MichiuString));
+define_sparse_secondary!(pub struct TextSpansSparse(Vec<TextSpan>));
+define_sparse_secondary!(pub struct InputContentsSparse(InputContents));
+define_sparse_secondary!(pub struct WebviewContentsSparse(WebView2Contents));
 
 #[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
-pub(crate) struct ExternalTextureSparse(
-    pub(crate) SparseSecondaryMap<EntityId, Arc<dyn ExternalTexture>>,
-);
+pub struct ExternalTextureSparse(pub SparseSecondaryMap<EntityId, Arc<dyn ExternalTexture>>);
 
 impl MichiuSoA for ExternalTextureSparse {
     type Item = Arc<dyn ExternalTexture>;
     #[inline]
-    fn get(&self, id: EntityId) -> Option<&Self::Item> {
+    fn find(&self, id: EntityId) -> Option<&Self::Item> {
         self.0.get(id)
     }
     #[inline]
-    fn get_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
         self.0.get_mut(id)
     }
 }
@@ -160,6 +155,7 @@ impl ContentStore {
         cont_text_spans: &TextSpansSparse,
         topo_active_masks: &ActiveMasksSecondary,
         rnd_visual: &VisualPropertiesSecondary,
+        debug: &mut DebugStore,
     ) -> taffy::Size<f32> {
         let mask = topo_active_masks.at(id);
         let has_input = mask.has_input_content();
@@ -183,11 +179,11 @@ impl ContentStore {
 
         // 折り返し設定と最大幅
         let auto_wrap = rnd_visual
-            .get(id)
+            .find(id)
             .and_then(|v| v.auto_wrap)
             .unwrap_or(false);
 
-        let mut max_width = if auto_wrap {
+        let max_width = if auto_wrap {
             known_dims.width.or({
                 if let taffy::AvailableSpace::Definite(w) = available_space.width {
                     Some(w)
@@ -229,15 +225,15 @@ impl ContentStore {
 
         let text = cont_text_contents.at(id);
         let font = rnd_visual
-            .get(id)
+            .find(id)
             .map(|v| v.font.clone())
             .unwrap_or_default();
 
-        let spans = cont_text_spans.get(id).map_or(&[][..], Vec::as_slice);
+        let spans = cont_text_spans.find(id).map_or(&[][..], Vec::as_slice);
 
         let size = sys_text_engine.measure_text(
             text,
-            font,
+            &font,
             flex.text_align,
             max_width,
             Some(auto_wrap),

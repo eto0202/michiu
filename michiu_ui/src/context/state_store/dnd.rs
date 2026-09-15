@@ -1,19 +1,17 @@
-use slotmap::SparseSecondaryMap;
-
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayoutsSecondary,
-    CapacityConfig, ChildrenSecondary, ComponentMask, Context, DirtyLayoutEntitiesVec,
+    CapacityConfig, ChildrenSecondary, ComponentMask, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Element, EntitiesSlot, EntityId, EventStore, FlexLayoutsSecondary,
-    LayoutPoint, LayoutRect, LayoutStore, Length, MichiuSoA, ParentsSecondary, Pipeline,
-    PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec,
-    TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val, define_sparse_secondary,
-    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
-    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
+    LayoutPoint, LayoutRect, LayoutStore, MichiuError, MichiuSoA, OptionTraceExt, ParentsSecondary,
+    Pipeline, PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec,
+    TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TopologyStore, Val,
+    define_sparse_secondary, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
+    handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
 };
+use slotmap::SparseSecondaryMap;
 
 /// プレースホルダーを挿入してマウントする親先祖の制御方法
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
 pub enum DndDragPlaceholderParent {
     Root,             // 自動的に最上位ルート要素の子としてアタッチ
     Custom(EntityId), // ユーザーが指定した特定の親コンテナの子としてアタッチ（範囲制限）
@@ -21,7 +19,6 @@ pub enum DndDragPlaceholderParent {
 
 /// ドラッグ＆ドロップ動作の論理形式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
 pub enum DndDragPayload {
     /// Element 自体を移動する。
     /// ドロップ時に UI ツリーが自動的に更新される。
@@ -43,7 +40,6 @@ pub struct DndDragProperty {
 
 /// ドロップ受け入れ先での取り込み形式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
 pub enum DndDropTarget {
     Child,   // ドロップ先の子要素として取り込む
     Sibling, // ドロップ先の兄弟要素（隣接位置）として取り込む
@@ -57,17 +53,18 @@ pub struct DndDropProperty {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ActiveDragState {
-    pub(crate) source_entity: EntityId,      // ドラッグ元の要素
-    pub(crate) placeholder_entity: EntityId, // ルートまたは親に浮かせているプレースホルダー
-    pub(crate) current_drop_target: Option<EntityId>, // 現在ホバー侵入中のドロップターゲット要素
-    pub(crate) start_mouse_pos: LayoutPoint, // ドラッグ開始時のマウス座標
-    pub(crate) start_rect: LayoutRect,       // ドラッグ元の初期サイズ・座標
-    pub(crate) click_offset: LayoutPoint,    // ドラッグ開始時のマウスと要素左上端の相対的なズレ
-    pub(crate) original_parent: Option<EntityId>,
+pub struct ActiveDragState {
+    pub source_entity: EntityId,               // ドラッグ元の要素
+    pub placeholder_entity: EntityId,          // ルートまたは親に浮かせているプレースホルダー
+    pub current_drop_target: Option<EntityId>, // 現在ホバー侵入中のドロップターゲット要素
+    pub start_mouse_pos: LayoutPoint,          // ドラッグ開始時のマウス座標
+    pub start_rect: LayoutRect,                // ドラッグ元の初期サイズ・座標
+    pub click_offset: LayoutPoint,             // ドラッグ開始時のマウスと要素左上端の相対的なズレ
+    pub original_parent: Option<EntityId>,
 }
 
 /// プレースホルダーをアタッチする際の親要素の情報
+#[derive(Debug, Clone)]
 pub(crate) struct PlaceholderAttachment {
     pub(crate) parent_id: Option<EntityId>,
     pub(crate) rect: LayoutRect,
@@ -75,8 +72,8 @@ pub(crate) struct PlaceholderAttachment {
     pub(crate) border_top: f32,
 }
 
-define_sparse_secondary!(pub(crate) struct DndDragPropertiesSparse(DndDragProperty));
-define_sparse_secondary!(pub(crate) struct DndDropPropertiesSparse(DndDropProperty));
+define_sparse_secondary!(pub struct DndDragPropertiesSparse(DndDragProperty));
+define_sparse_secondary!(pub struct DndDropPropertiesSparse(DndDropProperty));
 
 pub(crate) struct DndStore {
     pub(crate) dnd_drag_properties: DndDragPropertiesSparse,
@@ -152,7 +149,7 @@ impl DndStore {
             DndDragPlaceholderParent::Custom(p_id) => {
                 let rect = *out_rects.at(p_id);
                 let (border_left, border_top) = lay_basic
-                    .get(p_id)
+                    .find(p_id)
                     .map(|l| (l.border.left.to_px_or_zero(), l.border.top.to_px_or_zero()))
                     .unwrap_or_default();
 
@@ -168,7 +165,6 @@ impl DndStore {
 
     fn spawn_dnd_placeholder(
         root: EntityId,
-        pressed_id: EntityId,
         drag_prop: &DndDragProperty,
         topo_entities: &mut EntitiesSlot,
         topo_active_entities: &mut ActiveEntitiesVec,
@@ -184,6 +180,7 @@ impl DndStore {
         lay_basic: &BasicLayoutsSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> EntityId {
         let placeholder =
             DndStore::resolve_dnd_placeholder_parent(root, drag_prop, lay_basic, out_rects);
@@ -201,6 +198,7 @@ impl DndStore {
             lay_taffy_tree,
             lay_taffy_nodes,
             rnd_dirty_entities,
+            debug,
         );
 
         if let Some(p_id) = placeholder.parent_id {
@@ -215,6 +213,7 @@ impl DndStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
 
@@ -276,6 +275,7 @@ impl DndStore {
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         for child_id in topo_children.at(pressed_id).clone() {
             // 子要素の親ポインタをプレースホルダーに付け替え
@@ -289,8 +289,12 @@ impl DndStore {
             let ph_node = *lay_taffy_nodes.at(placeholder_id);
             let child_node = *lay_taffy_nodes.at(child_id);
 
-            lay_taffy_tree.remove_child(src_node, child_node).unwrap();
-            lay_taffy_tree.add_child(ph_node, child_node).unwrap();
+            lay_taffy_tree
+                .remove_child(src_node, child_node)
+                .unwrap_or_trace(Some(child_id), debug);
+            lay_taffy_tree
+                .add_child(ph_node, child_node)
+                .unwrap_or_trace(Some(child_id), debug);
         }
 
         // 元の要素の子要素リストは一時的にクリア（プレースホルダーに避難しているため）
@@ -305,6 +309,7 @@ impl DndStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
     }
@@ -323,12 +328,11 @@ impl DndStore {
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
         )
-        .expect("Root EntityId not found in Context");
+        .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
 
         // プレースホルダーをアタッチ先親の直下へ spawn して生成
         let placeholder_id = DndStore::spawn_dnd_placeholder(
             root,
-            pressed_id,
             &drag_prop,
             &mut cx.topology.topo_entities,
             &mut cx.topology.topo_active_entities,
@@ -344,6 +348,7 @@ impl DndStore {
             &cx.layouts.lay_basic,
             &mut cx.renders.rnd_dirty_entities,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         // プレースホルダーの初期スタイル・透過・状態情報をセットアップ
@@ -359,6 +364,7 @@ impl DndStore {
             &mut cx.layouts.lay_dirty_entities,
             &mut cx.layouts.lay_taffy_tree,
             &cx.layouts.lay_taffy_nodes,
+            &mut cx.debug,
         );
 
         // プレースホルダーアタッチ前の、本当の元の親要素のIDを記録
@@ -443,6 +449,7 @@ impl DndStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
         // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
         let (parent_rect, b_l, b_t) =
@@ -471,6 +478,7 @@ impl DndStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
         RenderStore::mark_render_dirty(placeholder, topo_active_masks, rnd_dirty_entities);
     }
@@ -558,6 +566,7 @@ impl DndStore {
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         let Some(src_parent_id) = drag_state.original_parent else {
             return;
@@ -571,6 +580,7 @@ impl DndStore {
             topo_children,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
         LayoutStore::mark_layout_dirty(
             src_parent_id,
@@ -579,6 +589,7 @@ impl DndStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
     }
 
@@ -587,7 +598,6 @@ impl DndStore {
         target_id: EntityId,
         holder: EntityId,
         drag_prop: &DndDragProperty,
-        drag_state: &ActiveDragState,
         evt_current_pointer_position: Option<LayoutPoint>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &mut ParentsSecondary,
@@ -601,6 +611,7 @@ impl DndStore {
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
         let basic = lay_basic.at_mut(src_id);
 
@@ -642,6 +653,7 @@ impl DndStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
 
             return;
@@ -667,6 +679,7 @@ impl DndStore {
                 topo_children,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         } else {
             // 自動更新オフの場合は末尾に通常アタッチ
@@ -681,6 +694,7 @@ impl DndStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
         LayoutStore::mark_layout_dirty(
@@ -690,6 +704,7 @@ impl DndStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
     }
 
@@ -698,7 +713,7 @@ impl DndStore {
         let src_id = drag_state.source_entity;
         let holder = drag_state.placeholder_entity;
 
-        let Some(drag_prop) = cx.states.dnd.dnd_drag_properties.get(src_id).copied() else {
+        let Some(drag_prop) = cx.states.dnd.dnd_drag_properties.find(src_id).copied() else {
             return;
         };
 
@@ -727,13 +742,13 @@ impl DndStore {
                 &mut cx.layouts.lay_dirty_entities,
                 &mut cx.layouts.lay_taffy_tree,
                 &cx.layouts.lay_taffy_nodes,
+                &mut cx.debug,
             );
             DndStore::dnd_rewrite_tree_topology(
                 src_id,
                 target_id,
                 holder,
                 &drag_prop,
-                drag_state,
                 cx.events.evt_current_pointer_position,
                 &mut cx.topology.topo_active_masks,
                 &mut cx.topology.topo_parents,
@@ -747,6 +762,7 @@ impl DndStore {
                 &mut cx.layouts.lay_base_basic,
                 &cx.layouts.lay_flex,
                 &cx.outputs.out_rects,
+                &mut cx.debug,
             );
             cx.topology.topo_is_structure_dirty = true;
             cx.topology.topo_is_sort_dirty = true;
@@ -760,6 +776,7 @@ impl DndStore {
             &mut cx.topology.topo_children,
             &mut cx.layouts.lay_taffy_tree,
             &mut cx.layouts.lay_taffy_nodes,
+            &mut cx.debug,
         );
         cx.topology.topo_children.at_mut(holder).clear();
 
@@ -771,6 +788,7 @@ impl DndStore {
                 &mut cx.layouts.lay_dirty_entities,
                 &mut cx.layouts.lay_taffy_tree,
                 &cx.layouts.lay_taffy_nodes,
+                &mut cx.debug,
             );
         }
 
@@ -801,6 +819,7 @@ impl DndStore {
             &mut cx.layouts,
             &mut cx.renders,
             &mut cx.outputs,
+            &mut cx.debug,
         );
 
         if let Some(pos) = cx.events.evt_current_pointer_position {

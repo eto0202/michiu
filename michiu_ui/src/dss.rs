@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::{Context, ReadSignal, ThisStyle};
+use crate::{Context, MichiuError, ReadSignal, ThisStyle};
 use lightningcss::{
     printer::PrinterOptions,
     properties::{Property, PropertyId, display::DisplayPair, position::ZIndex, size::Size},
@@ -154,9 +154,9 @@ impl DynamicStyleSheetSetBuilder {
                     let cwd = std::env::current_dir().unwrap_or_default();
                     eprintln!(
                         "Warning [michiu_ui]: Hot-reload watch target does not exist.\n\
-                                         Target path: {file_path:?}\n\
-                                         Current working directory (CWD): {cwd:?}\n\
-                                         Please adjust your relative path based on the CWD above."
+                         Target path: {file_path:?}\n\
+                         Current working directory (CWD): {cwd:?}\n\
+                         Please adjust your relative path based on the CWD above."
                     );
                     continue;
                 }
@@ -493,20 +493,18 @@ fn apply_declarations_to_style(
             }
 
             Property::BorderWidth(width) => {
-                if let Some(t) = parse_border_side_width(&width.top)
-                    && let Some(r) = parse_border_side_width(&width.right)
-                    && let Some(b) = parse_border_side_width(&width.bottom)
-                    && let Some(l) = parse_border_side_width(&width.left)
-                {
-                    let b_rect = crate::Rect::new(t, r, b, l);
-                    style = map_style_prop(style, target, |s| s.border_solid(b_rect));
-                }
+                let t = parse_border_side_width(&width.top);
+                let r = parse_border_side_width(&width.right);
+                let b = parse_border_side_width(&width.bottom);
+                let l = parse_border_side_width(&width.left);
+
+                let b_rect = crate::Rect::new(t, r, b, l);
+                style = map_style_prop(style, target, |s| s.border_solid(b_rect));
             }
             Property::Border(border) => {
-                if let Some(w) = parse_border_side_width(&border.width)
-                    && let Some(c) = parse_css_color(&border.color)
-                {
-                    let b_style = parse_line_style(&border.style);
+                let w = parse_border_side_width(&border.width);
+                if let Some(c) = parse_css_color(&border.color) {
+                    let b_style = parse_line_style(border.style);
                     let b_rect = crate::Rect::all(w);
                     style = map_style_prop(style, target, |s| {
                         s.border(b_style, b_rect).border_color(c)
@@ -514,39 +512,35 @@ fn apply_declarations_to_style(
                 }
             }
             Property::BorderTop(border) => {
-                if let Some(w) = parse_border_side_width(&border.width)
-                    && let Some(c) = parse_css_color(&border.color)
-                {
-                    let b_style = parse_line_style(&border.style);
+                let w = parse_border_side_width(&border.width);
+                if let Some(c) = parse_css_color(&border.color) {
+                    let b_style = parse_line_style(border.style);
                     style =
                         map_style_prop(style, target, |s| s.border_top(b_style, w).border_color(c));
                 }
             }
             Property::BorderRight(border) => {
-                if let Some(w) = parse_border_side_width(&border.width)
-                    && let Some(c) = parse_css_color(&border.color)
-                {
-                    let b_style = parse_line_style(&border.style);
+                let w = parse_border_side_width(&border.width);
+                if let Some(c) = parse_css_color(&border.color) {
+                    let b_style = parse_line_style(border.style);
                     style = map_style_prop(style, target, |s| {
                         s.border_right(b_style, w).border_color(c)
                     });
                 }
             }
             Property::BorderBottom(border) => {
-                if let Some(w) = parse_border_side_width(&border.width)
-                    && let Some(c) = parse_css_color(&border.color)
-                {
-                    let b_style = parse_line_style(&border.style);
+                let w = parse_border_side_width(&border.width);
+                if let Some(c) = parse_css_color(&border.color) {
+                    let b_style = parse_line_style(border.style);
                     style = map_style_prop(style, target, |s| {
                         s.border_bottom(b_style, w).border_color(c)
                     });
                 }
             }
             Property::BorderLeft(border) => {
-                if let Some(w) = parse_border_side_width(&border.width)
-                    && let Some(c) = parse_css_color(&border.color)
-                {
-                    let b_style = parse_line_style(&border.style);
+                let w = parse_border_side_width(&border.width);
+                if let Some(c) = parse_css_color(&border.color) {
+                    let b_style = parse_line_style(border.style);
                     style = map_style_prop(style, target, |s| {
                         s.border_left(b_style, w).border_color(c)
                     });
@@ -914,7 +908,7 @@ fn parse_css_size(size: &Size) -> Option<crate::Val> {
         Size::LengthPercentage(lp) => match lp {
             LengthPercentage::Dimension(d) => Some(crate::Val::Px(d.to_px().unwrap_or(0.0))),
             LengthPercentage::Percentage(p) => Some(crate::Val::Percent(p.0 * 100.0)),
-            _ => None,
+            LengthPercentage::Calc(_) => None,
         },
         _ => None,
     }
@@ -976,27 +970,30 @@ fn parse_css_gap_value(val: &lightningcss::properties::align::GapValue) -> Optio
 /// `BorderSideWidth` から Length への変換
 fn parse_border_side_width(
     val: &lightningcss::properties::border::BorderSideWidth,
-) -> Option<crate::Length> {
+) -> crate::Length {
     use lightningcss::properties::border::BorderSideWidth;
     match val {
-        BorderSideWidth::Length(len) => Some(crate::Length::Px(len.to_px().unwrap_or(0.0))),
-        BorderSideWidth::Thin => Some(crate::Length::Px(1.0)),
-        BorderSideWidth::Medium => Some(crate::Length::Px(3.0)),
-        BorderSideWidth::Thick => Some(crate::Length::Px(5.0)),
+        BorderSideWidth::Length(len) => crate::Length::Px(len.to_px().unwrap_or(0.0)),
+        BorderSideWidth::Thin => crate::Length::Px(1.0),
+        BorderSideWidth::Medium => crate::Length::Px(3.0),
+        BorderSideWidth::Thick => crate::Length::Px(5.0),
     }
 }
 
 // モノモルファイズの削減
+#[allow(clippy::expect_used)]
 #[inline]
 fn map_style_prop<F>(style: ThisStyle, target: crate::StyleTarget, f: F) -> ThisStyle
 where
     F: FnOnce(ThisStyle) -> ThisStyle,
 {
-    // Option で包むことで FnMut としてトレイトオブジェクト化
     let mut f = Some(f);
 
     map_style_prop_impl(style, target, &mut |s| {
-        f.take().expect("f called more than once")(s)
+        f.take()
+            .expect("Internal bug: map_style_prop_impl invoked a FnOnce closure multiple times")(
+            s
+        )
     })
 }
 
@@ -1040,11 +1037,11 @@ fn parse_css_length_f32(lp: &lightningcss::values::length::LengthPercentage) -> 
     match lp {
         DimensionPercentage::Dimension(d) => d.to_px(),
         DimensionPercentage::Percentage(p) => Some(p.0 * 100.0),
-        _ => None,
+        DimensionPercentage::Calc(_) => None,
     }
 }
 
-fn parse_line_style(style: &lightningcss::properties::border::LineStyle) -> crate::BorderStyle {
+fn parse_line_style(style: lightningcss::properties::border::LineStyle) -> crate::BorderStyle {
     use lightningcss::properties::border::LineStyle;
     match style {
         LineStyle::Dotted => crate::BorderStyle::Dotted,

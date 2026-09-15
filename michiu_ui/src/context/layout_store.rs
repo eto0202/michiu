@@ -3,46 +3,37 @@ pub mod scrollbar;
 pub use scrollbar::*;
 
 use crate::{
-    ActiveMasksSecondary, ActiveTransitionsSparse, BaseVisualPropertiesSecondary, BasicLayout,
-    CapacityConfig, ChildrenSecondary, ComponentMask, ContentStore, Context,
-    DirtyRenderEntitiesVec, Display, EdgeInsets, EntityId, FlexLayout, GridLayout,
-    InputContentsSparse, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
-    LayoutRect, LayoutSize, Length, MichiuSoA, NormalLayout, OutputStore, ParentsSecondary,
-    Position, PropertyList, Rect, RectsSecondary, RenderStore, ResizingState,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, Size, StyleTarget, SystemStore, TextBufferSparse,
-    TextContentsSparse, TextEngine, TextSpansSparse, ThisStyle, TopologyStore, Val,
-    VisualPropertiesSecondary, WindowStore, define_secondary, define_sparse_secondary, define_vec,
+    ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayout, CapacityConfig, ChildrenSecondary,
+    ComponentMask, Context, DebugStore, EdgeInsets, EntityId, FlexLayout, GridLayout,
+    InteractionPropertiesSecondary, InteractionStyles, LayoutRect, Length, MichiuSoA, NormalLayout,
+    ParentsSecondary, PropertyList, Rect, RenderStore, StyleTarget, TaffyResultTraceExt, ThisStyle,
+    VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
-use smallvec::SmallVec;
-use std::{
-    collections::HashSet,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::sync::Arc;
 use taffy::TaffyTree;
 
 // ======================================================
-// まとめるかどうか要検討
+// まとめる？
 pub(crate) type LayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 pub(crate) type BaseLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 pub(crate) type ResolvedLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
 // ======================================================
 
-define_secondary!(pub(crate) struct TaffyNodesSecondary(taffy::NodeId));
-define_secondary!(pub(crate) struct BasicLayoutsSecondary(BasicLayout));
-define_secondary!(pub(crate) struct FlexLayoutsSecondary(FlexLayout));
-define_secondary!(pub(crate) struct BaseBasicLayoutsSecondary(BasicLayout));
-define_secondary!(pub(crate) struct BaseFlexLayoutsSecondary(FlexLayout));
-define_secondary!(pub(crate) struct ResolvedBasicSecondary(BasicLayout));
-define_secondary!(pub(crate) struct ResolvedFlexSecondary(FlexLayout));
+define_secondary!(pub struct TaffyNodesSecondary(taffy::NodeId));
+define_secondary!(pub struct BasicLayoutsSecondary(BasicLayout));
+define_secondary!(pub struct FlexLayoutsSecondary(FlexLayout));
+define_secondary!(pub struct BaseBasicLayoutsSecondary(BasicLayout));
+define_secondary!(pub struct BaseFlexLayoutsSecondary(FlexLayout));
+define_secondary!(pub struct ResolvedBasicSecondary(BasicLayout));
+define_secondary!(pub struct ResolvedFlexSecondary(FlexLayout));
 
-define_sparse_secondary!(pub(crate) struct GridLayoutsSparse(GridLayout));
-define_sparse_secondary!(pub(crate) struct ResolvedGridSparse(GridLayout));
+define_sparse_secondary!(pub struct GridLayoutsSparse(GridLayout));
+define_sparse_secondary!(pub struct ResolvedGridSparse(GridLayout));
 
-define_vec!(pub(crate) struct DirtyLayoutEntitiesVec(EntityId));
+define_vec!(pub struct DirtyLayoutEntitiesVec(EntityId));
 
-pub(crate) type TaffyTreeEntityId = taffy::TaffyTree<EntityId>;
+pub type TaffyTreeEntityId = taffy::TaffyTree<EntityId>;
 
 pub struct LayoutStore {
     pub(crate) scrollbar: ScrollbarStore,
@@ -157,10 +148,11 @@ impl LayoutStore {
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
+        debug: &mut DebugStore,
     ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
-        let mut basic = lay_basic.get_or_default(id);
-        let mut flex = lay_flex.get_or_default(id);
-        let mut grid = lay_grid.get(id).cloned();
+        let mut basic = lay_basic.find_or_default(id, debug);
+        let mut flex = lay_flex.find_or_default(id, debug);
+        let mut grid = lay_grid.find(id).cloned();
 
         let active_mask = topo_active_masks.at(id);
 
@@ -213,6 +205,7 @@ impl LayoutStore {
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
+        debug: &mut DebugStore,
     ) {
         let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
             id,
@@ -224,6 +217,7 @@ impl LayoutStore {
             rnd_visual,
             rnd_interaction,
             rnd_active_transitions,
+            debug,
         );
 
         lay_resolved_basic.insert(id, basic);
@@ -277,7 +271,7 @@ impl LayoutStore {
         id: EntityId,
         rnd_active_transitions: &ActiveTransitionsSparse,
     ) -> (bool, bool) {
-        let Some(list) = rnd_active_transitions.get(id) else {
+        let Some(list) = rnd_active_transitions.find(id) else {
             return (false, false);
         };
 
@@ -310,7 +304,7 @@ impl LayoutStore {
         is_transitioning: (bool, bool),
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
-        let Some(interaction) = rnd_interaction.get(id) else {
+        let Some(interaction) = rnd_interaction.find(id) else {
             return;
         };
 
@@ -357,9 +351,9 @@ impl LayoutStore {
         basic: &BasicLayout,
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
     ) -> taffy::Style {
-        let sb_style = bar_styles.get(id).map(|s| &s.style);
+        let sb_style = bar_styles.find(id).map(|s| &s.style);
 
         let mut style: taffy::Style = taffy::Style {
             display: basic.display.into(),
@@ -470,7 +464,7 @@ impl LayoutStore {
         grid: Option<&GridLayout>,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
-        bar_styles: &ScrollbarStylesSecondary,
+        bar_styles: &ScrollbarStylesSparse,
     ) {
         let taffy_style = LayoutStore::resolve_taffy_style(id, basic, flex, grid, bar_styles);
         let nodes = *lay_taffy_nodes.at(id);
@@ -505,6 +499,7 @@ impl LayoutStore {
         topo_children: &ChildrenSecondary,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         let parent_node = *lay_taffy_nodes.at(parent_id);
         // 一旦現在登録されているすべての子ノードを Taffy 側から安全にデタッチ
@@ -512,7 +507,7 @@ impl LayoutStore {
             for child_node in taffy_children {
                 lay_taffy_tree
                     .remove_child(parent_node, child_node)
-                    .unwrap();
+                    .unwrap_or_trace(Some(parent_id), debug);
             }
         }
 
@@ -521,7 +516,9 @@ impl LayoutStore {
         // 最新の順序に従って、Taffy 側に再アタッチ
         for &child_id in children_list {
             let child_node = *lay_taffy_nodes.at(child_id);
-            lay_taffy_tree.add_child(parent_node, child_node).unwrap();
+            lay_taffy_tree
+                .add_child(parent_node, child_node)
+                .unwrap_or_trace(Some(child_id), debug);
         }
     }
 
@@ -531,7 +528,7 @@ impl LayoutStore {
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
     ) {
         for id in lay_dirty_entities.drain(..) {
-            if let Some(mask) = topo_active_masks.get_mut(id) {
+            if let Some(mask) = topo_active_masks.find_mut(id) {
                 mask.unset(ComponentMask::STATE_QUEUED_LAYOUT);
             }
         }
@@ -545,15 +542,18 @@ impl LayoutStore {
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         let mut curr = id;
         // Taffy 側の該当ノードのレイアウトキャッシュを無効化
         let taffy_node = *lay_taffy_nodes.at(curr);
-        lay_taffy_tree.mark_dirty(taffy_node).unwrap();
+        lay_taffy_tree
+            .mark_dirty(taffy_node)
+            .unwrap_or_trace(Some(curr), debug);
 
         loop {
             // マスクが存在する場合のみDirtyマーク
-            if let Some(mask) = topo_active_masks.get_mut(curr) {
+            if let Some(mask) = topo_active_masks.find_mut(curr) {
                 // すでに登録済みなら多重登録を防ぐため探索を早期ブレイク
                 if mask.has(ComponentMask::STATE_QUEUED_LAYOUT) {
                     break;
@@ -581,6 +581,7 @@ impl Context {
             &mut self.layouts.lay_dirty_entities,
             &mut self.layouts.lay_taffy_tree,
             &self.layouts.lay_taffy_nodes,
+            &mut self.debug,
         );
     }
 

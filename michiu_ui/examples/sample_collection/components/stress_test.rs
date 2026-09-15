@@ -42,7 +42,7 @@ fn base_el(i: i32) -> Element {
                 .text_color(dynamic(|t: &Theme| t.text))
                 .pressed_parent(ts().font_size(20.0)),
         )
-        .on_click_with(|cx| println!("Current Element ID: {:?}", cx.current_element_id()))
+        .on_click_with(|cx| println!("Current ID: {:?}", cx.current().id()))
 }
 
 #[inline]

@@ -1,9 +1,15 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
-use crate::window::{
-    client_rect, create_renderer, create_window, message_loop, register_class, show_window,
+use crate::{
+    logger::logger,
+    window::{
+        client_rect, create_renderer, create_window, message_loop, register_class, show_window,
+    },
 };
-use michiu_ui::{CapacityConfig, ComposedRenderer, Dss, DssSet, EntityId, prelude::*};
+use michiu_ui::{
+    CapacityConfig, ComposedRenderer, Dss, DssSet, EntityId, MichiuInspector, MichiuTrace,
+    prelude::*,
+};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
@@ -20,6 +26,7 @@ use windows::Win32::{
 
 mod app;
 mod components;
+mod logger;
 mod window;
 
 /// ウィンドウメッセージ処理時に Context と Renderer を一元管理するためのアプリケーション状態
@@ -41,6 +48,7 @@ impl SendHwnd {
     }
 }
 
+pub const ALLOW_LOG: bool = false;
 pub const ALLOW_STRESS_TEST: bool = false;
 
 #[cfg(feature = "dhat-heap")]
@@ -60,7 +68,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let (h_instance, class_name, _wnd_class) = register_class()?;
     let hwnd = create_window(h_instance, class_name)?;
-    let mut context = Context::with_capacity(&CapacityConfig::from_base_nodes(1024));
+
+    let inspector = MichiuInspector::new();
+    let sub = inspector.subscribe(None);
+
+    // キャパシティは、ログやスナップショットから各配列のピーク時の長さを調べれば最適化出来る。めんどくさいけど。
+    let mut context =
+        Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector);
+
+    // デバッグログ用のスレッド
+    #[cfg(feature = "trace-lifecycle")]
+    logger(sub);
 
     let send_hwnd = SendHwnd(hwnd);
 

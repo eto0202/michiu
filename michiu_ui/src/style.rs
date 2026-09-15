@@ -27,19 +27,19 @@ pub struct ThisStyle {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct StyleInner {
-    pub(crate) mask: ComponentMask,
-    pub(crate) basic_layout: BasicLayout,
-    pub(crate) flex_layout: FlexLayout,
-    pub(crate) grid_layout: Option<GridLayout>,
-    pub(crate) visual_property: VisualProperty,
-    pub(crate) interaction_styles: InteractionStyles,
-    pub(crate) scrollbar_style: Option<ScrollbarStyle>,
+pub struct StyleInner {
+    pub mask: ComponentMask,
+    pub basic_layout: BasicLayout,
+    pub flex_layout: FlexLayout,
+    pub grid_layout: Option<GridLayout>,
+    pub visual_property: VisualProperty,
+    pub interaction_styles: InteractionStyles,
+    pub scrollbar_style: Option<ScrollbarStyle>,
     // 動的にスタイルプロパティを更新するためのクローン可能なセッターリスト
-    pub(crate) dynamic_setters: DynamicSettersType,
+    pub dynamic_setters: DynamicSettersType,
 
-    pub(crate) drag_property: Option<DndDragProperty>,
-    pub(crate) drop_property: Option<DndDropProperty>,
+    pub drag_property: Option<DndDragProperty>,
+    pub drop_property: Option<DndDropProperty>,
 }
 
 type DynamicSettersType = Vec<Arc<dyn Fn(&mut Context, EntityId, StyleTarget) + Send + Sync>>;
@@ -314,7 +314,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.find_mut(id) {
                             v.style = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -344,7 +344,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.find_mut(id) {
                             v.style.width = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -374,7 +374,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.find_mut(id) {
                             v.style.display = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -427,7 +427,7 @@ impl ThisStyle {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     if target == StyleTarget::Base {
                         let val = getter();
-                        if let Some(v) = cx.layouts.scrollbar.bar_styles.get_mut(id) {
+                        if let Some(v) = cx.layouts.scrollbar.bar_styles.find_mut(id) {
                             v.style.mode = val;
                         }
                         cx.mark_layout_dirty(id);
@@ -5508,7 +5508,9 @@ impl ThisStyle {
     }
 
     /// すべての疑似クラスおよび within 伝播系のスタイルと動的セッターを統合する共通コアヘルパー
+    #[track_caller]
     #[allow(clippy::too_many_lines)]
+    #[allow(clippy::unreachable)]
     fn apply_interaction_style(
         mut self,
         style: impl IntoStyleValue<ThisStyle>,
@@ -5559,7 +5561,21 @@ impl ThisStyle {
                     StyleTarget::SelectedWithin => interaction.selected_within = Some(v),
                     StyleTarget::DraggedWithin => interaction.dragged_within = Some(v),
                     StyleTarget::AnyWithin => interaction.any_within = Some(v),
-                    StyleTarget::Base => unreachable!(),
+                    StyleTarget::Base => {
+                        unreachable!(
+                            "\n\
+                            Internal invariant violated. This is a bug in michiu_ui.\n\
+                            Please report this issue at https://github.com/eto0202/michiu/issues\n\
+                             [StyleValue Static]\n\
+                             [Style]       : {v:?}\n\
+                             [flag]        : {state_flag},\n\
+                             [target]      : {target:?},\n\
+                             [interaction] : {interaction:?}\n\
+                             [loc]         : {}\n\
+                            ",
+                            std::panic::Location::caller()
+                        )
+                    }
 
                     StyleTarget::HoveredParent => interaction.hovered_parent = Some(v),
                     StyleTarget::FocusedParent => interaction.focused_parent = Some(v),
@@ -5576,7 +5592,7 @@ impl ThisStyle {
                 inner.mask.set(state_flag);
             }
 
-            // パターン B: 疑似クラス自体が consume 等の遅延ゲッターで上書きされた場合
+            // 疑似クラス自体が consume 等の遅延ゲッターで上書きされた場合
             StyleValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.mask.set(state_flag);
@@ -5624,7 +5640,21 @@ impl ThisStyle {
                             }
                             StyleTarget::DraggedWithin => styles.dragged_within = Some(val.clone()),
                             StyleTarget::AnyWithin => styles.any_within = Some(val.clone()),
-                            StyleTarget::Base => unreachable!(),
+                            StyleTarget::Base => {
+                                unreachable!(
+                                    "\n\
+                                    Internal invariant violated. This is a bug in michiu_ui.\n\
+                                    Please report this issue at https://github.com/eto0202/michiu/issues\n\
+                                     [StyleValue Dynamic]\n\
+                                     [style]       : {val:?}\n\
+                                     [flag]        : {state_flag},\n\
+                                     [target]      : {target:?},\n\
+                                     [interaction] : {styles:?}\n\
+                                     [loc]         : {}\n\
+                                    ",
+                                    std::panic::Location::caller()
+                                )
+                            }
 
                             StyleTarget::HoveredParent => styles.hovered_parent = Some(val.clone()),
                             StyleTarget::FocusedParent => styles.focused_parent = Some(val.clone()),

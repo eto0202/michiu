@@ -6,11 +6,9 @@ use crate::{
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use smallvec::SmallVec;
-use std::{collections::HashMap, fmt, marker::PhantomData};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub(crate) enum EffectCategory {
+pub enum EffectCategory {
     None,
     Style,
     Text,
@@ -30,8 +28,8 @@ pub(crate) enum EffectCategory {
 }
 
 pub(crate) struct Effects(pub(crate) Box<dyn FnMut(&mut Context)>);
-impl fmt::Debug for Effects {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Debug for Effects {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Effects(<closure>)")
     }
 }
@@ -39,13 +37,13 @@ impl fmt::Debug for Effects {
 define_slotmap!(pub(crate) struct SignalsSlot(SignalId, Box<dyn std::any::Any>));
 define_slotmap!(pub(crate) struct EffectsSlot(EffectId, Effects));
 
-define_secondary!(pub(crate) struct SubscribersSecondary(SignalId, SmallVec<[EffectId; 8]>));
-define_secondary!(pub(crate) struct ElementEffectsSecondary(SmallVec<[(EffectCategory, EffectId); 8]>));
-define_secondary!(pub(crate) struct EffectToElementSecondary(EffectId, EntityId));
+define_secondary!(pub struct SubscribersSecondary(SignalId, SmallVec<[EffectId; 8]>));
+define_secondary!(pub struct ElementEffectsSecondary(SmallVec<[(EffectCategory, EffectId); 8]>));
+define_secondary!(pub struct EffectToElementSecondary(EffectId, EntityId));
 
-define_sparse_secondary!(pub(crate) struct ProvidersSparseSecondary(FxHashMap<std::any::TypeId, SignalId>));
+define_sparse_secondary!(pub struct ProvidersSparseSecondary(FxHashMap<std::any::TypeId, SignalId>));
 
-define_vec!(pub(crate) struct PendingElementEffectsVec(EffectId));
+define_vec!(pub struct PendingElementEffectsVec(EffectId));
 
 pub struct ReactiveStore {
     pub(crate) react_signals: SignalsSlot,
@@ -139,7 +137,7 @@ impl ReactiveStore {
         // 親要素へ遡るイテレータを生成
         std::iter::successors(Some(id), |&curr_id| *topo_parents.at(curr_id)).find_map(|curr_id| {
             react_providers
-                .get(curr_id)
+                .find(curr_id)
                 .and_then(|map| map.get(&type_id))
                 .map(|&signal_id| ReadSignal::new(signal_id))
         })
@@ -150,9 +148,7 @@ impl ReactiveStore {
     ) -> Option<EntityId> {
         // ACTIVE_EFFECT（エフェクト実行中）から解決
         if let Some(effect_id) = crate::ACTIVE_EFFECT.with(std::cell::Cell::get) {
-            return Some(react_effect_to_element.get(effect_id).copied().expect(
-                "use_provided failed: active effect is not associated with any UI Element",
-            ));
+            return react_effect_to_element.get(effect_id).copied();
         }
 
         // ACTIVE_EFFECT が None であれば、ACTIVE_ELEMENT にフォールバック
@@ -174,7 +170,7 @@ impl ReactiveStore {
         // 親要素へ遡るイテレータを生成
         std::iter::successors(Some(id), |&curr_id| *topo_parents.at(curr_id)).find_map(|curr_id| {
             react_providers
-                .get(curr_id)
+                .find(curr_id)
                 .and_then(|map| map.get(&type_id))
                 .map(|&signal_id| WriteSignal::new(signal_id))
         })
@@ -193,7 +189,7 @@ impl ReactiveStore {
         react_pending_element_effects: &mut PendingElementEffectsVec,
     ) {
         // 既に登録済みの場合は、更新処理を行って早期リターン
-        if let Some(e) = react_element_effects.get_mut(element_id) {
+        if let Some(e) = react_element_effects.find_mut(element_id) {
             if let Some(pos) = e.iter().position(|(cat, _)| *cat == category) {
                 let (_, old_id) = e.remove(pos);
                 react_effects.remove(old_id); // エフェクト実体を削除

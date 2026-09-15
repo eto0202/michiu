@@ -25,7 +25,7 @@ use windows::{
     core::{PCWSTR, w},
 };
 
-use crate::AppState;
+use crate::{ALLOW_LOG, AppState};
 
 // Win32 ウィンドウプロシージャ
 unsafe extern "system" fn wnd_proc(
@@ -138,7 +138,6 @@ unsafe extern "system" fn wnd_proc(
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
                 app.renderer.draw(&mut app.context);
-                app.context.clear_render_dirty();
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
                 let draw_elapsed = draw_start.elapsed();
@@ -225,8 +224,7 @@ unsafe extern "system" fn wnd_proc(
                             let p99_cpu = frames[p99_idx].cpu_active;
                             let max_cpu = frames.last().unwrap().cpu_active;
 
-                            let test = true;
-                            if test {
+                            if ALLOW_LOG {
                                 println!(
                                     "[Loop Count: {:>3}] (Total Frame: {:5.2}ms)\n\
                                         ├─ Phase Avg:   Upd: {:5.2}ms | Lay: {:5.2}ms | Cmp: {:5.2}ms | Drw: {:5.2}ms | Sync: {:5.2}ms\n\
@@ -611,7 +609,7 @@ unsafe extern "system" fn wnd_proc(
                             let cursor_icon = app.context.resolve_cursor(hovered_id);
 
                             // 物理 HCURSOR ハンドルを取得（独自カーソルがあればそれ、なければ IDC_ARROW 等を標準ロード）
-                            let hcursor = cursor_icon.to_hcursor();
+                            let hcursor = cursor_icon.to_hcursor().unwrap();
 
                             // OS の物理カーソルとしてセット
                             unsafe { SetCursor(Some(hcursor)) };

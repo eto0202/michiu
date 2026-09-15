@@ -1,36 +1,19 @@
 use crate::{
-    ActiveAnimationsSparse, ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary,
-    ActiveTransitionsSparse, BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayout,
-    BasicLayoutsSecondary, ByteIndex, CapacityConfig, ChildrenSecondary, ClipRectsSecondary,
-    ComponentMask, ContentStore, Context, CursorIcon, DEFAULT_BASIC, DfsIndicesSecondary,
-    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndStore, EffectiveZindicesSecondary, Element,
-    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, EventListeners,
-    FlatDfsSequenceVec, FlexLayout, FlexLayoutsSecondary, FocusStore, GridLayout,
-    GridLayoutsSparse, InputContents, InputContentsSparse, InputOp, InteractionPropertiesSecondary,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, Length, MichiuSoA, MichiuString, Modifiers,
-    MouseButton, OutputStore, Overflow, ParentsSecondary, Pipeline, PointerEvents, Position,
-    RangeExt, ReactiveStore, Rect, RectsSecondary, RenderStore, ResizeStore,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
-    ScrollSizesSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSecondary,
-    SelectedRectsSparse, SelectionStartIndexSparse, SessionSpawnedVec, SortCacheVec,
-    SortedEntitiesVec, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign,
-    TextBufferSparse, TextContentsSparse, TextEditStore, TextEngine, TextSelectionsSparse,
-    TextSpansSparse, TopologyStore, UserSelect, UsizeRangeExt, Val, VirtualKey,
-    VisualPropertiesSecondary, WindowStore, bind_context, define_sparse_secondary,
-    handle_on_active, handle_on_blur, handle_on_click, handle_on_cursor_moved, handle_on_disable,
-    handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop,
-    handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag, handle_on_focus, handle_on_hover,
-    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
-    handle_on_mouse_wheel, handle_on_right_click, handle_on_select,
+    ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC, DndStore,
+    ElementState, EntityId, EventListeners, FocusStore, InputContents, InputOp, LayoutPoint,
+    LayoutStore, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, Pipeline,
+    RenderStore, ResizeStore, ScrollStore, ScrollbarStore, SelectedRectsSparse,
+    SelectionStartIndexSparse, SystemStore, TextEditStore, TextEngine, TextSelectionsSparse,
+    TopologyStore, UserSelect, VirtualKey, handle_on_click, handle_on_cursor_moved,
+    handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input,
+    handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
 };
-use slotmap::{SecondaryMap, SparseSecondaryMap};
-use smallvec::SmallVec;
-use std::{borrow::Cow, ops::Range, path::PathBuf};
-use windows::Win32::Graphics::DirectWrite::IDWriteTextLayout;
+use slotmap::SparseSecondaryMap;
+use std::ops::Range;
 
 /// 実行時にウィンドウ内で現在アクティブ（排他的）になっている、各状態の対象要素（EntityId）を管理します。
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub(crate) struct ActiveInteractionStates {
+pub struct ActiveInteractionStates {
     pub hovered: Option<EntityId>,
     pub focused: Option<EntityId>,
     pub pressed: Option<EntityId>,
@@ -66,11 +49,11 @@ pub(crate) struct EventListenersSparse(SparseSecondaryMap<EntityId, EventListene
 impl MichiuSoA for EventListenersSparse {
     type Item = EventListeners;
     #[inline]
-    fn get(&self, id: EntityId) -> Option<&Self::Item> {
+    fn find(&self, id: EntityId) -> Option<&Self::Item> {
         self.0.get(id)
     }
     #[inline]
-    fn get_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
         self.0.get_mut(id)
     }
 }
@@ -158,7 +141,7 @@ impl EventStore {
         let has_listener = cx
             .events
             .evt_listeners
-            .get(id)
+            .find(id)
             .is_some_and(|l| l.on_cursor_moved.is_some());
 
         if has_listener {
@@ -188,6 +171,7 @@ impl EventStore {
                 &cx.layouts.lay_taffy_nodes,
                 &mut cx.renders.rnd_dirty_entities,
                 &cx.outputs.out_rects,
+                &mut cx.debug,
             );
             return; // リサイズドラッグ中は、通常のホバーやドラッグ判定を完全にスキップして早期リターン
         }
@@ -203,12 +187,10 @@ impl EventStore {
             &cx.layouts.lay_taffy_nodes,
             &cx.layouts.lay_resolved_basic,
             &mut cx.renders.rnd_dirty_entities,
-            &cx.renders.rnd_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
 
         // ヒットテストのキャッシュ
@@ -229,6 +211,7 @@ impl EventStore {
             &cx.renders.rnd_base_visual,
             &mut cx.outputs.out_clip_rects,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         // マウスボタン押し下げ中は、他の要素へのインタラクション漏洩を防ぐためヒット先を押し下げ要素に強制ロック
@@ -291,6 +274,7 @@ impl EventStore {
                     &cx.renders.rnd_base_visual,
                     &cx.renders.rnd_interaction,
                     &cx.outputs.out_rects,
+                    &mut cx.debug,
                 );
                 RenderStore::mark_render_dirty(
                     prev_id,
@@ -304,7 +288,7 @@ impl EventStore {
             let user_select = cx
                 .renders
                 .rnd_visual
-                .get(pressed_id)
+                .find(pressed_id)
                 .and_then(|v| v.user_select)
                 .unwrap_or_default();
 
@@ -313,11 +297,11 @@ impl EventStore {
                     .states
                     .edit
                     .edit_selection_start_index
-                    .get(pressed_id)
+                    .find(pressed_id)
                     .copied()
             {
                 // プレースホルダー選択のドラッグ遮断
-                if let Some(contents) = cx.contents.cont_input_contents.get(pressed_id) {
+                if let Some(contents) = cx.contents.cont_input_contents.find(pressed_id) {
                     let is_placeholder = contents.to_michiu().is_empty();
                     let is_ime = contents
                         .ime_state
@@ -339,30 +323,26 @@ impl EventStore {
                     &cx.layouts.lay_resolved_flex,
                     &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
+                    &mut cx.debug,
                 );
                 let local = OutputStore::pressed_local_point(
                     pressed_id,
                     logical_pos,
-                    buffer.as_ref(),
-                    &mut cx.system.sys_text_engine,
+                    &buffer,
                     &cx.contents.cont_input_contents,
-                    &cx.topology.topo_active_masks,
-                    &cx.topology.topo_parents,
                     &cx.layouts.lay_resolved_basic,
                     &cx.layouts.lay_resolved_flex,
                     &cx.layouts.lay_resolved_grid,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
-                    &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_offsets,
+                    &mut cx.debug,
                 );
 
                 TextEditStore::handle_text_selection_click(
                     pressed_id,
                     start_pos,
                     local,
-                    buffer.as_ref(),
+                    &buffer,
                     cx.window.win_scale_factor,
                     cx.window.win_last_size,
                     &mut cx.system.sys_text_engine,
@@ -372,7 +352,6 @@ impl EventStore {
                     &cx.contents.cont_text_spans,
                     &mut cx.topology.topo_active_masks,
                     &cx.topology.topo_parents,
-                    &cx.topology.topo_children,
                     &mut cx.layouts.lay_dirty_entities,
                     &mut cx.layouts.lay_taffy_tree,
                     &mut cx.layouts.scrollbar.bar_styles,
@@ -383,13 +362,12 @@ impl EventStore {
                     &mut cx.renders.rnd_dirty_entities,
                     &mut cx.renders.rnd_visual,
                     &cx.renders.rnd_base_visual,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
                     &mut cx.states.scroll.sc_offsets,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selected_rects,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
+                    &mut cx.debug,
                 );
             }
         }
@@ -440,6 +418,7 @@ impl EventStore {
             &cx.layouts.lay_taffy_nodes,
             &mut cx.renders.rnd_dirty_entities,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         // 現在ホバー侵入中のドロップターゲット要素を検知
@@ -474,6 +453,7 @@ impl EventStore {
                 &mut cx.layouts.lay_basic,
                 &mut cx.layouts.lay_base_basic,
                 &cx.outputs.out_rects,
+                &mut cx.debug,
             );
             RenderStore::mark_render_dirty(
                 id,
@@ -500,12 +480,10 @@ impl EventStore {
                 &cx.layouts.lay_taffy_nodes,
                 &cx.layouts.lay_resolved_basic,
                 &mut cx.renders.rnd_dirty_entities,
-                &cx.renders.rnd_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
 
             if clicked_scrollbar {
@@ -525,7 +503,7 @@ impl EventStore {
         let user_select = cx
             .renders
             .rnd_visual
-            .get(target_id)
+            .find(target_id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
         let is_input = cx
@@ -548,19 +526,17 @@ impl EventStore {
                 &cx.contents.cont_text_spans,
                 &cx.contents.cont_input_contents,
                 &mut cx.topology.topo_active_masks,
-                &cx.topology.topo_parents,
                 &cx.layouts.lay_resolved_basic,
                 &cx.layouts.lay_resolved_flex,
                 &cx.layouts.lay_resolved_grid,
                 &mut cx.renders.rnd_dirty_entities,
                 &cx.renders.rnd_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selection_start_index,
                 &mut cx.states.edit.edit_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_offsets,
+                &mut cx.debug,
             );
         }
 
@@ -623,7 +599,7 @@ impl EventStore {
             Pipeline::update_state(cx, pressed_id, ComponentMask::STATE_DRAGGED, false);
             cx.events.evt_interaction_states.dragged = None;
 
-            if let Some(contents) = cx.contents.cont_input_contents.get_mut(pressed_id) {
+            if let Some(contents) = cx.contents.cont_input_contents.find_mut(pressed_id) {
                 contents.is_selecting = false;
             }
 
@@ -668,7 +644,7 @@ impl EventStore {
         let user_select = cx
             .renders
             .rnd_visual
-            .get(target_id)
+            .find(target_id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
         if user_select != UserSelect::Text {
@@ -679,7 +655,7 @@ impl EventStore {
             return;
         };
 
-        if let Some(contents) = cx.contents.cont_input_contents.get(target_id) {
+        if let Some(contents) = cx.contents.cont_input_contents.find(target_id) {
             let is_placeholder = contents.to_michiu().is_empty()
                 && contents
                     .ime_state
@@ -693,7 +669,7 @@ impl EventStore {
 
         let text = cx.contents.cont_text_contents.at(target_id);
 
-        let Some(buffer) = SystemStore::get_or_create_layout(
+        let buffer = SystemStore::get_or_create_layout(
             target_id,
             &mut cx.system.sys_text_engine,
             &cx.system.sys_text_buffers,
@@ -703,26 +679,23 @@ impl EventStore {
             &cx.layouts.lay_resolved_flex,
             &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
-        ) else {
-            return;
-        };
+            &mut cx.debug,
+        );
 
         // ヒット先があるなら Some のはず
         let rect = *cx.outputs.out_rects.at(target_id);
         let basic = cx
             .layouts
             .lay_resolved_basic
-            .get_or(target_id, &DEFAULT_BASIC);
+            .find_or(target_id, &DEFAULT_BASIC, &mut cx.debug);
         let (border, padding) =
             LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
 
         let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
         let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
 
-        let (clicked_index, _) = cx
-            .system
-            .sys_text_engine
-            .hit_test_point(&buffer, LayoutPoint::new(local_x, local_y));
+        let (clicked_index, _) =
+            TextEngine::hit_test_point(&buffer, LayoutPoint::new(local_x, local_y));
 
         let range = text.find_word_boundaries(clicked_index);
 
@@ -744,7 +717,7 @@ impl EventStore {
             &cx.contents.cont_input_contents,
         );
 
-        if let Some(contents) = cx.contents.cont_input_contents.get_mut(target_id) {
+        if let Some(contents) = cx.contents.cont_input_contents.find_mut(target_id) {
             contents.selected_range = range;
             contents.selection_reversed = false; // キャレットは右端に配置
             TextEditStore::apply_input_update(
@@ -769,13 +742,12 @@ impl EventStore {
                 &mut cx.renders.rnd_dirty_entities,
                 &mut cx.renders.rnd_visual,
                 &cx.renders.rnd_base_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
         } else {
             RenderStore::mark_render_dirty(
@@ -795,7 +767,7 @@ impl EventStore {
             let has_listener = cx
                 .events
                 .evt_listeners
-                .get(curr_id)
+                .find(curr_id)
                 .is_some_and(|l| l.on_mouse_wheel.is_some());
 
             if has_listener {
@@ -810,10 +782,10 @@ impl EventStore {
                 .at(curr_id)
                 .has(ComponentMask::STYLE_OVERFLOW);
             if has_overflow {
-                let basic = cx
-                    .layouts
-                    .lay_resolved_basic
-                    .get_or(curr_id, &DEFAULT_BASIC);
+                let basic =
+                    cx.layouts
+                        .lay_resolved_basic
+                        .find_or(curr_id, &DEFAULT_BASIC, &mut cx.debug);
 
                 // スクロール可能な軸の移動量
                 let dy = if scroll_y != 0.0
@@ -847,12 +819,10 @@ impl EventStore {
                         &mut cx.layouts.scrollbar.bar_styles,
                         &cx.layouts.lay_taffy_nodes,
                         &cx.layouts.lay_resolved_basic,
-                        &cx.renders.rnd_visual,
-                        &cx.renders.rnd_interaction,
-                        &cx.renders.rnd_active_transitions,
                         &mut cx.states.scroll.sc_offsets,
                         &cx.outputs.out_rects,
                         &cx.states.scroll.sc_sizes,
+                        &mut cx.debug,
                     )
                 {
                     break; // スクロールを実行したためバブリングを終了
@@ -900,7 +870,7 @@ impl EventStore {
             let user_select = cx
                 .renders
                 .rnd_visual
-                .get(focused_id)
+                .find(focused_id)
                 .and_then(|v| v.user_select)
                 .unwrap_or_default();
             if user_select == UserSelect::Text {
@@ -915,7 +885,6 @@ impl EventStore {
                     &cx.contents.cont_text_spans,
                     &mut cx.topology.topo_active_masks,
                     &cx.topology.topo_parents,
-                    &cx.topology.topo_children,
                     &mut cx.layouts.lay_dirty_entities,
                     &mut cx.layouts.lay_taffy_tree,
                     &mut cx.layouts.scrollbar.bar_styles,
@@ -926,13 +895,12 @@ impl EventStore {
                     &mut cx.renders.rnd_dirty_entities,
                     &mut cx.renders.rnd_visual,
                     &cx.renders.rnd_base_visual,
-                    &cx.renders.rnd_interaction,
-                    &cx.renders.rnd_active_transitions,
                     &mut cx.states.scroll.sc_offsets,
                     &mut cx.states.edit.edit_selections,
                     &mut cx.states.edit.edit_selected_rects,
                     &cx.outputs.out_rects,
                     &cx.states.scroll.sc_sizes,
+                    &mut cx.debug,
                 );
                 return;
             }
@@ -1105,12 +1073,11 @@ impl EventStore {
             &cx.layouts.lay_resolved_grid,
             &mut cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &mut cx.states.edit.edit_selections,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
         TextEditStore::apply_input_update(
             focused_id,
@@ -1134,13 +1101,12 @@ impl EventStore {
             &mut cx.renders.rnd_dirty_entities,
             &mut cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &mut cx.states.edit.edit_selections,
             &mut cx.states.edit.edit_selected_rects,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
     }
 
@@ -1214,13 +1180,12 @@ impl EventStore {
             &mut cx.renders.rnd_dirty_entities,
             &mut cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &mut cx.states.edit.edit_selections,
             &mut cx.states.edit.edit_selected_rects,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
     }
 
@@ -1291,13 +1256,12 @@ impl EventStore {
             &mut cx.renders.rnd_dirty_entities,
             &mut cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
-            &cx.renders.rnd_interaction,
-            &cx.renders.rnd_active_transitions,
             &mut cx.states.scroll.sc_offsets,
             &mut cx.states.edit.edit_selections,
             &mut cx.states.edit.edit_selected_rects,
             &cx.outputs.out_rects,
             &cx.states.scroll.sc_sizes,
+            &mut cx.debug,
         );
     }
 
@@ -1328,7 +1292,7 @@ impl EventStore {
         let user_select = cx
             .renders
             .rnd_visual
-            .get(focused_id)
+            .find(focused_id)
             .and_then(|v| v.user_select)
             .unwrap_or_default();
 
@@ -1387,13 +1351,12 @@ impl EventStore {
                 &mut cx.renders.rnd_dirty_entities,
                 &mut cx.renders.rnd_visual,
                 &cx.renders.rnd_base_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
                 &mut cx.states.scroll.sc_offsets,
                 &mut cx.states.edit.edit_selections,
                 &mut cx.states.edit.edit_selected_rects,
                 &cx.outputs.out_rects,
                 &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
             );
         }
         // Input・非Inputに関わらず切り出されたテキストを返す

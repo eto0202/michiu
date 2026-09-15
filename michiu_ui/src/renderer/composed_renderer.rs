@@ -1,6 +1,8 @@
 use crate::{
-    AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, EntityId, LayoutPoint,
-    LayoutRect, LayoutSize, MichiuSoA, PlaybackCount, PropertyList, WebView2Contents, WgpuRenderer,
+    AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, DebugStore, EntityId,
+    LayoutPoint, LayoutRect, LayoutSize, MichiuError, MichiuSoA, MichiuTrace, PlaybackCount,
+    PropertyList, ResultTraceExt, WebView2Contents, WgpuRenderer, WindowsResultTraceExt,
+    flush_trace, trace_error, trace_lifecycle,
 };
 use std::{
     cell::RefCell,
@@ -73,7 +75,8 @@ pub struct ComposedRenderer {
 
     /// 非同期でキャプチャデコードが完了し、正式に削除（DComp解放）可能になった ID の待ちバッファ
     #[allow(clippy::type_complexity)]
-    pub(crate) pending_removals: Rc<RefCell<Vec<(EntityId, Option<wgpu::Texture>)>>>,
+    pub(crate) pending_removals:
+        Rc<RefCell<Vec<(EntityId, Option<wgpu::Texture>, Option<MichiuError>)>>>,
     /// `DComp` 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
     pub(crate) pending_dcomp_releases: Vec<PendingDcompRelease>,
 
@@ -84,25 +87,26 @@ pub struct ComposedRenderer {
     pub(crate) resize_cooldown_frames: u32,
 }
 
-pub(crate) struct PendingDcompRelease {
-    pub(crate) entity_id: EntityId,
-    pub(crate) frames_left: u32,
+#[derive(Debug, Clone)]
+pub struct PendingDcompRelease {
+    pub entity_id: EntityId,
+    pub frames_left: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PromotedVisual {
     /// 昇格した要素の ID
-    pub(crate) entity_id: EntityId,
+    pub entity_id: EntityId,
     /// `DirectComposition` 側の Visual オブジェクト
-    pub(crate) visual: IDCompositionVisual2,
+    pub visual: IDCompositionVisual2,
     /// 適用しているトランスフォームオブジェクト (COM参照を維持するために保持)
-    pub(crate) transform: Option<windows::core::IUnknown>,
+    pub transform: Option<windows::core::IUnknown>,
     /// 各昇格要素ごとに独立した `WebView2` 非同期スロットを配備する
-    pub(crate) webview_controller: Rc<RefCell<Option<ICoreWebView2Controller>>>,
+    pub webview_controller: Rc<RefCell<Option<ICoreWebView2Controller>>>,
     /// 現在バックグラウンドで非同期キャプチャ（スナップショット）を実行中かどうかのフラグ
     pub is_capturing: bool,
     // DCompツリーにマウントされており、コントローラーが可視状態であるか
-    pub(crate) is_visible: bool,
+    pub is_visible: bool,
 }
 
 impl ComposedRenderer {
@@ -110,7 +114,7 @@ impl ComposedRenderer {
         hwnd: HWND,
         layout_size: LayoutSize,
         scale_factor: f32,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> crate::Result<Self> {
         // DirectComposition の構築 (setup_direct_composition を内包)
         let (dcomp_device, dcomp_target, root_visual, wgpu_visual) =
             ComposedRenderer::setup_direct_composition(hwnd)?;
@@ -129,9 +133,8 @@ impl ComposedRenderer {
 
         let webview_env = Rc::new(RefCell::new(None));
 
-        let wic_factory: IWICImagingFactory = unsafe {
-            CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).unwrap()
-        };
+        let wic_factory: IWICImagingFactory =
+            unsafe { CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)? };
 
         Ok(Self {
             hwnd,
@@ -209,11 +212,45 @@ impl ComposedRenderer {
     }
 
     /// 描画のトリガー
+    #[track_caller]
     pub fn draw(&mut self, cx: &mut Context) {
         self.wgpu_renderer.render(cx, self.scale_factor);
-        let _ = unsafe { self.dcomp_device.Commit() };
+
+        unsafe {
+            self.dcomp_device
+                .Commit()
+                .unwrap_or_trace(None, &mut cx.debug);
+        };
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Commit { add: None });
+
+        #[cfg(feature = "trace-lifecycle")]
+        {
+            let total_entities = cx.topology.topo_entities.len();
+            let active_entities = cx.topology.topo_active_entities.len();
+            let dirty_layouts = cx.layouts.lay_dirty_entities.len();
+            let dirty_renders = cx.renders.rnd_dirty_entities.len();
+
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::ClearDirtyEntities {
+                total_entities,
+                active_entities,
+                dirty_layouts,
+                dirty_renders,
+                add: Some(
+                    "Immediately after this recording, the dirty flag is cleared and the log is sent."
+                ),
+            });
+        }
+
+        // ダーティフラグをクリア
+        cx.clear_dirty();
+        // ログを送信
+        flush_trace!(cx, self);
     }
 
+    #[track_caller]
     pub fn update_composition_tree(&mut self, cx: &mut Context) {
         unsafe {
             if self.resize_cooldown_frames > 0 {
@@ -222,7 +259,7 @@ impl ComposedRenderer {
 
             // ルート要素（root_node）のスタイルから DWM アクリル効果を自動検出して同期
             if let Some(&root_id) = cx.topology.topo_active_entities.first()
-                && let Some(visual_prop) = cx.renders.rnd_visual.get(root_id)
+                && let Some(visual_prop) = cx.renders.rnd_visual.find(root_id)
             {
                 let target_backdrop = visual_prop.backdrop;
 
@@ -235,7 +272,7 @@ impl ComposedRenderer {
 
             // 非同期キャプチャが完了した要素の一括 DComp 解放処理
             let mut completed = self.pending_removals.borrow_mut().split_off(0);
-            for (id, texture_opt) in completed {
+            for (id, texture_opt, err) in completed {
                 // 成功・失敗を問わず、非同期キャプチャが終了したためフラグを確実にクリアする
                 if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id) {
                     self.promoted_visuals[pos].is_capturing = false;
@@ -252,6 +289,16 @@ impl ComposedRenderer {
                     self.pending_dcomp_releases.push(PendingDcompRelease {
                         entity_id: id,
                         frames_left: 3, // 3フレームの遅延
+                    });
+                }
+
+                #[cfg(feature = "trace-error")]
+                if let Some(e) = err {
+                    trace_error!(Some(id), &mut cx.debug, || {
+                        MichiuTrace::Error {
+                            detail: e.clone(),
+                            add: None,
+                        }
                     });
                 }
             }
@@ -307,7 +354,7 @@ impl ComposedRenderer {
                 let is_transitioning =
                     cx.renders
                         .rnd_active_transitions
-                        .get(id)
+                        .find(id)
                         .is_some_and(|list| {
                             list.iter().any(|t| {
                                 t.property_list == PropertyList::Width
@@ -319,7 +366,7 @@ impl ComposedRenderer {
                         || cx
                             .renders
                             .rnd_active_animations
-                            .get(id)
+                            .find(id)
                             .is_some_and(|list| {
                                 list.iter().any(|a| {
                                     a.property == PropertyList::Width
@@ -331,7 +378,7 @@ impl ComposedRenderer {
 
                 // 要素の物理サイズが前フレームから微細変動（リサイズドラッグなど）しているか判定
                 let rect = *cx.outputs.out_rects.at(id);
-                let prev_rect = cx.outputs.out_prev_rects.get_or_default(id);
+                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
                 let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
                     || (rect.height - prev_rect.height).abs() > 0.01;
 
@@ -368,7 +415,7 @@ impl ComposedRenderer {
                             // DCompツリーに再マウント
                             self.root_visual
                                 .AddVisual(&promoted.visual, false, &self.wgpu_visual)
-                                .unwrap();
+                                .unwrap_or_trace(Some(id), &mut cx.debug);
                             // ブラウザコントロールを再アクティブ化
                             if let Some(ref controller) = *promoted.webview_controller.borrow() {
                                 let _ = controller.SetIsVisible(true);
@@ -377,7 +424,8 @@ impl ComposedRenderer {
                         }
                     } else {
                         // プールにまだ存在しない、正真正銘の初回生成時のみ、一から非同期マウントをキック
-                        self.promote_element_to_visual(cx, id);
+                        self.promote_element_to_visual(cx, id)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
                     }
 
                     if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id)
@@ -441,7 +489,7 @@ impl ComposedRenderer {
                 let is_always_active = cx
                     .contents
                     .cont_webview_contents
-                    .get(id)
+                    .find(id)
                     .is_some_and(|c| c.always_active);
                 let is_interactive = has_interactive_descendant(cx, id);
                 let has_no_cache = !self.wgpu_renderer.webview_static_caches.contains_key(&id);
@@ -449,7 +497,7 @@ impl ComposedRenderer {
                 let is_transitioning =
                     cx.renders
                         .rnd_active_transitions
-                        .get(id)
+                        .find(id)
                         .is_some_and(|list| {
                             list.iter().any(|t| {
                                 t.property_list == PropertyList::Width
@@ -461,7 +509,7 @@ impl ComposedRenderer {
                         || cx
                             .renders
                             .rnd_active_animations
-                            .get(id)
+                            .find(id)
                             .is_some_and(|list| {
                                 list.iter().any(|a| {
                                     a.property == PropertyList::Width
@@ -472,7 +520,7 @@ impl ComposedRenderer {
                             });
 
                 let rect = *cx.outputs.out_rects.at(id);
-                let prev_rect = cx.outputs.out_prev_rects.get_or_default(id);
+                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
                 let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
                     || (rect.height - prev_rect.height).abs() > 0.01;
 
@@ -506,7 +554,9 @@ impl ComposedRenderer {
 
                         promoted.is_capturing = true;
 
-                        let webview = controller.CoreWebView2().unwrap();
+                        let webview = controller
+                            .CoreWebView2()
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
 
                         let width = (rect.width * self.scale_factor).round() as u32;
                         let height = (rect.height * self.scale_factor).round() as u32;
@@ -528,20 +578,19 @@ impl ComposedRenderer {
                             move |result| {
                                 match result {
                                     Ok(wgpu_texture) => {
-                                        pending_removals_clone
-                                            .borrow_mut()
-                                            .push((id, Some(wgpu_texture)));
+                                        pending_removals_clone.borrow_mut().push((
+                                            id,
+                                            Some(wgpu_texture),
+                                            None,
+                                        ));
 
                                         // 非同期キャプチャ完了直後に強制再描画をかけて
                                         // DComp 解放と wgpu への描画バインド切り替えを即座に適用する
                                         let _ = InvalidateRect(Some(parent_hwnd), None, false);
                                     }
                                     Err(e) => {
-                                        // エラーをコンソールに出力して握りつぶしを防止
-                                        // TODO: tracing クレートに変更
-                                        eprintln!("Error during WebView2 Capture: {e:?}");
                                         // None を投げてメインスレッドにフラグ回収を促す
-                                        pending_removals_clone.borrow_mut().push((id, None));
+                                        pending_removals_clone.borrow_mut().push((id, None, None));
                                         let _ = InvalidateRect(Some(parent_hwnd), None, false);
                                     }
                                 }
@@ -549,8 +598,11 @@ impl ComposedRenderer {
                         );
 
                         if let Err(e) = capture_res {
-                            // TODO: tracing クレートに変更
-                            eprintln!("Error triggering CapturePreview API: {e:?}");
+                            #[cfg(feature = "trace-error")]
+                            trace_error!(Some(id), &mut cx.debug, || MichiuTrace::Error {
+                                detail: e.clone(),
+                                add: None
+                            });
                             promoted.is_capturing = false; // API呼び出し自体に失敗した場合は即リセット
                         }
                     }
@@ -565,8 +617,11 @@ impl ComposedRenderer {
                 // 移動中・リサイズ中におけるDCompスワップチェーンの子の影の点滅を防止するため、
                 // 要素の絶対座標（rect）およびクリップ境界（clip_rect）が前回から1ピクセルも変化していない場合は、
                 // DComp側へのOffset/Clip/Boundsの再設定を完全にスキップして早期スルー。
-                let prev_rect = cx.outputs.out_prev_rects.get_or_default(id);
-                let prev_clip = cx.outputs.out_prev_clip_rects.get_or_default(id);
+                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
+                let prev_clip = cx
+                    .outputs
+                    .out_prev_clip_rects
+                    .find_or_default(id, &mut cx.debug);
 
                 // 要素の物理サイズが変化した場合、古いキャッシュテクスチャを即座に破棄（無効化）
                 //  初期サイズ決定時（prev_rect が ZERO の起動時フレーム）を除外
@@ -582,7 +637,7 @@ impl ComposedRenderer {
                 let has_active_transform_anim = cx
                     .renders
                     .rnd_active_transitions
-                    .get(id)
+                    .find(id)
                     .is_some_and(|list| {
                         list.iter()
                             .any(|t| t.property_list == PropertyList::Transform)
@@ -602,11 +657,15 @@ impl ComposedRenderer {
                 // 位置の同期 (物理座標)
                 let phys_x = rect.x * self.scale_factor;
                 let phys_y = rect.y * self.scale_factor;
-                visual.SetOffsetX2(phys_x).unwrap();
-                visual.SetOffsetY2(phys_y).unwrap();
+                visual
+                    .SetOffsetX2(phys_x)
+                    .unwrap_or_trace(Some(id), &mut cx.debug);
+                visual
+                    .SetOffsetY2(phys_y)
+                    .unwrap_or_trace(Some(id), &mut cx.debug);
 
                 // DComp 側への 2D アフィン変換行列 (Matrix3x2) の同期を追加
-                if let Some(visual_prop) = cx.renders.rnd_visual.get(id) {
+                if let Some(visual_prop) = cx.renders.rnd_visual.find(id) {
                     if let Some(m) = visual_prop.transform {
                         let m11 = m[0][0];
                         let m12 = m[0][1];
@@ -653,10 +712,12 @@ impl ComposedRenderer {
                 }
 
                 // DComp の仕様に則り、通常の CreateRectangleClip から角丸設定を行います
-                if let Some(visual_prop) = cx.renders.rnd_visual.get(id) {
+                if let Some(visual_prop) = cx.renders.rnd_visual.find(id) {
                     // 1. 通常の RectangleClip オブジェクトをデバイスから生成
                     let dcomp_device = self.dcomp_device.clone();
-                    let rectangle_clip = dcomp_device.CreateRectangleClip().unwrap();
+                    let rectangle_clip = dcomp_device
+                        .CreateRectangleClip()
+                        .unwrap_or_trace(Some(id), &mut cx.debug);
 
                     // 2. 絶対クリップ境界（clip_rect）からビジュアルローカルの物理ピクセル範囲を算出してセット
                     let clip_left = (clip_rect.x - rect.x).max(0.0) * self.scale_factor;
@@ -666,30 +727,60 @@ impl ComposedRenderer {
                     let clip_bottom = ((clip_rect.y + clip_rect.height) - rect.y).min(rect.height)
                         * self.scale_factor;
 
-                    rectangle_clip.SetLeft2(clip_left).unwrap();
-                    rectangle_clip.SetTop2(clip_top).unwrap();
-                    rectangle_clip.SetRight2(clip_right).unwrap();
-                    rectangle_clip.SetBottom2(clip_bottom).unwrap();
+                    rectangle_clip
+                        .SetLeft2(clip_left)
+                        .unwrap_or_trace(Some(id), &mut cx.debug);
+                    rectangle_clip
+                        .SetTop2(clip_top)
+                        .unwrap_or_trace(Some(id), &mut cx.debug);
+                    rectangle_clip
+                        .SetRight2(clip_right)
+                        .unwrap_or_trace(Some(id), &mut cx.debug);
+                    rectangle_clip
+                        .SetBottom2(clip_bottom)
+                        .unwrap_or_trace(Some(id), &mut cx.debug);
 
                     // 3. クリップに角丸を設定
                     if let Some(radius) = visual_prop.corner_radius {
                         let r = radius.top_left * self.scale_factor;
 
-                        rectangle_clip.SetTopLeftRadiusX2(r).unwrap();
-                        rectangle_clip.SetTopLeftRadiusY2(r).unwrap();
-                        rectangle_clip.SetTopRightRadiusX2(r).unwrap();
-                        rectangle_clip.SetTopRightRadiusY2(r).unwrap();
-                        rectangle_clip.SetBottomLeftRadiusX2(r).unwrap();
-                        rectangle_clip.SetBottomLeftRadiusY2(r).unwrap();
-                        rectangle_clip.SetBottomRightRadiusX2(r).unwrap();
-                        rectangle_clip.SetBottomRightRadiusY2(r).unwrap();
+                        rectangle_clip
+                            .SetTopLeftRadiusX2(r)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
+                        rectangle_clip
+                            .SetTopLeftRadiusY2(r)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
+                        rectangle_clip
+                            .SetTopRightRadiusX2(r)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
+                        rectangle_clip
+                            .SetTopRightRadiusY2(r)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
+                        rectangle_clip
+                            .SetBottomLeftRadiusX2(r)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
+                        rectangle_clip
+                            .SetBottomLeftRadiusY2(r)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
+                        rectangle_clip
+                            .SetBottomRightRadiusX2(r)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
+                        rectangle_clip
+                            .SetBottomRightRadiusY2(r)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
                     } else {
-                        rectangle_clip.SetTopLeftRadiusX2(0.0).unwrap();
-                        rectangle_clip.SetTopLeftRadiusY2(0.0).unwrap();
+                        rectangle_clip
+                            .SetTopLeftRadiusX2(0.0)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
+                        rectangle_clip
+                            .SetTopLeftRadiusY2(0.0)
+                            .unwrap_or_trace(Some(id), &mut cx.debug);
                     }
 
                     // 4. クリップをビジュアルに適用
-                    visual.SetClip(&rectangle_clip).unwrap();
+                    visual
+                        .SetClip(&rectangle_clip)
+                        .unwrap_or_trace(Some(id), &mut cx.debug);
                 }
 
                 // WebView2 コントローラーの非同期初期化が完了していれば、サイズ（Bounds）も自動追従
@@ -721,24 +812,27 @@ impl ComposedRenderer {
     }
 
     /// 特定の要素を独立した `IDCompositionVisual` に昇格させ、Compositor アニメーションをバインドする
-    unsafe fn promote_element_to_visual(&mut self, cx: &Context, id: EntityId) {
+    unsafe fn promote_element_to_visual(
+        &mut self,
+        cx: &Context,
+        id: EntityId,
+    ) -> crate::Result<()> {
         unsafe {
             // 1. 新しい Visual を作成
-            let visual = self.dcomp_device.CreateVisual().unwrap();
+            let visual = self.dcomp_device.CreateVisual()?;
 
             // 2. 位置とサイズを DComp 側に同期（最初のフレームから物理座標を使い、ジャンプを防ぐ）
             let rect = *cx.outputs.out_rects.at(id);
             let phys_x = rect.x * self.scale_factor;
             let phys_y = rect.y * self.scale_factor;
-            visual.SetOffsetX2(phys_x).unwrap();
-            visual.SetOffsetY2(phys_y).unwrap();
+            visual.SetOffsetX2(phys_x)?;
+            visual.SetOffsetY2(phys_y)?;
 
             // 3. 前面 wgpu (wgpu_visual) の直下・背面（insertabove = false）に WebView2 を挿入
             // これにより、重なり順が常に [WebView2] ➔ [wgpu_visual] となり、
             // wgpu 側のパンチアウト透明窓を通して背面が透過。
             self.root_visual
-                .AddVisual(&visual, false, &self.wgpu_visual)
-                .unwrap();
+                .AddVisual(&visual, false, &self.wgpu_visual)?;
 
             let webview_controller = Rc::new(RefCell::new(None));
 
@@ -751,13 +845,13 @@ impl ComposedRenderer {
                 // この要素の Visual ターゲットに向けて WebView2 を非同期初期化
                 let _ = crate::init_webview2_composition(
                     self.hwnd,
-                    visual.clone(),
-                    slot_clone,
+                    &visual,
+                    &slot_clone,
                     contents, // 設定値（URL、DevTools等のフラグ）を引き渡す
                     rect,
                     self.scale_factor,
-                    self.webview_env.clone(),
-                    cx.task_sender(),
+                    &self.webview_env,
+                    &cx.task_sender(),
                 );
             }
 
@@ -770,6 +864,8 @@ impl ComposedRenderer {
                 is_capturing: false,
                 is_visible: true, // 新規作成時はマウント済み
             });
+
+            Ok(())
         }
     }
 
@@ -859,15 +955,12 @@ impl ComposedRenderer {
     // ウィンドウハンドル (HWND) が手元にある状態からスタート
     pub(crate) fn setup_direct_composition(
         hwnd: HWND,
-    ) -> Result<
-        (
-            IDCompositionDesktopDevice,
-            IDCompositionTarget,
-            IDCompositionVisual2, // root_visual
-            IDCompositionVisual2, // wgpu_visual
-        ),
-        Box<dyn std::error::Error>,
-    > {
+    ) -> crate::Result<(
+        IDCompositionDesktopDevice,
+        IDCompositionTarget,
+        IDCompositionVisual2, // root_visual
+        IDCompositionVisual2, // wgpu_visual
+    )> {
         unsafe {
             // 1. D3D11 デバイスを作成
             // グローバルなマネージャーの解決を試みる（失敗時は呼び出し元にエラーを伝播できるよう、後々 Result にするか
@@ -921,30 +1014,30 @@ unsafe impl Send for DCompDeviceManager {}
 unsafe impl Sync for DCompDeviceManager {}
 
 impl DCompDeviceManager {
-    /// デバイスマネージャーのグローバル参照を取得します。
-    /// 未初期化、または過去の初期化でエラーが起きていた場合は、何度でも再生成（再試行）を試みます。
-    pub(crate) fn global() -> Result<&'static Self, Box<dyn std::error::Error>> {
+    /// デバイスマネージャーのグローバル参照を取得。
+    /// 未初期化、または過去の初期化でエラーが起きていた場合は再試行。
+    pub(crate) fn global() -> crate::Result<&'static Self> {
         static INSTANCE: OnceLock<DCompDeviceManager> = OnceLock::new();
 
-        // 1. すでに初期化が正常に完了していれば、ロックを伴わずに即時取得
         if let Some(manager) = INSTANCE.get() {
             return Ok(manager);
         }
 
-        // 2. 失敗する可能性のある初期化処理を安全に実行（Result を返す）
         let manager = Self::try_create_devices()?;
 
-        // 3. 完全に成功した場合にのみ OnceLock に実体をセットする。
-        // ※ 複数スレッドで同時に成功した場合、最初に完了した方がセットされ、
-        //    もう一方は set() で Err(manager) を返しますが、
-        //    最終的に get() 側で正しく1つのインスタンスに統合されるため安全です。
+        // 完全に成功した場合にのみ OnceLock に実体をセットする。
+        // 複数スレッドで同時に成功した場合、最初に完了した方がセットされ、
+        // もう一方は set() で Err(manager) を返すが、
+        // 最終的に get() 側で正しく1つのインスタンスに統合されるため安全。
         let _ = INSTANCE.set(manager);
 
-        Ok(INSTANCE.get().unwrap())
+        INSTANCE
+            .get()
+            .ok_or(MichiuError::UninitializedDeviceManager)
     }
 
     /// デバイスの生成・クエリを試みる、失敗を許容する内部ヘルパー
-    fn try_create_devices() -> Result<Self, Box<dyn std::error::Error>> {
+    fn try_create_devices() -> crate::Result<Self> {
         // D3D11 デバイスを作成
         let mut d3d11_device: Option<ID3D11Device> = None;
         unsafe {
@@ -960,7 +1053,7 @@ impl DCompDeviceManager {
                 None,
             )?;
         }
-        let d3d11_device = d3d11_device.ok_or("Failed to create D3D11 hardware device")?;
+        let d3d11_device = d3d11_device.ok_or(MichiuError::D3d11DeviceCreationFailed)?;
 
         // DXGI デバイスをクエリ
         // let dxgi_device: IDXGIDevice = d3d11_device.cast()?;

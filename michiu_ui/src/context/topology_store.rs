@@ -1,15 +1,16 @@
 use crate::{
     ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
-    ComponentMask, ContentStore, Context, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId,
-    EventStore, FlexDirection, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, MichiuSoA, OutputStore, PointerEvents, ReactiveStore, RectsSecondary,
-    RenderStore, StateStore, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId,
-    VisualPropertiesSecondary, WindowStore, define_secondary, define_slotmap, define_smallvec,
-    define_vec,
+    ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec, DirtyQueueTrace,
+    DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection, FlexLayoutsSecondary,
+    IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace,
+    OutputStore, PointerEvents, QueueDirtyKinds, ReactiveStore, RectsSecondary, RenderStore,
+    SpawnTrace, StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt,
+    TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec,
+    define_vec, trace_lifecycle,
 };
-use derive_more::{Deref, DerefMut, IntoIterator};
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
+use std::sync::Arc;
 
 // ソート計算用
 struct StackFrame {
@@ -18,23 +19,27 @@ struct StackFrame {
     clip: LayoutRect,
 }
 
-define_slotmap!(pub(crate) struct EntitiesSlot(EntityId, ()));
+#[derive(
+    Debug, Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator,
+)]
+#[into_iterator(owned, ref, ref_mut)]
+pub struct EntitiesSlot(pub(crate) SlotMap<EntityId, ()>);
 
-define_secondary!(pub(crate) struct ParentsSecondary(Option<EntityId>));
-define_secondary!(pub(crate) struct ChildrenSecondary(SmallVec<[EntityId; 8]>));
-define_secondary!(pub(crate) struct ActiveMasksSecondary(ComponentMask));
-define_secondary!(pub(crate) struct EffectiveZindicesSecondary(i32));
-define_secondary!(pub(crate) struct DfsIndicesSecondary(u32));
+define_secondary!(pub struct ParentsSecondary(Option<EntityId>));
+define_secondary!(pub struct ChildrenSecondary(SmallVec<[EntityId; 8]>));
+define_secondary!(pub struct ActiveMasksSecondary(ComponentMask));
+define_secondary!(pub struct EffectiveZindicesSecondary(i32));
+define_secondary!(pub struct DfsIndicesSecondary(u32));
 
-define_vec!(pub(crate) struct ActiveEntitiesVec(EntityId));
-define_vec!(pub(crate) struct SessionSpawnedVec(EntityId));
-define_vec!(pub(crate) struct FlatDfsSequenceVec(EntityId));
-define_vec!(pub(crate) struct SortedEntitiesVec(EntityId));
-define_vec!(pub(crate) struct SortCacheVec((EntityId, i32, u32)));
+define_vec!(pub struct ActiveEntitiesVec(EntityId));
+define_vec!(pub struct SessionSpawnedVec(EntityId));
+define_vec!(pub struct FlatDfsSequenceVec(EntityId));
+define_vec!(pub struct SortedEntitiesVec(EntityId));
+define_vec!(pub struct SortCacheVec((EntityId, i32, u32)));
 
-define_smallvec!(pub(crate) struct SessionRootsVec(EntityId, 4));
-define_smallvec!(pub(crate) struct WebviewEntitiesVec(EntityId, 4));
-define_smallvec!(pub(crate) struct DespawnedQueueVec(EntityId, 4));
+define_smallvec!(pub struct SessionRootsVec(EntityId, 4));
+define_smallvec!(pub struct WebviewEntitiesVec(EntityId, 4));
+define_smallvec!(pub struct DespawnedQueueVec(EntityId, 4));
 
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
@@ -178,6 +183,7 @@ impl TopologyStore {
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+        debug: &mut DebugStore,
     ) -> EntityId {
         let id = topo_entities.insert(());
         topo_parents.insert(id, parent_id);
@@ -188,7 +194,7 @@ impl TopologyStore {
         // Taffyノードとの同期
         let node = lay_taffy_tree
             .new_leaf_with_context(taffy::Style::default(), id)
-            .unwrap();
+            .unwrap_or_trace(Some(id), debug);
         lay_taffy_nodes.insert(id, node);
 
         *topo_is_structure_dirty = true;
@@ -211,6 +217,7 @@ impl TopologyStore {
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         // 子がすでに別の親に属している場合は、古い親からデタッチ
         if let Some(old_parent) = *topo_parents.at(child)
@@ -233,7 +240,7 @@ impl TopologyStore {
             {
                 lay_taffy_tree
                     .remove_child(old_parent_node, child_node)
-                    .unwrap();
+                    .unwrap_or_trace(Some(old_parent), debug);
             }
 
             // 古い親側の Taffy 順序とレイアウトを再同期して Dirty マーク
@@ -242,6 +249,7 @@ impl TopologyStore {
                 topo_children,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
             LayoutStore::mark_layout_dirty(
                 old_parent,
@@ -250,6 +258,7 @@ impl TopologyStore {
                 lay_dirty_entities,
                 lay_taffy_tree,
                 lay_taffy_nodes,
+                debug,
             );
         }
 
@@ -266,7 +275,9 @@ impl TopologyStore {
         // 新しい親の Taffy ツリーの親子関係を永続的に更新
         let parent_node = *lay_taffy_nodes.at(parent);
         let child_node = *lay_taffy_nodes.at(child);
-        lay_taffy_tree.add_child(parent_node, child_node).unwrap();
+        lay_taffy_tree
+            .add_child(parent_node, child_node)
+            .unwrap_or_trace(Some(parent), debug);
 
         LayoutStore::mark_layout_dirty(
             parent,
@@ -275,6 +286,7 @@ impl TopologyStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
     }
 
@@ -294,6 +306,7 @@ impl TopologyStore {
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
+        debug: &mut DebugStore,
     ) {
         // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
         let parent_node = *layouts.lay_taffy_nodes.at(parent);
@@ -301,7 +314,7 @@ impl TopologyStore {
         layouts
             .lay_taffy_tree
             .add_child(parent_node, new_node)
-            .unwrap();
+            .unwrap_or_trace(Some(parent), debug);
 
         TopologyStore::replace_child_node(
             parent,
@@ -316,7 +329,7 @@ impl TopologyStore {
         // 古い子要素（およびその子孫）を完全に安全デスポーン
         TopologyStore::despawn_internal(
             old_child, window, system, reactive, events, contents, topology, states, layouts,
-            renders, outputs,
+            renders, outputs, debug,
         );
 
         LayoutStore::mark_layout_dirty(
@@ -326,6 +339,7 @@ impl TopologyStore {
             &mut layouts.lay_dirty_entities,
             &mut layouts.lay_taffy_tree,
             &layouts.lay_taffy_nodes,
+            debug,
         );
     }
 
@@ -343,6 +357,7 @@ impl TopologyStore {
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
+        debug: &mut DebugStore,
     ) {
         if !topology.topo_entities.contains_key(id) {
             return;
@@ -358,19 +373,22 @@ impl TopologyStore {
         // 自身がルート要素の場合親は None
         if let Some(parent_id) = *topology.topo_parents.at(id) {
             // 親も自分もレイアウトノードを持っている場合のみTaffyツリーからのデタッチ
-            if let Some(&parent_node) = layouts.lay_taffy_nodes.get(parent_id) {
-                let child_node = *layouts.lay_taffy_nodes.at(id); // 自分はあるはず！
-                let taffy_children = layouts.lay_taffy_tree.children(parent_node).unwrap();
+            if let Some(&parent_node) = layouts.lay_taffy_nodes.find(parent_id) {
+                let child_node = *layouts.lay_taffy_nodes.at(id); // 自分はあるはず
+                let taffy_children = layouts
+                    .lay_taffy_tree
+                    .children(parent_node)
+                    .unwrap_or_trace(Some(parent_id), debug);
                 if taffy_children.contains(&child_node) {
                     layouts
                         .lay_taffy_tree
                         .remove_child(parent_node, child_node)
-                        .unwrap();
+                        .unwrap_or_trace(Some(parent_id), debug);
                 }
             }
 
             // 親がまだ生きていれば外す
-            if let Some(parent_children) = topology.topo_children.get_mut(parent_id) {
+            if let Some(parent_children) = topology.topo_children.find_mut(parent_id) {
                 parent_children.retain(|x| *x != id);
             }
         }
@@ -385,7 +403,7 @@ impl TopologyStore {
             for child_id in children_list {
                 TopologyStore::despawn_internal(
                     child_id, window, system, reactive, events, contents, topology, states,
-                    layouts, renders, outputs,
+                    layouts, renders, outputs, debug,
                 );
             }
         }
@@ -417,6 +435,7 @@ impl TopologyStore {
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
+        debug: &mut DebugStore,
     ) {
         // start_marker 以降に生成された要素をスキャン
         let spawned_in_session: Vec<EntityId> = topology
@@ -433,7 +452,7 @@ impl TopologyStore {
             if has_no_parent && is_not_root {
                 TopologyStore::despawn_internal(
                     id, window, system, reactive, events, contents, topology, states, layouts,
-                    renders, outputs,
+                    renders, outputs, debug,
                 );
             }
         }
@@ -507,6 +526,7 @@ impl TopologyStore {
         topo_flat_dfs_sequence: &mut FlatDfsSequenceVec,
         topo_is_structure_dirty: &mut bool,
         topo_children: &ChildrenSecondary,
+        debug: &mut DebugStore,
     ) {
         topo_flat_dfs_sequence.clear();
         let mut stack = smallvec::SmallVec::<[EntityId; 32]>::new();
@@ -523,6 +543,12 @@ impl TopologyStore {
             }
         }
         *topo_is_structure_dirty = false;
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, debug, || MichiuTrace::Dfs {
+            after: Arc::from(topo_flat_dfs_sequence.0.clone()),
+            add: Some("Here, the is_structure_dirty flag changes to false.")
+        });
     }
 
     /// 子孫要素のインタラクション状態を走査
@@ -603,7 +629,7 @@ impl TopologyStore {
         out_rects: &RectsSecondary,
     ) -> usize {
         let flex_direction = lay_flex
-            .get(parent)
+            .find(parent)
             .map_or(FlexDirection::default(), |f| f.flex_direction);
         let is_row =
             flex_direction == FlexDirection::Row || flex_direction == FlexDirection::RowReverse;
@@ -664,6 +690,7 @@ impl TopologyStore {
         rnd_visual: &VisualPropertiesSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) {
         if !*topo_is_sort_dirty {
             return;
@@ -695,13 +722,13 @@ impl TopologyStore {
             };
 
             // 実効 z_index のカスケード計算
-            let self_z = rnd_visual.get(id).and_then(|v| v.z_index);
-            let parent_z = parent_id.and_then(|pid| topo_effective_z_indices.get(pid).copied());
+            let self_z = rnd_visual.find(id).and_then(|v| v.z_index);
+            let parent_z = parent_id.and_then(|pid| topo_effective_z_indices.find(pid).copied());
             let eff_z = self_z.or(parent_z).unwrap_or(0);
             topo_effective_z_indices.insert(id, eff_z);
 
             // トランスフォームのインライン累積
-            let (self_transform, transform_inherit) = match rnd_visual.get(id) {
+            let (self_transform, transform_inherit) = match rnd_visual.find(id) {
                 Some(v) => (
                     v.transform.unwrap_or(IDENTITY_MATRIX),
                     v.transform_inherit.unwrap_or(false),
@@ -719,7 +746,7 @@ impl TopologyStore {
 
             // クリップ矩形のインライン累積
             let rect = *out_rects.at(id);
-            let eff_clip = *out_clip_rects.get_or(id, &default_clip);
+            let eff_clip = *out_clip_rects.find_or(id, &default_clip, debug);
 
             // トランスフォームの適用されているブランチか伝播判定
             let is_parent_transform = parent_id.is_some_and(|p| {
@@ -727,7 +754,7 @@ impl TopologyStore {
                     .at(p)
                     .has(ComponentMask::STATE_TRANSFORM_ACTIVE)
             });
-            let has_self_transform = rnd_visual.get(id).is_some_and(|v| v.transform.is_some());
+            let has_self_transform = rnd_visual.find(id).is_some_and(|v| v.transform.is_some());
             let is_transform_active = is_parent_transform || has_self_transform;
 
             if is_transform_active {
@@ -804,6 +831,12 @@ impl TopologyStore {
         topo_sorted_entities.extend(topo_sort_cache.iter().map(|&(id, _, _)| id));
 
         *topo_is_sort_dirty = false;
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, debug, || MichiuTrace::Sorted {
+            after: Arc::from(topo_sorted_entities.0.clone()),
+            add: Some("Here, the is_sort_dirty flag changes to false.")
+        });
     }
 
     #[inline]
@@ -814,6 +847,7 @@ impl TopologyStore {
         topo_children: &mut ChildrenSecondary,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
+        debug: &mut DebugStore,
     ) {
         for child_id in topo_children.at(holder).clone() {
             // 子要素の親ポインタを元の要素に書き戻し
@@ -827,8 +861,12 @@ impl TopologyStore {
             let ph_node = *lay_taffy_nodes.at(holder);
             let child_node = *lay_taffy_nodes.at(child_id);
 
-            lay_taffy_tree.remove_child(ph_node, child_node).unwrap();
-            lay_taffy_tree.add_child(src_node, child_node).unwrap();
+            lay_taffy_tree
+                .remove_child(ph_node, child_node)
+                .unwrap_or_trace(Some(child_id), debug);
+            lay_taffy_tree
+                .add_child(src_node, child_node)
+                .unwrap_or_trace(Some(child_id), debug);
         }
     }
 
@@ -841,6 +879,7 @@ impl TopologyStore {
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
+        debug: &mut DebugStore,
     ) {
         LayoutStore::mark_layout_dirty(
             id,
@@ -849,6 +888,7 @@ impl TopologyStore {
             lay_dirty_entities,
             lay_taffy_tree,
             lay_taffy_nodes,
+            debug,
         );
         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
     }
@@ -873,6 +913,7 @@ impl TopologyStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> Option<EntityId> {
         TopologyStore::prepare_sorted_entities(
             win_last_size,
@@ -888,6 +929,7 @@ impl TopologyStore {
             rnd_visual,
             out_clip_rects,
             out_rects,
+            debug,
         );
         for &id in topo_sorted_entities.iter().rev() {
             let is_drag_over = topo_active_masks
@@ -911,17 +953,34 @@ impl TopologyStore {
 
             // pointer-events 設定の解決
             let pointer_events = rnd_visual
-                .get(id)
+                .find(id)
                 .and_then(|v| v.pointer_events)
-                .or_else(|| rnd_base_visual.get(id).and_then(|v| v.pointer_events))
+                .or_else(|| rnd_base_visual.find(id).and_then(|v| v.pointer_events))
                 .unwrap_or_default();
 
             if pointer_events == PointerEvents::None {
                 continue; // 透過設定
             }
 
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, debug, || MichiuTrace::HitTest {
+                found: Some(id),
+                hit_x: point.x,
+                hit_y: point.y,
+                add: None
+            });
+
             return Some(id);
         }
+
+        #[cfg(feature = "trace-lifecycle")]
+        trace_lifecycle!(None, debug, || MichiuTrace::HitTest {
+            found: None,
+            hit_x: point.x,
+            hit_y: point.y,
+            add: None
+        });
+
         None
     }
 }
@@ -943,6 +1002,7 @@ impl Context {
             &mut self.layouts.lay_taffy_tree,
             &mut self.layouts.lay_taffy_nodes,
             &mut self.renders.rnd_dirty_entities,
+            &mut self.debug,
         )
     }
 
@@ -960,6 +1020,7 @@ impl Context {
             &mut self.layouts.lay_dirty_entities,
             &mut self.layouts.lay_taffy_tree,
             &mut self.layouts.lay_taffy_nodes,
+            &mut self.debug,
         );
     }
 
@@ -985,6 +1046,7 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
+            &mut self.debug,
         );
     }
 
@@ -998,6 +1060,7 @@ impl Context {
     #[inline]
     pub(crate) fn register_root(&mut self, id: EntityId) {
         self.topology.topo_session_roots.push(id);
+        self.debug.dbg_root = Some(id);
     }
 
     // セッションのクリーンアップを実行
@@ -1015,6 +1078,7 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
+            &mut self.debug,
         );
     }
 
@@ -1033,6 +1097,7 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
+            &mut self.debug,
         );
     }
 
