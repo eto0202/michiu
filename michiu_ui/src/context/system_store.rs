@@ -1,8 +1,8 @@
 use crate::{
     CapacityConfig, Context, DebugStore, EdgeInsets, EntityId, InputContents, LayoutPoint,
     LayoutRect, LayoutStore, MichiuSoA, RectsSecondary, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, TextContentsSparse, TextEngine, TextSpansSparse, UiaValue,
-    VisualPropertiesSecondary, define_sparse_secondary,
+    ResolvedFlexSecondary, ResolvedGeometry, TextContentsSparse, TextEngine, TextSpansSparse,
+    UiaValue, VisualPropertiesSecondary, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -107,46 +107,21 @@ impl SystemStore {
 impl SystemStore {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
-    pub(crate) fn clear_layout_cache(id: EntityId, sys_text_buffers: &TextBufferSparse) {
+    pub(crate) fn clear_text_buffer_cache(id: EntityId, sys_text_buffers: &TextBufferSparse) {
         sys_text_buffers.borrow_mut().remove(id);
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持。
     #[inline]
-    pub(crate) fn get_or_create_layout(
+    pub(crate) fn get_or_create_text_buffer<F>(
         id: EntityId,
-        sys_text_engine: &mut TextEngine,
+        max_width_opt: Option<f32>,
         sys_text_buffers: &TextBufferSparse,
-        cont_text_contents: &TextContentsSparse,
-        cont_text_spans: &TextSpansSparse,
-        lay_resolved_basic: &ResolvedBasicSecondary,
-        lay_resolved_flex: &ResolvedFlexSecondary,
-        rnd_visual: &VisualPropertiesSecondary,
-        out_rects: &RectsSecondary,
-        debug: &mut DebugStore,
-    ) -> Rc<Buffer> {
-        let text = cont_text_contents.at(id);
-
-        let font = rnd_visual
-            .find(id)
-            .map(|v| v.font.clone())
-            .unwrap_or_default();
-        let auto_wrap = rnd_visual.find(id).and_then(|v| v.auto_wrap);
-
-        let basic = lay_resolved_basic.find_or_default(id, debug);
-        let flex = lay_resolved_flex.find_or_default(id, debug);
-        let rect = out_rects.find_or_default(id, debug); // 初回実行の場合、存在しない可能性
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-        let max_width = rect.width - border.right - border.left - padding.right - padding.left;
-        // 修正：auto_wrap が有効な場合のみ、計算した最大幅を設定する
-        let max_width_opt = if auto_wrap.unwrap_or(false) && max_width > 0.0 {
-            Some(max_width)
-        } else {
-            None
-        };
-
+        create_buffer: F,
+    ) -> Rc<Buffer>
+    where
+        F: FnOnce() -> Buffer,
+    {
         // キャッシュ存在時に現在の幅の制約と一致しているか検証
         if let Some(buffer) = sys_text_buffers.borrow().find(id).cloned() {
             let cached_size = buffer.size().0; // Option<f32>
@@ -164,22 +139,9 @@ impl SystemStore {
                 return buffer;
             }
         }
-        
-        SystemStore::clear_layout_cache(id, sys_text_buffers);
 
-        let spans = cont_text_spans.find(id).map_or(&[][..], Vec::as_slice);
-
-        let buffer = sys_text_engine.create_buffer(
-            text,
-            &font,
-            flex.text_align,
-            max_width_opt,
-            auto_wrap,
-            spans,
-        );
-
-        let buffer = Rc::new(buffer);
-
+        SystemStore::clear_text_buffer_cache(id, sys_text_buffers);
+        let buffer = Rc::new(create_buffer());
         sys_text_buffers.borrow_mut().insert(id, buffer.clone());
         buffer
     }
@@ -187,10 +149,8 @@ impl SystemStore {
     #[allow(clippy::cast_possible_truncation)]
     #[inline]
     pub(crate) fn sync_imm_window_position(
-        rect: LayoutRect,
+        geom: &ResolvedGeometry,
         scale: f32,
-        border: EdgeInsets,
-        padding: EdgeInsets,
         caret: LayoutRect,
         caret_offset: f32,
         scroll: LayoutPoint,
@@ -204,6 +164,10 @@ impl SystemStore {
         if himc.is_invalid() {
             return;
         }
+
+        let rect = geom.rect;
+        let border = geom.border;
+        let padding = geom.padding;
 
         // スクロールオフセット（scroll.x / scroll.y）を正確に引いた実座標で同期
         let caret_phys_x =
@@ -305,23 +269,25 @@ impl Context {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
     pub(crate) fn clear_layout_cache(&self, id: EntityId) {
-        SystemStore::clear_layout_cache(id, &self.system.sys_text_buffers);
+        SystemStore::clear_text_buffer_cache(id, &self.system.sys_text_buffers);
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
     #[inline]
-    pub(crate) fn get_or_create_layout(&mut self, id: EntityId) -> Rc<Buffer> {
-        SystemStore::get_or_create_layout(
+    pub(crate) fn get_or_create_text_buffer<F>(
+        &mut self,
+        id: EntityId,
+        max_width_opt: Option<f32>,
+        create_buffer: F,
+    ) -> Rc<Buffer>
+    where
+        F: FnOnce() -> Buffer,
+    {
+        SystemStore::get_or_create_text_buffer(
             id,
-            &mut self.system.sys_text_engine,
+            max_width_opt,
             &self.system.sys_text_buffers,
-            &self.contents.cont_text_contents,
-            &self.contents.cont_text_spans,
-            &self.layouts.lay_resolved_basic,
-            &self.layouts.lay_resolved_flex,
-            &self.renders.rnd_visual,
-            &self.outputs.out_rects,
-            &mut self.debug,
+            create_buffer,
         )
     }
 }

@@ -29,7 +29,6 @@ define_secondary!(pub struct ParentsSecondary(Option<EntityId>));
 define_secondary!(pub struct ChildrenSecondary(SmallVec<[EntityId; 8]>));
 define_secondary!(pub struct ActiveMasksSecondary(ComponentMask));
 define_secondary!(pub struct EffectiveZindicesSecondary(i32));
-define_secondary!(pub struct DfsIndicesSecondary(u32));
 
 define_vec!(pub struct ActiveEntitiesVec(EntityId));
 define_vec!(pub struct SessionSpawnedVec(EntityId));
@@ -58,7 +57,6 @@ pub struct TopologyStore {
     /// セッション終了時に、親がいなくても破棄してはならないルート要素のリスト
     pub(crate) topo_session_roots: SessionRootsVec,
     pub(crate) topo_flat_dfs_sequence: FlatDfsSequenceVec,
-    pub(crate) topo_dfs_indices: DfsIndicesSecondary,
     // 実効 z-index の作業用マップ
     pub(crate) topo_effective_z_indices: EffectiveZindicesSecondary,
     pub(crate) topo_sorted_entities: SortedEntitiesVec,
@@ -88,7 +86,6 @@ impl TopologyStore {
             topo_session_spawned: SessionSpawnedVec(Vec::new()),
             topo_session_roots: SessionRootsVec(SmallVec::new()),
             topo_flat_dfs_sequence: FlatDfsSequenceVec(Vec::new()),
-            topo_dfs_indices: DfsIndicesSecondary(SecondaryMap::new()),
             topo_effective_z_indices: EffectiveZindicesSecondary(SecondaryMap::new()),
             topo_sorted_entities: SortedEntitiesVec(Vec::new()),
             topo_sort_cache: SortCacheVec(Vec::new()),
@@ -115,7 +112,6 @@ impl TopologyStore {
             topo_flat_dfs_sequence: FlatDfsSequenceVec(Vec::with_capacity(
                 c.topo_flat_dfs_sequence,
             )),
-            topo_dfs_indices: DfsIndicesSecondary(SecondaryMap::with_capacity(c.topo_dfs_indices)),
             topo_effective_z_indices: EffectiveZindicesSecondary(SecondaryMap::with_capacity(
                 c.topo_effective_z_indices,
             )),
@@ -139,7 +135,6 @@ impl TopologyStore {
         self.topo_parents.clear();
         self.topo_children.clear();
         self.topo_flat_dfs_sequence.clear();
-        self.topo_dfs_indices.clear();
         self.topo_effective_z_indices.clear();
         self.topo_sorted_entities.clear();
         self.topo_sort_cache.clear();
@@ -158,7 +153,6 @@ impl TopologyStore {
         self.topo_session_spawned.retain(|&x| x != id);
         self.topo_session_roots.retain(|x| *x != id);
         self.topo_flat_dfs_sequence.retain(|&x| x != id);
-        self.topo_dfs_indices.remove(id);
         self.topo_effective_z_indices.remove(id);
         self.topo_sorted_entities.retain(|&x| x != id);
         self.topo_sort_cache.retain(|&x| x.0 != id);
@@ -679,12 +673,10 @@ impl TopologyStore {
     pub(crate) fn prepare_sorted_entities(
         win_last_size: Option<LayoutSize>,
         topo_active_masks: &mut ActiveMasksSecondary,
-        topo_dfs_indices: &mut DfsIndicesSecondary,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_sort_cache: &mut SortCacheVec,
         topo_is_sort_dirty: &mut bool,
-        topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         rnd_visual: &VisualPropertiesSecondary,
@@ -701,7 +693,8 @@ impl TopologyStore {
         let default_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
 
         topo_effective_z_indices.clear();
-        topo_dfs_indices.clear();
+        // 忘れてたンゴ～
+        topo_sort_cache.clear();
 
         // DFS順配列を使って可視性フラグを高速に伝播、および出現インデックスの記録
         for (index, &id) in topo_flat_dfs_sequence.iter().enumerate() {
@@ -793,34 +786,18 @@ impl TopologyStore {
                 topo_active_masks
                     .at_mut(id)
                     .set(ComponentMask::STATE_RENDER_VISIBLE);
+                topo_sort_cache.push((id, eff_z, index as u32));
             } else {
                 topo_active_masks
                     .at_mut(id)
                     .unset(ComponentMask::STATE_RENDER_VISIBLE);
             }
 
-            // DFS出現順インデックスの記録
-            topo_dfs_indices.insert(id, index as u32);
-
             stack.push(StackFrame {
                 id,
                 matrix: eff_matrix,
                 clip: eff_clip,
             });
-        }
-
-        // ソート用キャッシュの構築
-        // STATE_RENDER_VISIBLE が立っている要素のみを抽出
-        topo_sort_cache.clear();
-        for &id in topo_active_entities {
-            if topo_active_masks
-                .at(id)
-                .has(ComponentMask::STATE_RENDER_VISIBLE)
-            {
-                let z = *topo_effective_z_indices.at(id);
-                let dfs = *topo_dfs_indices.at(id);
-                topo_sort_cache.push((id, z, dfs));
-            }
         }
 
         // 抽出された可視要素のみを z_index と出現順でソート
@@ -901,12 +878,10 @@ impl TopologyStore {
         win_last_size: Option<LayoutSize>,
         evt_interaction_states: &ActiveInteractionStates,
         topo_active_masks: &mut ActiveMasksSecondary,
-        topo_dfs_indices: &mut DfsIndicesSecondary,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_sorted_entities: &mut SortedEntitiesVec,
         topo_sort_cache: &mut SortCacheVec,
         topo_is_sort_dirty: &mut bool,
-        topo_active_entities: &ActiveEntitiesVec,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         rnd_visual: &VisualPropertiesSecondary,
@@ -918,12 +893,10 @@ impl TopologyStore {
         TopologyStore::prepare_sorted_entities(
             win_last_size,
             topo_active_masks,
-            topo_dfs_indices,
             topo_effective_z_indices,
             topo_sorted_entities,
             topo_sort_cache,
             topo_is_sort_dirty,
-            topo_active_entities,
             topo_parents,
             topo_flat_dfs_sequence,
             rnd_visual,
@@ -984,6 +957,8 @@ impl TopologyStore {
         None
     }
 }
+
+impl ActiveMasksSecondary {}
 
 impl Context {
     /// 要素を新規に生成

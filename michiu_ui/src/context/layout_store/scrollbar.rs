@@ -5,9 +5,10 @@ use crate::{
     DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse,
     InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA,
     OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
-    ScrollStore, Size, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, ThisStyle, Val,
-    VisualPropertiesSecondary, WindowStore, define_sparse_secondary,
+    ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse, ScrollOffsetsSecondary,
+    ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyResultTraceExt,
+    TaffyTreeEntityId, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
+    define_sparse_secondary,
 };
 use slotmap::SparseSecondaryMap;
 use smallvec::SmallVec;
@@ -472,12 +473,12 @@ impl ScrollbarStore {
             let scroll_size = sc_sizes.find_or_default(id, debug);
             let current_scroll = sc_offsets.find_or_default(id, debug);
 
-            let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
-            let (border, padding) =
-                LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+            let resolved_geom =
+                ResolvedGeometry::resolved(id, sc_offsets, lay_resolved_basic, out_rects, debug);
+            let border = resolved_geom.border;
 
             let visible_size = WindowStore::calc_visible_size(rect, win_last_size);
-            let content_size = OutputStore::calc_inner_content_size(visible_size, border, padding);
+            let content_size = resolved_geom.inner_content_size(visible_size);
 
             let show_v = scroll_size.height > content_size.height;
             let show_h = scroll_size.width > content_size.width;

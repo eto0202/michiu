@@ -8,8 +8,8 @@ use crate::{
     LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary,
     PlaybackCount, Point, PointerEvents, PropertyList, RectsSecondary, ScrollbarDisplay,
     ScrollbarStylesSparse, StyleStage, StyleTarget, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextBufferSparse, ThisStyle, TopologyStore, TransitionValue, Val,
-    VisualProperty, define_secondary, define_sparse_secondary, define_vec, trace_lifecycle,
+    TaffyTreeEntityId, TextBufferSparse, ThisStyle, TopologyStore, TransitionValue, UserSelect,
+    Val, VisualProperty, define_secondary, define_sparse_secondary, define_vec, trace_lifecycle,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -41,6 +41,21 @@ define_sparse_secondary!(pub struct ActiveTransitionsSparse(Vec<ActiveTransition
 define_sparse_secondary!(pub struct ActiveAnimationsSparse(Vec<ActiveAnimation>));
 
 define_vec!(pub struct DirtyRenderEntitiesVec(EntityId));
+
+impl VisualPropertiesSecondary {
+    pub(crate) fn auto_wrap(&self, id: EntityId) -> bool {
+        self.find(id).and_then(|v| v.auto_wrap).unwrap_or(false)
+    }
+    pub(crate) fn font(&self, id: EntityId) -> FontDate {
+        self.find(id).map(|v| v.font.clone()).unwrap_or_default()
+    }
+
+    pub(crate) fn user_select(&self, id: EntityId) -> UserSelect {
+        self.find(id)
+            .and_then(|v| v.user_select)
+            .unwrap_or_default()
+    }
+}
 
 pub type ActiveWebviewsHashSet = FxHashSet<EntityId>;
 
@@ -1261,7 +1276,7 @@ impl RenderStore {
             }
 
             if font_changed {
-                SystemStore::clear_layout_cache(id, sys_text_buffers);
+                SystemStore::clear_text_buffer_cache(id, sys_text_buffers);
                 LayoutStore::mark_layout_dirty(
                     id,
                     topo_active_masks,

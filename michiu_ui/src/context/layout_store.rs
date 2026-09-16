@@ -4,10 +4,12 @@ pub use scrollbar::*;
 
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayout, CapacityConfig, ChildrenSecondary,
-    ComponentMask, Context, DebugStore, EdgeInsets, EntityId, FlexLayout, GridLayout,
-    InteractionPropertiesSecondary, InteractionStyles, LayoutRect, Length, MichiuSoA, NormalLayout,
-    ParentsSecondary, PropertyList, Rect, RenderStore, StyleTarget, TaffyResultTraceExt, ThisStyle,
-    VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
+    ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, EdgeInsets, EntityId,
+    FlexLayout, GridLayout, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
+    LayoutRect, LayoutSize, Length, MichiuSoA, NormalLayout, ParentsSecondary, PropertyList, Rect,
+    RectsSecondary, RenderStore, ScrollOffsetsSecondary, StyleTarget, TaffyResultTraceExt,
+    TextAlign, ThisStyle, VisualPropertiesSecondary, define_secondary, define_sparse_secondary,
+    define_vec,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::sync::Arc;
@@ -27,6 +29,12 @@ define_secondary!(pub struct BaseBasicLayoutsSecondary(BasicLayout));
 define_secondary!(pub struct BaseFlexLayoutsSecondary(FlexLayout));
 define_secondary!(pub struct ResolvedBasicSecondary(BasicLayout));
 define_secondary!(pub struct ResolvedFlexSecondary(FlexLayout));
+
+impl ResolvedFlexSecondary {
+    pub(crate) fn text_algin(&self, id: EntityId) -> TextAlign {
+        self.find(id).copied().unwrap_or_default().text_align
+    }
+}
 
 define_sparse_secondary!(pub struct GridLayoutsSparse(GridLayout));
 define_sparse_secondary!(pub struct ResolvedGridSparse(GridLayout));

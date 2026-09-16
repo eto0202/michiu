@@ -612,4 +612,30 @@ impl InputContents {
     pub(crate) fn text_empty(&self) -> bool {
         self.text.0.with(std::string::String::is_empty)
     }
+
+    /// キャレットの点滅と描画を行うかを判定
+    #[inline]
+    pub(crate) fn should_show_caret(&self) -> bool {
+        let now_instant = std::time::Instant::now();
+        if let Some(last) = self.last_interacted_time
+            && now_instant.duration_since(last) < Duration::from_millis(300)
+        {
+            return true; // キー入力や移動の操作から 300ms 未満のときは常時表示
+        }
+
+        // 点滅しない場合はキャレットの有無をそのまま返す
+        if !self.is_blink {
+            return self.has_caret;
+        }
+
+        let freq = self
+            .blink_frequency
+            .unwrap_or(Duration::from_millis(530))
+            .as_millis();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        (now / freq).is_multiple_of(2)
+    }
 }

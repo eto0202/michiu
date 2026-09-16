@@ -107,11 +107,6 @@ unsafe extern "system" fn wnd_proc(
                 app.renderer
                     .resize((width, height), app.renderer.scale_factor);
 
-                // Taffy レイアウトツリーの同期と確定座標再計算
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                app.renderer.update_composition_tree(&mut app.context);
-
                 // 再描画要求
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 let _ = unsafe { UpdateWindow(hwnd) };

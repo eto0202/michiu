@@ -4,14 +4,44 @@ use std::ops::Range;
 
 use crate::types::LayoutSize;
 use crate::{
-    ByteIndex, DebugStore, EdgeInsets, FontDate, LayoutPoint, LayoutRect, MichiuError,
-    MichiuString, OptionTraceExt, RendererView, TextAlign, TextSpan, VisualProperty,
+    ByteIndex, DebugStore, EdgeInsets, FontDate, InputContents, LayoutPoint, LayoutRect,
+    MichiuError, MichiuString, OptionTraceExt, RendererView, TextAlign, TextSpan, VisualProperty,
 };
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
 };
 use rustc_hash::FxHashMap;
 use smallvec::{SmallVec, smallvec};
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TextLayoutSize {
+    pub(crate) width: f32,
+    pub(crate) height: f32,
+    pub(crate) is_multiline: Option<bool>,
+}
+
+impl TextLayoutSize {
+    pub(crate) const DEFAULT: Self = Self {
+        width: 0.0,
+        height: 0.0,
+        is_multiline: Some(false),
+    };
+
+    #[inline]
+    pub(crate) fn new(width: f32, height: f32, is_multiline: Option<bool>) -> Self {
+        Self {
+            width,
+            height,
+            is_multiline,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn set_multiline(mut self, is_multiline: Option<bool>) -> Self {
+        self.is_multiline = is_multiline;
+        self
+    }
+}
 
 pub(crate) struct TextEngine {
     pub(crate) font_system: FontSystem,
@@ -58,7 +88,7 @@ impl TextEngine {
         font: &FontDate,
         text_align: TextAlign,
         max_width: Option<f32>,
-        auto_wrap: Option<bool>,
+        auto_wrap: bool,
         spans: &[TextSpan],
     ) -> Buffer {
         let font_size = font.size.unwrap_or(FontDate::FONT_SIZE);
@@ -83,7 +113,7 @@ impl TextEngine {
         let align = Self::map_to_align(text_align);
 
         buffer.set_size(max_width, None);
-        if auto_wrap.unwrap_or(false) && max_width.is_some() {
+        if auto_wrap && max_width.is_some() {
             buffer.set_wrap(Wrap::WordOrGlyph);
         } else {
             buffer.set_wrap(Wrap::None);
@@ -165,11 +195,11 @@ impl TextEngine {
         font: &FontDate,
         text_align: TextAlign,
         max_width: Option<f32>,
-        auto_wrap: Option<bool>,
+        auto_wrap: bool,
         spans: &[TextSpan],
-    ) -> LayoutSize {
+    ) -> TextLayoutSize {
         if text.is_empty() {
-            return LayoutSize::ZERO;
+            return TextLayoutSize::DEFAULT;
         }
 
         let buffer = self.create_buffer(text, font, text_align, max_width, auto_wrap, spans);
@@ -177,7 +207,7 @@ impl TextEngine {
         Self::get_layout_size(&buffer)
     }
 
-    pub(crate) fn get_layout_size(buffer: &Buffer) -> LayoutSize {
+    pub(crate) fn get_layout_size(buffer: &Buffer) -> TextLayoutSize {
         let mut width = 0.0f32;
         let mut height = 0.0f32;
 
@@ -186,7 +216,11 @@ impl TextEngine {
             height = height.max(run.line_top + run.line_height);
         }
 
-        LayoutSize::new(width, height)
+        TextLayoutSize {
+            width,
+            height,
+            is_multiline: None,
+        }
     }
 
     pub(crate) fn get_caret_position(buffer: &Buffer, index: ByteIndex) -> (f32, f32, f32) {

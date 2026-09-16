@@ -1,8 +1,9 @@
 use crate::{
-    ByteIndex, ComponentMask, Context, DebugStore, EffectCategory, Element, ElementState, EntityId,
-    ImeState, InputContents, InputOp, LayoutPoint, MichiuSoA, MichiuString, Modifiers, MouseButton,
-    OutputStore, Prop, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEngine,
-    TextSelectionsSparse, TextSpan, UnderlineStyle, VirtualKey, with_context,
+    ByteIndex, ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, EffectCategory,
+    Element, ElementState, EntityId, ImeState, InputContents, InputOp, LayoutPoint, LayoutSize,
+    LayoutStore, MichiuSoA, MichiuString, Modifiers, MouseButton, OutputStore, Prop,
+    ResolvedGeometry, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEngine,
+    TextLayoutSize, TextSelectionsSparse, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
 use cosmic_text::Buffer;
 use std::{ops::Range, time::Instant};
@@ -157,30 +158,55 @@ impl Element {
             return;
         };
 
-        let buffer = SystemStore::get_or_create_layout(
+        let flex = cx
+            .layouts
+            .lay_resolved_flex
+            .find_or(id, &DEFAULT_FLEX, &mut cx.debug);
+
+        let resolved_geom = ResolvedGeometry::resolved(
             id,
-            &mut cx.system.sys_text_engine,
-            &cx.system.sys_text_buffers,
-            &cx.contents.cont_text_contents,
-            &cx.contents.cont_text_spans,
+            &cx.states.scroll.sc_offsets,
             &cx.layouts.lay_resolved_basic,
-            &cx.layouts.lay_resolved_flex,
-            &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
             &mut cx.debug,
         );
 
-        let local = OutputStore::pressed_local_point(
+        let auto_wrap = cx.renders.rnd_visual.auto_wrap(id);
+        let content_width = resolved_geom.content_width();
+        let max_width_opt = (auto_wrap && content_width > 0.0).then_some(content_width);
+
+        let buffer = SystemStore::get_or_create_text_buffer(
             id,
+            max_width_opt,
+            &cx.system.sys_text_buffers,
+            || {
+                let text = cx.contents.cont_text_contents.at(id);
+                let font = cx.renders.rnd_visual.font(id);
+                let spans = cx.contents.cont_text_spans.span(id);
+                cx.system.sys_text_engine.create_buffer(
+                    text,
+                    &font,
+                    flex.text_align,
+                    max_width_opt,
+                    auto_wrap,
+                    spans,
+                )
+            },
+        );
+        let text_size = if let Some(c) = &cx.contents.cont_input_contents.find(id) {
+            let size = c
+                .last_layout
+                .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
+            TextLayoutSize::new(size.width, size.height, Some(c.is_multiline))
+        } else {
+            TextEngine::get_layout_size(&buffer).set_multiline(Some(false))
+        };
+
+        let local = resolved_geom.pressed_local_point(
             pointer_pos,
-            &buffer,
-            &cx.contents.cont_input_contents,
-            &cx.layouts.lay_resolved_basic,
-            &cx.layouts.lay_resolved_flex,
-            &cx.layouts.lay_resolved_grid,
-            &cx.outputs.out_rects,
-            &cx.states.scroll.sc_offsets,
-            &mut cx.debug,
+            flex.text_align,
+            flex.align_items,
+            text_size,
         );
 
         let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
@@ -643,7 +669,40 @@ impl Element {
             return;
         }
 
-        let buffer = cx.get_or_create_layout(id);
+        let basic = cx
+            .layouts
+            .lay_resolved_basic
+            .find_or(id, &DEFAULT_BASIC, &mut cx.debug);
+        let flex = cx
+            .layouts
+            .lay_resolved_flex
+            .find_or(id, &DEFAULT_FLEX, &mut cx.debug);
+        let rect = cx.outputs.out_rects.find_or_default(id, &mut cx.debug);
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+        let auto_wrap = cx.renders.rnd_visual.auto_wrap(id);
+        let content_width = rect.width - border.right - border.left - padding.right - padding.left;
+        let max_width_opt = (auto_wrap && content_width > 0.0).then_some(content_width);
+
+        let buffer = SystemStore::get_or_create_text_buffer(
+            id,
+            max_width_opt,
+            &cx.system.sys_text_buffers,
+            || {
+                let text = cx.contents.cont_text_contents.at(id);
+                let font = cx.renders.rnd_visual.font(id);
+                let spans = cx.contents.cont_text_spans.span(id);
+                cx.system.sys_text_engine.create_buffer(
+                    text,
+                    &font,
+                    flex.text_align,
+                    max_width_opt,
+                    auto_wrap,
+                    spans,
+                )
+            },
+        );
 
         let Some(contents) = cx.contents.cont_input_contents.find_mut(id) else {
             return;

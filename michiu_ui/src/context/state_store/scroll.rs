@@ -1,11 +1,11 @@
 use crate::{
     ActiveMasksSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, DEFAULT_BASIC,
-    DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, InputContentsSparse,
-    LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, Position,
-    RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse,
-    TextContentsSparse, TextEngine, TextSpansSparse, UserSelect, Val, VisualPropertiesSecondary,
-    WindowStore, define_secondary,
+    DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId,
+    InputContentsSparse, LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, OutputStore,
+    ParentsSecondary, Position, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGeometry, ScrollbarStylesSparse, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine,
+    TextSpansSparse, UserSelect, Val, VisualPropertiesSecondary, WindowStore, define_secondary,
 };
 use slotmap::SecondaryMap;
 use std::time::Instant;
@@ -80,13 +80,11 @@ impl ScrollStore {
 
         let scroll_size = sc_sizes.find_or_default(id, debug);
 
-        // 親コンテナのボーダーおよびパディング厚を取得
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+        let resolved_geom =
+            ResolvedGeometry::resolved(id, sc_offsets, lay_resolved_basic, out_rects, debug);
 
         let visible_size = WindowStore::calc_visible_size(rect, win_last_size);
-        let content_size = OutputStore::calc_inner_content_size(visible_size, border, padding);
+        let content_size = resolved_geom.inner_content_size(visible_size);
 
         // コンテンツサイズと内枠表示領域サイズの差分として、正確な最大スクロール量を算出
         let max_scroll_x = (scroll_size.width - content_size.width).max(0.0);
@@ -344,10 +342,7 @@ impl ScrollStore {
         let clip = *out_clip_rects.at(id);
 
         // テキスト選択状態
-        let user_select = rnd_visual
-            .find(id)
-            .and_then(|v| v.user_select)
-            .unwrap_or_default();
+        let user_select = rnd_visual.user_select(id);
         if user_select != UserSelect::Text {
             return (false, None);
         }
@@ -409,6 +404,9 @@ impl ScrollStore {
         let mut max_x = 0.0f32;
         let mut max_y = 0.0f32;
 
+        let resolved_geom =
+            ResolvedGeometry::resolved(id, sc_offsets, lay_resolved_basic, out_rects, debug);
+
         // 自身に内包されたインラインコンテンツの計測サイズを初期値とする
         if topo_active_masks.at(id).has_input_content() {
             // マスクがあるなら Some のはず
@@ -419,31 +417,31 @@ impl ScrollStore {
                 max_y = layout_rect.height;
             }
         } else if topo_active_masks.at(id).has_text_content() {
-            let buffer = SystemStore::get_or_create_layout(
-                id,
-                sys_text_engine,
-                sys_text_buffers,
-                cont_text_contents,
-                cont_text_spans,
-                lay_resolved_basic,
-                lay_resolved_flex,
-                rnd_visual,
-                out_rects,
-                debug,
-            );
+            let auto_wrap = rnd_visual.auto_wrap(id);
+            let max_width_opt = resolved_geom.calc_max_width(auto_wrap);
+
+            let buffer =
+                SystemStore::get_or_create_text_buffer(id, max_width_opt, sys_text_buffers, || {
+                    let text = cont_text_contents.at(id);
+                    let font = rnd_visual.font(id);
+                    let spans = cont_text_spans.span(id);
+                    let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+                    sys_text_engine.create_buffer(
+                        text,
+                        &font,
+                        flex.text_align,
+                        max_width_opt,
+                        auto_wrap,
+                        spans,
+                    )
+                });
             let size = TextEngine::get_layout_size(&buffer);
             max_x = size.width;
             max_y = size.height;
         }
 
-        // 親要素自体のボーダー・パディング厚を取得
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
-        let rect = *out_rects.at(id);
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-        let offset_x = border.left + padding.left;
-        let offset_y = border.top + padding.top;
+        let offset_x = resolved_geom.border.left + resolved_geom.padding.left;
+        let offset_y = resolved_geom.border.top + resolved_geom.padding.top;
 
         // スクロールバー要素のIDを取得して除外対象にする
         let (v_track_opt, h_track_opt) = if let Some(sb_state) = bar_styles.find(id) {
