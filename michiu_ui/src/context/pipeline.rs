@@ -76,164 +76,209 @@ pub enum StateFlag {
 pub struct Pipeline;
 
 impl Pipeline {
-    #[inline]
     pub(crate) fn inject_user_action(cx: &mut Context, action: UserAction) {
         let _context_guard = bind_context(cx);
 
-        let mut event_trace = TraceEventList::None;
-
         match action {
-            UserAction::PointerMove(layout_point) => {
-                #[cfg(feature = "trace-lifecycle")]
+            // キューの末尾が PointerMove なら最新座標で上書き
+            UserAction::PointerMove(pos) => {
+                if let Some(UserAction::PointerMove(last_pos)) =
+                    cx.events.evt_pending_actions.last_mut()
                 {
-                    event_trace = TraceEventList::PointerMove {
-                        x: layout_point.x,
-                        y: layout_point.y,
-                    };
+                    *last_pos = pos;
+                    return;
                 }
-
-                EventStore::inject_pointer_move(cx, layout_point);
+                cx.events.evt_pending_actions.push(action);
             }
-            UserAction::PointerButton {
-                button,
-                state,
-                modifiers,
-            } => {
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::PointerButton {
-                        button,
-                        state,
-                        modifiers,
-                    };
-                }
 
-                EventStore::inject_pointer_button(cx, button, state, modifiers);
-            }
-            UserAction::PointerDoubleClick { modifiers } => {
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::PointerDoubleClick { modifiers };
-                }
-
-                EventStore::inject_pointer_double_click(cx, modifiers);
-            }
+            // スクロールの場合は移動量の加算
             UserAction::MouseWheel { scroll_x, scroll_y } => {
-                #[cfg(feature = "trace-lifecycle")]
+                if let Some(UserAction::MouseWheel {
+                    scroll_x: last_x,
+                    scroll_y: last_y,
+                }) = cx.events.evt_pending_actions.last_mut()
                 {
-                    event_trace = TraceEventList::MouseWheel {
-                        x: scroll_x,
-                        y: scroll_y,
-                    };
-                }
-
-                EventStore::inject_mouse_wheel(cx, scroll_x, scroll_y);
-            }
-            UserAction::KeyboardKey {
-                key,
-                state,
-                modifiers,
-            } => {
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Keyboard {
-                        key,
-                        state,
-                        modifiers,
-                    };
-                }
-
-                EventStore::inject_keyboard_key(cx, key, state, modifiers);
-            }
-            UserAction::Character(c) => {
-                let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+                    *last_x += scroll_x;
+                    *last_y += scroll_y;
                     return;
-                };
-
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Character { char: c };
                 }
-
-                handle_on_char_input(cx, focused_id, c);
+                cx.events.evt_pending_actions.push(action);
             }
-            UserAction::Ime(ime_state) => {
-                let Some(focused_id) = cx.events.evt_interaction_states.focused else {
-                    return;
-                };
 
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Ime {
-                        is_open: ime_state.is_open,
-                        conversion_mode: ime_state.conversion_mode,
-                        sentence_mode: ime_state.sentence_mode,
-                        keyboard_layout_id: ime_state.keyboard_layout_id,
-                        composition_text: ime_state.composition_text.0.clone(),
-                        result_text: ime_state.result_text.0.clone(),
-                        caret_position: ime_state.caret_position,
-                        composition_cursor: ime_state.composition_cursor.0,
-                        composition_attrs: ime_state.composition_attrs.clone(),
-                    };
-                }
-
-                handle_on_ime(cx, focused_id, ime_state);
-            }
-            UserAction::FileDropped(path_bufs) => {
-                let Some(target_id) = cx.events.evt_interaction_states.hovered else {
-                    return;
-                };
-
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::FileDropped {
-                        path: Arc::from(path_bufs.clone()),
-                    };
-                }
-
-                handle_on_file_dropped(cx, target_id, path_bufs);
-            }
-            UserAction::Paste(text) => {
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Paste { text: text.clone() };
-                }
-
-                EventStore::inject_paste(cx, &text.into());
-            }
-            UserAction::Cut => {
-                let cut = EventStore::inject_cut(cx);
-
-                #[cfg(feature = "trace-lifecycle")]
-                if let Some(text) = cut.clone() {
-                    event_trace = TraceEventList::Cut { text: text.0 };
-                }
-
-                cx.contents.cont_cut_text = cut;
-            }
-            UserAction::Undo => {
-                EventStore::inject_undo(cx);
-
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Undo;
-                }
-            }
-            UserAction::Redo => {
-                EventStore::inject_redo(cx);
-
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Undo;
-                }
+            // それ以外は間引かない
+            _ => {
+                cx.events.evt_pending_actions.push(action);
             }
         }
+    }
 
-        #[cfg(feature = "trace-lifecycle")]
-        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Event {
-            kinds: Arc::new(event_trace.clone()),
-            add: None,
-        });
+    pub(crate) fn begin_frame(cx: &mut Context) {
+        let _context_guard = bind_context(cx);
+
+        let mut actions = std::mem::take(&mut cx.events.evt_pending_actions.0);
+
+        // 古い順でイテレート
+        for action in actions.drain(..) {
+            let mut event_trace = TraceEventList::None;
+
+            match action {
+                UserAction::PointerMove(layout_point) => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::PointerMove {
+                            x: layout_point.x,
+                            y: layout_point.y,
+                        };
+                    }
+
+                    EventStore::inject_pointer_move(cx, layout_point);
+                }
+                UserAction::PointerButton {
+                    button,
+                    state,
+                    modifiers,
+                } => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::PointerButton {
+                            button,
+                            state,
+                            modifiers,
+                        };
+                    }
+
+                    EventStore::inject_pointer_button(cx, button, state, modifiers);
+                }
+                UserAction::PointerDoubleClick { modifiers } => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::PointerDoubleClick { modifiers };
+                    }
+
+                    EventStore::inject_pointer_double_click(cx, modifiers);
+                }
+                UserAction::MouseWheel { scroll_x, scroll_y } => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::MouseWheel {
+                            x: scroll_x,
+                            y: scroll_y,
+                        };
+                    }
+
+                    EventStore::inject_mouse_wheel(cx, scroll_x, scroll_y);
+                }
+                UserAction::KeyboardKey {
+                    key,
+                    state,
+                    modifiers,
+                } => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Keyboard {
+                            key,
+                            state,
+                            modifiers,
+                        };
+                    }
+
+                    EventStore::inject_keyboard_key(cx, key, state, modifiers);
+                }
+                UserAction::Character(c) => {
+                    let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+                        return;
+                    };
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Character { char: c };
+                    }
+
+                    handle_on_char_input(cx, focused_id, c);
+                }
+                UserAction::Ime(ime_state) => {
+                    let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+                        return;
+                    };
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Ime {
+                            is_open: ime_state.is_open,
+                            conversion_mode: ime_state.conversion_mode,
+                            sentence_mode: ime_state.sentence_mode,
+                            keyboard_layout_id: ime_state.keyboard_layout_id,
+                            composition_text: ime_state.composition_text.0.clone(),
+                            result_text: ime_state.result_text.0.clone(),
+                            caret_position: ime_state.caret_position,
+                            composition_cursor: ime_state.composition_cursor.0,
+                            composition_attrs: ime_state.composition_attrs.clone(),
+                        };
+                    }
+
+                    handle_on_ime(cx, focused_id, ime_state);
+                }
+                UserAction::FileDropped(path_bufs) => {
+                    let Some(target_id) = cx.events.evt_interaction_states.hovered else {
+                        return;
+                    };
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::FileDropped {
+                            path: Arc::from(path_bufs.clone()),
+                        };
+                    }
+
+                    handle_on_file_dropped(cx, target_id, path_bufs);
+                }
+                UserAction::Paste(text) => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Paste { text: text.clone() };
+                    }
+
+                    EventStore::inject_paste(cx, &text.into());
+                }
+                UserAction::Cut => {
+                    let cut = EventStore::inject_cut(cx);
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    if let Some(text) = cut.clone() {
+                        event_trace = TraceEventList::Cut { text: text.0 };
+                    }
+
+                    cx.contents.cont_cut_text = cut;
+                }
+                UserAction::Undo => {
+                    EventStore::inject_undo(cx);
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Undo;
+                    }
+                }
+                UserAction::Redo => {
+                    EventStore::inject_redo(cx);
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Undo;
+                    }
+                }
+            }
+
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Event {
+                kinds: Arc::new(event_trace.clone()),
+                add: None,
+            });
+        }
+
+        // 空になったバッファを戻して次のフレームで再アロケーションが発生するのを防ぐ
+        if cx.events.evt_pending_actions.0.is_empty() {
+            cx.events.evt_pending_actions.0 = actions;
+        }
     }
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー

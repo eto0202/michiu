@@ -5,11 +5,11 @@ pub use scrollbar::*;
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayout, CapacityConfig, ChildrenSecondary,
     ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, EdgeInsets, EntityId,
-    FlexLayout, GridLayout, InteractionPropertiesSecondary, InteractionStyles, LayoutPoint,
-    LayoutRect, LayoutSize, Length, MichiuSoA, NormalLayout, ParentsSecondary, PropertyList, Rect,
-    RectsSecondary, RenderStore, ScrollOffsetsSecondary, StyleTarget, TaffyResultTraceExt,
-    TextAlign, ThisStyle, VisualPropertiesSecondary, define_secondary, define_sparse_secondary,
-    define_vec,
+    FlexDirection, FlexLayout, GridLayout, InteractionPropertiesSecondary, InteractionStyles,
+    LayoutPoint, LayoutRect, LayoutSize, Length, MichiuSoA, NormalLayout, ParentsSecondary,
+    PropertyList, Rect, RectsSecondary, RenderStore, ScrollOffsetsSecondary, StyleTarget,
+    TaffyResultTraceExt, TextAlign, ThisStyle, VisualPropertiesSecondary, define_secondary,
+    define_sparse_secondary, define_vec,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::sync::Arc;
@@ -30,9 +30,17 @@ define_secondary!(pub struct BaseFlexLayoutsSecondary(FlexLayout));
 define_secondary!(pub struct ResolvedBasicSecondary(BasicLayout));
 define_secondary!(pub struct ResolvedFlexSecondary(FlexLayout));
 
+impl FlexLayoutsSecondary {
+    #[inline]
+    pub(crate) fn flex_direction(&self, id: EntityId) -> FlexDirection {
+        self.find(id).map(|f| f.flex_direction).unwrap_or_default()
+    }
+}
+
 impl ResolvedFlexSecondary {
+    #[inline]
     pub(crate) fn text_algin(&self, id: EntityId) -> TextAlign {
-        self.find(id).copied().unwrap_or_default().text_align
+        self.find(id).map(|f| f.text_align).unwrap_or_default()
     }
 }
 

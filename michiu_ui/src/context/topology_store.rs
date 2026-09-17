@@ -3,8 +3,8 @@ use crate::{
     ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec, DirtyQueueTrace,
     DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection, FlexLayoutsSecondary,
     IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace,
-    OutputStore, PointerEvents, QueueDirtyKinds, ReactiveStore, RectsSecondary, RenderStore,
-    SpawnTrace, StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt,
+    OptionTraceExt, OutputStore, PointerEvents, QueueDirtyKinds, ReactiveStore, RectsSecondary,
+    RenderStore, SpawnTrace, StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt,
     TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec,
     define_vec, trace_lifecycle,
 };
@@ -16,7 +16,6 @@ use std::sync::Arc;
 struct StackFrame {
     id: EntityId,
     matrix: [[f32; 4]; 4],
-    clip: LayoutRect,
 }
 
 #[derive(
@@ -622,11 +621,7 @@ impl TopologyStore {
         lay_flex: &FlexLayoutsSecondary,
         out_rects: &RectsSecondary,
     ) -> usize {
-        let flex_direction = lay_flex
-            .find(parent)
-            .map_or(FlexDirection::default(), |f| f.flex_direction);
-        let is_row =
-            flex_direction == FlexDirection::Row || flex_direction == FlexDirection::RowReverse;
+        let is_row = lay_flex.flex_direction(parent).is_row();
 
         let mut insert_idx = 0;
 
@@ -689,7 +684,7 @@ impl TopologyStore {
         }
 
         let mut stack = smallvec::SmallVec::<[StackFrame; 32]>::new();
-        let window_size = win_last_size.unwrap_or_default();
+        let window_size = win_last_size.unwrap_or_default_trace(None, debug);
         let default_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
 
         topo_effective_z_indices.clear();
@@ -708,10 +703,10 @@ impl TopologyStore {
                 stack.pop();
             }
 
-            // 親から累積された行列とクリップ矩形を引き継ぐ
-            let (parent_matrix, parent_clip) = match stack.last() {
-                Some(top) => (top.matrix, top.clip),
-                None => (IDENTITY_MATRIX, default_clip),
+            // 親から累積された行列を引き継ぐ
+            let parent_matrix = match stack.last() {
+                Some(top) => top.matrix,
+                None => IDENTITY_MATRIX,
             };
 
             // 実効 z_index のカスケード計算
@@ -796,7 +791,6 @@ impl TopologyStore {
             stack.push(StackFrame {
                 id,
                 matrix: eff_matrix,
-                clip: eff_clip,
             });
         }
 
@@ -925,12 +919,7 @@ impl TopologyStore {
             }
 
             // pointer-events 設定の解決
-            let pointer_events = rnd_visual
-                .find(id)
-                .and_then(|v| v.pointer_events)
-                .or_else(|| rnd_base_visual.find(id).and_then(|v| v.pointer_events))
-                .unwrap_or_default();
-
+            let pointer_events = rnd_visual.pointer_events(id, rnd_base_visual);
             if pointer_events == PointerEvents::None {
                 continue; // 透過設定
             }

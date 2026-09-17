@@ -74,13 +74,6 @@ unsafe extern "system" fn wnd_proc(
                 // 新しいスケール因数で wgpu と Taffy レイアウトをリサイズ同期
                 app.renderer.resize((width, height), scale);
 
-                // レイアウト再計算
-
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                // DCompツリー側（WebView2等）のBoundsサイズもリサイズに連動して再構築
-                app.renderer.update_composition_tree(&mut app.context);
-
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
@@ -92,18 +85,13 @@ unsafe extern "system" fn wnd_proc(
                 app.renderer
                     .resize((width, height), app.renderer.scale_factor);
 
-                // Taffy レイアウトツリーの同期と確定座標再計算
-
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                // DCompツリーのサイズ追従
-                app.renderer.update_composition_tree(&mut app.context);
-
                 // 再描画要求
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             WM_PAINT => {
+                app.context.begin_frame();
+
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 

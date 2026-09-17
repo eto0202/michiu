@@ -1,13 +1,13 @@
 use crate::{
     ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC,
     DEFAULT_FLEX, DndStore, ElementState, EntityId, EventListeners, FocusStore, InputContents,
-    InputOp, LayoutPoint, LayoutStore, MichiuString, Modifiers, MouseButton, OutputStore, Overflow,
-    Pipeline, RenderStore, ResizeStore, ResolvedGeometry, ScrollStore, ScrollbarStore,
-    SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEditStore, TextEngine,
-    TextLayoutSize, TextSelectionsSparse, TopologyStore, UserSelect, VirtualKey, handle_on_click,
-    handle_on_cursor_moved, handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter,
-    handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click,
-    soa::MichiuSoA,
+    InputOp, LayoutPoint, LayoutStore, MichiuError, MichiuString, Modifiers, MouseButton,
+    OptionTraceExt, OutputStore, Overflow, Pipeline, RenderStore, ResizeStore, ResolvedGeometry,
+    ScrollStore, ScrollbarStore, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore,
+    TextEditStore, TextEngine, TextLayoutSize, TextSelectionsSparse, TopologyStore, UserAction,
+    UserSelect, VirtualKey, define_vec, handle_on_click, handle_on_cursor_moved, handle_on_hover,
+    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
+    handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
 use std::ops::Range;
@@ -43,6 +43,8 @@ impl ActiveInteractionStates {
     }
 }
 
+define_vec!(pub struct PendingActions(UserAction));
+
 #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
 pub(crate) struct EventListenersSparse(SparseSecondaryMap<EntityId, EventListeners>);
@@ -63,6 +65,8 @@ pub struct EventStore {
     pub(crate) evt_listeners: EventListenersSparse,
     pub(crate) evt_interaction_states: ActiveInteractionStates,
     pub(crate) evt_current_pointer_position: Option<LayoutPoint>,
+    // OSイベント受信でガンガン push されるバッファ
+    pub(crate) evt_pending_actions: PendingActions,
 }
 
 impl Default for EventStore {
@@ -79,6 +83,7 @@ impl EventStore {
             evt_listeners: EventListenersSparse(SparseSecondaryMap::new()),
             evt_interaction_states: ActiveInteractionStates::new(),
             evt_current_pointer_position: None,
+            evt_pending_actions: PendingActions(Vec::new()),
         }
     }
 
@@ -87,6 +92,7 @@ impl EventStore {
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             evt_listeners: EventListenersSparse(SparseSecondaryMap::with_capacity(c.evt_listeners)),
+            evt_pending_actions: PendingActions(Vec::with_capacity(c.evt_pending_actions)),
             ..Default::default()
         }
     }
@@ -409,13 +415,12 @@ impl EventStore {
         };
 
         // ウィンドウのルート要素を解決
-        let Some(root) = TopologyStore::find_root_entity(
+        let root = TopologyStore::find_root_entity(
             &cx.topology.topo_entities,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
-        ) else {
-            return; // TODO: エラー処理
-        };
+        )
+        .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
 
         let src_id = drag_state.source_entity;
         let placeholder_id = drag_state.placeholder_entity;

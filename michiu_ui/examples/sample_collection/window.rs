@@ -71,12 +71,9 @@ unsafe extern "system" fn wnd_proc(
                     // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
                     app.context.process_main_thread_tasks();
 
-                    // 消化によってレイアウトや描画に変更があった場合のみ、同期および再描画を実行
+                    // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
                     if app.context.has_dirty() {
-                        app.context
-                            .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                        app.renderer.update_composition_tree(&mut app.context);
-                        app.renderer.draw(&mut app.context); // これが内部で InvalidateRect 等を適切に走らせます
+                        let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                     }
                 }
                 return LRESULT(0);
@@ -89,11 +86,6 @@ unsafe extern "system" fn wnd_proc(
 
                 // 新しいスケール因数で wgpu と Taffy レイアウトをリサイズ同期
                 app.renderer.resize((width, height), scale);
-
-                // レイアウト再計算
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 let _ = unsafe { UpdateWindow(hwnd) };
@@ -116,6 +108,7 @@ unsafe extern "system" fn wnd_proc(
                 let frame_start = std::time::Instant::now();
 
                 let update_start = std::time::Instant::now();
+                app.context.begin_frame();
                 app.context.tick_system_frame(&TickType::All);
                 let update_elapsed = update_start.elapsed();
 
@@ -286,9 +279,6 @@ unsafe extern "system" fn wnd_proc(
                     modifiers,
                 });
 
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                app.renderer.update_composition_tree(&mut app.context);
                 // フォーカス取得（点滅カーソル表示開始）のために再描画
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -305,10 +295,6 @@ unsafe extern "system" fn wnd_proc(
                     state,
                     modifiers: Modifiers::default(),
                 });
-
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -333,10 +319,6 @@ unsafe extern "system" fn wnd_proc(
                 app.context
                     .inject_user_action(UserAction::PointerDoubleClick { modifiers });
 
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                app.renderer.update_composition_tree(&mut app.context);
-
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
@@ -352,12 +334,6 @@ unsafe extern "system" fn wnd_proc(
                     scroll_x: 0.0,
                     scroll_y,
                 });
-
-                // スクロールによって変化した絶対座標と表示制限を瞬時に再計算
-
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                app.renderer.update_composition_tree(&mut app.context);
 
                 // 画面を再描画
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -378,20 +354,12 @@ unsafe extern "system" fn wnd_proc(
                     scroll_y: 0.0,
                 });
 
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                app.renderer.update_composition_tree(&mut app.context);
-
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             WM_CHAR => {
                 if let Some(ch) = std::char::from_u32(wparam.0 as u32) {
                     app.context.inject_user_action(UserAction::Character(ch));
-
-                    app.context
-                        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                    app.renderer.update_composition_tree(&mut app.context);
 
                     let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
@@ -430,10 +398,10 @@ unsafe extern "system" fn wnd_proc(
                         // Ctrl + X (切り取り)
                         0x58 => {
                             // 'X'
-                            app.context.inject_user_action(UserAction::Cut);
-                            if let Some(t) = app.context.cut_text() {
-                                set_win32_clipboard(&t);
+                            if let Some(selected_text) = app.context.get_selected_text() {
+                                set_win32_clipboard(&selected_text);
                             }
+                            app.context.inject_user_action(UserAction::Cut);
                             return LRESULT(0);
                         }
                         // Ctrl + Z (Undo)
@@ -474,9 +442,6 @@ unsafe extern "system" fn wnd_proc(
                     state: ElementState::Pressed,
                     modifiers,
                 });
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -578,9 +543,6 @@ unsafe extern "system" fn wnd_proc(
 
                     let _ = unsafe { ImmReleaseContext(hwnd, himc) };
                 }
-                app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
-                app.renderer.update_composition_tree(&mut app.context);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(1); // OS標準の描画処理を完全に抑制

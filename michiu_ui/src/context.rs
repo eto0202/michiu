@@ -605,6 +605,11 @@ impl Context {
         Pipeline::inject_user_action(self, action);
     }
 
+    #[inline]
+    pub fn begin_frame(&mut self) {
+        Pipeline::begin_frame(self);
+    }
+
     /// キーボードフォーカスを次の適格な要素へ巡回させます
     #[inline]
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {

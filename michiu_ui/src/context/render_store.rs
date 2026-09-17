@@ -55,6 +55,17 @@ impl VisualPropertiesSecondary {
             .and_then(|v| v.user_select)
             .unwrap_or_default()
     }
+
+    pub(crate) fn pointer_events(
+        &self,
+        id: EntityId,
+        rnd_base_visual: &BaseVisualPropertiesSecondary,
+    ) -> PointerEvents {
+        self.find(id)
+            .and_then(|v| v.pointer_events)
+            .or_else(|| rnd_base_visual.find(id).and_then(|v| v.pointer_events))
+            .unwrap_or_default()
+    }
 }
 
 pub type ActiveWebviewsHashSet = FxHashSet<EntityId>;
