@@ -7,8 +7,8 @@ use crate::{
     InteractionName, InteractionStyles, IntoStyleConvert, IntoStyleCornerRadius, IntoStylePoint,
     IntoStyleRect, IntoStyleResizable, IntoStyleSize, IntoStyleValue, JustifyContent,
     KeyframeAnimation, LayoutOverflow, Length, LinearGradient, MichiuSoA, Overflow, PointerEvents,
-    Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TextAlign,
-    Transform, Transition, UserSelect, Val, VisualProperty, auto, pct,
+    Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle,
+    TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -40,6 +40,14 @@ pub struct StyleInner {
 
     pub drag_property: Option<DndDragProperty>,
     pub drop_property: Option<DndDropProperty>,
+}
+
+impl StyleInner {
+    #[inline]
+    pub(crate) fn apply_visual_property(&self, target: &mut TargetStyle) {
+        self.visual_property
+            .apply_visual_property(target, self.mask);
+    }
 }
 
 type DynamicSettersType = Vec<Arc<dyn Fn(&mut Context, EntityId, StyleTarget) + Send + Sync>>;

@@ -15,13 +15,6 @@ use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::sync::Arc;
 use taffy::TaffyTree;
 
-// ======================================================
-// まとめる？
-pub(crate) type LayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
-pub(crate) type BaseLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
-pub(crate) type ResolvedLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
-// ======================================================
-
 define_secondary!(pub struct TaffyNodesSecondary(taffy::NodeId));
 define_secondary!(pub struct BasicLayoutsSecondary(BasicLayout));
 define_secondary!(pub struct FlexLayoutsSecondary(FlexLayout));
@@ -481,10 +474,13 @@ impl LayoutStore {
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
         bar_styles: &ScrollbarStylesSparse,
+        debug: &mut DebugStore,
     ) {
         let taffy_style = LayoutStore::resolve_taffy_style(id, basic, flex, grid, bar_styles);
         let nodes = *lay_taffy_nodes.at(id);
-        let _ = lay_taffy_tree.set_style(nodes, taffy_style);
+        lay_taffy_tree
+            .set_style(nodes, taffy_style)
+            .unwrap_or_trace(Some(id), debug);
     }
 
     #[inline]

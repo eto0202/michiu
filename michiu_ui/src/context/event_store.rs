@@ -548,7 +548,6 @@ impl EventStore {
                 &mut cx.topology.topo_active_masks,
                 &cx.layouts.lay_resolved_basic,
                 &cx.layouts.lay_resolved_flex,
-                &cx.layouts.lay_resolved_grid,
                 &mut cx.renders.rnd_dirty_entities,
                 &cx.renders.rnd_visual,
                 &mut cx.states.edit.edit_selections,
@@ -682,19 +681,16 @@ impl EventStore {
             }
         }
 
-        let basic = cx
-            .layouts
-            .lay_resolved_basic
-            .find_or(target_id, &DEFAULT_BASIC, &mut cx.debug);
-
-        // ヒット先があるなら Some のはず
-        let rect = *cx.outputs.out_rects.at(target_id);
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+        let resolved_geom = ResolvedGeometry::resolved(
+            target_id,
+            &cx.states.scroll.sc_offsets,
+            &cx.layouts.lay_resolved_basic,
+            &cx.outputs.out_rects,
+            &mut cx.debug,
+        );
 
         let auto_wrap = cx.renders.rnd_visual.auto_wrap(target_id);
-        let content_width = rect.width - border.right - border.left - padding.right - padding.left;
-        let max_width_opt = (auto_wrap && content_width > 0.0).then_some(content_width);
+        let max_width_opt = resolved_geom.calc_max_width(auto_wrap);
 
         let text = cx.contents.cont_text_contents.at(target_id);
 
@@ -720,6 +716,9 @@ impl EventStore {
             },
         );
 
+        let rect = resolved_geom.rect;
+        let border = resolved_geom.border;
+        let padding = resolved_geom.padding;
         let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
         let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
 

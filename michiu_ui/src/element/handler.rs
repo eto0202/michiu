@@ -1,6 +1,5 @@
 use crate::{
-    Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImeState,
-    LayoutPoint, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,MichiuSoA
+    Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImeState, LayoutPoint, MichiuSoA, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,
 };
 use std::path::PathBuf;
 

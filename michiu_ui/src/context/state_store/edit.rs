@@ -320,7 +320,6 @@ impl TextEditStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &VisualPropertiesSecondary,
         edit_selections: &mut TextSelectionsSparse,

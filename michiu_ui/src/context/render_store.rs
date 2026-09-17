@@ -8,8 +8,9 @@ use crate::{
     LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary,
     PlaybackCount, Point, PointerEvents, PropertyList, RectsSecondary, ScrollbarDisplay,
     ScrollbarStylesSparse, StyleStage, StyleTarget, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextBufferSparse, ThisStyle, TopologyStore, TransitionValue, UserSelect,
-    Val, VisualProperty, define_secondary, define_sparse_secondary, define_vec, trace_lifecycle,
+    TaffyTreeEntityId, TargetStyle, TextBufferSparse, ThisStyle, TopologyStore, TransitionValue,
+    UserSelect, Val, VisualProperty, define_secondary, define_sparse_secondary, define_vec,
+    trace_lifecycle,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -43,19 +44,23 @@ define_sparse_secondary!(pub struct ActiveAnimationsSparse(Vec<ActiveAnimation>)
 define_vec!(pub struct DirtyRenderEntitiesVec(EntityId));
 
 impl VisualPropertiesSecondary {
+    #[inline]
     pub(crate) fn auto_wrap(&self, id: EntityId) -> bool {
         self.find(id).and_then(|v| v.auto_wrap).unwrap_or(false)
     }
+    #[inline]
     pub(crate) fn font(&self, id: EntityId) -> FontDate {
         self.find(id).map(|v| v.font.clone()).unwrap_or_default()
     }
 
+    #[inline]
     pub(crate) fn user_select(&self, id: EntityId) -> UserSelect {
         self.find(id)
             .and_then(|v| v.user_select)
             .unwrap_or_default()
     }
 
+    #[inline]
     pub(crate) fn pointer_events(
         &self,
         id: EntityId,
@@ -65,6 +70,11 @@ impl VisualPropertiesSecondary {
             .and_then(|v| v.pointer_events)
             .or_else(|| rnd_base_visual.find(id).and_then(|v| v.pointer_events))
             .unwrap_or_default()
+    }
+
+    #[inline]
+    pub(crate) fn focusable(&self, id: EntityId) -> Focusable {
+        self.find(id).and_then(|v| v.focusable).unwrap_or_default()
     }
 }
 
@@ -317,10 +327,7 @@ impl RenderStore {
             return Some(style);
         }
 
-        let focus_mode = rnd_visual
-            .find(id)
-            .and_then(|v| v.focusable)
-            .unwrap_or_default();
+        let focus_mode = rnd_visual.focusable(id);
 
         let is_trigger_match = match (state_flag, focus_mode) {
             (ComponentMask::STATE_FOCUSED, Focusable::Inherit(_)) => true,
@@ -500,11 +507,7 @@ impl RenderStore {
             if active_mask.has(state)
                 && let Some(style) = style_opt
             {
-                TargetStyle::apply_visual_property(
-                    target,
-                    &style.inner.visual_property,
-                    style.inner.mask,
-                );
+                style.inner.apply_visual_property(target);
             }
         }
     }
@@ -548,11 +551,7 @@ impl RenderStore {
                 continue;
             }
 
-            TargetStyle::apply_visual_property(
-                target,
-                &style.inner.visual_property,
-                style.inner.mask,
-            );
+            style.inner.apply_visual_property(target);
         }
 
         // All（いずれかのインタラクションがあればON）の解決
@@ -572,7 +571,7 @@ impl RenderStore {
             return;
         }
 
-        TargetStyle::apply_visual_property(target, &style.inner.visual_property, style.inner.mask);
+        style.inner.apply_visual_property(target);
     }
 
     #[inline]
@@ -612,11 +611,7 @@ impl RenderStore {
                 continue;
             }
 
-            TargetStyle::apply_visual_property(
-                target,
-                &style.inner.visual_property,
-                style.inner.mask,
-            );
+            style.inner.apply_visual_property(target);
         }
 
         let Some(ref style) = interaction.any_parent else {
@@ -634,7 +629,7 @@ impl RenderStore {
             return;
         }
 
-        TargetStyle::apply_visual_property(target, &style.inner.visual_property, style.inner.mask);
+        style.inner.apply_visual_property(target);
     }
 
     #[inline]
@@ -1036,8 +1031,8 @@ impl RenderStore {
             return;
         }
 
-        let current = RenderStore::get_current_style(id, rnd_visual);
-        let mut target = RenderStore::get_target_style(id, rnd_base_visual);
+        let current = VisualProperty::get_current_style(id, rnd_visual);
+        let mut target = VisualProperty::get_target_style(id, rnd_base_visual);
 
         let resolv_focus = |flag| {
             RenderStore::resolv_focus_style(
@@ -1741,259 +1736,6 @@ impl RenderStore {
             // トランジションが空になった要素はマップごと削除
             !transitions.is_empty()
         });
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct CurrentStyle {
-    pub(crate) bg_color: Color,
-    pub(crate) border_color: Color,
-    pub(crate) outline_width: EdgeInsets,
-    pub(crate) outline_color: Color,
-    pub(crate) outline_offset: f32,
-    pub(crate) opacity: f32,
-    pub(crate) transform: [[f32; 4]; 4],
-    pub(crate) transform_origin: Point<f32>,
-    pub(crate) corner_radius: CornerRadius,
-    pub(crate) shadow_params: BoxShadow,
-    pub(crate) text_color: Color,
-    pub(crate) font_size: f32,
-    pub(crate) font_family: Option<Cow<'static, str>>,
-    pub(crate) font_weight: u32,
-    pub(crate) font_style: u32,
-    pub(crate) auto_wrap: bool,
-    pub(crate) pointer_events: PointerEvents,
-}
-
-impl Default for CurrentStyle {
-    fn default() -> Self {
-        CurrentStyle {
-            bg_color: Color::TRANSPARENT,
-            border_color: Color::TRANSPARENT,
-            outline_width: EdgeInsets::ZERO,
-            outline_color: Color::TRANSPARENT,
-            outline_offset: 0.0,
-            opacity: 1.0,
-            transform: IDENTITY_MATRIX,
-            transform_origin: Point::ORIGIN,
-            corner_radius: CornerRadius::ZERO,
-            shadow_params: BoxShadow::none(),
-            text_color: Color::WHITE,
-            font_size: 16.0,
-            font_family: None,
-            font_weight: 400,
-            font_style: 0,
-            auto_wrap: false,
-            pointer_events: PointerEvents::default(),
-        }
-    }
-}
-impl RenderStore {
-    /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
-    #[inline]
-    pub(crate) fn get_current_style(
-        id: EntityId,
-        rnd_visual: &VisualPropertiesSecondary,
-    ) -> CurrentStyle {
-        rnd_visual
-            .find(id)
-            .map(|v| CurrentStyle {
-                bg_color: v.bg_color.unwrap_or(Color::TRANSPARENT),
-                border_color: v.border_color.unwrap_or(Color::TRANSPARENT),
-                outline_width: v.outline_width.unwrap_or(EdgeInsets::ZERO),
-                outline_color: v.outline_color.unwrap_or(Color::TRANSPARENT),
-                outline_offset: v.outline_offset.unwrap_or(0.0),
-                opacity: v.opacity.unwrap_or(1.0),
-                transform: v.transform.unwrap_or(IDENTITY_MATRIX),
-                transform_origin: v.transform_origin.unwrap_or(Point::ORIGIN),
-                corner_radius: v.corner_radius.unwrap_or(CornerRadius::ZERO),
-                shadow_params: v.shadow_params.unwrap_or(BoxShadow::none()),
-                text_color: v.text_color.unwrap_or(Color::WHITE),
-                font_size: v.font.size.unwrap_or(16.0),
-                font_family: v.font.family.clone(),
-                font_weight: v.font.weight.unwrap_or(400),
-                font_style: v.font.style.unwrap_or(0),
-                auto_wrap: v.auto_wrap.unwrap_or(false),
-                pointer_events: v.pointer_events.unwrap_or_default(),
-            })
-            .unwrap_or_default()
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub(crate) struct TargetStyle {
-    pub(crate) pointer_events: Option<PointerEvents>,
-    pub(crate) cursor: Option<CursorIcon>,
-    pub(crate) resizable_cursor: Option<[Option<CursorIcon>; 4]>,
-    pub(crate) bg_color: Option<Color>,
-    pub(crate) border_color: Option<Color>,
-    pub(crate) opacity: Option<f32>,
-    pub(crate) transform: Option<[[f32; 4]; 4]>,
-    pub(crate) transform_origin: Option<Point<f32>>,
-    pub(crate) transform_inherit: Option<bool>,
-    pub(crate) corner_radius: Option<CornerRadius>,
-    pub(crate) shadow_params: Option<BoxShadow>,
-    pub(crate) shadow_color: Option<Color>,
-    pub(crate) text_color: Option<Color>,
-    pub(crate) select_bg_color: Option<Color>,
-    pub(crate) select_text_color: Option<Color>,
-    pub(crate) border_lengths: Option<EdgeInsets>,
-    pub(crate) border_styles: Option<[BorderStyle; 4]>,
-    pub(crate) border_alignments: Option<[BorderAlignment; 4]>,
-    pub(crate) outline_width: Option<EdgeInsets>,
-    pub(crate) outline_color: Option<Color>,
-    pub(crate) outline_lengths: Option<EdgeInsets>,
-    pub(crate) outline_styles: Option<[BorderStyle; 4]>,
-    pub(crate) outline_alignments: Option<[BorderAlignment; 4]>,
-    pub(crate) outline_offset: Option<f32>,
-    pub(crate) font: FontDate,
-    pub(crate) auto_wrap: Option<bool>,
-}
-
-impl RenderStore {
-    /// 目標値を参照経由で構築
-    #[inline]
-    pub(crate) fn get_target_style(
-        id: EntityId,
-        rnd_base_visual: &BaseVisualPropertiesSecondary,
-    ) -> TargetStyle {
-        rnd_base_visual
-            .find(id)
-            .map(|v| TargetStyle {
-                pointer_events: v.pointer_events,
-                cursor: v.cursor,
-                resizable_cursor: v.resizable_cursor,
-                bg_color: v.bg_color,
-                border_color: v.border_color,
-                opacity: v.opacity,
-                transform: v.transform,
-                transform_origin: v.transform_origin,
-                transform_inherit: v.transform_inherit,
-                corner_radius: v.corner_radius,
-                shadow_params: v.shadow_params,
-                shadow_color: v.shadow_color,
-                text_color: v.text_color,
-                select_bg_color: v.select_bg_color,
-                select_text_color: v.select_text_color,
-                border_lengths: v.border_lengths,
-                border_styles: v.border_styles,
-                border_alignments: v.border_alignments,
-                outline_width: v.outline_width,
-                outline_color: v.outline_color,
-                outline_lengths: v.outline_lengths,
-                outline_styles: v.outline_styles,
-                outline_alignments: v.outline_alignments,
-                outline_offset: v.outline_offset,
-                font: v.font.clone(),
-                auto_wrap: v.auto_wrap,
-            })
-            .unwrap_or_default()
-    }
-}
-
-impl TargetStyle {
-    /// 指定された `VisualProperty` と `ComponentMask` を基に自身のスタイルをマージ。
-    pub(crate) fn apply_visual_property(
-        target: &mut TargetStyle,
-        inner_vis: &VisualProperty,
-        inner_mask: ComponentMask,
-    ) {
-        if inner_mask.has(ComponentMask::STYLE_BG_COLOR) {
-            target.bg_color = inner_vis.bg_color;
-        }
-        if inner_mask.has(ComponentMask::STYLE_BORDER_COLOR) {
-            target.border_color = inner_vis.border_color;
-        }
-        if inner_mask.has(ComponentMask::STYLE_OPACITY) {
-            target.opacity = inner_vis.opacity;
-        }
-        if inner_mask.has(ComponentMask::STYLE_TRANSFORM) {
-            target.transform = inner_vis.transform;
-            target.transform_origin = inner_vis.transform_origin;
-        }
-
-        if inner_mask.has(ComponentMask::STYLE_TRANSFORM_INHERIT) {
-            target.transform_inherit = inner_vis.transform_inherit;
-        }
-        if inner_mask.has(ComponentMask::STYLE_CORNER_RADIUS) {
-            target.corner_radius = inner_vis.corner_radius;
-        }
-        if inner_mask.has(ComponentMask::STYLE_POINTER_EVENTS) {
-            target.pointer_events = inner_vis.pointer_events;
-        }
-        if inner_mask.has(ComponentMask::STYLE_BOX_SHADOW) {
-            if inner_vis.shadow_params.is_some() {
-                target.shadow_params = inner_vis.shadow_params;
-            }
-            if inner_vis.shadow_color.is_some() {
-                target.shadow_color = inner_vis.shadow_color;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_TEXT_COLOR) {
-            target.text_color = inner_vis.text_color;
-        }
-        if inner_mask.has(ComponentMask::STYLE_USER_SELECT) {
-            if inner_vis.select_bg_color.is_some() {
-                target.select_bg_color = inner_vis.select_bg_color;
-            }
-            if inner_vis.select_text_color.is_some() {
-                target.select_text_color = inner_vis.select_text_color;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_BORDER) {
-            if inner_vis.border_lengths.is_some() {
-                target.border_lengths = inner_vis.border_lengths;
-            }
-            if inner_vis.border_styles.is_some() {
-                target.border_styles = inner_vis.border_styles;
-            }
-            if inner_vis.border_alignments.is_some() {
-                target.border_alignments = inner_vis.border_alignments;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_OUTLINE) {
-            if inner_vis.outline_width.is_some() {
-                target.outline_width = inner_vis.outline_width;
-            }
-            if inner_vis.outline_color.is_some() {
-                target.outline_color = inner_vis.outline_color;
-            }
-            if inner_vis.outline_lengths.is_some() {
-                target.outline_lengths = inner_vis.outline_lengths;
-            }
-            if inner_vis.outline_styles.is_some() {
-                target.outline_styles = inner_vis.outline_styles;
-            }
-            if inner_vis.outline_alignments.is_some() {
-                target.outline_alignments = inner_vis.outline_alignments;
-            }
-            if inner_vis.outline_offset.is_some() {
-                target.outline_offset = inner_vis.outline_offset;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_CURSOR) {
-            target.cursor = inner_vis.cursor;
-        }
-        if inner_mask.has(ComponentMask::STYLE_RESIZABLE) {
-            target.resizable_cursor = inner_vis.resizable_cursor;
-        }
-        if inner_mask.has(ComponentMask::STYLE_FONT_SIZE) {
-            target.font.size = inner_vis.font.size;
-        }
-        if inner_mask.has(ComponentMask::STYLE_FONT_STYLE) {
-            if inner_vis.font.family.is_some() {
-                target.font.family.clone_from(&inner_vis.font.family);
-            }
-            if inner_vis.font.weight.is_some() {
-                target.font.weight = inner_vis.font.weight;
-            }
-            if inner_vis.font.style.is_some() {
-                target.font.style = inner_vis.font.style;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_AUTO_WRAP) {
-            target.auto_wrap = inner_vis.auto_wrap;
-        }
     }
 }
 

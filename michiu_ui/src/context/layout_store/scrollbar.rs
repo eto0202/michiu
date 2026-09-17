@@ -4,7 +4,7 @@ use crate::{
     CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse,
     InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA,
-    OutputStore, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse, ScrollOffsetsSecondary,
     ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyResultTraceExt,
     TaffyTreeEntityId, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
@@ -862,6 +862,7 @@ impl ScrollbarStore {
             lay_taffy_tree,
             lay_taffy_nodes,
             bar_styles,
+            debug,
         );
     }
 
