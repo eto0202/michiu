@@ -184,12 +184,34 @@ impl Element {
 
     /// この要素に対して、型 T のコンテキスト（シグナル）を提供（Provide）します。
     /// この要素、およびそのすべての子孫要素のエフェクトから `use_provided::<T>()` で取得可能になります。
+    #[inline]
     #[must_use]
     pub fn provide<T: Send + 'static>(self, read_signal: ReadSignal<T>) -> Self {
         with_context(|cx| {
             cx.provide::<T>(Some(self.id), read_signal);
         });
         self
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn tag<T: 'static>(self) -> Self {
+        with_context(|cx| cx.tag::<T>(self.id));
+        self
+    }
+
+    /// 自分自身の子孫の中で最初に見つかった型 T の `EntityId` を取得する。
+    #[inline]
+    #[must_use]
+    pub fn query_descendant<T: 'static>(&self) -> Option<EntityId> {
+        with_context(|cx| cx.query_descendant::<T>(self.id))
+    }
+
+    /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
+    #[inline]
+    #[must_use]
+    pub fn query_descendants<T: 'static>(&self) -> SmallVec<[EntityId; 4]> {
+        with_context(|cx| cx.query_descendants::<T>(self.id).collect())
     }
 
     /// 静的な値、または動的に変化する Prop を、該当する `EffectCategory` を通じて自動バインド

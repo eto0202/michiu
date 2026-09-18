@@ -5,8 +5,8 @@ use crate::{
     IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace,
     OptionTraceExt, OutputStore, PointerEvents, QueueDirtyKinds, ReactiveStore, RectsSecondary,
     RenderStore, SpawnTrace, StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt,
-    TaffyTreeEntityId, VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec,
-    define_vec, trace_lifecycle,
+    TaffyTreeEntityId, TagRegistry, VisualPropertiesSecondary, WindowStore, define_secondary,
+    define_smallvec, define_vec, trace_lifecycle,
 };
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -64,6 +64,7 @@ pub struct TopologyStore {
     pub(crate) topo_is_sort_dirty: bool,
     pub(crate) topo_webview_entities: WebviewEntitiesVec,
     pub(crate) topo_despawned_queue: DespawnedQueueVec,
+    pub(crate) topo_tag_registry: TagRegistry,
 }
 
 impl Default for TopologyStore {
@@ -92,6 +93,7 @@ impl TopologyStore {
             topo_is_sort_dirty: true,
             topo_webview_entities: WebviewEntitiesVec(SmallVec::new()),
             topo_despawned_queue: DespawnedQueueVec(SmallVec::new()),
+            topo_tag_registry: TagRegistry::new(),
         }
     }
 
@@ -157,6 +159,7 @@ impl TopologyStore {
         self.topo_sort_cache.retain(|&x| x.0 != id);
         self.topo_webview_entities.retain(|x| *x != id);
         self.topo_despawned_queue.retain(|x| *x != id);
+        self.topo_tag_registry.unregister_entity(id);
     }
 }
 

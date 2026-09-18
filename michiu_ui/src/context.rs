@@ -40,6 +40,14 @@ new_key_type! {
     pub struct EntityId;
 }
 
+impl EntityId {
+    #[must_use]
+    #[inline]
+    pub fn into_element(self) -> Element {
+        Element::from(self)
+    }
+}
+
 // 利用者用 Context を用意して安定APIはそちらで公開
 // pub struct EventContext<'a> {
 //    cx: &'a mut Context,
@@ -484,6 +492,7 @@ impl Context {
         })
     }
 
+    #[inline]
     pub fn find_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
         let element_id =
             ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)?;
@@ -492,6 +501,60 @@ impl Context {
             &self.reactive.react_providers,
             &self.topology.topo_parents,
         )
+    }
+
+    #[inline]
+    pub fn tag<T: 'static>(&mut self, id: EntityId) {
+        self.topology.topo_tag_registry.register_entity::<T>(id);
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn query_first<T: 'static>(&self) -> Option<EntityId> {
+        self.topology
+            .topo_tag_registry
+            .get_entities::<T>()
+            .and_then(|t| t.first().copied())
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = EntityId> + '_ {
+        self.topology
+            .topo_tag_registry
+            .get_entities::<T>()
+            .map(|t| t.iter().copied())
+            .into_iter()
+            .flatten()
+    }
+
+    /// 子孫の中で最初に見つかった型 T の `EntityId` を取得する。
+    #[inline]
+    #[must_use]
+    pub fn query_descendant<T: 'static>(&self, parent: EntityId) -> Option<EntityId> {
+        self.topology
+            .topo_tag_registry
+            .query_first_descendant_of_type::<T>(
+                parent,
+                &self.topology.topo_flat_dfs_sequence,
+                &self.topology.topo_parents,
+            )
+    }
+
+    /// 子孫の中から、型 T を持つエンティティを検索する。
+    #[inline]
+    #[must_use]
+    pub fn query_descendants<T: 'static>(
+        &self,
+        parent: EntityId,
+    ) -> impl Iterator<Item = EntityId> + '_ {
+        self.topology
+            .topo_tag_registry
+            .query_descendants_of_type::<T>(
+                parent,
+                &self.topology.topo_flat_dfs_sequence,
+                &self.topology.topo_parents,
+            )
     }
 
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な `CursorIcon` を正確に解決します。
