@@ -26,6 +26,7 @@ use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
+    any::TypeId,
     borrow::Cow,
     fmt::Debug,
     panic::Location,
@@ -1468,6 +1469,14 @@ pub enum MichiuError {
             - An uninitialized or dummy EffectId was used."
     )]
     EffectNotFound { id: EffectId },
+
+    #[error(
+        "Tag {type_name:?} not found.\n\
+            Possible causes:\n\
+            - The tag is not set, or the name is incorrect.\n\
+            - The TypeId/EntityId was already despawned/destroyed (dangling ID)."
+    )]
+    TagNotFound { type_name: &'static str },
 
     #[error(
         "Component '{component}' not found for Entity {id:?}.\n\

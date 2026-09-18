@@ -96,13 +96,13 @@ impl MichiuTagRegistry {
     ) -> Option<EntityId> {
         let type_id = TypeId::of::<T>();
 
-        // 親の位置を探す
+        // 親の位置
         let start_idx = topo_flat_dfs_sequence.iter().position(|&id| id == parent)?;
         let scan_start = start_idx + 1;
 
         // 最初に見つかったものを即座に返す
         for &id in topo_flat_dfs_sequence.iter().skip(scan_start) {
-            // 子孫スコープから外れた瞬間に探索を打ち切り（高速化の肝）
+            // 子孫スコープから外れた瞬間に探索を打ち切り
             if !Self::is_descendant_of(id, parent, topo_parents) {
                 break;
             }
@@ -114,7 +114,7 @@ impl MichiuTagRegistry {
                 .is_some_and(|types| types.contains(&type_id));
 
             if has_type {
-                return Some(id); // 見つかったので即座に返す！
+                return Some(id);
             }
         }
 

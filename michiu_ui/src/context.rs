@@ -524,6 +524,19 @@ impl Context {
             .and_then(|t| t.first().copied())
     }
 
+    #[track_caller]
+    #[inline]
+    #[must_use]
+    pub fn quer_first_expect<T: 'static>(&mut self) -> EntityId {
+        self.topology
+            .topo_tag_registry
+            .get_entities::<T>()
+            .and_then(|t| t.first().copied())
+            .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
+                type_name: std::any::type_name::<T>(),
+            })
+    }
+
     #[inline]
     pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = EntityId> + '_ {
         self.topology
@@ -545,6 +558,22 @@ impl Context {
                 &self.topology.topo_flat_dfs_sequence,
                 &self.topology.topo_parents,
             )
+    }
+
+    #[track_caller]
+    #[inline]
+    #[must_use]
+    pub fn query_descendant_expect<T: 'static>(&mut self, parent: EntityId) -> EntityId {
+        self.topology
+            .topo_tag_registry
+            .query_first_descendant_of_type::<T>(
+                parent,
+                &self.topology.topo_flat_dfs_sequence,
+                &self.topology.topo_parents,
+            )
+            .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
+                type_name: std::any::type_name::<T>(),
+            })
     }
 
     /// 子孫の中から、型 T を持つエンティティを検索する。

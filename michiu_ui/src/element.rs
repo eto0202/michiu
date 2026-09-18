@@ -203,6 +203,13 @@ impl Element {
         with_context(|cx| cx.query_descendant::<T>(self.id))
     }
 
+    #[track_caller]
+    #[inline]
+    #[must_use]
+    pub fn query_descendant_expect<T: 'static>(&self) -> EntityId {
+        with_context(|cx| cx.query_descendant_expect::<T>(self.id))
+    }
+
     /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
     #[inline]
     #[must_use]

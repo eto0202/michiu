@@ -6,10 +6,7 @@ use crate::{
         client_rect, create_renderer, create_window, message_loop, register_class, show_window,
     },
 };
-use michiu_ui::{
-    CapacityConfig, ComposedRenderer, Dss, DssSet, EntityId, MichiuInspector, MichiuTrace,
-    prelude::*,
-};
+use michiu_ui::{CapacityConfig, Dss, DssSet, prelude::*};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},

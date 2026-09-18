@@ -40,11 +40,12 @@ pub use webview2::*;
 pub mod prelude {
     pub use crate::{
         bitmap::PropertyList,
-        context::{Context, EntityId},
+        context::{Context, EntityId, MichiuInspector},
         dnd::{DndDragPayload, DndDropTarget},
         element::{Element, build_ui},
         input::InputContents,
         pipeline::{TickType, UserAction},
+        renderer::ComposedRenderer,
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
         style::ThisStyle,
