@@ -265,32 +265,5 @@ impl SystemStore {
     }
 }
 
-impl Context {
-    /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
-    #[inline]
-    pub(crate) fn clear_layout_cache(&self, id: EntityId) {
-        SystemStore::clear_text_buffer_cache(id, &self.system.sys_text_buffers);
-    }
-
-    /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持します。
-    #[inline]
-    pub(crate) fn get_or_create_text_buffer<F>(
-        &mut self,
-        id: EntityId,
-        max_width_opt: Option<f32>,
-        create_buffer: F,
-    ) -> Rc<Buffer>
-    where
-        F: FnOnce() -> Buffer,
-    {
-        SystemStore::get_or_create_text_buffer(
-            id,
-            max_width_opt,
-            &self.system.sys_text_buffers,
-            create_buffer,
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests;
