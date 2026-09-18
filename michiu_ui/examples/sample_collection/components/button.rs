@@ -32,7 +32,8 @@ fn item_style() -> ThisStyle {
 }
 
 fn section_normal() -> Element {
-    let wrapper = h_flex(wrapper_style()).children([signal_btn(), direct_btn(), event_btn()]);
+    let wrapper =
+        h_flex(wrapper_style()).children([signal_btn(), direct_btn(), event_btn(), tag_btn()]);
 
     v_flex(section_style()).children([section_title("Button"), wrapper])
 }
@@ -92,6 +93,42 @@ fn event_btn() -> Element {
             cx.current()
                 .set_contents(div_n().label(move || format!("Event: {count}"), &style));
         })
+}
+
+fn tag_btn() -> Element {
+    struct MichiuTag;
+
+    let style = ts()
+        .text_color(dynamic(|t: &Theme| t.primary))
+        .font_size(16.0)
+        .font_weight(400);
+
+    let mut count = 0u32;
+
+    let left = h_flex(ts())
+        .label(move || format!("Tag: {count}"), &style)
+        .tag::<MichiuTag>();
+
+    let right = h_flex(ts())
+        .label(
+            move || "Click",
+            style.clone().pressed_parent(ts().text_color(Color::WHITE)),
+        )
+        .on_click_with(move |cx| {
+            if let Some(id) = cx.query_first::<MichiuTag>() {
+                count += 1;
+                id.into_element()
+                    .set_contents(div_n().label(move || format!("Tag: {count}"), &style));
+            }
+        });
+
+    h_flex(
+        item_style()
+            .gap(8.0)
+            .border_solid(1.0)
+            .border_color(dynamic(|t: &Theme| t.primary)),
+    )
+    .children([left, right])
 }
 
 fn section_pseudo() -> Element {

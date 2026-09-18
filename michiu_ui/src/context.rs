@@ -27,10 +27,12 @@ pub use system_store::*;
 pub use topology_store::*;
 pub use window_store::*;
 
+#[cfg(feature = "trace-lifecycle")]
+use crate::trace_lifecycle;
 use crate::{
     BasicLayout, ComponentMask, CursorIcon, Element, FlexLayout, GridLayout, InteractionState,
     LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
-    bind_context, handle_on_click, trace_lifecycle,
+    bind_context, handle_on_click,
 };
 use slotmap::new_key_type;
 use std::{borrow::Cow, sync::Arc};
@@ -40,23 +42,31 @@ new_key_type! {
     pub struct EntityId;
 }
 
+impl EntityId {
+    #[must_use]
+    #[inline]
+    pub fn into_element(self) -> Element {
+        Element::from(self)
+    }
+}
+
 // 利用者用 Context を用意して安定APIはそちらで公開
 // pub struct EventContext<'a> {
 //    cx: &'a mut Context,
 // }
 
 pub struct Context {
-    pub window: WindowStore,
-    pub system: SystemStore,
-    pub reactive: ReactiveStore,
-    pub events: EventStore,
-    pub contents: ContentStore,
-    pub topology: TopologyStore,
-    pub states: StateStore,
-    pub layouts: LayoutStore,
-    pub renders: RenderStore,
-    pub outputs: OutputStore,
-    pub debug: DebugStore,
+    pub(crate) window: WindowStore,
+    pub(crate) system: SystemStore,
+    pub(crate) reactive: ReactiveStore,
+    pub(crate) events: EventStore,
+    pub(crate) contents: ContentStore,
+    pub(crate) topology: TopologyStore,
+    pub(crate) states: StateStore,
+    pub(crate) layouts: LayoutStore,
+    pub(crate) renders: RenderStore,
+    pub(crate) outputs: OutputStore,
+    pub(crate) debug: DebugStore,
 }
 
 impl Default for Context {
@@ -231,6 +241,11 @@ impl Context {
     #[must_use]
     pub fn get_visual_property(&self, id: EntityId) -> Option<VisualProperty> {
         self.renders.rnd_visual.find(id).cloned()
+    }
+
+    #[inline]
+    pub fn set_window_resizing(&mut self, resize: bool) {
+        self.window.win_is_resizing = resize;
     }
 
     /// 指定された要素が現在マウスホバーされているか判定します
@@ -484,6 +499,7 @@ impl Context {
         })
     }
 
+    #[inline]
     pub fn find_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
         let element_id =
             ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)?;
@@ -492,6 +508,87 @@ impl Context {
             &self.reactive.react_providers,
             &self.topology.topo_parents,
         )
+    }
+
+    #[inline]
+    pub fn tag<T: 'static>(&mut self, id: EntityId) {
+        self.topology.topo_tag_registry.register_entity::<T>(id);
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn query_first<T: 'static>(&self) -> Option<EntityId> {
+        self.topology
+            .topo_tag_registry
+            .get_entities::<T>()
+            .and_then(|t| t.first().copied())
+    }
+
+    #[track_caller]
+    #[inline]
+    #[must_use]
+    pub fn quer_first_expect<T: 'static>(&mut self) -> EntityId {
+        self.topology
+            .topo_tag_registry
+            .get_entities::<T>()
+            .and_then(|t| t.first().copied())
+            .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
+                type_name: std::any::type_name::<T>(),
+            })
+    }
+
+    #[inline]
+    pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = EntityId> + '_ {
+        self.topology
+            .topo_tag_registry
+            .get_entities::<T>()
+            .map(|t| t.iter().copied())
+            .into_iter()
+            .flatten()
+    }
+
+    /// 子孫の中で最初に見つかった型 T の `EntityId` を取得する。
+    #[inline]
+    #[must_use]
+    pub fn query_descendant<T: 'static>(&self, parent: EntityId) -> Option<EntityId> {
+        self.topology
+            .topo_tag_registry
+            .query_first_descendant_of_type::<T>(
+                parent,
+                &self.topology.topo_flat_dfs_sequence,
+                &self.topology.topo_parents,
+            )
+    }
+
+    #[track_caller]
+    #[inline]
+    #[must_use]
+    pub fn query_descendant_expect<T: 'static>(&mut self, parent: EntityId) -> EntityId {
+        self.topology
+            .topo_tag_registry
+            .query_first_descendant_of_type::<T>(
+                parent,
+                &self.topology.topo_flat_dfs_sequence,
+                &self.topology.topo_parents,
+            )
+            .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
+                type_name: std::any::type_name::<T>(),
+            })
+    }
+
+    /// 子孫の中から、型 T を持つエンティティを検索する。
+    #[inline]
+    pub fn query_descendants<T: 'static>(
+        &self,
+        parent: EntityId,
+    ) -> impl Iterator<Item = EntityId> + '_ {
+        self.topology
+            .topo_tag_registry
+            .query_descendants_of_type::<T>(
+                parent,
+                &self.topology.topo_flat_dfs_sequence,
+                &self.topology.topo_parents,
+            )
     }
 
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な `CursorIcon` を正確に解決します。

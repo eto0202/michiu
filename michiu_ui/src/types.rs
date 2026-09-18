@@ -784,13 +784,13 @@ pub enum FlexDirection {
 
 impl FlexDirection {
     #[inline]
-    pub(crate) fn is_row(&self) -> bool {
-        *self == FlexDirection::Row || *self == FlexDirection::RowReverse
+    pub(crate) fn is_row(self) -> bool {
+        self == FlexDirection::Row || self == FlexDirection::RowReverse
     }
 
     #[inline]
-    pub(crate) fn is_col(&self) -> bool {
-        *self == FlexDirection::Column || *self == FlexDirection::ColumnReverse
+    pub(crate) fn is_col(self) -> bool {
+        self == FlexDirection::Column || self == FlexDirection::ColumnReverse
     }
 }
 

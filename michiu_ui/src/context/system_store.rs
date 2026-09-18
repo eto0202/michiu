@@ -1,8 +1,6 @@
 use crate::{
-    CapacityConfig, Context, DebugStore, EdgeInsets, EntityId, InputContents, LayoutPoint,
-    LayoutRect, LayoutStore, MichiuSoA, RectsSecondary, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGeometry, TextContentsSparse, TextEngine, TextSpansSparse,
-    UiaValue, VisualPropertiesSecondary, define_sparse_secondary,
+    CapacityConfig, Context, EntityId, InputContents, LayoutPoint, LayoutRect, MichiuSoA,
+    ResolvedGeometry, TextEngine, UiaValue, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;

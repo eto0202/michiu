@@ -1,33 +1,32 @@
+use crate::PendingActions;
 #[cfg(feature = "trace-entity")]
-use crate::{ActiveAnimation, ActiveTransition};
+use crate::{ActiveAnimation, ActiveTransition, BasicLayout, StyleInner, VisualProperty};
 #[allow(unused)]
 use crate::{
     ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveInteractionStates,
     ActiveMasksSecondary, ActiveResizeHoverOption, ActiveTransitionsSparse, ActiveWebviewsHashSet,
     Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary, BaseVisualPropertiesSecondary,
-    BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, ComponentMask,
-    ComposedRenderer, Context, DespawnedQueueVec, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec,
-    DndDragPropertiesSparse, DndDropPropertiesSparse, EffectId, EffectToElementSecondary,
-    EffectiveZindicesSecondary, ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId,
-    ExternalTextureSparse, FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse,
-    InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutSize, MichiuString,
-    Modifiers, MouseButton, ParentsSecondary, PendingDcompRelease, PendingElementEffectsVec,
-    PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary, QuadInstance,
-    RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse,
-    SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId,
-    SortCacheVec, SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey,
-    TextCacheValue, TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas,
-    UiaPropertiesSparse, VirtualKey, VisualPropertiesSecondary, WebviewContentsSparse,
-    WebviewEntitiesVec,
+    BasicLayoutsSecondary, BatchType, CapacityConfig, ChildrenSecondary, ClipRectsSecondary,
+    ComponentMask, ComposedRenderer, Context, DespawnedQueueVec, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, DndDragPropertiesSparse, DndDropPropertiesSparse, EffectId,
+    EffectToElementSecondary, EffectiveZindicesSecondary, ElementEffectsSecondary, ElementState,
+    EntitiesSlot, EntityId, ExternalTextureSparse, FlatDfsSequenceVec, FlexLayoutsSecondary,
+    GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
+    LayoutRect, LayoutSize, MichiuString, MichiuTagRegistry, Modifiers, MouseButton,
+    ParentsSecondary, PendingDcompRelease, PendingElementEffectsVec, PrevClipRectsSecondary,
+    PrevRectsSecondary, ProvidersSparseSecondary, QuadInstance, RectsSecondary, RenderData,
+    ResizingState, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse, SelectedRectsSparse,
+    SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
+    SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey, TextCacheValue,
+    TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas, UiaPropertiesSparse,
+    VirtualKey, VisualPropertiesSecondary, WebviewContentsSparse, WebviewEntitiesVec,
 };
-#[cfg(feature = "trace-lifecycle")]
-use crate::{BasicLayout, CurrentStyle, StyleInner, ThisStyle, VisualProperty};
-use crate::{BatchType, LayoutRect};
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
+    any::TypeId,
     borrow::Cow,
     fmt::Debug,
     panic::Location,
@@ -205,6 +204,7 @@ impl Default for MichiuInspector {
 
 #[cfg(feature = "trace-error")]
 impl MichiuInspector {
+    #[allow(unused)]
     #[inline]
     #[must_use]
     pub fn new() -> Self {
@@ -487,6 +487,9 @@ pub enum MichiuTrace {
         detail: MichiuError,
         add: Option<&'static str>,
     },
+
+    #[cfg(feature = "snapshot")]
+    Snapshot,
 }
 
 // ================================================================
@@ -700,6 +703,15 @@ pub struct FlatBufferTrace {
 // ================================================================
 // ================================================================
 
+#[cfg(feature = "trace-error")]
+type MichiuDuration = Duration;
+
+#[cfg(not(feature = "trace-error"))]
+type MichiuDuration = [u8; 0];
+
+// ================================================================
+// ================================================================
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeStamp {
     None,
@@ -805,52 +817,6 @@ pub struct MichiuTraceRecord {
     pub cx: Option<Arc<ContextSnapshot>>,
     #[cfg(feature = "snapshot")]
     pub renderer: Option<Arc<RendererSnapshot>>,
-}
-
-// ================================================================
-// ================================================================
-
-#[cfg(feature = "trace-error")]
-type MichiuInstant = Instant;
-#[cfg(feature = "trace-error")]
-type MichiuDuration = Duration;
-
-#[cfg(not(feature = "trace-error"))]
-type MichiuInstant = [u8; 0];
-#[cfg(not(feature = "trace-error"))]
-type MichiuDuration = [u8; 0];
-
-#[cfg(feature = "trace-error")]
-pub(crate) struct MichiuStopwatch {
-    pub(crate) start: MichiuInstant,
-    pub(crate) last: MichiuInstant,
-}
-
-#[cfg(feature = "trace-error")]
-impl MichiuStopwatch {
-    #[inline]
-    pub(crate) fn new() -> Self {
-        let now = Instant::now();
-        Self {
-            start: now,
-            last: now,
-        }
-    }
-
-    // 途中の経過時間を作って記録を更新
-    #[inline]
-    pub(crate) fn elapsed(&mut self) -> TimeStamp {
-        let now = Instant::now();
-        let diff = now.duration_since(self.last);
-        self.last = now;
-        TimeStamp::Elapsed(diff)
-    }
-
-    // 最後の合計時間を出す
-    #[inline]
-    pub(crate) fn total(&self) -> TimeStamp {
-        TimeStamp::End(Instant::now().duration_since(self.start))
-    }
 }
 
 // ================================================================
@@ -1016,7 +982,7 @@ macro_rules! flush_trace {
             let record = $crate::MichiuTraceRecord {
                 id: None,
                 frame: $cx.debug.frame,
-                time: $cx.debug.elapsed(),
+                time: $cx.debug.since_boot(),
                 func: $crate::current_fn!(),
                 loc: $crate::caller_location(),
                 trace: $crate::MichiuTrace::Snapshot,
@@ -1101,6 +1067,7 @@ pub struct ReactiveStoreSnapshot {
 pub struct EventStoreSnapshot {
     pub evt_interaction_states: ActiveInteractionStates,
     pub evt_current_pointer_position: Option<LayoutPoint>,
+    pub evt_pending_actions: PendingActions,
 }
 
 #[derive(Clone)]
@@ -1130,6 +1097,7 @@ pub struct TopologyStoreSnapshot {
     pub topo_is_sort_dirty: bool,
     pub topo_webview_entities: WebviewEntitiesVec,
     pub topo_despawned_queue: DespawnedQueueVec,
+    pub topo_tag_registry: MichiuTagRegistry,
 }
 
 #[derive(Clone)]
@@ -1333,7 +1301,6 @@ impl ContextSnapshot {
                 topo_session_spawned: cx.topology.topo_session_spawned.clone(),
                 topo_session_roots: cx.topology.topo_session_roots.clone(),
                 topo_flat_dfs_sequence: cx.topology.topo_flat_dfs_sequence.clone(),
-                topo_dfs_indices: cx.topology.topo_dfs_indices.clone(),
                 topo_effective_z_indices: cx.topology.topo_effective_z_indices.clone(),
                 topo_sorted_entities: cx.topology.topo_sorted_entities.clone(),
                 topo_sort_cache: cx.topology.topo_sort_cache.clone(),
@@ -1341,6 +1308,7 @@ impl ContextSnapshot {
                 topo_is_sort_dirty: cx.topology.topo_is_sort_dirty,
                 topo_webview_entities: cx.topology.topo_webview_entities.clone(),
                 topo_despawned_queue: cx.topology.topo_despawned_queue.clone(),
+                topo_tag_registry: cx.topology.topo_tag_registry.clone(),
             },
             states: StateStoreSnapshot {
                 dnd: DndStoreSnapshot {
@@ -1501,6 +1469,14 @@ pub enum MichiuError {
             - An uninitialized or dummy EffectId was used."
     )]
     EffectNotFound { id: EffectId },
+
+    #[error(
+        "Tag {type_name:?} not found.\n\
+            Possible causes:\n\
+            - The tag is not set, or the name is incorrect.\n\
+            - The TypeId/EntityId was already despawned/destroyed (dangling ID)."
+    )]
+    TagNotFound { type_name: &'static str },
 
     #[error(
         "Component '{component}' not found for Entity {id:?}.\n\
@@ -1723,7 +1699,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
         if let Some(val) = self {
             val
         } else {
-            trace_entity!(id, debug, || MichiuTrace::Info {
+            trace_entity!(id, debug, || MichiuTrace::EntityInfo {
                 detail: MichiuInfo::ValueNotFound,
                 fallback: Some(Arc::new(T::default())),
                 add: Some(std::any::type_name::<T>()),
@@ -1754,7 +1730,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
         if let Some(val) = self {
             val
         } else {
-            trace_entity!(id, debug, || MichiuTrace::Info {
+            trace_entity!(id, debug, || MichiuTrace::EntityInfo {
                 detail: MichiuInfo::ValueNotFound,
                 fallback: Some(Arc::new(fallback.clone())),
                 add: Some(std::any::type_name::<T>()),
@@ -1782,7 +1758,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
             val
         } else {
             let val = f();
-            trace_entity!(id, debug, || MichiuTrace::Info {
+            trace_entity!(id, debug, || MichiuTrace::EntityInfo {
                 detail: MichiuInfo::ValueNotFound,
                 fallback: Some(Arc::new(val.clone())),
                 add: Some(std::any::type_name::<T>()),

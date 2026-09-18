@@ -15,6 +15,7 @@ mod key;
 mod renderer;
 mod signal;
 mod style;
+mod tag;
 mod transition;
 mod types;
 mod utils;
@@ -30,6 +31,7 @@ pub use renderer::*;
 pub use signal::*;
 pub use soa::MichiuSoA;
 pub use style::*;
+pub use tag::*;
 pub use transition::*;
 pub use types::*;
 pub use utils::*;
@@ -38,11 +40,12 @@ pub use webview2::*;
 pub mod prelude {
     pub use crate::{
         bitmap::PropertyList,
-        context::{Context, EntityId},
+        context::{Context, EntityId, MichiuInspector},
         dnd::{DndDragPayload, DndDropTarget},
         element::{Element, build_ui},
         input::InputContents,
         pipeline::{TickType, UserAction},
+        renderer::ComposedRenderer,
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
         style::ThisStyle,

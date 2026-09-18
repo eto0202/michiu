@@ -2,12 +2,13 @@ pub mod handler;
 pub mod input_func;
 
 use crate::{
-    BasicLayout, ComponentMask, Context, ContextState, DebugStore, DirtyQueueTrace, EffectCategory,
-    EntityId, ExternalTexture, MichiuError, MichiuSoA, MichiuTrace, QueueDirtyKinds, ReadSignal,
-    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleStage, StyleState, StyleTarget,
-    SystemStore, ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n, trace_error,
-    trace_lifecycle,
+    BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
+    MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState, ScrollbarDisplay,
+    ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, UiaValue, Val, WebView2Contents,
+    create_effect, div_n, trace_error,
 };
+#[cfg(feature = "trace-lifecycle")]
+use crate::{ContextState, trace_lifecycle};
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -23,10 +24,7 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     let current = std::ptr::from_mut::<Context>(cx);
 
     ACTIVE_CONTEXT.set(Some(current));
-    let _guard = ContextGuard {
-        _current: current,
-        old,
-    };
+    let _guard = ContextGuard { current, old };
 
     // // 未定義動作を避けるためこれ以降は `cx` を直接触らない
     let marker = unsafe { (*current).start_session() };
@@ -78,9 +76,10 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
 }
 
 // コンテキストを復元するための一時的なガード構造体
+#[allow(unused)]
 pub(crate) struct ContextGuard {
     // drop 時にログを出すために自身がバインドしたポインタを保持
-    _current: *mut Context,
+    current: *mut Context,
     // drop 時に復元するために過去のポインタを保持
     old: Option<*mut Context>,
 }
@@ -105,10 +104,7 @@ pub(crate) fn bind_context(cx: &mut Context) -> ContextGuard {
         }
     });
 
-    ContextGuard {
-        _current: current,
-        old,
-    }
+    ContextGuard { current, old }
 }
 
 impl Drop for ContextGuard {
@@ -184,12 +180,51 @@ impl Element {
 
     /// この要素に対して、型 T のコンテキスト（シグナル）を提供（Provide）します。
     /// この要素、およびそのすべての子孫要素のエフェクトから `use_provided::<T>()` で取得可能になります。
+    #[inline]
     #[must_use]
     pub fn provide<T: Send + 'static>(self, read_signal: ReadSignal<T>) -> Self {
         with_context(|cx| {
             cx.provide::<T>(Some(self.id), read_signal);
         });
         self
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn tag<T: 'static>(self) -> Self {
+        with_context(|cx| cx.tag::<T>(self.id));
+        self
+    }
+
+    /// 自分自身の子孫の中で最初に見つかった型 T の `EntityId` を取得する。
+    #[inline]
+    #[must_use]
+    pub fn query_descendant<T: 'static>(&self) -> Option<EntityId> {
+        with_context(|cx| cx.query_descendant::<T>(self.id))
+    }
+
+    #[track_caller]
+    #[inline]
+    #[must_use]
+    pub fn query_descendant_expect<T: 'static>(&self) -> EntityId {
+        with_context(|cx| cx.query_descendant_expect::<T>(self.id))
+    }
+
+    /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
+    #[inline]
+    #[must_use]
+    pub fn query_descendants<T: 'static>(&self) -> Vec<EntityId> {
+        with_context(|cx| cx.query_descendants::<T>(self.id).collect())
+    }
+
+    /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
+    #[inline]
+    pub fn for_each_descendants<T: 'static>(&self, mut f: impl FnMut(EntityId)) {
+        with_context(|cx| {
+            for id in cx.query_descendants::<T>(self.id) {
+                f(id);
+            }
+        });
     }
 
     /// 静的な値、または動的に変化する Prop を、該当する `EffectCategory` を通じて自動バインド

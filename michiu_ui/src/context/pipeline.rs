@@ -1,24 +1,30 @@
 use crate::{
     ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseVisualPropertiesSecondary,
     BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing, ClipRectsSecondary, Color,
-    ComponentMask, ContentStore, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
-    DirtyLayoutEntitiesVec, DirtyReason, DrawBatch, EdgeInsets, ElementState, EntityId, EventStore,
-    ExternalTextureAlphaMode, ExternalTextureSparse, FlatBufferTrace, FlatDfsSequenceVec,
-    FlexLayout, FocusStore, FrameKinds, IDENTITY_MATRIX, ImeState, InputContentsSparse,
-    InstanceKinds, LayoutPoint, LayoutRect, LayoutSize, LayoutStage, LayoutStore,
-    MichiuSoA, MichiuTrace, Modifiers, MouseButton, OutputStore, ParentsSecondary,
+    ComponentMask, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
+    DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets, ElementState, EntityId, EventStore,
+    ExternalTextureAlphaMode, ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FocusStore,
+    IDENTITY_MATRIX, ImeState, InputContentsSparse, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
     PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
-    RenderData, RenderStage, RenderStore, RendererView, RendererViewTrace, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse, ScrollBarState,
-    ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
-    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore,
-    TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
-    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
-    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select, trace_lifecycle,
+    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGeometry, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
+    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
+    TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
+    TopologyStore, TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context,
+    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
+    handle_on_ime, handle_on_select,
+};
+#[cfg(feature = "trace-lifecycle")]
+use crate::{
+    DirtyReason, FlatBufferTrace, FrameKinds, InstanceKinds, LayoutStage, MichiuTrace, RenderStage,
+    RendererViewTrace, trace_lifecycle,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
-use std::{borrow::Cow, collections::HashSet, path::PathBuf, sync::Arc};
+#[cfg(feature = "trace-lifecycle")]
+use std::sync::Arc;
+use std::{borrow::Cow, collections::HashSet, path::PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UserAction {
@@ -112,6 +118,7 @@ impl Pipeline {
         }
     }
 
+    #[allow(unused)]
     pub(crate) fn begin_frame(cx: &mut Context) {
         let _context_guard = bind_context(cx);
 
@@ -155,7 +162,7 @@ impl Pipeline {
                         event_trace = TraceEventList::PointerDoubleClick { modifiers };
                     }
 
-                    EventStore::inject_pointer_double_click(cx, modifiers);
+                    EventStore::inject_pointer_double_click(cx);
                 }
                 UserAction::MouseWheel { scroll_x, scroll_y } => {
                     #[cfg(feature = "trace-lifecycle")]
