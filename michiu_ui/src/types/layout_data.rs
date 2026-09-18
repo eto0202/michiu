@@ -836,4 +836,130 @@ impl InteractionStyles {
         merge(&mut self.dragged_parent, &other.dragged_parent);
         merge(&mut self.any_parent, &other.any_parent);
     }
+
+    pub(crate) fn get_scope_style(
+        &self,
+        scope: InteractionScope,
+        state: CascadeInteractionState,
+    ) -> Option<&ThisStyle> {
+        match scope {
+            InteractionScope::SelfTarget => match state {
+                CascadeInteractionState::Focused => self.focused.as_ref(),
+                CascadeInteractionState::FocusedVisible => self.focused_visible.as_ref(),
+                CascadeInteractionState::Selected => self.selected.as_ref(),
+                CascadeInteractionState::Actived => self.actived.as_ref(),
+                CascadeInteractionState::Hovered => self.hovered.as_ref(),
+                CascadeInteractionState::Pressed => self.pressed.as_ref(),
+                CascadeInteractionState::Disabled => self.disabled.as_ref(),
+                CascadeInteractionState::Dragged => self.dragged.as_ref(),
+                CascadeInteractionState::DndDragging => self.dragging.as_ref(),
+                CascadeInteractionState::DndDragIn => self.drag_in.as_ref(),
+                CascadeInteractionState::DndDragOver => self.drag_over.as_ref(),
+            },
+            InteractionScope::Parent => match state {
+                CascadeInteractionState::Focused => self.focused_parent.as_ref(),
+                CascadeInteractionState::FocusedVisible => self.focused_visible_parent.as_ref(),
+                CascadeInteractionState::Selected => self.selected_parent.as_ref(),
+                CascadeInteractionState::Actived => self.actived_parent.as_ref(),
+                CascadeInteractionState::Hovered | CascadeInteractionState::DndDragIn => {
+                    self.hovered_parent.as_ref()
+                }
+                CascadeInteractionState::Pressed => self.pressed_parent.as_ref(),
+                CascadeInteractionState::Disabled => self.disabled_parent.as_ref(),
+                CascadeInteractionState::Dragged | CascadeInteractionState::DndDragging => {
+                    self.dragged_parent.as_ref()
+                }
+                CascadeInteractionState::DndDragOver => None,
+            },
+            InteractionScope::Within => match state {
+                CascadeInteractionState::Focused => self.focused_within.as_ref(),
+                CascadeInteractionState::FocusedVisible => self.focused_visible_within.as_ref(),
+                CascadeInteractionState::Selected => self.selected_within.as_ref(),
+                CascadeInteractionState::Actived => self.actived_within.as_ref(),
+                CascadeInteractionState::Hovered | CascadeInteractionState::DndDragIn => {
+                    self.hovered_within.as_ref()
+                }
+                CascadeInteractionState::Pressed => self.pressed_within.as_ref(),
+                CascadeInteractionState::Disabled => self.disabled_within.as_ref(),
+                CascadeInteractionState::Dragged | CascadeInteractionState::DndDragging => {
+                    self.dragged_within.as_ref()
+                }
+                CascadeInteractionState::DndDragOver => None,
+            },
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get_self_style(&self, flag: u128) -> Option<&ThisStyle> {
+        match flag {
+            ComponentMask::STATE_HOVERED => self.hovered.as_ref(),
+            ComponentMask::STATE_FOCUSED => self.focused.as_ref(),
+            ComponentMask::STATE_FOCUSED_VISIBLE => self.focused_visible.as_ref(),
+            ComponentMask::STATE_PRESSED => self.pressed.as_ref(),
+            ComponentMask::STATE_DISABLED => self.disabled.as_ref(),
+            ComponentMask::STATE_ACTIVED => self.actived.as_ref(),
+            ComponentMask::STATE_SELECTED => self.selected.as_ref(),
+            ComponentMask::STATE_DRAGGED => self.dragged.as_ref(),
+            ComponentMask::STATE_DND_DRAGGING => self.dragging.as_ref(),
+            ComponentMask::STATE_DND_DRAG_IN => self.drag_in.as_ref(),
+            ComponentMask::STATE_DND_DRAG_OVER => self.drag_over.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum CascadeInteractionState {
+    Focused = 0,
+    FocusedVisible,
+    Selected,
+    Actived,
+    Hovered,
+    Pressed,
+    Disabled,
+    Dragged,
+    DndDragging,
+    DndDragIn,
+    DndDragOver,
+}
+
+impl CascadeInteractionState {
+    pub(crate) const ALL: [CascadeInteractionState; 11] = [
+        CascadeInteractionState::Focused,
+        CascadeInteractionState::FocusedVisible,
+        CascadeInteractionState::Selected,
+        CascadeInteractionState::Actived,
+        CascadeInteractionState::Hovered,
+        CascadeInteractionState::Pressed,
+        CascadeInteractionState::Disabled,
+        CascadeInteractionState::Dragged,
+        CascadeInteractionState::DndDragging,
+        CascadeInteractionState::DndDragIn,
+        CascadeInteractionState::DndDragOver,
+    ];
+
+    #[inline]
+    pub(crate) const fn mask(self) -> u128 {
+        match self {
+            CascadeInteractionState::Focused => ComponentMask::STATE_FOCUSED,
+            CascadeInteractionState::FocusedVisible => ComponentMask::STATE_FOCUSED_VISIBLE,
+            CascadeInteractionState::Selected => ComponentMask::STATE_SELECTED,
+            CascadeInteractionState::Actived => ComponentMask::STATE_ACTIVED,
+            CascadeInteractionState::Hovered => ComponentMask::STATE_HOVERED,
+            CascadeInteractionState::Pressed => ComponentMask::STATE_PRESSED,
+            CascadeInteractionState::Disabled => ComponentMask::STATE_DISABLED,
+            CascadeInteractionState::Dragged => ComponentMask::STATE_DRAGGED,
+            CascadeInteractionState::DndDragging => ComponentMask::STATE_DND_DRAGGING,
+            CascadeInteractionState::DndDragIn => ComponentMask::STATE_DND_DRAG_IN,
+            CascadeInteractionState::DndDragOver => ComponentMask::STATE_DND_DRAG_OVER,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum InteractionScope {
+    SelfTarget,
+    Parent,
+    Within,
 }
