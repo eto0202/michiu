@@ -1,15 +1,17 @@
 use crate::{
     ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
-    ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec, DirtyQueueTrace,
-    DirtyRenderEntitiesVec, EntityId, EventStore, FlexDirection, FlexLayoutsSecondary,
-    IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace,
-    OptionTraceExt, OutputStore, PointerEvents, QueueDirtyKinds, ReactiveStore, RectsSecondary,
-    RenderStore, SpawnTrace, StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt,
-    TaffyTreeEntityId, TagRegistry, VisualPropertiesSecondary, WindowStore, define_secondary,
-    define_smallvec, define_vec, trace_lifecycle,
+    ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, EntityId, EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuTagRegistry, OptionTraceExt,
+    OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore, StateStore,
+    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId,
+    VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec, define_vec,
 };
+#[cfg(feature = "trace-lifecycle")]
+use crate::{MichiuTrace, trace_lifecycle};
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
+#[cfg(feature = "trace-lifecycle")]
 use std::sync::Arc;
 
 // ソート計算用
@@ -64,7 +66,7 @@ pub struct TopologyStore {
     pub(crate) topo_is_sort_dirty: bool,
     pub(crate) topo_webview_entities: WebviewEntitiesVec,
     pub(crate) topo_despawned_queue: DespawnedQueueVec,
-    pub(crate) topo_tag_registry: TagRegistry,
+    pub(crate) topo_tag_registry: MichiuTagRegistry,
 }
 
 impl Default for TopologyStore {
@@ -93,7 +95,7 @@ impl TopologyStore {
             topo_is_sort_dirty: true,
             topo_webview_entities: WebviewEntitiesVec(SmallVec::new()),
             topo_despawned_queue: DespawnedQueueVec(SmallVec::new()),
-            topo_tag_registry: TagRegistry::new(),
+            topo_tag_registry: MichiuTagRegistry::new(),
         }
     }
 
@@ -516,6 +518,7 @@ impl TopologyStore {
     }
 
     /// DFS配列の高速再構築
+    #[allow(unused)]
     #[inline]
     pub(crate) fn rebuild_dfs_sequence(
         root: EntityId,

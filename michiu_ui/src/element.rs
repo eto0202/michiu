@@ -2,12 +2,13 @@ pub mod handler;
 pub mod input_func;
 
 use crate::{
-    BasicLayout, ComponentMask, Context, ContextState, DebugStore, DirtyQueueTrace, EffectCategory,
-    EntityId, ExternalTexture, MichiuError, MichiuSoA, MichiuTrace, QueueDirtyKinds, ReadSignal,
-    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleStage, StyleState, StyleTarget,
-    SystemStore, ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n, trace_error,
-    trace_lifecycle,
+    BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
+    MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState, ScrollbarDisplay,
+    ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, UiaValue, Val, WebView2Contents,
+    create_effect, div_n, trace_error,
 };
+#[cfg(feature = "trace-lifecycle")]
+use crate::{ContextState, trace_lifecycle};
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -23,10 +24,7 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     let current = std::ptr::from_mut::<Context>(cx);
 
     ACTIVE_CONTEXT.set(Some(current));
-    let _guard = ContextGuard {
-        _current: current,
-        old,
-    };
+    let _guard = ContextGuard { current, old };
 
     // // 未定義動作を避けるためこれ以降は `cx` を直接触らない
     let marker = unsafe { (*current).start_session() };
@@ -78,9 +76,10 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
 }
 
 // コンテキストを復元するための一時的なガード構造体
+#[allow(unused)]
 pub(crate) struct ContextGuard {
     // drop 時にログを出すために自身がバインドしたポインタを保持
-    _current: *mut Context,
+    current: *mut Context,
     // drop 時に復元するために過去のポインタを保持
     old: Option<*mut Context>,
 }
@@ -105,10 +104,7 @@ pub(crate) fn bind_context(cx: &mut Context) -> ContextGuard {
         }
     });
 
-    ContextGuard {
-        _current: current,
-        old,
-    }
+    ContextGuard { current, old }
 }
 
 impl Drop for ContextGuard {
@@ -210,8 +206,18 @@ impl Element {
     /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
     #[inline]
     #[must_use]
-    pub fn query_descendants<T: 'static>(&self) -> SmallVec<[EntityId; 4]> {
+    pub fn query_descendants<T: 'static>(&self) -> Vec<EntityId> {
         with_context(|cx| cx.query_descendants::<T>(self.id).collect())
+    }
+
+    /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
+    #[inline]
+    pub fn for_each_descendants<T: 'static>(&self, mut f: impl FnMut(EntityId)) {
+        with_context(|cx| {
+            for id in cx.query_descendants::<T>(self.id) {
+                f(id);
+            }
+        });
     }
 
     /// 静的な値、または動的に変化する Prop を、該当する `EffectCategory` を通じて自動バインド

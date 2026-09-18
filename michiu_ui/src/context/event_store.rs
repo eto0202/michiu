@@ -1,13 +1,13 @@
 use crate::{
     ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC,
     DEFAULT_FLEX, DndStore, ElementState, EntityId, EventListeners, FocusStore, InputContents,
-    InputOp, LayoutPoint, LayoutStore, MichiuError, MichiuString, Modifiers, MouseButton,
-    OptionTraceExt, OutputStore, Overflow, Pipeline, RenderStore, ResizeStore, ResolvedGeometry,
-    ScrollStore, ScrollbarStore, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore,
-    TextEditStore, TextEngine, TextLayoutSize, TextSelectionsSparse, TopologyStore, UserAction,
-    UserSelect, VirtualKey, define_vec, handle_on_click, handle_on_cursor_moved, handle_on_hover,
-    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
-    handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
+    InputOp, LayoutPoint, MichiuError, MichiuString, Modifiers, MouseButton, OptionTraceExt,
+    Overflow, Pipeline, RenderStore, ResizeStore, ResolvedGeometry, ScrollStore, ScrollbarStore,
+    SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEditStore, TextEngine,
+    TextLayoutSize, TextSelectionsSparse, TopologyStore, UserAction, UserSelect, VirtualKey,
+    define_vec, handle_on_click, handle_on_cursor_moved, handle_on_hover, handle_on_keyboard_input,
+    handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel,
+    handle_on_right_click, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
 use std::ops::Range;
@@ -229,7 +229,7 @@ impl EventStore {
         cx.states.resize.res_active_resize_hover = None;
 
         // ヒットした要素、およびその親先祖に向かってツリーを遡上
-        let (current_id, found_resize_hover) = ResizeStore::found_resize_hover(
+        let (_, found_resize_hover) = ResizeStore::found_resize_hover(
             target_id,
             logical_pos,
             &cx.topology.topo_active_masks,
@@ -645,15 +645,13 @@ impl EventStore {
         state: ElementState,
         modifiers: Modifiers,
     ) {
-        let current_hovered = cx.events.evt_interaction_states.hovered;
-
         match state {
             ElementState::Pressed => EventStore::handle_pointer_pressed(cx, button, modifiers),
             ElementState::Released => EventStore::handle_pointer_released(cx, button, modifiers),
         }
     }
 
-    pub(crate) fn inject_pointer_double_click(cx: &mut Context, modifiers: Modifiers) {
+    pub(crate) fn inject_pointer_double_click(cx: &mut Context) {
         let current_hovered = cx.events.evt_interaction_states.hovered;
 
         let Some(target_id) = current_hovered else {

@@ -109,7 +109,7 @@ pub trait MichiuSoA {
             use crate::{MichiuInfo, MichiuTrace, trace_entity};
             use std::sync::Arc;
 
-            trace_entity!(Some(id), debug, || MichiuTrace::Info {
+            trace_entity!(Some(id), debug, || MichiuTrace::EntityInfo {
                 detail: MichiuInfo::ValueNotFound,
                 fallback: Some(Arc::new(fallback.clone())),
                 add: Some(std::any::type_name::<Self::Item>()),

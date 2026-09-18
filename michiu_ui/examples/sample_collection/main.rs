@@ -49,6 +49,7 @@ impl SendHwnd {
 }
 
 pub const ALLOW_LOG: bool = true;
+// これ起動めちゃ遅くなるので注意
 pub const ALLOW_STRESS_TEST: bool = false;
 
 #[cfg(feature = "dhat-heap")]
@@ -113,7 +114,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (width, height) = client_rect(hwnd);
     app.renderer.resize((width, height), scale_factor);
-
 
     if app.webview_id.is_some() {
         app.renderer.prewarm_webview2();

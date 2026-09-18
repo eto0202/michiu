@@ -6,12 +6,12 @@ use smallvec::SmallVec;
 use crate::{EntityId, FlatDfsSequenceVec, ParentsSecondary};
 
 #[derive(Default, Debug, Clone)]
-pub(crate) struct TagRegistry {
-    type_to_entities: FxHashMap<TypeId, SmallVec<[EntityId; 1]>>,
-    entity_to_types: FxHashMap<EntityId, SmallVec<[TypeId; 4]>>,
+pub struct MichiuTagRegistry {
+    pub type_to_entities: FxHashMap<TypeId, SmallVec<[EntityId; 1]>>,
+    pub entity_to_types: FxHashMap<EntityId, SmallVec<[TypeId; 4]>>,
 }
 
-impl TagRegistry {
+impl MichiuTagRegistry {
     #[inline]
     pub(crate) fn new() -> Self {
         Self::default()

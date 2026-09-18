@@ -27,10 +27,12 @@ pub use system_store::*;
 pub use topology_store::*;
 pub use window_store::*;
 
+#[cfg(feature = "trace-lifecycle")]
+use crate::trace_lifecycle;
 use crate::{
     BasicLayout, ComponentMask, CursorIcon, Element, FlexLayout, GridLayout, InteractionState,
     LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
-    bind_context, handle_on_click, trace_lifecycle,
+    bind_context, handle_on_click,
 };
 use slotmap::new_key_type;
 use std::{borrow::Cow, sync::Arc};
@@ -54,17 +56,17 @@ impl EntityId {
 // }
 
 pub struct Context {
-    pub window: WindowStore,
-    pub system: SystemStore,
-    pub reactive: ReactiveStore,
-    pub events: EventStore,
-    pub contents: ContentStore,
-    pub topology: TopologyStore,
-    pub states: StateStore,
-    pub layouts: LayoutStore,
-    pub renders: RenderStore,
-    pub outputs: OutputStore,
-    pub debug: DebugStore,
+    pub(crate) window: WindowStore,
+    pub(crate) system: SystemStore,
+    pub(crate) reactive: ReactiveStore,
+    pub(crate) events: EventStore,
+    pub(crate) contents: ContentStore,
+    pub(crate) topology: TopologyStore,
+    pub(crate) states: StateStore,
+    pub(crate) layouts: LayoutStore,
+    pub(crate) renders: RenderStore,
+    pub(crate) outputs: OutputStore,
+    pub(crate) debug: DebugStore,
 }
 
 impl Default for Context {
@@ -239,6 +241,11 @@ impl Context {
     #[must_use]
     pub fn get_visual_property(&self, id: EntityId) -> Option<VisualProperty> {
         self.renders.rnd_visual.find(id).cloned()
+    }
+
+    #[inline]
+    pub fn set_window_resizing(&mut self, resize: bool) {
+        self.window.win_is_resizing = resize;
     }
 
     /// 指定された要素が現在マウスホバーされているか判定します
@@ -518,7 +525,6 @@ impl Context {
     }
 
     #[inline]
-    #[must_use]
     pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = EntityId> + '_ {
         self.topology
             .topo_tag_registry
@@ -543,7 +549,6 @@ impl Context {
 
     /// 子孫の中から、型 T を持つエンティティを検索する。
     #[inline]
-    #[must_use]
     pub fn query_descendants<T: 'static>(
         &self,
         parent: EntityId,

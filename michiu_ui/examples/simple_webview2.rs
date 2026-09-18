@@ -2,7 +2,9 @@
 
 use std::time::Duration;
 
-use michiu_ui::{ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, StateFlag, prelude::*};
+use michiu_ui::{
+    ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, StateFlag, prelude::*,
+};
 
 use windows::{
     Win32::{
@@ -311,13 +313,13 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_ENTERSIZEMOVE => {
-                app.context.window.win_is_resizing = true;
+                app.context.set_window_resizing(true);
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             // ウィンドウドラッグリサイズの完了をキャッチ
             WM_EXITSIZEMOVE => {
-                app.context.window.win_is_resizing = false;
+                app.context.set_window_resizing(false);
                 // リサイズ完了後の再描画を即座にキックして、新サイズでの静止画キャプチャを誘発
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
