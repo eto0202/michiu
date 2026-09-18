@@ -5,16 +5,16 @@ use crate::{
     DirtyLayoutEntitiesVec, DirtyReason, DrawBatch, EdgeInsets, ElementState, EntityId, EventStore,
     ExternalTextureAlphaMode, ExternalTextureSparse, FlatBufferTrace, FlatDfsSequenceVec,
     FlexLayout, FocusStore, FrameKinds, IDENTITY_MATRIX, ImeState, InputContentsSparse,
-    InstanceKinds, LayoutPoint, LayoutRect, LayoutSize, LayoutStage, LayoutStore, MichiuSoA,
-    MichiuTrace, Modifiers, MouseButton, OutputStore, ParentsSecondary, PrevClipRectsSecondary,
-    PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStage,
-    RenderStore, RendererView, RendererViewTrace, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore, ScrollbarStore,
-    ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
-    TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore, TextEngine, TextSpan, TopologyStore,
-    TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context, handle_on_active,
-    handle_on_char_input, handle_on_disable, handle_on_file_dropped, handle_on_ime,
-    handle_on_select, trace_lifecycle,
+    InstanceKinds, LayoutPoint, LayoutRect, LayoutSize, LayoutStage, LayoutStore,
+    MichiuSoA, MichiuTrace, Modifiers, MouseButton, OutputStore, ParentsSecondary,
+    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
+    RenderData, RenderStage, RenderStore, RendererView, RendererViewTrace, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse, ScrollBarState,
+    ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
+    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore,
+    TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
+    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
+    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select, trace_lifecycle,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -76,164 +76,209 @@ pub enum StateFlag {
 pub struct Pipeline;
 
 impl Pipeline {
-    #[inline]
     pub(crate) fn inject_user_action(cx: &mut Context, action: UserAction) {
         let _context_guard = bind_context(cx);
 
-        let mut event_trace = TraceEventList::None;
-
         match action {
-            UserAction::PointerMove(layout_point) => {
-                #[cfg(feature = "trace-lifecycle")]
+            // キューの末尾が PointerMove なら最新座標で上書き
+            UserAction::PointerMove(pos) => {
+                if let Some(UserAction::PointerMove(last_pos)) =
+                    cx.events.evt_pending_actions.last_mut()
                 {
-                    event_trace = TraceEventList::PointerMove {
-                        x: layout_point.x,
-                        y: layout_point.y,
-                    };
+                    *last_pos = pos;
+                    return;
                 }
-
-                EventStore::inject_pointer_move(cx, layout_point);
+                cx.events.evt_pending_actions.push(action);
             }
-            UserAction::PointerButton {
-                button,
-                state,
-                modifiers,
-            } => {
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::PointerButton {
-                        button,
-                        state,
-                        modifiers,
-                    };
-                }
 
-                EventStore::inject_pointer_button(cx, button, state, modifiers);
-            }
-            UserAction::PointerDoubleClick { modifiers } => {
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::PointerDoubleClick { modifiers };
-                }
-
-                EventStore::inject_pointer_double_click(cx, modifiers);
-            }
+            // スクロールの場合は移動量の加算
             UserAction::MouseWheel { scroll_x, scroll_y } => {
-                #[cfg(feature = "trace-lifecycle")]
+                if let Some(UserAction::MouseWheel {
+                    scroll_x: last_x,
+                    scroll_y: last_y,
+                }) = cx.events.evt_pending_actions.last_mut()
                 {
-                    event_trace = TraceEventList::MouseWheel {
-                        x: scroll_x,
-                        y: scroll_y,
-                    };
-                }
-
-                EventStore::inject_mouse_wheel(cx, scroll_x, scroll_y);
-            }
-            UserAction::KeyboardKey {
-                key,
-                state,
-                modifiers,
-            } => {
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Keyboard {
-                        key,
-                        state,
-                        modifiers,
-                    };
-                }
-
-                EventStore::inject_keyboard_key(cx, key, state, modifiers);
-            }
-            UserAction::Character(c) => {
-                let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+                    *last_x += scroll_x;
+                    *last_y += scroll_y;
                     return;
-                };
-
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Character { char: c };
                 }
-
-                handle_on_char_input(cx, focused_id, c);
+                cx.events.evt_pending_actions.push(action);
             }
-            UserAction::Ime(ime_state) => {
-                let Some(focused_id) = cx.events.evt_interaction_states.focused else {
-                    return;
-                };
 
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Ime {
-                        is_open: ime_state.is_open,
-                        conversion_mode: ime_state.conversion_mode,
-                        sentence_mode: ime_state.sentence_mode,
-                        keyboard_layout_id: ime_state.keyboard_layout_id,
-                        composition_text: ime_state.composition_text.0.clone(),
-                        result_text: ime_state.result_text.0.clone(),
-                        caret_position: ime_state.caret_position,
-                        composition_cursor: ime_state.composition_cursor.0,
-                        composition_attrs: ime_state.composition_attrs.clone(),
-                    };
-                }
-
-                handle_on_ime(cx, focused_id, ime_state);
-            }
-            UserAction::FileDropped(path_bufs) => {
-                let Some(target_id) = cx.events.evt_interaction_states.hovered else {
-                    return;
-                };
-
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::FileDropped {
-                        path: Arc::from(path_bufs.clone()),
-                    };
-                }
-
-                handle_on_file_dropped(cx, target_id, path_bufs);
-            }
-            UserAction::Paste(text) => {
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Paste { text: text.clone() };
-                }
-
-                EventStore::inject_paste(cx, &text.into());
-            }
-            UserAction::Cut => {
-                let cut = EventStore::inject_cut(cx);
-
-                #[cfg(feature = "trace-lifecycle")]
-                if let Some(text) = cut.clone() {
-                    event_trace = TraceEventList::Cut { text: text.0 };
-                }
-
-                cx.contents.cont_cut_text = cut;
-            }
-            UserAction::Undo => {
-                EventStore::inject_undo(cx);
-
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Undo;
-                }
-            }
-            UserAction::Redo => {
-                EventStore::inject_redo(cx);
-
-                #[cfg(feature = "trace-lifecycle")]
-                {
-                    event_trace = TraceEventList::Undo;
-                }
+            // それ以外は間引かない
+            _ => {
+                cx.events.evt_pending_actions.push(action);
             }
         }
+    }
 
-        #[cfg(feature = "trace-lifecycle")]
-        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Event {
-            kinds: Arc::new(event_trace.clone()),
-            add: None,
-        });
+    pub(crate) fn begin_frame(cx: &mut Context) {
+        let _context_guard = bind_context(cx);
+
+        let mut actions = std::mem::take(&mut cx.events.evt_pending_actions.0);
+
+        // 古い順でイテレート
+        for action in actions.drain(..) {
+            let mut event_trace = TraceEventList::None;
+
+            match action {
+                UserAction::PointerMove(layout_point) => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::PointerMove {
+                            x: layout_point.x,
+                            y: layout_point.y,
+                        };
+                    }
+
+                    EventStore::inject_pointer_move(cx, layout_point);
+                }
+                UserAction::PointerButton {
+                    button,
+                    state,
+                    modifiers,
+                } => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::PointerButton {
+                            button,
+                            state,
+                            modifiers,
+                        };
+                    }
+
+                    EventStore::inject_pointer_button(cx, button, state, modifiers);
+                }
+                UserAction::PointerDoubleClick { modifiers } => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::PointerDoubleClick { modifiers };
+                    }
+
+                    EventStore::inject_pointer_double_click(cx, modifiers);
+                }
+                UserAction::MouseWheel { scroll_x, scroll_y } => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::MouseWheel {
+                            x: scroll_x,
+                            y: scroll_y,
+                        };
+                    }
+
+                    EventStore::inject_mouse_wheel(cx, scroll_x, scroll_y);
+                }
+                UserAction::KeyboardKey {
+                    key,
+                    state,
+                    modifiers,
+                } => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Keyboard {
+                            key,
+                            state,
+                            modifiers,
+                        };
+                    }
+
+                    EventStore::inject_keyboard_key(cx, key, state, modifiers);
+                }
+                UserAction::Character(c) => {
+                    let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+                        return;
+                    };
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Character { char: c };
+                    }
+
+                    handle_on_char_input(cx, focused_id, c);
+                }
+                UserAction::Ime(ime_state) => {
+                    let Some(focused_id) = cx.events.evt_interaction_states.focused else {
+                        return;
+                    };
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Ime {
+                            is_open: ime_state.is_open,
+                            conversion_mode: ime_state.conversion_mode,
+                            sentence_mode: ime_state.sentence_mode,
+                            keyboard_layout_id: ime_state.keyboard_layout_id,
+                            composition_text: ime_state.composition_text.0.clone(),
+                            result_text: ime_state.result_text.0.clone(),
+                            caret_position: ime_state.caret_position,
+                            composition_cursor: ime_state.composition_cursor.0,
+                            composition_attrs: ime_state.composition_attrs.clone(),
+                        };
+                    }
+
+                    handle_on_ime(cx, focused_id, ime_state);
+                }
+                UserAction::FileDropped(path_bufs) => {
+                    let Some(target_id) = cx.events.evt_interaction_states.hovered else {
+                        return;
+                    };
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::FileDropped {
+                            path: Arc::from(path_bufs.clone()),
+                        };
+                    }
+
+                    handle_on_file_dropped(cx, target_id, path_bufs);
+                }
+                UserAction::Paste(text) => {
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Paste { text: text.clone() };
+                    }
+
+                    EventStore::inject_paste(cx, &text.into());
+                }
+                UserAction::Cut => {
+                    let cut = EventStore::inject_cut(cx);
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    if let Some(text) = cut.clone() {
+                        event_trace = TraceEventList::Cut { text: text.0 };
+                    }
+
+                    cx.contents.cont_cut_text = cut;
+                }
+                UserAction::Undo => {
+                    EventStore::inject_undo(cx);
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Undo;
+                    }
+                }
+                UserAction::Redo => {
+                    EventStore::inject_redo(cx);
+
+                    #[cfg(feature = "trace-lifecycle")]
+                    {
+                        event_trace = TraceEventList::Undo;
+                    }
+                }
+            }
+
+            #[cfg(feature = "trace-lifecycle")]
+            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Event {
+                kinds: Arc::new(event_trace.clone()),
+                add: None,
+            });
+        }
+
+        // 空になったバッファを戻して次のフレームで再アロケーションが発生するのを防ぐ
+        if cx.events.evt_pending_actions.0.is_empty() {
+            cx.events.evt_pending_actions.0 = actions;
+        }
     }
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
@@ -563,25 +608,21 @@ impl Pipeline {
             // クロージャの外側の Context は直接キャプチャできないため、
             //  一時的に bind_context されているスレッドローカル経由で取得
             context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                let flex = cx
-                    .layouts
-                    .lay_resolved_flex
-                    .find(id)
-                    .copied()
-                    .unwrap_or_default();
-
-                ContentStore::measure_content(
+                cx.contents.cont_input_contents.measure_content(
                     id,
                     known_dims,
                     available_space,
-                    &flex,
-                    &mut cx.system.sys_text_engine,
-                    &mut cx.contents.cont_input_contents,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
                     &cx.topology.topo_active_masks,
                     &cx.renders.rnd_visual,
-                    &mut cx.debug,
+                    |auto_wrap, max_width| {
+                        let text = cx.contents.cont_text_contents.at(id);
+                        let font = cx.renders.rnd_visual.font(id);
+                        let text_align = cx.layouts.lay_resolved_flex.text_algin(id);
+                        let spans = cx.contents.cont_text_spans.span(id);
+                        cx.system
+                            .sys_text_engine
+                            .measure_text(text, &font, text_align, max_width, auto_wrap, spans)
+                    },
                 )
             })
         };
@@ -971,12 +1012,10 @@ impl Pipeline {
         TopologyStore::prepare_sorted_entities(
             cx.window.win_last_size,
             &mut cx.topology.topo_active_masks,
-            &mut cx.topology.topo_dfs_indices,
             &mut cx.topology.topo_effective_z_indices,
             &mut cx.topology.topo_sorted_entities,
             &mut cx.topology.topo_sort_cache,
             &mut cx.topology.topo_is_sort_dirty,
-            &cx.topology.topo_active_entities,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
             &cx.renders.rnd_visual,
@@ -1129,7 +1168,14 @@ impl Pipeline {
                 IDENTITY_MATRIX
             };
 
-            let params = CommonParameters::new(rect, basic, visual, eff_transform);
+            let geom = ResolvedGeometry {
+                rect,
+                border,
+                padding,
+                scroll,
+            };
+
+            let params = CommonParameters::new(geom, basic, visual, eff_transform);
 
             let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
@@ -1297,25 +1343,34 @@ impl Pipeline {
                     has_selection_highlight = true;
                 }
 
-                let buffer = SystemStore::get_or_create_layout(
+                let auto_wrap = cx.renders.rnd_visual.auto_wrap(id);
+                let content_width =
+                    rect.width - border.right - border.left - padding.right - padding.left;
+                let max_width_opt = (auto_wrap && content_width > 0.0).then_some(content_width);
+
+                let buffer = SystemStore::get_or_create_text_buffer(
                     id,
-                    &mut cx.system.sys_text_engine,
+                    max_width_opt,
                     &cx.system.sys_text_buffers,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
-                    &cx.layouts.lay_resolved_basic,
-                    &cx.layouts.lay_resolved_flex,
-                    &cx.renders.rnd_visual,
-                    &cx.outputs.out_rects,
-                    &mut cx.debug,
+                    || {
+                        let text = cx.contents.cont_text_contents.at(id);
+                        let font = cx.renders.rnd_visual.font(id);
+                        let spans = cx.contents.cont_text_spans.span(id);
+                        cx.system.sys_text_engine.create_buffer(
+                            text,
+                            &font,
+                            flex.text_align,
+                            max_width_opt,
+                            auto_wrap,
+                            spans,
+                        )
+                    },
                 );
 
                 let align_offset = Pipeline::text_size_to_align_offset(
                     id,
                     &params,
                     &buffer,
-                    border,
-                    padding,
                     flex,
                     &cx.contents.cont_input_contents,
                 );
@@ -1325,9 +1380,6 @@ impl Pipeline {
                     view.render_data,
                     &params,
                     align_offset,
-                    border,
-                    padding,
-                    scroll,
                     sel_rects,
                     visual,
                 );
@@ -1352,34 +1404,39 @@ impl Pipeline {
             }
 
             if is_text {
-                let buffer = SystemStore::get_or_create_layout(
+                let auto_wrap = cx.renders.rnd_visual.auto_wrap(id);
+                let content_width =
+                    rect.width - border.right - border.left - padding.right - padding.left;
+                let max_width_opt = (auto_wrap && content_width > 0.0).then_some(content_width);
+
+                let spans = cx.contents.cont_text_spans.span(id);
+
+                let buffer = SystemStore::get_or_create_text_buffer(
                     id,
-                    &mut cx.system.sys_text_engine,
+                    max_width_opt,
                     &cx.system.sys_text_buffers,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
-                    &cx.layouts.lay_resolved_basic,
-                    &cx.layouts.lay_resolved_flex,
-                    &cx.renders.rnd_visual,
-                    &cx.outputs.out_rects,
-                    &mut cx.debug,
+                    || {
+                        let text = cx.contents.cont_text_contents.at(id);
+                        let font = cx.renders.rnd_visual.font(id);
+                        cx.system.sys_text_engine.create_buffer(
+                            text,
+                            &font,
+                            flex.text_align,
+                            max_width_opt,
+                            auto_wrap,
+                            spans,
+                        )
+                    },
                 );
 
                 let align_offset = Pipeline::text_size_to_align_offset(
                     id,
                     &params,
                     &buffer,
-                    border,
-                    padding,
                     flex,
                     &cx.contents.cont_input_contents,
                 );
 
-                let spans = cx
-                    .contents
-                    .cont_text_spans
-                    .find(id)
-                    .map_or(&[][..], Vec::as_slice);
                 let resolved_color =
                     Pipeline::resolve_text_color(id, visual, &cx.contents.cont_input_contents);
 
@@ -1390,9 +1447,6 @@ impl Pipeline {
                     &buffer,
                     spans,
                     align_offset,
-                    border,
-                    padding,
-                    scroll,
                 );
 
                 Pipeline::push_text_metric_instances(
@@ -1401,9 +1455,6 @@ impl Pipeline {
                     &params,
                     &buffer,
                     resolved_color,
-                    border,
-                    padding,
-                    scroll,
                     align_offset,
                     cx.window.win_scale_factor,
                     &mut cx.system.sys_text_engine,
@@ -1416,9 +1467,6 @@ impl Pipeline {
                     &params,
                     spans,
                     &buffer,
-                    border,
-                    padding,
-                    scroll,
                     align_offset,
                     resolved_color,
                 );
@@ -1444,9 +1492,6 @@ impl Pipeline {
                     id,
                     view.render_data,
                     &params,
-                    border,
-                    padding,
-                    scroll,
                     flex,
                     visual,
                     cx.window.win_scale_factor,
@@ -1504,7 +1549,7 @@ impl Pipeline {
 }
 
 struct CommonParameters {
-    rect: LayoutRect,
+    geom: ResolvedGeometry,
     transform: [[f32; 4]; 3],
     corner_radius: CornerRadius,
     border_width: EdgeInsets,
@@ -1522,7 +1567,7 @@ struct CommonParameters {
 impl CommonParameters {
     #[inline]
     fn new(
-        rect: LayoutRect,
+        geom: ResolvedGeometry,
         basic: &BasicLayout,
         visual: &VisualProperty,
         eff_transform: [[f32; 4]; 4],
@@ -1547,7 +1592,7 @@ impl CommonParameters {
         };
 
         Self {
-            rect,
+            geom,
             transform,
             corner_radius,
             border_width,
@@ -1807,32 +1852,25 @@ impl Pipeline {
         id: EntityId,
         params: &CommonParameters,
         buffer: &Buffer,
-        border: EdgeInsets,
-        padding: EdgeInsets,
         flex: &FlexLayout,
         cont_input_contents: &InputContentsSparse,
     ) -> LayoutPoint {
-        let (text_size, is_multiline) = if let Some(c) = cont_input_contents.find(id) {
+        let text_size = if let Some(c) = cont_input_contents.find(id) {
             if let Some(l) = c.last_layout {
                 // コンテンツが存在し前回のレイアウトもある場合
-                (LayoutSize::new(l.width, l.height), c.is_multiline)
+                TextLayoutSize::new(l.width, l.height, Some(c.is_multiline))
             } else {
                 // コンテンツはあるがレイアウトがない場合
-                (TextEngine::get_layout_size(buffer), c.is_multiline)
+                TextEngine::get_layout_size(buffer).set_multiline(Some(c.is_multiline))
             }
         } else {
             // コンテンツ自体が存在しない場合
-            (TextEngine::get_layout_size(buffer), false)
+            TextEngine::get_layout_size(buffer).set_multiline(Some(false))
         };
-        OutputStore::calc_align_offset(
-            params.rect,
-            border,
-            padding,
-            text_size,
-            flex.text_align,
-            flex.align_items,
-            is_multiline,
-        )
+
+        params
+            .geom
+            .calc_align_offset(text_size, flex.text_align, flex.align_items)
     }
 
     /// 指定された要素に含まれるすべての文字をアトラスにキャッシュ
@@ -1905,7 +1943,7 @@ impl Pipeline {
         params: &CommonParameters,
     ) {
         let punchout_instance = QuadInstance {
-            rect: params.rect,
+            rect: params.geom.rect,
             transform: params.transform,
             transform_origin: params.transform_origin,
             color: Color::WHITE,
@@ -1921,7 +1959,7 @@ impl Pipeline {
     #[inline]
     fn push_front_instance(id: EntityId, render_data: &mut RenderData, params: &CommonParameters) {
         let front_instance = QuadInstance {
-            rect: params.rect,
+            rect: params.geom.rect,
             transform: params.transform,
             corner_radius: params.corner_radius,
             border_width: params.border_width,
@@ -1943,7 +1981,7 @@ impl Pipeline {
     #[inline]
     fn push_static_instance(id: EntityId, render_data: &mut RenderData, params: &CommonParameters) {
         let static_instance = QuadInstance {
-            rect: params.rect,
+            rect: params.geom.rect,
             transform: params.transform,
             corner_radius: params.corner_radius,
             border_width: params.border_width,
@@ -1964,7 +2002,7 @@ impl Pipeline {
         params: &CommonParameters,
     ) {
         let border_instance = QuadInstance {
-            rect: params.rect,
+            rect: params.geom.rect,
             transform: params.transform,
             transform_origin: params.transform_origin,
             corner_radius: params.corner_radius,
@@ -1989,9 +2027,6 @@ impl Pipeline {
         render_data: &mut RenderData,
         params: &CommonParameters,
         align_offset: LayoutPoint,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        scroll: LayoutPoint,
         sel_rects: &Vec<LayoutRect>,
         visual: &VisualProperty,
     ) {
@@ -1999,12 +2034,15 @@ impl Pipeline {
             .select_bg_color
             .unwrap_or(Color::rgba_f32(0.0, 0.47, 0.84, 0.35));
 
+        let rect = params.geom.rect;
+        let border = params.geom.border;
+        let padding = params.geom.padding;
+        let scroll = params.geom.scroll;
+
         for metric_rect in sel_rects {
             let sel_rect = LayoutRect::new(
-                params.rect.x + border.left + padding.left + align_offset.x + metric_rect.x
-                    - scroll.x,
-                params.rect.y + border.top + padding.top + align_offset.y + metric_rect.y
-                    - scroll.y,
+                rect.x + border.left + padding.left + align_offset.x + metric_rect.x - scroll.x,
+                rect.y + border.top + padding.top + align_offset.y + metric_rect.y - scroll.y,
                 metric_rect.width,
                 metric_rect.height,
             );
@@ -2035,7 +2073,7 @@ impl Pipeline {
         };
 
         let bg_instance = QuadInstance {
-            rect: params.rect,
+            rect: params.geom.rect,
             transform: params.transform,
             transform_origin: params.transform_origin,
             color: bg_color,
@@ -2066,19 +2104,25 @@ impl Pipeline {
         buffer: &Buffer,
         spans: &[TextSpan],
         align_offset: LayoutPoint,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        scroll: LayoutPoint,
     ) {
+        let rect = params.geom.rect;
+        let border = params.geom.border;
+        let padding = params.geom.padding;
+        let scroll = params.geom.scroll;
+
         for span in spans {
             if let Some(bg_color) = span.bg_color {
                 let rects = TextEditStore::calc_selection_rects(buffer, span.range.clone());
 
                 for metric_rect in rects {
                     let sel_rect = LayoutRect::new(
-                        params.rect.x + border.left + padding.left + align_offset.x + metric_rect.x
+                        rect.x + border.left + padding.left + align_offset.x + metric_rect.x
                             - scroll.x,
-                        params.rect.y + border.top + padding.top + align_offset.y + metric_rect.y
+                        params.geom.rect.y
+                            + border.top
+                            + padding.top
+                            + align_offset.y
+                            + metric_rect.y
                             - scroll.y,
                         metric_rect.width,
                         metric_rect.height,
@@ -2105,24 +2149,24 @@ impl Pipeline {
         params: &CommonParameters,
         buffer: &Buffer,
         resolved_color: Color,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        scroll: LayoutPoint,
         align_offset: LayoutPoint,
         win_scale_factor: f32,
         sys_text_engine: &mut TextEngine,
         debug: &mut DebugStore,
     ) {
+        let rect = params.geom.rect;
+        let border = params.geom.border;
+        let padding = params.geom.padding;
+        let scroll = params.geom.scroll;
+
         for run in buffer.layout_runs() {
             for glyph in run.glyphs {
                 //  グリフ原点 ＝ テキストブロック位置 ＋ 行・文字位置を丸めたもの
-                let base_phys_x = (params.rect.x + border.left + padding.left + align_offset.x
-                    - scroll.x)
+                let base_phys_x = (rect.x + border.left + padding.left + align_offset.x - scroll.x)
                     * win_scale_factor;
-                let base_phys_y =
-                    (params.rect.y + border.top + padding.top + align_offset.y + run.line_y
-                        - scroll.y)
-                        * win_scale_factor;
+                let base_phys_y = (rect.y + border.top + padding.top + align_offset.y + run.line_y
+                    - scroll.y)
+                    * win_scale_factor;
                 let physical = glyph.physical((base_phys_x, base_phys_y), win_scale_factor);
 
                 // アトラスにパッキングされた文字がUIの画面上で縦横何ピクセルの大きさで描画されるべきかを逆算
@@ -2176,12 +2220,14 @@ impl Pipeline {
         params: &CommonParameters,
         spans: &[TextSpan],
         buffer: &Buffer,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        scroll: LayoutPoint,
         align_offset: LayoutPoint,
         resolved_color: Color,
     ) {
+        let rect = params.geom.rect;
+        let border = params.geom.border;
+        let padding = params.geom.padding;
+        let scroll = params.geom.scroll;
+
         for span in spans {
             let has_ul = span.underline.is_some();
             let has_st = span.strikethrough.is_some();
@@ -2193,12 +2239,10 @@ impl Pipeline {
 
             for metric_rect in rects {
                 let start_x =
-                    params.rect.x + border.left + padding.left + align_offset.x + metric_rect.x
-                        - scroll.x;
+                    rect.x + border.left + padding.left + align_offset.x + metric_rect.x - scroll.x;
                 let end_x = start_x + metric_rect.width;
                 let base_y =
-                    params.rect.y + border.top + padding.top + align_offset.y + metric_rect.y
-                        - scroll.y;
+                    rect.y + border.top + padding.top + align_offset.y + metric_rect.y - scroll.y;
 
                 // 打消し線（中線）
                 if let Some(st_style) = span.strikethrough {
@@ -2290,9 +2334,6 @@ impl Pipeline {
         id: EntityId,
         render_data: &mut RenderData,
         params: &CommonParameters,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        scroll: LayoutPoint,
         flex: &FlexLayout,
         visual: &VisualProperty,
         win_scale_factor: f32,
@@ -2302,33 +2343,29 @@ impl Pipeline {
         // キャレットがあるなら入力コンポーネントもあるはず
         let contents = cont_input_contents.at(id);
 
-        if !ContentStore::should_show_caret(contents) {
+        if !contents.should_show_caret() {
             return;
         }
 
         let text_size = if let Some(layout_rect) = contents.last_layout {
-            LayoutSize::new(layout_rect.width, layout_rect.height)
+            TextLayoutSize::new(
+                layout_rect.width,
+                layout_rect.height,
+                Some(contents.is_multiline),
+            )
         } else {
-            LayoutSize::ZERO
+            TextLayoutSize::DEFAULT
         };
 
-        let align_offset = OutputStore::calc_align_offset(
-            params.rect,
-            border,
-            padding,
-            text_size,
-            flex.text_align,
-            flex.align_items,
-            contents.is_multiline,
-        );
+        let align_offset =
+            params
+                .geom
+                .calc_align_offset(text_size, flex.text_align, flex.align_items);
 
         let caret_rect = TextEditStore::calculate_caret_rect(
-            params.rect,
-            border,
-            padding,
+            &params.geom,
             contents,
             win_scale_factor,
-            scroll,
             align_offset,
         );
 
@@ -2357,7 +2394,7 @@ impl Pipeline {
         params: &CommonParameters,
     ) {
         let instance = QuadInstance {
-            rect: params.rect,
+            rect: params.geom.rect,
             transform: params.transform,
             transform_origin: params.transform_origin,
             color: Color::TRANSPARENT,
@@ -2395,7 +2432,7 @@ impl Pipeline {
         let srgb_val = if meta.is_srgb { 1.0f32 } else { 0.0f32 };
 
         let ex_instance = QuadInstance {
-            rect: params.rect,
+            rect: params.geom.rect,
             transform: params.transform,
             corner_radius: params.corner_radius,
             opacity_mode_sizing: [params.opacity, 4.0, 0.0, 0.0], // 外部テクスチャ

@@ -1,18 +1,116 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, DebugStore, EntityId, ExternalTexture, FlexLayout,
-    InputContents, LayoutRect, MichiuString, TextEngine, TextSpan, VisualPropertiesSecondary,
-    WebView2Contents, define_sparse_secondary, soa::MichiuSoA,
+    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, InputContents, LayoutRect,
+    MichiuString, TextLayoutSize, TextSpan, VisualPropertiesSecondary, WebView2Contents,
+    define_sparse_secondary, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::sync::Arc;
 
 define_sparse_secondary!(pub struct TextContentsSparse(MichiuString));
 define_sparse_secondary!(pub struct TextSpansSparse(Vec<TextSpan>));
 define_sparse_secondary!(pub struct InputContentsSparse(InputContents));
 define_sparse_secondary!(pub struct WebviewContentsSparse(WebView2Contents));
+
+impl InputContentsSparse {
+    /// テキストやインプットのサイズを cosmic-text を用いて計測し、Taffy 向けサイズを返す。\n\
+    /// F の第一引数は `auto_wrap`, 第二引数は Option<`max_width`> 。
+    pub(crate) fn measure_content<F>(
+        &mut self,
+        id: EntityId,
+        known_dims: taffy::Size<Option<f32>>,
+        available_space: taffy::Size<taffy::AvailableSpace>,
+        topo_active_masks: &ActiveMasksSecondary,
+        rnd_visual: &VisualPropertiesSecondary,
+        measure_text: F,
+    ) -> taffy::Size<f32>
+    where
+        F: FnOnce(bool, Option<f32>) -> TextLayoutSize,
+    {
+        let mask = topo_active_masks.at(id);
+        let has_input = mask.has_input_content();
+        let has_text = mask.has_text_content();
+
+        // キャッシュの取得
+        let last_layout = if has_input {
+            // has_input が true なら Some のはず
+            self.at(id).last_layout
+        } else {
+            None
+        };
+
+        // キャッシュがなく、かつテキストも持たない場合
+        if last_layout.is_none() && !has_text {
+            return taffy::Size {
+                width: known_dims.width.unwrap_or(0.0),
+                height: known_dims.height.unwrap_or(0.0),
+            };
+        }
+
+        // 折り返し設定と最大幅
+        let auto_wrap = rnd_visual.auto_wrap(id);
+
+        let max_width = if auto_wrap {
+            known_dims.width.or({
+                if let taffy::AvailableSpace::Definite(w) = available_space.width {
+                    Some(w)
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        };
+
+        // 自動折り返しがない（1行入力、または折り返し無効の複数行）場合
+        // 文字が変わらない限りサイズは絶対に変わらないので、前回のサイズを即座に返す
+        if !auto_wrap && let Some(layout) = last_layout {
+            return taffy::Size {
+                width: known_dims.width.unwrap_or(layout.width),
+                height: known_dims.height.unwrap_or(layout.height),
+            };
+        }
+
+        // キャッシュが存在し、かつ幅が変わっていない場合
+        if let Some(layout) = last_layout {
+            // 制限幅が確定していない、または前回計測時と同じなら再利用
+            if max_width.is_none() {
+                return taffy::Size {
+                    width: known_dims.width.unwrap_or(layout.width),
+                    height: known_dims.height.unwrap_or(layout.height),
+                };
+            }
+        }
+
+        // キャッシュが無効（幅が変更された）で、かつテキストを持たない場合
+        if !has_text {
+            return taffy::Size {
+                width: known_dims.width.unwrap_or(0.0),
+                height: known_dims.height.unwrap_or(0.0),
+            };
+        }
+
+        let size = measure_text(auto_wrap, max_width);
+
+        // 計測した文字自体の正確なサイズをここでインプット要素にキャッシュする
+        if has_input {
+            // has_input が true なら Some のはず
+            let contents = self.at_mut(id);
+            contents.last_layout = Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
+        }
+
+        // 文字のみのサイズを返す
+        taffy::Size {
+            width: known_dims.width.unwrap_or(size.width),
+            height: known_dims.height.unwrap_or(size.height),
+        }
+    }
+}
+
+impl TextSpansSparse {
+    pub(crate) fn span(&self, id: EntityId) -> &[TextSpan] {
+        self.find(id).map_or(&[][..], Vec::as_slice)
+    }
+}
 
 #[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
@@ -114,144 +212,6 @@ impl ContentStore {
         self.cont_external_textures.remove(id);
         self.cont_webview_contents.remove(id);
         self.cont_cut_text = None;
-    }
-}
-
-impl ContentStore {
-    /// キャレットの点滅と描画を行うかを判定
-    pub(crate) fn should_show_caret(contents: &InputContents) -> bool {
-        let now_instant = Instant::now();
-        if let Some(last) = contents.last_interacted_time
-            && now_instant.duration_since(last) < Duration::from_millis(300)
-        {
-            return true; // キー入力や移動の操作から 300ms 未満のときは常時表示
-        }
-
-        // 点滅しない場合はキャレットの有無をそのまま返す
-        if !contents.is_blink {
-            return contents.has_caret;
-        }
-
-        let freq = contents
-            .blink_frequency
-            .unwrap_or(Duration::from_millis(530))
-            .as_millis();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        (now / freq).is_multiple_of(2)
-    }
-
-    /// テキストやインプットのサイズを cosmic-text を用いて計測し、Taffy 向けサイズを返します。
-    pub(crate) fn measure_content(
-        id: EntityId,
-        known_dims: taffy::Size<Option<f32>>,
-        available_space: taffy::Size<taffy::AvailableSpace>,
-        flex: &FlexLayout,
-        sys_text_engine: &mut TextEngine,
-        cont_input_contents: &mut InputContentsSparse,
-        cont_text_contents: &TextContentsSparse,
-        cont_text_spans: &TextSpansSparse,
-        topo_active_masks: &ActiveMasksSecondary,
-        rnd_visual: &VisualPropertiesSecondary,
-        debug: &mut DebugStore,
-    ) -> taffy::Size<f32> {
-        let mask = topo_active_masks.at(id);
-        let has_input = mask.has_input_content();
-        let has_text = mask.has_text_content();
-
-        // キャッシュの取得
-        let layout_rect = if has_input {
-            // has_input が true なら Some のはず
-            cont_input_contents.at(id).last_layout
-        } else {
-            None
-        };
-
-        // キャッシュがなく、かつテキストも持たない場合
-        if layout_rect.is_none() && !has_text {
-            return taffy::Size {
-                width: known_dims.width.unwrap_or(0.0),
-                height: known_dims.height.unwrap_or(0.0),
-            };
-        }
-
-        // 折り返し設定と最大幅
-        let auto_wrap = rnd_visual
-            .find(id)
-            .and_then(|v| v.auto_wrap)
-            .unwrap_or(false);
-
-        let max_width = if auto_wrap {
-            known_dims.width.or({
-                if let taffy::AvailableSpace::Definite(w) = available_space.width {
-                    Some(w)
-                } else {
-                    None
-                }
-            })
-        } else {
-            None
-        };
-
-        // 自動折り返しがない（1行入力、または折り返し無効の複数行）場合
-        // 文字が変わらない限りサイズは絶対に変わらないので、前回のサイズを即座に返す
-        if !auto_wrap && let Some(layout) = layout_rect {
-            return taffy::Size {
-                width: known_dims.width.unwrap_or(layout.width),
-                height: known_dims.height.unwrap_or(layout.height),
-            };
-        }
-
-        // キャッシュが存在し、かつ幅が変わっていない場合
-        if let Some(layout) = layout_rect {
-            // 制限幅が確定していない、または前回計測時と同じなら再利用
-            if max_width.is_none() {
-                return taffy::Size {
-                    width: known_dims.width.unwrap_or(layout.width),
-                    height: known_dims.height.unwrap_or(layout.height),
-                };
-            }
-        }
-
-        // キャッシュが無効（幅が変更された）で、かつテキストを持たない場合
-        if !has_text {
-            return taffy::Size {
-                width: known_dims.width.unwrap_or(0.0),
-                height: known_dims.height.unwrap_or(0.0),
-            };
-        }
-
-        let text = cont_text_contents.at(id);
-        let font = rnd_visual
-            .find(id)
-            .map(|v| v.font.clone())
-            .unwrap_or_default();
-
-        let spans = cont_text_spans.find(id).map_or(&[][..], Vec::as_slice);
-
-        let size = sys_text_engine.measure_text(
-            text,
-            &font,
-            flex.text_align,
-            max_width,
-            Some(auto_wrap),
-            spans,
-        );
-
-        // 計測した文字自体の正確なサイズをここでインプット要素にキャッシュする
-        if has_input {
-            // has_input が true なら Some のはず
-            let contents = cont_input_contents.at_mut(id);
-            contents.last_layout = Some(LayoutRect::new(0.0, 0.0, size.width, size.height));
-        }
-
-        // 文字のみのサイズを返す
-        taffy::Size {
-            width: known_dims.width.unwrap_or(size.width),
-            height: known_dims.height.unwrap_or(size.height),
-        }
     }
 }
 

@@ -1,17 +1,18 @@
 use crate::{
-    ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC, DndStore,
-    ElementState, EntityId, EventListeners, FocusStore, InputContents, InputOp, LayoutPoint,
-    LayoutStore, MichiuString, Modifiers, MouseButton, OutputStore, Overflow, Pipeline,
-    RenderStore, ResizeStore, ScrollStore, ScrollbarStore, SelectedRectsSparse,
-    SelectionStartIndexSparse, SystemStore, TextEditStore, TextEngine, TextSelectionsSparse,
-    TopologyStore, UserSelect, VirtualKey, handle_on_click, handle_on_cursor_moved,
-    handle_on_hover, handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input,
-    handle_on_mouse_leave, handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
+    ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC,
+    DEFAULT_FLEX, DndStore, ElementState, EntityId, EventListeners, FocusStore, InputContents,
+    InputOp, LayoutPoint, LayoutStore, MichiuError, MichiuString, Modifiers, MouseButton,
+    OptionTraceExt, OutputStore, Overflow, Pipeline, RenderStore, ResizeStore, ResolvedGeometry,
+    ScrollStore, ScrollbarStore, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore,
+    TextEditStore, TextEngine, TextLayoutSize, TextSelectionsSparse, TopologyStore, UserAction,
+    UserSelect, VirtualKey, define_vec, handle_on_click, handle_on_cursor_moved, handle_on_hover,
+    handle_on_keyboard_input, handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave,
+    handle_on_mouse_wheel, handle_on_right_click, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
 use std::ops::Range;
 
-/// 実行時にウィンドウ内で現在アクティブ（排他的）になっている、各状態の対象要素（EntityId）を管理します。
+/// 実行時にウィンドウ内で現在アクティブになっている各状態の `EntityId` を管理。
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ActiveInteractionStates {
     pub hovered: Option<EntityId>,
@@ -42,6 +43,8 @@ impl ActiveInteractionStates {
     }
 }
 
+define_vec!(pub struct PendingActions(UserAction));
+
 #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
 pub(crate) struct EventListenersSparse(SparseSecondaryMap<EntityId, EventListeners>);
@@ -62,6 +65,8 @@ pub struct EventStore {
     pub(crate) evt_listeners: EventListenersSparse,
     pub(crate) evt_interaction_states: ActiveInteractionStates,
     pub(crate) evt_current_pointer_position: Option<LayoutPoint>,
+    // OSイベント受信でガンガン push されるバッファ
+    pub(crate) evt_pending_actions: PendingActions,
 }
 
 impl Default for EventStore {
@@ -78,6 +83,7 @@ impl EventStore {
             evt_listeners: EventListenersSparse(SparseSecondaryMap::new()),
             evt_interaction_states: ActiveInteractionStates::new(),
             evt_current_pointer_position: None,
+            evt_pending_actions: PendingActions(Vec::new()),
         }
     }
 
@@ -86,6 +92,7 @@ impl EventStore {
     pub fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             evt_listeners: EventListenersSparse(SparseSecondaryMap::with_capacity(c.evt_listeners)),
+            evt_pending_actions: PendingActions(Vec::with_capacity(c.evt_pending_actions)),
             ..Default::default()
         }
     }
@@ -112,6 +119,7 @@ impl EventStore {
             return;
         }
 
+        // evt_interaction_states のメソッドにする
         cx.events.evt_interaction_states.hovered = target_id;
 
         // 旧ホバー要素からマウスが去った
@@ -199,12 +207,10 @@ impl EventStore {
             cx.window.win_last_size,
             &cx.events.evt_interaction_states,
             &mut cx.topology.topo_active_masks,
-            &mut cx.topology.topo_dfs_indices,
             &mut cx.topology.topo_effective_z_indices,
             &mut cx.topology.topo_sorted_entities,
             &mut cx.topology.topo_sort_cache,
             &mut cx.topology.topo_is_sort_dirty,
-            &cx.topology.topo_active_entities,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
             &cx.renders.rnd_visual,
@@ -285,12 +291,7 @@ impl EventStore {
         }
 
         if let Some(pressed_id) = cx.events.evt_interaction_states.pressed {
-            let user_select = cx
-                .renders
-                .rnd_visual
-                .find(pressed_id)
-                .and_then(|v| v.user_select)
-                .unwrap_or_default();
+            let user_select = cx.renders.rnd_visual.user_select(pressed_id);
 
             if user_select == UserSelect::Text
                 && let Some(start_pos) = cx
@@ -313,29 +314,54 @@ impl EventStore {
                     }
                 }
 
-                let buffer = SystemStore::get_or_create_layout(
+                let flex =
+                    cx.layouts
+                        .lay_resolved_flex
+                        .find_or(pressed_id, &DEFAULT_FLEX, &mut cx.debug);
+
+                let resolved_geom = ResolvedGeometry::resolved(
                     pressed_id,
-                    &mut cx.system.sys_text_engine,
-                    &cx.system.sys_text_buffers,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
+                    &cx.states.scroll.sc_offsets,
                     &cx.layouts.lay_resolved_basic,
-                    &cx.layouts.lay_resolved_flex,
-                    &cx.renders.rnd_visual,
                     &cx.outputs.out_rects,
                     &mut cx.debug,
                 );
-                let local = OutputStore::pressed_local_point(
+
+                let auto_wrap = cx.renders.rnd_visual.auto_wrap(pressed_id);
+                let max_width_opt = resolved_geom.calc_max_width(auto_wrap);
+
+                let buffer = SystemStore::get_or_create_text_buffer(
                     pressed_id,
+                    max_width_opt,
+                    &cx.system.sys_text_buffers,
+                    || {
+                        let text = cx.contents.cont_text_contents.at(pressed_id);
+                        let font = cx.renders.rnd_visual.font(pressed_id);
+                        let spans = cx.contents.cont_text_spans.span(pressed_id);
+                        cx.system.sys_text_engine.create_buffer(
+                            text,
+                            &font,
+                            flex.text_align,
+                            max_width_opt,
+                            auto_wrap,
+                            spans,
+                        )
+                    },
+                );
+                let text_size =
+                    if let Some(contents) = &cx.contents.cont_input_contents.find(pressed_id) {
+                        contents.last_layout.map_or(TextLayoutSize::DEFAULT, |r| {
+                            TextLayoutSize::new(r.width, r.height, Some(contents.is_multiline))
+                        })
+                    } else {
+                        TextEngine::get_layout_size(&buffer).set_multiline(Some(false))
+                    };
+
+                let local = resolved_geom.pressed_local_point(
                     logical_pos,
-                    &buffer,
-                    &cx.contents.cont_input_contents,
-                    &cx.layouts.lay_resolved_basic,
-                    &cx.layouts.lay_resolved_flex,
-                    &cx.layouts.lay_resolved_grid,
-                    &cx.outputs.out_rects,
-                    &cx.states.scroll.sc_offsets,
-                    &mut cx.debug,
+                    flex.text_align,
+                    flex.align_items,
+                    text_size,
                 );
 
                 TextEditStore::handle_text_selection_click(
@@ -389,13 +415,12 @@ impl EventStore {
         };
 
         // ウィンドウのルート要素を解決
-        let Some(root) = TopologyStore::find_root_entity(
+        let root = TopologyStore::find_root_entity(
             &cx.topology.topo_entities,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
-        ) else {
-            return; // TODO: エラー処理
-        };
+        )
+        .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
 
         let src_id = drag_state.source_entity;
         let placeholder_id = drag_state.placeholder_entity;
@@ -500,12 +525,7 @@ impl EventStore {
         Pipeline::update_state(cx, target_id, ComponentMask::STATE_PRESSED, true);
 
         // テキスト選択処理
-        let user_select = cx
-            .renders
-            .rnd_visual
-            .find(target_id)
-            .and_then(|v| v.user_select)
-            .unwrap_or_default();
+        let user_select = cx.renders.rnd_visual.user_select(target_id);
         let is_input = cx
             .topology
             .topo_active_masks
@@ -528,7 +548,6 @@ impl EventStore {
                 &mut cx.topology.topo_active_masks,
                 &cx.layouts.lay_resolved_basic,
                 &cx.layouts.lay_resolved_flex,
-                &cx.layouts.lay_resolved_grid,
                 &mut cx.renders.rnd_dirty_entities,
                 &cx.renders.rnd_visual,
                 &mut cx.states.edit.edit_selections,
@@ -641,12 +660,7 @@ impl EventStore {
             return;
         };
 
-        let user_select = cx
-            .renders
-            .rnd_visual
-            .find(target_id)
-            .and_then(|v| v.user_select)
-            .unwrap_or_default();
+        let user_select = cx.renders.rnd_visual.user_select(target_id);
         if user_select != UserSelect::Text {
             return;
         }
@@ -667,30 +681,44 @@ impl EventStore {
             }
         }
 
-        let text = cx.contents.cont_text_contents.at(target_id);
-
-        let buffer = SystemStore::get_or_create_layout(
+        let resolved_geom = ResolvedGeometry::resolved(
             target_id,
-            &mut cx.system.sys_text_engine,
-            &cx.system.sys_text_buffers,
-            &cx.contents.cont_text_contents,
-            &cx.contents.cont_text_spans,
+            &cx.states.scroll.sc_offsets,
             &cx.layouts.lay_resolved_basic,
-            &cx.layouts.lay_resolved_flex,
-            &cx.renders.rnd_visual,
             &cx.outputs.out_rects,
             &mut cx.debug,
         );
 
-        // ヒット先があるなら Some のはず
-        let rect = *cx.outputs.out_rects.at(target_id);
-        let basic = cx
-            .layouts
-            .lay_resolved_basic
-            .find_or(target_id, &DEFAULT_BASIC, &mut cx.debug);
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+        let auto_wrap = cx.renders.rnd_visual.auto_wrap(target_id);
+        let max_width_opt = resolved_geom.calc_max_width(auto_wrap);
 
+        let text = cx.contents.cont_text_contents.at(target_id);
+
+        let buffer = SystemStore::get_or_create_text_buffer(
+            target_id,
+            max_width_opt,
+            &cx.system.sys_text_buffers,
+            || {
+                let font = cx.renders.rnd_visual.font(target_id);
+                let spans = cx.contents.cont_text_spans.span(target_id);
+                let flex =
+                    cx.layouts
+                        .lay_resolved_flex
+                        .find_or(target_id, &DEFAULT_FLEX, &mut cx.debug);
+                cx.system.sys_text_engine.create_buffer(
+                    text,
+                    &font,
+                    flex.text_align,
+                    max_width_opt,
+                    auto_wrap,
+                    spans,
+                )
+            },
+        );
+
+        let rect = resolved_geom.rect;
+        let border = resolved_geom.border;
+        let padding = resolved_geom.padding;
         let local_x = pointer_pos.x - (rect.x + border.left + padding.left);
         let local_y = pointer_pos.y - (rect.y + border.top + padding.top);
 
@@ -867,12 +895,7 @@ impl EventStore {
 
         // 内部で完結する全選択（Ctrl+A）のみを自動処理
         if state == ElementState::Pressed && modifiers.ctrl && key == VirtualKey::A {
-            let user_select = cx
-                .renders
-                .rnd_visual
-                .find(focused_id)
-                .and_then(|v| v.user_select)
-                .unwrap_or_default();
+            let user_select = cx.renders.rnd_visual.user_select(focused_id);
             if user_select == UserSelect::Text {
                 TextEditStore::handle_select_all(
                     focused_id,
@@ -1289,12 +1312,7 @@ impl EventStore {
 
     pub(crate) fn inject_cut(cx: &mut Context) -> Option<MichiuString> {
         let focused_id = cx.events.evt_interaction_states.focused?;
-        let user_select = cx
-            .renders
-            .rnd_visual
-            .find(focused_id)
-            .and_then(|v| v.user_select)
-            .unwrap_or_default();
+        let user_select = cx.renders.rnd_visual.user_select(focused_id);
 
         if user_select != UserSelect::Text {
             return None;

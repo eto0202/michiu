@@ -1,15 +1,16 @@
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition, AnimationCurve,
     BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
-    BoxShadow, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, Color, ComponentMask,
-    Context, CornerRadius, CursorIcon, DEFAULT_BASIC, DebugStore, DirtyLayoutEntitiesVec,
-    EdgeInsets, EffectCategory, ElementEffectsSecondary, EntitiesSlot, EntityId, FocusTrigger,
-    Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionStyles,
-    LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary,
-    PlaybackCount, Point, PointerEvents, PropertyList, RectsSecondary, ScrollbarDisplay,
-    ScrollbarStylesSparse, StyleStage, StyleTarget, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextBufferSparse, ThisStyle, TopologyStore, TransitionValue, Val,
-    VisualProperty, define_secondary, define_sparse_secondary, define_vec, trace_lifecycle,
+    BoxShadow, CapacityConfig, CascadeInteractionState, ChildrenSecondary, ClipRectsSecondary,
+    Color, ComponentMask, Context, CornerRadius, CursorIcon, DEFAULT_BASIC, DebugStore,
+    DirtyLayoutEntitiesVec, EdgeInsets, EffectCategory, ElementEffectsSecondary, EntitiesSlot,
+    EntityId, FocusTrigger, Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX,
+    InputContentsSparse, InteractionScope, InteractionStyles, LayoutPoint, LayoutSize, LayoutStore,
+    MichiuSoA, MichiuTrace, OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents,
+    PropertyList, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSparse, StyleStage, StyleTarget,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TargetStyle, TextBufferSparse, ThisStyle,
+    TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, define_secondary,
+    define_sparse_secondary, define_vec, trace_lifecycle,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -41,6 +42,41 @@ define_sparse_secondary!(pub struct ActiveTransitionsSparse(Vec<ActiveTransition
 define_sparse_secondary!(pub struct ActiveAnimationsSparse(Vec<ActiveAnimation>));
 
 define_vec!(pub struct DirtyRenderEntitiesVec(EntityId));
+
+impl VisualPropertiesSecondary {
+    #[inline]
+    pub(crate) fn auto_wrap(&self, id: EntityId) -> bool {
+        self.find(id).and_then(|v| v.auto_wrap).unwrap_or(false)
+    }
+    #[inline]
+    pub(crate) fn font(&self, id: EntityId) -> FontDate {
+        self.find(id).map(|v| v.font.clone()).unwrap_or_default()
+    }
+
+    #[inline]
+    pub(crate) fn user_select(&self, id: EntityId) -> UserSelect {
+        self.find(id)
+            .and_then(|v| v.user_select)
+            .unwrap_or_default()
+    }
+
+    #[inline]
+    pub(crate) fn pointer_events(
+        &self,
+        id: EntityId,
+        rnd_base_visual: &BaseVisualPropertiesSecondary,
+    ) -> PointerEvents {
+        self.find(id)
+            .and_then(|v| v.pointer_events)
+            .or_else(|| rnd_base_visual.find(id).and_then(|v| v.pointer_events))
+            .unwrap_or_default()
+    }
+
+    #[inline]
+    pub(crate) fn focusable(&self, id: EntityId) -> Focusable {
+        self.find(id).and_then(|v| v.focusable).unwrap_or_default()
+    }
+}
 
 pub type ActiveWebviewsHashSet = FxHashSet<EntityId>;
 
@@ -239,20 +275,7 @@ impl RenderStore {
         };
 
         // 対象となる状態スタイルを取得
-        let target_style = match state_flag {
-            ComponentMask::STATE_HOVERED => &interaction.hovered,
-            ComponentMask::STATE_FOCUSED => &interaction.focused,
-            ComponentMask::STATE_FOCUSED_VISIBLE => &interaction.focused_visible,
-            ComponentMask::STATE_PRESSED => &interaction.pressed,
-            ComponentMask::STATE_DISABLED => &interaction.disabled,
-            ComponentMask::STATE_ACTIVED => &interaction.actived,
-            ComponentMask::STATE_SELECTED => &interaction.selected,
-            ComponentMask::STATE_DRAGGED => &interaction.dragged,
-            ComponentMask::STATE_DND_DRAGGING => &interaction.dragging,
-            ComponentMask::STATE_DND_DRAG_IN => &interaction.drag_in,
-            ComponentMask::STATE_DND_DRAG_OVER => &interaction.drag_over,
-            _ => &None,
-        };
+        let target_style = interaction.get_self_style(state_flag);
 
         // 指定された状態スタイルが存在する場合のみ、内部マスクを検証
         let Some(style) = target_style else {
@@ -271,16 +294,16 @@ impl RenderStore {
     pub(crate) fn resolv_focus_style(
         id: EntityId,
         active_mask: &ComponentMask,
-        state_flag: u128,
+        flag: u128,
         topo_parents: &ParentsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) -> Option<ThisStyle> {
-        if !active_mask.has(state_flag) {
+        if !active_mask.has(flag) {
             return None;
         }
         let self_style = rnd_interaction.find(id).and_then(|interaction| {
-            if state_flag == ComponentMask::STATE_FOCUSED_VISIBLE {
+            if flag == ComponentMask::STATE_FOCUSED_VISIBLE {
                 interaction.focused_visible.clone()
             } else {
                 interaction.focused.clone()
@@ -291,12 +314,9 @@ impl RenderStore {
             return Some(style);
         }
 
-        let focus_mode = rnd_visual
-            .find(id)
-            .and_then(|v| v.focusable)
-            .unwrap_or_default();
+        let focus_mode = rnd_visual.focusable(id);
 
-        let is_trigger_match = match (state_flag, focus_mode) {
+        let is_trigger_match = match (flag, focus_mode) {
             (ComponentMask::STATE_FOCUSED, Focusable::Inherit(_)) => true,
             (ComponentMask::STATE_FOCUSED_VISIBLE, Focusable::Inherit(trigger)) => {
                 trigger == FocusTrigger::Keyboard || trigger == FocusTrigger::Both
@@ -312,7 +332,7 @@ impl RenderStore {
         let mut curr = *topo_parents.at(id);
         while let Some(curr_id) = curr {
             if let Some(parent_interaction) = rnd_interaction.find(curr_id) {
-                let parent_style = if state_flag == ComponentMask::STATE_FOCUSED_VISIBLE {
+                let parent_style = if flag == ComponentMask::STATE_FOCUSED_VISIBLE {
                     &parent_interaction.focused_visible
                 } else {
                     &parent_interaction.focused
@@ -328,287 +348,124 @@ impl RenderStore {
     }
 
     #[inline]
-    pub(crate) fn cascade_interaction_flag<'a>(
-        interaction: &'a InteractionStyles,
-        focused_style_resolved: Option<&'a ThisStyle>,
-        focused_visible_style_resolved: Option<&'a ThisStyle>,
-    ) -> [(u128, Option<&'a ThisStyle>); 11] {
-        [
-            (ComponentMask::STATE_FOCUSED, focused_style_resolved),
-            (
-                ComponentMask::STATE_FOCUSED_VISIBLE,
-                focused_visible_style_resolved,
-            ),
-            (ComponentMask::STATE_SELECTED, interaction.selected.as_ref()),
-            (ComponentMask::STATE_ACTIVED, interaction.actived.as_ref()),
-            (ComponentMask::STATE_HOVERED, interaction.hovered.as_ref()),
-            (ComponentMask::STATE_PRESSED, interaction.pressed.as_ref()),
-            (ComponentMask::STATE_DISABLED, interaction.disabled.as_ref()),
-            (ComponentMask::STATE_DRAGGED, interaction.dragged.as_ref()),
-            (
-                ComponentMask::STATE_DND_DRAGGING,
-                interaction.dragging.as_ref(),
-            ),
-            (
-                ComponentMask::STATE_DND_DRAG_IN,
-                interaction.drag_in.as_ref(),
-            ),
-            (
-                ComponentMask::STATE_DND_DRAG_OVER,
-                interaction.drag_over.as_ref(),
-            ),
-        ]
-    }
-
-    #[inline]
-    pub(crate) fn cascade_within_interaction_flag(
+    pub(crate) fn cascade_self_interaction(
         interaction: &InteractionStyles,
-    ) -> [(u128, &Option<ThisStyle>); 10] {
-        [
-            (ComponentMask::STATE_FOCUSED, &interaction.focused_within),
-            (
-                ComponentMask::STATE_FOCUSED_VISIBLE,
-                &interaction.focused_visible_within,
-            ),
-            (ComponentMask::STATE_SELECTED, &interaction.selected_within),
-            (ComponentMask::STATE_ACTIVED, &interaction.actived_within),
-            (ComponentMask::STATE_HOVERED, &interaction.hovered_within),
-            (ComponentMask::STATE_PRESSED, &interaction.pressed_within),
-            (ComponentMask::STATE_DISABLED, &interaction.disabled_within),
-            (ComponentMask::STATE_DRAGGED, &interaction.dragged_within),
-            (
-                ComponentMask::STATE_DND_DRAGGING,
-                &interaction.dragged_within,
-            ),
-            (
-                ComponentMask::STATE_DND_DRAG_IN,
-                &interaction.hovered_within,
-            ),
-        ]
+        active_mask: &ComponentMask,
+        resolved_focus: Option<&ThisStyle>,
+        resolved_focus_visible: Option<&ThisStyle>,
+        mut apply: impl FnMut(&ThisStyle),
+    ) {
+        for state in CascadeInteractionState::ALL {
+            if !active_mask.has(state.mask()) {
+                continue;
+            }
+
+            let style = match state {
+                CascadeInteractionState::Focused => resolved_focus.or(interaction.focused.as_ref()),
+                CascadeInteractionState::FocusedVisible => {
+                    resolved_focus_visible.or(interaction.focused_visible.as_ref())
+                }
+                _ => interaction.get_scope_style(InteractionScope::SelfTarget, state),
+            };
+
+            if let Some(style) = style {
+                apply(style);
+            }
+        }
     }
 
     #[inline]
-    pub(crate) fn cascade_parent_interaction_flag(
+    pub(crate) fn cascade_relational_interaction(
         interaction: &InteractionStyles,
-    ) -> [(u128, &Option<ThisStyle>); 10] {
-        [
-            (ComponentMask::STATE_FOCUSED, &interaction.focused_parent),
-            (
-                ComponentMask::STATE_FOCUSED_VISIBLE,
-                &interaction.focused_visible_parent,
-            ),
-            (ComponentMask::STATE_SELECTED, &interaction.selected_parent),
-            (ComponentMask::STATE_ACTIVED, &interaction.actived_parent),
-            (ComponentMask::STATE_HOVERED, &interaction.hovered_parent),
-            (ComponentMask::STATE_PRESSED, &interaction.pressed_parent),
-            (ComponentMask::STATE_DISABLED, &interaction.disabled_parent),
-            (ComponentMask::STATE_DRAGGED, &interaction.dragged_parent),
-            (
-                ComponentMask::STATE_DND_DRAGGING,
-                &interaction.dragged_parent,
-            ),
-            (
-                ComponentMask::STATE_DND_DRAG_IN,
-                &interaction.hovered_parent,
-            ),
-        ]
+        scope: InteractionScope,
+        mut has_relation_state: impl FnMut(u128) -> bool,
+        mut apply: impl FnMut(&ThisStyle),
+    ) {
+        for state in CascadeInteractionState::ALL {
+            let Some(style) = interaction.get_scope_style(scope, state) else {
+                continue;
+            };
+
+            // スタイルが存在する場合のみツリーを走査
+            if has_relation_state(state.mask()) {
+                apply(style);
+            }
+        }
+
+        // any の処理
+        let any_style = match scope {
+            InteractionScope::Parent => interaction.any_parent.as_ref(),
+            InteractionScope::Within => interaction.any_within.as_ref(),
+            InteractionScope::SelfTarget => None,
+        };
+
+        if let Some(style) = any_style
+            && has_relation_state(ComponentMask::STYLE_ACTIVE_INTERACTION_PROPERTY)
+        {
+            apply(style);
+        }
     }
 
     #[inline]
-    pub(crate) fn cascade_basic_layout(
+    pub(crate) fn apply_basic_layout_cascade(
         id: EntityId,
         target_layout: &mut BasicLayout,
         active_mask: &ComponentMask,
-        rnd_interaction: &InteractionPropertiesSecondary,
-    ) {
-        let Some(interaction) = rnd_interaction.find(id) else {
-            return;
-        };
-
-        let cascade = [
-            (ComponentMask::STATE_FOCUSED, &interaction.focused),
-            (
-                ComponentMask::STATE_FOCUSED_VISIBLE,
-                &interaction.focused_visible,
-            ),
-            (ComponentMask::STATE_SELECTED, &interaction.selected),
-            (ComponentMask::STATE_ACTIVED, &interaction.actived),
-            (ComponentMask::STATE_HOVERED, &interaction.hovered),
-            (ComponentMask::STATE_PRESSED, &interaction.pressed),
-            (ComponentMask::STATE_DISABLED, &interaction.disabled),
-            (ComponentMask::STATE_DRAGGED, &interaction.dragged),
-            (ComponentMask::STATE_DND_DRAGGING, &interaction.dragging),
-            (ComponentMask::STATE_DND_DRAG_IN, &interaction.drag_in),
-            (ComponentMask::STATE_DND_DRAG_OVER, &interaction.drag_over),
-        ];
-
-        for (state, style_opt) in cascade {
-            if active_mask.has(state)
-                && let Some(style) = style_opt
-            {
-                target_layout.override_with(&style.inner.basic_layout, style.inner.mask);
-            }
-        }
-    }
-
-    #[inline]
-    pub(crate) fn cascade_interaction(
-        id: EntityId,
-        target: &mut TargetStyle,
-        active_mask: &ComponentMask,
-        focused_style_resolved: Option<&ThisStyle>,
-        focused_visible_style_resolved: Option<&ThisStyle>,
-        rnd_interaction: &InteractionPropertiesSecondary,
-    ) {
-        let Some(interaction) = rnd_interaction.find(id) else {
-            return;
-        };
-
-        let cascade = RenderStore::cascade_interaction_flag(
-            interaction,
-            focused_style_resolved,
-            focused_visible_style_resolved,
-        );
-
-        for (state, style_opt) in cascade {
-            if active_mask.has(state)
-                && let Some(style) = style_opt
-            {
-                TargetStyle::apply_visual_property(
-                    target,
-                    &style.inner.visual_property,
-                    style.inner.mask,
-                );
-            }
-        }
-    }
-
-    #[inline]
-    pub(crate) fn cascade_within_interaction(
-        id: EntityId,
-        target: &mut TargetStyle,
-        active_mask: &ComponentMask,
-        topo_entities: &EntitiesSlot,
-        topo_active_masks: &ActiveMasksSecondary,
-        topo_children: &ChildrenSecondary,
-        rnd_interaction: &InteractionPropertiesSecondary,
-    ) {
-        if !active_mask.has(ComponentMask::STYLE_INTERACTION_WITHIN) {
-            return;
-        }
-
-        let Some(interaction) = rnd_interaction.find(id) else {
-            return;
-        };
-
-        // 自身の mask にビットが立っている場合のみツリー再帰を走らせてマージ解決
-        let cascade_within = RenderStore::cascade_within_interaction_flag(interaction);
-
-        for (state, style_opt) in cascade_within {
-            let Some(style) = style_opt else {
-                continue;
-            };
-
-            // 子孫要素のいずれかがこの state_flag を満たしているか
-            let with_state = TopologyStore::has_descendant_with_state(
-                id,
-                state,
-                topo_entities,
-                topo_active_masks,
-                topo_children,
-            );
-
-            if !with_state {
-                continue;
-            }
-
-            TargetStyle::apply_visual_property(
-                target,
-                &style.inner.visual_property,
-                style.inner.mask,
-            );
-        }
-
-        // All（いずれかのインタラクションがあればON）の解決
-        let Some(ref style) = interaction.any_within else {
-            return;
-        };
-
-        let any_state = TopologyStore::has_descendant_with_state(
-            id,
-            ComponentMask::STYLE_ACTIVE_INTERACTION_PROPERTY,
-            topo_entities,
-            topo_active_masks,
-            topo_children,
-        );
-
-        if !any_state {
-            return;
-        }
-
-        TargetStyle::apply_visual_property(target, &style.inner.visual_property, style.inner.mask);
-    }
-
-    #[inline]
-    pub(crate) fn cascade_parent_interaction(
-        id: EntityId,
-        target: &mut TargetStyle,
-        active_mask: &ComponentMask,
+        resolved_focus: Option<&ThisStyle>,
+        resolved_focus_visible: Option<&ThisStyle>,
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
-        if !active_mask.has(ComponentMask::STYLE_INTERACTION_PARENT) {
-            return;
-        }
         let Some(interaction) = rnd_interaction.find(id) else {
             return;
         };
 
-        let cascade_parent = RenderStore::cascade_parent_interaction_flag(interaction);
-
-        for (state, style_opt) in cascade_parent {
-            let Some(style) = style_opt else {
-                continue;
-            };
-
-            // 直近の親要素がこの state_flag を満たしているか
-            let with_state = TopologyStore::has_parent_with_state(
-                id,
-                state,
-                topo_entities,
-                topo_active_masks,
-                topo_parents,
-            );
-
-            if !with_state {
-                continue;
-            }
-
-            TargetStyle::apply_visual_property(
-                target,
-                &style.inner.visual_property,
-                style.inner.mask,
-            );
-        }
-
-        let Some(ref style) = interaction.any_parent else {
-            return;
-        };
-        let any_state = TopologyStore::has_parent_with_state(
-            id,
-            ComponentMask::STYLE_ACTIVE_INTERACTION_PROPERTY,
-            topo_entities,
-            topo_active_masks,
-            topo_parents,
+        RenderStore::cascade_self_interaction(
+            interaction,
+            active_mask,
+            resolved_focus,
+            resolved_focus_visible,
+            |style| {
+                target_layout.override_with(&style.inner.basic_layout, style.inner.mask);
+            },
         );
 
-        if !any_state {
-            return;
+        if active_mask.has(ComponentMask::STYLE_INTERACTION_PARENT) {
+            RenderStore::cascade_relational_interaction(
+                interaction,
+                InteractionScope::Parent,
+                |flag| {
+                    TopologyStore::has_parent_with_state(
+                        id,
+                        flag,
+                        topo_entities,
+                        topo_active_masks,
+                        topo_parents,
+                    )
+                },
+                |style| target_layout.override_with(&style.inner.basic_layout, style.inner.mask),
+            );
         }
 
-        TargetStyle::apply_visual_property(target, &style.inner.visual_property, style.inner.mask);
+        if active_mask.has(ComponentMask::STYLE_INTERACTION_WITHIN) {
+            RenderStore::cascade_relational_interaction(
+                interaction,
+                InteractionScope::Within,
+                |flag| {
+                    TopologyStore::has_descendant_with_state(
+                        id,
+                        flag,
+                        topo_entities,
+                        topo_active_masks,
+                        topo_children,
+                    )
+                },
+                |style| target_layout.override_with(&style.inner.basic_layout, style.inner.mask),
+            );
+        }
     }
 
     #[inline]
@@ -616,40 +473,61 @@ impl RenderStore {
         id: EntityId,
         target: &mut TargetStyle,
         active_mask: &ComponentMask,
-        focused_style_resolved: Option<&ThisStyle>,
-        focused_visible_style_resolved: Option<&ThisStyle>,
+        resolved_focus: Option<&ThisStyle>,
+        resolved_focus_visible: Option<&ThisStyle>,
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
-        RenderStore::cascade_interaction(
-            id,
-            target,
+        let Some(interaction) = rnd_interaction.find(id) else {
+            return;
+        };
+
+        RenderStore::cascade_self_interaction(
+            interaction,
             active_mask,
-            focused_style_resolved,
-            focused_visible_style_resolved,
-            rnd_interaction,
+            resolved_focus,
+            resolved_focus_visible,
+            |style| {
+                style.inner.apply_visual_property(target);
+            },
         );
-        RenderStore::cascade_parent_interaction(
-            id,
-            target,
-            active_mask,
-            topo_entities,
-            topo_active_masks,
-            topo_parents,
-            rnd_interaction,
-        );
-        RenderStore::cascade_within_interaction(
-            id,
-            target,
-            active_mask,
-            topo_entities,
-            topo_active_masks,
-            topo_children,
-            rnd_interaction,
-        );
+
+        if active_mask.has(ComponentMask::STYLE_INTERACTION_PARENT) {
+            RenderStore::cascade_relational_interaction(
+                interaction,
+                InteractionScope::Parent,
+                |flag| {
+                    TopologyStore::has_parent_with_state(
+                        id,
+                        flag,
+                        topo_entities,
+                        topo_active_masks,
+                        topo_parents,
+                    )
+                },
+                |style| style.inner.apply_visual_property(target),
+            );
+        }
+
+        if active_mask.has(ComponentMask::STYLE_INTERACTION_WITHIN) {
+            RenderStore::cascade_relational_interaction(
+                interaction,
+                InteractionScope::Within,
+                |flag| {
+                    TopologyStore::has_descendant_with_state(
+                        id,
+                        flag,
+                        topo_entities,
+                        topo_active_masks,
+                        topo_children,
+                    )
+                },
+                |style| style.inner.apply_visual_property(target),
+            );
+        }
     }
 
     /// 補間されたアニメーション値を `SoA` のアクティブプロパティへ安全に上書きします
@@ -829,8 +707,10 @@ impl RenderStore {
             allow_transition,
             win_last_size,
             react_element_effects,
+            topo_entities,
             topo_active_masks,
             topo_parents,
+            topo_children,
             lay_dirty_entities,
             lay_taffy_tree,
             lay_basic,
@@ -854,8 +734,10 @@ impl RenderStore {
         allow_transition: bool,
         win_last_size: Option<LayoutSize>,
         react_element_effects: &ElementEffectsSecondary,
+        topo_entities: &EntitiesSlot,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
+        topo_children: &ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_basic: &mut BasicLayoutsSecondary,
@@ -880,7 +762,32 @@ impl RenderStore {
         let base_layout = lay_base_basic.find_or_default(id, debug);
         let mut target_layout = base_layout;
 
-        RenderStore::cascade_basic_layout(id, &mut target_layout, active_mask, rnd_interaction);
+        let resolv_focus = |flag| {
+            RenderStore::resolv_focus_style(
+                id,
+                active_mask,
+                flag,
+                topo_parents,
+                rnd_visual,
+                rnd_interaction,
+            )
+        };
+
+        let resolved_focus = resolv_focus(ComponentMask::STATE_FOCUSED);
+        let resolved_focus_visible = resolv_focus(ComponentMask::STATE_FOCUSED_VISIBLE);
+
+        RenderStore::apply_basic_layout_cascade(
+            id,
+            &mut target_layout,
+            active_mask,
+            resolved_focus.as_ref(),
+            resolved_focus_visible.as_ref(),
+            topo_entities,
+            topo_active_masks,
+            topo_parents,
+            topo_children,
+            rnd_interaction,
+        );
 
         let mut to_px = |val, is_width| {
             OutputStore::val_to_px(
@@ -1010,8 +917,8 @@ impl RenderStore {
             return;
         }
 
-        let current = RenderStore::get_current_style(id, rnd_visual);
-        let mut target = RenderStore::get_target_style(id, rnd_base_visual);
+        let current = VisualProperty::get_current_style(id, rnd_visual);
+        let mut target = VisualProperty::get_target_style(id, rnd_base_visual);
 
         let resolv_focus = |flag| {
             RenderStore::resolv_focus_style(
@@ -1261,7 +1168,7 @@ impl RenderStore {
             }
 
             if font_changed {
-                SystemStore::clear_layout_cache(id, sys_text_buffers);
+                SystemStore::clear_text_buffer_cache(id, sys_text_buffers);
                 LayoutStore::mark_layout_dirty(
                     id,
                     topo_active_masks,
@@ -1715,259 +1622,6 @@ impl RenderStore {
             // トランジションが空になった要素はマップごと削除
             !transitions.is_empty()
         });
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct CurrentStyle {
-    pub(crate) bg_color: Color,
-    pub(crate) border_color: Color,
-    pub(crate) outline_width: EdgeInsets,
-    pub(crate) outline_color: Color,
-    pub(crate) outline_offset: f32,
-    pub(crate) opacity: f32,
-    pub(crate) transform: [[f32; 4]; 4],
-    pub(crate) transform_origin: Point<f32>,
-    pub(crate) corner_radius: CornerRadius,
-    pub(crate) shadow_params: BoxShadow,
-    pub(crate) text_color: Color,
-    pub(crate) font_size: f32,
-    pub(crate) font_family: Option<Cow<'static, str>>,
-    pub(crate) font_weight: u32,
-    pub(crate) font_style: u32,
-    pub(crate) auto_wrap: bool,
-    pub(crate) pointer_events: PointerEvents,
-}
-
-impl Default for CurrentStyle {
-    fn default() -> Self {
-        CurrentStyle {
-            bg_color: Color::TRANSPARENT,
-            border_color: Color::TRANSPARENT,
-            outline_width: EdgeInsets::ZERO,
-            outline_color: Color::TRANSPARENT,
-            outline_offset: 0.0,
-            opacity: 1.0,
-            transform: IDENTITY_MATRIX,
-            transform_origin: Point::ORIGIN,
-            corner_radius: CornerRadius::ZERO,
-            shadow_params: BoxShadow::none(),
-            text_color: Color::WHITE,
-            font_size: 16.0,
-            font_family: None,
-            font_weight: 400,
-            font_style: 0,
-            auto_wrap: false,
-            pointer_events: PointerEvents::default(),
-        }
-    }
-}
-impl RenderStore {
-    /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
-    #[inline]
-    pub(crate) fn get_current_style(
-        id: EntityId,
-        rnd_visual: &VisualPropertiesSecondary,
-    ) -> CurrentStyle {
-        rnd_visual
-            .find(id)
-            .map(|v| CurrentStyle {
-                bg_color: v.bg_color.unwrap_or(Color::TRANSPARENT),
-                border_color: v.border_color.unwrap_or(Color::TRANSPARENT),
-                outline_width: v.outline_width.unwrap_or(EdgeInsets::ZERO),
-                outline_color: v.outline_color.unwrap_or(Color::TRANSPARENT),
-                outline_offset: v.outline_offset.unwrap_or(0.0),
-                opacity: v.opacity.unwrap_or(1.0),
-                transform: v.transform.unwrap_or(IDENTITY_MATRIX),
-                transform_origin: v.transform_origin.unwrap_or(Point::ORIGIN),
-                corner_radius: v.corner_radius.unwrap_or(CornerRadius::ZERO),
-                shadow_params: v.shadow_params.unwrap_or(BoxShadow::none()),
-                text_color: v.text_color.unwrap_or(Color::WHITE),
-                font_size: v.font.size.unwrap_or(16.0),
-                font_family: v.font.family.clone(),
-                font_weight: v.font.weight.unwrap_or(400),
-                font_style: v.font.style.unwrap_or(0),
-                auto_wrap: v.auto_wrap.unwrap_or(false),
-                pointer_events: v.pointer_events.unwrap_or_default(),
-            })
-            .unwrap_or_default()
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub(crate) struct TargetStyle {
-    pub(crate) pointer_events: Option<PointerEvents>,
-    pub(crate) cursor: Option<CursorIcon>,
-    pub(crate) resizable_cursor: Option<[Option<CursorIcon>; 4]>,
-    pub(crate) bg_color: Option<Color>,
-    pub(crate) border_color: Option<Color>,
-    pub(crate) opacity: Option<f32>,
-    pub(crate) transform: Option<[[f32; 4]; 4]>,
-    pub(crate) transform_origin: Option<Point<f32>>,
-    pub(crate) transform_inherit: Option<bool>,
-    pub(crate) corner_radius: Option<CornerRadius>,
-    pub(crate) shadow_params: Option<BoxShadow>,
-    pub(crate) shadow_color: Option<Color>,
-    pub(crate) text_color: Option<Color>,
-    pub(crate) select_bg_color: Option<Color>,
-    pub(crate) select_text_color: Option<Color>,
-    pub(crate) border_lengths: Option<EdgeInsets>,
-    pub(crate) border_styles: Option<[BorderStyle; 4]>,
-    pub(crate) border_alignments: Option<[BorderAlignment; 4]>,
-    pub(crate) outline_width: Option<EdgeInsets>,
-    pub(crate) outline_color: Option<Color>,
-    pub(crate) outline_lengths: Option<EdgeInsets>,
-    pub(crate) outline_styles: Option<[BorderStyle; 4]>,
-    pub(crate) outline_alignments: Option<[BorderAlignment; 4]>,
-    pub(crate) outline_offset: Option<f32>,
-    pub(crate) font: FontDate,
-    pub(crate) auto_wrap: Option<bool>,
-}
-
-impl RenderStore {
-    /// 目標値を参照経由で構築
-    #[inline]
-    pub(crate) fn get_target_style(
-        id: EntityId,
-        rnd_base_visual: &BaseVisualPropertiesSecondary,
-    ) -> TargetStyle {
-        rnd_base_visual
-            .find(id)
-            .map(|v| TargetStyle {
-                pointer_events: v.pointer_events,
-                cursor: v.cursor,
-                resizable_cursor: v.resizable_cursor,
-                bg_color: v.bg_color,
-                border_color: v.border_color,
-                opacity: v.opacity,
-                transform: v.transform,
-                transform_origin: v.transform_origin,
-                transform_inherit: v.transform_inherit,
-                corner_radius: v.corner_radius,
-                shadow_params: v.shadow_params,
-                shadow_color: v.shadow_color,
-                text_color: v.text_color,
-                select_bg_color: v.select_bg_color,
-                select_text_color: v.select_text_color,
-                border_lengths: v.border_lengths,
-                border_styles: v.border_styles,
-                border_alignments: v.border_alignments,
-                outline_width: v.outline_width,
-                outline_color: v.outline_color,
-                outline_lengths: v.outline_lengths,
-                outline_styles: v.outline_styles,
-                outline_alignments: v.outline_alignments,
-                outline_offset: v.outline_offset,
-                font: v.font.clone(),
-                auto_wrap: v.auto_wrap,
-            })
-            .unwrap_or_default()
-    }
-}
-
-impl TargetStyle {
-    /// 指定された `VisualProperty` と `ComponentMask` を基に自身のスタイルをマージ。
-    pub(crate) fn apply_visual_property(
-        target: &mut TargetStyle,
-        inner_vis: &VisualProperty,
-        inner_mask: ComponentMask,
-    ) {
-        if inner_mask.has(ComponentMask::STYLE_BG_COLOR) {
-            target.bg_color = inner_vis.bg_color;
-        }
-        if inner_mask.has(ComponentMask::STYLE_BORDER_COLOR) {
-            target.border_color = inner_vis.border_color;
-        }
-        if inner_mask.has(ComponentMask::STYLE_OPACITY) {
-            target.opacity = inner_vis.opacity;
-        }
-        if inner_mask.has(ComponentMask::STYLE_TRANSFORM) {
-            target.transform = inner_vis.transform;
-            target.transform_origin = inner_vis.transform_origin;
-        }
-
-        if inner_mask.has(ComponentMask::STYLE_TRANSFORM_INHERIT) {
-            target.transform_inherit = inner_vis.transform_inherit;
-        }
-        if inner_mask.has(ComponentMask::STYLE_CORNER_RADIUS) {
-            target.corner_radius = inner_vis.corner_radius;
-        }
-        if inner_mask.has(ComponentMask::STYLE_POINTER_EVENTS) {
-            target.pointer_events = inner_vis.pointer_events;
-        }
-        if inner_mask.has(ComponentMask::STYLE_BOX_SHADOW) {
-            if inner_vis.shadow_params.is_some() {
-                target.shadow_params = inner_vis.shadow_params;
-            }
-            if inner_vis.shadow_color.is_some() {
-                target.shadow_color = inner_vis.shadow_color;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_TEXT_COLOR) {
-            target.text_color = inner_vis.text_color;
-        }
-        if inner_mask.has(ComponentMask::STYLE_USER_SELECT) {
-            if inner_vis.select_bg_color.is_some() {
-                target.select_bg_color = inner_vis.select_bg_color;
-            }
-            if inner_vis.select_text_color.is_some() {
-                target.select_text_color = inner_vis.select_text_color;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_BORDER) {
-            if inner_vis.border_lengths.is_some() {
-                target.border_lengths = inner_vis.border_lengths;
-            }
-            if inner_vis.border_styles.is_some() {
-                target.border_styles = inner_vis.border_styles;
-            }
-            if inner_vis.border_alignments.is_some() {
-                target.border_alignments = inner_vis.border_alignments;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_OUTLINE) {
-            if inner_vis.outline_width.is_some() {
-                target.outline_width = inner_vis.outline_width;
-            }
-            if inner_vis.outline_color.is_some() {
-                target.outline_color = inner_vis.outline_color;
-            }
-            if inner_vis.outline_lengths.is_some() {
-                target.outline_lengths = inner_vis.outline_lengths;
-            }
-            if inner_vis.outline_styles.is_some() {
-                target.outline_styles = inner_vis.outline_styles;
-            }
-            if inner_vis.outline_alignments.is_some() {
-                target.outline_alignments = inner_vis.outline_alignments;
-            }
-            if inner_vis.outline_offset.is_some() {
-                target.outline_offset = inner_vis.outline_offset;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_CURSOR) {
-            target.cursor = inner_vis.cursor;
-        }
-        if inner_mask.has(ComponentMask::STYLE_RESIZABLE) {
-            target.resizable_cursor = inner_vis.resizable_cursor;
-        }
-        if inner_mask.has(ComponentMask::STYLE_FONT_SIZE) {
-            target.font.size = inner_vis.font.size;
-        }
-        if inner_mask.has(ComponentMask::STYLE_FONT_STYLE) {
-            if inner_vis.font.family.is_some() {
-                target.font.family.clone_from(&inner_vis.font.family);
-            }
-            if inner_vis.font.weight.is_some() {
-                target.font.weight = inner_vis.font.weight;
-            }
-            if inner_vis.font.style.is_some() {
-                target.font.style = inner_vis.font.style;
-            }
-        }
-        if inner_mask.has(ComponentMask::STYLE_AUTO_WRAP) {
-            target.auto_wrap = inner_vis.auto_wrap;
-        }
     }
 }
 

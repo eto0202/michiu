@@ -5,7 +5,8 @@ use crate::{
     BasicLayout, ComponentMask, Context, ContextState, DebugStore, DirtyQueueTrace, EffectCategory,
     EntityId, ExternalTexture, MichiuError, MichiuSoA, MichiuTrace, QueueDirtyKinds, ReadSignal,
     ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleStage, StyleState, StyleTarget,
-    ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n, trace_error, trace_lifecycle,
+    SystemStore, ThisStyle, UiaValue, Val, WebView2Contents, create_effect, div_n, trace_error,
+    trace_lifecycle,
 };
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
@@ -22,7 +23,10 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     let current = std::ptr::from_mut::<Context>(cx);
 
     ACTIVE_CONTEXT.set(Some(current));
-    let _guard = ContextGuard { current, old };
+    let _guard = ContextGuard {
+        _current: current,
+        old,
+    };
 
     // // 未定義動作を避けるためこれ以降は `cx` を直接触らない
     let marker = unsafe { (*current).start_session() };
@@ -76,7 +80,7 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
 // コンテキストを復元するための一時的なガード構造体
 pub(crate) struct ContextGuard {
     // drop 時にログを出すために自身がバインドしたポインタを保持
-    current: *mut Context,
+    _current: *mut Context,
     // drop 時に復元するために過去のポインタを保持
     old: Option<*mut Context>,
 }
@@ -101,7 +105,10 @@ pub(crate) fn bind_context(cx: &mut Context) -> ContextGuard {
         }
     });
 
-    ContextGuard { current, old }
+    ContextGuard {
+        _current: current,
+        old,
+    }
 }
 
 impl Drop for ContextGuard {
@@ -646,7 +653,7 @@ impl Element {
                 .topo_active_masks
                 .at_mut(id)
                 .set(ComponentMask::COMP_TEXT_CONTENT);
-            cx.clear_layout_cache(id);
+            SystemStore::clear_text_buffer_cache(id, &cx.system.sys_text_buffers);
             cx.mark_dirty(id);
         })
     }
@@ -670,19 +677,24 @@ impl Element {
 
     /// 外部画像や動画をwgpuで描画するためのテクスチャプロバイダ（`ExternalTexture`）をバインドします。
     ///
-    /// ### 動的なテクスチャの更新（動画やゲーム画面など）
-    /// 毎フレームテクスチャの中身が更新されるような動的要件は、描画直前に `ExternalTexture::resolve_view()`
-    /// が毎回呼び出される仕様になっているため、プロバイダの内部処理だけで自動的に完結します。
+    /// - 動的なテクスチャの更新（動画やゲーム画面など）\
+    ///   毎フレームテクスチャの中身が更新されるような動的要件は、描画直前に `ExternalTexture::resolve_view()`
+    ///   が毎回呼び出される仕様になっているため、プロバイダの内部処理だけで自動的に完結します。
     ///
-    /// ### ソース自体の動的な切り替え（動画から静止画への変更など）
-    /// 「動画から静止画へ切り替える」といった、テクスチャのソース自体を動的に変更したい場合は、以下のいずれかの方法を選択してください。
+    /// - ソース自体の動的な切り替え（動画から静止画への変更など）\
+    ///   「動画から静止画へ切り替える」といった、テクスチャのソース自体を動的に変更したい場合は、以下のいずれかの方法を選択してください。
     ///
-    /// 1. **トポロジーを差し替える**: 対象のUI要素を一度 `despawn` し、新しいソースを指定した要素として再生成する（不要になったリソースをVRAMから安全に解放できます）。
-    /// 2. **プロバイダの内部で切り替える**: `ExternalTexture` を実装したオブジェクト自体は維持し、内部のデコーダ等に命令を送ることで、`resolve_view()` が返すテクスチャ（`TextureView`）を動的に切り替える。
+    /// - トポロジーを差し替える:\
+    ///   対象のUI要素を一度 `despawn` し、新しいソースを指定した要素として再生成する（不要になったリソースをVRAMから安全に解放できます）。
     ///
-    /// ### 設計上の注意（パフォーマンス）
-    /// `BindGroup` の作成・再生成は処理負荷が高いため、本メソッドは軽量な `Prop<T>`（リアクティブなプロパティ）を介したテクスチャの動的差し替えをサポートしていません。
-    /// 仮に `Prop<T>` による差し替えを可能にすると、リアクティブエフェクト内で毎フレームプロバイダを新規生成するような、パフォーマンスを著しく低下させるコードを容易に記述できてしまうためです。
+    ///   - プロバイダの内部で切り替える:\
+    ///     `ExternalTexture` を実装したオブジェクト自体は維持し、内部のデコーダ等に命令を送ることで、`resolve_view()` が返すテクスチャ（`TextureView`）を動的に切り替える。
+    ///
+    ///   - 設計上の注意（パフォーマンス）\
+    ///     `BindGroup` の作成・再生成は処理負荷が高いため、
+    ///     本メソッドは軽量な `Prop<T>`（リアクティブなプロパティ）を介したテクスチャの動的差し替えをサポートしていません。
+    ///     仮に `Prop<T>` による差し替えを可能にすると、リアクティブエフェクト内で毎フレームプロバイダを新規生成するような、
+    ///     パフォーマンスを著しく低下させるコードを容易に記述できてしまうためです。
     #[inline]
     #[must_use]
     pub fn external_texture(self, texture: impl ExternalTexture + 'static) -> Self {

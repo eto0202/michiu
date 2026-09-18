@@ -4,21 +4,16 @@ pub use scrollbar::*;
 
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayout, CapacityConfig, ChildrenSecondary,
-    ComponentMask, Context, DebugStore, EdgeInsets, EntityId, FlexLayout, GridLayout,
-    InteractionPropertiesSecondary, InteractionStyles, LayoutRect, Length, MichiuSoA, NormalLayout,
-    ParentsSecondary, PropertyList, Rect, RenderStore, StyleTarget, TaffyResultTraceExt, ThisStyle,
-    VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
+    ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, EdgeInsets, EntityId,
+    FlexDirection, FlexLayout, GridLayout, InteractionPropertiesSecondary, InteractionStyles,
+    LayoutPoint, LayoutRect, LayoutSize, Length, MichiuSoA, NormalLayout, ParentsSecondary,
+    PropertyList, Rect, RectsSecondary, RenderStore, ScrollOffsetsSecondary, StyleTarget,
+    TaffyResultTraceExt, TextAlign, ThisStyle, VisualPropertiesSecondary, define_secondary,
+    define_sparse_secondary, define_vec,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::sync::Arc;
 use taffy::TaffyTree;
-
-// ======================================================
-// まとめる？
-pub(crate) type LayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
-pub(crate) type BaseLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
-pub(crate) type ResolvedLayoutsSecondary = SecondaryMap<EntityId, NormalLayout>;
-// ======================================================
 
 define_secondary!(pub struct TaffyNodesSecondary(taffy::NodeId));
 define_secondary!(pub struct BasicLayoutsSecondary(BasicLayout));
@@ -27,6 +22,20 @@ define_secondary!(pub struct BaseBasicLayoutsSecondary(BasicLayout));
 define_secondary!(pub struct BaseFlexLayoutsSecondary(FlexLayout));
 define_secondary!(pub struct ResolvedBasicSecondary(BasicLayout));
 define_secondary!(pub struct ResolvedFlexSecondary(FlexLayout));
+
+impl FlexLayoutsSecondary {
+    #[inline]
+    pub(crate) fn flex_direction(&self, id: EntityId) -> FlexDirection {
+        self.find(id).map(|f| f.flex_direction).unwrap_or_default()
+    }
+}
+
+impl ResolvedFlexSecondary {
+    #[inline]
+    pub(crate) fn text_algin(&self, id: EntityId) -> TextAlign {
+        self.find(id).map(|f| f.text_align).unwrap_or_default()
+    }
+}
 
 define_sparse_secondary!(pub struct GridLayoutsSparse(GridLayout));
 define_sparse_secondary!(pub struct ResolvedGridSparse(GridLayout));
@@ -465,10 +474,13 @@ impl LayoutStore {
         lay_taffy_tree: &mut TaffyTreeEntityId,
         lay_taffy_nodes: &TaffyNodesSecondary,
         bar_styles: &ScrollbarStylesSparse,
+        debug: &mut DebugStore,
     ) {
         let taffy_style = LayoutStore::resolve_taffy_style(id, basic, flex, grid, bar_styles);
         let nodes = *lay_taffy_nodes.at(id);
-        let _ = lay_taffy_tree.set_style(nodes, taffy_style);
+        lay_taffy_tree
+            .set_style(nodes, taffy_style)
+            .unwrap_or_trace(Some(id), debug);
     }
 
     #[inline]

@@ -1,14 +1,11 @@
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, AlignItems, BasicLayoutsSecondary,
-    CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, EdgeInsets, EntityId,
-    InputContentsSparse, LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA,
-    ParentsSecondary, Position, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
-    ScrollOffsetsSecondary, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextEngine,
+    CapacityConfig, DEFAULT_BASIC, DebugStore, EdgeInsets, EntityId, LayoutPoint, LayoutRect,
+    LayoutSize, LayoutStore, MichiuSoA, ParentsSecondary, Position, ResolvedBasicSecondary,
+    ScrollOffsetsSecondary, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextLayoutSize,
     UserSelect, Val, VisualPropertiesSecondary, define_secondary,
 };
-use cosmic_text::Buffer;
 use slotmap::SecondaryMap;
-use std::rc::Rc;
 
 define_secondary!(pub struct RectsSecondary(LayoutRect));
 define_secondary!(pub struct ClipRectsSecondary(LayoutRect));
@@ -89,59 +86,6 @@ impl OutputStore {
             || topo_active_masks.at(parent_id).has_queued_layout()
     }
 
-    pub(crate) fn pressed_local_point(
-        id: EntityId,
-        logical_pos: LayoutPoint,
-        buffer: &Rc<Buffer>,
-        cont_input_contents: &InputContentsSparse,
-        lay_resolved_basic: &ResolvedBasicSecondary,
-        lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparse,
-        out_rects: &RectsSecondary,
-        sc_offsets: &ScrollOffsetsSecondary,
-        debug: &mut DebugStore,
-    ) -> LayoutPoint {
-        let rect = *out_rects.at(id);
-
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
-        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
-        let _ = lay_resolved_grid.find_or_default(id, debug); // TODO: Grid実装時用
-
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
-
-        let scroll = sc_offsets.find_or_default(id, debug);
-
-        let (text_size, is_multiline) = if let Some(contents) = cont_input_contents.find(id) {
-            let size = contents
-                .last_layout
-                .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
-            (size, contents.is_multiline)
-        } else {
-            (TextEngine::get_layout_size(buffer), false)
-        };
-
-        let align_offset = OutputStore::calc_align_offset(
-            rect,
-            border,
-            padding,
-            text_size,
-            flex.text_align,
-            flex.align_items,
-            is_multiline,
-        );
-
-        let local_x =
-            logical_pos.x - (rect.x + border.left + padding.left + align_offset.x) + scroll.x;
-        let local_y =
-            logical_pos.y - (rect.y + border.top + padding.top + align_offset.y) + scroll.y;
-
-        LayoutPoint {
-            x: local_x,
-            y: local_y,
-        }
-    }
-
     pub(crate) fn calc_local_rect(
         id: EntityId,
         window_size: LayoutSize,
@@ -187,22 +131,6 @@ impl OutputStore {
         (abs_rect, parent_clip)
     }
 
-    #[inline]
-    pub(crate) fn calc_viewport_size(
-        visible_size: LayoutRect,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-    ) -> LayoutSize {
-        let content_w =
-            (visible_size.width - border.left - border.right - padding.left - padding.right)
-                .max(0.0);
-        let content_h =
-            (visible_size.height - border.top - border.bottom - padding.top - padding.bottom)
-                .max(0.0);
-
-        LayoutSize::new(content_w, content_h)
-    }
-
     /// 単位（Px, Percent, Auto）を親要素のサイズまたはウィンドウ基準をベースに物理ピクセルへ解決します。
     pub(crate) fn val_to_px(
         id: EntityId,
@@ -238,23 +166,6 @@ impl OutputStore {
                 if is_width { r.width } else { r.height }
             }
         }
-    }
-
-    /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出します。
-    #[inline]
-    pub(crate) fn calc_inner_content_size(
-        visible_size: LayoutSize,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-    ) -> LayoutSize {
-        let content_w =
-            (visible_size.width - border.left - border.right - padding.left - padding.right)
-                .max(0.0);
-        let content_h =
-            (visible_size.height - border.top - border.bottom - padding.top - padding.bottom)
-                .max(0.0);
-
-        LayoutSize::new(content_w, content_h)
     }
 
     // 累積計算用の行列乗算
@@ -294,52 +205,6 @@ impl OutputStore {
         let out_x = m[0][0] * x + m[1][0] * y + m[3][0];
         let out_y = m[0][1] * x + m[1][1] * y + m[3][1];
         (out_x, out_y)
-    }
-
-    #[inline]
-    pub(crate) fn calc_align_offset(
-        rect: LayoutRect,
-        border: EdgeInsets,
-        padding: EdgeInsets,
-        text_size: LayoutSize,
-        text_align: TextAlign,
-        align_items: Option<AlignItems>,
-        is_multiline: bool,
-    ) -> LayoutPoint {
-        let content_w =
-            (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
-        let align_offset_x = match text_align {
-            TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
-            TextAlign::Right => (content_w - text_size.width).max(0.0),
-            _ => 0.0,
-        };
-
-        let content_h =
-            (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
-
-        // 複数行入力時は標準で上端揃え、単一行は標準で中央揃えにフォールバック
-        let align_items_resolved = align_items.unwrap_or(if is_multiline {
-            AlignItems::Start
-        } else {
-            AlignItems::Center
-        });
-
-        let align_offset_y = match align_items_resolved {
-            AlignItems::Start
-            | AlignItems::FlexStart
-            | AlignItems::SafeStart
-            | AlignItems::SafeFlexStart => 0.0,
-            AlignItems::End
-            | AlignItems::FlexEnd
-            | AlignItems::SafeEnd
-            | AlignItems::SafeFlexEnd => (content_h - text_size.height).max(0.0),
-            _ => ((content_h - text_size.height) * 0.5).max(0.0), // Center 等
-        };
-
-        LayoutPoint {
-            x: align_offset_x,
-            y: align_offset_y,
-        }
     }
 
     #[inline]
@@ -383,10 +248,7 @@ impl OutputStore {
 
         let clip = out_clip_rects.at(id);
 
-        let user_select = rnd_visual
-            .find(id)
-            .and_then(|v| v.user_select)
-            .unwrap_or_default();
+        let user_select = rnd_visual.user_select(id);
 
         if user_select != UserSelect::Text {
             return false;
@@ -396,6 +258,160 @@ impl OutputStore {
         let is_out_x = pointer_pos.x < clip.x || pointer_pos.x > clip.x + clip.width;
         let is_out_y = pointer_pos.y < clip.y || pointer_pos.y > clip.y + clip.height;
         is_out_x || is_out_y
+    }
+}
+
+pub(crate) struct ResolvedGeometry {
+    pub(crate) rect: LayoutRect,
+    pub(crate) border: EdgeInsets,
+    pub(crate) padding: EdgeInsets,
+    pub(crate) scroll: LayoutPoint,
+}
+
+impl ResolvedGeometry {
+    #[inline]
+    pub(crate) fn resolved(
+        id: EntityId,
+        sc_offsets: &ScrollOffsetsSecondary,
+        lay_resolved_basic: &ResolvedBasicSecondary,
+        out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
+    ) -> Self {
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let rect = out_rects.find_or_default(id, debug);
+        let scroll = sc_offsets.find_or_default(id, debug);
+        let (border, padding) =
+            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+        Self {
+            rect,
+            border,
+            padding,
+            scroll,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn content_width(&self) -> f32 {
+        self.rect.width
+            - self.border.right
+            - self.border.left
+            - self.padding.right
+            - self.padding.left
+    }
+
+    #[inline]
+    pub(crate) fn viewport_size(&self) -> LayoutSize {
+        let rect = self.rect;
+        let border = self.border;
+        let padding = self.padding;
+        let content_w =
+            (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
+        let content_h =
+            (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
+
+        LayoutSize::new(content_w, content_h)
+    }
+
+    /// 実際の可視サイズから、物理ボーダーとパディングの厚みを引いた内枠の有効表示可能サイズを算出。
+    #[inline]
+    pub(crate) fn inner_content_size(&self, visible_size: LayoutSize) -> LayoutSize {
+        let border = self.border;
+        let padding = self.padding;
+
+        let content_w =
+            (visible_size.width - border.left - border.right - padding.left - padding.right)
+                .max(0.0);
+        let content_h =
+            (visible_size.height - border.top - border.bottom - padding.top - padding.bottom)
+                .max(0.0);
+
+        LayoutSize::new(content_w, content_h)
+    }
+
+    pub(crate) fn pressed_local_point(
+        &self,
+        logical_pos: LayoutPoint,
+        text_align: TextAlign,
+        align_items: Option<AlignItems>,
+        text_size: TextLayoutSize,
+    ) -> LayoutPoint {
+        let align_offset = self.calc_align_offset(text_size, text_align, align_items);
+        let rect = self.rect;
+        let border = self.border;
+        let padding = self.padding;
+        let scroll = self.scroll;
+
+        let local_x =
+            logical_pos.x - (rect.x + border.left + padding.left + align_offset.x) + scroll.x;
+        let local_y =
+            logical_pos.y - (rect.y + border.top + padding.top + align_offset.y) + scroll.y;
+
+        LayoutPoint {
+            x: local_x,
+            y: local_y,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn calc_max_width(&self, auto_wrap: bool) -> Option<f32> {
+        let rect = self.rect;
+        let border = self.border;
+        let padding = self.padding;
+        let content_width = rect.width - border.right - border.left - padding.right - padding.left;
+
+        (auto_wrap && content_width > 0.0).then_some(content_width)
+    }
+
+    #[inline]
+    pub(crate) fn calc_align_offset(
+        &self,
+        text_size: TextLayoutSize,
+        text_align: TextAlign,
+        align_items: Option<AlignItems>,
+    ) -> LayoutPoint {
+        let rect = self.rect;
+        let border = self.border;
+        let padding = self.padding;
+
+        let content_w =
+            (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
+        let align_offset_x = match text_align {
+            TextAlign::Center => ((content_w - text_size.width) * 0.5).max(0.0),
+            TextAlign::Right => (content_w - text_size.width).max(0.0),
+            _ => 0.0,
+        };
+
+        let content_h =
+            (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
+
+        // 複数行入力時は標準で上端揃え、単一行は標準で中央揃えにフォールバック
+        let resolved_multiline = if let Some(is_multiline) = text_size.is_multiline {
+            if is_multiline {
+                AlignItems::Start
+            } else {
+                AlignItems::Center
+            }
+        } else {
+            AlignItems::Center
+        };
+        let align_items_resolved = align_items.unwrap_or(resolved_multiline);
+
+        let align_offset_y = match align_items_resolved {
+            AlignItems::Start
+            | AlignItems::FlexStart
+            | AlignItems::SafeStart
+            | AlignItems::SafeFlexStart => 0.0,
+            AlignItems::End
+            | AlignItems::FlexEnd
+            | AlignItems::SafeEnd
+            | AlignItems::SafeFlexEnd => (content_h - text_size.height).max(0.0),
+            _ => ((content_h - text_size.height) * 0.5).max(0.0), // Center 等
+        };
+
+        LayoutPoint {
+            x: align_offset_x,
+            y: align_offset_y,
+        }
     }
 }
 

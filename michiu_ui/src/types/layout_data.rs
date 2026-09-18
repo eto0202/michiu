@@ -1,12 +1,15 @@
 use crate::{
-    AlignContent, AlignItems, AlignSelf, Backdrop, BorderAlignment, BorderStyle, BoxShadow,
-    BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction, Display, EdgeInsets,
-    FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow, GridLine, GridPlacement,
-    JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, Point,
-    PointerEvents, Position, Rect, Size, StyleTarget, TextAlign, ThisStyle, Transition, UserSelect,
-    Val,
+    AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
+    BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
+    Display, EdgeInsets, EntityId, FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow,
+    GridLine, GridPlacement, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow,
+    Length, LinearGradient, MichiuSoA, Point, PointerEvents, Position, Rect, Size, StyleTarget,
+    TextAlign, ThisStyle, Transition, UserSelect, Val, VisualPropertiesSecondary,
 };
-use std::sync::{Arc, LazyLock};
+use std::{
+    borrow::Cow,
+    sync::{Arc, LazyLock},
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NormalLayout {
@@ -319,6 +322,81 @@ pub struct VisualProperty {
     pub outline_offset: Option<f32>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct CurrentStyle {
+    pub(crate) bg_color: Color,
+    pub(crate) border_color: Color,
+    pub(crate) outline_width: EdgeInsets,
+    pub(crate) outline_color: Color,
+    pub(crate) outline_offset: f32,
+    pub(crate) opacity: f32,
+    pub(crate) transform: [[f32; 4]; 4],
+    pub(crate) transform_origin: Point<f32>,
+    pub(crate) corner_radius: CornerRadius,
+    pub(crate) shadow_params: BoxShadow,
+    pub(crate) text_color: Color,
+    pub(crate) font_size: f32,
+    pub(crate) font_family: Option<Cow<'static, str>>,
+    pub(crate) font_weight: u32,
+    pub(crate) font_style: u32,
+    pub(crate) auto_wrap: bool,
+    pub(crate) pointer_events: PointerEvents,
+}
+
+impl Default for CurrentStyle {
+    fn default() -> Self {
+        CurrentStyle {
+            bg_color: Color::TRANSPARENT,
+            border_color: Color::TRANSPARENT,
+            outline_width: EdgeInsets::ZERO,
+            outline_color: Color::TRANSPARENT,
+            outline_offset: 0.0,
+            opacity: 1.0,
+            transform: IDENTITY_MATRIX,
+            transform_origin: Point::ORIGIN,
+            corner_radius: CornerRadius::ZERO,
+            shadow_params: BoxShadow::none(),
+            text_color: Color::WHITE,
+            font_size: 16.0,
+            font_family: None,
+            font_weight: 400,
+            font_style: 0,
+            auto_wrap: false,
+            pointer_events: PointerEvents::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct TargetStyle {
+    pub(crate) pointer_events: Option<PointerEvents>,
+    pub(crate) cursor: Option<CursorIcon>,
+    pub(crate) resizable_cursor: Option<[Option<CursorIcon>; 4]>,
+    pub(crate) bg_color: Option<Color>,
+    pub(crate) border_color: Option<Color>,
+    pub(crate) opacity: Option<f32>,
+    pub(crate) transform: Option<[[f32; 4]; 4]>,
+    pub(crate) transform_origin: Option<Point<f32>>,
+    pub(crate) transform_inherit: Option<bool>,
+    pub(crate) corner_radius: Option<CornerRadius>,
+    pub(crate) shadow_params: Option<BoxShadow>,
+    pub(crate) shadow_color: Option<Color>,
+    pub(crate) text_color: Option<Color>,
+    pub(crate) select_bg_color: Option<Color>,
+    pub(crate) select_text_color: Option<Color>,
+    pub(crate) border_lengths: Option<EdgeInsets>,
+    pub(crate) border_styles: Option<[BorderStyle; 4]>,
+    pub(crate) border_alignments: Option<[BorderAlignment; 4]>,
+    pub(crate) outline_width: Option<EdgeInsets>,
+    pub(crate) outline_color: Option<Color>,
+    pub(crate) outline_lengths: Option<EdgeInsets>,
+    pub(crate) outline_styles: Option<[BorderStyle; 4]>,
+    pub(crate) outline_alignments: Option<[BorderAlignment; 4]>,
+    pub(crate) outline_offset: Option<f32>,
+    pub(crate) font: FontDate,
+    pub(crate) auto_wrap: Option<bool>,
+}
+
 impl VisualProperty {
     pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
         if mask.has(ComponentMask::STYLE_BG_COLOR) {
@@ -415,6 +493,180 @@ impl VisualProperty {
         if mask.has(ComponentMask::STYLE_ANIMATIONS) {
             self.keyframe_animations
                 .extend(other.keyframe_animations.clone());
+        }
+    }
+
+    /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
+    #[inline]
+    pub(crate) fn get_current_style(
+        id: EntityId,
+        rnd_visual: &VisualPropertiesSecondary,
+    ) -> CurrentStyle {
+        rnd_visual
+            .find(id)
+            .map(|v| CurrentStyle {
+                bg_color: v.bg_color.unwrap_or(Color::TRANSPARENT),
+                border_color: v.border_color.unwrap_or(Color::TRANSPARENT),
+                outline_width: v.outline_width.unwrap_or(EdgeInsets::ZERO),
+                outline_color: v.outline_color.unwrap_or(Color::TRANSPARENT),
+                outline_offset: v.outline_offset.unwrap_or(0.0),
+                opacity: v.opacity.unwrap_or(1.0),
+                transform: v.transform.unwrap_or(IDENTITY_MATRIX),
+                transform_origin: v.transform_origin.unwrap_or(Point::ORIGIN),
+                corner_radius: v.corner_radius.unwrap_or(CornerRadius::ZERO),
+                shadow_params: v.shadow_params.unwrap_or(BoxShadow::none()),
+                text_color: v.text_color.unwrap_or(Color::WHITE),
+                font_size: v.font.size.unwrap_or(16.0),
+                font_family: v.font.family.clone(),
+                font_weight: v.font.weight.unwrap_or(400),
+                font_style: v.font.style.unwrap_or(0),
+                auto_wrap: v.auto_wrap.unwrap_or(false),
+                pointer_events: v.pointer_events.unwrap_or_default(),
+            })
+            .unwrap_or_default()
+    }
+
+    /// 目標値を参照経由で構築
+    #[inline]
+    pub(crate) fn get_target_style(
+        id: EntityId,
+        rnd_base_visual: &BaseVisualPropertiesSecondary,
+    ) -> TargetStyle {
+        rnd_base_visual
+            .find(id)
+            .map(|v| TargetStyle {
+                pointer_events: v.pointer_events,
+                cursor: v.cursor,
+                resizable_cursor: v.resizable_cursor,
+                bg_color: v.bg_color,
+                border_color: v.border_color,
+                opacity: v.opacity,
+                transform: v.transform,
+                transform_origin: v.transform_origin,
+                transform_inherit: v.transform_inherit,
+                corner_radius: v.corner_radius,
+                shadow_params: v.shadow_params,
+                shadow_color: v.shadow_color,
+                text_color: v.text_color,
+                select_bg_color: v.select_bg_color,
+                select_text_color: v.select_text_color,
+                border_lengths: v.border_lengths,
+                border_styles: v.border_styles,
+                border_alignments: v.border_alignments,
+                outline_width: v.outline_width,
+                outline_color: v.outline_color,
+                outline_lengths: v.outline_lengths,
+                outline_styles: v.outline_styles,
+                outline_alignments: v.outline_alignments,
+                outline_offset: v.outline_offset,
+                font: v.font.clone(),
+                auto_wrap: v.auto_wrap,
+            })
+            .unwrap_or_default()
+    }
+
+    /// 指定された `VisualProperty` と `ComponentMask` を基に自身のスタイルをマージ。
+    #[inline]
+    pub(crate) fn apply_visual_property(
+        &self,
+        target: &mut TargetStyle,
+        inner_mask: ComponentMask,
+    ) {
+        if inner_mask.has(ComponentMask::STYLE_BG_COLOR) {
+            target.bg_color = self.bg_color;
+        }
+        if inner_mask.has(ComponentMask::STYLE_BORDER_COLOR) {
+            target.border_color = self.border_color;
+        }
+        if inner_mask.has(ComponentMask::STYLE_OPACITY) {
+            target.opacity = self.opacity;
+        }
+        if inner_mask.has(ComponentMask::STYLE_TRANSFORM) {
+            target.transform = self.transform;
+            target.transform_origin = self.transform_origin;
+        }
+
+        if inner_mask.has(ComponentMask::STYLE_TRANSFORM_INHERIT) {
+            target.transform_inherit = self.transform_inherit;
+        }
+        if inner_mask.has(ComponentMask::STYLE_CORNER_RADIUS) {
+            target.corner_radius = self.corner_radius;
+        }
+        if inner_mask.has(ComponentMask::STYLE_POINTER_EVENTS) {
+            target.pointer_events = self.pointer_events;
+        }
+        if inner_mask.has(ComponentMask::STYLE_BOX_SHADOW) {
+            if self.shadow_params.is_some() {
+                target.shadow_params = self.shadow_params;
+            }
+            if self.shadow_color.is_some() {
+                target.shadow_color = self.shadow_color;
+            }
+        }
+        if inner_mask.has(ComponentMask::STYLE_TEXT_COLOR) {
+            target.text_color = self.text_color;
+        }
+        if inner_mask.has(ComponentMask::STYLE_USER_SELECT) {
+            if self.select_bg_color.is_some() {
+                target.select_bg_color = self.select_bg_color;
+            }
+            if self.select_text_color.is_some() {
+                target.select_text_color = self.select_text_color;
+            }
+        }
+        if inner_mask.has(ComponentMask::STYLE_BORDER) {
+            if self.border_lengths.is_some() {
+                target.border_lengths = self.border_lengths;
+            }
+            if self.border_styles.is_some() {
+                target.border_styles = self.border_styles;
+            }
+            if self.border_alignments.is_some() {
+                target.border_alignments = self.border_alignments;
+            }
+        }
+        if inner_mask.has(ComponentMask::STYLE_OUTLINE) {
+            if self.outline_width.is_some() {
+                target.outline_width = self.outline_width;
+            }
+            if self.outline_color.is_some() {
+                target.outline_color = self.outline_color;
+            }
+            if self.outline_lengths.is_some() {
+                target.outline_lengths = self.outline_lengths;
+            }
+            if self.outline_styles.is_some() {
+                target.outline_styles = self.outline_styles;
+            }
+            if self.outline_alignments.is_some() {
+                target.outline_alignments = self.outline_alignments;
+            }
+            if self.outline_offset.is_some() {
+                target.outline_offset = self.outline_offset;
+            }
+        }
+        if inner_mask.has(ComponentMask::STYLE_CURSOR) {
+            target.cursor = self.cursor;
+        }
+        if inner_mask.has(ComponentMask::STYLE_RESIZABLE) {
+            target.resizable_cursor = self.resizable_cursor;
+        }
+        if inner_mask.has(ComponentMask::STYLE_FONT_SIZE) {
+            target.font.size = self.font.size;
+        }
+        if inner_mask.has(ComponentMask::STYLE_FONT_STYLE) {
+            if self.font.family.is_some() {
+                target.font.family.clone_from(&self.font.family);
+            }
+            if self.font.weight.is_some() {
+                target.font.weight = self.font.weight;
+            }
+            if self.font.style.is_some() {
+                target.font.style = self.font.style;
+            }
+        }
+        if inner_mask.has(ComponentMask::STYLE_AUTO_WRAP) {
+            target.auto_wrap = self.auto_wrap;
         }
     }
 }
@@ -584,4 +836,130 @@ impl InteractionStyles {
         merge(&mut self.dragged_parent, &other.dragged_parent);
         merge(&mut self.any_parent, &other.any_parent);
     }
+
+    pub(crate) fn get_scope_style(
+        &self,
+        scope: InteractionScope,
+        state: CascadeInteractionState,
+    ) -> Option<&ThisStyle> {
+        match scope {
+            InteractionScope::SelfTarget => match state {
+                CascadeInteractionState::Focused => self.focused.as_ref(),
+                CascadeInteractionState::FocusedVisible => self.focused_visible.as_ref(),
+                CascadeInteractionState::Selected => self.selected.as_ref(),
+                CascadeInteractionState::Actived => self.actived.as_ref(),
+                CascadeInteractionState::Hovered => self.hovered.as_ref(),
+                CascadeInteractionState::Pressed => self.pressed.as_ref(),
+                CascadeInteractionState::Disabled => self.disabled.as_ref(),
+                CascadeInteractionState::Dragged => self.dragged.as_ref(),
+                CascadeInteractionState::DndDragging => self.dragging.as_ref(),
+                CascadeInteractionState::DndDragIn => self.drag_in.as_ref(),
+                CascadeInteractionState::DndDragOver => self.drag_over.as_ref(),
+            },
+            InteractionScope::Parent => match state {
+                CascadeInteractionState::Focused => self.focused_parent.as_ref(),
+                CascadeInteractionState::FocusedVisible => self.focused_visible_parent.as_ref(),
+                CascadeInteractionState::Selected => self.selected_parent.as_ref(),
+                CascadeInteractionState::Actived => self.actived_parent.as_ref(),
+                CascadeInteractionState::Hovered | CascadeInteractionState::DndDragIn => {
+                    self.hovered_parent.as_ref()
+                }
+                CascadeInteractionState::Pressed => self.pressed_parent.as_ref(),
+                CascadeInteractionState::Disabled => self.disabled_parent.as_ref(),
+                CascadeInteractionState::Dragged | CascadeInteractionState::DndDragging => {
+                    self.dragged_parent.as_ref()
+                }
+                CascadeInteractionState::DndDragOver => None,
+            },
+            InteractionScope::Within => match state {
+                CascadeInteractionState::Focused => self.focused_within.as_ref(),
+                CascadeInteractionState::FocusedVisible => self.focused_visible_within.as_ref(),
+                CascadeInteractionState::Selected => self.selected_within.as_ref(),
+                CascadeInteractionState::Actived => self.actived_within.as_ref(),
+                CascadeInteractionState::Hovered | CascadeInteractionState::DndDragIn => {
+                    self.hovered_within.as_ref()
+                }
+                CascadeInteractionState::Pressed => self.pressed_within.as_ref(),
+                CascadeInteractionState::Disabled => self.disabled_within.as_ref(),
+                CascadeInteractionState::Dragged | CascadeInteractionState::DndDragging => {
+                    self.dragged_within.as_ref()
+                }
+                CascadeInteractionState::DndDragOver => None,
+            },
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get_self_style(&self, flag: u128) -> Option<&ThisStyle> {
+        match flag {
+            ComponentMask::STATE_HOVERED => self.hovered.as_ref(),
+            ComponentMask::STATE_FOCUSED => self.focused.as_ref(),
+            ComponentMask::STATE_FOCUSED_VISIBLE => self.focused_visible.as_ref(),
+            ComponentMask::STATE_PRESSED => self.pressed.as_ref(),
+            ComponentMask::STATE_DISABLED => self.disabled.as_ref(),
+            ComponentMask::STATE_ACTIVED => self.actived.as_ref(),
+            ComponentMask::STATE_SELECTED => self.selected.as_ref(),
+            ComponentMask::STATE_DRAGGED => self.dragged.as_ref(),
+            ComponentMask::STATE_DND_DRAGGING => self.dragging.as_ref(),
+            ComponentMask::STATE_DND_DRAG_IN => self.drag_in.as_ref(),
+            ComponentMask::STATE_DND_DRAG_OVER => self.drag_over.as_ref(),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum CascadeInteractionState {
+    Focused = 0,
+    FocusedVisible,
+    Selected,
+    Actived,
+    Hovered,
+    Pressed,
+    Disabled,
+    Dragged,
+    DndDragging,
+    DndDragIn,
+    DndDragOver,
+}
+
+impl CascadeInteractionState {
+    pub(crate) const ALL: [CascadeInteractionState; 11] = [
+        CascadeInteractionState::Focused,
+        CascadeInteractionState::FocusedVisible,
+        CascadeInteractionState::Selected,
+        CascadeInteractionState::Actived,
+        CascadeInteractionState::Hovered,
+        CascadeInteractionState::Pressed,
+        CascadeInteractionState::Disabled,
+        CascadeInteractionState::Dragged,
+        CascadeInteractionState::DndDragging,
+        CascadeInteractionState::DndDragIn,
+        CascadeInteractionState::DndDragOver,
+    ];
+
+    #[inline]
+    pub(crate) const fn mask(self) -> u128 {
+        match self {
+            CascadeInteractionState::Focused => ComponentMask::STATE_FOCUSED,
+            CascadeInteractionState::FocusedVisible => ComponentMask::STATE_FOCUSED_VISIBLE,
+            CascadeInteractionState::Selected => ComponentMask::STATE_SELECTED,
+            CascadeInteractionState::Actived => ComponentMask::STATE_ACTIVED,
+            CascadeInteractionState::Hovered => ComponentMask::STATE_HOVERED,
+            CascadeInteractionState::Pressed => ComponentMask::STATE_PRESSED,
+            CascadeInteractionState::Disabled => ComponentMask::STATE_DISABLED,
+            CascadeInteractionState::Dragged => ComponentMask::STATE_DRAGGED,
+            CascadeInteractionState::DndDragging => ComponentMask::STATE_DND_DRAGGING,
+            CascadeInteractionState::DndDragIn => ComponentMask::STATE_DND_DRAG_IN,
+            CascadeInteractionState::DndDragOver => ComponentMask::STATE_DND_DRAG_OVER,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum InteractionScope {
+    SelfTarget,
+    Parent,
+    Within,
 }

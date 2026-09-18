@@ -4,10 +4,11 @@ use crate::{
     DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EdgeInsets, EntityId,
     InputContents, InputContentsSparse, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
     MichiuSoA, MichiuString, OutputStore, ParentsSecondary, RectsSecondary, RenderStore,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary,
-    ScrollSizesSecondary, ScrollStore, ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine, TextSpansSparse,
-    TopologyStore, UserSelect, VisualPropertiesSecondary, define_sparse_secondary,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStylesSparse, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse, TextContentsSparse, TextEngine,
+    TextLayoutSize, TextSpansSparse, TopologyStore, UserSelect, VisualPropertiesSecondary,
+    define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -144,17 +145,17 @@ impl TextEditStore {
     }
 
     pub(crate) fn calculate_caret_rect(
-        rect: LayoutRect,
-        border: EdgeInsets,
-        padding: EdgeInsets,
+        geom: &ResolvedGeometry,
         contents: &InputContents,
         scale: f32,
-        scroll: LayoutPoint,
         align_offset: LayoutPoint,
     ) -> LayoutRect {
-        let logical_x =
-            rect.x + border.left + padding.left + align_offset.x + contents.measured_caret.x
-                - scroll.x;
+        let logical_x = geom.rect.x
+            + geom.border.left
+            + geom.padding.left
+            + align_offset.x
+            + contents.measured_caret.x
+            - geom.scroll.x;
         let aligned_x = (logical_x * scale).round() / scale;
 
         let line_height = contents.caret_line_height;
@@ -167,13 +168,13 @@ impl TextEditStore {
             0.0
         };
 
-        let logical_y = rect.y
-            + border.top
-            + padding.top
+        let logical_y = geom.rect.y
+            + geom.border.top
+            + geom.padding.top
             + align_offset.y
             + contents.measured_caret.y
             + contents.caret_offset
-            - scroll.y;
+            - geom.scroll.y;
 
         let aligned_y = ((logical_y + vertical_center_offset) * scale).round() / scale;
         let aligned_width = (caret_width * scale).round().max(1.0) / scale;
@@ -293,10 +294,7 @@ impl TextEditStore {
                 .map(|(id, _)| id)
         })?;
 
-        let user_select = rnd_visual
-            .get(target_id)
-            .and_then(|v| v.user_select)
-            .unwrap_or_default();
+        let user_select = rnd_visual.user_select(target_id);
 
         if user_select == UserSelect::Text {
             // テキストを選択してるなら Some のはず
@@ -322,7 +320,6 @@ impl TextEditStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &VisualPropertiesSecondary,
         edit_selections: &mut TextSelectionsSparse,
@@ -332,30 +329,45 @@ impl TextEditStore {
         sc_offsets: &ScrollOffsetsSecondary,
         debug: &mut DebugStore,
     ) {
-        let buffer = SystemStore::get_or_create_layout(
-            id,
-            sys_text_engine,
-            sys_text_buffers,
-            cont_text_contents,
-            cont_text_spans,
-            lay_resolved_basic,
-            lay_resolved_flex,
-            rnd_visual,
-            out_rects,
-            debug,
-        );
+        let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+        let auto_wrap = rnd_visual.auto_wrap(id);
 
-        let local = OutputStore::pressed_local_point(
-            id,
+        let resolved_geom =
+            ResolvedGeometry::resolved(id, sc_offsets, lay_resolved_basic, out_rects, debug);
+
+        let content_width = resolved_geom.content_width();
+        let max_width_opt = (auto_wrap && content_width > 0.0).then_some(content_width);
+
+        let buffer =
+            SystemStore::get_or_create_text_buffer(id, max_width_opt, sys_text_buffers, || {
+                let text = cont_text_contents.at(id);
+                let font = rnd_visual.font(id);
+
+                let spans = cont_text_spans.span(id);
+                sys_text_engine.create_buffer(
+                    text,
+                    &font,
+                    flex.text_align,
+                    max_width_opt,
+                    auto_wrap,
+                    spans,
+                )
+            });
+
+        let text_size = if let Some(c) = cont_input_contents.find(id) {
+            let size = c
+                .last_layout
+                .map_or(LayoutSize::ZERO, |r| LayoutSize::new(r.width, r.height));
+            TextLayoutSize::new(size.width, size.height, Some(c.is_multiline))
+        } else {
+            TextEngine::get_layout_size(&buffer).set_multiline(Some(false))
+        };
+
+        let local = resolved_geom.pressed_local_point(
             pointer_pos,
-            &buffer,
-            cont_input_contents,
-            lay_resolved_basic,
-            lay_resolved_flex,
-            lay_resolved_grid,
-            out_rects,
-            sc_offsets,
-            debug,
+            flex.text_align,
+            flex.align_items,
+            text_size,
         );
         let (clicked_index, is_trailing) = TextEngine::hit_test_point(&buffer, local);
 
@@ -530,18 +542,28 @@ impl TextEditStore {
         sc_sizes: &ScrollSizesSecondary,
         debug: &mut DebugStore,
     ) {
-        let buffer = SystemStore::get_or_create_layout(
-            id,
-            sys_text_engine,
-            sys_text_buffers,
-            cont_text_contents,
-            cont_text_spans,
-            lay_resolved_basic,
-            lay_resolved_flex,
-            rnd_visual,
-            out_rects,
-            debug,
-        );
+        let auto_wrap = rnd_visual.auto_wrap(id);
+        let resolved_geom =
+            ResolvedGeometry::resolved(id, sc_offsets, lay_resolved_basic, out_rects, debug);
+
+        let max_width_opt = resolved_geom.calc_max_width(auto_wrap);
+
+        let buffer =
+            SystemStore::get_or_create_text_buffer(id, max_width_opt, sys_text_buffers, || {
+                let text = cont_text_contents.at(id);
+                let font = rnd_visual.font(id);
+                let spans = cont_text_spans.span(id);
+                let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+
+                sys_text_engine.create_buffer(
+                    text,
+                    &font,
+                    flex.text_align,
+                    max_width_opt,
+                    auto_wrap,
+                    spans,
+                )
+            });
 
         // Input 要素の場合は生テキストの長さで全選択範囲を作る
         let input_full_range = if let Some(contents) = cont_input_contents.find_mut(id) {
@@ -649,18 +671,26 @@ impl TextEditStore {
 
         // 選択範囲の描画を更新
         if has_selection_before || has_selection_after {
-            let buffer = SystemStore::get_or_create_layout(
-                id,
-                sys_text_engine,
-                sys_text_buffers,
-                cont_text_contents,
-                cont_text_spans,
-                lay_resolved_basic,
-                lay_resolved_flex,
-                rnd_visual,
-                out_rects,
-                debug,
-            );
+            let auto_wrap = rnd_visual.auto_wrap(id);
+            let resolved_geom =
+                ResolvedGeometry::resolved(id, sc_offsets, lay_resolved_basic, out_rects, debug);
+            let max_width_opt = resolved_geom.calc_max_width(auto_wrap);
+
+            let buffer =
+                SystemStore::get_or_create_text_buffer(id, max_width_opt, sys_text_buffers, || {
+                    let text = cont_text_contents.at(id);
+                    let font = rnd_visual.font(id);
+                    let spans = cont_text_spans.span(id);
+                    let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+                    sys_text_engine.create_buffer(
+                        text,
+                        &font,
+                        flex.text_align,
+                        max_width_opt,
+                        auto_wrap,
+                        spans,
+                    )
+                });
             TextEditStore::update_selection_rects(
                 id,
                 &buffer,
@@ -710,7 +740,7 @@ impl TextEditStore {
             // 未確定文字の伸縮時はシグナルが更新されないため ImeUpdated を含める
             InputOp::Init | InputOp::TextEffect | InputOp::ImeUpdated => {
                 // IMEやタイピング中の古いキャッシュを破棄
-                SystemStore::clear_layout_cache(id, sys_text_buffers);
+                SystemStore::clear_text_buffer_cache(id, sys_text_buffers);
                 TextEditStore::update_input_caret_position(
                     id,
                     win_scale_factor,
@@ -759,7 +789,7 @@ impl TextEditStore {
             | InputOp::Undo
             | InputOp::Redo => {
                 // IMEやタイピング中の古いキャッシュを破棄
-                SystemStore::clear_layout_cache(id, sys_text_buffers);
+                SystemStore::clear_text_buffer_cache(id, sys_text_buffers);
                 TopologyStore::mark_dirty(
                     id,
                     topo_active_masks,
@@ -815,18 +845,18 @@ impl TextEditStore {
             rnd_base_visual,
             edit_selections,
             out_rects,
+            sc_offsets,
             debug,
         );
 
         let Some((caret, caret_offset, is_multiline)) = ime_caret_info else {
             return;
         };
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
         let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
         let _grid = lay_resolved_grid.find_or_default(id, debug);
-        let rect = out_rects.find_or_default(id, debug); // 初回実行の場合、存在しない可能性
-        let (border, padding) =
-            LayoutStore::get_physical_border_padding(rect, basic.border, basic.padding);
+
+        let resolved_geom =
+            ResolvedGeometry::resolved(id, sc_offsets, lay_resolved_basic, out_rects, debug);
 
         // キャレットがあるなら Some のはず
         let contents = cont_input_contents.at_mut(id);
@@ -835,24 +865,17 @@ impl TextEditStore {
 
         let mut scroll_offset = sc_offsets.find_or_default(id, debug);
 
-        if should_scroll && rect.width > 0.0 && rect.height > 0.0 {
-            let viewport = OutputStore::calc_viewport_size(rect, border, padding);
+        if should_scroll && resolved_geom.rect.width > 0.0 && resolved_geom.rect.height > 0.0 {
+            let viewport = resolved_geom.viewport_size();
 
             let text_size = if let Some(layout_rect) = contents.last_layout {
-                LayoutSize::new(layout_rect.width, layout_rect.height)
+                TextLayoutSize::new(layout_rect.width, layout_rect.height, None)
             } else {
-                LayoutSize::ZERO
+                TextLayoutSize::DEFAULT
             };
 
-            let align_offset = OutputStore::calc_align_offset(
-                rect,
-                border,
-                padding,
-                text_size,
-                flex.text_align,
-                flex.align_items,
-                is_multiline,
-            );
+            let align_offset =
+                resolved_geom.calc_align_offset(text_size, flex.text_align, flex.align_items);
 
             let aligned_caret_x = caret.x + align_offset.x;
             let aligned_caret_y = caret.y + align_offset.y;
@@ -901,10 +924,8 @@ impl TextEditStore {
 
         // IMM32 による IME 変換候補ウィンドウの位置同期を自動実行
         SystemStore::sync_imm_window_position(
-            rect,
+            &resolved_geom,
             win_scale_factor,
-            border,
-            padding,
             caret,
             caret_offset,
             scroll_offset,
@@ -925,6 +946,7 @@ impl TextEditStore {
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         edit_selections: &mut TextSelectionsSparse,
         out_rects: &RectsSecondary,
+        sc_offsets: &ScrollOffsetsSecondary,
         debug: &mut DebugStore,
     ) -> Option<(LayoutRect, f32, bool)> {
         let contents = cont_input_contents.find_mut(id)?;
@@ -993,18 +1015,26 @@ impl TextEditStore {
 
         cont_text_contents.insert(id, display_text.clone());
 
-        let buffer = SystemStore::get_or_create_layout(
-            id,
-            sys_text_engine,
-            sys_text_buffers,
-            cont_text_contents,
-            cont_text_spans,
-            lay_resolved_basic,
-            lay_resolved_flex,
-            rnd_visual,
-            out_rects,
-            debug,
-        );
+        let auto_wrap = rnd_visual.auto_wrap(id);
+        let resolved_geom =
+            ResolvedGeometry::resolved(id, sc_offsets, lay_resolved_basic, out_rects, debug);
+        let max_width_opt = resolved_geom.calc_max_width(auto_wrap);
+
+        let buffer =
+            SystemStore::get_or_create_text_buffer(id, max_width_opt, sys_text_buffers, || {
+                let text = cont_text_contents.at(id);
+                let font = rnd_visual.font(id);
+                let spans = cont_text_spans.span(id);
+                let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
+                sys_text_engine.create_buffer(
+                    text,
+                    &font,
+                    flex.text_align,
+                    max_width_opt,
+                    auto_wrap,
+                    spans,
+                )
+            });
 
         let text_size = TextEngine::get_layout_size(&buffer);
         contents.last_layout = Some(LayoutRect::new(0.0, 0.0, text_size.width, text_size.height));

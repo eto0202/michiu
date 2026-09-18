@@ -48,7 +48,7 @@ impl SendHwnd {
     }
 }
 
-pub const ALLOW_LOG: bool = false;
+pub const ALLOW_LOG: bool = true;
 pub const ALLOW_STRESS_TEST: bool = false;
 
 #[cfg(feature = "dhat-heap")]
@@ -70,15 +70,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hwnd = create_window(h_instance, class_name)?;
 
     let inspector = MichiuInspector::new();
-    let sub = inspector.subscribe(None);
+    let _sub = inspector.subscribe(None);
 
     // キャパシティは、ログやスナップショットから各配列のピーク時の長さを調べれば最適化出来る。めんどくさいけど。
     let mut context =
         Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector);
 
     // デバッグログ用のスレッド
-    #[cfg(feature = "trace-lifecycle")]
-    logger(sub);
+    #[cfg(feature = "trace-error")]
+    logger(_sub);
 
     let send_hwnd = SendHwnd(hwnd);
 
@@ -113,8 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (width, height) = client_rect(hwnd);
     app.renderer.resize((width, height), scale_factor);
-    app.context
-        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+
 
     if app.webview_id.is_some() {
         app.renderer.prewarm_webview2();

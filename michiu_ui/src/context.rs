@@ -605,6 +605,11 @@ impl Context {
         Pipeline::inject_user_action(self, action);
     }
 
+    #[inline]
+    pub fn begin_frame(&mut self) {
+        Pipeline::begin_frame(self);
+    }
+
     /// キーボードフォーカスを次の適格な要素へ巡回させます
     #[inline]
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
@@ -620,12 +625,10 @@ impl Context {
             self.window.win_last_size,
             &self.events.evt_interaction_states,
             &mut self.topology.topo_active_masks,
-            &mut self.topology.topo_dfs_indices,
             &mut self.topology.topo_effective_z_indices,
             &mut self.topology.topo_sorted_entities,
             &mut self.topology.topo_sort_cache,
             &mut self.topology.topo_is_sort_dirty,
-            &self.topology.topo_active_entities,
             &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,
             &self.renders.rnd_visual,
