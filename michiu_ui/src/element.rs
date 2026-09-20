@@ -97,7 +97,7 @@ pub(crate) struct ContextGuard {
     old: Option<*mut Context>,
 }
 
-/// `現在のスレッドローカルに` Context を一時的にバインド。
+/// 現在のスレッドローカルに `Context` を一時的にバインド。
 /// 戻り値のガードオブジェクトがスコープを抜ける際、自動的に元のコンテキストに復元。
 #[track_caller]
 #[inline]
@@ -222,7 +222,7 @@ impl Element {
     #[inline]
     #[must_use]
     pub fn tag<T: 'static>(self) -> Self {
-        with_context(|cx| cx.tag::<T>(self.id));
+        with_context(|cx| cx.tag::<T>(self));
         self
     }
 
@@ -630,7 +630,7 @@ impl Element {
     }
 
     /// This will replace the contents of this container. All previous contents will be discarded.
-    #[must_use]
+    #[allow(clippy::return_self_not_must_use)]
     pub fn set_contents(self, contents: impl Into<Prop<Element>>) -> Self {
         match contents.into() {
             Prop::None => {}

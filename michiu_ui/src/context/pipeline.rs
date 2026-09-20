@@ -470,7 +470,7 @@ impl Pipeline {
 
     #[track_caller]
     #[inline]
-    pub(crate) fn sync_layout_and_render(
+    pub(crate) fn sync_layout(
         cx: &mut Context,
         root: EntityId,
         window_size: LayoutSize,

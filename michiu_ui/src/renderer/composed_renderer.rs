@@ -391,7 +391,7 @@ impl ComposedRenderer {
                     .any(|r| r.entity_id == id);
 
                 // 現在ウィンドウがリアルタイムにリサイズ中であるか
-                let is_resizing = cx.window.win_is_resizing;
+                let is_resizing = cx.window.win_is_resized;
 
                 // インタラクティブ操作中、またはまだキャッシュがなくキャプチャもキックされていない間、
                 // あるいはキャプチャ実行中（wgpuにテクスチャが届くのを待っている間）は、DComp上に実体を生かします。
@@ -525,7 +525,7 @@ impl ComposedRenderer {
                     || (rect.height - prev_rect.height).abs() > 0.01;
 
                 // 要素自体のサイズ・変形アニメーションが終了（is_transitioning = false）するまでキャプチャを保留
-                let is_stable = !cx.window.win_is_resizing
+                let is_stable = !cx.window.win_is_resized
                     && self.resize_cooldown_frames == 0
                     && !is_transitioning
                     && !is_size_changing;
@@ -643,7 +643,7 @@ impl ComposedRenderer {
                             .any(|t| t.property_list == PropertyList::Transform)
                     });
 
-                let is_resizing = cx.window.win_is_resizing;
+                let is_resizing = cx.window.win_is_resized;
                 // トランジション駆動中であれば早期スルーを確実にバイパスして毎フレームの再設定を保証
                 if !is_resizing
                     && rect == prev_rect

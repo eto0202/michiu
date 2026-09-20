@@ -110,7 +110,7 @@ unsafe extern "system" fn wnd_proc(
                 // リアルタイムに wgpu 側の描画枠（rect）に追従し、文字の縮みを完全に防ぎます。
 
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+                    .sync_layout(app.root_id, app.renderer.layout_size);
                 // 描画直前にDCompツリーおよびWebView2の配置も最新状態に追従させます
                 app.renderer.update_composition_tree(&mut app.context);
 
@@ -313,13 +313,13 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_ENTERSIZEMOVE => {
-                app.context.set_window_resizing(true);
+                app.context.set_window_resized(true);
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             // ウィンドウドラッグリサイズの完了をキャッチ
             WM_EXITSIZEMOVE => {
-                app.context.set_window_resizing(false);
+                app.context.set_window_resized(false);
                 // リサイズ完了後の再描画を即座にキックして、新サイズでの静止画キャプチャを誘発
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -562,7 +562,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.renderer.resize((width, height), scale_factor);
 
     app.context
-        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+        .sync_layout(app.root_id, app.renderer.layout_size);
     app.renderer.prewarm_webview2();
 
     // 5. ウィンドウを表示して描画

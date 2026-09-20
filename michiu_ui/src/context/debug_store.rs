@@ -1043,7 +1043,7 @@ pub struct ContextSnapshot {
 #[derive(Clone)]
 pub struct WindowStoreSnapshot {
     pub win_scale_factor: f32,
-    pub win_is_resizing: bool,
+    pub win_is_resized: bool,
     pub win_last_size: Option<LayoutSize>,
     pub win_default_himc: Option<usize>,
 }
@@ -1258,7 +1258,7 @@ impl ContextSnapshot {
             frame: cx.debug.frame,
             window: WindowStoreSnapshot {
                 win_scale_factor: cx.window.win_scale_factor,
-                win_is_resizing: cx.window.win_is_resizing,
+                win_is_resized: cx.window.win_is_resized,
                 win_last_size: cx.window.win_last_size,
                 win_default_himc: cx.window.win_default_himc.map(|h| h.0 as usize),
             },

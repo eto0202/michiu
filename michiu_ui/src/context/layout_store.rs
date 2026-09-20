@@ -583,19 +583,6 @@ impl LayoutStore {
 
 impl Context {
     #[inline]
-    pub(crate) fn mark_layout_dirty(&mut self, id: EntityId) {
-        LayoutStore::mark_layout_dirty(
-            id,
-            &mut self.topology.topo_active_masks,
-            &self.topology.topo_parents,
-            &mut self.layouts.lay_dirty_entities,
-            &mut self.layouts.lay_taffy_tree,
-            &self.layouts.lay_taffy_nodes,
-            &mut self.debug,
-        );
-    }
-
-    #[inline]
     pub(crate) fn get_basic_layout_mut(
         &mut self,
         id: EntityId,

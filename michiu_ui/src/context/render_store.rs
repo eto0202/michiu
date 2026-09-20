@@ -1625,15 +1625,6 @@ impl RenderStore {
 
 impl Context {
     #[inline]
-    pub(crate) fn mark_render_dirty(&mut self, id: EntityId) {
-        RenderStore::mark_render_dirty(
-            id,
-            &mut self.topology.topo_active_masks,
-            &mut self.renders.rnd_dirty_entities,
-        );
-    }
-
-    #[inline]
     pub(crate) fn get_visual_property_mut(
         &mut self,
         id: EntityId,

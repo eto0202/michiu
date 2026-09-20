@@ -4,7 +4,7 @@ use windows::Win32::UI::Input::Ime::HIMC;
 #[derive(Clone)]
 pub struct WindowStore {
     pub win_scale_factor: f32,
-    pub win_is_resizing: bool,
+    pub win_is_resized: bool,
     pub(crate) win_last_size: Option<LayoutSize>,
     pub(crate) win_default_himc: Option<HIMC>,
 }
@@ -21,7 +21,7 @@ impl WindowStore {
     pub fn new() -> Self {
         Self {
             win_scale_factor: 1.0,
-            win_is_resizing: false,
+            win_is_resized: false,
             win_last_size: None,
             win_default_himc: None,
         }
@@ -30,7 +30,7 @@ impl WindowStore {
     #[inline]
     pub fn clear(&mut self) {
         self.win_scale_factor = 1.0;
-        self.win_is_resizing = false;
+        self.win_is_resized = false;
         self.win_last_size = None;
         self.win_default_himc = None;
     }

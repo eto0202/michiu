@@ -95,7 +95,7 @@ unsafe extern "system" fn wnd_proc(
                 app.context.tick_system_frame(&TickType::Transition);
 
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+                    .sync_layout(app.root_id, app.renderer.layout_size);
                 app.renderer.update_composition_tree(&mut app.context);
 
                 // 描画実行
@@ -320,7 +320,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.renderer.resize((width, height), scale_factor);
 
     app.context
-        .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+        .sync_layout(app.root_id, app.renderer.layout_size);
 
     // 5. ウィンドウを表示して描画
     unsafe {

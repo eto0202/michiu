@@ -114,7 +114,7 @@ unsafe extern "system" fn wnd_proc(
 
                 let layout_start = std::time::Instant::now();
                 app.context
-                    .sync_layout_and_render(app.root_id, app.renderer.layout_size);
+                    .sync_layout(app.root_id, app.renderer.layout_size);
                 let layout_elapsed = layout_start.elapsed();
 
                 let comp_start = std::time::Instant::now();
@@ -559,11 +559,10 @@ unsafe extern "system" fn wnd_proc(
 
                         // 現在ホバーされている要素があるかチェック
                         // なければプレス中ID等の解決は内部の resolve_cursor に
-                        if let Some(hovered_id) =
-                            app.context.interaction_id(InteractionState::Hovered)
+                        if let Some(hovered) = app.context.interaction_id(InteractionState::Hovered)
                         {
                             // プレスロック状態、通常ホバー状態、親の Global 指定、リサイズ個別設定から最適な CursorIcon を解決
-                            let cursor_icon = app.context.resolve_cursor(hovered_id);
+                            let cursor_icon = app.context.resolve_cursor(hovered);
 
                             // 物理 HCURSOR ハンドルを取得（独自カーソルがあればそれ、なければ IDC_ARROW 等を標準ロード）
                             let hcursor = cursor_icon.to_hcursor().unwrap();
