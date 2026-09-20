@@ -51,7 +51,7 @@ impl Default for TextEditStore {
 impl TextEditStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             edit_selections: TextSelectionsSparse(SparseSecondaryMap::new()),
             edit_selection_start_index: SelectionStartIndexSparse(SparseSecondaryMap::new()),
@@ -61,7 +61,7 @@ impl TextEditStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             edit_selections: TextSelectionsSparse(SparseSecondaryMap::with_capacity(
                 c.edit_selections,
@@ -76,14 +76,14 @@ impl TextEditStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.edit_selections.clear();
         self.edit_selection_start_index.clear();
         self.edit_selected_rects.clear();
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.edit_selections.remove(id);
         self.edit_selection_start_index.remove(id);
         self.edit_selected_rects.remove(id);

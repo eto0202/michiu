@@ -1226,67 +1226,67 @@ pub type DragStartCallback = Box<dyn FnMut(&mut Context, Element, Element) + 'st
 /// 要素ごとにバインドされる、検証済みイベントのハンドラ群。
 #[derive(Default)]
 #[allow(clippy::struct_field_names)]
-pub(crate) struct EventListeners {
+pub struct EventListeners {
     /// 要素がクリックされた（マウスダウン -> 同一要素上でマウスアップされた）際のコールバック
-    pub(crate) on_click: Option<ClickCallback>,
+    pub on_click: Option<ClickCallback>,
 
     /// 右クリックされた際のコールバック（コンテキストメニューの起動用など）
-    pub(crate) on_right_click: Option<SimpleCallback>,
+    pub on_right_click: Option<SimpleCallback>,
 
     /// マウスボタンの押し下げ・離しを直接受け取るハンドラ
     /// 引数: (ボタンの種類, 装飾キーの状態, 押し下げ/離し状態)
-    pub(crate) on_mouse_input: Option<MouseCallback>,
+    pub on_mouse_input: Option<MouseCallback>,
 
     /// `マウスカーソルがこの要素の可視境界（out_clip_rects）に入った際のイベント`
-    pub(crate) on_mouse_enter: Option<SimpleCallback>,
+    pub on_mouse_enter: Option<SimpleCallback>,
 
     /// マウスカーソルがこの要素の可視境界から外に出た際のイベント
-    pub(crate) on_mouse_leave: Option<SimpleCallback>,
+    pub on_mouse_leave: Option<SimpleCallback>,
 
     /// マウスカーソルが要素内で動いた際のイベント。
     /// 引数: 要素の左上を (0.0, 0.0) とする、論理スケーリング済みの相対座標 `Point`
-    pub(crate) on_cursor_moved: Option<CursorMovedCallback>,
+    pub on_cursor_moved: Option<CursorMovedCallback>,
 
     /// `マウスホイールが回された際のイベント（WM_MOUSEWHEEL` / `WM_MOUSEHWHEEL` 互換）
     /// 引数: 前方向ならプラス、後方向ならマイナスの移動量（delta）
-    pub(crate) on_mouse_wheel: Option<MouseWheelCallback>,
+    pub on_mouse_wheel: Option<MouseWheelCallback>,
 
     /// 要素がドラッグされている最中のイベント
     /// 引数: ドラッグによる移動量 `Point(delta_x, delta_y)`
-    pub(crate) on_drag: Option<DragCallback>,
+    pub on_drag: Option<DragCallback>,
 
-    pub(crate) on_hover: Option<SimpleCallback>,
-    pub(crate) on_focus: Option<SimpleCallback>,
-    pub(crate) on_blur: Option<SimpleCallback>,
-    pub(crate) on_disable: Option<SimpleCallback>,
-    pub(crate) on_active: Option<SimpleCallback>,
-    pub(crate) on_select: Option<SimpleCallback>,
+    pub on_hover: Option<SimpleCallback>,
+    pub on_focus: Option<SimpleCallback>,
+    pub on_blur: Option<SimpleCallback>,
+    pub on_disable: Option<SimpleCallback>,
+    pub on_active: Option<SimpleCallback>,
+    pub on_select: Option<SimpleCallback>,
 
     /// 物理キーボードが押された、または離された際のイベント
     /// 引数: 検証済みの仮想キーコード, 装飾キー, 状態
-    pub(crate) on_keyboard_input: Option<KeyCallback>,
+    pub on_keyboard_input: Option<KeyCallback>,
 
     /// `IMEなどを介さない、確定した1文字の文字入力イベント（WM_CHAR` 互換）
-    pub(crate) on_char_input: Option<CharCallback>,
+    pub on_char_input: Option<CharCallback>,
 
     /// IME（TSF / Input Method）による未確定文字の入力や確定が行われた際のイベント
     /// 引数: 検証済みのIME状態アップデート情報
-    pub(crate) on_ime: Option<ImeCallback>,
+    pub on_ime: Option<ImeCallback>,
 
     /// 外部のファイルやフォルダがこの要素の上にドラッグ＆ドロップされた際のイベント
     /// 引数: 検証済みのファイルパスの配列
-    pub(crate) on_file_dropped: Option<FileDropCallback>,
+    pub on_file_dropped: Option<FileDropCallback>,
     /// ファイルが要素の可視境界内にドラッグされて入ってきた瞬間に発火します（ドロップゾーンの強調表示用）
-    pub(crate) on_file_drag_enter: Option<FileDragCallback>,
+    pub on_file_drag_enter: Option<FileDragCallback>,
     /// ドラッグされていたファイルが要素の外に出た、またはドラッグがキャンセルされた瞬間に発火します
-    pub(crate) on_file_drag_leave: Option<FileDragCallback>,
+    pub on_file_drag_leave: Option<FileDragCallback>,
 
     // D&D 専用イベント
-    pub(crate) on_dnd_entity_drag: Option<EntityDragCallback>,
-    pub(crate) on_dnd_id_drag: Option<IdDragCallback>,
-    pub(crate) on_dnd_entity_drop: Option<EntityDropCallback>,
-    pub(crate) on_dnd_id_drop: Option<IdDropCallback>,
-    pub(crate) on_dnd_drag_start: Option<DragStartCallback>,
+    pub on_dnd_entity_drag: Option<EntityDragCallback>,
+    pub on_dnd_id_drag: Option<IdDragCallback>,
+    pub on_dnd_entity_drop: Option<EntityDropCallback>,
+    pub on_dnd_id_drop: Option<IdDropCallback>,
+    pub on_dnd_drag_start: Option<DragStartCallback>,
 }
 
 define_event_dispatchers! {

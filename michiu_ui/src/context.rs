@@ -804,6 +804,39 @@ impl Context {
     pub fn sync_layout(&mut self, root: EntityId, window_size: LayoutSize) {
         Pipeline::sync_layout(self, root, window_size);
     }
+
+    /// `RawContext` を取得します。
+    /// 
+    #[inline]
+    pub fn raw_context_mut(&mut self) -> RawContext<'_> {
+        RawContext {
+            window: &mut self.window,
+            system: &mut self.system,
+            reactive: &mut self.reactive,
+            events: &mut self.events,
+            contents: &mut self.contents,
+            topology: &mut self.topology,
+            states: &mut self.states,
+            layouts: &mut self.layouts,
+            renders: &mut self.renders,
+            outputs: &mut self.outputs,
+            debug: &mut self.debug,
+        }
+    }
+}
+
+pub struct RawContext<'a> {
+    pub window: &'a mut WindowStore,
+    pub system: &'a mut SystemStore,
+    pub reactive: &'a mut ReactiveStore,
+    pub events: &'a mut EventStore,
+    pub contents: &'a mut ContentStore,
+    pub topology: &'a mut TopologyStore,
+    pub states: &'a mut StateStore,
+    pub layouts: &'a mut LayoutStore,
+    pub renders: &'a mut RenderStore,
+    pub outputs: &'a mut OutputStore,
+    pub debug: &'a mut DebugStore,
 }
 
 #[cfg(test)]

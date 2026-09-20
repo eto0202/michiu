@@ -47,7 +47,7 @@ define_vec!(pub struct PendingActions(UserAction));
 
 #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
-pub(crate) struct EventListenersSparse(SparseSecondaryMap<EntityId, EventListeners>);
+pub struct EventListenersSparse(SparseSecondaryMap<EntityId, EventListeners>);
 
 impl MichiuSoA for EventListenersSparse {
     type Item = EventListeners;
@@ -78,7 +78,7 @@ impl Default for EventStore {
 impl EventStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             evt_listeners: EventListenersSparse(SparseSecondaryMap::new()),
             evt_interaction_states: ActiveInteractionStates::new(),
@@ -89,7 +89,7 @@ impl EventStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             evt_listeners: EventListenersSparse(SparseSecondaryMap::with_capacity(c.evt_listeners)),
             evt_pending_actions: PendingActions(Vec::with_capacity(c.evt_pending_actions)),
@@ -98,16 +98,36 @@ impl EventStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.evt_listeners.clear();
         self.evt_interaction_states = ActiveInteractionStates::new();
         self.evt_current_pointer_position = None;
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.evt_listeners.remove(id);
         self.evt_interaction_states.clear_entity(id);
+    }
+
+    #[inline]
+    pub fn current_pointer_position_mut(&mut self) -> &mut Option<LayoutPoint> {
+        &mut self.evt_current_pointer_position
+    }
+
+    #[inline]
+    pub fn interaction_states_mut(&mut self) -> &mut ActiveInteractionStates {
+        &mut self.evt_interaction_states
+    }
+
+    #[inline]
+    pub fn listeners_mut(&mut self) -> &mut EventListenersSparse {
+        &mut self.evt_listeners
+    }
+
+    #[inline]
+    pub fn pending_actions_mut(&mut self) -> &mut PendingActions {
+        &mut self.evt_pending_actions
     }
 }
 

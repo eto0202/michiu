@@ -43,9 +43,9 @@ impl TextLayoutSize {
     }
 }
 
-pub(crate) struct TextEngine {
-    pub(crate) font_system: FontSystem,
-    pub(crate) swash_cache: SwashCache,
+pub struct TextEngine {
+    pub font_system: FontSystem,
+    pub swash_cache: SwashCache,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

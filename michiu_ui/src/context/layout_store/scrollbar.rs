@@ -162,7 +162,7 @@ impl Default for ScrollbarStore {
 impl ScrollbarStore {
     #[must_use]
     #[inline]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             bar_styles: ScrollbarStylesSparse(SparseSecondaryMap::new()),
         }
@@ -170,19 +170,19 @@ impl ScrollbarStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             bar_styles: ScrollbarStylesSparse(SparseSecondaryMap::with_capacity(c.bar_styles)),
         }
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.bar_styles.clear();
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.bar_styles.remove(id);
     }
 }

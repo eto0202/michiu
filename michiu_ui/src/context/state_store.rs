@@ -28,7 +28,7 @@ impl Default for StateStore {
 impl StateStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             dnd: DndStore::new(),
             resize: ResizeStore::new(),
@@ -39,7 +39,7 @@ impl StateStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             dnd: DndStore::with_capacity(c),
             scroll: ScrollStore::with_capacity(c),
@@ -49,7 +49,7 @@ impl StateStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.dnd.clear();
         self.resize.clear();
         self.scroll.clear();
@@ -57,10 +57,60 @@ impl StateStore {
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.dnd.despawn(id);
         self.scroll.despawn(id);
         self.edit.despawn(id);
+    }
+
+    #[inline]
+    pub fn active_drag_state_mut(&mut self) -> &mut Option<ActiveDragState> {
+        &mut self.dnd.dnd_active_drag_state
+    }
+
+    #[inline]
+    pub fn drag_properties_mut(&mut self) -> &mut DndDragPropertiesSparse {
+        &mut self.dnd.dnd_drag_properties
+    }
+
+    #[inline]
+    pub fn drop_properties_mut(&mut self) -> &mut DndDropPropertiesSparse {
+        &mut self.dnd.dnd_drop_properties
+    }
+
+    #[inline]
+    pub fn selected_rects_mut(&mut self) -> &mut SelectedRectsSparse {
+        &mut self.edit.edit_selected_rects
+    }
+
+    #[inline]
+    pub fn selection_start_index_mut(&mut self) -> &mut SelectionStartIndexSparse {
+        &mut self.edit.edit_selection_start_index
+    }
+
+    #[inline]
+    pub fn selections_mut(&mut self) -> &mut TextSelectionsSparse {
+        &mut self.edit.edit_selections
+    }
+
+    #[inline]
+    pub fn active_resize_hover_mut(&mut self) -> &mut Option<(EntityId, ResizeDirection)> {
+        &mut self.resize.res_active_resize_hover
+    }
+
+    #[inline]
+    pub fn resizing_state_mut(&mut self) -> &mut Option<ResizingState> {
+        &mut self.resize.res_resizing_state
+    }
+
+    #[inline]
+    pub fn scroll_offsets_mut(&mut self) -> &mut ScrollOffsetsSecondary {
+        &mut self.scroll.sc_offsets
+    }
+
+    #[inline]
+    pub fn scroll_sizes_mut(&mut self) -> &mut ScrollSizesSecondary {
+        &mut self.scroll.sc_sizes
     }
 }
 

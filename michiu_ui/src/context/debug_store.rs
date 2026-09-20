@@ -91,7 +91,7 @@ impl Default for DebugStore {
 impl DebugStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             boot_time: Instant::now(),
             frame: 0,
@@ -101,9 +101,10 @@ impl DebugStore {
         }
     }
 
+    #[allow(unused)]
     #[inline]
     #[must_use]
-    pub fn with_inspector(inspector: &MichiuInspector) -> Self {
+    pub(crate) fn with_inspector(inspector: &MichiuInspector) -> Self {
         Self {
             boot_time: Instant::now(),
             frame: 0,
@@ -134,6 +135,31 @@ impl DebugStore {
             MichiuTraceVec(Vec::with_capacity(next_capacity)),
         )
     }
+
+    #[inline]
+    pub fn boot_time_mut(&mut self) -> &mut Instant {
+        &mut self.boot_time
+    }
+
+    #[inline]
+    pub fn dbg_root_mut(&mut self) -> &mut Option<EntityId> {
+        &mut self.dbg_root
+    }
+
+    #[inline]
+    pub fn trace_queue_mut(&mut self) -> &mut MichiuTraceVec {
+        &mut self.dbg_trace_queue
+    }
+
+    #[inline]
+    pub fn tx_mut(&mut self) -> &mut Option<InspectorSender> {
+        &mut self.dbg_tx
+    }
+
+    #[inline]
+    pub fn frame_mut(&mut self) -> &mut u64 {
+        &mut self.frame
+    }
 }
 
 // ================================================================
@@ -143,7 +169,7 @@ impl DebugStore {
 #[derive(Debug, Clone)]
 pub struct InspectorSender {
     // 1フレーム分のバッチを丸ごと送るチャネル
-    tx: SyncSender<MichiuTraceVec>,
+    pub tx: SyncSender<MichiuTraceVec>,
 }
 
 #[cfg(feature = "trace-error")]

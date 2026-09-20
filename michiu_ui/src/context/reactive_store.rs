@@ -27,15 +27,15 @@ pub enum EffectCategory {
     FocusableState,
 }
 
-pub(crate) struct Effects(pub(crate) Box<dyn FnMut(&mut Context)>);
+pub struct Effects(pub Box<dyn FnMut(&mut Context)>);
 impl std::fmt::Debug for Effects {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Effects(<closure>)")
     }
 }
 
-define_slotmap!(pub(crate) struct SignalsSlot(SignalId, Box<dyn std::any::Any>));
-define_slotmap!(pub(crate) struct EffectsSlot(EffectId, Effects));
+define_slotmap!(pub struct SignalsSlot(SignalId, Box<dyn std::any::Any>));
+define_slotmap!(pub struct EffectsSlot(EffectId, Effects));
 
 define_secondary!(pub struct SubscribersSecondary(SignalId, SmallVec<[EffectId; 8]>));
 define_secondary!(pub struct ElementEffectsSecondary(SmallVec<[(EffectCategory, EffectId); 8]>));
@@ -64,7 +64,7 @@ impl Default for ReactiveStore {
 impl ReactiveStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             react_signals: SignalsSlot(SlotMap::with_key()),
             react_effects: EffectsSlot(SlotMap::with_key()),
@@ -78,7 +78,7 @@ impl ReactiveStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             react_signals: SignalsSlot(SlotMap::with_capacity_and_key(c.react_signals)),
             react_effects: EffectsSlot(SlotMap::with_capacity_and_key(c.react_effects)),
@@ -101,7 +101,7 @@ impl ReactiveStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.react_signals.clear();
         self.react_effects.clear();
         self.react_subscribers.clear();
@@ -112,7 +112,7 @@ impl ReactiveStore {
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         if let Some(react_effects) = self.react_element_effects.remove(id) {
             for (_, effect_id) in react_effects {
                 self.react_effects.remove(effect_id);
@@ -300,6 +300,41 @@ impl ReactiveStore {
         {
             execute_effect(effect_id);
         }
+    }
+
+    #[inline]
+    pub fn effect_to_element_mut(&mut self) -> &mut EffectToElementSecondary {
+        &mut self.react_effect_to_element
+    }
+
+    #[inline]
+    pub fn effects_mut(&mut self) -> &mut EffectsSlot {
+        &mut self.react_effects
+    }
+
+    #[inline]
+    pub fn element_effects_mut(&mut self) -> &mut ElementEffectsSecondary {
+        &mut self.react_element_effects
+    }
+
+    #[inline]
+    pub fn pending_element_effects_mut(&mut self) -> &mut PendingElementEffectsVec {
+        &mut self.react_pending_element_effects
+    }
+
+    #[inline]
+    pub fn providers_mut(&mut self) -> &mut ProvidersSparseSecondary {
+        &mut self.react_providers
+    }
+
+    #[inline]
+    pub fn signals_mut(&mut self) -> &mut SignalsSlot {
+        &mut self.react_signals
+    }
+
+    #[inline]
+    pub fn subscribers_mut(&mut self) -> &mut SubscribersSecondary {
+        &mut self.react_subscribers
     }
 }
 

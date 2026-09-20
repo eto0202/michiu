@@ -78,7 +78,7 @@ impl Default for TopologyStore {
 impl TopologyStore {
     #[must_use]
     #[inline]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             topo_entities: EntitiesSlot(SlotMap::with_key()),
             topo_active_entities: ActiveEntitiesVec(Vec::new()),
@@ -101,7 +101,7 @@ impl TopologyStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             topo_entities: EntitiesSlot(SlotMap::with_capacity_and_key(c.topo_entities)),
             topo_active_entities: ActiveEntitiesVec(Vec::with_capacity(c.topo_active_entities)),
@@ -131,7 +131,7 @@ impl TopologyStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.topo_entities.clear();
         self.topo_active_entities.clear();
         self.topo_active_masks.clear();
@@ -148,7 +148,7 @@ impl TopologyStore {
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.topo_entities.remove(id);
         self.topo_active_entities.retain(|&x| x != id);
         self.topo_active_masks.remove(id);
@@ -950,6 +950,86 @@ impl TopologyStore {
         });
 
         None
+    }
+
+    #[inline]
+    pub fn active_entities_mut(&mut self) -> &mut ActiveEntitiesVec {
+        &mut self.topo_active_entities
+    }
+
+    #[inline]
+    pub fn active_masks_mut(&mut self) -> &mut ActiveMasksSecondary {
+        &mut self.topo_active_masks
+    }
+
+    #[inline]
+    pub fn children_mut(&mut self) -> &mut ChildrenSecondary {
+        &mut self.topo_children
+    }
+
+    #[inline]
+    pub fn despawned_queue_mut(&mut self) -> &mut DespawnedQueueVec {
+        &mut self.topo_despawned_queue
+    }
+
+    #[inline]
+    pub fn effective_z_indices_mut(&mut self) -> &mut EffectiveZindicesSecondary {
+        &mut self.topo_effective_z_indices
+    }
+
+    #[inline]
+    pub fn entities_mut(&mut self) -> &mut EntitiesSlot {
+        &mut self.topo_entities
+    }
+
+    #[inline]
+    pub fn flat_dfs_sequence_mut(&mut self) -> &mut FlatDfsSequenceVec {
+        &mut self.topo_flat_dfs_sequence
+    }
+
+    #[inline]
+    pub fn is_sort_dirty_mut(&mut self) -> &mut bool {
+        &mut self.topo_is_sort_dirty
+    }
+
+    #[inline]
+    pub fn is_structure_dirty_mut(&mut self) -> &mut bool {
+        &mut self.topo_is_structure_dirty
+    }
+
+    #[inline]
+    pub fn parents_mut(&mut self) -> &mut ParentsSecondary {
+        &mut self.topo_parents
+    }
+
+    #[inline]
+    pub fn session_roots_mut(&mut self) -> &mut SessionRootsVec {
+        &mut self.topo_session_roots
+    }
+
+    #[inline]
+    pub fn session_spawned_mut(&mut self) -> &mut SessionSpawnedVec {
+        &mut self.topo_session_spawned
+    }
+
+    #[inline]
+    pub fn sort_cache_mut(&mut self) -> &mut SortCacheVec {
+        &mut self.topo_sort_cache
+    }
+
+    #[inline]
+    pub fn sorted_entities_mut(&mut self) -> &mut SortedEntitiesVec {
+        &mut self.topo_sorted_entities
+    }
+
+    #[inline]
+    pub fn tag_registry_mut(&mut self) -> &mut MichiuTagRegistry {
+        &mut self.topo_tag_registry
+    }
+
+    #[inline]
+    pub fn webview_entities_mut(&mut self) -> &mut WebviewEntitiesVec {
+        &mut self.topo_webview_entities
     }
 }
 

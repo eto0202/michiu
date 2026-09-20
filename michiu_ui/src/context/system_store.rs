@@ -60,7 +60,7 @@ pub struct SystemStore {
 impl SystemStore {
     #[inline]
     #[must_use]
-    pub fn new(sys_task_sender: TaskSender, sys_task_receiver: Receiver<TaskRecv>) -> Self {
+    pub(crate) fn new(sys_task_sender: TaskSender, sys_task_receiver: Receiver<TaskRecv>) -> Self {
         Self {
             sys_text_engine: TextEngine::new(),
             sys_text_buffers: RefCell::new(TextBufferSparseInner(SparseSecondaryMap::new())),
@@ -72,7 +72,7 @@ impl SystemStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(
+    pub(crate) fn with_capacity(
         sys_task_sender: TaskSender,
         sys_task_receiver: Receiver<TaskRecv>,
         c: &CapacityConfig,
@@ -89,14 +89,14 @@ impl SystemStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.sys_text_buffers.borrow_mut().clear();
         while self.sys_task_receiver.try_recv().is_ok() {}
         self.sys_uia_properties.clear();
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.sys_text_buffers.borrow_mut().remove(id);
         self.sys_uia_properties.remove(id);
     }
@@ -260,6 +260,33 @@ impl SystemStore {
         };
 
         let _ = unsafe { ImmAssociateContext(hwnd, *win_default_himc) };
+    }
+
+    #[inline]
+    pub fn task_receiver_mut(
+        &mut self,
+    ) -> &mut Receiver<Box<dyn FnOnce(&mut Context) + Send + 'static>> {
+        &mut self.sys_task_receiver
+    }
+
+    #[inline]
+    pub fn task_sender_mut(&mut self) -> &mut TaskSender {
+        &mut self.sys_task_sender
+    }
+
+    #[inline]
+    pub fn text_buffers_mut(&mut self) -> &mut RefCell<TextBufferSparseInner> {
+        &mut self.sys_text_buffers
+    }
+
+    #[inline]
+    pub fn text_engine_mut(&mut self) -> &mut TextEngine {
+        &mut self.sys_text_engine
+    }
+
+    #[inline]
+    pub fn uia_properties_mut(&mut self) -> &mut UiaPropertiesSparse {
+        &mut self.sys_uia_properties
     }
 }
 

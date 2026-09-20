@@ -27,7 +27,7 @@ impl Default for ScrollStore {
 impl ScrollStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             sc_offsets: ScrollOffsetsSecondary(SecondaryMap::new()),
             sc_sizes: ScrollSizesSecondary(SecondaryMap::new()),
@@ -36,7 +36,7 @@ impl ScrollStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             sc_offsets: ScrollOffsetsSecondary(SecondaryMap::with_capacity(c.sc_offsets)),
             sc_sizes: ScrollSizesSecondary(SecondaryMap::with_capacity(c.sc_sizes)),
@@ -44,13 +44,13 @@ impl ScrollStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.sc_offsets.clear();
         self.sc_sizes.clear();
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.sc_offsets.remove(id);
         self.sc_sizes.remove(id);
     }

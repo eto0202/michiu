@@ -83,7 +83,7 @@ impl Default for DndStore {
 impl DndStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             dnd_drag_properties: DndDragPropertiesSparse(SparseSecondaryMap::new()),
             dnd_drop_properties: DndDropPropertiesSparse(SparseSecondaryMap::new()),
@@ -93,7 +93,7 @@ impl DndStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             dnd_drag_properties: DndDragPropertiesSparse(SparseSecondaryMap::with_capacity(
                 c.dnd_drag_properties,
@@ -106,14 +106,14 @@ impl DndStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.dnd_drag_properties.clear();
         self.dnd_drop_properties.clear();
         self.dnd_active_drag_state = None;
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.dnd_drag_properties.remove(id);
         self.dnd_drop_properties.remove(id);
 

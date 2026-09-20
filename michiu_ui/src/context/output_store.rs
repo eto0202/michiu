@@ -28,7 +28,7 @@ impl Default for OutputStore {
 impl OutputStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             out_rects: RectsSecondary(SecondaryMap::new()),
             out_clip_rects: ClipRectsSecondary(SecondaryMap::new()),
@@ -39,7 +39,7 @@ impl OutputStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             out_rects: RectsSecondary(SecondaryMap::with_capacity(c.out_rects)),
             out_clip_rects: ClipRectsSecondary(SecondaryMap::with_capacity(c.out_clip_rects)),
@@ -51,7 +51,7 @@ impl OutputStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.out_rects.clear();
         self.out_clip_rects.clear();
         self.out_prev_rects.clear();
@@ -59,7 +59,7 @@ impl OutputStore {
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.out_rects.remove(id);
         self.out_clip_rects.remove(id);
         self.out_prev_rects.remove(id);
@@ -258,6 +258,26 @@ impl OutputStore {
         let is_out_x = pointer_pos.x < clip.x || pointer_pos.x > clip.x + clip.width;
         let is_out_y = pointer_pos.y < clip.y || pointer_pos.y > clip.y + clip.height;
         is_out_x || is_out_y
+    }
+
+    #[inline]
+    pub fn clip_rects_mut(&mut self) -> &mut ClipRectsSecondary {
+        &mut self.out_clip_rects
+    }
+
+    #[inline]
+    pub fn prev_clip_rects_mut(&mut self) -> &mut PrevClipRectsSecondary {
+        &mut self.out_prev_clip_rects
+    }
+
+    #[inline]
+    pub fn prev_rects_mut(&mut self) -> &mut PrevRectsSecondary {
+        &mut self.out_prev_rects
+    }
+
+    #[inline]
+    pub fn rects_mut(&mut self) -> &mut RectsSecondary {
+        &mut self.out_rects
     }
 }
 

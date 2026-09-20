@@ -98,7 +98,7 @@ impl Default for RenderStore {
 impl RenderStore {
     #[must_use]
     #[inline]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             rnd_dirty_entities: DirtyRenderEntitiesVec(Vec::new()),
             rnd_visual: VisualPropertiesSecondary(SecondaryMap::new()),
@@ -113,7 +113,7 @@ impl RenderStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             rnd_dirty_entities: DirtyRenderEntitiesVec(Vec::with_capacity(c.rnd_dirty_entities)),
             rnd_visual: VisualPropertiesSecondary(SecondaryMap::with_capacity(c.rnd_visual)),
@@ -138,7 +138,7 @@ impl RenderStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.rnd_dirty_entities.clear();
         self.rnd_visual.clear();
         self.rnd_base_visual.clear();
@@ -150,7 +150,7 @@ impl RenderStore {
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.rnd_dirty_entities.retain(|&x| x != id);
         self.rnd_visual.remove(id);
         self.rnd_base_visual.remove(id);
@@ -1620,6 +1620,46 @@ impl RenderStore {
             // トランジションが空になった要素はマップごと削除
             !transitions.is_empty()
         });
+    }
+
+    #[inline]
+    pub fn active_animations_mut(&mut self) -> &mut ActiveAnimationsSparse {
+        &mut self.rnd_active_animations
+    }
+
+    #[inline]
+    pub fn active_transitions_mut(&mut self) -> &mut ActiveTransitionsSparse {
+        &mut self.rnd_active_transitions
+    }
+
+    #[inline]
+    pub fn active_webviews_mut(&mut self) -> &mut FxHashSet<EntityId> {
+        &mut self.rnd_active_webviews
+    }
+
+    #[inline]
+    pub fn base_visual_mut(&mut self) -> &mut BaseVisualPropertiesSecondary {
+        &mut self.rnd_base_visual
+    }
+
+    #[inline]
+    pub fn dirty_entities_mut(&mut self) -> &mut DirtyRenderEntitiesVec {
+        &mut self.rnd_dirty_entities
+    }
+
+    #[inline]
+    pub fn interaction_mut(&mut self) -> &mut InteractionPropertiesSecondary {
+        &mut self.rnd_interaction
+    }
+
+    #[inline]
+    pub fn last_tick_time_mut(&mut self) -> &mut Option<Instant> {
+        &mut self.rnd_last_tick_time
+    }
+
+    #[inline]
+    pub fn visual_mut(&mut self) -> &mut VisualPropertiesSecondary {
+        &mut self.rnd_visual
     }
 }
 

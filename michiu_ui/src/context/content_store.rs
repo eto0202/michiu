@@ -162,7 +162,7 @@ impl Default for ContentStore {
 impl ContentStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             cont_text_contents: TextContentsSparse(SparseSecondaryMap::new()),
             cont_text_spans: TextSpansSparse(SparseSecondaryMap::new()),
@@ -175,7 +175,7 @@ impl ContentStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             cont_text_contents: TextContentsSparse(SparseSecondaryMap::with_capacity(
                 c.edit_selections,
@@ -195,7 +195,7 @@ impl ContentStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.cont_text_contents.clear();
         self.cont_text_spans.clear();
         self.cont_input_contents.clear();
@@ -205,13 +205,43 @@ impl ContentStore {
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.cont_text_contents.remove(id);
         self.cont_text_spans.remove(id);
         self.cont_input_contents.remove(id);
         self.cont_external_textures.remove(id);
         self.cont_webview_contents.remove(id);
         self.cont_cut_text = None;
+    }
+
+    #[inline]
+    pub fn cut_text_mut(&mut self) -> &mut Option<MichiuString> {
+        &mut self.cont_cut_text
+    }
+
+    #[inline]
+    pub fn external_textures_mut(&mut self) -> &mut ExternalTextureSparse {
+        &mut self.cont_external_textures
+    }
+
+    #[inline]
+    pub fn input_contents_mut(&mut self) -> &mut InputContentsSparse {
+        &mut self.cont_input_contents
+    }
+
+    #[inline]
+    pub fn cont_text_contents_mut(&mut self) -> &mut TextContentsSparse {
+        &mut self.cont_text_contents
+    }
+
+    #[inline]
+    pub fn text_spans_mut(&mut self) -> &mut TextSpansSparse {
+        &mut self.cont_text_spans
+    }
+
+    #[inline]
+    pub fn webview_contents_mut(&mut self) -> &mut WebviewContentsSparse {
+        &mut self.cont_webview_contents
     }
 }
 

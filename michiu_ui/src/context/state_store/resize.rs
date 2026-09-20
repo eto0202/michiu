@@ -43,7 +43,7 @@ impl Default for ResizeStore {
 impl ResizeStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             res_resizing_state: None,
             res_active_resize_hover: None,
@@ -51,7 +51,7 @@ impl ResizeStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.res_resizing_state = None;
         self.res_active_resize_hover = None;
     }

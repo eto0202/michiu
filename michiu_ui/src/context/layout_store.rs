@@ -66,7 +66,7 @@ impl Default for LayoutStore {
 impl LayoutStore {
     #[must_use]
     #[inline]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             scrollbar: ScrollbarStore::new(),
             lay_dirty_entities: DirtyLayoutEntitiesVec(Vec::new()),
@@ -85,7 +85,7 @@ impl LayoutStore {
 
     #[inline]
     #[must_use]
-    pub fn with_capacity(c: &CapacityConfig) -> Self {
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
         Self {
             scrollbar: ScrollbarStore::with_capacity(c),
             lay_dirty_entities: DirtyLayoutEntitiesVec(Vec::with_capacity(c.lay_dirty_entities)),
@@ -111,7 +111,7 @@ impl LayoutStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.scrollbar.clear();
         self.lay_dirty_entities.clear();
         self.lay_taffy_tree = TaffyTree::new();
@@ -127,7 +127,7 @@ impl LayoutStore {
     }
 
     #[inline]
-    pub fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: EntityId) {
         self.scrollbar.despawn(id);
         self.lay_dirty_entities.retain(|&x| x != id);
         self.lay_taffy_nodes.remove(id);
@@ -578,6 +578,65 @@ impl LayoutStore {
             };
             curr = *parent_id;
         }
+    }
+
+    #[inline]
+    pub fn base_basic_mut(&mut self) -> &mut BaseBasicLayoutsSecondary {
+        &mut self.lay_base_basic
+    }
+
+    #[inline]
+    pub fn base_flex_mut(&mut self) -> &mut BaseFlexLayoutsSecondary {
+        &mut self.lay_base_flex
+    }
+
+    #[inline]
+    pub fn basic_mut(&mut self) -> &mut BasicLayoutsSecondary {
+        &mut self.lay_basic
+    }
+
+    #[inline]
+    pub fn dirty_entities_mut(&mut self) -> &mut DirtyLayoutEntitiesVec {
+        &mut self.lay_dirty_entities
+    }
+
+    #[inline]
+    pub fn flex_mut(&mut self) -> &mut FlexLayoutsSecondary {
+        &mut self.lay_flex
+    }
+
+    #[inline]
+    pub fn grid_mut(&mut self) -> &mut GridLayoutsSparse {
+        &mut self.lay_grid
+    }
+    #[inline]
+    pub fn resolved_basic_mut(&mut self) -> &mut ResolvedBasicSecondary {
+        &mut self.lay_resolved_basic
+    }
+
+    #[inline]
+    pub fn resolved_flex_mut(&mut self) -> &mut ResolvedFlexSecondary {
+        &mut self.lay_resolved_flex
+    }
+
+    #[inline]
+    pub fn resolved_grid_mut(&mut self) -> &mut ResolvedGridSparse {
+        &mut self.lay_resolved_grid
+    }
+
+    #[inline]
+    pub fn taffy_nodes_mut(&mut self) -> &mut TaffyNodesSecondary {
+        &mut self.lay_taffy_nodes
+    }
+
+    #[inline]
+    pub fn taffy_tree_mut(&mut self) -> &mut TaffyTree<EntityId> {
+        &mut self.lay_taffy_tree
+    }
+
+    #[inline]
+    pub fn bar_styles_mut(&mut self) -> &mut ScrollbarStylesSparse {
+        &mut self.scrollbar.bar_styles
     }
 }
 

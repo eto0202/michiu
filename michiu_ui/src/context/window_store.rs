@@ -3,8 +3,8 @@ use windows::Win32::UI::Input::Ime::HIMC;
 
 #[derive(Clone)]
 pub struct WindowStore {
-    pub win_scale_factor: f32,
-    pub win_is_resized: bool,
+    pub(crate) win_scale_factor: f32,
+    pub(crate) win_is_resized: bool,
     pub(crate) win_last_size: Option<LayoutSize>,
     pub(crate) win_default_himc: Option<HIMC>,
 }
@@ -18,7 +18,7 @@ impl Default for WindowStore {
 impl WindowStore {
     #[inline]
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             win_scale_factor: 1.0,
             win_is_resized: false,
@@ -28,7 +28,7 @@ impl WindowStore {
     }
 
     #[inline]
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.win_scale_factor = 1.0;
         self.win_is_resized = false;
         self.win_last_size = None;
@@ -36,7 +36,7 @@ impl WindowStore {
     }
 
     #[inline]
-    pub fn despawn(&mut self, _id: EntityId) {}
+    pub(crate) fn despawn(&mut self, _id: EntityId) {}
 }
 
 impl WindowStore {
@@ -63,5 +63,25 @@ impl WindowStore {
         let height = calc_visible_len(container_rect.y, container_rect.height, window_size.height);
 
         LayoutSize::new(width, height)
+    }
+
+    #[inline]
+    pub fn scale_factor_mut(&mut self) -> &mut f32 {
+        &mut self.win_scale_factor
+    }
+
+    #[inline]
+    pub fn default_himc_mut(&mut self) -> &mut Option<HIMC> {
+        &mut self.win_default_himc
+    }
+
+    #[inline]
+    pub fn is_resized_mut(&mut self) -> &mut bool {
+        &mut self.win_is_resized
+    }
+
+    #[inline]
+    pub fn last_size_mut(&mut self) -> &mut Option<LayoutSize> {
+        &mut self.win_last_size
     }
 }
