@@ -13,12 +13,24 @@ use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
 thread_local! {
-    // 現在構築中のUIコンテキストへの生ポインタを一時的にバインドするグローバルスレッド領域。
-    // UI構築は常に単一のスレッド（メインスレッド）で行われるため、このアプローチは安全に機能。
+    // 現在構築中のUIコンテキストへの生ポインタを一時的にバインドするグローバルスレッド領域
     static ACTIVE_CONTEXT: Cell<Option<*mut Context>> = const { Cell::new(None) };
 }
 
-/// ユーザーがコンポーネントを評価する際に呼び出すグローバルラッパー
+/// Builds the UI and returns the root element.
+///
+/// # Examples
+///
+/// ```rust
+/// use michiu_ui::{build_ui, div, div_n, ts, Color, Context};
+///
+/// let mut cx = Context::new();
+/// let root = build_ui(cx, || {
+///     div(ts().bg_color(Color::GREEN))
+///         .child(div_n()) // empty container
+/// });
+///
+/// ```
 pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     let old = ACTIVE_CONTEXT.get();
     let current = std::ptr::from_mut::<Context>(cx);
@@ -51,7 +63,8 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     result
 }
 
-/// スレッドローカルから安全にContextへのアクセスを解決する内部ヘルパー\n\
+/// スレッドローカルから安全にContextへのアクセスを解決する内部ヘルパー
+///
 /// Context が無く、トレースが送信出来ないためパニックで落とす。
 #[track_caller]
 #[allow(clippy::panic)]
@@ -84,8 +97,8 @@ pub(crate) struct ContextGuard {
     old: Option<*mut Context>,
 }
 
-/// `現在のスレッドローカル（ACTIVE_CONTEXT）に` Context を一時的にバインドします。
-/// 戻り値のガードオブジェクト（ContextGuard）がスコープを抜ける際、自動的に元のコンテキストに復元されます。
+/// `現在のスレッドローカルに` Context を一時的にバインド。
+/// 戻り値のガードオブジェクトがスコープを抜ける際、自動的に元のコンテキストに復元。
 #[track_caller]
 #[inline]
 pub(crate) fn bind_context(cx: &mut Context) -> ContextGuard {
@@ -123,14 +136,14 @@ impl Drop for ContextGuard {
     }
 }
 
-/// 静的な値、または動的に変化する値（Signalやクロージャ）を抽象化する型
+/// A type that abstracts static or dynamically changing values.
 pub enum Prop<T> {
     None,
     Static(T),
     Dynamic(Box<dyn Fn() -> T + 'static>),
 }
 
-/// 構築が完了したUI要素を表す軽量なハンドル
+/// A lightweight handle representing a completed UI element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Element {
     pub(crate) id: EntityId,
@@ -149,7 +162,10 @@ impl From<EntityId> for Element {
 }
 
 impl Element {
-    /// 新規要素の構築を開始します
+    /// Start building the new elements.
+    ///
+    /// Prefer using [`crate::div`], [`crate::div_n`], [`crate::v_flex`], [`crate::h_flex`] etc.
+    /// functions for a cleaner syntax.
     #[inline]
     #[must_use]
     pub fn new() -> Self {
@@ -158,28 +174,30 @@ impl Element {
         Self { id }
     }
 
+    /// Get the internal [`EntityId`].
     #[inline]
     #[must_use]
     pub fn id(&self) -> EntityId {
         self.id
     }
 
-    /// 要素が現在保持している親要素のハンドルを安全に取得します。
+    /// Get the handle of the parent element.
     #[inline]
     #[must_use]
     pub fn parent_element(self) -> Option<Element> {
         with_context(|cx| cx.parent_element(self))
     }
 
-    /// 要素が現在保持している子要素のハンドルリストを安全に取得します。
+    /// Get the list of handles for the child elements.
     #[inline]
     #[must_use]
-    pub fn children_list(self) -> Option<Vec<Element>> {
-        with_context(|cx| cx.children_list(self))
+    pub fn children_list(self) -> Vec<Element> {
+        with_context(|cx| cx.children_list(self).collect())
     }
 
-    /// この要素に対して、型 T のコンテキスト（シグナル）を提供（Provide）します。
-    /// この要素、およびそのすべての子孫要素のエフェクトから `use_provided::<T>()` で取得可能になります。
+    /// Provides a context (signal) of type `T`.
+    ///
+    /// Obtainable in this element and all its descendant elements via `use_provided::<T>()`.
     #[inline]
     #[must_use]
     pub fn provide<T: Send + 'static>(self, read_signal: ReadSignal<T>) -> Self {
@@ -189,6 +207,18 @@ impl Element {
         self
     }
 
+    /// This element will be tagged `T`.
+    ///
+    /// Multiple tags can be attached to the same element.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// struct Tag;
+    ///
+    /// div_n().tag::<Tag>()
+    ///
+    /// ```
     #[inline]
     #[must_use]
     pub fn tag<T: 'static>(self) -> Self {
@@ -196,28 +226,29 @@ impl Element {
         self
     }
 
-    /// 自分自身の子孫の中で最初に見つかった型 T の `EntityId` を取得する。
+    /// Retrieve the first element of type `T` found among the descendants.
     #[inline]
     #[must_use]
-    pub fn query_descendant<T: 'static>(&self) -> Option<Element> {
-        with_context(|cx| cx.query_descendant::<T>(self.id))
+    pub fn try_query_descendant<T: 'static>(&self) -> Option<Element> {
+        with_context(|cx| cx.try_query_descendant::<T>(self.id))
     }
 
+    /// Retrieve the first element of type `T` found among the descendants.
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn query_descendant_expect<T: 'static>(&self) -> Element {
-        with_context(|cx| cx.query_descendant_expect::<T>(self.id))
+    pub fn query_descendant<T: 'static>(&self) -> Element {
+        with_context(|cx| cx.query_descendant::<T>(self.id))
     }
 
-    /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
+    /// Search for an element of type `T` among its descendants.
     #[inline]
     #[must_use]
     pub fn query_descendants<T: 'static>(&self) -> Vec<Element> {
         with_context(|cx| cx.query_descendants::<T>(self.id).collect())
     }
 
-    /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
+    /// Search for an element of type `T` among its descendants.
     #[inline]
     pub fn for_each_descendants<T: 'static>(&self, mut f: impl FnMut(Element)) {
         with_context(|cx| {
@@ -227,7 +258,7 @@ impl Element {
         });
     }
 
-    /// 静的な値、または動的に変化する Prop を、該当する `EffectCategory` を通じて自動バインド
+    /// 静的な値、または動的に変化する Prop を該当する `EffectCategory` を通じて自動バインド
     fn bind_prop<T: 'static>(
         self,
         prop: impl Into<Prop<T>>,
@@ -252,7 +283,7 @@ impl Element {
         self
     }
 
-    /// スタイルを適用します（静的な値、Signal、またはクロージャ）。
+    /// Applies styles.
     #[must_use]
     pub fn style(self, style: impl Into<Prop<ThisStyle>>) -> Self {
         match style.into() {
@@ -260,7 +291,7 @@ impl Element {
             Prop::Static(s) => {
                 let id = self.id;
                 with_context(|cx| {
-                    // 静的なスタイルプロパティを通常通りインラインマウント
+                    // 静的なスタイルプロパティを通常通りマウント
                     // 静的チェーンはマージ（merge = true）
                     with_context(|cx| Element::style_internal(cx, id, &s, true));
 
@@ -300,7 +331,9 @@ impl Element {
         self
     }
 
-    /// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用します。
+    /// Dynamically resolve [`ThisStyle`] from provider `P` and apply the style.
+    ///
+    /// When `P` changes, the closure is re-evaluated.
     #[must_use]
     #[inline]
     pub fn style_d<P, F>(self, f: F) -> Self
@@ -319,7 +352,7 @@ impl Element {
         self.style(dynamic_prop)
     }
 
-    /// スタイルの適用（一括インライン展開）
+    /// スタイルの適用
     pub(crate) fn style_internal(cx: &mut Context, id: EntityId, style: &ThisStyle, merge: bool) {
         let inner = &style.inner;
         let mask = inner.mask;
@@ -421,8 +454,7 @@ impl Element {
         cx.resolve_element_style_state(id, false);
     }
 
-    /// 子要素を追加します（Element単体、Signal、またはクロージャ）。
-    /// 動的な値が渡された場合、自動的にスロット要素が作成され、その中身がリアクティブに切り替わります。
+    /// Add a child element.
     #[must_use]
     #[inline]
     pub fn child(self, element: impl Into<Prop<Element>>) -> Self {
@@ -461,7 +493,7 @@ impl Element {
         self
     }
 
-    /// プロバイダー `P` から動的に単一の子要素（Element）を解決して追加します。
+    /// Dynamically resolve and add [`Element`] from provider `P`.
     #[must_use]
     #[inline]
     pub fn child_d<P, F>(self, f: F) -> Self
@@ -477,8 +509,7 @@ impl Element {
         self.child(dynamic_prop)
     }
 
-    /// 複数の子要素を一括して追加します。
-    /// 静的な要素、シグナル、またはクロージャ（Prop<Element> に変換可能なオブジェクト）のコレクションを受け入れます。
+    /// Adds multiple child elements at once.
     #[must_use]
     #[inline]
     pub fn children<I, E>(mut self, elements: I) -> Self
@@ -492,13 +523,13 @@ impl Element {
         self
     }
 
-    /// プロバイダー `P` から動的に複数の子要素（コレクション）を解決して、
-    /// `中間コンテナ（div_n）を挟むことなく、親要素の直下へフラットに一括追加・置換します`。
+    /// It dynamically resolves and adds multiple child elements in bulk from provider `P`.
+    ///
+    /// # Panics
+    /// Not supported dynamic nested elements inside `children_d`.
     #[allow(clippy::panic)]
-    #[allow(clippy::missing_panics_doc)]
     #[track_caller]
     #[must_use]
-    #[inline]
     pub fn children_d<P, F, I, E>(self, f: F) -> Self
     where
         P: Clone + 'static,
@@ -563,8 +594,7 @@ impl Element {
         self
     }
 
-    /// 子要素として、インタラクション（クリック等）を自動的に透過するテキストラベルを挿入します。
-    /// 親子分離
+    /// Add a text label as a child element that allows interactions to pass through.
     #[must_use]
     #[inline]
     pub fn label(
@@ -581,14 +611,13 @@ impl Element {
         self.child(label_el)
     }
 
-    /// プロバイダー `P` から動的にスタイルを解決しつつ、ラベルテキストを設定して追加します。
-    /// 第1引数のテキストには、静的な文字列や動的なプロパティ、シグナルを柔軟に渡すことができます。
+    /// Dynamically resolve styles from provider `P` and add text labels.
     #[must_use]
     #[inline]
-    pub fn label_d<P, FS>(self, content: impl Into<Prop<Cow<'static, str>>>, style: FS) -> Self
+    pub fn label_d<P, F>(self, content: impl Into<Prop<Cow<'static, str>>>, style: F) -> Self
     where
         P: Clone + 'static,
-        FS: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+        F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
     {
         // スタイル側のみ、1引数のクロージャをプロバイダー解決を伴う Prop::Dynamic へラップ
         let style_prop = Prop::Dynamic(Box::new(move || {
@@ -600,15 +629,15 @@ impl Element {
         self.label(content, style_prop)
     }
 
-    /// このコンテナの内容を差し替えます。以前の内容はすべて破棄されます。
-    #[allow(clippy::return_self_not_must_use)]
+    /// This will replace the contents of this container. All previous contents will be discarded.
+    #[must_use]
     pub fn set_contents(self, contents: impl Into<Prop<Element>>) -> Self {
         match contents.into() {
             Prop::None => {}
             Prop::Static(new_child) => {
                 let id = self.id;
                 with_context(|cx| {
-                    // 静的なコンテンツ上書き時のみ古い動的評価エフェクト（Contentsカテゴリ）を一括破棄
+                    // 静的なコンテンツ上書き時のみ古い動的評価エフェクトを一括破棄
                     if let Some(effects) = cx.reactive.react_element_effects.find_mut(id)
                         && let Some(i) = effects
                             .iter()
@@ -676,9 +705,7 @@ impl Element {
         cx.mark_dirty(id);
     }
 
-    /// テキストを設定します。
-    /// 引数には &str, String, `ReadSignal`<T>, またはクロージャを渡せます。
-    /// 1ノードパターン
+    /// Set text.
     #[must_use]
     #[inline]
     pub fn text(self, content: impl Into<Prop<Cow<'static, str>>>) -> Self {
@@ -693,7 +720,7 @@ impl Element {
         })
     }
 
-    /// プロバイダー `P` から動的にテキストを設定します。
+    /// The text is dynamically set from provider `P`.
     #[must_use]
     #[inline]
     pub fn text_d<P, F, S>(self, f: F) -> Self
@@ -710,26 +737,33 @@ impl Element {
         self.text(dynamic_prop)
     }
 
-    /// 外部画像や動画をwgpuで描画するためのテクスチャプロバイダ（`ExternalTexture`）をバインドします。
+    /// Bind the texture provider ([`ExternalTexture`]).
     ///
-    /// - 動的なテクスチャの更新（動画やゲーム画面など）\
-    ///   毎フレームテクスチャの中身が更新されるような動的要件は、描画直前に `ExternalTexture::resolve_view()`
-    ///   が毎回呼び出される仕様になっているため、プロバイダの内部処理だけで自動的に完結します。
+    /// - Dynamic texture updates
     ///
-    /// - ソース自体の動的な切り替え（動画から静止画への変更など）\
-    ///   「動画から静止画へ切り替える」といった、テクスチャのソース自体を動的に変更したい場合は、以下のいずれかの方法を選択してください。
+    ///   Dynamic requirements, such as updating the texture content every frame,
+    ///   are automatically handled within the provider's internal processing
+    ///   because [`ExternalTexture::resolve_view()`] is called every time just before rendering.
     ///
-    /// - トポロジーを差し替える:\
-    ///   対象のUI要素を一度 `despawn` し、新しいソースを指定した要素として再生成する（不要になったリソースをVRAMから安全に解放できます）。
+    /// - If you want to dynamically change the texture source itself, please choose one of the following methods:
     ///
-    ///   - プロバイダの内部で切り替える:\
-    ///     `ExternalTexture` を実装したオブジェクト自体は維持し、内部のデコーダ等に命令を送ることで、`resolve_view()` が返すテクスチャ（`TextureView`）を動的に切り替える。
+    ///   1. Replace topology
     ///
-    ///   - 設計上の注意（パフォーマンス）\
-    ///     `BindGroup` の作成・再生成は処理負荷が高いため、
-    ///     本メソッドは軽量な `Prop<T>`（リアクティブなプロパティ）を介したテクスチャの動的差し替えをサポートしていません。
-    ///     仮に `Prop<T>` による差し替えを可能にすると、リアクティブエフェクト内で毎フレームプロバイダを新規生成するような、
-    ///     パフォーマンスを著しく低下させるコードを容易に記述できてしまうためです。
+    ///   The target UI element is despawned and then regenerated as an element with a new source specified
+    ///   (this safely releases unnecessary resources from VRAM).
+    ///
+    ///   2. Switch within the provider's network.
+    ///
+    ///   The object that implements `ExternalTexture` is maintained,
+    ///   and commands are sent to the internal decoder, etc.,
+    ///   to dynamically switch the texture ([`wgpu::TextureView`]) returned by `resolve_view()`.
+    ///
+    /// # Design considerations
+    ///
+    /// Because creating or recreating a [`wgpu::BindGroup`] is computationally expensive,
+    /// this method does not support dynamically swapping textures via the lightweight `Prop<T>` (reactive property).
+    /// Allowing swaps through `Prop<T>` would make it too easy to write code
+    /// that drastically degrades performance—such as instantiating a new provider every frame within a reactive effect.
     #[inline]
     #[must_use]
     pub fn external_texture(self, texture: impl ExternalTexture + 'static) -> Self {
@@ -757,7 +791,7 @@ impl Element {
         self
     }
 
-    /// `WebView2` コンポーネントを配置します（静的設定、またはSignal / クロージャに対応）。
+    /// Place the webview2 component.
     #[inline]
     #[must_use]
     pub fn webview2(self, contents: impl Into<Prop<WebView2Contents>>) -> Self {
@@ -772,7 +806,7 @@ impl Element {
         })
     }
 
-    /// プロバイダー `P` `から動的にWebView2設定を解決してアタッチします`。
+    /// Dynamically resolves and attaches webview2 settings from provider `P`.
     #[must_use]
     #[inline]
     pub fn webview2_d<P, F>(self, f: F) -> Self
@@ -788,7 +822,7 @@ impl Element {
         self.webview2(dynamic_prop)
     }
 
-    /// UI Automation のプロパティを生の ID (i32) を指定して直接登録します
+    /// Not implemented
     #[must_use]
     #[inline]
     pub fn uia_property(self, property_id: i32, value: impl Into<UiaValue>) -> Self {
@@ -796,7 +830,7 @@ impl Element {
         self
     }
 
-    /// `スクリーンリーダーが読み上げる要素の「名前」を設定します（UIA_NamePropertyId` 互換）。
+    /// Not implemented
     #[must_use]
     pub fn uia_name(self, name: impl Into<Prop<Cow<'static, str>>>) -> Self {
         match name.into() {
@@ -833,7 +867,7 @@ impl Element {
             .set(ComponentMask::COMP_UIA_CONTENT);
     }
 
-    /// 自動テストフレームワークやデバッグで要素を特定するための「Automation `ID」を設定します（UIA_AutomationIdPropertyId` 互換）。
+    /// Not implemented
     #[inline]
     #[must_use]
     pub fn uia_automation_id(self, id: impl Into<Prop<Cow<'static, str>>>) -> Self {
@@ -855,7 +889,7 @@ impl Element {
         }
     }
 
-    /// `この要素がどのようなコントロール（ボタン、チェックボックス、リスト等）として振る舞うかを定義します（UIA_ControlTypePropertyId` 互換）。
+    /// Not implemented
     #[inline]
     #[must_use]
     pub fn uia_control_type(self, control_type_id: i32) -> Self {
@@ -863,7 +897,7 @@ impl Element {
     }
 
     /// スクロールコンテナのスタイル設定に連動し、
-    /// トラック・サムに相当する要素（Element）を遅延生成して親子関係にアタッチします。
+    /// トラック・サムに相当する要素を遅延生成して親子関係にアタッチする。
     #[inline]
     pub(crate) fn ensure_scrollbar_elements(
         cx: &mut Context,
@@ -886,7 +920,7 @@ impl Element {
         let mut changed = false;
 
         if sb.display != ScrollbarDisplay::None {
-            // A. 縦スクロールバー (V-Track)
+            // 縦スクロールバー (V-Track)
             let v_track = if let Some(v_track) = state.v_track_id {
                 v_track
             } else {
@@ -910,7 +944,7 @@ impl Element {
 
             Element::style_internal(cx, v_track, &track_style, merge);
 
-            // A-1. 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
+            // 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
             let v_thumb = if let Some(v_thumb) = state.v_thumb_id {
                 v_thumb
             } else {
@@ -940,7 +974,7 @@ impl Element {
 
             Element::style_internal(cx, v_thumb, &thumb_style, merge);
 
-            // B. 横スクロールバー (H-Track)
+            // 横スクロールバー (H-Track)
             let h_track = if let Some(h_track) = state.h_track_id {
                 h_track
             } else {
@@ -995,7 +1029,7 @@ impl Element {
 
         if changed {
             *cx.layouts.scrollbar.bar_styles.at_mut(id) = state;
-            cx.topology.topo_is_structure_dirty = true; // topo_flat_dfs_sequence の更新契機
+            cx.topology.topo_is_structure_dirty = true;
             cx.topology.topo_is_sort_dirty = true;
         }
     }

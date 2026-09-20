@@ -197,50 +197,54 @@ impl Context {
     }
 
     /// 指定した要素の親要素を取得します。
+    #[track_caller]
     #[inline]
-    pub fn parent_element(&self, handle: Element) -> Option<Element> {
-        self.topology.topo_parents.at(handle.id).map(Element::from)
+    pub fn parent_element(&self, el: Element) -> Option<Element> {
+        self.topology
+            .topo_parents
+            .find(el.id)
+            .and_then(|f| f.map(Element::from))
     }
 
     /// 指定した要素の子要素一覧を取得します。
     #[inline]
-    pub fn children_list(&self, handle: Element) -> Option<Vec<Element>> {
-        let list = self.topology.topo_children.at(handle.id);
-        Some(list.iter().map(|&id| Element::from(id)).collect())
+    pub fn children_list(&self, el: Element) -> impl Iterator<Item = Element> + '_ {
+        let list = self.topology.topo_children.find(el.id);
+        list.into_iter().flatten().copied().map(Element::from)
     }
 
     /// 画面上でアクティブになっている要素の総数を取得します。
     #[inline]
-    pub fn topo_active_entities_count(&self) -> usize {
+    pub fn active_entities(&self) -> usize {
         self.topology.topo_active_entities.len()
     }
 
     /// 指定された要素に現在設定されている最新の `BasicLayout` を取得
     #[inline]
     #[must_use]
-    pub fn try_basic_layout(&self, id: EntityId) -> Option<BasicLayout> {
-        self.layouts.lay_basic.find(id).copied()
+    pub fn try_basic_layout(&self, el: Element) -> Option<BasicLayout> {
+        self.layouts.lay_basic.find(el.id).copied()
     }
 
     /// 指定された要素に現在設定されている最新の `FlexLayout` を取得
     #[inline]
     #[must_use]
-    pub fn get_flex_layout(&self, id: EntityId) -> Option<FlexLayout> {
-        self.layouts.lay_flex.find(id).copied()
+    pub fn get_flex_layout(&self, el: Element) -> Option<FlexLayout> {
+        self.layouts.lay_flex.find(el.id).copied()
     }
 
     /// 指定された要素に現在設定されている最新の `GridLayout` を取得
     #[inline]
     #[must_use]
-    pub fn get_grid_layout(&self, id: EntityId) -> Option<GridLayout> {
-        self.layouts.lay_grid.find(id).cloned()
+    pub fn get_grid_layout(&self, el: Element) -> Option<GridLayout> {
+        self.layouts.lay_grid.find(el.id).cloned()
     }
 
     /// 指定された要素に現在設定されている最新の `VisualProperty` を取得
     #[inline]
     #[must_use]
-    pub fn get_visual_property(&self, id: EntityId) -> Option<VisualProperty> {
-        self.renders.rnd_visual.find(id).cloned()
+    pub fn get_visual_property(&self, el: Element) -> Option<VisualProperty> {
+        self.renders.rnd_visual.find(el.id).cloned()
     }
 
     #[inline]
@@ -500,7 +504,7 @@ impl Context {
     }
 
     #[inline]
-    pub fn find_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
+    pub fn try_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
         let element_id =
             ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)?;
         ReactiveStore::use_provided_from::<T>(
@@ -517,7 +521,7 @@ impl Context {
 
     #[inline]
     #[must_use]
-    pub fn query_first<T: 'static>(&self) -> Option<Element> {
+    pub fn try_query_first<T: 'static>(&self) -> Option<Element> {
         self.topology
             .topo_tag_registry
             .get_entities::<T>()
@@ -528,7 +532,7 @@ impl Context {
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn quer_first_expect<T: 'static>(&mut self) -> Element {
+    pub fn quer_first<T: 'static>(&mut self) -> Element {
         self.topology
             .topo_tag_registry
             .get_entities::<T>()
@@ -553,7 +557,7 @@ impl Context {
     /// 子孫の中で最初に見つかった型 T の `EntityId` を取得する。
     #[inline]
     #[must_use]
-    pub fn query_descendant<T: 'static>(&self, parent: EntityId) -> Option<Element> {
+    pub fn try_query_descendant<T: 'static>(&self, parent: EntityId) -> Option<Element> {
         self.topology
             .topo_tag_registry
             .query_first_descendant_of_type::<T>(
@@ -567,7 +571,7 @@ impl Context {
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn query_descendant_expect<T: 'static>(&mut self, parent: EntityId) -> Element {
+    pub fn query_descendant<T: 'static>(&mut self, parent: EntityId) -> Element {
         self.topology
             .topo_tag_registry
             .query_first_descendant_of_type::<T>(

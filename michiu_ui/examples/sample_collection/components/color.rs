@@ -215,16 +215,16 @@ fn item_tag(label: &'static str, style: ThisStyle) -> Element {
     .tag::<HyperMichiu>()
     .tag::<UltraMichiu>()
     .on_mouse_enter_with(move |cx| {
-        if let Some(el) = cx.query_first::<SuperMichiu>() {
+        if let Some(el) = cx.try_query_first::<SuperMichiu>() {
             el.set_contents(create_tooltip(label, LayoutPoint::ZERO));
         }
     })
     .on_cursor_moved_with(move |cx, pos| {
-        let el = cx.quer_first_expect::<HyperMichiu>();
+        let el = cx.quer_first::<HyperMichiu>();
         el.set_contents(create_tooltip(label, pos));
     })
     .on_mouse_leave_with(move |cx| {
-        let el = cx.quer_first_expect::<UltraMichiu>();
+        let el = cx.quer_first::<UltraMichiu>();
         el.set_contents(div_n());
     })
 }

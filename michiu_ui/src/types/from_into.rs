@@ -521,7 +521,8 @@ impl From<taffy::JustifyContent> for JustifyContent {
         match t {
             taffy::JustifyContent::START => Self::Start,
             taffy::JustifyContent::END => Self::End,
-            taffy::JustifyContent::CENTER | taffy::JustifyContent::SAFE_CENTER => Self::Center,
+            taffy::JustifyContent::CENTER => Self::Center,
+            taffy::JustifyContent::SAFE_CENTER => Self::SafeCenter,
             taffy::JustifyContent::SPACE_BETWEEN => Self::SpaceBetween,
             taffy::JustifyContent::SPACE_AROUND => Self::SpaceAround,
             taffy::JustifyContent::SPACE_EVENLY => Self::SpaceEvenly,
@@ -564,7 +565,8 @@ impl From<taffy::AlignContent> for AlignContent {
         match t {
             taffy::AlignContent::START => Self::Start,
             taffy::AlignContent::END => Self::End,
-            taffy::AlignContent::CENTER | taffy::AlignContent::SAFE_CENTER => Self::Center,
+            taffy::AlignContent::CENTER => Self::Center,
+            taffy::AlignContent::SAFE_CENTER => Self::SafeCenter,
             taffy::AlignContent::SPACE_BETWEEN => Self::SpaceBetween,
             taffy::AlignContent::SPACE_AROUND => Self::SpaceAround,
             taffy::AlignContent::SPACE_EVENLY => Self::SpaceEvenly,
