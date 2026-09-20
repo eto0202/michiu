@@ -213,19 +213,19 @@ fn item_tag(label: &'static str, style: ThisStyle) -> Element {
         .relative())
     .tag::<SuperMichiu>()
     .tag::<HyperMichiu>()
+    .tag::<UltraMichiu>()
     .on_mouse_enter_with(move |cx| {
-        if let Some(id) = cx.query_first::<SuperMichiu>() {
-            id.into_element()
-                .set_contents(create_tooltip(label, LayoutPoint::ZERO));
+        if let Some(el) = cx.query_first::<SuperMichiu>() {
+            el.set_contents(create_tooltip(label, LayoutPoint::ZERO));
         }
     })
     .on_cursor_moved_with(move |cx, pos| {
-        let id = cx.quer_first_expect::<HyperMichiu>();
-        id.into_element().set_contents(create_tooltip(label, pos));
+        let el = cx.quer_first_expect::<HyperMichiu>();
+        el.set_contents(create_tooltip(label, pos));
     })
     .on_mouse_leave_with(move |cx| {
-        let id = cx.quer_first_expect::<UltraMichiu>();
-        id.into_element().set_contents(div_n());
+        let el = cx.quer_first_expect::<UltraMichiu>();
+        el.set_contents(div_n());
     })
 }
 

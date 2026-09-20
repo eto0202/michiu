@@ -105,7 +105,8 @@ impl TextEngine {
         }
         if let Some(style) = font.style {
             default_attrs = default_attrs.style(match style {
-                2 => Style::Italic,
+                1 => Style::Italic,
+                2 => Style::Oblique,
                 _ => Style::Normal,
             });
         }

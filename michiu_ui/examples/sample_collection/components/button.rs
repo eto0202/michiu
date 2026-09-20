@@ -115,10 +115,9 @@ fn tag_btn() -> Element {
             style.clone().pressed_parent(ts().text_color(Color::WHITE)),
         )
         .on_click_with(move |cx| {
-            if let Some(id) = cx.query_first::<MichiuTag>() {
+            if let Some(el) = cx.query_first::<MichiuTag>() {
                 count += 1;
-                id.into_element()
-                    .set_contents(div_n().label(move || format!("Tag: {count}"), &style));
+                el.set_contents(div_n().label(move || format!("Tag: {count}"), &style));
             }
         });
 
@@ -146,22 +145,11 @@ fn section_pseudo() -> Element {
 fn hovered_btn() -> Element {
     h_flex(
         item_style()
-            .box_shadow(
-                shadow()
-                    .color(Color::BLACK)
-                    .blur(4.0)
-                    .offset(0.0)
-                    .spread(1.0),
-            )
-            .hovered(
-                ts().box_shadow(
-                    shadow()
-                        .color(Color::BLACK)
-                        .blur(8.0)
-                        .offset(0.0)
-                        .spread(1.0),
-                ),
-            ),
+            .shadow_color(Color::BLACK)
+            .shadow_blur(4.0)
+            .shadow_offset(0.0)
+            .shadow_spread(1.0)
+            .hovered(ts().shadow_blur(8.0)),
     )
     .label("Hovered", label_style())
 }

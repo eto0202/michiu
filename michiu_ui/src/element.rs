@@ -199,27 +199,27 @@ impl Element {
     /// 自分自身の子孫の中で最初に見つかった型 T の `EntityId` を取得する。
     #[inline]
     #[must_use]
-    pub fn query_descendant<T: 'static>(&self) -> Option<EntityId> {
+    pub fn query_descendant<T: 'static>(&self) -> Option<Element> {
         with_context(|cx| cx.query_descendant::<T>(self.id))
     }
 
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn query_descendant_expect<T: 'static>(&self) -> EntityId {
+    pub fn query_descendant_expect<T: 'static>(&self) -> Element {
         with_context(|cx| cx.query_descendant_expect::<T>(self.id))
     }
 
     /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
     #[inline]
     #[must_use]
-    pub fn query_descendants<T: 'static>(&self) -> Vec<EntityId> {
+    pub fn query_descendants<T: 'static>(&self) -> Vec<Element> {
         with_context(|cx| cx.query_descendants::<T>(self.id).collect())
     }
 
     /// 自分自身の子孫の中から、型 T を持つエンティティを検索する。
     #[inline]
-    pub fn for_each_descendants<T: 'static>(&self, mut f: impl FnMut(EntityId)) {
+    pub fn for_each_descendants<T: 'static>(&self, mut f: impl FnMut(Element)) {
         with_context(|cx| {
             for id in cx.query_descendants::<T>(self.id) {
                 f(id);

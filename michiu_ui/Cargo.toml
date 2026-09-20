@@ -63,7 +63,7 @@ features = [
 [features]
 serde = ["dep:serde"]
 dhat-heap = ["dep:dhat"]
-default = ["trace-error"]
+default = ["trace-entity", "snapshot"]
 # エラーのみ。優しい。
 trace-error = []
 # ライフサイクルなど。マクロな追跡。普通。

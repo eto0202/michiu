@@ -45,7 +45,7 @@ new_key_type! {
 impl EntityId {
     #[must_use]
     #[inline]
-    pub fn into_element(self) -> Element {
+    pub fn into_el(self) -> Element {
         Element::from(self)
     }
 }
@@ -517,40 +517,43 @@ impl Context {
 
     #[inline]
     #[must_use]
-    pub fn query_first<T: 'static>(&self) -> Option<EntityId> {
+    pub fn query_first<T: 'static>(&self) -> Option<Element> {
         self.topology
             .topo_tag_registry
             .get_entities::<T>()
             .and_then(|t| t.first().copied())
+            .map(EntityId::into_el)
     }
 
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn quer_first_expect<T: 'static>(&mut self) -> EntityId {
+    pub fn quer_first_expect<T: 'static>(&mut self) -> Element {
         self.topology
             .topo_tag_registry
             .get_entities::<T>()
             .and_then(|t| t.first().copied())
+            .map(EntityId::into_el)
             .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
                 type_name: std::any::type_name::<T>(),
             })
     }
 
     #[inline]
-    pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = EntityId> + '_ {
+    pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = Element> + '_ {
         self.topology
             .topo_tag_registry
             .get_entities::<T>()
             .map(|t| t.iter().copied())
             .into_iter()
             .flatten()
+            .map(EntityId::into_el)
     }
 
     /// 子孫の中で最初に見つかった型 T の `EntityId` を取得する。
     #[inline]
     #[must_use]
-    pub fn query_descendant<T: 'static>(&self, parent: EntityId) -> Option<EntityId> {
+    pub fn query_descendant<T: 'static>(&self, parent: EntityId) -> Option<Element> {
         self.topology
             .topo_tag_registry
             .query_first_descendant_of_type::<T>(
@@ -558,12 +561,13 @@ impl Context {
                 &self.topology.topo_flat_dfs_sequence,
                 &self.topology.topo_parents,
             )
+            .map(EntityId::into_el)
     }
 
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn query_descendant_expect<T: 'static>(&mut self, parent: EntityId) -> EntityId {
+    pub fn query_descendant_expect<T: 'static>(&mut self, parent: EntityId) -> Element {
         self.topology
             .topo_tag_registry
             .query_first_descendant_of_type::<T>(
@@ -571,6 +575,7 @@ impl Context {
                 &self.topology.topo_flat_dfs_sequence,
                 &self.topology.topo_parents,
             )
+            .map(EntityId::into_el)
             .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
                 type_name: std::any::type_name::<T>(),
             })
@@ -581,7 +586,7 @@ impl Context {
     pub fn query_descendants<T: 'static>(
         &self,
         parent: EntityId,
-    ) -> impl Iterator<Item = EntityId> + '_ {
+    ) -> impl Iterator<Item = Element> + '_ {
         self.topology
             .topo_tag_registry
             .query_descendants_of_type::<T>(
@@ -589,6 +594,7 @@ impl Context {
                 &self.topology.topo_flat_dfs_sequence,
                 &self.topology.topo_parents,
             )
+            .map(EntityId::into_el)
     }
 
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な `CursorIcon` を正確に解決します。
