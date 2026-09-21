@@ -5,34 +5,37 @@ use crate::{
 };
 use std::borrow::Cow;
 
+/// Creates a new style.
 #[inline]
 #[must_use]
 pub fn ts() -> ThisStyle {
     ThisStyle::new()
 }
 
-/// 新しいシグナルを構築します。必ず `build_ui` のスコープ内で呼び出す必要があります。
+/// Generates signals directly from the `Context`.
+///
+/// This function must be called within the scope of `build_ui`.
 pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, WriteSignal<T>) {
     with_context(|cx| cx.create_signal(initial_value))
 }
 
-/// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
-/// 親ツリー（トポロジー）を遡って自動解決された型 T の Context（ReadSignal）を取得します。
+/// Identify the target element from the current thread-local `Context`
+/// and resolve the [`ReadSignal`] of type `T` by traversing the parent tree.
 #[inline]
 #[must_use]
 pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
     with_context(|cx| cx.use_provided::<T>())
 }
 
-/// 現在有効な動的リアクティブコンテキスト（またはアクティブなイベントハンドラ）から、
-/// 親ツリーを自動的に遡って解決した型 T のシグナルに対する同期書き込み用端（WriteSignal）を取得します。
+/// From the current thread-local `Context`,
+/// we obtain a [`WriteSignal`] for a signal of type `T`, automatically resolving it by traversing the parent tree.
 #[inline]
 #[must_use]
 pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
     with_context(|cx| cx.use_provided_setter::<T>())
 }
 
-/// プロバイダーの型 `P` から、クロージャ `F` を通して値 `V` を解決する動的なスタイル値を生成
+/// Generate a dynamic style value by resolving the value `V` from the provider type `P` through the closure `F`
 pub fn dynamic<P, V, F>(selector: F) -> StyleValue<V>
 where
     P: Clone + 'static,
@@ -48,7 +51,7 @@ where
     }))
 }
 
-/// 0~255 の整数値（u8）で、不透明な RGB カラーを生成します
+/// Generates an opaque RGB color using an integer value (`u8`) between 0 and 255.
 #[inline]
 #[must_use]
 pub fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -60,7 +63,8 @@ pub fn rgb(r: u8, g: u8, b: u8) -> Color {
     }
 }
 
-/// 0~255 の整数値（u8）でRGBを、0.0~1.0（f32）で不透明度（Alpha）を指定して RGBA カラーを生成します
+/// Generates an RGBA color by specifying RGB values as integers from 0 to 255 (`u8`)
+/// and opacity (alpha) values from 0.0 to 1.0 (`f32`).
 #[inline]
 #[must_use]
 pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
@@ -72,27 +76,41 @@ pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
     }
 }
 
+/// HEX を生成します。
+///
+/// # Examples
+/// ```rust
+/// use crate::hex;
+///
+/// hex("#ff0000");
+/// hex(0x00_FF00);
+/// hex(0x00_00ff);
+/// hex("00000080");
+/// hex("0xFFFFFF80");
+///
+/// ```
 #[inline]
 pub fn hex(value: impl IntoHexColor) -> Color {
     value.into_hex_color()
 }
 
-/// HSL（Hue: 0..360, Saturation: 0.0..100.0%, Lightness: 0.0..100.0%）カラーを生成するショートハンド
+/// Generates HSL (Hue: 0..360, Saturation: 0.0..100.0%, Lightness: 0.0..100.0%) colors.
 #[inline]
 #[must_use]
 pub fn hsl(h: f32, s: f32, l: f32) -> Color {
     Color::hsl(h, s, l)
 }
 
-/// HSL にアルファ（0.0..1.0）を付与して HSLA カラーを生成するショートハンド
+/// Generate HSLA colors by applying an alpha value (0.0..1.0) to HSL
 #[inline]
 #[must_use]
 pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
     Color::hsla(h, s, l, a)
 }
 
-/// スタイルを適用して生成するコンテナ。
-/// 静的な ThisStyle、ReadSignal<ThisStyle>、クロージャ、または None (Option) を受け入れます。
+/// A container that applies a style and generates content.
+///
+/// It is the same as `Element::new().style(style)`.
 #[inline]
 pub fn div(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
@@ -101,14 +119,14 @@ pub fn div(style: impl Into<Prop<ThisStyle>>) -> Element {
 
 pub const NO_STYLE: Option<ThisStyle> = None;
 
-/// 現時点ではスタイルを適用しないことを明示したコンテナ。
+/// An empty container with no style.
 #[inline]
 #[must_use]
 pub fn div_n() -> Element {
     div(NO_STYLE)
 }
 
-/// 横方向のフレックスコンテナを生成します。
+/// Horizontal flex container.
 #[inline]
 pub fn h_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
@@ -116,7 +134,7 @@ pub fn h_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
         .style(style)
 }
 
-/// 縦方向のフレックスコンテナ を生成します。
+/// Vertical flex container.
 #[inline]
 pub fn v_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
@@ -124,52 +142,58 @@ pub fn v_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
         .style(style)
 }
 
-/// グリッド配置を行うコンテナを生成します。
+/// Not Implemented
 #[inline]
 pub fn grid_box(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
     el.style(ts().grid()).style(style)
 }
 
-/// ブロック流し込み配置を行うコンテナを生成します。
+/// A container used for block placement.
 #[inline]
 pub fn block_box(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
     el.style(ts().block()).style(style)
 }
 
+/// Hidden Container
 #[inline]
 pub fn hidden_box(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
     el.style(ts().hidden()).style(style)
 }
 
+/// Text Container
 #[inline]
 pub fn text(content: impl Into<Prop<Cow<'static, str>>>) -> Element {
     div_n().text(content)
 }
 
+/// Input Container
 #[inline]
 pub fn input(contents: impl Into<Prop<InputContents>>) -> Element {
     div_n().input(contents)
 }
 
+/// Input Area (multiline) Container
 #[inline]
 pub fn input_area(contents: impl Into<Prop<InputContents>>) -> Element {
     div_n().input_area(contents)
 }
 
+/// External Texture Container
 #[inline]
 pub fn external_texture(texture: impl ExternalTexture + 'static) -> Element {
     div_n().external_texture(texture)
 }
 
+/// Webview2 Container
 #[inline]
 pub fn webview2(contents: impl Into<Prop<WebView2Contents>>) -> Element {
     div_n().webview2(contents)
 }
 
-/// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用する汎用コンテナ
+/// A generic container that dynamically resolves `ThisStyle` from provider `P` and applies the style
 #[inline]
 pub fn div_d<P, F>(f: F) -> Element
 where
@@ -179,7 +203,7 @@ where
     Element::new().style_d(f)
 }
 
-/// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用する横フレックスコンテナ
+/// A horizontal flex container that dynamically resolves `ThisStyle` from provider `P` and applies the style
 #[inline]
 pub fn h_flex_d<P, F>(f: F) -> Element
 where
@@ -193,7 +217,7 @@ where
         .style_d(f)
 }
 
-/// プロバイダー `P` から動的に `ThisStyle` を解決してスタイルを適用する縦フレックスコンテナ
+/// A vertical flex container that dynamically resolves `ThisStyle` from provider `P` and applies the style
 #[inline]
 pub fn v_flex_d<P, F>(f: F) -> Element
 where
@@ -205,7 +229,7 @@ where
         .style_d(f)
 }
 
-/// プロバイダー `P` から動的にテキストを解決してテキスト要素を生成します。
+/// A container that dynamically resolves and applies text from provider `P`.
 #[inline]
 pub fn text_d<P, F, S>(f: F) -> Element
 where
@@ -216,7 +240,7 @@ where
     div_n().text_d(f)
 }
 
-/// プロバイダー `P` から動的に設定を解決して入力フィールド要素を生成します。
+/// A container that dynamically resolves, generates, and applies input field elements from provider `P`.
 #[inline]
 pub fn input_d<P, F>(f: F) -> Element
 where
@@ -226,7 +250,7 @@ where
     div_n().input_d(f)
 }
 
-/// プロバイダー `P` から動的に設定を解決して複数行入力フィールド（テキストエリア）要素を生成します。
+/// A container that dynamically resolves, generates, and applies input area elements from provider `P`.
 #[inline]
 pub fn input_area_d<P, F>(f: F) -> Element
 where
@@ -236,7 +260,7 @@ where
     div_n().input_area_d(f)
 }
 
-/// プロバイダー `P` `から動的に解決されたWebView2要素を生成します`。
+/// A container that creates and applies WebView2 elements dynamically resolved from provider `P`.
 #[inline]
 pub fn webview2_d<P, F>(f: F) -> Element
 where
@@ -246,25 +270,26 @@ where
     div_n().webview2_d(f)
 }
 
+/// Creates a `BoxShadow`.
 #[inline]
 #[must_use]
 pub fn shadow() -> BoxShadow {
     BoxShadow::new()
 }
 
-/// ぼかし幅（blur）から始まる影設定を生成します。
+/// Creates a `BoxShadow` starting with the blur width.
 #[inline]
 pub fn blur(value: impl Convert<f32>) -> BoxShadow {
     BoxShadow::new().blur(value)
 }
 
-/// 影のオフセット（x, y）から始まる影設定を生成します。
+/// Creates a `BoxShadow` starting with the offset.
 #[inline]
 pub fn offset(value: impl IntoLayoutPoint) -> BoxShadow {
     BoxShadow::new().offset(value)
 }
 
-/// 影の広がり（spread）幅から始まる影設定を生成します。
+/// Creates a `BoxShadow` starting with the spread.
 #[inline]
 pub fn spread(value: impl Convert<f32>) -> BoxShadow {
     BoxShadow::new().spread(value)
@@ -279,27 +304,28 @@ pub struct Percent(pub f32);
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Auto;
 
+/// Generates actual values.
 #[inline]
 #[must_use]
 pub fn px(val: f32) -> Pixel {
     Pixel(val)
 }
 
-/// パーセント値（%）を生成します
+/// Generates a percentage value.
 #[inline]
 #[must_use]
 pub fn pct(val: f32) -> Percent {
     Percent(val)
 }
 
-/// 自動計算（Auto）を生成します
+/// Generate `Auto`
 #[inline]
 #[must_use]
 pub fn auto() -> Auto {
     Auto
 }
 
-/// `Win32API` `のクリップボードへテキスト（CF_UNICODETEXT）をコピーします`。
+/// Copies text to the `Win32API` clipboard.
 #[must_use]
 pub fn set_win32_clipboard(text: &str) -> bool {
     unsafe {
@@ -336,7 +362,7 @@ pub fn set_win32_clipboard(text: &str) -> bool {
     }
 }
 
-/// `Win32API` `のクリップボードからテキスト（CF_UNICODETEXT）を取得します`。
+/// Retrieves text from the `Win32API` clipboard.
 #[must_use]
 pub fn get_win32_clipboard() -> Option<String> {
     unsafe {
@@ -370,12 +396,12 @@ pub fn get_win32_clipboard() -> Option<String> {
     }
 }
 
-/// Windows のマウスホイール生 delta 値（120の倍数）を、
-/// OSのスクロール行数設定に準拠した「論理ピクセル単位」の移動量に変換します。
+/// Converts the raw mouse wheel delta value on Windows (a multiple of 120)
+/// into a logical pixel displacement that conforms to the OS's scroll line setting.
 ///
-/// * `raw_delta`: `WM_MOUSEWHEEL` 等から得られる生値 (前: プラス, 後: マイナス)
+/// `raw_delta`: Raw value obtained from `WM_MOUSEWHEEL`, etc. (forward: positive, backward: negative)
 ///
-/// 戻り値はスクロールさせたい論理ピクセル移動量です (手前に引いた際 = 下にスクロール = プラス加算)。
+/// The return value is the logical pixel distance to scroll (scrolling forward = scrolling down = positive value).
 #[must_use]
 pub fn raw_wheel_delta_to_logical_pixels(raw_delta: f32) -> f32 {
     use windows::Win32::UI::WindowsAndMessaging::{

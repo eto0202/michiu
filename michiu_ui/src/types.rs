@@ -126,32 +126,32 @@ impl Color {
     /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
     #[must_use]
-    pub const fn rgb_f32(r: f32, g: f32, b: f32) -> Self {
+    pub(crate) const fn rgb_f32(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
 
     /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
     #[must_use]
-    pub const fn rgba_f32(r: f32, g: f32, b: f32, a: f32) -> Self {
+    pub(crate) const fn rgba_f32(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
-    /// 色味を維持したまま、不透明度（アルファ）だけを動的に書き換えます
+    /// I'll only change the opacity.
     #[inline]
     #[must_use]
     pub const fn with_alpha(self, a: f32) -> Self {
         Self { a, ..self }
     }
 
-    /// HSL モデル（Hue: 0..360, Saturation: 0..100%, Lightness: 0..100%）から Color を生成します
+    /// Generates a [`Color`] from the HSL (Hue: 0..360, Saturation: 0..100%, Lightness: 0..100%).
     #[inline]
     #[must_use]
     pub fn hsl(h: f32, s: f32, l: f32) -> Self {
         Self::hsla(h, s, l, 1.0)
     }
 
-    /// HSL モデルにアルファ（0.0..1.0）を付与して Color を生成します
+    /// Generate a [`Color`] by applying an alpha value (0.0..1.0) to HSL
     #[must_use]
     #[allow(clippy::many_single_char_names)]
     pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Self {
@@ -323,7 +323,7 @@ impl LayoutRect {
     /// Determine if the mouse coordinates, etc., are included within this rectangle.
     #[inline]
     #[must_use]
-    pub fn contains(&self, point: LayoutPoint) -> bool {
+    pub(crate) fn contains(&self, point: LayoutPoint) -> bool {
         // 幅または高さが 0 以下の場合は、当たり判定を即座に却下する
         if self.width <= 0.0 || self.height <= 0.0 {
             return false;
@@ -341,7 +341,7 @@ impl LayoutRect {
     /// 幅（width）と高さ（height）が `0.0` の空の `Rect` を返す。
     #[inline]
     #[must_use]
-    pub fn intersect(&self, other: &Self) -> Self {
+    pub(crate) fn intersect(&self, other: &Self) -> Self {
         // 交差領域の左上座標（最大値をとる）
         let x1 = self.x.max(other.x);
         let y1 = self.y.max(other.y);
@@ -386,7 +386,7 @@ impl EdgeInsets {
         left: 0.0,
     };
 
-    /// 4方向それぞれを物理ピクセルで個別に指定して生成します
+    /// Generate images by specifying each of the four directions individually in physical pixels.
     #[inline]
     #[must_use]
     pub const fn px(top: f32, right: f32, bottom: f32, left: f32) -> Self {
@@ -398,7 +398,7 @@ impl EdgeInsets {
         }
     }
 
-    /// 4方向すべてを一括で同じ物理ピクセルに指定します
+    /// Set all four directions to the same physical pixel at once.
     #[inline]
     #[must_use]
     pub const fn px_all(value: f32) -> Self {
@@ -410,7 +410,7 @@ impl EdgeInsets {
         }
     }
 
-    /// 上下・左右をそれぞれ物理ピクセルで対称指定します
+    /// Specify symmetry for the top/bottom and left/right axes in physical pixels.
     #[inline]
     #[must_use]
     pub const fn px_sym(vertical: f32, horizontal: f32) -> Self {
@@ -456,8 +456,7 @@ impl CornerRadius {
         }
     }
 
-    /// 上下対称、または左右対称に角丸を生成します
-    /// (例: symmetric(12.0, 4.0) で上が大きく、下が穏やかな丸みになります)
+    /// Creates rounded corners that are vertically symmetrical or horizontally symmetrical.
     #[inline]
     #[must_use]
     pub const fn symmetric(vertical: f32, horizontal: f32) -> Self {
@@ -482,7 +481,6 @@ impl CornerRadius {
     }
 }
 
-/// 影（BoxShadow）の表現
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct BoxShadow {
@@ -505,7 +503,6 @@ impl Default for BoxShadow {
 }
 
 impl BoxShadow {
-    /// 新しいデフォルトの影設定を生成します。
     #[inline]
     #[must_use]
     pub const fn new() -> Self {
@@ -517,7 +514,7 @@ impl BoxShadow {
         }
     }
 
-    /// 影のオフセット（x, y）を設定します。単一値（例: 5）やタプル（例: (0, 4)）を受け入れます。
+    /// Set the shadow offset (x, y).
     #[inline]
     #[must_use]
     pub fn offset(mut self, value: impl IntoLayoutPoint) -> Self {
@@ -525,7 +522,7 @@ impl BoxShadow {
         self
     }
 
-    /// 影のぼかし（blur）幅を設定します。
+    /// Set the shadow blur width.
     #[inline]
     #[must_use]
     pub fn blur(mut self, value: impl Convert<f32>) -> Self {
@@ -533,7 +530,7 @@ impl BoxShadow {
         self
     }
 
-    /// 影の広がり（spread）幅を設定します。
+    /// Set the shadow spread width.
     #[inline]
     #[must_use]
     pub fn spread(mut self, value: impl Convert<f32>) -> Self {
@@ -541,7 +538,9 @@ impl BoxShadow {
         self
     }
 
-    /// 影のカラーを設定します。
+    /// Set the shadow color width.
+    ///
+    /// Default is [`Color::BLACK`].
     #[inline]
     #[must_use]
     pub fn color(mut self, value: Color) -> Self {
@@ -549,7 +548,7 @@ impl BoxShadow {
         self
     }
 
-    /// 控えめな極小のソフトシャドウ
+    /// A subtle, ultra-fine soft shadow
     #[must_use]
     pub fn sm() -> Self {
         BoxShadow::new()
@@ -558,7 +557,7 @@ impl BoxShadow {
             .offset((0, 1))
     }
 
-    /// 標準的な中程度のソフトシャドウ
+    /// Standard Medium Soft Shadow
     #[must_use]
     pub fn md() -> Self {
         BoxShadow::new()
@@ -568,7 +567,7 @@ impl BoxShadow {
             .offset((0, 4))
     }
 
-    /// やや浮き上がって見える大きめのソフトシャドウ
+    /// A large, soft shadow that appears to be slightly raised
     #[must_use]
     pub fn lg() -> Self {
         BoxShadow::new()
@@ -690,7 +689,7 @@ impl Length {
         Self::Percent(percent)
     }
 
-    /// Px ならその値、それ以外は 0.0 を返す
+    /// Returns that value if it is a Px; otherwise, returns 0.0.
     #[inline]
     #[must_use]
     pub fn to_px_or_zero(&self) -> f32 {
@@ -788,6 +787,7 @@ impl FlexDirection {
         self == FlexDirection::Row || self == FlexDirection::RowReverse
     }
 
+    #[allow(unused)]
     #[inline]
     pub(crate) fn is_col(self) -> bool {
         self == FlexDirection::Column || self == FlexDirection::ColumnReverse
@@ -923,7 +923,6 @@ impl Default for Transform {
 }
 
 impl Transform {
-    /// 単位行列（初期状態）を生成
     #[inline]
     #[must_use]
     pub fn new() -> Self {
@@ -937,7 +936,6 @@ impl Transform {
         }
     }
 
-    /// 平行移動
     #[inline]
     #[must_use]
     pub fn translate(self, x: f32, y: f32) -> Self {
@@ -947,7 +945,6 @@ impl Transform {
         self.mul(&t)
     }
 
-    /// 拡大縮小
     #[inline]
     #[must_use]
     pub fn scale(self, x: f32, y: f32) -> Self {
@@ -957,7 +954,6 @@ impl Transform {
         self.mul(&s)
     }
 
-    /// Z軸（2D平面上）の回転（ラジアン）
     #[inline]
     #[must_use]
     pub fn rotate(self, radians: f32) -> Self {
@@ -987,14 +983,10 @@ impl Transform {
     }
 }
 
-/// 特定のスタイル変更を滑らかに補間する設定
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transition {
-    /// 状態遷移を設定できる `ComponentMask` (例: `STYLE_BG_COLOR` | `STYLE_OPACITY`)
     pub property_list: PropertyList,
-    /// アニメーションの時間
     pub duration: Duration,
-    /// イージングカーブ
     pub curve: AnimationCurve,
 }
 
@@ -1027,26 +1019,26 @@ impl Transition {
     }
 }
 
-/// アニメーションのイージングカーブを定義する列挙型。
-/// 軽量なため Clone と Copy が可能です。
+/// Define the easing curve for the animation.
 // TODO: バネ物理シミュレーション Spring Physics
 // 摩擦（Damping）とバネの強さ（Stiffness）のパラメータから毎フレーム物理演算
 #[derive(Debug, Clone, Copy)]
 pub enum AnimationCurve {
-    /// イージングなし（線形 / リニア）
+    /// No easing (linear)
     Linear,
-    /// 加減速をかける標準的な2次イージング
+    /// Standard quadratic easing for acceleration and deceleration
     EaseInOutQuad,
-    /// 加速（2次）
+    /// Accelerate
     EaseInQuad,
-    /// 減速（2次）
+    /// Deceleration
     EaseOutQuad,
-    /// ユーザーが独自のイージング計算（0.0～1.0 を受け取り 0.0～1.0 を返す）を行えるエスケープハッチ
+    /// An escape hatch capable of performing custom easing calculations
+    /// (accepts values between 0.0 and 1.0 and returns values between 0.0 and 1.0)
     Custom(fn(f32) -> f32),
 }
 
 impl AnimationCurve {
-    /// 経過割合 t (0.0 <= t <= 1.0) に基づいて、イージングされた値を評価します
+    /// Evaluate the smoothed value based on the progress ratio t (0.0 <= t <= 1.0).
     #[must_use]
     pub fn evaluate(&self, t: f32) -> f32 {
         let t = t.clamp(0.0, 1.0);
@@ -1085,16 +1077,15 @@ pub enum PlaybackCount {
     Count(u32),
 }
 
-/// CSS Animation 相当の設定を定義
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct KeyframeAnimation {
-    /// 何をアニメーションさせるか
+    /// What to Animate
     pub property: PropertyList,
-    /// 1周（ループ）にかかる時間
+    /// Time per lap (loop)
     pub duration: Duration,
-    /// ループ回数
+    /// Number of loops
     pub iteration_count: PlaybackCount,
-    /// イージングカーブ
+    /// Easing Curve
     pub curve: AnimationCurve,
 }
 
@@ -1138,19 +1129,17 @@ impl LinearGradient {
     }
 }
 
-/// ポインターイベント（マウスインタラクション）の透過制御
+/// Transparency Control for Pointer Events
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PointerEvents {
-    /// 通常通りポインターイベントを受け取り下にある要素に透過させない
+    /// Receive pointer events and prevent them from being displayed on the elements below
     #[default]
     Auto,
-    /// ポインターイベントを無視し、下にある要素へ透過させる (CSS の pointer-events: none 相当)
+    /// Ignore pointer events and make the element transparent to the element below it
     None,
 }
 
-// 1. BasicLayout (基本レイアウト：18プロパティ) - ホットデータ
-
-/// 子要素から伝播して解決可能なインタラクション定義
+/// Interaction definitions that can be resolved by propagating from child elements
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InteractionName {
     Hover,
@@ -1223,65 +1212,30 @@ pub type IdDropCallback = Box<dyn FnMut(&mut Context, EntityId, Option<EntityId>
 // 引数: (context, ドラッグ元のオリジナル要素, 生成されたプレースホルダー要素)
 pub type DragStartCallback = Box<dyn FnMut(&mut Context, Element, Element) + 'static>;
 
-/// 要素ごとにバインドされる、検証済みイベントのハンドラ群。
+/// Events bound to individual elements.
 #[derive(Default)]
 #[allow(clippy::struct_field_names)]
 pub struct EventListeners {
-    /// 要素がクリックされた（マウスダウン -> 同一要素上でマウスアップされた）際のコールバック
     pub on_click: Option<ClickCallback>,
-
-    /// 右クリックされた際のコールバック（コンテキストメニューの起動用など）
     pub on_right_click: Option<SimpleCallback>,
-
-    /// マウスボタンの押し下げ・離しを直接受け取るハンドラ
-    /// 引数: (ボタンの種類, 装飾キーの状態, 押し下げ/離し状態)
     pub on_mouse_input: Option<MouseCallback>,
-
-    /// `マウスカーソルがこの要素の可視境界（out_clip_rects）に入った際のイベント`
     pub on_mouse_enter: Option<SimpleCallback>,
-
-    /// マウスカーソルがこの要素の可視境界から外に出た際のイベント
     pub on_mouse_leave: Option<SimpleCallback>,
-
-    /// マウスカーソルが要素内で動いた際のイベント。
-    /// 引数: 要素の左上を (0.0, 0.0) とする、論理スケーリング済みの相対座標 `Point`
     pub on_cursor_moved: Option<CursorMovedCallback>,
-
-    /// `マウスホイールが回された際のイベント（WM_MOUSEWHEEL` / `WM_MOUSEHWHEEL` 互換）
-    /// 引数: 前方向ならプラス、後方向ならマイナスの移動量（delta）
     pub on_mouse_wheel: Option<MouseWheelCallback>,
-
-    /// 要素がドラッグされている最中のイベント
-    /// 引数: ドラッグによる移動量 `Point(delta_x, delta_y)`
     pub on_drag: Option<DragCallback>,
-
     pub on_hover: Option<SimpleCallback>,
     pub on_focus: Option<SimpleCallback>,
     pub on_blur: Option<SimpleCallback>,
     pub on_disable: Option<SimpleCallback>,
     pub on_active: Option<SimpleCallback>,
     pub on_select: Option<SimpleCallback>,
-
-    /// 物理キーボードが押された、または離された際のイベント
-    /// 引数: 検証済みの仮想キーコード, 装飾キー, 状態
     pub on_keyboard_input: Option<KeyCallback>,
-
-    /// `IMEなどを介さない、確定した1文字の文字入力イベント（WM_CHAR` 互換）
     pub on_char_input: Option<CharCallback>,
-
-    /// IME（TSF / Input Method）による未確定文字の入力や確定が行われた際のイベント
-    /// 引数: 検証済みのIME状態アップデート情報
     pub on_ime: Option<ImeCallback>,
-
-    /// 外部のファイルやフォルダがこの要素の上にドラッグ＆ドロップされた際のイベント
-    /// 引数: 検証済みのファイルパスの配列
     pub on_file_dropped: Option<FileDropCallback>,
-    /// ファイルが要素の可視境界内にドラッグされて入ってきた瞬間に発火します（ドロップゾーンの強調表示用）
     pub on_file_drag_enter: Option<FileDragCallback>,
-    /// ドラッグされていたファイルが要素の外に出た、またはドラッグがキャンセルされた瞬間に発火します
     pub on_file_drag_leave: Option<FileDragCallback>,
-
-    // D&D 専用イベント
     pub on_dnd_entity_drag: Option<EntityDragCallback>,
     pub on_dnd_id_drag: Option<IdDragCallback>,
     pub on_dnd_entity_drop: Option<EntityDropCallback>,
@@ -1422,7 +1376,7 @@ impl std::fmt::Debug for EventListeners {
     }
 }
 
-/// 伝播用のグローバルカーソル種別
+/// Global Cursor Types for Propagation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GlobalCursorIcon {
     Default(Option<HCURSOR>),
@@ -1465,8 +1419,8 @@ impl Default for CursorIcon {
 }
 
 impl CursorIcon {
-    /// Windows API の HCURSOR 物理ハンドルを安全にロードして返却します。
-    /// 独自の HCURSOR が指定されている場合はそれを最優先し、None の場合はOSのシステム標準をロードします。
+    /// Loads and returns the Windows `HCURSOR` physical handle.
+    /// If a custom `HCURSOR` is specified, it takes precedence; otherwise, the OS's default is loaded.
     #[must_use]
     pub fn to_hcursor(self) -> crate::Result<HCURSOR> {
         use windows::Win32::UI::WindowsAndMessaging::{
@@ -1530,7 +1484,7 @@ impl CursorIcon {
         }
     }
 
-    /// メモリ上の RGBA8 ピクセルデータから指定したホットスポット座標を持つカスタム HCURSOR を生成します（アルファ透過対応）。
+    /// Generates a custom `HCURSOR` with the specified hotspot coordinates from the RGBA8 pixel data in memory.
     pub fn create_from_rgba(
         rgba_pixels: &[u8],
         width: u32,
@@ -1620,7 +1574,7 @@ impl CursorIcon {
         }
     }
 
-    /// 画像ファイルのパスから指定したホットスポット座標を持つカスタム HCURSOR を生成します。
+    /// Generates a custom `HCURSOR` with the specified hotspot coordinates based on the image file path.
     pub fn create_from_path(
         path: impl AsRef<std::path::Path>,
         hotspot_x: u32,
@@ -1662,7 +1616,7 @@ pub struct Modifiers {
     pub logo: bool, // Windowsキー
 }
 
-/// UI Automation (UIA) のプロパティ値の安全な表現
+/// Not Implemented
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiaValue {
     String(String),
@@ -1671,15 +1625,15 @@ pub enum UiaValue {
     Double(f64),
 }
 
-/// Windows 11 のネイティブシステムバックドロップ（ウィンドウ背景ぼかし）効果
+/// Windows 11's Native System Background Blur Effect
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(i32)]
 pub enum Backdrop {
     #[default]
-    None = 0, // 透過無効（通常の wgpu 背景）
-    Mica = 2,    // Mica（デスクトップ壁紙をサンプリングする不透明調）
-    Acrylic = 3, // Acrylic（背後の他アプリ・デスクトップを半透明にぼかす）
-    MicaAlt = 4, // Mica Alt (Tabbed)（ダーク調向けの濃いMica）
+    None = 0,
+    Mica = 2,
+    Acrylic = 3,
+    MicaAlt = 4,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1690,7 +1644,6 @@ pub enum UserSelect {
     All,
 }
 
-/// 枠線のスタイル
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u32)]
 pub enum BorderStyle {
@@ -1701,7 +1654,6 @@ pub enum BorderStyle {
     Double = 3,
 }
 
-/// 枠線描画の基準方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u32)]
 pub enum BorderAlignment {
@@ -1719,12 +1671,13 @@ pub enum InteractionState {
     Dragged,
 }
 
-/// 外部の動画やゲーム等からGUIへ動的にフレームを供給するためのトレイト
+/// Trait for dynamically supplying textures
 pub trait ExternalTexture: Send + Sync {
-    /// 描画直前に呼び出され、このフレームで描画すべき最新の `TextureView` を返す。
+    /// Called immediately before rendering,
+    /// this function returns the latest [`wgpu::TextureView`] that should be rendered in this frame.
     fn resolve_view(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView;
 
-    /// 描画方法を制御するメタデータを同期的に取得。
+    /// Retrieve the metadata that controls the rendering method.
     fn metadata(&self) -> ExternalTextureMetadata;
 }
 
@@ -1733,15 +1686,15 @@ pub struct ExternalTextureMetadata {
     pub size: LayoutSize,
     pub alpha_mode: ExternalTextureAlphaMode,
     pub y_flip: bool,
-    // テクスチャが -Srgb 系統の自動色空間変換フォーマットかどうか
+    /// Whether the texture is an -Srgb-based automatic color space conversion format
     pub is_srgb: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExternalTextureAlphaMode {
-    /// 通常（Straight）アルファ。シェーダー内で自動的に PMA（乗算済みアルファ）へ変換。
+    /// Standard alpha. Automatically converted to PMA (multiplied alpha) within the shader.
     Straight,
-    /// 乗算済み（Premultiplied）。シェーダー内でそのまま合成。
+    /// Multiplied alpha. Composited directly within the shader.
     Premultiplied,
 }
 

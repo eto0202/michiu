@@ -2,7 +2,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ComponentMask(pub u128);
 
-/// アニメーションやトランジションを設定可能なプロパティの一覧
+/// Properties for which animations and transitions can be configured
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PropertyList {
     BackgroundColor,
@@ -18,7 +18,6 @@ pub enum PropertyList {
 }
 
 impl PropertyList {
-    /// 内部的なビットフラグ（ComponentMask）にマッピング
     #[inline]
     pub(crate) fn to_mask_bit(self) -> u128 {
         match self {
@@ -39,114 +38,114 @@ impl PropertyList {
 impl ComponentMask {
     #[inline]
     #[must_use]
-    pub fn new(flag: u128) -> Self {
+    pub(crate) fn new(flag: u128) -> Self {
         Self(flag)
     }
 
     #[inline]
-    pub fn merge(&mut self, other: ComponentMask) {
+    pub(crate) fn merge(&mut self, other: ComponentMask) {
         self.0 |= other.0;
     }
 
     #[inline]
     #[must_use]
-    pub fn has(&self, flag: u128) -> bool {
+    pub(crate) fn has(&self, flag: u128) -> bool {
         (self.0 & flag) != 0
     }
 
     #[inline]
-    pub fn set(&mut self, flag: u128) {
+    pub(crate) fn set(&mut self, flag: u128) {
         self.0 |= flag;
     }
 
     #[inline]
-    pub fn unset(&mut self, flag: u128) {
+    pub(crate) fn unset(&mut self, flag: u128) {
         self.0 &= !flag;
     }
 
     /// 基本レイアウト関連のプロパティが1つでもあるか
     #[inline]
     #[must_use]
-    pub fn has_basic_layout(&self) -> bool {
+    pub(crate) fn has_basic_layout(&self) -> bool {
         self.has(Self::STYLE_BASIC_LAYOUT)
     }
 
     /// Flexレイアウト関連のプロパティが1つでもあるか
     #[inline]
     #[must_use]
-    pub fn has_flex_layout(&self) -> bool {
+    pub(crate) fn has_flex_layout(&self) -> bool {
         self.has(Self::STYLE_FLEX_LAYOUT)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_grid_layout(&self) -> bool {
+    pub(crate) fn has_grid_layout(&self) -> bool {
         self.has(Self::STYLE_GRID_LAYOUT)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_visual_property(&self) -> bool {
+    pub(crate) fn has_visual_property(&self) -> bool {
         self.has(Self::STYLE_VISUAL_PROPERTY)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_interaction_property(&self) -> bool {
+    pub(crate) fn has_interaction_property(&self) -> bool {
         self.has(Self::STYLE_INTERACTION_PROPERTY)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_active_interaction_property(&self) -> bool {
+    pub(crate) fn has_active_interaction_property(&self) -> bool {
         self.has(Self::STYLE_ACTIVE_INTERACTION_PROPERTY)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_input_content(&self) -> bool {
+    pub(crate) fn has_input_content(&self) -> bool {
         self.has(Self::COMP_INPUT_CONTENT)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_text_content(&self) -> bool {
+    pub(crate) fn has_text_content(&self) -> bool {
         self.has(Self::COMP_TEXT_CONTENT)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_webveiw2_content(&self) -> bool {
+    pub(crate) fn has_webveiw2_content(&self) -> bool {
         self.has(ComponentMask::COMP_WEBVIEW_CONTENT)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_image_content(&self) -> bool {
+    pub(crate) fn has_image_content(&self) -> bool {
         self.has(Self::COMP_IMAGE_CONTENT)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_movie_content(&self) -> bool {
+    pub(crate) fn has_movie_content(&self) -> bool {
         self.has(Self::COMP_MOVIE_CONTENT)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_queued_layout(&self) -> bool {
+    pub(crate) fn has_queued_layout(&self) -> bool {
         self.has(Self::STATE_QUEUED_LAYOUT)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_queued_render(&self) -> bool {
+    pub(crate) fn has_queued_render(&self) -> bool {
         self.has(Self::STATE_QUEUED_RENDER)
     }
 
     #[inline]
     #[must_use]
-    pub fn has_queued_layout_or_render(&self) -> bool {
+    pub(crate) fn has_queued_layout_or_render(&self) -> bool {
         self.has(Self::STATE_QUEUED_LAYOUT) || self.has(Self::STATE_QUEUED_RENDER)
     }
 
@@ -203,18 +202,17 @@ impl ComponentMask {
     pub(crate) const STATE_DRAGGED: u128 = 1 << 49;
     pub(crate) const STYLE_INTERACTION_WITHIN: u128 = 1 << 7; // 親に focus_within 等のスタイル定義が存在することを示す
 
-    // Vec等を含む重い構造体。SparseSecondaryMap に実体を逃がす。
-    /// `TaffyのGridレイアウト用の全プロパティ（grid_template_rows等：Vecを多数含む`）
+    // `TaffyのGridレイアウト用の全プロパティ（grid_template_rows等：Vecを多数含む`）
     pub(crate) const STYLE_GRID_LAYOUT: u128 = 1 << 50;
-    /// 動的キーフレームアニメーションの定義シーケンス（Vec含む）
+    // 動的キーフレームアニメーションの定義シーケンス（Vec含む）
     pub(crate) const STYLE_ANIMATIONS: u128 = 1 << 51;
-    /// RichText用の複数スパン情報やスタイリング（Vec含む）
+    // RichText用の複数スパン情報やスタイリング（Vec含む）
     pub(crate) const STYLE_TEXT_SPANS: u128 = 1 << 52;
-    /// 複雑な幾何学的クリッピング領域のポリゴンデータ（Vec含む）
+    // 複雑な幾何学的クリッピング領域のポリゴンデータ（Vec含む）
     pub(crate) const STYLE_CLIP_AREAS: u128 = 1 << 53;
-    /// 状態遷移時のトランジション定義（wgpuバッチパス）
+    // 状態遷移時のトランジション定義（wgpuバッチパス）
     pub(crate) const STYLE_TRANSITIONS: u128 = 1 << 54;
-    /// テキスト内容そのものを示す
+    // テキスト内容そのものを示す
     pub(crate) const COMP_TEXT_CONTENT: u128 = 1 << 55;
     pub(crate) const COMP_INPUT_CONTENT: u128 = 1 << 36;
 
@@ -263,12 +261,9 @@ impl ComponentMask {
     // 累積トランスフォーム用
     pub(crate) const STATE_TRANSFORM_ACTIVE: u128 = 1 << 79;
 
-    /// 外部提供テクスチャが有効であることを示す
-    pub const COMP_EXTERNAL_TEXTURE_CONTENT: u128 = 1 << 80;
+    // 外部提供テクスチャが有効であることを示す
+    pub(crate) const COMP_EXTERNAL_TEXTURE_CONTENT: u128 = 1 << 80;
 
-    // 基本レイアウト一括判定マスク (STYLE_DISPLAY から STYLE_BORDER まで：ビット0..17)
-    /// 基本レイアウトの個別プロパティの「どれか1つでも有効化されているか」を判定するマスク。
-    /// (16進数表現：0x3FFFF)
     pub(crate) const STYLE_BASIC_LAYOUT: u128 = Self::STYLE_DISPLAY
         | Self::STYLE_ITEM_IS_TABLE
         | Self::STYLE_ITEM_IS_REPLACED
@@ -287,9 +282,6 @@ impl ComponentMask {
         | Self::STYLE_BORDER
         | Self::STYLE_RESIZABLE;
 
-    // Flexレイアウト一括判定マスク (STYLE_ALIGN_ITEMS から STYLE_FLEX_SHRINK まで：ビット18..30)
-    /// Flexboxレイアウトの個別プロパティの「どれか1つでも有効化されているか」を判定するマスク。
-    /// (16進数表現：0x7FFC0000)
     pub(crate) const STYLE_FLEX_LAYOUT: u128 = Self::STYLE_ALIGN_ITEMS
         | Self::STYLE_ALIGN_SELF
         | Self::STYLE_JUSTIFY_ITEMS
@@ -304,7 +296,6 @@ impl ComponentMask {
         | Self::STYLE_FLEX_GROW
         | Self::STYLE_FLEX_SHRINK;
 
-    // ビジュアルプロパティの一括判定用マスク（ビット31..42の論理和：16進数表現 0x7FF80000000）
     pub(crate) const STYLE_VISUAL_PROPERTY: u128 = Self::STYLE_BG_COLOR
         | Self::STYLE_BORDER_COLOR
         | Self::STYLE_CORNER_RADIUS
@@ -328,7 +319,6 @@ impl ComponentMask {
         | Self::STYLE_PREVENT_FOCUS_STEAL_WITHIN
         | Self::STYLE_AUTO_WRAP;
 
-    // インタラクションプロパティの一括判定用マスク（ビット43..49の論理和：16進数表現 0x3F80000000000）
     pub(crate) const STYLE_INTERACTION_PROPERTY: u128 = Self::STATE_HOVERED
         | Self::STATE_FOCUSED
         | Self::STATE_PRESSED

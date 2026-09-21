@@ -155,7 +155,7 @@ impl Sub<CharIndex> for CharIndex {
 //
 // ======================================================================
 
-/// Range<usize> と専用型 Range の安全な相互変換を提供するトレイト
+/// A trait that provides conversion between `Range<usize>` and the dedicated `Range` type
 pub trait RangeExt {
     fn to_usize_range(self) -> Range<usize>;
 }

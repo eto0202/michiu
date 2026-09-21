@@ -5,6 +5,7 @@ use smallvec::SmallVec;
 
 use crate::{EntityId, FlatDfsSequenceVec, ParentsSecondary};
 
+/// Registry for Managing Tags
 #[derive(Default, Debug, Clone)]
 pub struct MichiuTagRegistry {
     pub type_to_entities: FxHashMap<TypeId, SmallVec<[EntityId; 1]>>,

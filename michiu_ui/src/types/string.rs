@@ -19,20 +19,20 @@ impl MichiuString {
 
     #[inline]
     #[must_use]
-    pub fn byte_len(&self) -> ByteIndex {
+    pub(crate) fn byte_len(&self) -> ByteIndex {
         ByteIndex(self.0.len())
     }
 
     #[inline]
     #[must_use]
-    pub fn char_count(&self) -> CharIndex {
+    pub(crate) fn char_count(&self) -> CharIndex {
         CharIndex(self.0.chars().count())
     }
 
-    /// 文字数インデックス（CharIndex）からバイトインデックス（ByteIndex）へ変換
+    /// Converting from Character Index (`CharIndex`) to Byte Index (`ByteIndex`)
     #[inline]
     #[must_use]
-    pub fn to_byte_index(&self, char_idx: CharIndex) -> ByteIndex {
+    pub(crate) fn to_byte_index(&self, char_idx: CharIndex) -> ByteIndex {
         let pos = self
             .0
             .char_indices()
@@ -42,7 +42,7 @@ impl MichiuString {
         ByteIndex(pos)
     }
 
-    /// バイトインデックス（ByteIndex）から、文字数インデックス（CharIndex）へ変換
+    /// Convert from Byte Index (`ByteIndex`) to Character Index (`CharIndex`)
     #[inline]
     #[must_use]
     pub fn to_char_index(&self, byte_idx: ByteIndex) -> CharIndex {
@@ -51,7 +51,7 @@ impl MichiuString {
         CharIndex(char_pos)
     }
 
-    /// 指定位置を安全な文字の開始境界に補正して返す
+    /// Returns the specified position adjusted to the start boundary of a safe character
     #[inline]
     #[must_use]
     pub fn clamp_to_boundary(&self, at: ByteIndex) -> ByteIndex {
@@ -62,7 +62,7 @@ impl MichiuString {
         ByteIndex(pos)
     }
 
-    /// 現在位置から左へ1文字移動した安全な位置を返す
+    /// Returns a safe position one character to the left of the current position
     #[inline]
     #[must_use]
     pub fn prev_char_boundary(&self, at: ByteIndex) -> ByteIndex {
@@ -78,7 +78,7 @@ impl MichiuString {
         }
     }
 
-    /// 現在位置から右へ1文字移動した安全な位置を返す
+    /// Returns a safe position one character to the right of the current position
     #[inline]
     #[must_use]
     pub fn next_char_boundary(&self, at: ByteIndex) -> ByteIndex {
@@ -91,7 +91,7 @@ impl MichiuString {
         }
     }
 
-    /// 1文字挿入し、挿入後の新しいキャレット位置を返す
+    /// Inserts one character and returns the new cursor position after the insertion
     #[inline]
     #[must_use]
     pub fn insert_char(&mut self, at: ByteIndex, ch: char) -> ByteIndex {
@@ -105,7 +105,7 @@ impl MichiuString {
         ByteIndex(insert_pos + ch_str.len())
     }
 
-    /// 文字列を一括挿入し、挿入後の新しいキャレット位置を返す
+    /// Inserts a string in bulk and returns the new cursor position after insertion
     #[inline]
     #[must_use]
     pub fn insert_str(&mut self, at: ByteIndex, text: &str) -> ByteIndex {
@@ -115,7 +115,7 @@ impl MichiuString {
         ByteIndex(insert_pos + text.len())
     }
 
-    /// 指定位置にテキストを挿入した、新しい `MichiuString` を生成して返す（表示用テキスト合成用）
+    /// Creates and returns a new `MichiuString` with text inserted at the specified position.
     #[inline]
     #[must_use]
     pub fn inserted(&self, at: ByteIndex, text: &str) -> Self {
@@ -124,8 +124,9 @@ impl MichiuString {
         cloned
     }
 
-    /// 指定範囲を新しい文字列で置き換え、挿入後の安全なキャレット位置を返す
-    /// 範囲が空なら単なる挿入、範囲があれば削除＋挿入として動作
+    /// Replaces the specified range with a new string and returns the safe caret position after insertion
+    ///
+    /// If the range is empty, it acts as a simple insertion; if the range exists, it acts as a delete-and-insert operation
     #[inline]
     #[must_use]
     pub fn replace_range(&mut self, range: Range<ByteIndex>, text: &str) -> ByteIndex {
@@ -142,7 +143,7 @@ impl MichiuString {
         ByteIndex(start + text.len())
     }
 
-    /// 範囲をスライスして `&str` として切り出す
+    /// Slice the range and extract it as `&str`
     #[inline]
     #[must_use]
     pub fn slice(&self, range: Range<ByteIndex>) -> &str {
@@ -155,7 +156,7 @@ impl MichiuString {
         }
     }
 
-    /// 指定範囲を削除し、削除後のキャレット位置（範囲の始点）を返す
+    /// Delete the specified range and return the caret position after the deletion
     #[inline]
     #[must_use]
     pub fn remove_range(&mut self, range: Range<ByteIndex>) -> ByteIndex {
@@ -169,7 +170,7 @@ impl MichiuString {
         ByteIndex(start)
     }
 
-    /// 直前の1文字を削除し、新しいキャレット位置を返す
+    /// Deletes the character immediately before the cursor and returns the new cursor position
     #[inline]
     #[must_use]
     pub fn backspace(&mut self, at: ByteIndex) -> ByteIndex {
@@ -187,7 +188,7 @@ impl MichiuString {
         }
     }
 
-    /// 直後の1文字を削除を行い、キャレット位置（変化なし）を返す
+    /// Deletes the character immediately following the cursor and returns the cursor position.
     #[inline]
     #[must_use]
     pub fn delete(&mut self, at: ByteIndex) -> ByteIndex {
@@ -203,7 +204,7 @@ impl MichiuString {
         ByteIndex(current_pos)
     }
 
-    /// キャレット位置における (現在の行番号, 総行数) を算出する
+    /// Calculate (current line number, total number of lines) at the cursor position
     #[inline]
     #[must_use]
     pub fn line_indices(&self, at: ByteIndex) -> (usize, usize) {
@@ -214,7 +215,7 @@ impl MichiuString {
         (current_line, total_lines)
     }
 
-    /// 指定位置の文字クラスを取得する
+    /// Get the character class at a specified position
     #[inline]
     #[must_use]
     pub fn char_class_at(&self, at: ByteIndex) -> CharClassID {
@@ -237,7 +238,7 @@ impl MichiuString {
         CharClassID(id)
     }
 
-    /// 単語の境界範囲をスキャンする
+    /// Find the word boundary range
     #[inline]
     #[must_use]
     pub fn find_word_boundaries(&self, at: ByteIndex) -> Range<ByteIndex> {

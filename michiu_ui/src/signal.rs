@@ -17,14 +17,13 @@ new_key_type! {
 }
 
 thread_local! {
-    // 現在メインスレッド上で評価中のエフェクトIDを記録するスレッドローカル領域。
-    // これによりシグナル読み出し時の依存関係を自動で構築します。
+    // 現在メインスレッド上で評価中のエフェクトIDを記録するスレッドローカル
     pub(crate) static ACTIVE_EFFECT: Cell<Option<EffectId>> = const { Cell::new(None) };
-    // 現在メインスレッド上で処理中の UI要素ID (EntityId)
+    // 現在メインスレッド上で処理中のEntityId
     pub(crate) static ACTIVE_ELEMENT: Cell<Option<crate::EntityId>> = const { Cell::new(None) };
 }
 
-/// スコープを抜けた際に自動的に `ACTIVE_ELEMENT` を復元するRAIIガード
+/// Automatically restore `ACTIVE_ELEMENT` when exiting the scope
 pub struct ActiveElementGuard {
     prev: Option<crate::EntityId>,
 }
@@ -49,7 +48,7 @@ impl Drop for ActiveElementGuard {
     }
 }
 
-/// シグナルの読取端。軽量で Copy 可能。
+/// Signal readout terminal.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ReadSignal<T> {
     pub(crate) id: SignalId,
@@ -94,10 +93,10 @@ impl<T: 'static> ReadSignal<T> {
         });
     }
 
-    /// 参照 `&T` を使って処理を行い結果だけを取り出す
+    /// 参照 `&T` を使って処理を行い結果だけを取り出す。
     #[track_caller]
     #[inline]
-    pub fn with<U>(&self, f: impl FnOnce(&T) -> U) -> U {
+    pub(crate) fn with<U>(self, f: impl FnOnce(&T) -> U) -> U {
         self.track();
 
         with_context(|cx| {
@@ -119,21 +118,24 @@ impl<T: 'static> ReadSignal<T> {
 }
 
 impl<T: Clone + 'static> ReadSignal<T> {
+    /// Retrieve [`SignalId`].
     #[inline]
     #[must_use]
     pub fn id(&self) -> SignalId {
         self.id
     }
-    /// シグナルの現在の値を取得（複製）します。
-    /// もし現在エフェクトの評価中であれば、そのエフェクトをこのシグナルの依存先（Subscriber）として自動登録します。
+    /// Retrieves (clone) the current value of the signal.
+    ///
+    /// If an effect is currently being evaluated,
+    /// it automatically registers that effect as a dependency of this signal.
     #[inline]
     #[must_use]
     pub fn get(&self) -> T {
         self.with(std::clone::Clone::clone)
     }
 
-    /// 任意の型のシグナルに対して、条件判定クロージャ `cond_fn` の結果に基づき、
-    /// `true_val` または `false_val` を返す遅延評価クロージャを生成します。
+    /// For a signal of any type, generates a lazily evaluated closure that returns
+    /// either `true_val` or `false_val` based on the result of the conditional closure `cond_fn`.
     #[inline]
     pub fn get_else_by<U: Clone + 'static, F>(
         self,
@@ -155,8 +157,8 @@ impl<T: Clone + 'static> ReadSignal<T> {
         }
     }
 
-    /// 任意の型のシグナルに対して、条件判定クロージャ `cond_fn` の結果に基づき、
-    /// 重いオブジェクトの生成を遅延させるクロージャ `true_fn` または `false_fn` を呼び出します。
+    /// For a signal of any type, calls either the `true_fn` or `false_fn` closure—which delays
+    /// the creation of a heavy object—based on the result of the conditional closure `cond_fn`.
     #[inline]
     pub fn get_else_with_by<U: 'static, F, FT, FF>(
         self,
@@ -176,7 +178,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
         }
     }
 
-    /// 依存関係を追跡せずに現在のシグナルの値を即時取得します。
+    /// Retrieves the current signal value immediately without tracking dependencies.
     #[track_caller]
     #[inline]
     #[must_use]
@@ -198,7 +200,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
         })
     }
 
-    /// 読み取り専用の一方向マッピングシグナルを生成します。
+    /// Generates a read-only, unidirectional mapping signal.
     pub fn map<U, F>(&self, map_fn: F) -> ReadSignal<U>
     where
         T: Send + Clone + 'static,
@@ -226,7 +228,7 @@ impl<T: Clone + 'static> ReadSignal<T> {
         })
     }
 
-    /// 双方向バインディング用のアダプタペアを生成します。
+    /// Generates a pair of adapters for bidirectional binding.
     pub fn bi_map<U, F, G>(
         &self,
         writer: WriteSignal<T>,
@@ -271,7 +273,8 @@ impl<T: Clone + 'static> ReadSignal<T> {
 }
 
 impl ReadSignal<bool> {
-    /// 状態が true の場合は `true_val` を、false の場合は `false_val` を返すクロージャを生成します。    #[inline]
+    /// Creates a closure that returns `true_val` if the condition is true, and `false_val` if it is false.
+    #[inline]
     pub fn get_else<U: Clone + 'static>(
         self,
         true_val: U,
@@ -287,7 +290,7 @@ impl ReadSignal<bool> {
         }
     }
 
-    /// 状態に応じて重いスタイルや要素を生成する場合に、評価を遅延させるためのクロージャ版。
+    /// Creates a closure that returns `true_fn` if the condition is true, and `false_fn` if it is false.
     #[inline]
     pub fn get_else_with<U: 'static, FT, FF>(
         self,
@@ -305,7 +308,7 @@ impl ReadSignal<bool> {
     }
 }
 
-/// シグナルの書込端（メインスレッド専用）。軽量で Copy 可能。
+/// Signal write port (for the main thread only).
 #[derive(Debug, PartialEq, Eq)]
 pub struct WriteSignal<T> {
     pub(crate) id: SignalId,
@@ -331,14 +334,16 @@ impl<T> WriteSignal<T> {
 }
 
 impl<T: Send + 'static> WriteSignal<T> {
-    #[track_caller]
+    /// Retrieve [`SignalId`].
     #[inline]
     #[must_use]
     pub fn id(&self) -> SignalId {
         self.id
     }
-    /// メインスレッド上からシグナルの値を同期的に書き換えます。
-    /// 値が書き換わった場合、このシグナルに依存しているすべての子エフェクトを自動的に再評価（実行）します。
+
+    /// Synchronously updates the value of the signal from the main thread.
+    ///
+    /// If the value changes, all effects that depend on this signal are automatically re-evaluated.
     pub fn set(&self, new_value: T) {
         let mut effects_to_run = SmallVec::new();
 
@@ -366,7 +371,7 @@ impl<T: Send + 'static> WriteSignal<T> {
         }
     }
 
-    /// スレッドセーフな送信端（`SignalSender`）を取得します。
+    /// Retrieves a thread-safe sender ([`SignalSender`]).
     #[inline]
     #[must_use]
     pub fn sender(&self) -> SignalSender<T> {
@@ -379,8 +384,9 @@ impl<T: Send + 'static> WriteSignal<T> {
         }
     }
 
-    /// 明示的なコンテキスト指定により、スレッドセーフな送信端を取得します。
-    /// UI構築スコープ外（`ACTIVE_CONTEXT` が設定されていないタイミング）からでも安全に呼び出せます。
+    /// Obtains a thread-safe sender by explicitly specifying the `Context`.
+    ///
+    /// Can be safely called even from outside the UI construction scope.
     #[inline]
     #[must_use]
     pub fn sender_with(&self, cx: &Context) -> SignalSender<T> {
@@ -392,7 +398,7 @@ impl<T: Send + 'static> WriteSignal<T> {
     }
 }
 
-/// バックグラウンドスレッドからメインスレッドのシグナルを安全に書き換えるためのスレッドセーフな送信端。
+/// A thread-safe sender for safely modifying signals on the main thread from a background thread.
 pub struct SignalSender<T> {
     pub(crate) id: SignalId,
     pub(crate) sys_task_sender: TaskSender,
@@ -410,7 +416,7 @@ impl<T> Clone for SignalSender<T> {
 }
 
 impl<T: Send + 'static> SignalSender<T> {
-    /// ワーカースレッド等から安全にメインスレッドへ更新タスクをディスパッチします。
+    /// Safely dispatches update tasks from worker threads and other sources to the main thread.
     #[inline]
     pub fn send(&self, value: T) {
         let signal_id = self.id;
@@ -424,7 +430,7 @@ impl<T: Send + 'static> SignalSender<T> {
     }
 }
 
-/// 指定されたエフェクトをメインスレッドのコンテキスト下で評価（実行）する内部ユーティリティ。
+/// 指定されたエフェクトをメインスレッドのコンテキスト下で評価する。
 #[track_caller]
 #[inline]
 pub(crate) fn execute_effect(effect_id: EffectId) {
@@ -470,8 +476,8 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
     });
 }
 
-/// 新しいエフェクトを構築し、評価を開始します。
-/// このエフェクトは、内部で `get()` されたすべてのシグナルが変更された際に自動的に再実行されます。
+/// 新しいエフェクトを構築し評価を開始する。
+/// このエフェクトは、内部で `get()` されたすべてのシグナルが変更された際に自動的に再実行される。
 #[inline]
 pub(crate) fn create_effect<F>(f: F) -> EffectId
 where

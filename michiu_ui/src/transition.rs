@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Values that can be transitioned
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TransitionValue {
     Color(Color),
@@ -18,7 +19,7 @@ pub enum TransitionValue {
 const TWO_PI: f32 = PI * 2.0;
 
 impl TransitionValue {
-    /// 進行度 t (0.0 ～ 1.0) に基づいて、自己と目標値を線形補間（Lerp）します
+    /// 進行度 t (0.0 ～ 1.0) に基づいて、自己と目標値を線形補間する
     #[inline]
     pub(crate) fn lerp(&self, other: &Self, t: f32) -> Self {
         match (self, other) {
@@ -97,7 +98,7 @@ impl TransitionValue {
     }
 }
 
-/// 現在駆動中のアクティブなトランジション
+/// Active transitions currently in progress
 #[derive(Debug, Clone, Copy)]
 pub struct ActiveTransition {
     pub property_list: PropertyList,

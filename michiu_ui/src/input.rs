@@ -91,59 +91,45 @@ impl ImeState {
     }
 }
 
-/// リッチテキスト用の下線の描画スタイル
+/// Underline Drawing Style
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnderlineStyle {
-    /// 通常の細い下線 (一般の <u> タグ、または IME 変換中・非フォーカス文節)
     Solid,
-    /// 太い下線 (IME 変換フォーカス文節)
     Thick,
-    /// 波線 (スペルミス、または IME 未変換・非確定文字列全体)
     Wave,
-    /// 二重下線 (強調等)
     Double,
 }
 
-/// 部分的な打ち消し線（取り消し線）のスタイル
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StrikethroughStyle {
-    /// 通常の細い取り消し線
     Solid,
-    /// 太い取り消し線
     Thick,
 }
 
-/// 文字列の特定範囲に部分的なスタイリングを施すための、完成されたリッチテキストスパン
+/// Text span for applying partial styling to a specific range of a string
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextSpan {
-    /// この装飾が適用される文字インデックスの範囲 (UTF-8 単位)
+    /// The range of character indices to which this decoration is applied
     pub(crate) range: Range<ByteIndex>,
 
-    /// 部分的な文字色の上書き (例: リンクの青色や強調の赤色)
+    /// Partial Text Color Override
     pub(crate) color: Option<Color>,
-    /// 部分的な文字背景色の上書き (例: マーカーの黄色や、コードブロック `` `code` `` の背景グレー)
+    /// Overriding Partial Text Background Colors
     pub(crate) bg_color: Option<Color>,
 
-    /// 部分的なフォントサイズの上書き
+    /// Partial Font Size Override
     pub(crate) font_size: Option<f32>,
-    /// 部分的なフォントファミリーの上書き
+    /// Partial Font Family Override
     pub(crate) font_family: Option<Cow<'static, str>>,
-    /// 部分的な太さ (Bold = 700等) の上書き (`DWRITE_FONT_WEIGHT` 相当)
+    /// Partial Font Weight Override
     pub(crate) font_weight: Option<u32>,
-    /// 部分的な斜体 (Normal=0, Italic=2等) の上書き (`DWRITE_FONT_STYLE` 相当)
+    /// Partial Font Style Override
     pub(crate) font_style: Option<u32>,
 
-    /// 下線の種類 (標準下線、太下線、波下線)
     pub(crate) underline: Option<UnderlineStyle>,
-    /// 下線の色
     pub(crate) underline_color: Option<Color>,
-    /// 打ち消し線 (取り消し線) の種類
     pub(crate) strikethrough: Option<StrikethroughStyle>,
-    /// 打ち消し線の色
     pub(crate) strikethrough_color: Option<Color>,
-
-    /// リンクとしてクリック可能にする場合、識別子を入れておき
-    /// ヒットテスト時にイベントをフック可能にします
     pub(crate) link_id: Option<Cow<'static, str>>,
 }
 
@@ -154,7 +140,7 @@ impl Default for TextSpan {
 }
 
 impl TextSpan {
-    /// 空のデフォルトスパンを生成します
+    /// Generates an empty default span.
     #[must_use]
     pub fn new(range: Range<usize>) -> Self {
         Self {
@@ -172,72 +158,91 @@ impl TextSpan {
             link_id: None,
         }
     }
+
+    /// The range of character indices to which this decoration is applied
     #[inline]
     #[must_use]
     pub fn range(mut self, range: Range<usize>) -> Self {
         self.range = range.to_byte_range();
         self
     }
+
+    /// Partial Text Color Override
     #[inline]
     #[must_use]
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
     }
+
+    /// Overriding Partial Text Background Colors
     #[inline]
     #[must_use]
     pub fn bg_color(mut self, color: Color) -> Self {
         self.bg_color = Some(color);
         self
     }
+
+    /// Partial Font Size Override
     #[inline]
     #[must_use]
     pub fn font_size(mut self, size: f32) -> Self {
         self.font_size = Some(size);
         self
     }
+
+    /// Partial Font Family Override
     #[must_use]
     #[inline]
     pub fn font_family(mut self, family: impl Into<Cow<'static, str>>) -> Self {
         self.font_family = Some(family.into());
         self
     }
+
+    /// Partial Font Weight Override
     #[inline]
     #[must_use]
     pub fn font_weight(mut self, weight: u32) -> Self {
         self.font_weight = Some(weight);
         self
     }
+
+    /// Partial Font Style Override
     #[inline]
     #[must_use]
     pub fn font_style(mut self, style: u32) -> Self {
         self.font_style = Some(style);
         self
     }
+
     #[inline]
     #[must_use]
     pub fn underline(mut self, style: UnderlineStyle) -> Self {
         self.underline = Some(style);
         self
     }
+
     #[inline]
     #[must_use]
     pub fn underline_color(mut self, color: Color) -> Self {
         self.underline_color = Some(color);
         self
     }
+
     #[inline]
     #[must_use]
     pub fn strikethrough(mut self, style: StrikethroughStyle) -> Self {
         self.strikethrough = Some(style);
         self
     }
+
     #[inline]
     #[must_use]
     pub fn strikethrough_color(mut self, color: Color) -> Self {
         self.strikethrough_color = Some(color);
         self
     }
+
     #[must_use]
     #[inline]
     pub fn link_id(mut self, link: impl Into<Cow<'static, str>>) -> Self {
@@ -246,15 +251,12 @@ impl TextSpan {
     }
 }
 
-/// 数値入力における小数点以下の丸め（クランプ）モード
+/// Rounding Mode for Decimal Places in Numeric Input
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RoundingMode {
-    /// 切り捨て
     #[default]
     Floor,
-    /// 切り上げ
     Ceil,
-    /// 四捨五入
     Round,
 }
 
@@ -283,13 +285,13 @@ pub struct InputContents {
     pub(crate) is_blink: bool,
     pub(crate) blink_frequency: Option<Duration>,
 
-    /// 部分的なスタイリング (IMEの下線等に使用)
+    // 部分的なスタイリング (IMEの下線等に使用)
     pub(crate) rich_text: Option<TextSpan>,
     // IME制御
     pub(crate) is_ime: bool,
     pub(crate) ime_state: Option<ImeState>,
 
-    /// 選択範囲。カーソル位置は start == end で表現
+    // 選択範囲。カーソル位置は start == end で表現
     pub(crate) selected_range: Range<ByteIndex>,
     pub(crate) selection_reversed: bool,
     pub(crate) marked_range: Option<Range<ByteIndex>>,
@@ -299,11 +301,11 @@ pub struct InputContents {
     pub(crate) measured_caret: LayoutPoint,
     pub(crate) caret_line_height: f32,
     pub(crate) needs_scroll_to_caret: bool,
-    /// キャレットの移動・タイピングなどの最終操作時刻
+    // キャレットの移動・タイピングなどの最終操作時刻
     pub(crate) last_interacted_time: Option<std::time::Instant>,
-    /// 現在のキャレットが位置する行番号 (0始まり)
+    // 現在のキャレットが位置する行番号 (0始まり)
     pub(crate) current_line_index: usize,
-    /// 入力文字列全体の総行数
+    // 入力文字列全体の総行数
     pub(crate) total_lines: usize,
 
     // Undo / Redo 用履歴スタック
@@ -313,7 +315,29 @@ pub struct InputContents {
 }
 
 impl InputContents {
-    /// 新規に入力コンテンツの起点を作成します（不足フィールドの初期化を完全修正）。
+    /// Generate new input content.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use crate::{InputContents, div_n, create_signal};
+    ///
+    /// let (text, set_text) = create_signal(String::new());
+    /// div_n().input(InputContents::new((text, set_text)))
+    ///
+    /// ```
+    ///
+    /// For Newtype patterns, you can use `bi_map`.
+    /// ```rust
+    /// use crate::{InputContents, div_n, create_signal};
+    ///
+    /// struct SearchText(String);
+    /// let (reader, writer) = create_signal(SearchText(String::new()));
+    /// let (text, set_text) =
+    ///     reader.bi_map(writer, |t| t.0.clone(), SearchText);
+    ///
+    /// div_n().input(InputContents::new((text, set_text)))
+    ///
+    /// ```
     #[must_use]
     pub fn new(text: (ReadSignal<String>, WriteSignal<String>)) -> Self {
         Self {
@@ -422,7 +446,6 @@ impl InputContents {
         self.has_caret = enabled;
         self
     }
-    /// キャレットの太さと高さを一括設定します。単一値(f32)またはタプル(f32, f32)を受け入れます。
     #[inline]
     #[must_use]
     pub fn caret_size(mut self, size: impl IntoSize<f32>) -> Self {
@@ -431,16 +454,12 @@ impl InputContents {
         self.caret_height = Some(s.height);
         self
     }
-
-    /// キャレットの太さ（幅）のみを個別設定します。
     #[inline]
     #[must_use]
     pub fn caret_width(mut self, width: f32) -> Self {
         self.caret_width = Some(width);
         self
     }
-
-    /// キャレットの高さのみを個別設定します。
     #[inline]
     #[must_use]
     pub fn caret_height(mut self, height: f32) -> Self {
@@ -448,7 +467,8 @@ impl InputContents {
         self
     }
 
-    /// キャレットの表示位置を垂直方向に微調整します。プラスは下、マイナスは上にスライドします。
+    /// Fine-tune the vertical position of the caret.
+    /// Slide the plus sign down to move it lower, and the minus sign up to move it higher.
     #[inline]
     #[must_use]
     pub fn caret_offset(mut self, offset: f32) -> Self {
@@ -500,7 +520,7 @@ impl InputContents {
         self
     }
 
-    /// 現在の状態を Undo 履歴に記録し、Redo スタックをクリアします
+    /// 現在の状態を Undo 履歴に記録し、Redo スタックをクリア
     #[inline]
     pub(crate) fn record_undo(&mut self, text: MichiuString, selection: Range<ByteIndex>) {
         if let Some((last_text, _)) = self.undo_stack.last()
@@ -551,7 +571,7 @@ impl InputContents {
         }
     }
 
-    /// 表示テキスト（マスク後）のバイト位置を、生テキストのバイト位置に変換する（クリック・ヒットテスト用）
+    /// 表示テキスト（マスク後）のバイト位置を、生テキストのバイト位置に変換する
     pub(crate) fn display_byte_to_raw_byte(
         &self,
         display_byte: ByteIndex,
@@ -571,7 +591,7 @@ impl InputContents {
         }
     }
 
-    /// 生テキストの選択範囲を表示テキスト（マスク後）のバイト範囲に変換する（ハイライト描画用）
+    /// 生テキストの選択範囲を表示テキスト（マスク後）のバイト範囲に変換する
     pub(crate) fn raw_range_to_display_range(
         &self,
         raw_range: Range<ByteIndex>,

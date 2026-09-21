@@ -805,8 +805,10 @@ impl Context {
         Pipeline::sync_layout(self, root, window_size);
     }
 
-    /// `RawContext` を取得します。
+    /// Get the `RawContext`.
     /// 
+    /// This is an escape hatch. While it allows you to directly manipulate the internals of `Context`,
+    /// the integrity of its lifecycle and internal data is not guaranteed.
     #[inline]
     pub fn raw_context_mut(&mut self) -> RawContext<'_> {
         RawContext {
