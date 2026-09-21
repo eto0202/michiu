@@ -1,5 +1,6 @@
 use crate::{
-    Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImeState, LayoutPoint, MichiuSoA, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,
+    Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImeState,
+    LayoutPoint, MichiuSoA, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,
 };
 use std::path::PathBuf;
 
@@ -20,8 +21,9 @@ impl Element {
         })
     }
 
-    /// 左クリックのリリース（押し下げ ➔ 同一要素上での離し）が成立した際に発火するイベントを登録します。
-    /// 複数回呼ぶとイベントは追加され登録順に実行されます。
+    /// Registers an event that fires when the left mouse button is released.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_click<F>(self, mut f: F) -> Self
@@ -31,6 +33,9 @@ impl Element {
         self.on_click_with(move |_cx| f())
     }
 
+    /// Registers an event that fires when the left mouse button is released.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_click_with<F>(self, f: F) -> Self
@@ -51,7 +56,9 @@ impl Element {
         self
     }
 
-    /// 右クリックのリリース（押し下げ ➔ 同一要素上での離し）が成立した際に発火するイベントを登録します。
+    /// Registers an event that fires when the right mouse button is released.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_right_click<F>(self, mut f: F) -> Self
@@ -61,6 +68,9 @@ impl Element {
         self.on_right_click_with(move |_cx| f())
     }
 
+    /// Registers an event that fires when the right mouse button is released.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_right_click_with<F>(self, f: F) -> Self
@@ -81,7 +91,9 @@ impl Element {
         self
     }
 
-    /// マウスボタンの生入力（押し下げ、または離し）が発生した際に発火するイベントを登録します。
+    /// Register an event that fires when raw mouse button input occurs.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_mouse_input<F>(self, mut f: F) -> Self
@@ -91,6 +103,9 @@ impl Element {
         self.on_mouse_input_with(move |_cx, btn, mods, state| f(btn, mods, state))
     }
 
+    /// Register an event that fires when raw mouse button input occurs.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_mouse_input_with<F>(self, f: F) -> Self
@@ -111,7 +126,9 @@ impl Element {
         self
     }
 
-    /// マウスポインタが要素の可視境界内に入った（Enter）際に発火するイベントを登録します。
+    /// Register an event that fires when the mouse pointer enters the visible bounds of an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_mouse_enter<F>(self, mut f: F) -> Self
@@ -121,6 +138,9 @@ impl Element {
         self.on_mouse_enter_with(move |_cx| f())
     }
 
+    /// Register an event that fires when the mouse pointer enters the visible bounds of an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_mouse_enter_with<F>(self, f: F) -> Self
@@ -141,7 +161,9 @@ impl Element {
         self
     }
 
-    /// マウスポインタが要素の可視境界から外に出た（Leave）際に発火するイベントを登録します。
+    /// Register an event that fires when the mouse pointer moves outside the visible boundaries of an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_mouse_leave<F>(self, mut f: F) -> Self
@@ -151,6 +173,9 @@ impl Element {
         self.on_mouse_leave_with(move |_cx| f())
     }
 
+    /// Register an event that fires when the mouse pointer moves outside the visible boundaries of an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_mouse_leave_with<F>(self, f: F) -> Self
@@ -171,8 +196,12 @@ impl Element {
         self
     }
 
-    /// マウスポインタが要素内で移動した際に発火するイベントを登録します。
-    /// コールバックには、要素の左上を原点 (0, 0) とする論理座標 `LayoutPoint` が伝播します。
+    /// Registers an event that fires when the mouse pointer moves within an element.
+    ///
+    /// The callback receives a `LayoutPoint`,
+    /// which is a logical coordinate system with the element's top-left corner as the origin (0, 0).
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_cursor_moved<F>(self, mut f: F) -> Self
@@ -182,6 +211,12 @@ impl Element {
         self.on_cursor_moved_with(move |_cx, point| f(point))
     }
 
+    /// Registers an event that fires when the mouse pointer moves within an element.
+    ///
+    /// The callback receives a `LayoutPoint`,
+    /// which is a logical coordinate system with the element's top-left corner as the origin (0, 0).
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_cursor_moved_with<F>(self, f: F) -> Self
@@ -202,8 +237,11 @@ impl Element {
         self
     }
 
-    /// マウスホイールスクロールがこの要素上で検知された際のイベントをバインドします。
-    /// コールバック引数には、論理ピクセル単位に換算された (`scroll_x`, `scroll_y`) が渡されます。
+    /// Registers an event that fires when the mouse wheel is scrolled over this element.
+    ///
+    /// The callback is passed the values of `scroll_x` and `scroll_y`, converted to logical pixels.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_mouse_wheel<F>(self, mut f: F) -> Self
@@ -213,6 +251,11 @@ impl Element {
         self.on_mouse_wheel_with(move |_cx, sx, sy| f(sx, sy))
     }
 
+    /// Registers an event that fires when the mouse wheel is scrolled over this element.
+    ///
+    /// The callback is passed the values of `scroll_x` and `scroll_y`, converted to logical pixels.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_mouse_wheel_with<F>(self, f: F) -> Self
@@ -233,8 +276,12 @@ impl Element {
         self
     }
 
-    /// 要素のドラッグ（左クリック押し下げ中のマウス移動）が発生した際に発火するイベントを登録します。
-    /// コールバックには、前フレームからの移動差分である `LayoutPoint` が伝播します。
+    /// Registers an event that fires when an element is dragged
+    /// (moving the mouse while holding down the left mouse button).
+    ///
+    /// The callback receives a `LayoutPoint`, which represents the difference in position from the previous frame.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_drag<F>(self, mut f: F) -> Self
@@ -244,6 +291,12 @@ impl Element {
         self.on_drag_with(move |_cx, delta| f(delta))
     }
 
+    /// Registers an event that fires when an element is dragged
+    /// (moving the mouse while holding down the left mouse button).
+    ///
+    /// The callback receives a `LayoutPoint`, which represents the difference in position from the previous frame.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_drag_with<F>(self, f: F) -> Self
@@ -264,7 +317,9 @@ impl Element {
         self
     }
 
-    /// マウスオーバーされた瞬間（`on_mouse_enter` と同時）に発火するイベントを登録します。
+    /// Register an event that fires the moment the mouse hovers over an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_hover<F>(self, mut f: F) -> Self
@@ -274,6 +329,9 @@ impl Element {
         self.on_hover_with(move |_cx| f())
     }
 
+    /// Register an event that fires the moment the mouse hovers over an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_hover_with<F>(self, f: F) -> Self
@@ -294,7 +352,10 @@ impl Element {
         self
     }
 
-    /// 物理キーボードキーの操作が発生した際に発火するイベントを登録します（フォーカス獲得時のみ有効）。
+    /// Register an event that fires when a physical keyboard key is pressed
+    /// (valid only when the element has focus).
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_keyboard_input<F>(self, mut f: F) -> Self
@@ -304,6 +365,10 @@ impl Element {
         self.on_keyboard_input_with(move |_cx, key, mods, state| f(key, mods, state))
     }
 
+    /// Register an event that fires when a physical keyboard key is pressed
+    /// (valid only when the element has focus).
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_keyboard_input_with<F>(self, f: F) -> Self
@@ -324,7 +389,9 @@ impl Element {
         self
     }
 
-    /// ローカライズやリピート処理が適用された確定1文字が入力された際に発火するイベントを登録します。
+    /// Register an event that fires when a single character is entered and confirmed.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_char_input<F>(self, mut f: F) -> Self
@@ -334,6 +401,9 @@ impl Element {
         self.on_char_input_with(move |_cx, c| f(c))
     }
 
+    /// Register an event that fires when a single character is entered and confirmed.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_char_input_with<F>(self, f: F) -> Self
@@ -354,7 +424,9 @@ impl Element {
         self
     }
 
-    /// IME（入力文字プロセッサ）による変換テキスト、キャレット、確定文字列の更新を捕捉するイベントを登録します。
+    /// Register an event to capture updates to text converted by the IME, the caret, and the confirmed text string.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_ime<F>(self, mut f: F) -> Self
@@ -364,6 +436,9 @@ impl Element {
         self.on_ime_with(move |_cx, state| f(state))
     }
 
+    /// Register an event to capture updates to text converted by the IME, the caret, and the confirmed text string.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_ime_with<F>(self, f: F) -> Self
@@ -384,7 +459,9 @@ impl Element {
         self
     }
 
-    /// OS上からファイルやフォルダーがこの要素へドラッグ＆ドロップされた際のイベントを登録します。
+    /// Register an event that fires when files or folders are dragged and dropped onto this element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_file_dropped<F>(self, mut f: F) -> Self
@@ -394,6 +471,9 @@ impl Element {
         self.on_file_dropped_with(move |_cx, paths| f(paths))
     }
 
+    /// Register an event that fires when files are dropped onto this element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_file_dropped_with<F>(self, f: F) -> Self
@@ -414,7 +494,9 @@ impl Element {
         self
     }
 
-    /// ファイルが要素上にドラッグ侵入した際のイベント（シンプル版）
+    /// Register an event that fires when a file is dragged onto an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_file_drag_enter<F>(self, mut f: F) -> Self
@@ -424,7 +506,9 @@ impl Element {
         self.on_file_drag_enter_with(move |_cx| f())
     }
 
-    /// ファイルが要素上にドラッグ侵入した際のイベント（エスケープハッチ版）
+    /// Register an event that fires when a file is dragged onto an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_file_drag_enter_with<F>(self, f: F) -> Self
@@ -445,7 +529,9 @@ impl Element {
         self
     }
 
-    /// ファイルが要素上からドラッグ離脱した際のイベント（シンプル版）
+    /// Register an event that fires when a file is dragged off an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_file_drag_leave<F>(self, mut f: F) -> Self
@@ -455,7 +541,9 @@ impl Element {
         self.on_file_drag_leave_with(move |_cx| f())
     }
 
-    /// ファイルが要素上からドラッグ離脱した際のイベント（エスケープハッチ版）
+    /// Register an event that fires when a file is dragged off an element.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_file_drag_leave_with<F>(self, f: F) -> Self
@@ -476,7 +564,9 @@ impl Element {
         self
     }
 
-    /// 要素が新しく入力フォーカスを獲得した際に発火するイベントを登録します。
+    /// Register an event that fires when an element gains input focus for the first time.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_focus<F>(self, mut f: F) -> Self
@@ -486,6 +576,9 @@ impl Element {
         self.on_focus_with(move |_cx| f())
     }
 
+    /// Register an event that fires when an element gains input focus for the first time.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_focus_with<F>(self, f: F) -> Self
@@ -506,7 +599,9 @@ impl Element {
         self
     }
 
-    /// 他の要素がクリックされるなどして、フォーカスを喪失した際に発火するイベントを登録します。
+    /// Register an event that fires when the element loses focus—for example, when another element is clicked.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_blur<F>(self, mut f: F) -> Self
@@ -516,6 +611,9 @@ impl Element {
         self.on_blur_with(move |_cx| f())
     }
 
+    /// Register an event that fires when the element loses focus—for example, when another element is clicked.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_blur_with<F>(self, f: F) -> Self
@@ -536,7 +634,9 @@ impl Element {
         self
     }
 
-    /// 要素が無効化（Disabled）された瞬間に発火するイベントを登録します。
+    /// Register an event that fires the moment an element is disabled.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_disable<F>(self, mut f: F) -> Self
@@ -546,6 +646,9 @@ impl Element {
         self.on_disable_with(move |_cx| f())
     }
 
+    /// Register an event that fires the moment an element is disabled.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_disable_with<F>(self, f: F) -> Self
@@ -566,7 +669,9 @@ impl Element {
         self
     }
 
-    /// 要素がアクティブ（Actived）状態になった瞬間に発火するイベントを登録します。
+    /// Register an event that fires the moment an element is actived.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_active<F>(self, mut f: F) -> Self
@@ -576,6 +681,9 @@ impl Element {
         self.on_active_with(move |_cx| f())
     }
 
+    /// Register an event that fires the moment an element is actived.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_active_with<F>(self, f: F) -> Self
@@ -596,7 +704,9 @@ impl Element {
         self
     }
 
-    /// チェックボックスやラジオボタンなどで、要素が選択（Selected）された瞬間に発火するイベントを登録します。
+    /// Register an event that fires the moment an element is selected.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_select<F>(self, mut f: F) -> Self
@@ -606,6 +716,9 @@ impl Element {
         self.on_select_with(move |_cx| f())
     }
 
+    /// Register an event that fires the moment an element is selected.
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_select_with<F>(self, f: F) -> Self
@@ -626,8 +739,11 @@ impl Element {
         self
     }
 
-    /// 実体（Entity）ドラッグ中に毎フレーム呼び出されるイベントを登録します。
-    /// 引数: (ドラッグ元ID, 現在重なっているドロップ先ID)
+    /// Register an event that is called every frame during a dnd drag operation.
+    ///
+    /// Arguments: (Source `Element`, `Element` of the currently overlapping drop destination)
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_element_drag<F>(self, mut f: F) -> Self
@@ -637,6 +753,11 @@ impl Element {
         self.on_dnd_element_drag_with(move |_cx, src, dst| f(src, dst))
     }
 
+    /// Register an event that is called every frame during a dnd drag operation.
+    ///
+    /// Arguments: (Source `Element`, `Element` of the currently overlapping drop destination)
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_element_drag_with<F>(self, f: F) -> Self
@@ -649,7 +770,11 @@ impl Element {
         self
     }
 
-    /// IDドラッグ中に毎フレーム呼び出されるイベントを登録します。
+    /// Register an event that is triggered every frame during a drag-and-drop operation.
+    ///
+    /// Arguments: (Source `EntityId`, `EntityId` of the currently overlapping element)
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_id_drag<F>(self, mut f: F) -> Self
@@ -659,6 +784,11 @@ impl Element {
         self.on_dnd_id_drag_with(move |_cx, src, dst| f(src, dst))
     }
 
+    /// Register an event that is triggered every frame during a drag-and-drop operation.
+    ///
+    /// Arguments: (Source `EntityId`, `EntityId` of the currently overlapping element)
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_id_drag_with<F>(self, f: F) -> Self
@@ -671,8 +801,12 @@ impl Element {
         self
     }
 
-    /// ドロップ完了時（成功またはエリア外での失敗時）に呼び出されるイベントを登録します。
-    /// 引数: (ドラッグ元ID, ドロップされた先のID（失敗時はNone）)
+    /// Register an event that is triggered when a drop is completed
+    ///  (whether it succeeds or fails due to being outside the area).
+    ///
+    /// Arguments: (Source `Element`, Destination `Element` (None if the operation fails))
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_element_drop<F>(self, mut f: F) -> Self
@@ -682,6 +816,12 @@ impl Element {
         self.on_dnd_element_drop_with(move |_cx, src, dst| f(src, dst))
     }
 
+    /// Register an event that is triggered when a drop is completed
+    ///  (whether it succeeds or fails due to being outside the area).
+    ///
+    /// Arguments: (Source `Element`, Destination `Element` (None if the operation fails))
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_element_drop_with<F>(self, f: F) -> Self
@@ -694,7 +834,12 @@ impl Element {
         self
     }
 
-    /// IDドロップ完了時（成功またはエリア外での失敗時）に呼び出されるイベントを登録します。
+    /// Register an event that is triggered when a drop is completed
+    ///  (whether it succeeds or fails due to being outside the area).
+    ///
+    /// Arguments: (Source `EntityId`, Destination `EntityId` (None if the operation fails))
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_id_drop<F>(self, mut f: F) -> Self
@@ -704,6 +849,12 @@ impl Element {
         self.on_dnd_id_drop_with(move |_cx, src, dst| f(src, dst))
     }
 
+    /// Register an event that is triggered when a drop is completed
+    ///  (whether it succeeds or fails due to being outside the area).
+    ///
+    /// Arguments: (Source `EntityId`, Destination `EntityId` (None if the operation fails))
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_id_drop_with<F>(self, f: F) -> Self
@@ -716,8 +867,11 @@ impl Element {
         self
     }
 
-    /// ドラッグ開始時（プレースホルダー生成の瞬間）に呼び出されるイベントを登録します。
-    /// 引数: (元のオリジナル要素, 生成されたプレースホルダー要素)
+    /// Registers an event that is called when dragging begins (the moment the placeholder is created).
+    ///
+    /// Arguments: (original `Element`, created placeholder `Element`)
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_drag_start<F>(self, mut f: F) -> Self
@@ -727,6 +881,11 @@ impl Element {
         self.on_dnd_drag_start_with(move |_cx, src, placeholder| f(src, placeholder))
     }
 
+    /// Registers an event that is called when dragging begins (the moment the placeholder is created).
+    ///
+    /// Arguments: (original `Element`, created placeholder `Element`)
+    ///
+    /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_drag_start_with<F>(self, f: F) -> Self
@@ -739,7 +898,7 @@ impl Element {
         self
     }
 
-    /// シグナルやクロージャに基づいて要素の `STATE_ACTIVED`（アクティブ疑似スタイル）を自動的にマッピングします。
+    /// Automatically maps an element's `StateFlag::Actived` based on signals and closures.
     #[inline]
     #[must_use]
     pub fn active(self, active: impl Into<Prop<bool>>) -> Self {
@@ -748,7 +907,7 @@ impl Element {
         })
     }
 
-    /// シグナルやクロージャに基づいて要素の `STATE_SELECTED`（選択疑似スタイル）を自動的にマッピングします。
+    /// Automatically maps an element's `StateFlag::Selected` based on signals and closures.
     #[inline]
     #[must_use]
     pub fn select(self, selected: impl Into<Prop<bool>>) -> Self {
@@ -757,7 +916,7 @@ impl Element {
         })
     }
 
-    /// シグナルやクロージャに基づいて要素の `STATE_DISABLED`（無効疑似スタイル）を自動的にマッピングします。
+    /// Automatically maps an element's `StateFlag::Disabled` based on signals and closures.
     #[inline]
     #[must_use]
     pub fn disable(self, disabled: impl Into<Prop<bool>>) -> Self {
@@ -766,7 +925,7 @@ impl Element {
         })
     }
 
-    /// シグナルやクロージャに基づいて要素の `STATE_FOCUSED`（フォーカス疑似スタイル）を自動的にマッピングします。
+    /// Automatically maps an element's `StateFlag::Focused` based on signals and closures.
     #[inline]
     #[must_use]
     pub fn focus(self, focused: impl Into<Prop<bool>>) -> Self {

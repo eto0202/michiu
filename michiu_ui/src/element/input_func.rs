@@ -1,15 +1,15 @@
 use crate::{
     ByteIndex, ComponentMask, Context, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, EffectCategory,
     Element, ElementState, EntityId, ImeState, InputContents, InputOp, LayoutPoint, LayoutSize,
-    LayoutStore, MichiuSoA, MichiuString, Modifiers, MouseButton, OutputStore, Prop,
-    ResolvedGeometry, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEngine,
-    TextLayoutSize, TextSelectionsSparse, TextSpan, UnderlineStyle, VirtualKey, with_context,
+    LayoutStore, MichiuSoA, MichiuString, Modifiers, MouseButton, Prop, ResolvedGeometry,
+    SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEngine, TextLayoutSize,
+    TextSelectionsSparse, TextSpan, UnderlineStyle, VirtualKey, with_context,
 };
 use cosmic_text::Buffer;
 use std::{ops::Range, time::Instant};
 
 impl Element {
-    /// このコンテナを入力フィールド（テキストボックス）化し、IME制御や入力ロジックをバインドします。
+    /// Convert this container into an input field and bind the IME control and input logic to it.
     #[must_use]
     pub fn input(self, contents: impl Into<Prop<InputContents>>) -> Self {
         match contents.into() {
@@ -31,7 +31,7 @@ impl Element {
         self
     }
 
-    /// プロバイダー `P` から動的に設定を読み込んで入力フィールド化します。
+    /// Dynamically resolve `InputContents` from provider `P` and convert it into an input field.
     #[must_use]
     #[inline]
     pub fn input_d<P, F>(self, f: F) -> Self
@@ -47,7 +47,7 @@ impl Element {
         self.input(dynamic_prop)
     }
 
-    /// 複数行入力（テキストエリア）をバインドします。
+    /// Convert this container into a multiline input area and bind the IME control and input logic to it.
     #[must_use]
     pub fn input_area(self, contents: impl Into<Prop<InputContents>>) -> Self {
         match contents.into() {
@@ -71,7 +71,7 @@ impl Element {
         self
     }
 
-    /// プロバイダー `P` から動的に設定を読み込んで複数行入力フィールド化します。
+    /// Dynamically resolve `InputContents` from provider `P` to create a multiline input area.
     #[must_use]
     #[inline]
     pub fn input_area_d<P, F>(self, f: F) -> Self
