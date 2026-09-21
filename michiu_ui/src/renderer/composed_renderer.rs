@@ -110,6 +110,8 @@ pub struct PromotedVisual {
 }
 
 impl ComposedRenderer {
+    /// Initialize the renderer.
+    #[inline]
     pub async fn new(
         hwnd: HWND,
         layout_size: LayoutSize,
@@ -122,7 +124,7 @@ impl ComposedRenderer {
         // HINSTANCE（h_instance）の解決
         let h_instance = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None)? };
 
-        // 2. wgpu レンダラーの初期化
+        // wgpu レンダラーの初期化
         let raw_visual_ptr = wgpu_visual.as_raw();
 
         let wgpu_renderer = WgpuRenderer::new(raw_visual_ptr, layout_size, scale_factor).await?;
@@ -155,11 +157,10 @@ impl ComposedRenderer {
         })
     }
 
-    /// `WebView2` の環境（Environment）をバックグラウンドで事前ロードし、
-    /// `後続のWebView2マウント時における初期化ラグを削減します`。
+    /// Preloads the webview2 environment in the background
+    /// to reduce initialization lag when subsequent webview2 instances are mounted.
     ///
-    /// 本メソッドは、OS に `WebView2` ランタイムがインストールされていない場合、
-    /// クラッシュを発生させずに処理を自動スキップ（サイレントフォールバック）します。
+    /// If the webview2 runtime is not installed on the OS, the process is automatically skipped without causing a crash.
     pub fn prewarm_webview2(&self) {
         // 多重プリウォームロードを防止
         if self.webview_env.borrow().is_some() {
@@ -190,10 +191,10 @@ impl ComposedRenderer {
         }
     }
 
-    /// ウィンドウサイズ変更時に、全体の設定値を更新し wgpu をリサイズします。
-    /// （`DComp` 昇格レイヤーや `WebView2` の個別リサイズは、次の `draw()` 直前の
-    ///  `update_composition_tree` 同期にて全自動で処理されます）
+    /// Updates the overall settings and resizes wgpu when the window size changes.
+    ///
     /// `new_physical_size`: (width, height)
+    #[inline]
     pub fn resize(&mut self, new_physical_size: (u32, u32), scale_factor: f32) {
         self.scale_factor = scale_factor;
         self.layout_size = LayoutSize::new(
@@ -211,8 +212,9 @@ impl ComposedRenderer {
         let _ = unsafe { self.dcomp_device.Commit() };
     }
 
-    /// 描画のトリガー
+    /// Drawing Triggers
     #[track_caller]
+    #[inline]
     pub fn draw(&mut self, cx: &mut Context) {
         self.wgpu_renderer.render(cx, self.scale_factor);
 
@@ -869,8 +871,7 @@ impl ComposedRenderer {
         }
     }
 
-    /// 指定された `WebView2` 要素にキーボードフォーカスをプログラムから強制的に移行します。
-    /// これにより、OS からのキーボード入力が自動的にブラウザ内に流れるようになります。
+    /// Programmatically forces the keyboard focus to move to the specified webView2 element.
     pub fn focus_webview(&self, id: EntityId) {
         if let Some(promoted) = self.promoted_visuals.iter().find(|v| v.entity_id == id)
             && let Some(ref controller) = *promoted.webview_controller.borrow()
@@ -880,8 +881,8 @@ impl ComposedRenderer {
         }
     }
 
-    /// 呼び出し元（ウィンドウプロシージャ）からマウス入力を受け取り、
-    /// 対象の `WebView2` 要素へ座標をローカライズした上で転送します。
+    /// It receives mouse input from the caller (window procedure),
+    /// localizes the coordinates, and forwards them to the target webView2 element.
     pub fn forward_mouse_input(
         &self,
         cx: &Context,
@@ -891,45 +892,44 @@ impl ComposedRenderer {
         lparam: LPARAM,
         physical_cursor_pos: LayoutPoint, // 親ウィンドウ上の論理カーソル座標
     ) {
-        // 1. allow_interaction が false なら、転送を完全に無視して早期リターン
+        // allow_interaction が false なら、転送を完全に無視して早期リターン
         // contents はある前提
         if !cx.contents.cont_webview_contents.at(id).allow_interaction {
             return;
         }
 
-        // 2. この WebView2 要素の矩形（rect）を取得
+        // この WebView2 要素の矩形（rect）を取得
         let rect = *cx.outputs.out_rects.at(id);
 
-        // 3. マウス座標を WebView2 の左上 (0,0) を原点とする相対座標にローカライズ
-        // ※ さらに DComp 側に引き渡すために物理ピクセルにスケールアップします
+        // マウス座標を WebView2 の左上 (0,0) を原点とする相対座標にローカライズ
+        // ※ さらに DComp 側に引き渡すために物理ピクセルにスケールアップ
         // let relative_x = (logical_cursor_pos.x - rect.x) * self.scale_factor;
         // let relative_y = (logical_cursor_pos.y - rect.y) * self.scale_factor;
 
-        // 親ウィンドウ（HWND）の左上を原点とする絶対物理座標をそのまま計算します
+        // 親ウィンドウ（HWND）の左上を原点とする絶対物理座標をそのまま計算
         let webview_phys_x = rect.x * self.scale_factor;
         let webview_phys_y = rect.y * self.scale_factor;
 
         let webview_phys_x = rect.x * self.scale_factor;
         let webview_phys_y = rect.y * self.scale_factor;
 
-        // 3. 【重要修正】親HWNDの絶対物理位置から、WebView2の左上物理位置を差し引いて、
-        // 「WebView2コントロールの左上を原点 (0,0) とする相対物理ピクセル座標」を算出します！
+        // 親HWNDの絶対物理位置から、WebView2の左上物理位置を差し引いて、
+        // WebView2コントロールの左上を原点 (0,0) とする相対物理ピクセル座標を算出
         let relative_x = physical_cursor_pos.x - webview_phys_x;
         let relative_y = physical_cursor_pos.y - webview_phys_y;
 
-        // 4. この要素に対応する WebView2 コントローラーを探す
+        // この要素に対応する WebView2 コントローラーを探す
         if let Some(promoted) = self.promoted_visuals.iter().find(|v| v.entity_id == id)
             && let Some(ref controller) = *promoted.webview_controller.borrow()
         {
-            // 5. CompositionController へのキャストとイベントの送信 [1.2.4]
+            // CompositionController へのキャストとイベントの送信
             if let Ok(comp_controller) = controller.cast::<ICoreWebView2CompositionController>() {
                 // Win32 の msg と wparam は、そのまま DComp のイベントにキャスト可能
                 let event_kind = COREWEBVIEW2_MOUSE_EVENT_KIND(msg as i32);
                 let virtual_keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS(wparam.0 as i32);
 
                 // ホイールの回転量やXボタンなどのデータを WPARAM / LPARAM から抽出
-                // WPARAM 上位ビットを「符号付き i16」として一旦解釈してから
-                // 32ビットに拡張キャスト。これによってマイナス方向のスクロールが正しく動作します
+                // WPARAM 上位ビットを「符号付き i16」として一旦解釈してから32ビットに拡張キャスト。
                 let mouse_data = if msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL {
                     let delta = (wparam.0 >> 16) as i16;
                     i32::from(delta) as u32
@@ -984,7 +984,7 @@ impl ComposedRenderer {
     }
 }
 
-// 親子関係を再帰的に走査してアクティビティを伝播するヘルパー関数の追加 ───
+// 親子関係を再帰的に走査してアクティビティを伝播するヘルパー
 fn has_interactive_descendant(cx: &Context, id: EntityId) -> bool {
     // 自分自身がフォーカス、またはアクティブ状態のインタラクション属性を持っているか
     if cx
@@ -1061,8 +1061,8 @@ impl DCompDeviceManager {
         // windows-rs の型ミスマッチを防ぐため、一度 IUnknown にキャスト
         // let rendering_device: windows::core::IUnknown = dxgi_device.cast()?;
 
-        // DCompositionCreateDevice ではなく DCompositionCreateDevice2 を使用します。
-        // これにより IDCompositionDesktopDevice の生成が正しくサポートされます。
+        // DCompositionCreateDevice ではなく DCompositionCreateDevice2 を使用。
+        // これにより IDCompositionDesktopDevice の生成が正しくサポートされる。
         let dcomp_device: IDCompositionDesktopDevice = unsafe { DCompositionCreateDevice2(None) }?;
 
         Ok(DCompDeviceManager {
@@ -1112,7 +1112,7 @@ pub(crate) fn apply_system_backdrop(hwnd: HWND, backdrop: Backdrop) {
             (&raw const enable_host_backdrop).cast(),
             std::mem::size_of::<i32>() as u32,
         );
-        // 1. DWMWA_USE_IMMERSIVE_DARK_MODE (20) を true に設定（ダークアクリル下地を強制）
+        // DWMWA_USE_IMMERSIVE_DARK_MODE (20) を true に設定（ダークアクリル下地を強制）
         let dark_mode: i32 = 1; // 1 = true
         let _ = DwmSetWindowAttribute(
             hwnd,
@@ -1132,7 +1132,7 @@ pub(crate) fn apply_system_backdrop(hwnd: HWND, backdrop: Backdrop) {
             std::mem::size_of::<i32>() as u32,
         );
 
-        // 2. DWMWA_SYSTEMBACKDROP_TYPE (38) の設定（アクリル/Micaの適用）
+        // DWMWA_SYSTEMBACKDROP_TYPE (38) の設定（アクリル/Micaの適用）
         let backdrop_val = backdrop as i32;
         let _ = DwmSetWindowAttribute(
             hwnd,
@@ -1141,7 +1141,7 @@ pub(crate) fn apply_system_backdrop(hwnd: HWND, backdrop: Backdrop) {
             std::mem::size_of::<i32>() as u32,
         );
 
-        // 3. クライアント領域全体にアクリル・Micaを拡張 (DwmExtendFrameIntoClientArea)
+        // クライアント領域全体にアクリル・Micaを拡張 (DwmExtendFrameIntoClientArea)
         if backdrop == Backdrop::None {
             // 通常時はフレーム拡張をクリア (0)
             let margins = Margins {
@@ -1152,7 +1152,7 @@ pub(crate) fn apply_system_backdrop(hwnd: HWND, backdrop: Backdrop) {
             };
             let _ = DwmExtendFrameIntoClientArea(hwnd, &raw const margins);
         } else {
-            // margins に -1 を指定することで、ウィンドウ全体にアクリルを浸透させます
+            // margins に -1 を指定することで、ウィンドウ全体にアクリルを浸透
             let margins = Margins {
                 left: -1,
                 right: -1,
