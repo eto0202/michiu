@@ -4,6 +4,7 @@ The `michiu_project` is developing a GUI library for Windows.
 
 Please note that since this is still under development, breaking changes may occur without prior notice.
 
+- [michiu](https://github.com/eto0202/michiu/tree/main/michiu)
 - [michiu_ui](https://github.com/eto0202/michiu/tree/main/michiu_ui)
 - [michiu_window](https://github.com/eto0202/michiu/tree/main/michiu_window)
 - [michiu_guard](https://github.com/eto0202/michiu/tree/main/michiu_guard)
