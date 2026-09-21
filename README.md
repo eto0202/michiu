@@ -1,11 +1,12 @@
 # michiu_project
 
 The `michiu_project` is developing a GUI library for Windows.
+
 Please note that since this is still under development, breaking changes may occur without prior notice.
 
-[michiu_ui](https://github.com/eto0202/michiu/tree/main/michiu_ui)
-[michiu_window](https://github.com/eto0202/michiu/tree/main/michiu_window)
-[michiu_guard](https://github.com/eto0202/michiu/tree/main/michiu_guard)
+- [michiu_ui](https://github.com/eto0202/michiu/tree/main/michiu_ui)
+- [michiu_window](https://github.com/eto0202/michiu/tree/main/michiu_window)
+- [michiu_guard](https://github.com/eto0202/michiu/tree/main/michiu_guard)
 
 ### Pronunciation
 
@@ -13,8 +14,8 @@ Please note that since this is still under development, breaking changes may occ
 
 ## Examples
 
-[michiu_ui examples](https://github.com/eto0202/michiu/tree/main/michiu_ui/examples)
-[michiu_window examples](https://github.com/eto0202/michiu/tree/main/michiu_window/examples)
+- [michiu_ui examples](https://github.com/eto0202/michiu/tree/main/michiu_ui/examples)
+- [michiu_window examples](https://github.com/eto0202/michiu/tree/main/michiu_window/examples)
 
 ## License
 

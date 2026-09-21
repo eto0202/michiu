@@ -1,6 +1,7 @@
 # michiu_ui
 
 This crate handles UI rendering for the `michiu` crate.
+
 Please note that since this is still under development, breaking changes may occur without prior notice.
 
 ## Examples
