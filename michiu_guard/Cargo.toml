@@ -2,6 +2,9 @@
 name = "michiu_guard"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+description = "Enforces validation in the michiu library."
+readme = "README.md"
 
 [dependencies]
 serde = { workspace = true, optional = true }
@@ -14,3 +17,7 @@ validator = { version = "0.20.0", features = ["derive"] }
 
 [features]
 serde = ["dep:serde"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

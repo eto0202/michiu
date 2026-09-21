@@ -2,6 +2,10 @@
 name = "michiu_window"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "It handles window management for the michiu library."
+readme = "README.md"
 
 [dependencies]
 michiu_guard = { workspace = true }
@@ -49,6 +53,8 @@ windows = { version = "0.62.2", features = [
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+default-target = "x86_64-pc-windows-msvc"
+targets = ["x86_64-pc-windows-msvc"]
 
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }

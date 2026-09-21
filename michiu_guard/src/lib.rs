@@ -1,5 +1,4 @@
-#![cfg_attr(docsrs, feature(doc_cfg))]
-//! # michiu_guard
+//! # `michiu_guard`
 //!
 //! To myself tomorrow...
 //!
@@ -557,7 +556,6 @@ impl<T: fmt::Display> fmt::Display for Unvalidated<T> {
 }
 
 #[cfg(any(feature = "serde", test))]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 /// Deserializes raw data directly into the wrapper without running any validation.
 ///
 /// Use this when you want to defer validation or keep raw, potentially untrusted input
@@ -572,7 +570,6 @@ impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Unvalidated<T>
 }
 
 #[cfg(any(feature = "serde", test))]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 /// Deserializes a value and automatically executes its [`Validate::validate`] implementation.
 ///
 /// This implementation ensures that you cannot bypass validation when instantiating
@@ -625,7 +622,6 @@ where
 }
 
 #[cfg(any(feature = "serde", test))]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 /// Serializes the validated value by delegating directly to the underlying type `T`.
 ///
 /// This implementation is transparent, meaning the `Validated<T>` wrapper itself is
@@ -656,7 +652,6 @@ impl<T: serde::Serialize> serde::Serialize for Validated<T> {
 }
 
 #[cfg(any(feature = "serde", test))]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 /// Serializes the unvalidated value by delegating directly to the underlying type `T`.
 ///
 /// /// # Warning

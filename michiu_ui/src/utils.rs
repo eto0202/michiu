@@ -76,7 +76,7 @@ pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
     }
 }
 
-/// HEX を生成します。
+/// Generate a HEX.
 ///
 /// # Examples
 /// ```rust

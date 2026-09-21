@@ -6,6 +6,17 @@
     clippy::struct_excessive_bools
 )]
 
+//! # `michiu_ui`
+//! `michiu_ui` is a GUI library for Windows.
+//!
+//! Please note that since this is still under development, breaking changes may occur without prior notice.
+//!
+//!
+//!
+//!
+//!
+//!
+
 mod bitmap;
 mod context;
 mod dss;

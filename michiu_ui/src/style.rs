@@ -4167,42 +4167,42 @@ impl ThisStyle {
         self
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to [`CursorIcon::Default(None)`].
+    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Default(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_default(self) -> Self {
         self.cursor(CursorIcon::Default(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to [`CursorIcon::Grab(None)`].
+    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Grab(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_grab(self) -> Self {
         self.cursor(CursorIcon::Grab(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to [`CursorIcon::Grabbing(None)`].
+    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Grabbing(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_grabbing(self) -> Self {
         self.cursor(CursorIcon::Grabbing(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to [`CursorIcon::NotAllowed(None)`].
+    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::NotAllowed(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_not_allowed(self) -> Self {
         self.cursor(CursorIcon::NotAllowed(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to [`CursorIcon::Pointer(None)`].
+    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Pointer(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_pointer(self) -> Self {
         self.cursor(CursorIcon::Pointer(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to [`CursorIcon::Text(None)`].
+    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Text(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_text(self) -> Self {
@@ -4222,35 +4222,35 @@ impl ThisStyle {
         self.cursor(cursor_val)
     }
 
-    /// Sets a global cursor icon that is passed down to descendants to [`GlobalCursorIcon::Default(None)`].
+    /// Sets a global cursor icon that is passed down to descendants to `GlobalCursorIcon::Default(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_global_default(self) -> Self {
         self.cursor_global(GlobalCursorIcon::Default(None))
     }
 
-    /// Sets a global cursor icon that is passed down to descendants to [`GlobalCursorIcon::Pointer(None)`].
+    /// Sets a global cursor icon that is passed down to descendants to `GlobalCursorIcon::Pointer(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_global_pointer(self) -> Self {
         self.cursor_global(GlobalCursorIcon::Pointer(None))
     }
 
-    /// Sets a global cursor icon that is passed down to descendants to [`GlobalCursorIcon::Text(None)`].
+    /// Sets a global cursor icon that is passed down to descendants to `GlobalCursorIcon::Text(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_global_text(self) -> Self {
         self.cursor_global(GlobalCursorIcon::Text(None))
     }
 
-    /// Sets a global cursor icon that is passed down to descendants to [`GlobalCursorIcon::Grab(None)`].
+    /// Sets a global cursor icon that is passed down to descendants to `GlobalCursorIcon::Grab(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_global_grab(self) -> Self {
         self.cursor_global(GlobalCursorIcon::Grab(None))
     }
 
-    /// Sets a global cursor icon that is passed down to descendants to [`GlobalCursorIcon::Grabbing(None)`].
+    /// Sets a global cursor icon that is passed down to descendants to `GlobalCursorIcon::Grabbing(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_global_grabbing(self) -> Self {

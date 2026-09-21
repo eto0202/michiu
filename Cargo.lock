@@ -2628,7 +2628,7 @@ dependencies = [
 
 [[package]]
 name = "michiu"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "michiu_guard",
  "michiu_ui",
@@ -2637,7 +2637,7 @@ dependencies = [
 
 [[package]]
 name = "michiu_guard"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "nutype",
  "serde",
@@ -2647,7 +2647,7 @@ dependencies = [
 
 [[package]]
 name = "michiu_ui"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "accesskit_windows 0.33.1",
  "bytecount",
@@ -2678,7 +2678,7 @@ dependencies = [
 
 [[package]]
 name = "michiu_window"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "eframe",
  "michiu_guard",

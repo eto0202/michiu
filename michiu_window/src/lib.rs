@@ -1,5 +1,4 @@
-#![cfg_attr(docsrs, feature(doc_cfg))]
-//! # michiu_window
+//! # `michiu_window`
 //!
 //! `michiu_window` is a lightweight, robust, and modern Win32 window management library
 //! designed with strict thread-safety and modern Rust paradigms.
