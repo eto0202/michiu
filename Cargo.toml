@@ -13,6 +13,8 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/eto0202/michiu"
 readme = "README.md"
+keywords = ["gui", "windows", "ui"]
+categories = ["gui"]
 
 [workspace.dependencies]
 michiu = { version = "0.0.1", path = "michiu" }
