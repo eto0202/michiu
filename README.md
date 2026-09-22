@@ -11,7 +11,7 @@ Please note that since this is still under development, breaking changes may occ
 
 ### Pronunciation
 
-`michiu` is pronounced roughly like "mee-chee-oo" (written in Japanese as 「みちう」).
+`michiu` is pronounced roughly like "mee-chee-oo" (written in Japanese as 「みちぅ」).
 
 ## Examples
 

@@ -2,7 +2,7 @@
 
 use michiu_ui::{
     ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, StateFlag, WebView2Visual,
-    external_visual, prelude::*,
+    dispatch_raw_input_to_external_visual, external_visual, prelude::*,
 };
 use std::{sync::Arc, time::Duration};
 use windows::{
@@ -34,8 +34,6 @@ struct AppState {
     renderer: ComposedRenderer,
     context: Context,
     root_id: EntityId,
-    webview_id: EntityId,
-    webview2: Arc<WebView2Visual>,
 }
 
 // Win32 ウィンドウプロシージャ
@@ -149,25 +147,21 @@ unsafe extern "system" fn wnd_proc(
                 };
                 let _ = unsafe { TrackMouseEvent(&mut tme) };
 
-                // DPIスケールを考慮して論理座標に直して注入
+                let phys_pos = LayoutPoint::new(x, y);
                 let logical_pos =
                     LayoutPoint::new(x / app.renderer.scale_factor, y / app.renderer.scale_factor);
 
                 app.context
                     .inject_user_action(UserAction::PointerMove(logical_pos));
 
-                // マウス移動メッセージを WebView2 コントローラーへ透過的にフォワード
-                // 最前面にヒットした要素が WebView2 自身である場合のみ、イベントをフォワードする
-                // 修正: ドラッグ（プレス）中であれば pressed 要素を優先ロック、なければヒット要素を取得
-                let hit_element = app.context.hit_test(logical_pos);
-                let target_element = app
-                    .context
-                    .interaction_id(InteractionState::Pressed)
-                    .or(hit_element);
-                if target_element == Some(app.webview_id) {
-                    app.webview2
-                        .forward_mouse_input(msg, wparam, lparam, LayoutPoint::new(x, y));
-                }
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor,
+                );
 
                 // マウス移動アクションを注入したため、常に再描画を要求して次フレームでイベントを消化
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -209,41 +203,21 @@ unsafe extern "system" fn wnd_proc(
                 let x = (lparam.0 & 0xffff) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
 
-                // マウスクリックを WebView2 コントローラーへフォワード
-                // これにより、ブラウザ内のリンククリックや各種操作が完璧に動作します。
-                // クリック座標の最前面が WebView2 自身である場合のみフォワード
-                let logical_pos =
-                    LayoutPoint::new(x / app.renderer.scale_factor, y / app.renderer.scale_factor);
-
-                // プレス状態が context.inject_pointer_button 内でクリアされる前にターゲットを特定
-                let hit_element = app.context.hit_test(logical_pos);
-
-                // ボタンを離した際は、ドラッグを開始した要素（Pressed）へメッセージを流す
-                let target_element = if state == ElementState::Pressed {
-                    hit_element
-                } else {
-                    app.context
-                        .interaction_id(InteractionState::Pressed)
-                        .or(hit_element)
-                };
-
                 app.context.inject_user_action(UserAction::PointerButton {
                     button: MouseButton::Left,
                     state,
                     modifiers,
                 });
 
-                if target_element == Some(app.webview_id) {
-                    app.webview2
-                        .forward_mouse_input(msg, wparam, lparam, LayoutPoint::new(x, y));
-                }
-
-                // クリックした要素が実際に WebView2 である場合のみ、キーボードフォーカスをブラウザにアタッチ
-                if msg == WM_LBUTTONDOWN
-                    && app.context.interaction_id(InteractionState::Focused) == Some(app.webview_id)
-                {
-                    app.webview2.focus();
-                }
+                let phys_pos = LayoutPoint::new(x, y);
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor,
+                );
 
                 // クリックによる再描画を反映
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -259,20 +233,15 @@ unsafe extern "system" fn wnd_proc(
                 };
                 let _ = unsafe { ScreenToClient(hwnd, &mut pt) };
 
-                let physical_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
-
-                // WebView2 へ縦スクロールイベントを転送
-                // スクロール位置の最前面が WebView2 自身である場合のみフォワード
-                let logical_pos = LayoutPoint::new(
-                    physical_pos.x / app.renderer.scale_factor,
-                    physical_pos.y / app.renderer.scale_factor,
+                let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor,
                 );
-                let hit_element = app.context.hit_test(logical_pos);
-
-                if hit_element == Some(app.webview_id) {
-                    app.webview2
-                        .forward_mouse_input(msg, wparam, lparam, physical_pos);
-                }
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -365,11 +334,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ))?;
 
     let mut context = Context::new();
-    let webview_id_cell = std::cell::Cell::new(None);
-    let webview_cell = std::rc::Rc::new(std::cell::RefCell::new(None));
-    let webview_cell_clone = webview_cell.clone();
-    let dcomp_desktop_device = renderer.dcomp_device.clone();
-    let dcomp_device: IDCompositionDevice = dcomp_desktop_device.cast()?;
+    let dcomp_device: IDCompositionDevice = renderer.dcomp_device.clone().cast()?;
     let task_sender = context.task_sender();
 
     // build_ui を使って要素ツリーを宣言的に組み立て
@@ -384,62 +349,51 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .allow_interaction(true)
             .always_active(false);
 
-        let webview_visual = Arc::new(
-            WebView2Visual::new(
-                &dcomp_device,
-                hwnd,
-                webview_contents,
-                scale_factor,
-                &task_sender,
-            )
-            .expect("Failed to create WebView2Visual"),
-        );
+        let webview_visual = WebView2Visual::new(
+            &dcomp_device,
+            hwnd,
+            webview_contents,
+            scale_factor,
+            &task_sender,
+        )
+        .expect("Failed to create WebView2Visual");
 
-        // AppState 用に退避
-        *webview_cell_clone.borrow_mut() = Some(webview_visual.clone());
+        let google_map = external_visual(webview_visual)
+            .style({
+                let base = ts()
+                    .size_full()
+                    .r(2.0)
+                    .resizable_bottom(true)
+                    .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
+                    .overflow_hidden()
+                    .transform(Transform::new().scale(1.0, 1.0))
+                    .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
+                    .pressed(ts().transform(Transform::new().scale(1.01, 1.01)));
 
-        let webview_element = {
-            let wv = external_visual(webview_visual)
-                .style({
-                    let base = ts()
-                        .size_full()
-                        .r(2.0)
-                        .resizable_bottom(true)
-                        .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
-                        .overflow_hidden()
-                        .transform(Transform::new().scale(1.0, 1.0))
-                        .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-                        .pressed(ts().transform(Transform::new().scale(1.01, 1.01)));
+                is_opacity.get_else(base.clone().opacity_50(), base.opacity_100())
+            })
+            .on_focus(move || set_is_active.set(false))
+            .child(v_flex({
+                let base = ts()
+                    .absolute()
+                    .size((300.0, 200.0))
+                    .r(3.0)
+                    .inset_x(100.0)
+                    .inset_y(50.0)
+                    .bg_color(Color::DARK_GRAY)
+                    .opacity(0.9)
+                    .resizable_all(true)
+                    .dnd_draggable_root(DndDragPayload::Element, true)
+                    .dnd_draggable_original(ts().opacity_0())
+                    .dnd_draggable_placeholder(
+                        ts().size(100.0)
+                            .r(3.0)
+                            .bg_color(Color::DARK_GRAY)
+                            .opacity(0.9),
+                    );
 
-                    is_opacity.get_else(base.clone().opacity_50(), base.opacity_100())
-                })
-                .on_focus(move || set_is_active.set(false));
-
-            webview_id_cell.set(Some(wv.id()));
-            wv
-        };
-
-        let google_map = webview_element.child(v_flex({
-            let base = ts()
-                .absolute()
-                .size((300.0, 200.0))
-                .r(3.0)
-                .inset_x(100.0)
-                .inset_y(50.0)
-                .bg_color(Color::DARK_GRAY)
-                .opacity(0.9)
-                .resizable_all(true)
-                .dnd_draggable_root(DndDragPayload::Element, true)
-                .dnd_draggable_original(ts().opacity_0())
-                .dnd_draggable_placeholder(
-                    ts().size(100.0)
-                        .r(3.0)
-                        .bg_color(Color::DARK_GRAY)
-                        .opacity(0.9),
-                );
-
-            is_active.get_else(base.clone().flex(), base.hidden())
-        }));
+                is_active.get_else(base.clone().flex(), base.hidden())
+            }));
 
         let btn_style = |color: Color| {
             ts().justify_center()
@@ -533,18 +487,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ])
     });
 
-    let webview_id = webview_id_cell.get().expect("WebView2 ID not assigned");
-    let webview2 = webview_cell
-        .borrow()
-        .clone()
-        .expect("WebView2Visual not created");
-
     let app_state = Box::new(AppState {
         renderer,
         context,
         root_id: root.id(),
-        webview_id,
-        webview2,
     });
 
     // 作成完了した AppState の生ポインタを HWND にアタッチ

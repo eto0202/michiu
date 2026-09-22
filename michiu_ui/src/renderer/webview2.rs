@@ -17,30 +17,45 @@ use webview2_com::{
 };
 use windows::{
     Win32::{
-        Foundation::{HGLOBAL, HMODULE, HWND, LPARAM, POINT, RECT, WPARAM}, Graphics::{
-            Direct3D::{D3D_DRIVER_TYPE_HARDWARE, ID3DInclude_Impl}, Direct3D11::{
+        Foundation::{HGLOBAL, HMODULE, HWND, LPARAM, POINT, RECT, WPARAM},
+        Graphics::{
+            Direct3D::{D3D_DRIVER_TYPE_HARDWARE, ID3DInclude_Impl},
+            Direct3D11::{
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
                 ID3D11Device,
-            }, DirectComposition::{
+            },
+            DirectComposition::{
                 DCompositionCreateDevice2, IDCompositionDesktopDevice,
                 IDCompositionDesktopDevice_Impl, IDCompositionDevice, IDCompositionDevice_Impl,
                 IDCompositionDevice2_Impl, IDCompositionRectangleClip_Impl, IDCompositionTarget,
                 IDCompositionTarget_Impl, IDCompositionTranslateTransform_Impl,
                 IDCompositionTranslateTransform3D_Impl, IDCompositionVisual,
                 IDCompositionVisual_Impl, IDCompositionVisual2, IDCompositionVisual3_Impl,
-            }, Dxgi::*, Gdi::InvalidateRect, Imaging::{
-                CLSID_WICImagingFactory, GUID_WICPixelFormat32bppBGRA, GUID_WICPixelFormat32bppPBGRA, GUID_WICPixelFormat32bppRGBA, IWICImagingFactory, WICBitmapDitherTypeNone, WICBitmapInterpolationModeLinear, WICBitmapPaletteTypeCustom, WICBitmapPaletteTypeMedianCut, WICDecodeMetadataCacheOnDemand,
             },
-        }, System::{
+            Dxgi::*,
+            Gdi::InvalidateRect,
+            Imaging::{
+                CLSID_WICImagingFactory, GUID_WICPixelFormat32bppBGRA,
+                GUID_WICPixelFormat32bppPBGRA, GUID_WICPixelFormat32bppRGBA, IWICImagingFactory,
+                WICBitmapDitherTypeNone, WICBitmapInterpolationModeLinear,
+                WICBitmapPaletteTypeCustom, WICBitmapPaletteTypeMedianCut,
+                WICDecodeMetadataCacheOnDemand,
+            },
+        },
+        System::{
             Com::{
                 CLSCTX_INPROC_SERVER, CoCreateInstance, IStream,
                 StructuredStorage::{CreateStreamOnHGlobal, GetHGlobalFromStream},
             },
             Memory::{GlobalLock, GlobalSize, GlobalUnlock},
-        }, UI::WindowsAndMessaging::{
-            GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
         },
-    }, core::{Interface, PCWSTR, PWSTR, w},
+        UI::WindowsAndMessaging::{
+            GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WM_LBUTTONDOWN, WM_LBUTTONUP,
+            WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
+            WM_RBUTTONDOWN, WM_RBUTTONUP,
+        },
+    },
+    core::{Interface, PCWSTR, PWSTR, w},
 };
 use windows_core::{HRESULT, HSTRING};
 
@@ -202,7 +217,6 @@ pub fn set_cached_env(env: ICoreWebView2Environment3) {
 }
 
 pub struct WebView2Visual {
-    /// DComp の Visual
     pub visual: IDCompositionVisual2,
     /// コントローラー（非同期生成完了時に格納）
     pub controller: Rc<RefCell<Option<ICoreWebView2Controller>>>,
@@ -299,6 +313,51 @@ impl ExternalVisual for WebView2Visual {
                         },
                     )
                 };
+            }
+        }
+    }
+
+    fn handle_raw_input(
+        &self,
+        msg: u32,
+        wparam: WPARAM,
+        _lparam: LPARAM,
+        local_phys_pos: POINT,
+    ) -> bool {
+        if !self.contents.allow_interaction {
+            return false;
+        }
+
+        match msg {
+            WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP
+            | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
+                // 操作が行われたため静止キャッシュをクリア
+                *self.cached_texture.borrow_mut() = None;
+
+                if let Some(ref controller) = *self.controller.borrow()
+                    && let Ok(comp) = controller.cast::<ICoreWebView2CompositionController>()
+                {
+                    let event_kind = COREWEBVIEW2_MOUSE_EVENT_KIND(msg as i32);
+                    let virtual_keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS(wparam.0 as i32);
+                    let mouse_data = if msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL {
+                        ((wparam.0 >> 16) as i16) as i32 as u32
+                    } else {
+                        0
+                    };
+                    unsafe {
+                        let _ = comp.SendMouseInput(
+                            event_kind,
+                            virtual_keys,
+                            mouse_data,
+                            local_phys_pos,
+                        );
+                        let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                    }
+                }
+                true
+            }
+            _ => {
+                false
             }
         }
     }
