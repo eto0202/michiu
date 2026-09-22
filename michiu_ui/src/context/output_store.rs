@@ -68,6 +68,7 @@ impl OutputStore {
 }
 
 impl OutputStore {
+    #[track_caller]
     pub(crate) fn has_parent_changed(
         id: EntityId,
         topo_active_masks: &ActiveMasksSecondary,
@@ -86,6 +87,7 @@ impl OutputStore {
             || topo_active_masks.at(parent_id).has_queued_layout()
     }
 
+    #[track_caller]
     pub(crate) fn calc_local_rect(
         id: EntityId,
         window_size: LayoutSize,
@@ -132,6 +134,7 @@ impl OutputStore {
     }
 
     /// 単位（Px, Percent, Auto）を親要素のサイズまたはウィンドウ基準をベースに物理ピクセルへ解決します。
+    #[track_caller]
     pub(crate) fn val_to_px(
         id: EntityId,
         val: Val,
@@ -232,11 +235,13 @@ impl OutputStore {
     }
 
     /// 現在テキスト選択ドラッグ中かつ、マウスポインタが要素の可視境界外にあるかを判定
+    #[track_caller]
     pub(crate) fn is_drag_autoscroll_active(
         evt_interaction_states: &ActiveInteractionStates,
         evt_current_pointer_position: Option<&LayoutPoint>,
         rnd_visual: &VisualPropertiesSecondary,
         out_clip_rects: &ClipRectsSecondary,
+        debug: &mut DebugStore,
     ) -> bool {
         let Some(id) = evt_interaction_states.pressed else {
             return false;
@@ -246,7 +251,7 @@ impl OutputStore {
             return false;
         };
 
-        let clip = out_clip_rects.at(id);
+        let clip = out_clip_rects.find_or_default(id, debug);
 
         let user_select = rnd_visual.user_select(id);
 

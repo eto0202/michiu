@@ -1,5 +1,12 @@
 use crate::{
-    ActiveEntitiesVec, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ComponentMask, Context, DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Element, EntitiesSlot, EntityId, EventStore, FlexLayoutsSecondary, LayoutPoint, LayoutRect, LayoutStore, MichiuError, MichiuSoA, OptionTraceExt, ParentsSecondary, Pipeline, PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TopologyStore, Val, define_sparse_secondary, handle_on_dnd_drag_start, handle_on_dnd_entity_drag, handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
+    ActiveEntitiesVec, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayoutsSecondary,
+    CapacityConfig, ChildrenSecondary, ComponentMask, Context, DebugStore, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, Element, EntitiesSlot, EntityId, EventStore, FlexLayoutsSecondary,
+    LayoutPoint, LayoutRect, LayoutStore, MichiuError, MichiuSoA, OptionTraceExt, ParentsSecondary,
+    Pipeline, PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec,
+    TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TopologyStore, Val,
+    define_sparse_secondary, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
+    handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
 };
 use slotmap::SparseSecondaryMap;
 
@@ -126,21 +133,23 @@ impl DndStore {
 }
 
 impl DndStore {
+    #[track_caller]
     fn resolve_dnd_placeholder_parent(
         root: EntityId,
         drag_prop: &DndDragProperty,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> PlaceholderAttachment {
         match drag_prop.placeholder_parent {
             DndDragPlaceholderParent::Root => PlaceholderAttachment {
                 parent_id: Some(root),
-                rect: *out_rects.at(root),
+                rect: out_rects.find_or_default(root, debug),
                 border_left: 0.0,
                 border_top: 0.0,
             },
             DndDragPlaceholderParent::Custom(p_id) => {
-                let rect = *out_rects.at(p_id);
+                let rect = out_rects.find_or_default(p_id, debug);
                 let (border_left, border_top) = lay_basic
                     .find(p_id)
                     .map(|l| (l.border.left.to_px_or_zero(), l.border.top.to_px_or_zero()))
@@ -176,7 +185,7 @@ impl DndStore {
         debug: &mut DebugStore,
     ) -> EntityId {
         let placeholder =
-            DndStore::resolve_dnd_placeholder_parent(root, drag_prop, lay_basic, out_rects);
+            DndStore::resolve_dnd_placeholder_parent(root, drag_prop, lay_basic, out_rects, debug);
 
         let placeholder_id = TopologyStore::spawn(
             placeholder.parent_id,
@@ -213,6 +222,7 @@ impl DndStore {
         placeholder_id
     }
 
+    #[track_caller]
     fn setup_placeholder_properties(
         cx: &mut Context,
         pressed_id: EntityId,
@@ -259,6 +269,7 @@ impl DndStore {
         mask.set(ComponentMask::STYLE_POINTER_EVENTS);
     }
 
+    #[track_caller]
     fn transfer_children_to_placeholder(
         pressed_id: EntityId,
         placeholder_id: EntityId,
@@ -307,9 +318,13 @@ impl DndStore {
         }
     }
 
+    #[track_caller]
     fn start_dnd_drag_session(cx: &mut Context, pressed_id: EntityId, logical_pos: LayoutPoint) {
         let drag_prop = *cx.states.dnd.dnd_drag_properties.at(pressed_id);
-        let start_rect = *cx.outputs.out_rects.at(pressed_id);
+        let start_rect = cx
+            .outputs
+            .out_rects
+            .find_or_default(pressed_id, &mut cx.debug);
 
         // 開始時のクリック位置と要素左上の相対的なズレを計算
         let click_offset =
@@ -383,6 +398,7 @@ impl DndStore {
         );
     }
 
+    #[track_caller]
     pub(crate) fn propagate_dnd_drag_events(
         cx: &mut Context,
         prev_pos: Option<LayoutPoint>,
@@ -422,8 +438,10 @@ impl DndStore {
         drag_prop: &DndDragProperty,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> (LayoutRect, f32, f32) {
-        let p = DndStore::resolve_dnd_placeholder_parent(root, drag_prop, lay_basic, out_rects);
+        let p =
+            DndStore::resolve_dnd_placeholder_parent(root, drag_prop, lay_basic, out_rects, debug);
         (p.rect, p.border_left, p.border_top)
     }
 
@@ -446,7 +464,7 @@ impl DndStore {
     ) {
         // アタッチ先親コンテナ基準での相対ローカル座標を逆算して追従（Inset更新）
         let (parent_rect, b_l, b_t) =
-            DndStore::calculate_dnd_relative_local(root, drag_prop, lay_basic, out_rects);
+            DndStore::calculate_dnd_relative_local(root, drag_prop, lay_basic, out_rects, debug);
 
         // マウスのドラッグ開始時クリックオフセットを用いて、ローカル Top-Left 座標を算出
         let local_x = logical_pos.x - (parent_rect.x + b_l) - drag_state.click_offset.x;
@@ -586,6 +604,7 @@ impl DndStore {
         );
     }
 
+    #[track_caller]
     fn dnd_rewrite_tree_topology(
         src_id: EntityId,
         target_id: EntityId,
@@ -613,9 +632,9 @@ impl DndStore {
             // 絶対配置: 位置移動（補正）を伴うアタッチ
             if drag_prop.update_position {
                 // プレースホルダーの最終的な絶対画面座標を取得
-                let ph_abs_rect = *out_rects.at(holder);
+                let ph_abs_rect = out_rects.find_or_default(holder, debug);
                 // 新しい親（target_id）の絶対画面座標とボーダー厚みを取得
-                let target_rect = *out_rects.at(target_id);
+                let target_rect = out_rects.find_or_default(target_id, debug);
 
                 let border = LayoutStore::get_physical_border(target_rect, basic.border);
 

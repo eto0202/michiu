@@ -3,8 +3,8 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
-    MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState, ScrollbarDisplay,
-    ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, UiaValue, Val, WebView2Contents,
+    ExternalVisual, MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState,
+    ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, UiaValue, Val,
     create_effect, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
@@ -669,6 +669,7 @@ impl Element {
     }
 
     /// 既存のクロージャをクリアせずに、子要素の差し替え（マウント）のみを実行する
+    #[track_caller]
     fn set_contents_internal(self, cx: &mut Context, new_child: Element) {
         let id = self.id;
 
@@ -791,12 +792,41 @@ impl Element {
         self
     }
 
-    /// Place the webview2 component.
     #[inline]
+    #[must_use]
+    pub fn external_visual(self, visual: impl ExternalVisual + 'static) -> Self {
+        let visual_arc = Arc::new(visual);
+        let id = self.id;
+
+        let metadata = visual_arc.metadata();
+
+        with_context(|cx| {
+            cx.contents.cont_external_visual.insert(id, visual_arc);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_EXTERNAL_VISUAL_CONTENT);
+
+            if metadata.size.width > 0.0 || metadata.size.height > 0.0 {
+                if !cx.layouts.lay_base_basic.contains_key(id) {
+                    cx.layouts.lay_base_basic.insert(id, BasicLayout::default());
+                }
+                let basic = cx.layouts.lay_base_basic.at_mut(id);
+                basic.size.width = Val::Px(metadata.size.width);
+                basic.size.height = Val::Px(metadata.size.height);
+            }
+
+            cx.mark_dirty(id);
+        });
+        self
+    }
+
+    /*
+    * #[inline]
     #[must_use]
     pub fn webview2(self, contents: impl Into<Prop<WebView2Contents>>) -> Self {
         self.bind_prop(contents, EffectCategory::Movie, |cx, id, src| {
-            cx.contents.cont_webview_contents.insert(id, src);
+            cx.contents.cont_external_visual.insert(id, src);
             cx.topology.topo_webview_entities.push(id);
             cx.topology
                 .topo_active_masks
@@ -821,6 +851,7 @@ impl Element {
         }));
         self.webview2(dynamic_prop)
     }
+    */
 
     /// Not implemented
     #[must_use]
@@ -898,6 +929,7 @@ impl Element {
 
     /// スクロールコンテナのスタイル設定に連動し、
     /// トラック・サムに相当する要素を遅延生成して親子関係にアタッチする。
+    #[track_caller]
     #[inline]
     pub(crate) fn ensure_scrollbar_elements(
         cx: &mut Context,

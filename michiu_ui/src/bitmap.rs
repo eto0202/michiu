@@ -115,8 +115,14 @@ impl ComponentMask {
 
     #[inline]
     #[must_use]
-    pub(crate) fn has_webveiw2_content(&self) -> bool {
-        self.has(ComponentMask::COMP_WEBVIEW_CONTENT)
+    pub(crate) fn has_external_visual_content(&self) -> bool {
+        self.has(ComponentMask::COMP_EXTERNAL_VISUAL_CONTENT)
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn has_external_texture_content(&self) -> bool {
+        self.has(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT)
     }
 
     #[inline]
@@ -226,8 +232,7 @@ impl ComponentMask {
 
     pub(crate) const STYLE_FONT_STYLE: u128 = 1 << 61;
 
-    /// `WebView2` のコンテンツを持っているか
-    pub const COMP_WEBVIEW_CONTENT: u128 = 1 << 62;
+    // 62 空き
 
     pub(crate) const STYLE_POINTER_EVENTS: u128 = 1 << 63;
 
@@ -263,6 +268,7 @@ impl ComponentMask {
 
     // 外部提供テクスチャが有効であることを示す
     pub(crate) const COMP_EXTERNAL_TEXTURE_CONTENT: u128 = 1 << 80;
+    pub(crate) const COMP_EXTERNAL_VISUAL_CONTENT: u128 = 1 << 81;
 
     pub(crate) const STYLE_BASIC_LAYOUT: u128 = Self::STYLE_DISPLAY
         | Self::STYLE_ITEM_IS_TABLE

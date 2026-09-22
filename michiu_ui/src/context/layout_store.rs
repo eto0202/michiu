@@ -144,6 +144,7 @@ impl LayoutStore {
 
 impl LayoutStore {
     /// 各スタイルの解決を1回のルックアップと1回のカスケード解決ループに統合
+    #[track_caller]
     #[inline]
     pub(crate) fn resolve_active_layouts(
         id: EntityId,
@@ -463,6 +464,7 @@ impl LayoutStore {
     }
 
     /// 解決済みの基本スタイルを `TaffyTree` のノードへ同期して適用。
+    #[track_caller]
     #[inline]
     pub(crate) fn set_taffy_style(
         id: EntityId,
@@ -481,6 +483,7 @@ impl LayoutStore {
             .unwrap_or_trace(Some(id), debug);
     }
 
+    #[track_caller]
     #[inline]
     pub(crate) fn local_rect_from_taffy(
         id: EntityId,
@@ -503,6 +506,7 @@ impl LayoutStore {
 
     /// 指定された親コンテナにアタッチされている `DComp` / Taffy 側のすべての子ノードの物理順序を
     /// 内部 `SoA` リスト（self.children）の順序に沿って再同期。
+    #[track_caller]
     #[inline]
     pub(crate) fn resync_taffy_children_order(
         parent_id: EntityId,
@@ -544,6 +548,7 @@ impl LayoutStore {
         }
     }
 
+    #[track_caller]
     #[inline]
     pub(crate) fn mark_layout_dirty(
         id: EntityId,

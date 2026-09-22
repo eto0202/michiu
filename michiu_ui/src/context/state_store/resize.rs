@@ -135,6 +135,7 @@ impl ResizeStore {
         }
     }
 
+    #[track_caller]
     pub(crate) fn found_resize_hover(
         target_id: Option<EntityId>,
         logical_pos: LayoutPoint,
@@ -142,12 +143,13 @@ impl ResizeStore {
         topo_parents: &ParentsSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
     ) -> (Option<EntityId>, Option<(EntityId, ResizeDirection)>) {
         let mut current_id = target_id;
         let mut found_resize_hover = None;
         while let Some(id) = current_id {
             if topo_active_masks.at(id).has(ComponentMask::STYLE_RESIZABLE) {
-                let rect = *out_rects.at(id);
+                let rect = out_rects.find_or_default(id, debug);
                 let resizable_flags = lay_basic.find(id).map_or([false; 4], |l| l.resizable);
 
                 // 境界外周に 6.0px のあそびを持たせてヒット判定
@@ -168,6 +170,7 @@ impl ResizeStore {
         (current_id, found_resize_hover)
     }
 
+    #[track_caller]
     pub(crate) fn state_pressed_resize_drag(
         id: EntityId,
         dir: ResizeDirection,
@@ -241,6 +244,7 @@ impl ResizeStore {
         evt_interaction_states.pressed = Some(id);
     }
 
+    #[track_caller]
     pub(crate) fn sync_resizing_drag(
         logical_pos: LayoutPoint,
         state: &ResizingState,

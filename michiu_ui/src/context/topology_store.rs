@@ -203,6 +203,7 @@ impl TopologyStore {
     }
 
     /// 親子関係の追加
+    #[track_caller]
     #[inline]
     pub(crate) fn add_child(
         parent: EntityId,
@@ -289,6 +290,7 @@ impl TopologyStore {
     }
 
     /// 親要素の特定の古い子要素を新しい子要素へ直接差し替える
+    #[track_caller]
     #[inline]
     pub(crate) fn replace_child(
         parent: EntityId,
@@ -342,6 +344,7 @@ impl TopologyStore {
     }
 
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで一掃
+    #[track_caller]
     #[inline]
     pub(crate) fn despawn_internal(
         id: EntityId,
@@ -420,6 +423,7 @@ impl TopologyStore {
     }
 
     /// セッションのクリーンアップを実行
+    #[track_caller]
     #[inline]
     pub(crate) fn end_session(
         start_marker: usize,
@@ -459,6 +463,7 @@ impl TopologyStore {
     }
 
     /// 親トポロジーから子要素をデタッチする
+    #[track_caller]
     #[inline]
     pub(crate) fn detach_from_parent(
         child: EntityId,
@@ -519,6 +524,7 @@ impl TopologyStore {
 
     /// DFS配列の高速再構築
     #[allow(unused)]
+    #[track_caller]
     #[inline]
     pub(crate) fn rebuild_dfs_sequence(
         root: EntityId,
@@ -551,6 +557,7 @@ impl TopologyStore {
     }
 
     /// 子孫要素のインタラクション状態を走査
+    #[track_caller]
     #[inline]
     #[must_use]
     pub(crate) fn has_descendant_with_state(
@@ -599,6 +606,7 @@ impl TopologyStore {
     }
 
     /// 直近の親要素（1世代上）が特定のインタラクション状態を持っているか検証
+    #[track_caller]
     #[inline]
     pub(crate) fn has_parent_with_state(
         id: EntityId,
@@ -619,6 +627,7 @@ impl TopologyStore {
 
     /// ドロップ先コンテナのフレックス方向に基づいて、
     /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出。
+    #[track_caller]
     #[inline]
     pub(crate) fn calculate_insert_index(
         parent: EntityId,
@@ -650,6 +659,7 @@ impl TopologyStore {
     }
 
     /// 指定された要素（target）が、ある親要素（parent）自身、またはその子孫であるかを判定します。
+    #[track_caller]
     #[inline]
     pub(crate) fn is_descendant_of(
         target: EntityId,
@@ -670,6 +680,7 @@ impl TopologyStore {
     }
 
     /// 実効 `z_index` の計算と、それに基づく要素のソート
+    #[track_caller]
     #[inline]
     pub(crate) fn prepare_sorted_entities(
         win_last_size: Option<LayoutSize>,
@@ -739,7 +750,7 @@ impl TopologyStore {
             };
 
             // クリップ矩形のインライン累積
-            let rect = *out_rects.at(id);
+            let rect = out_rects.find_or_default(id, debug);
             let eff_clip = *out_clip_rects.find_or(id, &default_clip, debug);
 
             // トランスフォームの適用されているブランチか伝播判定
@@ -816,6 +827,7 @@ impl TopologyStore {
         });
     }
 
+    #[track_caller]
     #[inline]
     pub(crate) fn restore_child(
         src_id: EntityId,
@@ -872,6 +884,7 @@ impl TopologyStore {
 
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
     /// 階層的な早期枝刈りヒットテスト
+    #[track_caller]
     #[inline]
     pub(crate) fn hit_test(
         point: LayoutPoint,
@@ -915,12 +928,12 @@ impl TopologyStore {
             }
 
             // 物理範囲に含まれているか
-            if !out_rects.at(id).contains(point) {
+            if !out_rects.find_or_default(id, debug).contains(point) {
                 continue;
             }
 
             // 親などの overflow 等でクリップされている表示範囲外ならスキップ
-            if !out_clip_rects.at(id).contains(point) {
+            if !out_clip_rects.find_or_default(id, debug).contains(point) {
                 continue;
             }
 

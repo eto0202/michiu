@@ -671,7 +671,7 @@ impl Context {
 
     /// Determine if there are active transitions or animations.
     #[inline]
-    pub fn has_active_frame(&self) -> bool {
+    pub fn has_active_frame(&mut self) -> bool {
         RenderStore::has_active_frame(
             &self.events.evt_interaction_states,
             self.events.evt_current_pointer_position.as_ref(),
@@ -681,6 +681,7 @@ impl Context {
             &self.renders.rnd_active_transitions,
             &self.renders.rnd_active_animations,
             &self.outputs.out_clip_rects,
+            &mut self.debug,
         )
     }
 
@@ -806,7 +807,7 @@ impl Context {
     }
 
     /// Get the `RawContext`.
-    /// 
+    ///
     /// This is an escape hatch. While it allows you to directly manipulate the internals of `Context`,
     /// the integrity of its lifecycle and internal data is not guaranteed.
     #[inline]

@@ -119,6 +119,16 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
     // UV の補間 (通常の画像 / テキスト兼用)
     out.uv = mix(instance.uv_range.xy, instance.uv_range.zw, local_ratio);
 
+    /*
+    if mode == 4.0 {
+        // 外部テクスチャ描画時はマージン拡張による UV のはみ出しを防止するためクランプ
+        let clamped_ratio = clamp(local_ratio, vec2<f32>(0.0), vec2<f32>(1.0));
+        out.uv = mix(instance.uv_range.xy, instance.uv_range.zw, clamped_ratio);
+    } else {
+        out.uv = mix(instance.uv_range.xy, instance.uv_range.zw, local_ratio);
+    }
+    */
+
     // mode 4.0 且つ y_flip_val が -1.0 の場合は、UVのY軸を自動反転
     if mode == 4.0 && instance.alpha_mode_y_flip_srgb.y < 0.0 {
         out.uv.y = 1.0 - out.uv.y;
@@ -456,11 +466,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // let raw_alpha = pow(tex_color.r, 0.75);
         // let alpha = raw_alpha * opacity;
         element_color = vec4<f32>(color_linear.rgb * alpha, alpha);
-    } else if mode == 3.0 {
-        // 静止画 WebView2 キャッシュ（Bgra8サンプリング、PMA適用）
-        let tex_color = textureSample(t_texture, s_sampler, in.uv);
-        // 元テクスチャが sRGB/PMA のため、単純に不透明度を乗算
-        element_color = tex_color * opacity;
     } else if mode == 4.0 {
         // 外部テクスチャサンプリング
         var tex_color = textureSample(t_texture, s_sampler, in.uv);

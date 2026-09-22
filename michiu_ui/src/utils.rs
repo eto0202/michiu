@@ -1,7 +1,7 @@
 use crate::{
-    BoxShadow, Color, Convert, Element, ExternalTexture, FlexDirection, InputContents,
-    IntoHexColor, IntoLayoutPoint, Prop, ReadSignal, StyleValue, ThisStyle, WebView2Contents,
-    WriteSignal, with_context,
+    BoxShadow, Color, Convert, Element, ExternalTexture, ExternalVisual, FlexDirection,
+    InputContents, IntoHexColor, IntoLayoutPoint, Prop, ReadSignal, StyleValue, ThisStyle,
+    WebView2Contents, WriteSignal, with_context,
 };
 use std::borrow::Cow;
 
@@ -187,11 +187,28 @@ pub fn external_texture(texture: impl ExternalTexture + 'static) -> Element {
     div_n().external_texture(texture)
 }
 
-/// Webview2 Container
+/// External Visual Container
+#[inline]
+pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
+    div_n().external_visual(visual)
+}
+
+/*
+* /// Webview2 Container
 #[inline]
 pub fn webview2(contents: impl Into<Prop<WebView2Contents>>) -> Element {
     div_n().webview2(contents)
 }
+/// A container that creates and applies WebView2 elements dynamically resolved from provider `P`.
+#[inline]
+pub fn webview2_d<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
+{
+    div_n().webview2_d(f)
+}
+*/
 
 /// A generic container that dynamically resolves `ThisStyle` from provider `P` and applies the style
 #[inline]
@@ -258,16 +275,6 @@ where
     F: Fn(&P) -> InputContents + Send + Sync + 'static,
 {
     div_n().input_area_d(f)
-}
-
-/// A container that creates and applies WebView2 elements dynamically resolved from provider `P`.
-#[inline]
-pub fn webview2_d<P, F>(f: F) -> Element
-where
-    P: Clone + 'static,
-    F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
-{
-    div_n().webview2_d(f)
 }
 
 /// Creates a `BoxShadow`.

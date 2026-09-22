@@ -30,7 +30,6 @@ mod tag;
 mod transition;
 mod types;
 mod utils;
-mod webview2;
 
 pub use bitmap::*;
 pub use context::*;
@@ -46,7 +45,6 @@ pub use tag::*;
 pub use transition::*;
 pub use types::*;
 pub use utils::*;
-pub use webview2::*;
 
 pub mod prelude {
     pub use crate::{
@@ -56,7 +54,7 @@ pub mod prelude {
         element::{Element, build_ui},
         input::InputContents,
         pipeline::{TickType, UserAction},
-        renderer::ComposedRenderer,
+        renderer::{ComposedRenderer, WebView2Contents},
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
         style::ThisStyle,
@@ -70,8 +68,6 @@ pub mod prelude {
             get_win32_clipboard, grid_box, h_flex, h_flex_d, hex, hidden_box, hsl, hsla, input,
             input_area, input_area_d, input_d, offset, pct, px, rgb, rgba, set_win32_clipboard,
             shadow, spread, text, text_d, ts, use_provided, use_provided_setter, v_flex, v_flex_d,
-            webview2,
         },
-        webview2::WebView2Contents,
     };
 }

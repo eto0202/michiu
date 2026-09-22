@@ -1,10 +1,9 @@
-use crate::PendingActions;
 #[cfg(feature = "trace-entity")]
 use crate::{ActiveAnimation, ActiveTransition, BasicLayout, StyleInner, VisualProperty};
 #[allow(unused)]
 use crate::{
     ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveInteractionStates,
-    ActiveMasksSecondary, ActiveResizeHoverOption, ActiveTransitionsSparse, ActiveWebviewsHashSet,
+    ActiveMasksSecondary, ActiveResizeHoverOption, ActiveTransitionsSparse, ActiveExternalVisualHashSet,
     Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary, BaseVisualPropertiesSecondary,
     BasicLayoutsSecondary, BatchType, CapacityConfig, ChildrenSecondary, ClipRectsSecondary,
     ComponentMask, ComposedRenderer, Context, DespawnedQueueVec, DirtyLayoutEntitiesVec,
@@ -20,8 +19,9 @@ use crate::{
     SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
     SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey, TextCacheValue,
     TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas, UiaPropertiesSparse,
-    VirtualKey, VisualPropertiesSecondary, WebviewContentsSparse, WebviewEntitiesVec,
+    VirtualKey, VisualPropertiesSecondary, WebviewEntitiesVec,
 };
+use crate::{ExternalVisualSparse, PendingActions};
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -707,8 +707,7 @@ pub struct RendererViewTrace {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InstanceKinds {
-    pub has_webview_ready: bool,
-    pub has_webview_static: bool,
+    pub has_external_visual_ready: bool,
     pub has_external_texture: bool,
     pub has_normal_element: bool,
     pub has_selection_highlight: bool,
@@ -1102,7 +1101,7 @@ pub struct ContentStoreSnapshot {
     pub cont_text_spans: TextSpansSparse,
     pub cont_input_contents: InputContentsSparse,
     pub cont_external_textures: ExternalTextureSparse,
-    pub cont_webview_contents: WebviewContentsSparse,
+    pub cont_external_visual: ExternalVisualSparse,
     pub cont_cut_text: Option<MichiuString>,
 }
 
@@ -1203,7 +1202,7 @@ pub struct RenderStoreSnapshot {
     pub rnd_interaction: InteractionPropertiesSecondary,
     pub rnd_active_transitions: ActiveTransitionsSparse,
     pub rnd_active_animations: ActiveAnimationsSparse,
-    pub rnd_active_webviews: ActiveWebviewsHashSet,
+    pub rnd_active_external_visual: ActiveExternalVisualHashSet,
     pub rnd_last_tick_time: Option<Instant>,
 }
 
@@ -1315,7 +1314,7 @@ impl ContextSnapshot {
                 cont_text_spans: cx.contents.cont_text_spans.clone(),
                 cont_input_contents: cx.contents.cont_input_contents.clone(),
                 cont_external_textures: cx.contents.cont_external_textures.clone(),
-                cont_webview_contents: cx.contents.cont_webview_contents.clone(),
+                cont_external_visual: cx.contents.cont_external_visual.clone(),
                 cont_cut_text: cx.contents.cont_cut_text.clone(),
             },
             topology: TopologyStoreSnapshot {
@@ -1379,7 +1378,7 @@ impl ContextSnapshot {
                 rnd_interaction: cx.renders.rnd_interaction.clone(),
                 rnd_active_transitions: cx.renders.rnd_active_transitions.clone(),
                 rnd_active_animations: cx.renders.rnd_active_animations.clone(),
-                rnd_active_webviews: cx.renders.rnd_active_webviews.clone(),
+                rnd_active_external_visual: cx.renders.rnd_active_external_visual.clone(),
                 rnd_last_tick_time: cx.renders.rnd_last_tick_time,
             },
             outputs: OutputStoreSnapshot {

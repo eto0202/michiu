@@ -1,15 +1,14 @@
 #![allow(clippy::pedantic, clippy::restriction, unused_must_use)]
 
-use std::time::Duration;
-
 use michiu_ui::{
-    ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, StateFlag, prelude::*,
+    ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, StateFlag, WebView2Visual,
+    external_visual, prelude::*,
 };
-
+use std::{sync::Arc, time::Duration};
 use windows::{
     Win32::{
         Foundation::*,
-        Graphics::Gdi::*,
+        Graphics::{DirectComposition::IDCompositionDevice, Gdi::*},
         System::{
             LibraryLoader::GetModuleHandleW,
             WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
@@ -28,6 +27,7 @@ use windows::{
     },
     core::w,
 };
+use windows_core::Interface;
 
 /// ウィンドウメッセージ処理時に Context と Renderer を一元管理するためのアプリケーション状態
 struct AppState {
@@ -35,6 +35,7 @@ struct AppState {
     context: Context,
     root_id: EntityId,
     webview_id: EntityId,
+    webview2: Arc<WebView2Visual>,
 }
 
 // Win32 ウィンドウプロシージャ
@@ -164,20 +165,13 @@ unsafe extern "system" fn wnd_proc(
                     .interaction_id(InteractionState::Pressed)
                     .or(hit_element);
                 if target_element == Some(app.webview_id) {
-                    app.renderer.forward_mouse_input(
-                        &app.context,
-                        app.webview_id,
-                        msg,
-                        wparam,
-                        lparam,
-                        LayoutPoint::new(x, y),
-                    );
+                    app.webview2
+                        .forward_mouse_input(msg, wparam, lparam, LayoutPoint::new(x, y));
                 }
 
-                // インタラクションによる変化（ホバー状態）をリアルタイムに再描画
-                if app.context.has_dirty() {
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                }
+                // マウス移動アクションを注入したため、常に再描画を要求して次フレームでイベントを消化
+                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+
                 return LRESULT(0);
             }
             WM_MOUSELEAVE => {
@@ -240,21 +234,15 @@ unsafe extern "system" fn wnd_proc(
                 });
 
                 if target_element == Some(app.webview_id) {
-                    app.renderer.forward_mouse_input(
-                        &app.context,
-                        app.webview_id,
-                        msg,
-                        wparam,
-                        lparam,
-                        LayoutPoint::new(x, y),
-                    );
+                    app.webview2
+                        .forward_mouse_input(msg, wparam, lparam, LayoutPoint::new(x, y));
                 }
 
                 // クリックした要素が実際に WebView2 である場合のみ、キーボードフォーカスをブラウザにアタッチ
                 if msg == WM_LBUTTONDOWN
                     && app.context.interaction_id(InteractionState::Focused) == Some(app.webview_id)
                 {
-                    app.renderer.focus_webview(app.webview_id);
+                    app.webview2.focus();
                 }
 
                 // クリックによる再描画を反映
@@ -282,14 +270,8 @@ unsafe extern "system" fn wnd_proc(
                 let hit_element = app.context.hit_test(logical_pos);
 
                 if hit_element == Some(app.webview_id) {
-                    app.renderer.forward_mouse_input(
-                        &app.context,
-                        app.webview_id,
-                        msg,
-                        wparam,
-                        lparam,
-                        physical_pos,
-                    );
+                    app.webview2
+                        .forward_mouse_input(msg, wparam, lparam, physical_pos);
                 }
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
@@ -332,7 +314,7 @@ unsafe extern "system" fn wnd_proc(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. メインスレッド（UIスレッド）の COM を STA（Single Threaded Apartment）モードで初期化
+    // メインスレッド（UIスレッド）の COM を STA（Single Threaded Apartment）モードで初期化
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let _ = RoInitialize(RO_INIT_SINGLETHREADED);
@@ -341,7 +323,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let h_instance = unsafe { GetModuleHandleW(None)? };
     let class_name = w!("MichiuSimpleTextDemoClass");
 
-    // 2. ウィンドウクラスの登録
+    // ウィンドウクラスの登録
     unsafe {
         let wnd_class = WNDCLASSW {
             lpfnWndProc: Some(wnd_proc),
@@ -354,9 +336,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         RegisterClassW(&wnd_class);
     }
 
-    // 3. UI コンテキストの構築と静的テキスト要素の定義
+    // ウィンドウ (HWND) の作成
+    let hwnd = unsafe {
+        CreateWindowExW(
+            WS_EX_NOREDIRECTIONBITMAP,
+            class_name,
+            w!("Michiu - Simple Text Demo"),
+            WS_OVERLAPPEDWINDOW,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            800,
+            600,
+            None,
+            None,
+            Some(HINSTANCE(h_instance.0)),
+            None,
+        )?
+    };
+
+    // レンダラー (DComp Device) の作成
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    let scale_factor = dpi as f32 / 96.0;
+    let initial_layout_size = LayoutSize::new(800.0, 600.0);
+    let renderer = pollster::block_on(ComposedRenderer::new(
+        hwnd,
+        initial_layout_size,
+        scale_factor,
+    ))?;
+
     let mut context = Context::new();
     let webview_id_cell = std::cell::Cell::new(None);
+    let webview_cell = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let webview_cell_clone = webview_cell.clone();
+    let dcomp_desktop_device = renderer.dcomp_device.clone();
+    let dcomp_device: IDCompositionDevice = dcomp_desktop_device.cast()?;
+    let task_sender = context.task_sender();
 
     // build_ui を使って要素ツリーを宣言的に組み立て
     let root = build_ui(&mut context, || {
@@ -364,28 +378,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (is_active, set_is_active) = create_signal(false);
         let (is_opacity, set_is_opacity) = create_signal(false);
 
-        let webview_element = {
-            let wv = webview2(
-                WebView2Contents::from_url("https://www.google.com/maps")
-                    .enable_context_menu(true)
-                    .enable_dev_tools(true)
-                    .allow_interaction(true)
-                    .always_active(true),
-            )
-            .style({
-                let base = ts()
-                    .size_full()
-                    .r(2.0)
-                    .resizable_bottom(true)
-                    .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
-                    .overflow_hidden()
-                    .transform(Transform::new().scale(1.0, 1.0))
-                    .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
-                    .pressed(ts().transform(Transform::new().scale(1.01, 1.01)));
+        let webview_contents = WebView2Contents::from_url("https://www.google.com/maps")
+            .enable_context_menu(true)
+            .enable_dev_tools(true)
+            .allow_interaction(true)
+            .always_active(false);
 
-                is_opacity.get_else(base.clone().opacity_50(), base.opacity_100())
-            })
-            .on_focus(move || set_is_active.set(false));
+        let webview_visual = Arc::new(
+            WebView2Visual::new(
+                &dcomp_device,
+                hwnd,
+                webview_contents,
+                scale_factor,
+                &task_sender,
+            )
+            .expect("Failed to create WebView2Visual"),
+        );
+
+        // AppState 用に退避
+        *webview_cell_clone.borrow_mut() = Some(webview_visual.clone());
+
+        let webview_element = {
+            let wv = external_visual(webview_visual)
+                .style({
+                    let base = ts()
+                        .size_full()
+                        .r(2.0)
+                        .resizable_bottom(true)
+                        .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
+                        .overflow_hidden()
+                        .transform(Transform::new().scale(1.0, 1.0))
+                        .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
+                        .pressed(ts().transform(Transform::new().scale(1.01, 1.01)));
+
+                    is_opacity.get_else(base.clone().opacity_50(), base.opacity_100())
+                })
+                .on_focus(move || set_is_active.set(false));
 
             webview_id_cell.set(Some(wv.id()));
             wv
@@ -506,48 +534,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let webview_id = webview_id_cell.get().expect("WebView2 ID not assigned");
-    let initial_layout_size = LayoutSize::new(800.0, 600.0);
-    // 4. アプリケーション状態をヒープ上に準備
-    // ※ ウィンドウ生成非同期ハンドラ (ComposedRenderer) を作成するためにプレシーティング
-    // (ComposedRenderer::new は内部で setup_direct_composition(hwnd) を行います)
-    // ウィンドウを作成する（まだlpParamはNullの状態で枠のみを一旦作成、またはlpParamにapp_stateポインタをバインド）
-    // ダミーの HWND であらかじめレンダラーを作るのを防ぐため、
-    // まず HWND を生成し、WM_CREATE のタイミングではなく作成直後に ComposedRenderer を生成して格納します。
-    let hwnd = unsafe {
-        CreateWindowExW(
-            WS_EX_NOREDIRECTIONBITMAP, // GDIリダイレクションを無効化し DComp を露出させる
-            class_name,
-            w!("Michiu - Simple Text Demo"),
-            WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            800,
-            600,
-            None,
-            None,
-            Some(HINSTANCE(h_instance.0)),
-            None, // WM_CREATE 時には一旦 Null にしておく
-        )?
-    };
-
-    // レンダラーを作成
-    let dpi = unsafe { GetDpiForWindow(hwnd) };
-    let scale_factor = dpi as f32 / 96.0;
-    let renderer = pollster::block_on(ComposedRenderer::new(
-        hwnd,
-        initial_layout_size,
-        scale_factor,
-    ))?;
+    let webview2 = webview_cell
+        .borrow()
+        .clone()
+        .expect("WebView2Visual not created");
 
     let app_state = Box::new(AppState {
         renderer,
         context,
         root_id: root.id(),
         webview_id,
+        webview2,
     });
 
     // 作成完了した AppState の生ポインタを HWND にアタッチ
     unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(app_state) as isize) };
+
+    let app_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut AppState;
+    let app = unsafe { &mut *app_ptr };
+
     // 最初の WM_SIZE がアタッチ前に無視されてしまうため、
     // ここで正確なクライアント領域サイズを取得し、手動で初回の正確なリサイズとレイアウト同期を叩き込みます。
     let mut client_rect = RECT::default();
@@ -555,25 +560,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let width = (client_rect.right - client_rect.left) as u32;
     let height = (client_rect.bottom - client_rect.top) as u32;
 
-    let app_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut AppState;
-    let app = unsafe { &mut *app_ptr };
-
     // 正確なクライアント領域ピクセルで wgpu ターゲットを設定し、初回のレイアウト計算を確定
     app.renderer.resize((width, height), scale_factor);
-
     app.context
         .sync_layout(app.root_id, app.renderer.layout_size);
-    app.renderer.prewarm_webview2();
+    WebView2Visual::prewarm_webview2();
 
-    // 5. ウィンドウを表示して描画
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOW);
         let _ = InvalidateRect(Some(hwnd), None, false);
-    }
 
-    // 6. Win32 メッセージループの開始
-    let mut msg = MSG::default();
-    unsafe {
+        let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);

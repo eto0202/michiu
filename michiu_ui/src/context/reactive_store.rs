@@ -127,6 +127,8 @@ impl ReactiveStore {
 
 impl ReactiveStore {
     /// 要素の階層トポロジーを親に向かって遡り、最初に見つかった型 T の `ReadSignal` を解決して返す
+    #[track_caller]
+    #[inline]
     pub(crate) fn use_provided_from<T: Clone + 'static>(
         id: EntityId,
         react_providers: &ProvidersSparseSecondary,
@@ -160,6 +162,8 @@ impl ReactiveStore {
     }
 
     /// 親ツリーを遡り、最初に見つかった型 T の `WriteSignal` を解決して返す
+    #[track_caller]
+    #[inline]
     pub(crate) fn use_provided_setter_from<T: Send + 'static>(
         id: EntityId,
         react_providers: &ProvidersSparseSecondary,

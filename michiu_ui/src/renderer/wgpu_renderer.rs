@@ -44,8 +44,6 @@ pub struct WgpuRenderer {
     pub atlas: TextureAtlas,
     pub temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
     pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
-    // 非アクティブ状態の WebView2 の静止画キャッシュ
-    pub webview_static_caches: FxHashMap<EntityId, wgpu::TextureView>,
 
     pub render_data: RenderData,
 
@@ -169,7 +167,6 @@ impl WgpuRenderer {
             atlas,
             temp_uv_map: SecondaryMap::new(),
             text_cache: FxHashMap::default(),
-            webview_static_caches: FxHashMap::default(),
             render_data: RenderData::new(),
             external_bind_groups: FxHashMap::default(),
         })
@@ -483,7 +480,6 @@ impl WgpuRenderer {
         // 破棄された要素のキャッシュを解放
         for id in cx.topology.topo_despawned_queue.drain(..) {
             self.external_bind_groups.remove(&id);
-            self.webview_static_caches.remove(&id);
         }
 
         // 前面と背面に分類されたバッチを Context から引き出す
@@ -678,55 +674,27 @@ impl WgpuRenderer {
         }
     }
 
-    /// バッチ内に静止 `WebView2` テクスチャが含まれる場合、バインドグループを動的に切り替える
+    /// バッチ内に外部テクスチャが含まれる場合、バインドグループを動的に切り替える
     fn bind_texture_for_batch<'a>(
         &'a self,
         rpass: &mut wgpu::RenderPass<'a>,
         batch: &DrawBatch,
         entity_ids: &[EntityId],
     ) {
-        // バッチに含まれる最初の要素が静止 WebView2 キャッシュを持っているか
-        // instance_offsetの位置にある要素の ID を取得
         if let Some(&first_id) = entity_ids.get(batch.instance_offset) {
-            // キャッシュが存在する場合
+            // 外部テクスチャのキャッシュが存在する場合
             if let Some((_, bind_group)) = self.external_bind_groups.get(&first_id) {
                 rpass.set_bind_group(0, bind_group, &[]);
                 return;
             }
-
-            // WebView2 の静止画キャッシュ
-            if let Some(cached_view) = self.webview_static_caches.get(&first_id) {
-                let temp_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &self.config_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: self.config_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(cached_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::Sampler(&self.atlas.sampler),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: self.instance_buffer.as_entire_binding(),
-                        },
-                    ],
-                    label: None,
-                });
-                rpass.set_bind_group(0, &temp_bind_group, &[]);
-                return;
-            }
-            // 通常のアトラス
-            rpass.set_bind_group(0, &self.config_bind_group, &[]);
         }
+
+        // 通常のアトラス
+        rpass.set_bind_group(0, &self.config_bind_group, &[]);
     }
 
     /// `QuadInstance` に静的バインドする
+    #[track_caller]
     fn build_quad_instance_for_entity(
         cx: &mut Context,
         entity_id: EntityId,
@@ -792,32 +760,34 @@ impl WgpuRenderer {
         }
 
         // 影のカラーと形状の解決
-        let shadow_color =
-            if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
-                let mut color = visual.shadow_color.unwrap_or_default();
-                // WebViewアクティブ（DCompブレンド時）の濃さの補正
-                let mut has_active_webview_parent = false;
-                let mut curr_id = entity_id;
-                while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
-                    if cx
-                        .topology
-                        .topo_active_masks
-                        .at(parent_id)
-                        .has_webveiw2_content()
-                        && cx.renders.rnd_active_webviews.contains(&parent_id)
-                    {
-                        has_active_webview_parent = true;
-                        break;
-                    }
-                    curr_id = parent_id;
+        // 元インスタンスで意図的に影が無効化されている (TRANSPARENT) 場合は上書きしない
+        let shadow_color = if instance.shadow_color == Color::TRANSPARENT {
+            Color::TRANSPARENT
+        } else if visual.shadow_params.is_some() {
+            let mut color = visual.shadow_color.unwrap_or_default();
+            // WebViewアクティブ（DCompブレンド時）の濃さの補正
+            let mut has_active_visual_parent = false;
+            let mut curr_id = entity_id;
+            while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
+                if cx
+                    .topology
+                    .topo_active_masks
+                    .at(parent_id)
+                    .has_external_visual_content()
+                    && cx.renders.rnd_active_external_visual.contains(&parent_id)
+                {
+                    has_active_visual_parent = true;
+                    break;
                 }
-                if has_active_webview_parent {
-                    color.a *= 0.45;
-                }
-                color
-            } else {
-                Color::TRANSPARENT
-            };
+                curr_id = parent_id;
+            }
+            if has_active_visual_parent {
+                color.a *= 0.45;
+            }
+            color
+        } else {
+            Color::TRANSPARENT
+        };
 
         let shadow_params = if shadow_color == Color::TRANSPARENT {
             [0.0; 4]
