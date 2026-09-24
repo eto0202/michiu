@@ -1,8 +1,8 @@
 use crate::{
     AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, DebugStore, EntityId,
     ExternalVisual, ExternalVisualMetadata, InteractionState, LayoutPoint, LayoutRect, LayoutSize,
-    MichiuError, MichiuSoA, MichiuTrace, PlaybackCount, PropertyList, ResultTraceExt,
-    StaticExternalTexture, VisualUpdateContext, WebView2Contents, WgpuRenderer,
+    MichiuError, MichiuSoA, MichiuTrace, PlaybackCount, PropertyList, RawWgpuRenderer,
+    ResultTraceExt, StaticExternalTexture, VisualUpdateContext, WebView2Contents, WgpuRenderer,
     WindowsResultTraceExt, flush_trace, trace_error, trace_lifecycle,
 };
 use std::{
@@ -21,7 +21,7 @@ use windows::{
             },
             DirectComposition::{
                 DCompositionCreateDevice2, IDCompositionDesktopDevice,
-                IDCompositionDesktopDevice_Impl, IDCompositionDevice_Impl,
+                IDCompositionDesktopDevice_Impl, IDCompositionDevice, IDCompositionDevice_Impl,
                 IDCompositionDevice2_Impl, IDCompositionRectangleClip_Impl, IDCompositionTarget,
                 IDCompositionTarget_Impl, IDCompositionTranslateTransform_Impl,
                 IDCompositionTranslateTransform3D_Impl, IDCompositionVisual,
@@ -41,24 +41,25 @@ use windows::{
 use windows_numerics::Matrix3x2;
 
 pub struct ComposedRenderer {
-    pub hwnd: HWND,
-    pub layout_size: LayoutSize,
-    pub scale_factor: f32,
+    pub(crate) hwnd: HWND,
+    pub(crate) layout_size: LayoutSize,
+    pub(crate) scale_factor: f32,
 
-    pub wic_factory: IWICImagingFactory,
+    pub(crate) wic_factory: IWICImagingFactory,
 
     /// `DirectComposition` リソース
-    pub dcomp_device: IDCompositionDesktopDevice,
-    pub dcomp_target: IDCompositionTarget,
-    pub root_visual: IDCompositionVisual2,
+    pub(crate) d3d11_device: ID3D11Device,
+    pub(crate) desktop_device: IDCompositionDesktopDevice,
+    pub(crate) target: IDCompositionTarget,
+    pub(crate) root_visual: IDCompositionVisual2,
     /// wgpu 用のビジュアル
-    pub wgpu_visual: IDCompositionVisual2,
+    pub(crate) wgpu_visual: IDCompositionVisual2,
 
     /// wgpu レンダラー
-    pub wgpu_renderer: WgpuRenderer,
+    pub(crate) wgpu_renderer: WgpuRenderer,
 
     /// 動的に昇格された `WebView2` レイヤーの一覧
-    pub promoted_visuals: Vec<PromotedVisual>,
+    pub(crate) promoted_visuals: Vec<PromotedVisual>,
 
     /// `DComp` 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
     pub(crate) pending_dcomp_releases: Vec<PendingDcompRelease>,
@@ -97,7 +98,7 @@ impl ComposedRenderer {
         scale_factor: f32,
     ) -> crate::Result<Self> {
         // DirectComposition の構築 (setup_direct_composition を内包)
-        let (dcomp_device, dcomp_target, root_visual, wgpu_visual) =
+        let (d3d11_device, desktop_device, target, root_visual, wgpu_visual) =
             ComposedRenderer::setup_direct_composition(hwnd)?;
 
         // HINSTANCE（h_instance）の解決
@@ -109,7 +110,7 @@ impl ComposedRenderer {
         let wgpu_renderer = WgpuRenderer::new(raw_visual_ptr, layout_size, scale_factor).await?;
 
         unsafe {
-            dcomp_device.Commit()?;
+            desktop_device.Commit()?;
         }
 
         let wic_factory: IWICImagingFactory =
@@ -120,8 +121,9 @@ impl ComposedRenderer {
             layout_size,
             scale_factor,
             wic_factory,
-            dcomp_device,
-            dcomp_target,
+            d3d11_device,
+            desktop_device,
+            target,
             root_visual,
             wgpu_visual,
             wgpu_renderer,
@@ -148,7 +150,7 @@ impl ComposedRenderer {
         // 拡大リサイズ中およびリサイズ直後の不安定なバッファへのキャプチャを遮断
         self.resize_cooldown_frames = 15;
 
-        let _ = unsafe { self.dcomp_device.Commit() };
+        let _ = unsafe { self.desktop_device.Commit() };
     }
 
     /// Drawing Triggers
@@ -158,7 +160,7 @@ impl ComposedRenderer {
         self.wgpu_renderer.render(cx, self.scale_factor);
 
         unsafe {
-            self.dcomp_device
+            self.desktop_device
                 .Commit()
                 .unwrap_or_trace(None, &mut cx.debug);
         };
@@ -468,8 +470,8 @@ impl ComposedRenderer {
             if metadata.auto_clip
                 && let Some(visual_prop) = cx.renders.rnd_visual.find(id)
             {
-                let dcomp_device = self.dcomp_device.clone();
-                if let Ok(rectangle_clip) = dcomp_device.CreateRectangleClip() {
+                let desktop_device = self.desktop_device.clone();
+                if let Ok(rectangle_clip) = desktop_device.CreateRectangleClip() {
                     let clip_left = (clip_rect.x - rect.x).max(0.0) * self.scale_factor;
                     let clip_top = (clip_rect.y - rect.y).max(0.0) * self.scale_factor;
                     let clip_right = ((clip_rect.x + clip_rect.width) - rect.x).min(rect.width)
@@ -507,6 +509,7 @@ impl ComposedRenderer {
     pub(crate) fn setup_direct_composition(
         hwnd: HWND,
     ) -> crate::Result<(
+        ID3D11Device,
         IDCompositionDesktopDevice,
         IDCompositionTarget,
         IDCompositionVisual2, // root_visual
@@ -517,22 +520,161 @@ impl ComposedRenderer {
             // グローバルなマネージャーの解決を試みる（失敗時は呼び出し元にエラーを伝播できるよう、後々 Result にするか
             // ここではひとまず unwrap() などで処理する形
             let manager = DCompDeviceManager::global()?;
-            let dcomp_device = manager.dcomp_device.clone();
+            let d3d11_device = manager.d3d11_device.clone();
+            let desktop_device = manager.desktop_device.clone();
 
-            let dcomp_target = dcomp_device.CreateTargetForHwnd(hwnd, true)?;
-            let root_visual = dcomp_device.CreateVisual()?;
-            dcomp_target.SetRoot(&root_visual)?;
+            let target = desktop_device.CreateTargetForHwnd(hwnd, true)?;
+            let root_visual = desktop_device.CreateVisual()?;
+            target.SetRoot(&root_visual)?;
 
             // wgpu 用のメインビジュアルを1つだけ作成して登録
-            let wgpu_visual = dcomp_device.CreateVisual()?;
+            let wgpu_visual = desktop_device.CreateVisual()?;
             root_visual.AddVisual(&wgpu_visual, true, None)?;
 
             // 変更をコンポジターにコミットして反映
-            dcomp_device.Commit()?;
+            desktop_device.Commit()?;
 
-            Ok((dcomp_device, dcomp_target, root_visual, wgpu_visual))
+            Ok((
+                d3d11_device,
+                desktop_device,
+                target,
+                root_visual,
+                wgpu_visual,
+            ))
         }
     }
+
+    #[inline]
+    #[must_use]
+    pub fn hwnd(&self) -> HWND {
+        self.hwnd
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn layout_size(&self) -> LayoutSize {
+        self.layout_size
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn wic_factory(&self) -> &IWICImagingFactory {
+        &self.wic_factory
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn d3d11_device(&self) -> &ID3D11Device {
+        &self.d3d11_device
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn desktop_device(&self) -> &IDCompositionDesktopDevice {
+        &self.desktop_device
+    }
+
+    #[inline]
+    pub fn composition_device(&self) -> windows_core::Result<IDCompositionDevice> {
+        let result: IDCompositionDevice = self.desktop_device.clone().cast()?;
+        Ok(result)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn target(&self) -> &IDCompositionTarget {
+        &self.target
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn root_visual(&self) -> &IDCompositionVisual2 {
+        &self.root_visual
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn wgpu_visual(&self) -> &IDCompositionVisual2 {
+        &self.wgpu_visual
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn promoted_visuals(&self) -> &[PromotedVisual] {
+        &self.promoted_visuals
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn pending_dcomp_releases(&self) -> &[PendingDcompRelease] {
+        &self.pending_dcomp_releases
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn current_backdrop(&self) -> &Backdrop {
+        &self.current_backdrop
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn resize_cooldown_frames(&self) -> u32 {
+        self.resize_cooldown_frames
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn wgpu_renderer(&self) -> &WgpuRenderer {
+        &self.wgpu_renderer
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn raw_wgpu_renderer_mut(&mut self) -> RawWgpuRenderer<'_> {
+        self.wgpu_renderer.raw_wgpu_renderer_mut()
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn raw_composed_renderer_mut(&mut self) -> RawComposedRenderer<'_> {
+        RawComposedRenderer {
+            hwnd: &mut self.hwnd,
+            layout_size: &mut self.layout_size,
+            scale_factor: &mut self.scale_factor,
+            wic_factory: &mut self.wic_factory,
+            d3d11_device: &mut self.d3d11_device,
+            desktop_device: &mut self.desktop_device,
+            target: &mut self.target,
+            root_visual: &mut self.root_visual,
+            wgpu_visual: &mut self.wgpu_visual,
+            promoted_visuals: &mut self.promoted_visuals,
+            pending_dcomp_releases: &mut self.pending_dcomp_releases,
+            current_backdrop: &mut self.current_backdrop,
+            resize_cooldown_frames: &mut self.resize_cooldown_frames,
+        }
+    }
+}
+
+pub struct RawComposedRenderer<'a> {
+    pub hwnd: &'a mut HWND,
+    pub layout_size: &'a mut LayoutSize,
+    pub scale_factor: &'a mut f32,
+    pub wic_factory: &'a mut IWICImagingFactory,
+    pub d3d11_device: &'a mut ID3D11Device,
+    pub desktop_device: &'a mut IDCompositionDesktopDevice,
+    pub target: &'a mut IDCompositionTarget,
+    pub root_visual: &'a mut IDCompositionVisual2,
+    pub wgpu_visual: &'a mut IDCompositionVisual2,
+    pub promoted_visuals: &'a mut Vec<PromotedVisual>,
+    pub pending_dcomp_releases: &'a mut Vec<PendingDcompRelease>,
+    pub current_backdrop: &'a mut Backdrop,
+    pub resize_cooldown_frames: &'a mut u32,
 }
 
 #[track_caller]
@@ -570,7 +712,7 @@ fn is_element_transitioning(cx: &Context, id: EntityId) -> bool {
 
 pub(crate) struct DCompDeviceManager {
     pub(crate) d3d11_device: ID3D11Device,
-    pub(crate) dcomp_device: IDCompositionDesktopDevice,
+    pub(crate) desktop_device: IDCompositionDesktopDevice,
 }
 
 unsafe impl Send for DCompDeviceManager {}
@@ -626,11 +768,12 @@ impl DCompDeviceManager {
 
         // DCompositionCreateDevice ではなく DCompositionCreateDevice2 を使用。
         // これにより IDCompositionDesktopDevice の生成が正しくサポートされる。
-        let dcomp_device: IDCompositionDesktopDevice = unsafe { DCompositionCreateDevice2(None) }?;
+        let desktop_device: IDCompositionDesktopDevice =
+            unsafe { DCompositionCreateDevice2(None) }?;
 
         Ok(DCompDeviceManager {
             d3d11_device,
-            dcomp_device,
+            desktop_device,
         })
     }
 }

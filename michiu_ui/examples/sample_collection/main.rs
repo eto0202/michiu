@@ -6,7 +6,7 @@ use crate::{
         client_rect, create_renderer, create_window, message_loop, register_class, show_window,
     },
 };
-use michiu_ui::{CapacityConfig, Dss, DssSet, prelude::*};
+use michiu_ui::{CapacityConfig, Dss, DssSet, WebView2Contents, WebView2Visual, prelude::*};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
@@ -66,6 +66,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (h_instance, class_name, _wnd_class) = register_class()?;
     let hwnd = create_window(h_instance, class_name)?;
 
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    let scale_factor = dpi as f32 / 96.0;
+    let renderer = create_renderer(hwnd, scale_factor)?;
+
     let inspector = MichiuInspector::new();
     let _sub = inspector.subscribe(None);
 
@@ -77,24 +81,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "trace-error")]
     logger(_sub);
 
-    let send_hwnd = SendHwnd(hwnd);
+    let device = renderer.composition_device()?;
+    let task_sender = context.task_sender();
+    let webview_contents = WebView2Contents::from_url("https://www.google.com/maps")
+        .enable_context_menu(true)
+        .enable_dev_tools(true)
+        .allow_interaction(true)
+        .always_active(false);
+    let webview_visual =
+        WebView2Visual::new(&device, hwnd, webview_contents, scale_factor, &task_sender)
+            .expect("Failed to create WebView2Visual");
 
+    let send_hwnd = SendHwnd(hwnd);
     context.set_waker(move || send_hwnd.wake());
 
     let css_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/examples/sample_collection/global.css"
     );
-
     let (styles_sig, _guard) = DssSet::builder()
         .add_sheet(Dss::new("global").from_file(css_path).hot_reload(true))
         .build_and_watch(&mut context);
 
-    let root = build_ui(&mut context, move || app::create_root(styles_sig));
-
-    let dpi = unsafe { GetDpiForWindow(hwnd) };
-    let scale_factor = dpi as f32 / 96.0;
-    let renderer = create_renderer(hwnd, scale_factor)?;
+    let root = build_ui(&mut context, move || {
+        let (webview2, _) = create_signal(webview_visual);
+        app::create_root().provide(styles_sig).provide(webview2)
+    });
 
     let app_state = Box::new(AppState {
         renderer,
@@ -109,6 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (width, height) = client_rect(hwnd);
     app.renderer.resize((width, height), scale_factor);
+    WebView2Visual::prewarm_webview2();
 
     let _ = show_window(hwnd);
 

@@ -2,7 +2,7 @@ use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
     rc::Rc,
-    sync::{Arc, Mutex, OnceLock},
+    sync::Arc,
 };
 use webview2_com::{
     CapturePreviewCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
@@ -17,52 +17,36 @@ use webview2_com::{
 };
 use windows::{
     Win32::{
-        Foundation::{HGLOBAL, HMODULE, HWND, LPARAM, POINT, RECT, WPARAM},
+        Foundation::{HGLOBAL, HWND, LPARAM, POINT, RECT, WPARAM},
         Graphics::{
-            Direct3D::{D3D_DRIVER_TYPE_HARDWARE, ID3DInclude_Impl},
-            Direct3D11::{
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
-                ID3D11Device,
-            },
-            DirectComposition::{
-                DCompositionCreateDevice2, IDCompositionDesktopDevice,
-                IDCompositionDesktopDevice_Impl, IDCompositionDevice, IDCompositionDevice_Impl,
-                IDCompositionDevice2_Impl, IDCompositionRectangleClip_Impl, IDCompositionTarget,
-                IDCompositionTarget_Impl, IDCompositionTranslateTransform_Impl,
-                IDCompositionTranslateTransform3D_Impl, IDCompositionVisual,
-                IDCompositionVisual_Impl, IDCompositionVisual2, IDCompositionVisual3_Impl,
-            },
-            Dxgi::*,
+            DirectComposition::{IDCompositionDevice, IDCompositionVisual2},
             Gdi::InvalidateRect,
             Imaging::{
-                CLSID_WICImagingFactory, GUID_WICPixelFormat32bppBGRA,
-                GUID_WICPixelFormat32bppPBGRA, GUID_WICPixelFormat32bppRGBA, IWICImagingFactory,
-                WICBitmapDitherTypeNone, WICBitmapInterpolationModeLinear,
-                WICBitmapPaletteTypeCustom, WICBitmapPaletteTypeMedianCut,
+                GUID_WICPixelFormat32bppBGRA, IWICImagingFactory, WICBitmapDitherTypeNone,
+                WICBitmapInterpolationModeLinear, WICBitmapPaletteTypeCustom,
                 WICDecodeMetadataCacheOnDemand,
             },
         },
         System::{
             Com::{
-                CLSCTX_INPROC_SERVER, CoCreateInstance, IStream,
+                IStream,
                 StructuredStorage::{CreateStreamOnHGlobal, GetHGlobalFromStream},
             },
             Memory::{GlobalLock, GlobalSize, GlobalUnlock},
         },
         UI::WindowsAndMessaging::{
-            GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WM_LBUTTONDOWN, WM_LBUTTONUP,
-            WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
-            WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
+            WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
+            WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
         },
     },
-    core::{Interface, PCWSTR, PWSTR, w},
+    core::{Interface, PCWSTR},
 };
 use windows_core::{HRESULT, HSTRING};
 
 use crate::{
     Color, ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
-    ExternalTextureMetadata, ExternalVisual, ExternalVisualMetadata, LayoutPoint, LayoutRect,
-    LayoutSize, MichiuError, StaticExternalTexture, TaskSender, VisualUpdateContext,
+    ExternalTextureMetadata, ExternalVisual, ExternalVisualMetadata, LayoutRect, LayoutSize,
+    MichiuError, StaticExternalTexture, TaskSender, VisualUpdateContext,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -226,6 +210,7 @@ pub(crate) fn set_cached_env(env: ICoreWebView2Environment3) {
     });
 }
 
+#[derive(Debug, Clone)]
 pub struct WebView2Visual {
     pub visual: IDCompositionVisual2,
     /// コントローラー（非同期生成完了時に格納）
@@ -294,7 +279,6 @@ impl ExternalVisual for WebView2Visual {
         {
             *self.is_capturing.borrow_mut() = true;
 
-            let hwnd = cx.hwnd;
             let device = cx.device.clone();
             let queue = cx.queue.clone();
             let wic_factory = cx.wic_factory.clone();
@@ -417,7 +401,6 @@ impl WebView2Visual {
                 &visual,
                 &controller,
                 &contents,
-                scale_factor,
                 cached_env,
                 task_sender,
             )?;
@@ -470,7 +453,6 @@ impl WebView2Visual {
         webview_visual: &IDCompositionVisual2,
         controller_slot: &Rc<RefCell<Option<ICoreWebView2Controller>>>,
         settings: &WebView2Contents,
-        scale_factor: f32,
         env_slot: Option<ICoreWebView2Environment3>,
         sys_task_sender: &TaskSender,
     ) -> crate::Result<()> {
@@ -648,8 +630,6 @@ impl WebView2Visual {
                 set_cached_env(env3.clone());
 
                 let webview_visual_clone2 = webview_visual_clone.clone();
-                let controller_slot_clone2 = controller_slot_clone.clone();
-                let settings_clone2 = settings_clone.clone();
 
                 let controller_handler =
                     webview2_com::CreateCoreWebView2CompositionControllerCompletedHandler::create(

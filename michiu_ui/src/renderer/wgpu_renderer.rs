@@ -18,37 +18,37 @@ use wgpu::wgt::CommandEncoderDescriptor;
 use wgpu::{CurrentSurfaceTexture, PipelineCompilationOptions};
 
 pub struct WgpuRenderer {
-    pub surface: wgpu::Surface<'static>,
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
-    pub config: wgpu::SurfaceConfiguration,
+    pub(crate) surface: wgpu::Surface<'static>,
+    pub(crate) device: wgpu::Device,
+    pub(crate) queue: wgpu::Queue,
+    pub(crate) config: wgpu::SurfaceConfiguration,
 
-    pub pipeline: wgpu::RenderPipeline,
-    pub punchout_pipeline: wgpu::RenderPipeline,
+    pub(crate) pipeline: wgpu::RenderPipeline,
+    pub(crate) punchout_pipeline: wgpu::RenderPipeline,
 
     // 頂点データ（共通の 1x1 矩形）
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
+    pub(crate) vertex_buffer: wgpu::Buffer,
+    pub(crate) index_buffer: wgpu::Buffer,
 
     // インスタンスデータ（可変長バッファ）
-    pub instance_buffer: wgpu::Buffer,
-    pub instance_buffer_capacity: usize,
-    pub instance_staging: Vec<QuadInstance>,
+    pub(crate) instance_buffer: wgpu::Buffer,
+    pub(crate) instance_buffer_capacity: usize,
+    pub(crate) instance_staging: Vec<QuadInstance>,
 
     // スクリーン投影用 Uniform
-    pub config_buffer: wgpu::Buffer,
-    pub config_bind_group: wgpu::BindGroup,
+    pub(crate) config_buffer: wgpu::Buffer,
+    pub(crate) config_bind_group: wgpu::BindGroup,
     // ebView2 の静止画を描画する際にバインドグループを動的生成するため保持
-    pub config_bind_group_layout: wgpu::BindGroupLayout,
+    pub(crate) config_bind_group_layout: wgpu::BindGroupLayout,
 
-    pub atlas: TextureAtlas,
-    pub temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
-    pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
+    pub(crate) atlas: TextureAtlas,
+    pub(crate) temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
+    pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
 
-    pub render_data: RenderData,
+    pub(crate) render_data: RenderData,
 
     /// 外部テクスチャ用の `BindGroup` キャッシュ
-    pub external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
+    pub(crate) external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
 }
 
 #[repr(C)]
@@ -878,4 +878,161 @@ impl WgpuRenderer {
             });
         }
     }
+
+    #[inline]
+    #[must_use]
+    pub fn surface(&self) -> &wgpu::Surface<'_> {
+        &self.surface
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn config(&self) -> &wgpu::SurfaceConfiguration {
+        &self.config
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn pipeline(&self) -> &wgpu::RenderPipeline {
+        &self.pipeline
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn punchout_pipeline(&self) -> &wgpu::RenderPipeline {
+        &self.punchout_pipeline
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn vertex_buffer(&self) -> &wgpu::Buffer {
+        &self.vertex_buffer
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn index_buffer(&self) -> &wgpu::Buffer {
+        &self.index_buffer
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn instance_buffer(&self) -> &wgpu::Buffer {
+        &self.instance_buffer
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn instance_buffer_capacity(&self) -> &usize {
+        &self.instance_buffer_capacity
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn config_buffer(&self) -> &wgpu::Buffer {
+        &self.config_buffer
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn config_bind_group(&self) -> &wgpu::BindGroup {
+        &self.config_bind_group
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn config_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.config_bind_group_layout
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn atlas(&self) -> &TextureAtlas {
+        &self.atlas
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn temp_uv_map(&self) -> &SecondaryMap<EntityId, [f32; 4]> {
+        &self.temp_uv_map
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn text_cache(&self) -> &FxHashMap<TextCacheKey, TextCacheValue> {
+        &self.text_cache
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn render_data(&self) -> &RenderData {
+        &self.render_data
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn external_bind_groups(
+        &self,
+    ) -> &FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)> {
+        &self.external_bind_groups
+    }
+
+    #[inline]
+    pub(crate) fn raw_wgpu_renderer_mut(&mut self) -> RawWgpuRenderer<'_> {
+        RawWgpuRenderer {
+            surface: &mut self.surface,
+            device: &mut self.device,
+            queue: &mut self.queue,
+            config: &mut self.config,
+            pipeline: &mut self.pipeline,
+            punchout_pipeline: &mut self.punchout_pipeline,
+            vertex_buffer: &mut self.vertex_buffer,
+            index_buffer: &mut self.index_buffer,
+            instance_buffer: &mut self.instance_buffer,
+            instance_buffer_capacity: &mut self.instance_buffer_capacity,
+            instance_staging: &mut self.instance_staging,
+            config_buffer: &mut self.config_buffer,
+            config_bind_group: &mut self.config_bind_group,
+            config_bind_group_layout: &mut self.config_bind_group_layout,
+            atlas: &mut self.atlas,
+            temp_uv_map: &mut self.temp_uv_map,
+            text_cache: &mut self.text_cache,
+            render_data: &mut self.render_data,
+            external_bind_groups: &mut self.external_bind_groups,
+        }
+    }
+}
+
+pub struct RawWgpuRenderer<'a> {
+    pub surface: &'a mut wgpu::Surface<'static>,
+    pub device: &'a mut wgpu::Device,
+    pub queue: &'a mut wgpu::Queue,
+    pub config: &'a mut wgpu::SurfaceConfiguration,
+    pub pipeline: &'a mut wgpu::RenderPipeline,
+    pub punchout_pipeline: &'a mut wgpu::RenderPipeline,
+    pub vertex_buffer: &'a mut wgpu::Buffer,
+    pub index_buffer: &'a mut wgpu::Buffer,
+    pub instance_buffer: &'a mut wgpu::Buffer,
+    pub instance_buffer_capacity: &'a mut usize,
+    pub instance_staging: &'a mut Vec<QuadInstance>,
+    pub config_buffer: &'a mut wgpu::Buffer,
+    pub config_bind_group: &'a mut wgpu::BindGroup,
+    pub config_bind_group_layout: &'a mut wgpu::BindGroupLayout,
+    pub atlas: &'a mut TextureAtlas,
+    pub temp_uv_map: &'a mut SecondaryMap<EntityId, [f32; 4]>,
+    pub text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
+    pub render_data: &'a mut RenderData,
+    pub external_bind_groups: &'a mut FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
 }
