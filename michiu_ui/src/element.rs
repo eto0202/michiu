@@ -821,38 +821,6 @@ impl Element {
         self
     }
 
-    /*
-    * #[inline]
-    #[must_use]
-    pub fn webview2(self, contents: impl Into<Prop<WebView2Contents>>) -> Self {
-        self.bind_prop(contents, EffectCategory::Movie, |cx, id, src| {
-            cx.contents.cont_external_visual.insert(id, src);
-            cx.topology.topo_webview_entities.push(id);
-            cx.topology
-                .topo_active_masks
-                .at_mut(id)
-                .set(ComponentMask::COMP_WEBVIEW_CONTENT);
-            cx.mark_dirty(id);
-        })
-    }
-
-    /// Dynamically resolves and attaches webview2 settings from provider `P`.
-    #[must_use]
-    #[inline]
-    pub fn webview2_d<P, F>(self, f: F) -> Self
-    where
-        P: Clone + 'static,
-        F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
-    {
-        let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = with_context(|cx| cx.use_provided::<P>());
-            let val = signal.get();
-            f(&val)
-        }));
-        self.webview2(dynamic_prop)
-    }
-    */
-
     /// Not implemented
     #[must_use]
     #[inline]

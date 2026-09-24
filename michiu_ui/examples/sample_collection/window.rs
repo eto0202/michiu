@@ -64,18 +64,14 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_NULL => {
-                let app_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut AppState;
-                if !app_ptr.is_null() {
-                    let app = unsafe { &mut *app_ptr };
+                // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
+                app.context.process_main_thread_tasks();
 
-                    // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
-                    app.context.process_main_thread_tasks();
-
-                    // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
-                    if app.context.has_dirty() {
-                        let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                    }
+                // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
+                if app.context.has_dirty() {
+                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
+
                 return LRESULT(0);
             }
             WM_DPICHANGED => {

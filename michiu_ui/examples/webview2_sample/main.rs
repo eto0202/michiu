@@ -1,10 +1,10 @@
 #![allow(clippy::pedantic, clippy::restriction, unused_must_use)]
 
 use michiu_ui::{
-    ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, StateFlag, WebView2Visual,
-    dispatch_raw_input_to_external_visual, external_visual, prelude::*,
+    ComposedRenderer, ElementState, EntityId, Modifiers, MouseButton, StateFlag, WebView2Contents,
+    WebView2Visual, dispatch_raw_input_to_external_visual, external_visual, prelude::*,
 };
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 use windows::{
     Win32::{
         Foundation::*,
@@ -43,7 +43,7 @@ unsafe extern "system" fn wnd_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    // 1. ウィンドウ作成時に AppState の生ポインタを GWLP_USERDATA に退避
+    // ウィンドウ作成時に AppState の生ポインタを GWLP_USERDATA に退避
     if msg == WM_CREATE {
         let create_struct = lparam.0 as *const CREATESTRUCTW;
         let app_state_ptr = (unsafe { *create_struct }).lpCreateParams as *mut AppState;
@@ -61,6 +61,17 @@ unsafe extern "system" fn wnd_proc(
             WM_ERASEBKGND => {
                 // DComp描画時はGDIによる背景自動消去を抑制し、描画競合を完全に回避します
                 return LRESULT(1);
+            }
+            WM_NULL => {
+                // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
+                app.context.process_main_thread_tasks();
+
+                // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
+                if app.context.has_dirty() {
+                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                }
+
+                return LRESULT(0);
             }
             WM_DPICHANGED => {
                 // wparam から新しい DPI の値を取得 (96 DPI = 1.0倍)
@@ -88,6 +99,7 @@ unsafe extern "system" fn wnd_proc(
 
                 // 再描画要求
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                let _ = unsafe { UpdateWindow(hwnd) };
                 return LRESULT(0);
             }
             WM_PAINT => {

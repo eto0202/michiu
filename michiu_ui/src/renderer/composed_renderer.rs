@@ -1,9 +1,9 @@
 use crate::{
     AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, DebugStore, EntityId,
-    ExternalVisual, ExternalVisualMetadata, LayoutPoint, LayoutRect, LayoutSize, MichiuError,
-    MichiuSoA, MichiuTrace, PlaybackCount, PropertyList, ResultTraceExt, StaticExternalTexture,
-    VisualUpdateContext, WebView2Contents, WgpuRenderer, WindowsResultTraceExt, flush_trace,
-    trace_error, trace_lifecycle,
+    ExternalVisual, ExternalVisualMetadata, InteractionState, LayoutPoint, LayoutRect, LayoutSize,
+    MichiuError, MichiuSoA, MichiuTrace, PlaybackCount, PropertyList, ResultTraceExt,
+    StaticExternalTexture, VisualUpdateContext, WebView2Contents, WgpuRenderer,
+    WindowsResultTraceExt, flush_trace, trace_error, trace_lifecycle,
 };
 use std::{
     cell::RefCell,
@@ -255,7 +255,7 @@ impl ComposedRenderer {
                 let metadata = visual_entry.metadata();
 
                 // 安定状態の判定
-                let is_interactive = has_interactive_descendant(cx, id);
+                let is_interactive = is_element_interactive(cx, id);
                 let is_transitioning = is_element_transitioning(cx, id);
                 let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
                 let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
@@ -290,17 +290,16 @@ impl ComposedRenderer {
                         .set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
                     cx.renders.rnd_active_external_visual.remove(&id);
 
-                    // 直ちに DComp から消すとチラつくため、ディレイキューに登録
-                    if !self
-                        .pending_dcomp_releases
-                        .iter()
-                        .any(|r| r.entity_id == id)
+                    // wgpuの静止画描画と同時にDComp実体を外して二重描画を防止
+                    if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id)
                     {
-                        self.pending_dcomp_releases.push(PendingDcompRelease {
-                            entity_id: id,
-                            frames_left: 3,
-                        });
+                        let promoted = &mut self.promoted_visuals[pos];
+                        if promoted.is_visible {
+                            let _ = self.root_visual.RemoveVisual(&promoted.visual);
+                            promoted.is_visible = false;
+                        }
                     }
+                    self.pending_dcomp_releases.retain(|r| r.entity_id != id);
                 } else {
                     // 実体表示
                     current_promoted_ids.push(id);
@@ -536,26 +535,11 @@ impl ComposedRenderer {
     }
 }
 
-// 親子関係を再帰的に走査してアクティビティを伝播するヘルパー
 #[track_caller]
-fn has_interactive_descendant(cx: &Context, id: EntityId) -> bool {
-    // 自分自身がフォーカス、またはアクティブ状態のインタラクション属性を持っているか
-    if cx
-        .topology
-        .topo_active_masks
-        .at(id)
-        .has_active_interaction_property()
-    {
-        return true;
-    }
-    // 子要素を再帰的にチェック
-    for &child_id in cx.topology.topo_children.at(id) {
-        if has_interactive_descendant(cx, child_id) {
-            return true;
-        }
-    }
-
-    false
+fn is_element_interactive(cx: &Context, id: EntityId) -> bool {
+    let is_focused = cx.interaction_id(InteractionState::Focused) == Some(id);
+    let is_pressed = cx.interaction_id(InteractionState::Pressed) == Some(id);
+    is_focused || is_pressed
 }
 
 fn is_element_transitioning(cx: &Context, id: EntityId) -> bool {

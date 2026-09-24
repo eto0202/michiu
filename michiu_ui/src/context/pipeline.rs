@@ -3,17 +3,17 @@ use crate::{
     BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing, ClipRectsSecondary, Color,
     ComponentMask, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
     DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets, ElementState, EntityId, EventStore,
-    ExternalTextureAlphaMode, ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FocusStore,
-    IDENTITY_MATRIX, ImeState, InputContentsSparse, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
-    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
-    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGeometry, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
-    TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
-    TopologyStore, TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context,
-    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
-    handle_on_ime, handle_on_select,
+    ExternalTextureAlphaMode, ExternalTextureCompositingMode, ExternalTextureSparse,
+    FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState, InputContentsSparse,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, Modifiers, MouseButton,
+    OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance,
+    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse, ScrollBarState,
+    ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
+    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore,
+    TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
+    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
+    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{
@@ -1263,31 +1263,15 @@ impl Pipeline {
                     BatchType::Normal,
                 );
 
-                // 枠線やアウトラインが存在する場合のみ前面装飾を追加
-                let has_border = params.border_color.a > 0.0
-                    && (params.border_width.top
-                        + params.border_width.right
-                        + params.border_width.bottom
-                        + params.border_width.left)
-                        > 0.0;
-                let has_outline = params.outline_color.a > 0.0
-                    && (params.outline_width.top
-                        + params.outline_width.right
-                        + params.outline_width.bottom
-                        + params.outline_width.left)
-                        > 0.0;
+                Pipeline::push_static_front_instance(id, view.render_data, &params);
 
-                if has_border || has_outline {
-                    Pipeline::push_static_front_instance(id, view.render_data, &params);
-
-                    Pipeline::flush_batch(
-                        &mut view.render_data.batches,
-                        view.render_data.instances.len(),
-                        &mut last_flushed_offset,
-                        clip,
-                        BatchType::Normal,
-                    );
-                }
+                Pipeline::flush_batch(
+                    &mut view.render_data.batches,
+                    view.render_data.instances.len(),
+                    &mut last_flushed_offset,
+                    clip,
+                    BatchType::Normal,
+                );
 
                 last_clip = Some(clip);
 
@@ -1966,13 +1950,12 @@ impl Pipeline {
         let border_instance = QuadInstance {
             rect: params.geom.rect,
             transform: params.transform,
-            color: Color::TRANSPARENT,
             corner_radius: params.corner_radius,
             border_width: params.border_width,
             border_color: params.border_color,
             opacity_mode_sizing: [params.opacity, 0.0, 0.0, 0.0],
             transform_origin: params.transform_origin,
-            shadow_color: Color::TRANSPARENT,
+            shadow_color: Color::WHITE,
             border_lengths: params.border_lengths,
             outline_width: params.outline_width,
             outline_color: params.outline_color,
@@ -2395,6 +2378,11 @@ impl Pipeline {
         let y_flip_val = if meta.y_flip { -1.0f32 } else { 1.0f32 };
         let srgb_val = if meta.is_srgb { 1.0f32 } else { 0.0f32 };
 
+        let blend_gamma = match meta.compositing_mode {
+            ExternalTextureCompositingMode::LinearLight => 1.0,
+            ExternalTextureCompositingMode::NonLinear(gamma) => gamma,
+        };
+
         let ex_instance = QuadInstance {
             rect: params.geom.rect,
             transform: params.transform,
@@ -2403,7 +2391,7 @@ impl Pipeline {
             transform_origin: params.transform_origin,
             uv_min: [0.0, 0.0],
             uv_max: [1.0, 1.0],
-            alpha_mode_y_flip_srgb: [alpha_val, y_flip_val, srgb_val, 0.0],
+            alpha_mode_y_flip_srgb_gamma: [alpha_val, y_flip_val, srgb_val, blend_gamma],
             ..Default::default()
         };
 

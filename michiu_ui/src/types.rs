@@ -126,14 +126,14 @@ impl Color {
     /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
     #[must_use]
-    pub(crate) const fn rgb_f32(r: f32, g: f32, b: f32) -> Self {
+    pub const fn rgb_f32(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
 
     /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
     #[must_use]
-    pub(crate) const fn rgba_f32(r: f32, g: f32, b: f32, a: f32) -> Self {
+    pub const fn rgba_f32(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 

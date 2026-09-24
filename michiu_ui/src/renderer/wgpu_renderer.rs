@@ -761,33 +761,32 @@ impl WgpuRenderer {
 
         // 影のカラーと形状の解決
         // 元インスタンスで意図的に影が無効化されている (TRANSPARENT) 場合は上書きしない
-        let shadow_color = if instance.shadow_color == Color::TRANSPARENT {
-            Color::TRANSPARENT
-        } else if visual.shadow_params.is_some() {
-            let mut color = visual.shadow_color.unwrap_or_default();
-            // WebViewアクティブ（DCompブレンド時）の濃さの補正
-            let mut has_active_visual_parent = false;
-            let mut curr_id = entity_id;
-            while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
-                if cx
-                    .topology
-                    .topo_active_masks
-                    .at(parent_id)
-                    .has_external_visual_content()
-                    && cx.renders.rnd_active_external_visual.contains(&parent_id)
-                {
-                    has_active_visual_parent = true;
-                    break;
+        let shadow_color =
+            if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
+                let mut color = visual.shadow_color.unwrap_or_default();
+                // DCompブレンド時の濃さの補正
+                let mut has_active_visual_parent = false;
+                let mut curr_id = entity_id;
+                while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
+                    if cx
+                        .topology
+                        .topo_active_masks
+                        .at(parent_id)
+                        .has_external_visual_content()
+                        && cx.renders.rnd_active_external_visual.contains(&parent_id)
+                    {
+                        has_active_visual_parent = true;
+                        break;
+                    }
+                    curr_id = parent_id;
                 }
-                curr_id = parent_id;
-            }
-            if has_active_visual_parent {
-                color.a *= 0.45;
-            }
-            color
-        } else {
-            Color::TRANSPARENT
-        };
+                if has_active_visual_parent {
+                    color.a *= 0.45;
+                }
+                color
+            } else {
+                Color::TRANSPARENT
+            };
 
         let shadow_params = if shadow_color == Color::TRANSPARENT {
             [0.0; 4]
@@ -828,7 +827,7 @@ impl WgpuRenderer {
                 outline_color: o_color,
                 outline_lengths: o_lengths,
                 outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
-                alpha_mode_y_flip_srgb: instance.alpha_mode_y_flip_srgb,
+                alpha_mode_y_flip_srgb_gamma: instance.alpha_mode_y_flip_srgb_gamma,
             },
             false, // アトラスを直接操作しないため常に false
         )

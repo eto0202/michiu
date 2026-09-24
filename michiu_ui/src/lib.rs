@@ -23,6 +23,7 @@ mod dss;
 mod element;
 mod input;
 mod key;
+mod option;
 mod renderer;
 mod signal;
 mod style;
@@ -37,6 +38,7 @@ pub use dss::*;
 pub use element::*;
 pub use input::*;
 pub use key::*;
+pub use option::*;
 pub use renderer::*;
 pub use signal::*;
 pub use soa::MichiuSoA;
@@ -54,7 +56,7 @@ pub mod prelude {
         element::{Element, build_ui},
         input::InputContents,
         pipeline::{TickType, UserAction},
-        renderer::{ComposedRenderer, WebView2Contents},
+        renderer::ComposedRenderer,
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
         style::ThisStyle,

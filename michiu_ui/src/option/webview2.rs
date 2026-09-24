@@ -51,8 +51,8 @@ use windows::{
         },
         UI::WindowsAndMessaging::{
             GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WM_LBUTTONDOWN, WM_LBUTTONUP,
-            WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL,
-            WM_RBUTTONDOWN, WM_RBUTTONUP,
+            WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
+            WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP,
         },
     },
     core::{Interface, PCWSTR, PWSTR, w},
@@ -60,8 +60,9 @@ use windows::{
 use windows_core::{HRESULT, HSTRING};
 
 use crate::{
-    ExternalTexture, ExternalVisual, ExternalVisualMetadata, LayoutPoint, LayoutRect, LayoutSize,
-    MichiuError, StaticExternalTexture, TaskSender, VisualUpdateContext,
+    Color, ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
+    ExternalTextureMetadata, ExternalVisual, ExternalVisualMetadata, LayoutPoint, LayoutRect,
+    LayoutSize, MichiuError, StaticExternalTexture, TaskSender, VisualUpdateContext,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -102,6 +103,8 @@ pub struct WebView2Contents {
     pub user_scripts: Vec<Cow<'static, str>>,
     /// ユーザーが操作していなくても、常にコンポジションスレッドで再生し続けるか
     pub always_active: bool,
+
+    pub default_bg_color: Option<Color>,
 }
 
 impl Default for WebView2Contents {
@@ -114,6 +117,7 @@ impl Default for WebView2Contents {
             enable_scripts: true,
             user_scripts: Vec::new(),
             always_active: false,
+            default_bg_color: None,
         }
     }
 }
@@ -196,6 +200,13 @@ impl WebView2Contents {
         self.always_active = always;
         self
     }
+
+    #[inline]
+    #[must_use]
+    pub fn default_bg_color(mut self, color: Color) -> Self {
+        self.default_bg_color = Some(color);
+        self
+    }
 }
 
 thread_local! {
@@ -204,13 +215,12 @@ thread_local! {
 }
 
 /// キャッシュ済みの環境があればクローンして即座に借用を解放して返す
-#[must_use]
-pub fn get_cached_env() -> Option<ICoreWebView2Environment3> {
+pub(crate) fn get_cached_env() -> Option<ICoreWebView2Environment3> {
     WEBVIEW2_THREAD_ENV.with(|slot| slot.borrow().clone())
 }
 
 /// スレッドローカルに環境をキャッシュする
-pub fn set_cached_env(env: ICoreWebView2Environment3) {
+pub(crate) fn set_cached_env(env: ICoreWebView2Environment3) {
     WEBVIEW2_THREAD_ENV.with(|slot| {
         *slot.borrow_mut() = Some(env);
     });
@@ -255,65 +265,77 @@ impl ExternalVisual for WebView2Visual {
         let phys_w = (cx.rect.width * cx.scale_factor).round() as i32;
         let phys_h = (cx.rect.height * cx.scale_factor).round() as i32;
 
-        if let Some(ref controller) = *self.controller.borrow() {
-            // WebView2 自身の Bounds を同期 (0,0 原点)
-            let bounds = RECT {
-                left: 0,
-                top: 0,
-                right: phys_w,
-                bottom: phys_h,
+        let Some(ref controller) = *self.controller.borrow() else {
+            return;
+        };
+
+        // WebView2 自身の Bounds を同期 (0,0 原点)
+        let bounds = RECT {
+            left: 0,
+            top: 0,
+            right: phys_w,
+            bottom: phys_h,
+        };
+        let _ = unsafe { controller.SetBounds(bounds) };
+
+        // 操作中・常時アクティブ・トランジション中は実体を維持
+        let should_stay_active = cx.is_interactive || self.contents.always_active || !cx.is_stable;
+        if should_stay_active {
+            *self.cached_texture.borrow_mut() = None;
+            return;
+        }
+
+        // 安定しており、かつまだキャッシュもキャプチャ中もない場合、自動キャプチャを発火
+        if self.cached_texture.borrow().is_none()
+            && !*self.is_capturing.borrow()
+            && phys_w > 0
+            && phys_h > 0
+            && let Ok(webview) = unsafe { controller.CoreWebView2() }
+        {
+            *self.is_capturing.borrow_mut() = true;
+
+            let hwnd = cx.hwnd;
+            let device = cx.device.clone();
+            let queue = cx.queue.clone();
+            let wic_factory = cx.wic_factory.clone();
+            let size = LayoutSize::new(cx.rect.width, cx.rect.height);
+
+            let cached_texture_clone = self.cached_texture.clone();
+            let is_capturing_clone = self.is_capturing.clone();
+
+            // 非同期キャプチャの実行
+            let _ = unsafe {
+                Self::trigger_capture_async(
+                    &webview,
+                    phys_w as u32,
+                    phys_h as u32,
+                    device,
+                    queue,
+                    wic_factory,
+                    move |result| {
+                        if let Ok(wgpu_tex) = result {
+                            let view =
+                                wgpu_tex.create_view(&wgpu::TextureViewDescriptor::default());
+
+                            let static_tex = Arc::new(StaticExternalTexture {
+                                view,
+                                metadata: ExternalTextureMetadata {
+                                    size,
+                                    alpha_mode: ExternalTextureAlphaMode::Straight,
+                                    y_flip: false,
+                                    is_srgb: true,
+                                    compositing_mode: ExternalTextureCompositingMode::NonLinear(
+                                        1.5,
+                                    ),
+                                },
+                            });
+                            // キャッシュをセットして強制再描画をキック
+                            *cached_texture_clone.borrow_mut() = Some(static_tex);
+                        }
+                        *is_capturing_clone.borrow_mut() = false;
+                    },
+                )
             };
-            let _ = unsafe { controller.SetBounds(bounds) };
-
-            // 操作中・常時アクティブ・トランジション中は実体を維持
-            let should_stay_active =
-                cx.is_interactive || self.contents.always_active || !cx.is_stable;
-            if should_stay_active {
-                *self.cached_texture.borrow_mut() = None;
-                return;
-            }
-
-            // 安定しており、かつまだキャッシュもキャプチャ中もない場合、自動キャプチャを発火
-            if self.cached_texture.borrow().is_none()
-                && !*self.is_capturing.borrow()
-                && phys_w > 0
-                && phys_h > 0
-                && let Ok(webview) = unsafe { controller.CoreWebView2() }
-            {
-                *self.is_capturing.borrow_mut() = true;
-
-                let hwnd = cx.hwnd;
-                let device = cx.device.clone();
-                let queue = cx.queue.clone();
-                let wic_factory = cx.wic_factory.clone();
-                let size = LayoutSize::new(cx.rect.width, cx.rect.height);
-
-                let cached_texture_clone = self.cached_texture.clone();
-                let is_capturing_clone = self.is_capturing.clone();
-
-                // 非同期キャプチャの実行
-                let _ = unsafe {
-                    Self::trigger_capture_async(
-                        &webview,
-                        phys_w as u32,
-                        phys_h as u32,
-                        device,
-                        queue,
-                        wic_factory,
-                        move |result| {
-                            if let Ok(wgpu_tex) = result {
-                                let view =
-                                    wgpu_tex.create_view(&wgpu::TextureViewDescriptor::default());
-                                let static_tex = Arc::new(StaticExternalTexture::new(view, size));
-                                // キャッシュをセットして強制再描画をキック
-                                *cached_texture_clone.borrow_mut() = Some(static_tex);
-                            }
-                            *is_capturing_clone.borrow_mut() = false;
-                            let _ = InvalidateRect(Some(hwnd), None, false);
-                        },
-                    )
-                };
-            }
         }
     }
 
@@ -328,11 +350,19 @@ impl ExternalVisual for WebView2Visual {
             return false;
         }
 
+        // 静止画表示中の単なるカーソル通過では実体化させない
+        let is_static = self.cached_texture.borrow().is_some();
+        if is_static && msg == WM_MOUSEMOVE {
+            return false;
+        }
+
         match msg {
             WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_LBUTTONUP | WM_RBUTTONDOWN | WM_RBUTTONUP
             | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_MOUSEWHEEL | WM_MOUSEHWHEEL => {
-                // 操作が行われたため静止キャッシュをクリア
-                *self.cached_texture.borrow_mut() = None;
+                // クリック等の明示的な操作時のみキャッシュを破棄して実体化
+                if msg != WM_MOUSEMOVE {
+                    *self.cached_texture.borrow_mut() = None;
+                }
 
                 if let Some(ref controller) = *self.controller.borrow()
                     && let Ok(comp) = controller.cast::<ICoreWebView2CompositionController>()
@@ -351,14 +381,15 @@ impl ExternalVisual for WebView2Visual {
                             mouse_data,
                             local_phys_pos,
                         );
-                        let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                        if msg != WM_MOUSEMOVE || msg != WM_MOUSEWHEEL || msg != WM_MOUSEHWHEEL {
+                            let _ =
+                                controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+                        }
                     }
                 }
                 true
             }
-            _ => {
-                false
-            }
+            _ => false,
         }
     }
 
@@ -410,58 +441,6 @@ impl WebView2Visual {
         })
     }
 
-    /// マウス入力の転送
-    pub fn forward_mouse_input(
-        &self,
-        msg: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-        physical_window_pos: LayoutPoint,
-    ) {
-        if !self.contents.allow_interaction {
-            return;
-        }
-
-        // 操作されたので静止キャッシュをクリアして即座に実体復帰
-        *self.cached_texture.borrow_mut() = None;
-
-        let rect = self.current_rect.get();
-        let scale = self.scale_factor.get();
-        let webview_phys_x = rect.x * scale;
-        let webview_phys_y = rect.y * scale;
-
-        let relative_point = POINT {
-            x: (physical_window_pos.x - webview_phys_x).round() as i32,
-            y: (physical_window_pos.y - webview_phys_y).round() as i32,
-        };
-
-        if let Some(ref controller) = *self.controller.borrow()
-            && let Ok(comp) = controller.cast::<ICoreWebView2CompositionController>()
-        {
-            let event_kind = COREWEBVIEW2_MOUSE_EVENT_KIND(msg as i32);
-            let virtual_keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS(wparam.0 as i32);
-            let mouse_data = if msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL {
-                ((wparam.0 >> 16) as i16) as i32 as u32
-            } else {
-                0
-            };
-            unsafe {
-                let _ = comp.SendMouseInput(event_kind, virtual_keys, mouse_data, relative_point);
-            }
-        }
-    }
-
-    /// フォーカス移動
-    pub fn focus(&self) {
-        *self.cached_texture.borrow_mut() = None;
-
-        if let Some(ref controller) = *self.controller.borrow() {
-            unsafe {
-                let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-            }
-        }
-    }
-
     pub fn prewarm_webview2() {
         if get_cached_env().is_some() {
             return;
@@ -499,6 +478,21 @@ impl WebView2Visual {
         let controller_slot_clone = controller_slot.clone();
         let settings_clone = settings.clone();
         let task_sender_clone = sys_task_sender.clone();
+        let default_bg = if let Some(c) = settings.default_bg_color {
+            COREWEBVIEW2_COLOR {
+                A: c.a as u8,
+                R: c.r as u8,
+                G: c.g as u8,
+                B: c.b as u8,
+            }
+        } else {
+            COREWEBVIEW2_COLOR {
+                A: 0,
+                R: 0,
+                G: 0,
+                B: 0,
+            }
+        };
 
         // プリウォーム済み環境（Environment）の利用
         if let Some(env3) = env_slot {
@@ -516,16 +510,10 @@ impl WebView2Visual {
                             let base_controller: ICoreWebView2Controller =
                                 comp_controller.cast()?;
 
-                            // どうやら webview2 はデフォルトで半透明らしく、その状態でキャプチャすると半透明な画像として出てくるみたい
                             unsafe {
                                 base_controller
                                     .cast::<ICoreWebView2Controller2>()?
-                                    .SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
-                                        A: 255,
-                                        R: 255,
-                                        G: 255,
-                                        B: 255,
-                                    })
+                                    .SetDefaultBackgroundColor(default_bg)
                             };
 
                             // 位置（left, top）は DComp 側に一任するため 0 に設定
@@ -558,7 +546,7 @@ impl WebView2Visual {
                                                 cx.cycle_keyboard_focus(is_reverse);
                                             });
 
-                                            // WebView2側に「ホストアプリがフォーカスを奪還した」ことを通知
+                                            // WebView2側にホストアプリがフォーカスを奪還したことを通知
                                             let _ = unsafe { args.SetHandled(true) };
                                         }
                                         Ok(())
@@ -680,12 +668,7 @@ impl WebView2Visual {
                                 unsafe {
                                     base_controller
                                         .cast::<ICoreWebView2Controller2>()?
-                                        .SetDefaultBackgroundColor(COREWEBVIEW2_COLOR {
-                                            A: 255,
-                                            R: 255,
-                                            G: 255,
-                                            B: 255,
-                                        })
+                                        .SetDefaultBackgroundColor(default_bg)
                                 };
 
                                 let bounds = RECT {
@@ -916,8 +899,6 @@ impl WebView2Visual {
                 let r = chunk[2];
                 chunk[0] = r; // B の位置に R を上書き
                 chunk[2] = b; // R の位置に B を上書き
-
-                chunk[3] = 255; // 保険としての不透明化
             }
 
             // メモリロック解除

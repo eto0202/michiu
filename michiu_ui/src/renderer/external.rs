@@ -1,4 +1,4 @@
-use crate::{Context, LayoutPoint, LayoutRect, LayoutSize, MichiuSoA};
+use crate::{Context, InteractionState, LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, StateFlag};
 use std::{rc::Rc, sync::Arc};
 use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::DirectComposition::{IDCompositionVisual2, IDCompositionVisual3};
@@ -21,6 +21,7 @@ pub struct ExternalTextureMetadata {
     pub y_flip: bool,
     /// Whether the texture is an -Srgb-based automatic color space conversion format
     pub is_srgb: bool,
+    pub compositing_mode: ExternalTextureCompositingMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +32,24 @@ pub enum ExternalTextureAlphaMode {
     Premultiplied,
 }
 
+/// Defines the color-space semantics expected when compositing
+/// this external texture into the destination.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExternalTextureCompositingMode {
+    /// Linear-light compositing, as used by the normal wgpu
+    /// sRGB render-target path.
+    LinearLight,
+
+    /// Non-linear/sRGB-space compositing semantics.
+    ///
+    /// The value is the opacity exponent used to approximate the
+    /// difference between the source compositing behavior and the
+    /// wgpu render target.
+    ///
+    /// `1.0` means no correction.
+    NonLinear(f32),
+}
+
 // ====================================================================================
 // ====================================================================================
 
@@ -39,22 +58,6 @@ pub enum ExternalTextureAlphaMode {
 pub struct StaticExternalTexture {
     pub view: wgpu::TextureView,
     pub metadata: ExternalTextureMetadata,
-}
-
-impl StaticExternalTexture {
-    #[must_use]
-    #[inline]
-    pub fn new(view: wgpu::TextureView, size: LayoutSize) -> Self {
-        Self {
-            view,
-            metadata: ExternalTextureMetadata {
-                size,
-                alpha_mode: ExternalTextureAlphaMode::Straight,
-                y_flip: false,
-                is_srgb: true, // Bgra8UnormSrgb のため
-            },
-        }
-    }
 }
 
 impl ExternalTexture for StaticExternalTexture {
@@ -173,6 +176,8 @@ pub fn dispatch_raw_input_to_external_visual(
     window_phys_pos: LayoutPoint,
     scale_factor: f32,
 ) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::{WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_RBUTTONDOWN};
+
     let logical_pos = LayoutPoint::new(
         window_phys_pos.x / scale_factor,
         window_phys_pos.y / scale_factor,
@@ -207,6 +212,6 @@ pub fn dispatch_raw_input_to_external_visual(
         x: (window_phys_pos.x - rect.x * scale_factor).round() as i32,
         y: (window_phys_pos.y - rect.y * scale_factor).round() as i32,
     };
-    
+
     visual.handle_raw_input(msg, wparam, lparam, local_phys_pos)
 }

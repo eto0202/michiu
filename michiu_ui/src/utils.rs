@@ -193,23 +193,6 @@ pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
     div_n().external_visual(visual)
 }
 
-/*
-* /// Webview2 Container
-#[inline]
-pub fn webview2(contents: impl Into<Prop<WebView2Contents>>) -> Element {
-    div_n().webview2(contents)
-}
-/// A container that creates and applies WebView2 elements dynamically resolved from provider `P`.
-#[inline]
-pub fn webview2_d<P, F>(f: F) -> Element
-where
-    P: Clone + 'static,
-    F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
-{
-    div_n().webview2_d(f)
-}
-*/
-
 /// A generic container that dynamically resolves `ThisStyle` from provider `P` and applies the style
 #[inline]
 pub fn div_d<P, F>(f: F) -> Element
