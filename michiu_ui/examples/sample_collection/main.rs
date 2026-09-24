@@ -31,7 +31,6 @@ struct AppState {
     renderer: ComposedRenderer,
     context: Context,
     root_id: EntityId,
-    webview_id: Option<EntityId>,
 }
 
 // HWND を Send/Sync 化するラッパー
@@ -101,7 +100,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         renderer,
         context,
         root_id: root.id(),
-        webview_id: None,
     });
 
     unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(app_state) as isize) };
@@ -111,10 +109,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (width, height) = client_rect(hwnd);
     app.renderer.resize((width, height), scale_factor);
-
-    if app.webview_id.is_some() {
-        app.renderer.prewarm_webview2();
-    }
 
     let _ = show_window(hwnd);
 

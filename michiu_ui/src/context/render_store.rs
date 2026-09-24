@@ -76,7 +76,7 @@ impl VisualPropertiesSecondary {
     }
 }
 
-pub type ActiveWebviewsHashSet = FxHashSet<EntityId>;
+pub type ActiveExternalVisualHashSet = FxHashSet<EntityId>;
 
 pub struct RenderStore {
     pub(crate) rnd_dirty_entities: DirtyRenderEntitiesVec,
@@ -85,7 +85,7 @@ pub struct RenderStore {
     pub(crate) rnd_interaction: InteractionPropertiesSecondary,
     pub(crate) rnd_active_transitions: ActiveTransitionsSparse,
     pub(crate) rnd_active_animations: ActiveAnimationsSparse,
-    pub(crate) rnd_active_webviews: ActiveWebviewsHashSet,
+    pub(crate) rnd_active_external_visual: ActiveExternalVisualHashSet,
     pub(crate) rnd_last_tick_time: Option<Instant>,
 }
 
@@ -106,7 +106,7 @@ impl RenderStore {
             rnd_interaction: InteractionPropertiesSecondary(SecondaryMap::new()),
             rnd_active_transitions: ActiveTransitionsSparse(SparseSecondaryMap::new()),
             rnd_active_animations: ActiveAnimationsSparse(SparseSecondaryMap::new()),
-            rnd_active_webviews: FxHashSet::default(),
+            rnd_active_external_visual: FxHashSet::default(),
             rnd_last_tick_time: None,
         }
     }
@@ -129,8 +129,8 @@ impl RenderStore {
             rnd_active_animations: ActiveAnimationsSparse(SparseSecondaryMap::with_capacity(
                 c.rnd_active_animations,
             )),
-            rnd_active_webviews: FxHashSet::with_capacity_and_hasher(
-                c.rnd_active_webviews,
+            rnd_active_external_visual: FxHashSet::with_capacity_and_hasher(
+                c.rnd_active_external_visual,
                 FxBuildHasher,
             ),
             ..Default::default()
@@ -145,7 +145,7 @@ impl RenderStore {
         self.rnd_interaction.clear();
         self.rnd_active_transitions.clear();
         self.rnd_active_animations.clear();
-        self.rnd_active_webviews.clear();
+        self.rnd_active_external_visual.clear();
         self.rnd_last_tick_time = None;
     }
 
@@ -157,7 +157,7 @@ impl RenderStore {
         self.rnd_interaction.remove(id);
         self.rnd_active_transitions.remove(id);
         self.rnd_active_animations.remove(id);
-        self.rnd_active_webviews.remove(&id);
+        self.rnd_active_external_visual.remove(&id);
     }
 }
 
@@ -223,6 +223,7 @@ impl RenderStore {
         rnd_active_transitions: &ActiveTransitionsSparse,
         rnd_active_animations: &ActiveAnimationsSparse,
         out_clip_rects: &ClipRectsSecondary,
+        debug: &mut DebugStore,
     ) -> bool {
         // ドラッグ選択中でポインタが可視境界外にある場合も継続
         let has_drag_autoscroll = OutputStore::is_drag_autoscroll_active(
@@ -230,6 +231,7 @@ impl RenderStore {
             evt_current_pointer_position,
             rnd_visual,
             out_clip_rects,
+            debug,
         );
 
         // トランジションのアクティブ判定
@@ -289,6 +291,7 @@ impl RenderStore {
             || mask.has(ComponentMask::STYLE_AUTO_WRAP)
     }
 
+    #[track_caller]
     pub(crate) fn resolv_focus_style(
         id: EntityId,
         active_mask: &ComponentMask,
@@ -727,6 +730,7 @@ impl RenderStore {
         RenderStore::trigger_keyframe_animations_if_needed(id, rnd_active_animations, rnd_visual);
     }
 
+    #[track_caller]
     fn resolve_layout_styles(
         id: EntityId,
         allow_transition: bool,
@@ -885,6 +889,7 @@ impl RenderStore {
         }
     }
 
+    #[track_caller]
     fn resolve_visual_styles(
         id: EntityId,
         allow_transition: bool,
@@ -1275,6 +1280,7 @@ impl RenderStore {
     }
 
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な `CursorIcon` を正確に解決します。
+    #[track_caller]
     pub(crate) fn resolve_cursor(
         hovered_id: EntityId,
         evt_interaction_states: &ActiveInteractionStates,
@@ -1332,6 +1338,7 @@ impl RenderStore {
     }
 
     /// 指定された要素の実効トランスフォームを親に遡りながら動的に解決
+    #[track_caller]
     pub(crate) fn resolve_effective_transform(
         id: EntityId,
         topo_parents: &ParentsSecondary,
@@ -1634,7 +1641,7 @@ impl RenderStore {
 
     #[inline]
     pub fn active_webviews_mut(&mut self) -> &mut FxHashSet<EntityId> {
-        &mut self.rnd_active_webviews
+        &mut self.rnd_active_external_visual
     }
 
     #[inline]

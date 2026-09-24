@@ -3,17 +3,17 @@ use crate::{
     BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing, ClipRectsSecondary, Color,
     ComponentMask, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
     DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets, ElementState, EntityId, EventStore,
-    ExternalTextureAlphaMode, ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FocusStore,
-    IDENTITY_MATRIX, ImeState, InputContentsSparse, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, MichiuSoA, Modifiers, MouseButton, OutputStore, ParentsSecondary,
-    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
-    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGeometry, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
-    TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
-    TopologyStore, TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context,
-    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
-    handle_on_ime, handle_on_select,
+    ExternalTextureAlphaMode, ExternalTextureCompositingMode, ExternalTextureSparse,
+    FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState, InputContentsSparse,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, Modifiers, MouseButton,
+    OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance,
+    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse, ScrollBarState,
+    ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
+    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore,
+    TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
+    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
+    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{
@@ -118,6 +118,7 @@ impl Pipeline {
         }
     }
 
+    #[track_caller]
     #[allow(unused)]
     pub(crate) fn begin_frame(cx: &mut Context) {
         let _context_guard = bind_context(cx);
@@ -289,6 +290,7 @@ impl Pipeline {
     }
 
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
+    #[track_caller]
     #[inline]
     pub(crate) fn update_state(cx: &mut Context, id: EntityId, state_flag: u128, actived: bool) {
         let mut was_active = false;
@@ -470,11 +472,7 @@ impl Pipeline {
 
     #[track_caller]
     #[inline]
-    pub(crate) fn sync_layout(
-        cx: &mut Context,
-        root: EntityId,
-        window_size: LayoutSize,
-    ) {
+    pub(crate) fn sync_layout(cx: &mut Context, root: EntityId, window_size: LayoutSize) {
         let _context_guard = bind_context(cx);
 
         #[cfg(feature = "trace-lifecycle")]
@@ -1001,6 +999,7 @@ impl Pipeline {
         }
     }
 
+    #[track_caller]
     #[inline]
     pub(crate) fn collect_render_data(cx: &mut Context, view: &mut RendererView) {
         #[cfg(feature = "trace-lifecycle")]
@@ -1114,8 +1113,7 @@ impl Pipeline {
         let mut current_batch_type = BatchType::Normal;
         let mut last_clip = None;
 
-        let mut has_webview_ready = false;
-        let mut has_webview_static = false;
+        let mut has_external_visual_ready = false;
         let mut has_external_texture = false;
         let mut has_normal_element = false;
         let mut has_selection_highlight = false;
@@ -1125,11 +1123,11 @@ impl Pipeline {
         let mut has_caret = false;
 
         for &id in &*cx.topology.topo_sorted_entities {
-            let rect = *cx.outputs.out_rects.at(id);
+            let rect = cx.outputs.out_rects.find_or_default(id, &mut cx.debug);
             if rect.width <= 0.0 || rect.height <= 0.0 {
                 continue;
             }
-            let clip = *cx.outputs.out_clip_rects.at(id);
+            let clip = cx.outputs.out_clip_rects.find_or_default(id, &mut cx.debug);
 
             let basic = cx
                 .layouts
@@ -1184,17 +1182,21 @@ impl Pipeline {
 
             let params = CommonParameters::new(geom, basic, visual, eff_transform);
 
-            let is_webview = cx.topology.topo_active_masks.at(id).has_webveiw2_content();
+            let is_extrnal_visual = cx
+                .topology
+                .topo_active_masks
+                .at(id)
+                .has_external_visual_content();
             // コントローラーがまだ初期化されていない場合は通常通り背景を描画し透過を防止
-            let is_webview_ready = is_webview && cx.renders.rnd_active_webviews.contains(&id);
+            let is_extrnal_visual_ready =
+                is_extrnal_visual && cx.renders.rnd_active_external_visual.contains(&id);
 
             #[cfg(feature = "trace-lifecycle")]
             {
-                has_webview_ready = is_webview_ready;
+                has_external_visual_ready = is_extrnal_visual_ready;
             }
 
-            // WebView (アクティブ) の個別処理
-            if is_webview_ready {
+            if is_extrnal_visual_ready {
                 // 溜まっている通常のバッチがあれば一旦フラッシュ
                 Pipeline::flush_batch(
                     &mut view.render_data.batches,
@@ -1223,56 +1225,12 @@ impl Pipeline {
                 continue;
             }
 
-            // WebView (非アクティブ・静止キャッシュ) の処理
-            let is_webview_static = is_webview && !is_webview_ready;
-
-            #[cfg(feature = "trace-lifecycle")]
-            {
-                has_webview_static = is_webview_static;
-            }
-
-            if is_webview_static {
-                // 一般UIインスタンスがあれば強制フラッシュ
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    last_clip.unwrap_or_default(),
-                    current_batch_type,
-                );
-
-                Pipeline::push_static_instance(id, view.render_data, &params);
-
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    clip,
-                    BatchType::Normal,
-                );
-
-                // 前面インスタンス
-                Pipeline::push_static_front_instance(id, view.render_data, &params);
-
-                Pipeline::flush_batch(
-                    &mut view.render_data.batches,
-                    view.render_data.instances.len(),
-                    &mut last_flushed_offset,
-                    clip,
-                    BatchType::Normal,
-                );
-
-                last_clip = Some(clip);
-
-                continue;
-            }
-
             // 外部テクスチャ
             let is_external_texture = cx
                 .topology
                 .topo_active_masks
                 .at(id)
-                .has(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
+                .has_external_texture_content();
 
             #[cfg(feature = "trace-lifecycle")]
             {
@@ -1305,7 +1263,6 @@ impl Pipeline {
                     BatchType::Normal,
                 );
 
-                // 前面インスタンス
                 Pipeline::push_static_front_instance(id, view.render_data, &params);
 
                 Pipeline::flush_batch(
@@ -1511,8 +1468,7 @@ impl Pipeline {
         #[cfg(feature = "trace-lifecycle")]
         trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::PrepareRender {
             stage: RenderStage::CollectDate(InstanceKinds {
-                has_webview_ready,
-                has_webview_static,
+                has_external_visual_ready,
                 has_external_texture,
                 has_normal_element,
                 has_selection_highlight,
@@ -1765,8 +1721,8 @@ impl Pipeline {
             // 静的キャッシュの判定と適用
             // 自分自身のスタイルが変わっておらず、親も動いていない、かつモニターリサイズもされていないならキャッシュ利用
             if !window_resized && !has_style_changed && !parent_changed {
-                let cached_rect = *out_prev_rects.at(id);
-                let cached_clip = *out_prev_clip_rects.at(id);
+                let cached_rect = out_prev_rects.find_or_default(id, debug);
+                let cached_clip = out_prev_clip_rects.find_or_default(id, debug);
 
                 out_rects.insert(id, cached_rect);
                 out_clip_rects.insert(id, cached_clip);
@@ -1984,24 +1940,7 @@ impl Pipeline {
         render_data.push(id, front_instance);
     }
 
-    /// webview2静止時用インスタンスを追加
-    #[inline]
-    fn push_static_instance(id: EntityId, render_data: &mut RenderData, params: &CommonParameters) {
-        let static_instance = QuadInstance {
-            rect: params.geom.rect,
-            transform: params.transform,
-            corner_radius: params.corner_radius,
-            border_width: params.border_width,
-            border_color: params.border_color,
-            opacity_mode_sizing: [params.opacity, 0.0, 0.0, 0.0],
-            transform_origin: params.transform_origin,
-            border_lengths: params.border_lengths,
-            ..Default::default()
-        };
-        render_data.push(id, static_instance);
-    }
-
-    /// webview2静止時用前面インスタンスを追加
+    /// 静止時用前面インスタンスを追加
     #[inline]
     fn push_static_front_instance(
         id: EntityId,
@@ -2011,13 +1950,13 @@ impl Pipeline {
         let border_instance = QuadInstance {
             rect: params.geom.rect,
             transform: params.transform,
-            transform_origin: params.transform_origin,
             corner_radius: params.corner_radius,
             border_width: params.border_width,
             border_color: params.border_color,
-            border_lengths: params.border_lengths,
             opacity_mode_sizing: [params.opacity, 0.0, 0.0, 0.0],
+            transform_origin: params.transform_origin,
             shadow_color: Color::WHITE,
+            border_lengths: params.border_lengths,
             outline_width: params.outline_width,
             outline_color: params.outline_color,
             outline_lengths: params.outline_lengths,
@@ -2421,6 +2360,7 @@ impl Pipeline {
     }
 
     /// 外部テクスチャ用インスタンスを追加
+    #[track_caller]
     #[inline]
     fn push_external_texture_instance(
         id: EntityId,
@@ -2438,6 +2378,11 @@ impl Pipeline {
         let y_flip_val = if meta.y_flip { -1.0f32 } else { 1.0f32 };
         let srgb_val = if meta.is_srgb { 1.0f32 } else { 0.0f32 };
 
+        let blend_gamma = match meta.compositing_mode {
+            ExternalTextureCompositingMode::LinearLight => 1.0,
+            ExternalTextureCompositingMode::NonLinear(gamma) => gamma,
+        };
+
         let ex_instance = QuadInstance {
             rect: params.geom.rect,
             transform: params.transform,
@@ -2446,7 +2391,7 @@ impl Pipeline {
             transform_origin: params.transform_origin,
             uv_min: [0.0, 0.0],
             uv_max: [1.0, 1.0],
-            alpha_mode_y_flip_srgb: [alpha_val, y_flip_val, srgb_val, 0.0],
+            alpha_mode_y_flip_srgb_gamma: [alpha_val, y_flip_val, srgb_val, blend_gamma],
             ..Default::default()
         };
 

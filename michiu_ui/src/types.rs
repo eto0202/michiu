@@ -126,14 +126,14 @@ impl Color {
     /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
     #[must_use]
-    pub(crate) const fn rgb_f32(r: f32, g: f32, b: f32) -> Self {
+    pub const fn rgb_f32(r: f32, g: f32, b: f32) -> Self {
         Self { r, g, b, a: 1.0 }
     }
 
     /// GPU/シェーダー用の 0.0~1.0 (f32) 値から直接生成します
     #[inline]
     #[must_use]
-    pub(crate) const fn rgba_f32(r: f32, g: f32, b: f32, a: f32) -> Self {
+    pub const fn rgba_f32(r: f32, g: f32, b: f32, a: f32) -> Self {
         Self { r, g, b, a }
     }
 
@@ -1669,33 +1669,6 @@ pub enum InteractionState {
     Focused,
     Pressed,
     Dragged,
-}
-
-/// Trait for dynamically supplying textures
-pub trait ExternalTexture: Send + Sync {
-    /// Called immediately before rendering,
-    /// this function returns the latest [`wgpu::TextureView`] that should be rendered in this frame.
-    fn resolve_view(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView;
-
-    /// Retrieve the metadata that controls the rendering method.
-    fn metadata(&self) -> ExternalTextureMetadata;
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ExternalTextureMetadata {
-    pub size: LayoutSize,
-    pub alpha_mode: ExternalTextureAlphaMode,
-    pub y_flip: bool,
-    /// Whether the texture is an -Srgb-based automatic color space conversion format
-    pub is_srgb: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExternalTextureAlphaMode {
-    /// Standard alpha. Automatically converted to PMA (multiplied alpha) within the shader.
-    Straight,
-    /// Multiplied alpha. Composited directly within the shader.
-    Premultiplied,
 }
 
 #[cfg(test)]

@@ -1,13 +1,11 @@
 #![allow(unused)]
 mod composed_renderer;
-mod init_webview2;
-mod interop;
+mod external;
 mod text;
 mod wgpu_renderer;
 
 pub use composed_renderer::*;
-pub use init_webview2::*;
-pub use interop::*;
+pub use external::*;
 pub use text::*;
 pub use wgpu_renderer::*;
 
@@ -46,7 +44,7 @@ pub struct QuadInstance {
     pub outline_color: Color,               // 16B
     pub outline_lengths: EdgeInsets,        // 16B
     pub outline_offset_and_flags: [f32; 4], // 16B (flags: [offset, flags, 0.0, 0.0])
-    pub alpha_mode_y_flip_srgb: [f32; 4],   // 16B ([alpha_mode, y_flip, srbg, 0.0])
+    pub alpha_mode_y_flip_srgb_gamma: [f32; 4],   // 16B ([alpha_mode, y_flip, srbg, gamma])
 }
 
 impl Default for QuadInstance {
@@ -72,7 +70,7 @@ impl Default for QuadInstance {
             outline_color: Color::TRANSPARENT,
             outline_lengths: EdgeInsets::ZERO,
             outline_offset_and_flags: [0.0; 4],
-            alpha_mode_y_flip_srgb: [0.0; 4],
+            alpha_mode_y_flip_srgb_gamma: [0.0; 4],
         }
     }
 }

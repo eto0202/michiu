@@ -156,6 +156,7 @@ impl EventStore {
         }
     }
 
+    #[track_caller]
     #[inline]
     fn propagate_cursor_move_events(
         cx: &mut Context,
@@ -172,14 +173,13 @@ impl EventStore {
             .find(id)
             .is_some_and(|l| l.on_cursor_moved.is_some());
 
-        if has_listener {
-            // ヒット先があるなら Some のはず
-            let rect = cx.outputs.out_rects.at(id);
+        if has_listener && let Some(&rect) = cx.outputs.out_rects.find(id) {
             let relative_pos = LayoutPoint::new(logical_pos.x - rect.x, logical_pos.y - rect.y);
             handle_on_cursor_moved(cx, id, relative_pos);
         }
     }
 
+    #[track_caller]
     pub(crate) fn inject_pointer_move(cx: &mut Context, logical_pos: LayoutPoint) {
         let prev_pos = cx.events.evt_current_pointer_position;
         cx.events.evt_current_pointer_position = Some(logical_pos);
@@ -256,6 +256,7 @@ impl EventStore {
             &cx.topology.topo_parents,
             &cx.layouts.lay_basic,
             &cx.outputs.out_rects,
+            &mut cx.debug,
         );
 
         if let Some((id, dir)) = found_resize_hover {
@@ -481,6 +482,7 @@ impl EventStore {
         DndStore::callback_drag_prop(cx, src_id, found_drop_target, &drag_prop);
     }
 
+    #[track_caller]
     fn handle_pointer_pressed(cx: &mut Context, button: MouseButton, modifiers: Modifiers) {
         let current_hovered = cx.events.evt_interaction_states.hovered;
 
@@ -671,6 +673,7 @@ impl EventStore {
         }
     }
 
+    #[track_caller]
     pub(crate) fn inject_pointer_double_click(cx: &mut Context) {
         let current_hovered = cx.events.evt_interaction_states.hovered;
 
@@ -804,6 +807,7 @@ impl EventStore {
         }
     }
 
+    #[track_caller]
     pub(crate) fn inject_mouse_wheel(cx: &mut Context, scroll_x: f32, scroll_y: f32) {
         let mut curr = cx.events.evt_interaction_states.hovered;
 
@@ -880,6 +884,7 @@ impl EventStore {
         }
     }
 
+    #[track_caller]
     pub(crate) fn inject_keyboard_key(
         cx: &mut Context,
         key: VirtualKey,
@@ -1072,6 +1077,7 @@ impl EventStore {
         edit_selected_rects.remove(focused_id);
     }
 
+    #[track_caller]
     pub(crate) fn inject_paste(cx: &mut Context, text: &MichiuString) {
         let Some(focused_id) = cx.events.evt_interaction_states.focused else {
             return;
@@ -1165,6 +1171,7 @@ impl EventStore {
         edit_selected_rects.remove(focused_id);
     }
 
+    #[track_caller]
     pub(crate) fn inject_undo(cx: &mut Context) {
         let Some(focused_id) = cx.events.evt_interaction_states.focused else {
             return;
@@ -1247,6 +1254,7 @@ impl EventStore {
         edit_selection_start_index.insert(focused_id, next_sel.start);
     }
 
+    #[track_caller]
     pub(crate) fn inject_redo(cx: &mut Context) {
         let Some(focused_id) = cx.events.evt_interaction_states.focused else {
             return;
@@ -1328,6 +1336,7 @@ impl EventStore {
         edit_selected_rects.remove(focused_id);
     }
 
+    #[track_caller]
     pub(crate) fn inject_cut(cx: &mut Context) -> Option<MichiuString> {
         let focused_id = cx.events.evt_interaction_states.focused?;
         let user_select = cx.renders.rnd_visual.user_select(focused_id);
