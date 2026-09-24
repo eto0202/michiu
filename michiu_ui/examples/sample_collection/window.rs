@@ -442,6 +442,12 @@ unsafe extern "system" fn wnd_proc(
 
             // マウスホイール処理（横
             WM_MOUSEHWHEEL => {
+                let mut pt = POINT {
+                    x: (lparam.0 & 0xffff) as i16 as i32,
+                    y: ((lparam.0 >> 16) & 0xffff) as i16 as i32,
+                };
+                let _ = unsafe { ScreenToClient(hwnd, &mut pt) };
+
                 let raw_delta = (wparam.0 >> 16) as i16 as f32;
 
                 // 横スクロール時は、右チルト（プラス値）された際に
@@ -453,6 +459,16 @@ unsafe extern "system" fn wnd_proc(
                     scroll_x,
                     scroll_y: 0.0,
                 });
+
+                let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor(),
+                );
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -677,23 +693,6 @@ unsafe extern "system" fn wnd_proc(
                 }
                 // ホバー要素がない場合は、システム標準の処理にフォールバック
                 return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
-            }
-            WM_ACTIVATE => {
-                let activate_state = (wparam.0 & 0xffff) as u32;
-                if activate_state == WA_INACTIVE {
-                    // 他ウィンドウにフォーカスが移った瞬間、アプリ内部のフォーカスを強制的に解除
-                    if let Some(focused_id) = app.context.interaction_id(InteractionState::Focused)
-                    {
-                        app.context
-                            .set_states(focused_id, &StateFlag::Focused, false);
-                        app.context
-                            .interaction_states(None, InteractionState::Focused);
-                    }
-
-                    // 非アクティブ移行時のキャプチャプロセスを即時トリガー
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                }
-                return LRESULT(0);
             }
 
             _ => {}

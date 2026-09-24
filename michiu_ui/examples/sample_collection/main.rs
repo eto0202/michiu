@@ -83,11 +83,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let device = renderer.composition_device()?;
     let task_sender = context.task_sender();
-    let webview_contents = WebView2Contents::from_url("https://www.google.com/maps")
-        .enable_context_menu(true)
-        .enable_dev_tools(true)
-        .allow_interaction(true)
-        .always_active(false);
+    let webview_contents = WebView2Contents::from_url(
+        "https://github.com/eto0202/michiu/tree/feat/ver0.02/michiu_ui/examples/sample_collection",
+    )
+    .enable_context_menu(true)
+    .enable_dev_tools(true)
+    .allow_interaction(true)
+    .always_active(false);
     let webview_visual =
         WebView2Visual::new(&device, hwnd, webview_contents, scale_factor, &task_sender)
             .expect("Failed to create WebView2Visual");
@@ -104,6 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_and_watch(&mut context);
 
     let root = build_ui(&mut context, move || {
+        // 配っていいのかどうかは分からんｗ
         let (webview2, _) = create_signal(webview_visual);
         app::create_root().provide(styles_sig).provide(webview2)
     });
