@@ -1,57 +1,11 @@
-use crate::{Context, InteractionState, LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, StateFlag};
-use std::{rc::Rc, sync::Arc};
-use windows::Win32::Foundation::{HMODULE, HWND, LPARAM, POINT, RECT, WPARAM};
-use windows::Win32::Graphics::DirectComposition::{IDCompositionVisual2, IDCompositionVisual3};
+use crate::{
+    Context, ExternalTexture, ExternalTextureMetadata, LayoutPoint, LayoutRect, LayoutSize,
+    MichiuSoA,
+};
+use std::sync::Arc;
+use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
+use windows::Win32::Graphics::DirectComposition::IDCompositionVisual2;
 use windows::Win32::Graphics::Imaging::IWICImagingFactory;
-
-/// Trait for dynamically supplying textures
-pub trait ExternalTexture: Send + Sync {
-    /// Called immediately before rendering,
-    /// this function returns the latest [`wgpu::TextureView`] that should be rendered in this frame.
-    fn resolve_view(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView;
-
-    /// Retrieve the metadata that controls the rendering method.
-    fn metadata(&self) -> ExternalTextureMetadata;
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ExternalTextureMetadata {
-    pub size: LayoutSize,
-    pub alpha_mode: ExternalTextureAlphaMode,
-    pub y_flip: bool,
-    /// Whether the texture is an -Srgb-based automatic color space conversion format
-    pub is_srgb: bool,
-    pub compositing_mode: ExternalTextureCompositingMode,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExternalTextureAlphaMode {
-    /// Standard alpha. Automatically converted to PMA (multiplied alpha) within the shader.
-    Straight,
-    /// Multiplied alpha. Composited directly within the shader.
-    Premultiplied,
-}
-
-/// Defines the color-space semantics expected when compositing
-/// this external texture into the destination.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ExternalTextureCompositingMode {
-    /// Linear-light compositing, as used by the normal wgpu
-    /// sRGB render-target path.
-    LinearLight,
-
-    /// Non-linear/sRGB-space compositing semantics.
-    ///
-    /// The value is the opacity exponent used to approximate the
-    /// difference between the source compositing behavior and the
-    /// wgpu render target.
-    ///
-    /// `1.0` means no correction.
-    NonLinear(f32),
-}
-
-// ====================================================================================
-// ====================================================================================
 
 /// 単一の静止画像 `TextureView` を保持する `ExternalTexture` 実装
 #[derive(Debug, Clone)]
@@ -176,8 +130,6 @@ pub fn dispatch_raw_input_to_external_visual(
     window_phys_pos: LayoutPoint,
     scale_factor: f32,
 ) -> bool {
-    use windows::Win32::UI::WindowsAndMessaging::{WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_RBUTTONDOWN};
-
     let logical_pos = LayoutPoint::new(
         window_phys_pos.x / scale_factor,
         window_phys_pos.y / scale_factor,
