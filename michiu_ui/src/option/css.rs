@@ -1,4 +1,4 @@
-use crate::{ExternalStyle, ExternalStyleSet, ReadSignal, ThisStyle};
+use crate::{ExternalData, ExternalDataSet, ReadSignal, ThisStyle};
 use lightningcss::{
     printer::PrinterOptions,
     properties::{Property, position::ZIndex, size::Size},
@@ -18,7 +18,7 @@ use std::{collections::HashMap, path::Path};
 pub struct CssMap(HashMap<String, ThisStyle>);
 
 impl CssMap {
-    /// クラス名からスタイルを取得。存在しない場合は空のスタイルを返す。
+    /// Retrieves a style based on the class name. If the style does not exist, returns an empty style.
     #[inline]
     #[must_use]
     pub fn class(&self, name: &str) -> ThisStyle {
@@ -27,7 +27,7 @@ impl CssMap {
 }
 
 pub trait CssSignalExt {
-    /// シグナルの現在の状態から指定したクラスのスタイルを取得する。
+    /// Retrieves the styles for a specified class based on the signal's current state.
     fn class(&self, name: &str) -> ThisStyle;
 }
 
@@ -38,9 +38,10 @@ impl CssSignalExt for ReadSignal<CssMap> {
     }
 }
 
-pub type CssMapSet = ExternalStyleSet<CssMap>;
+pub type CssMapSet = ExternalDataSet<CssMap>;
 
 impl CssMapSet {
+    /// Retrieve the specified `CssMap`.
     #[inline]
     #[must_use]
     pub fn sheet(&self, key: &str) -> CssMap {
@@ -49,8 +50,10 @@ impl CssMapSet {
 }
 
 pub trait CssSetSignalExt {
+    /// Retrieve styles based on the sheet name and class name.
     fn class(&self, sheet_key: &str, class_name: &str) -> ThisStyle;
 
+    /// Retrieve the specified `CssMap` from the key.
     fn sheet(&self, sheet_key: &str) -> CssMap;
 }
 
@@ -69,20 +72,21 @@ impl CssSetSignalExt for ReadSignal<CssMapSet> {
     }
 }
 
-/// CSS をパースして `HashMap<String, ThisStyle>` へマッピングするローダー。
+/// A loader that parses CSS and maps it to a `HashMap<String, ThisStyle>`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CssLoader;
 
-impl ExternalStyle for CssLoader {
+impl ExternalData for CssLoader {
     type Output = CssMap;
 
+    /// Load the CSS file.
     #[inline]
     fn load(&self, _path: &Path, content: &str) -> crate::Result<Self::Output> {
         Ok(parse_css_to_classes(content))
     }
 }
 
-/// lightningcss の抽象構文木を走査してクラス名と `ThisStyle` のマップを生成。
+/// Scan the abstract syntax tree of lightningcss to generate a map of class names and `ThisStyle` values.
 #[must_use]
 pub fn parse_css_to_classes(css_content: &str) -> CssMap {
     let mut classes: HashMap<String, ThisStyle> = HashMap::new();

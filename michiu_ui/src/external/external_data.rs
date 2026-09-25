@@ -11,8 +11,8 @@ use std::{
     time::Duration,
 };
 
-/// 監視スレッドの生存期間を管理する RAII ガード。
-pub struct StyleWatchGuard {
+/// An RAII guard that manages the lifetime of a monitoring thread.
+pub struct DataWatchGuard {
     _watcher: notify::RecommendedWatcher,
 }
 
@@ -28,22 +28,20 @@ fn strip_unc_prefix(path: PathBuf) -> PathBuf {
     path
 }
 
-pub struct StyleWatcher<L> {
+/// Structure for monitoring changes to `L`
+pub struct DataWatcher<L> {
     loader: L,
     path: PathBuf,
 }
 
-impl<L: ExternalStyle> StyleWatcher<L> {
+impl<L: ExternalData> DataWatcher<L> {
     #[inline]
     pub fn new(loader: L, path: PathBuf) -> Self {
         Self { loader, path }
     }
 
-    /// `Context` にバインドしてファイル監視を開始し、シグナルとガードを返却。
-    pub fn watch(
-        self,
-        cx: &mut Context,
-    ) -> crate::Result<(ReadSignal<L::Output>, StyleWatchGuard)> {
+    /// Binds to `Context` to start file monitoring, then returns a signal and a guard.
+    pub fn watch(self, cx: &mut Context) -> crate::Result<(ReadSignal<L::Output>, DataWatchGuard)> {
         let raw_path =
             std::fs::canonicalize(&self.path).map_err(|e| MichiuError::CanonicalizeFailed {
                 path: self.path.clone(),
@@ -137,19 +135,19 @@ impl<L: ExternalStyle> StyleWatcher<L> {
                 source: Arc::new(e),
             })?;
 
-        Ok((read_sig, StyleWatchGuard { _watcher: watcher }))
+        Ok((read_sig, DataWatchGuard { _watcher: watcher }))
     }
 }
 
-/// 外部スタイル定義フォーマットをパース・構築するトレイト。
-pub trait ExternalStyle: Send + Sync + 'static {
-    /// シグナルへ格納されるスタイルデータ型（`ThisStyle`, `HashMap<String, ThisStyle>`, 独自テーマ型）。
+/// A trait for parsing and constructing external data.
+pub trait ExternalData: Send + Sync + 'static {
+    /// Data types stored in the signal (`ThisStyle`, `HashMap<String, ThisStyle>`, custom data).
     type Output: Clone + Send + 'static;
 
-    /// ソース文字列とファイルパスからスタイルデータを構築する。
+    /// Construct data from the source string and file path.
     fn load(&self, path: &Path, content: &str) -> crate::Result<Self::Output>;
 
-    /// 静的なワンショット読み込み（監視なし）。
+    /// Static loading (no monitoring).
     fn load_file(&self, path: impl AsRef<Path>) -> crate::Result<Self::Output> {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path).map_err(|e| MichiuError::ReadStringFailed {
@@ -159,22 +157,22 @@ pub trait ExternalStyle: Send + Sync + 'static {
         self.load(path, &content)
     }
 
-    /// ホットリロード監視用ビルダーの生成。
-    fn into_watcher(self, path: impl Into<PathBuf>) -> StyleWatcher<Self>
+    /// Creating a hot-reload watcher.
+    fn into_watcher(self, path: impl Into<PathBuf>) -> DataWatcher<Self>
     where
         Self: Sized,
     {
-        StyleWatcher::new(self, path.into())
+        DataWatcher::new(self, path.into())
     }
 }
 
-/// キー（名前空間）ごとに外部スタイル出力を保持するコンテナ。
+/// A container that stores external data output for each key (namespace).
 #[derive(Debug, Clone, Default)]
-pub struct ExternalStyleSet<T> {
+pub struct ExternalDataSet<T> {
     sheets: HashMap<String, T>,
 }
 
-impl<T> ExternalStyleSet<T> {
+impl<T> ExternalDataSet<T> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
@@ -210,12 +208,13 @@ struct WatchTarget<L> {
     version: Arc<AtomicU64>,
 }
 
+/// A builder for managing multiple `ExternalData` objects
 #[derive(Default)]
-pub struct ExternalStyleSetBuilder<L> {
+pub struct ExternalDataSetBuilder<L> {
     entries: Vec<StyleSetEntry<L>>,
 }
 
-impl<L: ExternalStyle> ExternalStyleSetBuilder<L> {
+impl<L: ExternalData> ExternalDataSetBuilder<L> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
@@ -240,12 +239,12 @@ impl<L: ExternalStyle> ExternalStyleSetBuilder<L> {
         self
     }
 
-    /// 全シートを初期ロードし、一括監視を開始してシグナルとガードを返却。
+    /// Initially load all sheets, start batch monitoring, and return signals and guards.
     pub fn watch(
         self,
         cx: &mut Context,
-    ) -> crate::Result<(ReadSignal<ExternalStyleSet<L::Output>>, StyleWatchGuard)> {
-        let mut initial_set = ExternalStyleSet::new();
+    ) -> crate::Result<(ReadSignal<ExternalDataSet<L::Output>>, DataWatchGuard)> {
+        let mut initial_set = ExternalDataSet::new();
 
         let mut watch_targets = Vec::with_capacity(self.entries.len());
 
@@ -359,6 +358,6 @@ impl<L: ExternalStyle> ExternalStyleSetBuilder<L> {
             }
         }
 
-        Ok((read_sig, StyleWatchGuard { _watcher: watcher }))
+        Ok((read_sig, DataWatchGuard { _watcher: watcher }))
     }
 }

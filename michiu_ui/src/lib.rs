@@ -19,11 +19,9 @@
 
 mod bitmap;
 mod context;
-mod dss;
 mod element;
 mod external;
 mod input;
-mod key;
 mod option;
 mod renderer;
 mod signal;
@@ -35,11 +33,9 @@ mod utils;
 
 pub use bitmap::*;
 pub use context::*;
-pub use dss::*;
 pub use element::*;
 pub use external::*;
 pub use input::*;
-pub use key::*;
 pub use option::*;
 pub use renderer::*;
 pub use signal::*;

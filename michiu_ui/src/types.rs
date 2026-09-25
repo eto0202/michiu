@@ -1,16 +1,18 @@
 pub mod font;
 pub mod from_into;
 pub mod index;
+pub mod key;
 pub mod layout_data;
 pub mod string;
 
 pub use font::*;
 pub use from_into::*;
 pub use index::*;
+pub use key::*;
 pub use layout_data::*;
 pub use string::*;
 
-use crate::{Context, Element, EntityId, ImeState, MichiuError, PropertyList, VirtualKey, rgba};
+use crate::{Context, Element, EntityId, ImeState, MichiuError, PropertyList, rgba};
 use bytemuck::{Pod, Zeroable};
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use windows::Win32::{

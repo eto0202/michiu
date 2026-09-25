@@ -1,3 +1,8 @@
+use crate::{
+    Color, ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
+    ExternalTextureMetadata, ExternalVisual, ExternalVisualMetadata, LayoutRect, LayoutSize,
+    MichiuError, StaticExternalTexture, TaskSender, VisualUpdateContext,
+};
 use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
@@ -43,17 +48,11 @@ use windows::{
 };
 use windows_core::{HRESULT, HSTRING};
 
-use crate::{
-    Color, ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
-    ExternalTextureMetadata, ExternalVisual, ExternalVisualMetadata, LayoutRect, LayoutSize,
-    MichiuError, StaticExternalTexture, TaskSender, VisualUpdateContext,
-};
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum WebView2Source {
-    /// 外部のWebサイトやローカルのサーバー
+    /// External websites and local servers
     Url(Cow<'static, str>),
-    /// 生のHTMLコード
+    /// Raw HTML code
     Html(Cow<'static, str>),
 }
 
@@ -75,19 +74,19 @@ impl WebView2Source {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WebView2Contents {
     pub source: WebView2Source,
-    /// イベントフォワード（マウス/キーボード入力を受け付けるか）
+    /// Event Forward (Whether to accept mouse/keyboard input)
     pub allow_interaction: bool,
-    /// 右クリックのシステムデフォルトメニューを表示するか
+    /// Whether to display the system's default right-click menu
     pub enable_context_menu: bool,
-    /// F12で開発者ツールを起動できるか
+    /// Can I open the developer tools by pressing `F12` ?
     pub enable_dev_tools: bool,
-    /// `JavaScriptを有効にするか`
+    /// Should I enable JavaScript?
     pub enable_scripts: bool,
-    /// 起動時（ドキュメント読み込み前）に自動実行させるJavaScript
+    /// JavaScript to Run Automatically on Startup
     pub user_scripts: Vec<Cow<'static, str>>,
-    /// ユーザーが操作していなくても、常にコンポジションスレッドで再生し続けるか
+    /// Should it continue playing on the composition thread at all times,
+    /// even when the user isn't interacting with it?
     pub always_active: bool,
-
     pub default_bg_color: Option<Color>,
 }
 
@@ -96,8 +95,8 @@ impl Default for WebView2Contents {
         Self {
             source: WebView2Source::new(),
             allow_interaction: true,
-            enable_context_menu: false, // デフォルトでは消してアプリ感を出す
-            enable_dev_tools: false,    // デフォルトはオフ
+            enable_context_menu: false,
+            enable_dev_tools: false,
             enable_scripts: true,
             user_scripts: Vec::new(),
             always_active: false,
@@ -168,8 +167,7 @@ impl WebView2Contents {
         self
     }
 
-    /// example
-    /// `add_user_script(include_str!("example.js`"))
+    /// `add_user_script(include_str!("example.js"))`
     #[inline]
     #[must_use]
     pub fn add_user_script(mut self, script: impl Into<Cow<'static, str>>) -> Self {
@@ -177,7 +175,7 @@ impl WebView2Contents {
         self
     }
 
-    /// 動画プレイヤーやWebGL、アニメーションがある場合、常時レンダリングを有効にする
+    /// Enable Always Render
     #[inline]
     #[must_use]
     pub fn always_active(mut self, always: bool) -> Self {

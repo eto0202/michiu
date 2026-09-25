@@ -7,7 +7,7 @@ use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
 use windows::Win32::Graphics::DirectComposition::IDCompositionVisual2;
 use windows::Win32::Graphics::Imaging::IWICImagingFactory;
 
-/// 単一の静止画像 `TextureView` を保持する `ExternalTexture` 実装
+/// An `ExternalTexture` implementation that holds a single static image in a `TextureView`
 #[derive(Debug, Clone)]
 pub struct StaticExternalTexture {
     pub view: wgpu::TextureView,
@@ -27,23 +27,24 @@ impl ExternalTexture for StaticExternalTexture {
 // ====================================================================================
 // ====================================================================================
 
-/// `IDCompositionVisual2` を供給するためのトレイト
+/// A trait for providing `IDCompositionVisual2`
 pub trait ExternalVisual: Send + Sync {
-    /// `DirectComposition` ツリーに載せる `IDCompositionVisual2` を返します。
+    /// Returns an `IDCompositionVisual2` to be placed in the `DirectComposition` tree.
     fn resolve_visual(&self) -> IDCompositionVisual2;
 
-    /// 静止テクスチャが存在する場合は `ExternalTexture` として返します。
-    /// `Some` の間は通常のテクスチャとして描画され、DComp 側は不可視化されます。
-    /// `None` の場合はアクティブ（動画・操作中）とみなされ、DComp マウント & 穴あけ（Punchout）が行われます。
+    /// If a static texture exists, it is returned as an `ExternalTexture`.
+    /// When set to `Some`, it is rendered as a normal texture, and the `DComp` side is made invisible.
+    /// When set to `None`, it is considered active, and `DComp` mounting and punchout are performed.
     fn static_texture(&self) -> Option<Arc<dyn ExternalTexture>> {
         None
     }
 
-    /// 毎フレームのレイアウト・状態更新フック
+    /// Layout and State Update Hooks for Each Frame
     fn update(&self, _cx: &VisualUpdateContext) {}
 
-    /// OSからの生入力を透過的に転送する汎用フック。
-    /// イベントを消費した場合は true、スルー（ライブラリ側で通常処理）する場合は false を返す。
+    /// A generic hook that transparently forwards raw input from the OS.
+    /// Returns `true` if the event is consumed, and `false` if it is passed through
+    ///  (for normal processing by the library).
     fn handle_raw_input(
         &self,
         _msg: u32,
@@ -54,7 +55,7 @@ pub trait ExternalVisual: Send + Sync {
         false
     }
 
-    /// メタデータを取得します。
+    /// Retrieves metadata.
     fn metadata(&self) -> ExternalVisualMetadata;
 }
 
@@ -86,14 +87,12 @@ impl<T: ExternalVisual + ?Sized> ExternalVisual for Arc<T> {
     }
 }
 
-/// `ExternalVisual` の毎フレーム更新時に渡されるコンテキスト
+/// The context passed to `ExternalVisual` at each frame update
 pub struct VisualUpdateContext<'a> {
     pub hwnd: HWND,
     pub rect: LayoutRect,
     pub scale_factor: f32,
-    /// 操作中（フォーカスやマウスホバー等）かどうか
     pub is_interactive: bool,
-    /// リサイズやアニメーション中ではなく、描画が完全に安定しているか
     pub is_stable: bool,
     pub device: &'a wgpu::Device,
     pub queue: &'a wgpu::Queue,
@@ -102,11 +101,11 @@ pub struct VisualUpdateContext<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ExternalVisualMetadata {
-    /// 初期の推奨サイズ（レイアウトへの反映用）
+    /// Recommended Initial Size
     pub size: LayoutSize,
-    /// DComp側での角丸クリップ（RectangleClip）をエンジン側に任せるかどうか
+    /// Whether to leave the rounded-corner clipping on the DComp side to the engine
     pub auto_clip: bool,
-    /// DComp側のアフィン変換（Transform2）をエンジン側に任せるかどうか
+    /// Whether to leave the affine transformation on the DComp side to the engine
     pub auto_transform: bool,
 }
 
@@ -120,8 +119,8 @@ impl Default for ExternalVisualMetadata {
     }
 }
 
-/// 物理ピクセル座標を基に最前面の `ExternalVisual` を特定し、生入力を転送する。
-/// イベントが消費された場合は true を返す。
+/// Identifies the topmost `ExternalVisual` based on physical pixel coordinates and forwards the raw input.
+/// Returns `true` if the event has been consumed.
 pub fn dispatch_raw_input_to_external_visual(
     cx: &mut Context,
     msg: u32,

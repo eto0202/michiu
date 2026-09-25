@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use michiu_ui::{
-    CapacityConfig, CssLoader, ExternalStyleSetBuilder, WebView2Contents, WebView2Visual,
+    CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
     prelude::*,
 };
 use windows::Win32::{
@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         env!("CARGO_MANIFEST_DIR"),
         "/examples/sample_collection/global.css"
     );
-    let (styles_sig, _guard) = ExternalStyleSetBuilder::new()
+    let (styles_sig, _guard) = ExternalDataSetBuilder::new()
         .add("global", css_path, CssLoader)
         .watch(&mut context)?;
 
