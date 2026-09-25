@@ -1,11 +1,10 @@
 #![allow(clippy::pedantic, clippy::restriction, unused_must_use)]
 
-use std::cell::{Cell, RefCell};
-
 use michiu_ui::{
-    ComposedRenderer, ElementState, ImeState, Modifiers, MouseButton, StateFlag, VirtualKey,
+    ComposedRenderer, ElementState, ImeState, Modifiers, MouseButton, VirtualKey,
     dispatch_raw_input_to_external_visual, prelude::*, raw_wheel_delta_to_logical_pixels,
 };
+use std::cell::{Cell, RefCell};
 use windows::{
     Win32::{
         Foundation::*,

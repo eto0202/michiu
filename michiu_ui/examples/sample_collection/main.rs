@@ -6,7 +6,10 @@ use crate::{
         client_rect, create_renderer, create_window, message_loop, register_class, show_window,
     },
 };
-use michiu_ui::{CapacityConfig, Dss, DssSet, WebView2Contents, WebView2Visual, prelude::*};
+use michiu_ui::{
+    CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
+    prelude::*,
+};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
@@ -101,9 +104,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         env!("CARGO_MANIFEST_DIR"),
         "/examples/sample_collection/global.css"
     );
-    let (styles_sig, _guard) = DssSet::builder()
-        .add_sheet(Dss::new("global").from_file(css_path).hot_reload(true))
-        .build_and_watch(&mut context);
+    let (styles_sig, _guard) = ExternalDataSetBuilder::new()
+        .add("global", css_path, CssLoader)
+        .watch(&mut context)?;
 
     let root = build_ui(&mut context, move || {
         // 配っていいのかどうかは分からんｗ

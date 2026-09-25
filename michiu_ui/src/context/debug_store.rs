@@ -2,24 +2,25 @@
 use crate::{ActiveAnimation, ActiveTransition, BasicLayout, StyleInner, VisualProperty};
 #[allow(unused)]
 use crate::{
-    ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveInteractionStates,
-    ActiveMasksSecondary, ActiveResizeHoverOption, ActiveTransitionsSparse, ActiveExternalVisualHashSet,
-    Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary, BaseVisualPropertiesSecondary,
-    BasicLayoutsSecondary, BatchType, CapacityConfig, ChildrenSecondary, ClipRectsSecondary,
-    ComponentMask, ComposedRenderer, Context, DespawnedQueueVec, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, DndDragPropertiesSparse, DndDropPropertiesSparse, EffectId,
-    EffectToElementSecondary, EffectiveZindicesSecondary, ElementEffectsSecondary, ElementState,
-    EntitiesSlot, EntityId, ExternalTextureSparse, FlatDfsSequenceVec, FlexLayoutsSecondary,
-    GridLayoutsSparse, InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint,
-    LayoutRect, LayoutSize, MichiuString, MichiuTagRegistry, Modifiers, MouseButton,
-    ParentsSecondary, PendingDcompRelease, PendingElementEffectsVec, PrevClipRectsSecondary,
-    PrevRectsSecondary, ProvidersSparseSecondary, QuadInstance, RectsSecondary, RenderData,
-    ResizingState, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse, SelectedRectsSparse,
-    SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
-    SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey, TextCacheValue,
-    TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas, UiaPropertiesSparse,
-    VirtualKey, VisualPropertiesSecondary, WebviewEntitiesVec,
+    ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveExternalVisualHashSet,
+    ActiveInteractionStates, ActiveMasksSecondary, ActiveResizeHoverOption,
+    ActiveTransitionsSparse, Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary,
+    BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType, CapacityConfig,
+    ChildrenSecondary, ClipRectsSecondary, ComponentMask, ComposedRenderer, Context,
+    DespawnedQueueVec, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPropertiesSparse,
+    DndDropPropertiesSparse, EffectId, EffectToElementSecondary, EffectiveZindicesSecondary,
+    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, ExternalTextureSparse,
+    FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuString,
+    MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingDcompRelease,
+    PendingElementEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
+    QuadInstance, RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
+    ScrollbarStylesSparse, SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec,
+    SessionSpawnedVec, SignalId, SortCacheVec, SortedEntitiesVec, SubscribersSecondary,
+    TaffyNodesSecondary, TextCacheKey, TextCacheValue, TextContentsSparse, TextSelectionsSparse,
+    TextSpansSparse, TextureAtlas, UiaPropertiesSparse, VirtualKey, VisualPropertiesSecondary,
+    WebviewEntitiesVec,
 };
 use crate::{ExternalVisualSparse, PendingActions};
 use cosmic_text::Buffer;
@@ -29,8 +30,9 @@ use std::{
     any::TypeId,
     borrow::Cow,
     fmt::Debug,
+    io,
     panic::Location,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex, RwLock,
         mpsc::{Receiver, SyncSender},
@@ -1641,6 +1643,36 @@ pub enum MichiuError {
 
     #[error("Failed to create custom cursor: {0}")]
     CursorCreationFailed(String),
+
+    #[error("failed to resolve path '{path}': {source}")]
+    CanonicalizeFailed {
+        path: PathBuf,
+        #[source]
+        source: Arc<std::io::Error>,
+    },
+
+    #[error("failed to read file '{path}': {source}")]
+    ReadStringFailed {
+        path: PathBuf,
+        #[source]
+        source: Arc<std::io::Error>,
+    },
+
+    #[error("target path '{path}' does not have a parent directory")]
+    NoParentDirectory { path: PathBuf },
+
+    #[error("failed to initialize file watcher: {source}")]
+    WatcherInitFailed {
+        #[source]
+        source: Arc<notify::Error>,
+    },
+
+    #[error("failed to watch path '{path}': {source}")]
+    WatchTargetFailed {
+        path: PathBuf,
+        #[source]
+        source: Arc<notify::Error>,
+    },
 }
 
 // ================================================================
