@@ -1,6 +1,8 @@
 use crate::{Context, MichiuError, ReadSignal};
 use notify::Watcher;
 use std::{
+    borrow::Cow,
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -9,31 +11,21 @@ use std::{
     time::Duration,
 };
 
-/// 外部スタイル定義フォーマットをパース・構築するトレイト。
-pub trait ExternalStyle: Send + Sync + 'static {
-    /// シグナルへ格納されるスタイルデータ型（`ThisStyle`, `HashMap<String, ThisStyle>`, 独自テーマ型）。
-    type Output: Clone + Send + 'static;
+/// 監視スレッドの生存期間を管理する RAII ガード。
+pub struct StyleWatchGuard {
+    _watcher: notify::RecommendedWatcher,
+}
 
-    /// ソース文字列とファイルパスからスタイルデータを構築する。
-    fn load(&self, path: &Path, content: &str) -> crate::Result<Self::Output>;
-
-    /// 静的なワンショット読み込み（監視なし）。
-    fn load_file(&self, path: impl AsRef<Path>) -> crate::Result<Self::Output> {
-        let path = path.as_ref();
-        let content = std::fs::read_to_string(path).map_err(|e| MichiuError::ReadStringFailed {
-            path: path.to_path_buf(),
-            source: Arc::new(e),
-        })?;
-        self.load(path, &content)
-    }
-
-    /// ホットリロード監視用ビルダーの生成。
-    fn into_watcher(self, path: impl Into<PathBuf>) -> StyleWatcher<Self>
-    where
-        Self: Sized,
+#[inline]
+fn strip_unc_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
     {
-        StyleWatcher::new(self, path.into())
+        let s = path.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
     }
+    path
 }
 
 pub struct StyleWatcher<L> {
@@ -42,6 +34,7 @@ pub struct StyleWatcher<L> {
 }
 
 impl<L: ExternalStyle> StyleWatcher<L> {
+    #[inline]
     pub fn new(loader: L, path: PathBuf) -> Self {
         Self { loader, path }
     }
@@ -148,19 +141,224 @@ impl<L: ExternalStyle> StyleWatcher<L> {
     }
 }
 
-/// 監視スレッドの生存期間を管理する RAII ガード。
-pub struct StyleWatchGuard {
-    _watcher: notify::RecommendedWatcher,
+/// 外部スタイル定義フォーマットをパース・構築するトレイト。
+pub trait ExternalStyle: Send + Sync + 'static {
+    /// シグナルへ格納されるスタイルデータ型（`ThisStyle`, `HashMap<String, ThisStyle>`, 独自テーマ型）。
+    type Output: Clone + Send + 'static;
+
+    /// ソース文字列とファイルパスからスタイルデータを構築する。
+    fn load(&self, path: &Path, content: &str) -> crate::Result<Self::Output>;
+
+    /// 静的なワンショット読み込み（監視なし）。
+    fn load_file(&self, path: impl AsRef<Path>) -> crate::Result<Self::Output> {
+        let path = path.as_ref();
+        let content = std::fs::read_to_string(path).map_err(|e| MichiuError::ReadStringFailed {
+            path: path.to_path_buf(),
+            source: Arc::new(e),
+        })?;
+        self.load(path, &content)
+    }
+
+    /// ホットリロード監視用ビルダーの生成。
+    fn into_watcher(self, path: impl Into<PathBuf>) -> StyleWatcher<Self>
+    where
+        Self: Sized,
+    {
+        StyleWatcher::new(self, path.into())
+    }
 }
 
-#[inline]
-fn strip_unc_prefix(path: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let s = path.to_string_lossy();
-        if let Some(stripped) = s.strip_prefix(r"\\?\") {
-            return PathBuf::from(stripped);
+/// キー（名前空間）ごとに外部スタイル出力を保持するコンテナ。
+#[derive(Debug, Clone, Default)]
+pub struct ExternalStyleSet<T> {
+    sheets: HashMap<String, T>,
+}
+
+impl<T> ExternalStyleSet<T> {
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            sheets: HashMap::new(),
         }
     }
-    path
+
+    #[inline]
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&T> {
+        self.sheets.get(key)
+    }
+
+    #[inline]
+    pub fn insert(&mut self, key: impl Into<String>, val: T) {
+        self.sheets.insert(key.into(), val);
+    }
+}
+
+pub struct StyleSetEntry<L> {
+    pub key: Cow<'static, str>,
+    pub path: PathBuf,
+    pub loader: L,
+}
+
+// 監視用エントリ情報の事前解決
+struct WatchTarget<L> {
+    key: Cow<'static, str>,
+    clean_path: PathBuf,
+    parent_dir: PathBuf,
+    loader: Arc<L>,
+    version: Arc<AtomicU64>,
+}
+
+#[derive(Default)]
+pub struct ExternalStyleSetBuilder<L> {
+    entries: Vec<StyleSetEntry<L>>,
+}
+
+impl<L: ExternalStyle> ExternalStyleSetBuilder<L> {
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            entries: Vec::new(),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn add(
+        mut self,
+        key: impl Into<Cow<'static, str>>,
+        path: impl Into<PathBuf>,
+        loader: L,
+    ) -> Self {
+        self.entries.push(StyleSetEntry {
+            key: key.into(),
+            path: path.into(),
+            loader,
+        });
+        self
+    }
+
+    /// 全シートを初期ロードし、一括監視を開始してシグナルとガードを返却。
+    pub fn watch(
+        self,
+        cx: &mut Context,
+    ) -> crate::Result<(ReadSignal<ExternalStyleSet<L::Output>>, StyleWatchGuard)> {
+        let mut initial_set = ExternalStyleSet::new();
+
+        let mut watch_targets = Vec::with_capacity(self.entries.len());
+
+        for entry in self.entries {
+            let raw_path = std::fs::canonicalize(&entry.path).map_err(|e| {
+                MichiuError::CanonicalizeFailed {
+                    path: entry.path.clone(),
+                    source: Arc::new(e),
+                }
+            })?;
+            let clean_path = strip_unc_prefix(raw_path);
+
+            // 初期同期ロード
+            let content = std::fs::read_to_string(&clean_path).map_err(|e| {
+                MichiuError::ReadStringFailed {
+                    path: clean_path.clone(),
+                    source: Arc::new(e),
+                }
+            })?;
+            let output = entry.loader.load(&clean_path, &content)?;
+            initial_set.insert(entry.key.clone(), output);
+
+            let parent_dir = clean_path
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf();
+
+            watch_targets.push(WatchTarget {
+                key: entry.key,
+                clean_path,
+                parent_dir,
+                loader: Arc::new(entry.loader),
+                version: Arc::new(AtomicU64::new(0)),
+            });
+        }
+
+        let (read_sig, write_sig) = cx.create_signal(initial_set);
+        let targets = Arc::new(watch_targets);
+        let targets_clone = Arc::clone(&targets);
+        let task_sender = cx.task_sender();
+
+        let mut watcher =
+            notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                if let Ok(event) = res {
+                    if event.kind.is_access() {
+                        return;
+                    }
+
+                    // イベント対象に含まれるファイルを検索
+                    for target in targets_clone.iter() {
+                        let has_file = event
+                            .paths
+                            .iter()
+                            .any(|p| strip_unc_prefix(p.clone()) == target.clean_path);
+
+                        if has_file {
+                            // ファイルごとに世代をインクリメント
+                            let current_version = target.version.fetch_add(1, Ordering::SeqCst) + 1;
+
+                            let thread_path = target.clean_path.clone();
+                            let thread_loader = Arc::clone(&target.loader);
+                            let thread_sender = task_sender.clone();
+                            let key = target.key.clone();
+                            let thread_version = Arc::clone(&target.version);
+
+                            // ワーカースレッドで部分再パース
+                            std::thread::spawn(move || {
+                                std::thread::sleep(Duration::from_millis(30));
+
+                                // 後続の新しいイベントが既に発火していたらパース自体をスキップ
+                                if thread_version.load(Ordering::SeqCst) != current_version {
+                                    return;
+                                }
+
+                                if let Ok(raw_content) = std::fs::read_to_string(&thread_path)
+                                    && let Ok(new_output) =
+                                        thread_loader.load(&thread_path, &raw_content)
+                                {
+                                    let _ = thread_sender.send(move |cx| {
+                                        if thread_version.load(Ordering::SeqCst) == current_version
+                                        {
+                                            let mut current_set = read_sig.get();
+                                            current_set.insert(key, new_output);
+                                            write_sig.set(current_set);
+                                            if let Some(root) = cx.find_root_entity() {
+                                                cx.mark_dirty(root);
+                                            }
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    }
+                }
+            })
+            .map_err(|e| MichiuError::WatcherInitFailed {
+                source: Arc::new(e),
+            })?;
+
+        // 各親ディレクトリを監視登録（重複排除）
+        let mut watched_dirs = std::collections::HashSet::new();
+        for target in targets.iter() {
+            if watched_dirs.insert(&target.parent_dir) {
+                watcher
+                    .watch(&target.parent_dir, notify::RecursiveMode::NonRecursive)
+                    .map_err(|e| MichiuError::WatchTargetFailed {
+                        path: target.parent_dir.clone(),
+                        source: Arc::new(e),
+                    })?;
+            }
+        }
+
+        Ok((read_sig, StyleWatchGuard { _watcher: watcher }))
+    }
 }
