@@ -1,5 +1,5 @@
-use michiu_ui::DssSet;
 pub use michiu_ui::prelude::*;
+use michiu_ui::{CssMapSet, CssSetSignalExt};
 
 use crate::app::theme::Theme;
 
@@ -10,9 +10,9 @@ pub fn container() -> Element {
 // flex_1 と flex_2 は同じ ThisStyle を持つ
 pub fn css_flex() -> Element {
     div_n().child(move || {
-        let css = use_provided::<DssSet>().get();
-        let flex_1 = css.class("global", "flex-1");
-        let flex_2 = css.class("global", "flex-2");
+        let css = use_provided::<CssMapSet>().sheet("global");
+        let flex_1 = css.class("flex-1");
+        let flex_2 = css.class( "flex-2");
 
         div(flex_1).children([
             h_flex(&flex_2),
@@ -23,7 +23,7 @@ pub fn css_flex() -> Element {
 
 pub fn merge_border() -> Element {
     div_n().child(move || {
-        let css = use_provided::<DssSet>().get();
+        let css = use_provided::<CssMapSet>();
         let border = css.class("global", "merge-border");
         let cursor = css.class("global", "merge-cursor");
 
