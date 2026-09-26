@@ -568,18 +568,14 @@ impl Context {
     /// Multiple tags can be attached to the same element.
     #[inline]
     pub fn tag<T: 'static>(&mut self, el: Element) {
-        self.topology.topo_tag_registry.register_entity::<T>(el.id);
+        TopologyStore::tag::<T>(el, &mut self.topology.topo_tag_registry);
     }
 
     /// Get the first element with the tag `T` found.
     #[inline]
     #[must_use]
     pub fn try_query_first<T: 'static>(&self) -> Option<Element> {
-        self.topology
-            .topo_tag_registry
-            .get_entities::<T>()
-            .and_then(|t| t.first().copied())
-            .map(EntityId::into_el)
+        TopologyStore::try_query_first::<T>(&self.topology.topo_tag_registry)
     }
 
     /// Get the first element with the tag `T` found.
@@ -587,40 +583,25 @@ impl Context {
     #[inline]
     #[must_use]
     pub fn quer_first<T: 'static>(&mut self) -> Element {
-        self.topology
-            .topo_tag_registry
-            .get_entities::<T>()
-            .and_then(|t| t.first().copied())
-            .map(EntityId::into_el)
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
-                type_name: std::any::type_name::<T>(),
-            })
+        TopologyStore::quer_first::<T>(&mut self.topology.topo_tag_registry, &mut self.debug)
     }
 
     /// Get all elements with the tag `T`.
     #[inline]
     pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = Element> + '_ {
-        self.topology
-            .topo_tag_registry
-            .get_entities::<T>()
-            .map(|t| t.iter().copied())
-            .into_iter()
-            .flatten()
-            .map(EntityId::into_el)
+        TopologyStore::query_all::<T>(&self.topology.topo_tag_registry)
     }
 
     /// Retrieve the first element of type `T` found among the descendants.
     #[inline]
     #[must_use]
     pub fn try_query_descendant<T: 'static>(&self, parent: EntityId) -> Option<Element> {
-        self.topology
-            .topo_tag_registry
-            .query_first_descendant_of_type::<T>(
-                parent,
-                &self.topology.topo_flat_dfs_sequence,
-                &self.topology.topo_parents,
-            )
-            .map(EntityId::into_el)
+        TopologyStore::try_query_descendant::<T>(
+            parent,
+            &self.topology.topo_tag_registry,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+        )
     }
 
     /// Retrieve the first element of type `T` found among the descendants.
@@ -628,17 +609,13 @@ impl Context {
     #[inline]
     #[must_use]
     pub fn query_descendant<T: 'static>(&mut self, parent: EntityId) -> Element {
-        self.topology
-            .topo_tag_registry
-            .query_first_descendant_of_type::<T>(
-                parent,
-                &self.topology.topo_flat_dfs_sequence,
-                &self.topology.topo_parents,
-            )
-            .map(EntityId::into_el)
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
-                type_name: std::any::type_name::<T>(),
-            })
+        TopologyStore::query_descendant::<T>(
+            parent,
+            &self.topology.topo_tag_registry,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+            &mut self.debug,
+        )
     }
 
     /// Search for an element of type `T` among its descendants.
@@ -647,14 +624,12 @@ impl Context {
         &self,
         parent: EntityId,
     ) -> impl Iterator<Item = Element> + '_ {
-        self.topology
-            .topo_tag_registry
-            .query_descendants_of_type::<T>(
-                parent,
-                &self.topology.topo_flat_dfs_sequence,
-                &self.topology.topo_parents,
-            )
-            .map(EntityId::into_el)
+        TopologyStore::query_descendants::<T>(
+            parent,
+            &self.topology.topo_tag_registry,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+        )
     }
 
     /// Resolve [`CursorIcon`] by traversing the parent tree from the currently hovered element.

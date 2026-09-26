@@ -52,8 +52,8 @@ impl MichiuTagRegistry {
     pub(crate) fn query_descendants_of_type<'a, T: 'static>(
         &'a self,
         parent: EntityId,
-        topo_flat_dfs_sequence: &'a FlatDfsSequenceVec,
         topo_parents: &'a ParentsSecondary,
+        topo_flat_dfs_sequence: &'a FlatDfsSequenceVec,
     ) -> Box<dyn Iterator<Item = EntityId> + 'a> {
         let type_id = TypeId::of::<T>();
 
@@ -92,8 +92,8 @@ impl MichiuTagRegistry {
     pub(crate) fn query_first_descendant_of_type<T: 'static>(
         &self,
         parent: EntityId,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
         topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
     ) -> Option<EntityId> {
         let type_id = TypeId::of::<T>();
 

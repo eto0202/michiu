@@ -290,7 +290,6 @@ impl WgpuRenderer {
                 module: shader,
                 entry_point: Some("vs_main"),
                 buffers: &[
-                    // Vertex Buffer
                     wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
                         step_mode: wgpu::VertexStepMode::Vertex,

@@ -12,8 +12,7 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{HMODULE, HWND, LPARAM, POINT, RECT, WPARAM},
-        Graphics::{
+        Foundation::{HMODULE, HWND, LPARAM, POINT, RECT, WPARAM}, Graphics::{
             Direct3D::{D3D_DRIVER_TYPE_HARDWARE, ID3DInclude_Impl},
             Direct3D11::{
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
@@ -30,13 +29,10 @@ use windows::{
             Dxgi::*,
             Gdi::InvalidateRect,
             Imaging::{CLSID_WICImagingFactory, IWICImagingFactory},
-        },
-        System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
-        UI::WindowsAndMessaging::{
+        }, System::{Com::{CLSCTX_INPROC_SERVER, CoCreateInstance}, LibraryLoader::GetModuleHandleW}, UI::WindowsAndMessaging::{
             GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
         },
-    },
-    core::{Interface, PCWSTR, PWSTR, w},
+    }, core::{Interface, PCWSTR, PWSTR, w},
 };
 use windows_numerics::Matrix3x2;
 
@@ -58,7 +54,7 @@ pub struct ComposedRenderer {
     /// wgpu レンダラー
     pub(crate) wgpu_renderer: WgpuRenderer,
 
-    /// 動的に昇格された `WebView2` レイヤーの一覧
+    /// 動的に昇格されたレイヤーの一覧
     pub(crate) promoted_visuals: Vec<PromotedVisual>,
 
     /// `DComp` 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
@@ -102,7 +98,7 @@ impl ComposedRenderer {
             ComposedRenderer::setup_direct_composition(hwnd)?;
 
         // HINSTANCE（h_instance）の解決
-        let h_instance = unsafe { windows::Win32::System::LibraryLoader::GetModuleHandleW(None)? };
+        let h_instance = unsafe { GetModuleHandleW(None)? };
 
         // wgpu レンダラーの初期化
         let raw_visual_ptr = wgpu_visual.as_raw();

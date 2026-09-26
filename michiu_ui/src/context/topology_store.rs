@@ -1,10 +1,10 @@
 use crate::{
     ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
     ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, EntityId, EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuTagRegistry, OptionTraceExt,
-    OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore, StateStore,
-    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId,
+    DirtyRenderEntitiesVec, Element, EntityId, EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuError, MichiuSoA, MichiuTagRegistry,
+    OptionTraceExt, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
+    StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId,
     VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec, define_vec,
 };
 #[cfg(feature = "trace-lifecycle")]
@@ -963,6 +963,89 @@ impl TopologyStore {
         });
 
         None
+    }
+
+    #[inline]
+    pub(crate) fn tag<T: 'static>(el: Element, topo_tag_registry: &mut MichiuTagRegistry) {
+        topo_tag_registry.register_entity::<T>(el.id);
+    }
+
+    #[inline]
+    pub(crate) fn try_query_first<T: 'static>(
+        topo_tag_registry: &MichiuTagRegistry,
+    ) -> Option<Element> {
+        topo_tag_registry
+            .get_entities::<T>()
+            .and_then(|t| t.first().copied())
+            .map(EntityId::into_el)
+    }
+
+    #[track_caller]
+    #[inline]
+    pub(crate) fn quer_first<T: 'static>(
+        topo_tag_registry: &mut MichiuTagRegistry,
+        debug: &mut DebugStore,
+    ) -> Element {
+        topo_tag_registry
+            .get_entities::<T>()
+            .and_then(|t| t.first().copied())
+            .map(EntityId::into_el)
+            .unwrap_or_trace(None, debug, || MichiuError::TagNotFound {
+                type_name: std::any::type_name::<T>(),
+            })
+    }
+
+    #[inline]
+    pub(crate) fn query_all<T: 'static>(
+        topo_tag_registry: &MichiuTagRegistry,
+    ) -> impl Iterator<Item = Element> + '_ {
+        topo_tag_registry
+            .get_entities::<T>()
+            .map(|t| t.iter().copied())
+            .into_iter()
+            .flatten()
+            .map(EntityId::into_el)
+    }
+
+    #[inline]
+    pub(crate) fn try_query_descendant<T: 'static>(
+        parent: EntityId,
+        topo_tag_registry: &MichiuTagRegistry,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+    ) -> Option<Element> {
+        topo_tag_registry
+            .query_first_descendant_of_type::<T>(parent, topo_parents, topo_flat_dfs_sequence)
+            .map(EntityId::into_el)
+    }
+
+    #[track_caller]
+    #[inline]
+    pub(crate) fn query_descendant<T: 'static>(
+        parent: EntityId,
+        topo_tag_registry: &MichiuTagRegistry,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        debug: &mut DebugStore,
+    ) -> Element {
+        topo_tag_registry
+            .query_first_descendant_of_type::<T>(parent, topo_parents, topo_flat_dfs_sequence)
+            .map(EntityId::into_el)
+            .unwrap_or_trace(None, debug, || MichiuError::TagNotFound {
+                type_name: std::any::type_name::<T>(),
+            })
+    }
+
+    #[inline]
+    pub(crate) fn query_descendants<'a, T: 'static>(
+        parent: EntityId,
+        topo_tag_registry: &'a MichiuTagRegistry,
+        topo_parents: &'a ParentsSecondary,
+        topo_flat_dfs_sequence: &'a FlatDfsSequenceVec,
+    ) -> impl Iterator<Item = Element> + 'a {
+        topo_tag_registry
+            .query_descendants_of_type::<T>(parent, topo_parents, topo_flat_dfs_sequence)
+            .map(EntityId::into_el)
     }
 
     #[inline]
