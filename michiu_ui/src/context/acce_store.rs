@@ -1,36 +1,55 @@
 use crate::EntityId;
 pub use accesskit::Role;
-use accesskit::{ActionHandler, ActionRequest, ActivationHandler, NodeId, TreeId, TreeUpdate};
+use accesskit::{
+    ActionHandler, ActionRequest, ActivationHandler, Node, NodeId, TreeId, TreeInfo, TreeUpdate,
+};
 use accesskit_windows::SubclassingAdapter;
-use std::sync::mpsc::Sender;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc::Sender,
+};
 use windows::Win32::Foundation::HWND;
 
 struct Snapshot;
 
-struct MichiuActionHandler;
+struct MichiuActionHandler {
+    // UIのイベントキューへ流す送信側
+    sender: Option<Sender<ActionRequest>>,
+}
 
 impl ActionHandler for MichiuActionHandler {
     fn do_action(&mut self, request: ActionRequest) {
-        // イベントループへ転送
+        if let Some(ref sender) = self.sender {
+            let _ = sender.send(request);
+        }
     }
 }
 
 impl MichiuActionHandler {
     #[inline]
     pub(crate) fn new() -> Self {
-        Self {}
+        Self { sender: None }
     }
 }
 
-struct MichiuActivationHandler;
+struct MichiuActivationHandler {
+    is_active: Arc<AtomicBool>,
+}
 
 impl ActivationHandler for MichiuActivationHandler {
+    // 支援技術がアクセシビリティを要求したタイミングで呼び出される
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
+        self.is_active.store(true, Ordering::Release);
+
+        let root_id = NodeId(1);
+        let root_node = Node::new(Role::Window);
+
         Some(TreeUpdate {
-            nodes: Vec::new(),
-            tree: None,
+            nodes: vec![(root_id, root_node)],
+            tree: Some(TreeInfo::new(root_id)),
             tree_id: TreeId::ROOT,
-            focus: NodeId(1),
+            focus: root_id,
         })
     }
 }
@@ -38,11 +57,13 @@ impl ActivationHandler for MichiuActivationHandler {
 impl MichiuActivationHandler {
     #[inline]
     pub(crate) fn new() -> Self {
-        Self
+        Self {
+            is_active: Arc::new(AtomicBool::new(false)),
+        }
     }
 }
 
-pub struct AccessibilityStore {
+pub(crate) struct AccessibilityStore {
     pub(crate) acce_adapter: Option<SubclassingAdapter>,
     pub(crate) acce_worker_sender: Option<Sender<Snapshot>>,
     pub(crate) acce_is_active: bool,
