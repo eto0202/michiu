@@ -1,3 +1,4 @@
+pub mod acce_store;
 pub mod config;
 pub mod content_store;
 pub mod debug_store;
@@ -13,6 +14,7 @@ pub mod system_store;
 pub mod topology_store;
 pub mod window_store;
 
+pub use acce_store::*;
 pub use config::*;
 pub use content_store::*;
 pub use debug_store::*;
@@ -36,6 +38,7 @@ use crate::{
 };
 use slotmap::new_key_type;
 use std::{borrow::Cow, sync::Arc};
+use windows::Win32::Foundation::HWND;
 
 new_key_type! {
     /// A unique generation management ID that identifies each element ([`Element`]) within the UI.
@@ -69,6 +72,7 @@ pub struct Context {
     pub(crate) renders: RenderStore,
     pub(crate) outputs: OutputStore,
     pub(crate) debug: DebugStore,
+    pub(crate) acce: AccessibilityStore,
 }
 
 impl Default for Context {
@@ -101,6 +105,7 @@ impl Context {
                 rx,
             ),
             debug: DebugStore::new(),
+            acce: AccessibilityStore::new(),
         }
     }
 
@@ -128,6 +133,7 @@ impl Context {
             renders: RenderStore::with_capacity(capacity),
             outputs: OutputStore::with_capacity(capacity),
             debug: DebugStore::new(),
+            acce: AccessibilityStore::new(),
         }
     }
 
@@ -165,6 +171,15 @@ impl Context {
         cx
     }
 
+    #[inline]
+    #[must_use]
+    pub fn with_accessibility(mut self, hwnd: HWND) -> Self {
+        // AccessibilityStore::new(hwnd) を呼び出して SubclassingAdapter を初期化
+        // メインスレッド・メッセージループ連携の初期状態を整える
+        self.acce = AccessibilityStore::init(hwnd);
+        self
+    }
+
     /// Clear the status.
     #[inline]
     pub fn clear(&mut self) {
@@ -178,6 +193,7 @@ impl Context {
         self.reactive.clear();
         self.window.clear();
         self.system.clear();
+        self.acce.clear();
     }
 
     /// 親を持たないルート要素の破棄に使用。
@@ -197,6 +213,7 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
+            &mut self.acce,
         );
     }
 
