@@ -7,25 +7,17 @@ use michiu_ui::{
 use std::cell::{Cell, RefCell};
 use windows::{
     Win32::{
-        Foundation::*,
-        Graphics::Gdi::*,
-        System::LibraryLoader::GetModuleHandleW,
-        UI::{
-            Controls::WM_MOUSELEAVE,
-            Input::{
+        Foundation::*, Graphics::Gdi::*, System::LibraryLoader::GetModuleHandleW, UI::{
+            Controls::WM_MOUSELEAVE, Input::{
                 Ime::{
                     GCS_COMPATTR, GCS_COMPSTR, GCS_CURSORPOS, GCS_RESULTSTR,
                     ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext,
+                }, KeyboardAndMouse::{
+                    GetKeyState, ReleaseCapture, SetCapture, SetFocus, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent, VK_CONTROL, VK_SHIFT,
                 },
-                KeyboardAndMouse::{
-                    GetKeyState, ReleaseCapture, SetCapture, TME_LEAVE, TRACKMOUSEEVENT,
-                    TrackMouseEvent, VK_CONTROL, VK_SHIFT,
-                },
-            },
-            WindowsAndMessaging::*,
+            }, WindowsAndMessaging::*,
         },
-    },
-    core::{PCWSTR, w},
+    }, core::{PCWSTR, w},
 };
 
 use crate::{ALLOW_LOG, AppState};
@@ -296,6 +288,7 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_LBUTTONDOWN | WM_LBUTTONUP => {
+                unsafe { SetFocus(Some(hwnd)) };
                 let state = if msg == WM_LBUTTONDOWN {
                     ElementState::Pressed
                 } else {
@@ -343,6 +336,7 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_RBUTTONDOWN | WM_RBUTTONUP => {
+                unsafe { SetFocus(Some(hwnd)) };
                 let state = if msg == WM_RBUTTONDOWN {
                     ElementState::Pressed
                 } else {
@@ -371,6 +365,7 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_LBUTTONDBLCLK => {
+                unsafe { SetFocus(Some(hwnd)) };
                 let ctrl_pressed = unsafe { GetKeyState(0x11) } < 0;
                 let shift_pressed = unsafe { GetKeyState(0x10) } < 0;
 

@@ -363,10 +363,6 @@ impl ExternalVisual for WebView2Visual {
                             mouse_data,
                             local_phys_pos,
                         );
-                        if msg != WM_MOUSEMOVE || msg != WM_MOUSEWHEEL || msg != WM_MOUSEHWHEEL {
-                            let _ =
-                                controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
-                        }
                     }
                 }
                 true
@@ -491,9 +487,9 @@ impl WebView2Visual {
                                 comp_controller.cast()?;
 
                             unsafe {
-                                base_controller
+                                let _ = base_controller
                                     .cast::<ICoreWebView2Controller2>()?
-                                    .SetDefaultBackgroundColor(default_bg)
+                                    .SetDefaultBackgroundColor(default_bg);
                             };
 
                             // 位置（left, top）は DComp 側に一任するため 0 に設定
@@ -558,7 +554,7 @@ impl WebView2Visual {
 
                                 let script_handler = webview2_com::AddScriptToExecuteOnDocumentCreatedCompletedHandler::create(
                                 Box::new(|res, _id| {
-                                    res.map_err(webview2_com::Error::WindowsError);
+                                    let _ = res.map_err(webview2_com::Error::WindowsError);
                                     Ok(())
                                 })
                             );
@@ -633,7 +629,7 @@ impl WebView2Visual {
                     webview2_com::CreateCoreWebView2CompositionControllerCompletedHandler::create(
                         Box::new(
                             move |res, controller: Option<ICoreWebView2CompositionController>| {
-                                res.map_err(webview2_com::Error::WindowsError);
+                                let _ = res.map_err(webview2_com::Error::WindowsError);
                                 let comp_controller =
                                     controller.ok_or_else(windows_core::Error::from_thread)?;
                                 unsafe {
@@ -644,9 +640,9 @@ impl WebView2Visual {
                                     comp_controller.cast()?;
 
                                 unsafe {
-                                    base_controller
+                                    let _ = base_controller
                                         .cast::<ICoreWebView2Controller2>()?
-                                        .SetDefaultBackgroundColor(default_bg)
+                                        .SetDefaultBackgroundColor(default_bg);
                                 };
 
                                 let bounds = RECT {

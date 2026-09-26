@@ -1,18 +1,21 @@
 pub use michiu_ui::prelude::*;
-use michiu_ui::{WebView2Visual, external_visual};
+use michiu_ui::{FocusTrigger, external_visual};
+
+use crate::{GitHubVisual, YouTubeVisual};
 
 pub fn container() -> Element {
-    v_flex(ts().p(10.0).r(4.0).size_full()).child_d(|visual: &WebView2Visual| webview2(visual))
+    v_flex(ts().p(10.0).r(4.0).size_full()).child_d(|github: &GitHubVisual| webview2(github))
 }
 
-fn webview2(visual: &WebView2Visual) -> Element {
+fn webview2(github: &GitHubVisual) -> Element {
     let (is_active, set_is_active) = create_signal(false);
     let (is_opacity, set_is_opacity) = create_signal(false);
 
-    let google_map = external_visual(visual.clone())
+    let visual = external_visual(github.0.clone())
         .style({
             let base = ts()
                 .size_full()
+                .focusable_self(FocusTrigger::Both)
                 .r(4.0)
                 .resizable_bottom(true)
                 .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
@@ -21,27 +24,33 @@ fn webview2(visual: &WebView2Visual) -> Element {
             is_opacity.get_else(base.clone().opacity_50(), base.opacity_100())
         })
         .on_focus(move || set_is_active.set(false))
-        .child(v_flex({
-            let base = ts()
-                .absolute()
-                .size((300.0, 200.0))
-                .r(3.0)
-                .inset_x(100.0)
-                .inset_y(50.0)
-                .bg_color(Color::DARK_GRAY)
-                .opacity(0.9)
-                .resizable_all(true)
-                .dnd_draggable_root(DndDragPayload::Element, true)
-                .dnd_draggable_original(ts().opacity_0())
-                .dnd_draggable_placeholder(
-                    ts().size(100.0)
-                        .r(3.0)
-                        .bg_color(Color::DARK_GRAY)
-                        .opacity(0.9),
-                );
+        .child(
+            v_flex({
+                let base = ts()
+                    .absolute()
+                    .size((600.0, 500.0))
+                    .p(20.0)
+                    .r(3.0)
+                    .inset_x(100.0)
+                    .inset_y(50.0)
+                    .bg_color(Color::DARK_GRAY)
+                    .opacity(0.9)
+                    .resizable_all(true)
+                    .dnd_draggable_root(DndDragPayload::Element, true)
+                    .dnd_draggable_original(ts().opacity_0())
+                    .dnd_draggable_placeholder(
+                        ts().size(100.0)
+                            .r(3.0)
+                            .bg_color(Color::DARK_GRAY)
+                            .opacity(0.9),
+                    );
 
-            is_active.get_else(base.clone().flex(), base.hidden())
-        }));
+                is_active.get_else(base.clone().flex(), base.hidden())
+            })
+            .child_d(|youtube: &YouTubeVisual| {
+                external_visual(youtube.0.clone()).style(ts().r(3.0).size_full())
+            }),
+        );
 
     let btn_style = |color: Color| {
         ts().justify_center()
@@ -72,7 +81,7 @@ fn webview2(visual: &WebView2Visual) -> Element {
             .items_center(),
     )
     .children([
-        google_map,
+        visual,
         h_flex(
             ts().p(8.0)
                 .gap(8.0)

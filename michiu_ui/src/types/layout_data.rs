@@ -11,32 +11,6 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NormalLayout {
-    pub basic: BasicLayout,
-    pub flex: FlexLayout,
-}
-
-impl NormalLayout {
-    #[inline]
-    #[must_use]
-    pub fn split(&self) -> (&BasicLayout, &FlexLayout) {
-        (&self.basic, &self.flex)
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn split_mut(&mut self) -> (&mut BasicLayout, &mut FlexLayout) {
-        (&mut self.basic, &mut self.flex)
-    }
-
-    #[inline]
-    pub fn override_with(&mut self, basic: &BasicLayout, flex: &FlexLayout, mask: ComponentMask) {
-        self.basic.override_with(basic, mask);
-        self.flex.override_with(flex, mask);
-    }
-}
-
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BasicLayout {

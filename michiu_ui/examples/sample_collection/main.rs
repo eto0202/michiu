@@ -7,8 +7,7 @@ use crate::{
     },
 };
 use michiu_ui::{
-    CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
-    prelude::*,
+    CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual, prelude::*,
 };
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
@@ -36,6 +35,11 @@ struct AppState {
     root_id: EntityId,
 }
 
+#[derive(Clone)]
+pub struct GitHubVisual(WebView2Visual);
+#[derive(Clone)]
+pub struct YouTubeVisual(WebView2Visual);
+
 // HWND を Send/Sync 化するラッパー
 struct SendHwnd(HWND);
 unsafe impl Send for SendHwnd {}
@@ -47,7 +51,7 @@ impl SendHwnd {
     }
 }
 
-pub const ALLOW_LOG: bool = true;
+pub const ALLOW_LOG: bool = false;
 // これ起動めちゃ遅くなるので注意
 pub const ALLOW_STRESS_TEST: bool = false;
 
@@ -86,16 +90,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let device = renderer.composition_device()?;
     let task_sender = context.task_sender();
-    let webview_contents = WebView2Contents::from_url(
+
+    let github = WebView2Contents::from_url(
         "https://github.com/eto0202/michiu/tree/feat/ver0.02/michiu_ui/examples/sample_collection",
     )
     .enable_context_menu(true)
     .enable_dev_tools(true)
     .allow_interaction(true)
     .always_active(false);
-    let webview_visual =
-        WebView2Visual::new(&device, hwnd, webview_contents, scale_factor, &task_sender)
-            .expect("Failed to create WebView2Visual");
+
+    let youtube = WebView2Contents::from_url("https://www.youtube.com/")
+        .allow_interaction(true)
+        .always_active(true);
+
+    let github_visual = WebView2Visual::new(&device, hwnd, github, scale_factor, &task_sender)
+        .expect("Failed to create WebView2Visual");
+
+    let youtube_visual = WebView2Visual::new(&device, hwnd, youtube, scale_factor, &task_sender)
+        .expect("Failed to create WebView2Visual");
 
     let send_hwnd = SendHwnd(hwnd);
     context.set_waker(move || send_hwnd.wake());
@@ -110,8 +122,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let root = build_ui(&mut context, move || {
         // 配っていいのかどうかは分からんｗ
-        let (webview2, _) = create_signal(webview_visual);
-        app::create_root().provide(styles_sig).provide(webview2)
+        let (read_github, _) = create_signal(GitHubVisual(github_visual));
+        let (read_youtube, _) = create_signal(YouTubeVisual(youtube_visual));
+        app::create_root()
+            .provide(styles_sig)
+            .provide(read_github)
+            .provide(read_youtube)
     });
 
     let app_state = Box::new(AppState {
