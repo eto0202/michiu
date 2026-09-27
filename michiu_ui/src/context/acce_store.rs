@@ -33,14 +33,13 @@ impl MichiuActionHandler {
     }
 }
 
-struct MichiuActivationHandler {
-    is_active: Arc<AtomicBool>,
-}
+#[derive(Debug, Clone, derive_more::Deref, derive_more::DerefMut)]
+struct MichiuActivationHandler(Arc<AtomicBool>);
 
 impl ActivationHandler for MichiuActivationHandler {
     // 支援技術がアクセシビリティを要求したタイミングで呼び出される
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
-        self.is_active.store(true, Ordering::Release);
+        self.set(true);
 
         let root_id = NodeId(1);
         let root_node = Node::new(Role::Window);
@@ -57,9 +56,17 @@ impl ActivationHandler for MichiuActivationHandler {
 impl MichiuActivationHandler {
     #[inline]
     pub(crate) fn new() -> Self {
-        Self {
-            is_active: Arc::new(AtomicBool::new(false)),
-        }
+        Self(Arc::new(AtomicBool::new(false)))
+    }
+
+    #[inline]
+    pub(crate) fn get(&self) -> bool {
+        self.load(Ordering::SeqCst)
+    }
+
+    #[inline]
+    pub(crate) fn set(&self, value: bool) {
+        self.store(value, Ordering::SeqCst);
     }
 }
 
