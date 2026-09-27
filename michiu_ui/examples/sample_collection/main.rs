@@ -82,7 +82,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // キャパシティは、ログやスナップショットから各配列のピーク時の長さを調べれば最適化出来る。めんどくさいけど。
     let mut context =
-        Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector);
+        Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector)
+            .with_accessibility(hwnd);
 
     // デバッグログ用のスレッド
     #[cfg(feature = "trace-error")]

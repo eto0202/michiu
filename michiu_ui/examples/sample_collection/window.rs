@@ -135,6 +135,8 @@ unsafe extern "system" fn wnd_proc(
                 let _ = unsafe { EndPaint(hwnd, &ps) };
                 let draw_elapsed = draw_start.elapsed();
 
+                app.context.handle_accessibility();
+
                 let cpu_active_elapsed =
                     update_elapsed + layout_elapsed + comp_elapsed + draw_elapsed;
 

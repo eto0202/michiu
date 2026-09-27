@@ -1,6 +1,6 @@
-# michiu_project
+# michiu
 
-The `michiu_project` is developing a GUI library for Windows.
+The `michiu` is developing a GUI library for Windows.
 
 Please note that since this is still under development, breaking changes may occur without prior notice.
 

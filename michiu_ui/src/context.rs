@@ -53,6 +53,19 @@ impl EntityId {
     }
 }
 
+impl From<EntityId> for accesskit::NodeId {
+    fn from(value: EntityId) -> Self {
+        Self(value.0.as_ffi())
+    }
+}
+
+impl From<accesskit::NodeId> for EntityId {
+    #[inline]
+    fn from(value: accesskit::NodeId) -> Self {
+        Self(slotmap::KeyData::from_ffi(value.0))
+    }
+}
+
 // TODO:
 // 利用者用 Context を用意して安定APIはそちらで公開
 // pub struct EventContext<'a> {
@@ -174,8 +187,6 @@ impl Context {
     #[inline]
     #[must_use]
     pub fn with_accessibility(mut self, hwnd: HWND) -> Self {
-        // AccessibilityStore::new(hwnd) を呼び出して SubclassingAdapter を初期化
-        // メインスレッド・メッセージループ連携の初期状態を整える
         self.acce = AccessibilityStore::init(hwnd);
         self
     }
@@ -796,6 +807,11 @@ impl Context {
     #[inline]
     pub fn sync_layout(&mut self, root: EntityId, window_size: LayoutSize) {
         Pipeline::sync_layout(self, root, window_size);
+    }
+
+    #[inline]
+    pub fn handle_accessibility(&mut self) {
+        Pipeline::handle_accessibility(self);
     }
 
     /// Get the `RawContext`.

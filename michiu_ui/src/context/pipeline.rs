@@ -1,19 +1,20 @@
 use crate::{
-    ActiveEntitiesVec, ActiveFocusTrigger, ActiveMasksSecondary, BaseVisualPropertiesSecondary,
-    BasicLayout, BasicLayoutsSecondary, BatchType, BoxSizing, ClipRectsSecondary, Color,
-    ComponentMask, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
-    DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets, ElementState, EntityId, EventStore,
-    ExternalTextureAlphaMode, ExternalTextureCompositingMode, ExternalTextureSparse,
-    FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState, InputContentsSparse,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, Modifiers, MouseButton,
-    OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance,
-    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse, ScrollBarState,
-    ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
-    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore,
-    TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
-    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
-    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select,
+    AccessibilitySnapshot, AccessibilityStore, ActiveEntitiesVec, ActiveFocusTrigger,
+    ActiveMasksSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary,
+    BatchType, BoxSizing, ClipRectsSecondary, Color, ComponentMask, Context, CornerRadius,
+    DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets,
+    ElementState, EntityId, EventStore, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
+    ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState,
+    InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
+    MichiuError, MichiuSoA, Modifiers, MouseButton, OptionTraceExt, OutputStore, ParentsSecondary,
+    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
+    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
+    ResolvedGeometry, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
+    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
+    TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
+    TopologyStore, TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context,
+    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
+    handle_on_ime, handle_on_select,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{
@@ -1507,6 +1508,31 @@ impl Pipeline {
             }),
             data: None,
             add: Some("RendererViewTrace refers to RenderStage::CollectDate.")
+        });
+    }
+
+    #[inline]
+    pub(crate) fn handle_accessibility(cx: &mut Context) {
+        if !cx.acce.is_active() {
+            return;
+        }
+
+        cx.acce
+            .ensure_worker_spawned(cx.system.sys_task_sender.clone());
+
+        let mut buffer = cx.acce.take_buffer();
+        cx.acce.build_accessibility_snapshot(&mut buffer);
+
+        let root_id = cx
+            .find_root_entity()
+            .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
+
+        let focused_id = cx.interaction_id(InteractionState::Focused);
+
+        cx.acce.send_snapshot(AccessibilitySnapshot {
+            root_id: root_id.into(),
+            focused_id: focused_id.map(std::convert::Into::into),
+            nodes: buffer,
         });
     }
 }
