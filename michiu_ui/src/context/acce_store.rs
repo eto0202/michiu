@@ -1,4 +1,8 @@
-use crate::{EntityId, TaskSender};
+use crate::{
+    ActiveMasksSecondary, BasicLayout, ChildrenSecondary, ComponentMask, DEFAULT_BASIC, DebugStore,
+    Display, EntityId, EventListenersSparse, InputContentsSparse, LayoutRect, MichiuSoA, Overflow,
+    RectsSecondary, ResolvedBasicSecondary, TaskSender, TextContentsSparse,
+};
 pub use accesskit::Role;
 use accesskit::{
     ActionHandler, ActionRequest, ActivationHandler, Node, NodeId, TreeId, TreeInfo, TreeUpdate,
@@ -10,6 +14,8 @@ use std::sync::{
     mpsc::{Receiver, Sender, channel},
 };
 use windows::Win32::Foundation::HWND;
+
+pub const WINDOW_ROOT_ID: NodeId = NodeId(1);
 
 pub struct NodeSnapshot {
     pub id: NodeId,
@@ -42,14 +48,8 @@ pub struct AccessibilitySnapshot {
     pub root_id: NodeId,
     /// 現在フォーカスされている要素
     pub focused_id: Option<NodeId>,
-    /// DFS順またはソート順に並んだノードのスナップショット配列
+    /// ソート順に並んだノードのスナップショット配列
     pub nodes: Vec<NodeSnapshot>,
-}
-
-/// 構築済みツリーと再利用バッファ
-pub struct AccessibilityWorkerResult {
-    pub update: TreeUpdate,
-    pub buffer: Vec<NodeSnapshot>,
 }
 
 struct MichiuActionHandler {
@@ -80,7 +80,7 @@ impl ActivationHandler for MichiuActivationHandler {
     fn request_initial_tree(&mut self) -> Option<TreeUpdate> {
         self.store(true, Ordering::Release);
 
-        let root_id = NodeId(u64::MAX);
+        let root_id = WINDOW_ROOT_ID;
         let root_node = Node::new(Role::Window);
 
         Some(TreeUpdate {
@@ -130,16 +130,6 @@ impl AccessibilityStore {
     }
 
     #[inline]
-    pub(crate) fn clear(&mut self) {
-        todo!()
-    }
-
-    #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
-        todo!()
-    }
-
-    #[inline]
     #[must_use]
     pub(crate) fn is_active(&self) -> bool {
         self.acce_is_active.load(Ordering::Acquire)
@@ -157,21 +147,43 @@ impl AccessibilityStore {
         std::thread::Builder::new()
             .name("michiu_accessibility_worker".into())
             .spawn(move || {
-                Self::worker_loop(&to_worker_rx, sys_task_sender);
+                Self::worker_loop(to_worker_rx, sys_task_sender);
             })
             .ok();
 
         self.acce_worker_sender = Some(to_worker_tx);
     }
 
-    fn worker_loop(rx: &Receiver<AccessibilitySnapshot>, task_sender: TaskSender) {
+    /// `TreeUpdate` の構築とタスク送信
+    #[allow(clippy::needless_pass_by_value)]
+    fn worker_loop(rx: Receiver<AccessibilitySnapshot>, task_sender: TaskSender) {
         while let Ok(mut snapshot) = rx.recv() {
+            // ノードが空の場合は OS のツリーを破壊しないようスキップ
+            if snapshot.nodes.is_empty() {
+                let buffer = snapshot.nodes;
+                let _ = task_sender.send(move |context| {
+                    context.acce.acce_buffer = Some(buffer);
+                });
+                continue;
+            }
+
             let mut update_nodes = Vec::with_capacity(snapshot.nodes.len());
 
             for node_data in snapshot.nodes.drain(..) {
                 let role = node_data.role.unwrap_or({
+                    // 詳細な推論は後で
                     if node_data.is_clickable {
                         Role::Button
+                    } else if node_data.name.is_some() {
+                        if node_data.value.is_some() {
+                            Role::TextInput
+                        } else {
+                            Role::Label
+                        }
+                    } else if node_data.value.is_some() {
+                        Role::TextInput
+                    } else if node_data.checked.is_some() {
+                        Role::CheckBox
                     } else {
                         Role::GenericContainer
                     }
@@ -183,15 +195,31 @@ impl AccessibilityStore {
                 if let Some(name) = node_data.name {
                     node.set_label(name);
                 }
+                if let Some(value) = node_data.value {
+                    node.set_value(value);
+                }
+                if node_data.is_disabled {
+                    node.set_disabled();
+                }
+                if node_data.is_hidden {
+                    node.set_hidden();
+                }
+                if node_data.is_clickable {
+                    node.add_action(accesskit::Action::Click);
+                }
 
                 update_nodes.push((node_data.id, node));
             }
 
+            let mut window_node = Node::new(Role::Window);
+            window_node.set_children(vec![snapshot.root_id]);
+            update_nodes.push((WINDOW_ROOT_ID, window_node));
+
             let update = TreeUpdate {
                 nodes: update_nodes,
-                tree: Some(TreeInfo::new(snapshot.root_id)),
+                tree: Some(TreeInfo::new(WINDOW_ROOT_ID)),
                 tree_id: TreeId::ROOT,
-                focus: snapshot.root_id,
+                focus: snapshot.focused_id.unwrap_or(WINDOW_ROOT_ID),
             };
 
             let buffer = snapshot.nodes; // drain済み（len: 0, cap: 保持）
@@ -225,8 +253,97 @@ impl AccessibilityStore {
         }
     }
 
-    pub(crate) fn build_accessibility_snapshot(&self, buffer: &mut Vec<NodeSnapshot>) {
-        todo!()
+    /// `TreeUpdate` 用のデータ収集
+    #[inline]
+    pub(crate) fn build_accessibility_snapshot(
+        buffer: &mut Vec<NodeSnapshot>,
+        id: EntityId,
+        topo_children: &ChildrenSecondary,
+        topo_active_masks: &ActiveMasksSecondary,
+        evt_listeners: &EventListenersSparse,
+        cont_text_contents: &TextContentsSparse,
+        cont_input_contents: &InputContentsSparse,
+        lay_resolved_basic: &ResolvedBasicSecondary,
+        out_rects: &RectsSecondary,
+        debug: &mut DebugStore,
+    ) {
+        let rect = out_rects.find_or_default(id, debug);
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let listener = evt_listeners.find(id);
+
+        let children = topo_children
+            .find(id)
+            .map_or_else(Vec::new, |c| c.iter().copied().map(Into::into).collect());
+        // ユーザー指定用の配列を用意
+        let role = None;
+
+        let mask = topo_active_masks.find_or_default(id, debug);
+
+        let is_clickable = if let Some(l) = listener {
+            l.on_click.is_some()
+        } else {
+            false
+        };
+        let is_scrollable = if mask.has(ComponentMask::STYLE_OVERFLOW) {
+            matches!(
+                (basic.overflow.x, basic.overflow.y),
+                (_, Overflow::Scroll) | (Overflow::Scroll, _)
+            )
+        } else {
+            false
+        };
+        let checked = if let Some(l) = listener
+            && l.on_select.is_some()
+        {
+            Some(mask.has(ComponentMask::STATE_SELECTED))
+        } else {
+            None
+        };
+        let is_disabled = mask.has(ComponentMask::STATE_DISABLED);
+        let is_hidden = if mask.has(ComponentMask::STYLE_DISPLAY) {
+            basic.display == Display::None
+        } else {
+            false
+        };
+
+        // ユーザー指定用の配列を用意
+        let name = if mask.has_text_content() {
+            cont_text_contents.find(id).map(|t| t.as_ref().into())
+        } else if let Some(children) = topo_children.find(id) {
+            children
+                .iter()
+                .find_map(|c| cont_text_contents.find(*c).map(|text| text.as_ref().into()))
+        } else {
+            None
+        };
+        // ユーザー指定用の配列を用意
+        let value = if mask.has_input_content() {
+            cont_input_contents
+                .find(id)
+                .map(|i| i.to_michiu().as_ref().into())
+        } else if let Some(children) = topo_children.find(id) {
+            children.iter().find_map(|c| {
+                cont_input_contents
+                    .find(*c)
+                    .map(|input| input.to_michiu().as_ref().into())
+            })
+        } else {
+            None
+        };
+
+        buffer.push(NodeSnapshot {
+            id: id.into(),
+            children,
+            bounds: rect.into(),
+            role,
+            is_clickable,
+            is_scrollable,
+            checked,
+            is_disabled,
+            is_hidden,
+            name,
+            value,
+        });
     }
 }
 

@@ -874,27 +874,44 @@ impl Pipeline {
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
         for &id in &cx.topology.topo_flat_dfs_sequence {
-            let Some(current) = cx.states.scroll.sc_offsets.find(id).copied() else {
-                continue;
-            };
-            // 枠サイズの変更など、現在のスクロール位置からはみ出していれば自動クランプ調整
-            ScrollStore::scroll_to(
-                id,
-                current.x,
-                current.y,
-                cx.window.win_last_size,
-                &mut cx.topology.topo_active_masks,
-                &cx.topology.topo_parents,
-                &mut cx.layouts.lay_dirty_entities,
-                &mut cx.layouts.lay_taffy_tree,
-                &mut cx.layouts.scrollbar.bar_styles,
-                &cx.layouts.lay_taffy_nodes,
-                &cx.layouts.lay_resolved_basic,
-                &mut cx.states.scroll.sc_offsets,
-                &cx.outputs.out_rects,
-                &cx.states.scroll.sc_sizes,
-                &mut cx.debug,
-            );
+            if let Some(current) = cx.states.scroll.sc_offsets.find(id).copied() {
+                // 枠サイズの変更など、現在のスクロール位置からはみ出していれば自動クランプ調整
+                ScrollStore::scroll_to(
+                    id,
+                    current.x,
+                    current.y,
+                    cx.window.win_last_size,
+                    &mut cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
+                    &mut cx.layouts.lay_dirty_entities,
+                    &mut cx.layouts.lay_taffy_tree,
+                    &mut cx.layouts.scrollbar.bar_styles,
+                    &cx.layouts.lay_taffy_nodes,
+                    &cx.layouts.lay_resolved_basic,
+                    &mut cx.states.scroll.sc_offsets,
+                    &cx.outputs.out_rects,
+                    &cx.states.scroll.sc_sizes,
+                    &mut cx.debug,
+                );
+            }
+
+            // アクセシビリティ用のデータをバッファに詰める
+            if cx.acce.is_active()
+                && let Some(buffer) = &mut cx.acce.acce_buffer
+            {
+                AccessibilityStore::build_accessibility_snapshot(
+                    buffer,
+                    id,
+                    &cx.topology.topo_children,
+                    &cx.topology.topo_active_masks,
+                    &cx.events.evt_listeners,
+                    &cx.contents.cont_text_contents,
+                    &cx.contents.cont_input_contents,
+                    &cx.layouts.lay_resolved_basic,
+                    &cx.outputs.out_rects,
+                    &mut cx.debug,
+                );
+            }
         }
 
         #[cfg(feature = "trace-lifecycle")]
@@ -1520,8 +1537,12 @@ impl Pipeline {
         cx.acce
             .ensure_worker_spawned(cx.system.sys_task_sender.clone());
 
-        let mut buffer = cx.acce.take_buffer();
-        cx.acce.build_accessibility_snapshot(&mut buffer);
+        let buffer = cx.acce.take_buffer();
+        // バッファが空ならワーカーへ送らずに保持して抜ける
+        if buffer.is_empty() {
+            cx.acce.acce_buffer = Some(buffer);
+            return;
+        }
 
         let root_id = cx
             .find_root_entity()
@@ -1775,7 +1796,7 @@ impl Pipeline {
         }
     }
 
-    /// 最終的な出力領域決定（スクロールバー要素を含む一括同期）
+    /// 最終的な出力領域とアクセシビリティ用のバッファの構築
     fn resolve_final_pass_rects(
         window_size: LayoutSize,
         cont_input_contents: &mut InputContentsSparse,

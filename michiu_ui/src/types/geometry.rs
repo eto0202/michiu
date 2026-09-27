@@ -205,6 +205,17 @@ impl Default for LayoutRect {
     }
 }
 
+impl From<LayoutRect> for accesskit::Rect {
+    fn from(r: LayoutRect) -> Self {
+        Self {
+            x0: r.x as f64,
+            y0: r.y as f64,
+            x1: (r.x + r.width) as f64,
+            y1: (r.y + r.height) as f64,
+        }
+    }
+}
+
 impl LayoutRect {
     pub const ZERO: Self = Self {
         x: 0.0,

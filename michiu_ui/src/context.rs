@@ -204,7 +204,6 @@ impl Context {
         self.reactive.clear();
         self.window.clear();
         self.system.clear();
-        self.acce.clear();
     }
 
     /// 親を持たないルート要素の破棄に使用。
@@ -224,7 +223,6 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
-            &mut self.acce,
         );
     }
 
