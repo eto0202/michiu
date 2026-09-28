@@ -5,7 +5,8 @@ use crate::{
     LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuError, MichiuSoA, MichiuTagRegistry,
     OptionTraceExt, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
     StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId,
-    VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec, define_vec,
+    VisualPropertiesSecondary, WindowStore, a11y::A11yInferenceTag, define_secondary, define_smallvec,
+    define_vec,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{MichiuTrace, trace_lifecycle};
@@ -972,6 +973,15 @@ impl TopologyStore {
     #[inline]
     pub(crate) fn tag<T: 'static>(el: Element, topo_tag_registry: &mut MichiuTagRegistry) {
         topo_tag_registry.register_entity::<T>(el.id);
+    }
+
+    #[inline]
+    pub(crate) fn tag_a11y<T: A11yInferenceTag + 'static>(
+        el: Element,
+        topo_tag_registry: &mut MichiuTagRegistry,
+    ) {
+        topo_tag_registry.register_entity::<T>(el.id);
+        topo_tag_registry.register_a11y_inference::<T>();
     }
 
     #[inline]

@@ -894,16 +894,19 @@ impl Pipeline {
                     &mut cx.debug,
                 );
             }
+        }
 
-            // アクセシビリティ用のデータをバッファに詰める
-            if cx.acce.is_active()
-                && let Some(buffer) = &mut cx.acce.acce_buffer
-            {
+        // アクセシビリティ用のデータをバッファに詰める
+        if cx.acce.is_active()
+            && let Some(buffer) = &mut cx.acce.acce_buffer
+        {
+            for &id in &cx.topology.topo_flat_dfs_sequence {
                 AccessibilityStore::build_accessibility_snapshot(
                     buffer,
                     id,
                     &cx.topology.topo_children,
                     &cx.topology.topo_active_masks,
+                    &cx.topology.topo_tag_registry,
                     &cx.events.evt_listeners,
                     &cx.contents.cont_text_contents,
                     &cx.contents.cont_input_contents,

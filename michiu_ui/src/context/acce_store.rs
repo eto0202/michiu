@@ -1,8 +1,8 @@
 use crate::{
     ActiveMasksSecondary, CapacityConfig, ChildrenSecondary, ComponentMask, DEFAULT_BASIC,
-    DebugStore, Display, EntityId, EventListenersSparse, InputContentsSparse, MichiuSoA, Overflow,
-    RectsSecondary, ResolvedBasicSecondary, TaskSender, TextContentsSparse, a11y::InferenceTags,
-    define_sparse_secondary,
+    DebugStore, Display, EntityId, EventListenersSparse, InputContentsSparse, MichiuSoA,
+    MichiuTagRegistry, Overflow, RectsSecondary, ResolvedBasicSecondary, TaskSender,
+    TextContentsSparse, a11y::InferenceFn, define_sparse_secondary,
 };
 use accesskit::{
     ActionHandler, ActionRequest, ActivationHandler, Node, NodeId, Role, TreeId, TreeInfo,
@@ -10,7 +10,9 @@ use accesskit::{
 };
 use accesskit_windows::SubclassingAdapter;
 use slotmap::SparseSecondaryMap;
+use smallvec::SmallVec;
 use std::{
+    any::TypeId,
     borrow::Cow,
     sync::{
         Arc,
@@ -26,6 +28,8 @@ pub struct NodeSnapshot {
     pub id: NodeId,
     /// 直下の子要素リスト
     pub children: Vec<NodeId>,
+    /// 推論用関数
+    pub inferences: SmallVec<[InferenceFn; 1]>,
     /// 画面上の絶対座標
     pub bounds: accesskit::Rect,
     /// ユーザーが明示指定したロール
@@ -239,6 +243,15 @@ impl AccessibilityStore {
                     node.add_action(accesskit::Action::Click);
                 }
 
+                for inference_fn in node_data.inferences {
+                    inference_fn(&mut node);
+                }
+
+                // ユーザーが明示的に role を指定していた場合は最優先
+                if let Some(explicit_role) = node_data.role {
+                    node.set_role(explicit_role);
+                }
+
                 update_nodes.push((node_data.id, node));
             }
 
@@ -291,6 +304,7 @@ impl AccessibilityStore {
         id: EntityId,
         topo_children: &ChildrenSecondary,
         topo_active_masks: &ActiveMasksSecondary,
+        topo_tag_registry: &MichiuTagRegistry,
         evt_listeners: &EventListenersSparse,
         cont_text_contents: &TextContentsSparse,
         cont_input_contents: &InputContentsSparse,
@@ -306,6 +320,8 @@ impl AccessibilityStore {
         let children = topo_children
             .find(id)
             .map_or_else(Vec::new, |c| c.iter().copied().map(Into::into).collect());
+
+        let inferences = topo_tag_registry.collect_a11y_inferences(id);
 
         let (role, user_label) = acce_accessibility
             .find(id)
@@ -379,6 +395,7 @@ impl AccessibilityStore {
             is_hidden,
             label,
             value,
+            inferences,
         });
     }
 }

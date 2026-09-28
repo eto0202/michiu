@@ -63,4 +63,5 @@ pub enum ComponentType {
     StressTest,
     Image,
     ExternalVisual,
+    Accessibility,
 }

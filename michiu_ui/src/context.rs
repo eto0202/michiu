@@ -34,7 +34,7 @@ use crate::trace_lifecycle;
 use crate::{
     BasicLayout, ComponentMask, CursorIcon, Element, FlexLayout, GridLayout, InteractionState,
     LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
-    bind_context, handle_on_click,
+    a11y::A11yInferenceTag, bind_context, handle_on_click,
 };
 use slotmap::new_key_type;
 use std::{borrow::Cow, sync::Arc};
@@ -594,9 +594,20 @@ impl Context {
     /// This element will be tagged `T`.
     ///
     /// Multiple tags can be attached to the same element.
+    ///
+    /// You can also use `A11yInferenceTag` for accessibility.
     #[inline]
     pub fn tag<T: 'static>(&mut self, el: Element) {
         TopologyStore::tag::<T>(el, &mut self.topology.topo_tag_registry);
+    }
+
+    /// Configure the user-defined inference tags used when building the accessibility tree.
+    ///
+    /// `A11yInferenceTag` overrides only the default inferences.
+    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    #[inline]
+    pub fn tag_a11y<T: A11yInferenceTag + 'static>(&mut self, el: Element) {
+        TopologyStore::tag_a11y::<T>(el, &mut self.topology.topo_tag_registry);
     }
 
     /// Get the first element with the tag `T` found.

@@ -4,8 +4,8 @@ pub mod input_func;
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
     ExternalVisual, IntoA11yLabel, MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState,
-    ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, UiaValue, Val,
-    create_effect, div_n, trace_error,
+    ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, Val,
+    a11y::A11yInferenceTag, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{ContextState, trace_lifecycle};
@@ -224,6 +224,17 @@ impl Element {
     #[must_use]
     pub fn tag<T: 'static>(self) -> Self {
         with_context(|cx| cx.tag::<T>(self));
+        self
+    }
+
+    /// Configure the user-defined `A11yInferenceTag` used when building the accessibility tree.
+    ///
+    /// `A11yInferenceTag` overrides only the default inferences.
+    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    #[inline]
+    #[must_use]
+    pub fn tag_a11y<T: A11yInferenceTag + 'static>(self) -> Self {
+        with_context(|cx| cx.tag_a11y::<T>(self));
         self
     }
 
@@ -822,6 +833,9 @@ impl Element {
         self
     }
 
+    /// Sets accessibility roles and labels.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
     #[must_use]
     pub fn a11y(self, role: impl Into<Prop<Role>>, label: impl IntoA11yLabel) -> Self {
         let label = match label.into_prop() {
@@ -839,6 +853,9 @@ impl Element {
         })
     }
 
+    /// Sets accessibility roles.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
     #[must_use]
     pub fn a11y_n(self, role: impl Into<Prop<Role>>) -> Self {
         self.bind_prop(role, EffectCategory::Accessibility, move |cx, id, val| {

@@ -1,7 +1,6 @@
-/// Represents some kind of Button.
-pub struct AAnyButton;
-/// Represents some kind of Label.
-pub struct AAnyLabel;
+use crate::MichiuTagRegistry;
+use accesskit::{Action, Role};
+
 /// Represents some kind of Input.
 pub struct AAnyInput;
 /// No accessibility information is available.
@@ -75,6 +74,61 @@ pub struct AImage;
 /// It is interpreted as a Media.
 pub struct AMedia;
 
-pub trait InferenceTags {
+pub(crate) type InferenceFn = fn(&mut accesskit::Node);
+
+/// `A11yInferenceTag` for accessibility.
+///
+/// Overrides the library's inference.
+///
+/// [`accesskit`] is required.
+pub trait A11yInferenceTag {
     fn inference(node: &mut accesskit::Node);
+}
+
+#[macro_export]
+macro_rules! define_inference_tags {
+    (
+        $(
+            $(#[$meta:meta])*
+            $name:ident => |$node:ident| $body:block
+        ),* $(,)?
+    ) => {
+        // ZST の定義
+        $(
+            $(#[$meta])*
+            #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+            pub struct $name;
+
+            // A11yInferenceTag トレイトの実装
+            impl A11yInferenceTag for $name {
+                #[inline]
+                fn inference($node: &mut ::accesskit::Node) $body
+            }
+        )*
+
+        // MichiuTagRegistry に登録するメソッド
+        impl MichiuTagRegistry {
+            pub(crate) fn register_builtin_inferences(&mut self) {
+                $(
+                    self.register_a11y_inference::<$name>();
+                )*
+            }
+        }
+    };
+}
+
+define_inference_tags! {
+    /// Represents some kind of Button.
+    AAnyButton => |node| {
+        node.set_role(Role::Button);
+        node.add_action(Action::Click);
+    },
+    /// Represents some kind of Label.
+    AAnyLabel => |node| {
+        node.set_role(Role::Label);
+    },
+    /// Represents some kind of Group.
+    AAnyGroup => |node| {
+        node.set_role(Role::Group);
+    }
 }
