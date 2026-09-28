@@ -2,12 +2,14 @@
 
 use std::borrow::Cow;
 
+use accesskit::Role;
+
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display,
     Element, FlexDirection, FlexWrap, FocusTrigger, Focusable, GridAutoFlow, GridLine,
     GridPlacement, InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length,
     LinearGradient, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size,
-    StyleValue, TextAlign, ThisStyle, Transform, UiaValue, Val, WebView2Contents,
+    StyleValue, TextAlign, ThisStyle, Transform, Val, WebView2Contents,
 };
 
 impl<T, U> From<Size<T>> for taffy::Size<U>
@@ -672,30 +674,6 @@ impl From<taffy::GridPlacement<String>> for GridPlacement<String> {
     }
 }
 
-impl From<&'static str> for UiaValue {
-    fn from(s: &'static str) -> Self {
-        Self::String(String::from(s))
-    }
-}
-
-impl From<String> for UiaValue {
-    fn from(s: String) -> Self {
-        Self::String(s)
-    }
-}
-
-impl From<bool> for UiaValue {
-    fn from(b: bool) -> Self {
-        Self::Bool(b)
-    }
-}
-
-impl From<i32> for UiaValue {
-    fn from(i: i32) -> Self {
-        Self::Int(i)
-    }
-}
-
 impl<T> From<Option<T>> for Prop<T> {
     fn from(opt: Option<T>) -> Self {
         match opt {
@@ -726,6 +704,41 @@ impl From<Cow<'static, str>> for Prop<Cow<'static, str>> {
     }
 }
 
+// &str から Prop<Option<Cow<'static, str>>> へ
+impl From<&'static str> for Prop<Option<Cow<'static, str>>> {
+    fn from(s: &'static str) -> Self {
+        Prop::Static(Some(Cow::Borrowed(s)))
+    }
+}
+
+// String から Prop<Option<Cow<'static, str>>> へ
+impl From<String> for Prop<Option<Cow<'static, str>>> {
+    fn from(s: String) -> Self {
+        Prop::Static(Some(Cow::Owned(s)))
+    }
+}
+
+impl From<Role> for Prop<Role> {
+    fn from(value: Role) -> Self {
+        Self::Static(value)
+    }
+}
+
+impl From<ReadSignal<Role>> for Prop<Role> {
+    fn from(sig: ReadSignal<Role>) -> Self {
+        Self::Dynamic(Box::new(move || sig.get()))
+    }
+}
+
+impl<F> From<F> for Prop<Role>
+where
+    F: Fn() -> Role + 'static,
+{
+    fn from(f: F) -> Self {
+        Self::Dynamic(Box::new(f))
+    }
+}
+
 // Displayを実装している型のSignal (u32, i32など)
 impl<T: std::fmt::Display + Clone + Send + 'static> From<ReadSignal<T>>
     for Prop<Cow<'static, str>>
@@ -743,6 +756,50 @@ where
 {
     fn from(f: F) -> Self {
         Self::Dynamic(Box::new(move || f().into()))
+    }
+}
+
+impl<F, S> From<F> for Prop<Option<Cow<'static, str>>>
+where
+    F: Fn() -> S + 'static,
+    S: Into<Option<Cow<'static, str>>>,
+{
+    fn from(f: F) -> Self {
+        Self::Dynamic(Box::new(move || f().into()))
+    }
+}
+
+impl From<Option<()>> for Prop<Option<Cow<'static, str>>> {
+    fn from(_: Option<()>) -> Self {
+        Prop::None
+    }
+}
+
+pub trait IntoA11yLabel {
+    fn into_prop(self) -> Prop<Option<Cow<'static, str>>>;
+}
+
+impl IntoA11yLabel for () {
+    fn into_prop(self) -> Prop<Option<Cow<'static, str>>> {
+        Prop::None
+    }
+}
+
+impl IntoA11yLabel for &'static str {
+    fn into_prop(self) -> Prop<Option<Cow<'static, str>>> {
+        Prop::Static(Some(Cow::Borrowed(self)))
+    }
+}
+
+impl IntoA11yLabel for String {
+    fn into_prop(self) -> Prop<Option<Cow<'static, str>>> {
+        Prop::Static(Some(Cow::Owned(self)))
+    }
+}
+
+impl IntoA11yLabel for Prop<Option<Cow<'static, str>>> {
+    fn into_prop(self) -> Prop<Option<Cow<'static, str>>> {
+        self
     }
 }
 

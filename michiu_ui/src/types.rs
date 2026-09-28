@@ -1,3 +1,4 @@
+pub mod a11y;
 pub mod animation;
 pub mod callback;
 pub mod color;

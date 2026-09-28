@@ -62,6 +62,7 @@ pub struct CapacityConfig {
     pub edit_selected_rects: usize,
     pub edit_selections: usize,
     pub edit_selection_start_index: usize,
+    pub acce_accessibility: usize,
 }
 
 impl CapacityConfig {
@@ -185,6 +186,7 @@ impl CapacityConfig {
         edit_selected_rects: 0,
         edit_selections: 0,
         edit_selection_start_index: 0,
+        acce_accessibility: 0,
     };
 }
 

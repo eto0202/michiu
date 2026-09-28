@@ -228,7 +228,7 @@ impl ComponentMask {
     pub(crate) const COMP_IMAGE_CONTENT: u128 = 1 << 58;
     pub(crate) const COMP_MOVIE_CONTENT: u128 = 1 << 59;
 
-    pub(crate) const COMP_UIA_CONTENT: u128 = 1 << 60;
+    pub(crate) const COMP_A11Y: u128 = 1 << 60;
 
     pub(crate) const STYLE_FONT_STYLE: u128 = 1 << 61;
 

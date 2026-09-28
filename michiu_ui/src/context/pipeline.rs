@@ -910,6 +910,7 @@ impl Pipeline {
                     &cx.layouts.lay_resolved_basic,
                     &cx.outputs.out_rects,
                     &mut cx.debug,
+                    &cx.acce.acce_accessibility,
                 );
             }
         }

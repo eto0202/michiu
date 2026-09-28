@@ -1,17 +1,22 @@
 use crate::{
-    ActiveMasksSecondary, BasicLayout, ChildrenSecondary, ComponentMask, DEFAULT_BASIC, DebugStore,
-    Display, EntityId, EventListenersSparse, InputContentsSparse, LayoutRect, MichiuSoA, Overflow,
-    RectsSecondary, ResolvedBasicSecondary, TaskSender, TextContentsSparse,
+    ActiveMasksSecondary, CapacityConfig, ChildrenSecondary, ComponentMask, DEFAULT_BASIC,
+    DebugStore, Display, EntityId, EventListenersSparse, InputContentsSparse, MichiuSoA, Overflow,
+    RectsSecondary, ResolvedBasicSecondary, TaskSender, TextContentsSparse, a11y::InferenceTags,
+    define_sparse_secondary,
 };
-pub use accesskit::Role;
 use accesskit::{
-    ActionHandler, ActionRequest, ActivationHandler, Node, NodeId, TreeId, TreeInfo, TreeUpdate,
+    ActionHandler, ActionRequest, ActivationHandler, Node, NodeId, Role, TreeId, TreeInfo,
+    TreeUpdate,
 };
 use accesskit_windows::SubclassingAdapter;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-    mpsc::{Receiver, Sender, channel},
+use slotmap::SparseSecondaryMap;
+use std::{
+    borrow::Cow,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, Sender, channel},
+    },
 };
 use windows::Win32::Foundation::HWND;
 
@@ -38,7 +43,7 @@ pub struct NodeSnapshot {
     pub is_hidden: bool,
 
     /// アクセシブル名・表示テキスト
-    pub name: Option<Box<str>>,
+    pub label: Option<Box<str>>,
     /// 入力値・現在値
     pub value: Option<Box<str>>,
 }
@@ -92,11 +97,14 @@ impl ActivationHandler for MichiuActivationHandler {
     }
 }
 
+define_sparse_secondary!(pub struct AccessibilitySparse((Role, Option<Cow<'static, str>>)));
+
 pub(crate) struct AccessibilityStore {
     pub(crate) acce_worker_sender: Option<Sender<AccessibilitySnapshot>>,
     pub(crate) acce_buffer: Option<Vec<NodeSnapshot>>,
     pub(crate) acce_adapter: Option<SubclassingAdapter>,
     pub(crate) acce_is_active: Arc<AtomicBool>,
+    pub(crate) acce_accessibility: AccessibilitySparse,
 }
 
 impl AccessibilityStore {
@@ -108,7 +116,29 @@ impl AccessibilityStore {
             acce_buffer: None,
             acce_adapter: None,
             acce_is_active: Arc::new(AtomicBool::new(false)),
+            acce_accessibility: AccessibilitySparse(SparseSecondaryMap::new()),
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub(crate) fn with_capacity(c: &CapacityConfig) -> Self {
+        Self {
+            acce_accessibility: AccessibilitySparse(SparseSecondaryMap::with_capacity(
+                c.acce_accessibility,
+            )),
+            ..Default::default()
+        }
+    }
+
+    #[inline]
+    pub(crate) fn clear(&mut self) {
+        self.acce_accessibility.clear();
+    }
+
+    #[inline]
+    pub(crate) fn despawn(&mut self, id: EntityId) {
+        self.acce_accessibility.remove(id);
     }
 
     #[inline]
@@ -126,6 +156,7 @@ impl AccessibilityStore {
                 MichiuActionHandler::new(),
             )),
             acce_is_active: is_active,
+            acce_accessibility: AccessibilitySparse(SparseSecondaryMap::new()),
         }
     }
 
@@ -174,7 +205,7 @@ impl AccessibilityStore {
                     // 詳細な推論は後で
                     if node_data.is_clickable {
                         Role::Button
-                    } else if node_data.name.is_some() {
+                    } else if node_data.label.is_some() {
                         if node_data.value.is_some() {
                             Role::TextInput
                         } else {
@@ -192,7 +223,7 @@ impl AccessibilityStore {
                 let mut node = Node::new(role);
                 node.set_bounds(node_data.bounds);
                 node.set_children(node_data.children);
-                if let Some(name) = node_data.name {
+                if let Some(name) = node_data.label {
                     node.set_label(name);
                 }
                 if let Some(value) = node_data.value {
@@ -266,6 +297,7 @@ impl AccessibilityStore {
         lay_resolved_basic: &ResolvedBasicSecondary,
         out_rects: &RectsSecondary,
         debug: &mut DebugStore,
+        acce_accessibility: &AccessibilitySparse,
     ) {
         let rect = out_rects.find_or_default(id, debug);
         let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
@@ -274,8 +306,10 @@ impl AccessibilityStore {
         let children = topo_children
             .find(id)
             .map_or_else(Vec::new, |c| c.iter().copied().map(Into::into).collect());
-        // ユーザー指定用の配列を用意
-        let role = None;
+
+        let (role, user_label) = acce_accessibility
+            .find(id)
+            .map_or((None, None), |f| (Some(f.0), f.1.clone()));
 
         let mask = topo_active_masks.find_or_default(id, debug);
 
@@ -306,8 +340,10 @@ impl AccessibilityStore {
             false
         };
 
-        // ユーザー指定用の配列を用意
-        let name = if mask.has_text_content() {
+        // 指定がある場合はそれを、無い場合は自身のテキストコンテンツ、それもない場合は子要素のラベル
+        let label = if user_label.is_some() {
+            user_label.map(|f| f.into_owned().into_boxed_str())
+        } else if mask.has_text_content() {
             cont_text_contents.find(id).map(|t| t.as_ref().into())
         } else if let Some(children) = topo_children.find(id) {
             children
@@ -316,7 +352,7 @@ impl AccessibilityStore {
         } else {
             None
         };
-        // ユーザー指定用の配列を用意
+
         let value = if mask.has_input_content() {
             cont_input_contents
                 .find(id)
@@ -341,7 +377,7 @@ impl AccessibilityStore {
             checked,
             is_disabled,
             is_hidden,
-            name,
+            label,
             value,
         });
     }

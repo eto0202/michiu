@@ -1,9 +1,7 @@
-use std::any::TypeId;
-
+use crate::{EntityId, FlatDfsSequenceVec, ParentsSecondary};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-
-use crate::{EntityId, FlatDfsSequenceVec, ParentsSecondary};
+use std::any::TypeId;
 
 /// Registry for Managing Tags
 #[derive(Default, Debug, Clone)]

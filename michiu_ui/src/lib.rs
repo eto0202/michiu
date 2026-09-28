@@ -29,6 +29,7 @@ mod tag;
 mod types;
 mod utils;
 
+pub use a11y;
 pub use bitmap::*;
 pub use context::*;
 pub use element::*;
@@ -43,6 +44,8 @@ pub use types::*;
 pub use utils::*;
 
 pub mod prelude {
+    pub const A11Y_NO_LABEL: crate::Prop<Option<std::borrow::Cow<'static, str>>> =
+        crate::Prop::None;
     pub use crate::{
         bitmap::PropertyList,
         context::{Context, EntityId, MichiuInspector},
@@ -66,4 +69,5 @@ pub mod prelude {
             shadow, spread, text, text_d, ts, use_provided, use_provided_setter, v_flex, v_flex_d,
         },
     };
+    pub use accesskit::Role as role;
 }

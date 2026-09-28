@@ -3,12 +3,13 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
-    ExternalVisual, MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState,
+    ExternalVisual, IntoA11yLabel, MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState,
     ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, UiaValue, Val,
     create_effect, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{ContextState, trace_lifecycle};
+use accesskit::Role;
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -821,78 +822,33 @@ impl Element {
         self
     }
 
-    /// Not implemented
     #[must_use]
-    #[inline]
-    pub fn uia_property(self, property_id: i32, value: impl Into<UiaValue>) -> Self {
-        with_context(|cx| self.uia_property_internal(cx, property_id, value.into()));
-        self
+    pub fn a11y(self, role: impl Into<Prop<Role>>, label: impl IntoA11yLabel) -> Self {
+        let label = match label.into_prop() {
+            Prop::None => None,
+            Prop::Static(l) => l,
+            Prop::Dynamic(f) => f(),
+        };
+        self.bind_prop(role, EffectCategory::Accessibility, move |cx, id, val| {
+            cx.acce.acce_accessibility.insert(id, (val, label.clone()));
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_A11Y);
+            cx.mark_layout_dirty(id);
+        })
     }
 
-    /// Not implemented
     #[must_use]
-    pub fn uia_name(self, name: impl Into<Prop<Cow<'static, str>>>) -> Self {
-        match name.into() {
-            Prop::None => self,
-            Prop::Static(s) => self.uia_property(30005, UiaValue::String(s.into())),
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let s = f();
-                    let el = Element { id };
-                    el.uia_property_internal(cx, 30005, UiaValue::String(s.into()));
-                });
-                with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::UiaName, effect_id);
-                });
-                self
-            }
-        }
-    }
-
-    fn uia_property_internal(self, cx: &mut Context, property_id: i32, value: UiaValue) {
-        if !cx.system.sys_uia_properties.contains_key(self.id) {
-            cx.system.sys_uia_properties.insert(self.id, Vec::new());
-        }
-        let list = cx.system.sys_uia_properties.at_mut(self.id);
-        if let Some(pos) = list.iter().position(|(k, _)| *k == property_id) {
-            list[pos].1 = value;
-        } else {
-            list.push((property_id, value));
-        }
-        cx.topology
-            .topo_active_masks
-            .at_mut(self.id)
-            .set(ComponentMask::COMP_UIA_CONTENT);
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn uia_automation_id(self, id: impl Into<Prop<Cow<'static, str>>>) -> Self {
-        match id.into() {
-            Prop::None => self,
-            Prop::Static(s) => self.uia_property(30011, UiaValue::String(s.into())),
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let s = f();
-                    let el = Element { id };
-                    el.uia_property_internal(cx, 30011, UiaValue::String(s.into()));
-                });
-                with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::UiaAutomationId, effect_id);
-                });
-                self
-            }
-        }
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn uia_control_type(self, control_type_id: i32) -> Self {
-        self.uia_property(30003, control_type_id)
+    pub fn a11y_n(self, role: impl Into<Prop<Role>>) -> Self {
+        self.bind_prop(role, EffectCategory::Accessibility, move |cx, id, val| {
+            cx.acce.acce_accessibility.insert(id, (val, None));
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_A11Y);
+            cx.mark_layout_dirty(id);
+        })
     }
 
     /// スクロールコンテナのスタイル設定に連動し、

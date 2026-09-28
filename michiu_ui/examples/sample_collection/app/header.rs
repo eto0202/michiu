@@ -12,7 +12,11 @@ pub fn header() -> Element {
             .border_bottom(BorderStyle::Solid, 1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     )
-    .children([search_box(), toggle_btn()])
+    .children([
+        search_box(),
+        toggle_btn(),
+    ])
+    .a11y_n(role::Header)
 }
 
 fn search_box() -> Element {
@@ -49,7 +53,8 @@ fn search_box() -> Element {
                 .select_text()
                 .overflow_scroll()
                 .cursor_text()
-        });
+        })
+        .a11y(role::SearchInput, A11Y_NO_LABEL); // A11Y_NO_LABEL or ()
 
     let suffix_element = text("✕")
         .style_d(move |t: &Theme| {
@@ -71,7 +76,8 @@ fn search_box() -> Element {
         .on_click(move || {
             let set_input_text = use_provided_setter::<SearchText>();
             set_input_text.set(SearchText(String::new()));
-        });
+        })
+        .a11y(role::Button, "Clean Button");
 
     input_wrapper.child(text_input).child(suffix_element)
 }
