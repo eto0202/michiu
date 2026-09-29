@@ -2,7 +2,7 @@
 
 use std::borrow::Cow;
 
-use accesskit::Role;
+use accesskit::{Node, Role};
 
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display,
@@ -718,24 +718,63 @@ impl From<String> for Prop<Option<Cow<'static, str>>> {
     }
 }
 
-impl From<Role> for Prop<Role> {
-    fn from(value: Role) -> Self {
+impl From<Option<Role>> for Prop<Option<Role>> {
+    fn from(value: Option<Role>) -> Self {
         Self::Static(value)
     }
 }
 
-impl From<ReadSignal<Role>> for Prop<Role> {
-    fn from(sig: ReadSignal<Role>) -> Self {
+impl From<ReadSignal<Option<Role>>> for Prop<Option<Role>> {
+    fn from(sig: ReadSignal<Option<Role>>) -> Self {
         Self::Dynamic(Box::new(move || sig.get()))
     }
 }
 
-impl<F> From<F> for Prop<Role>
+impl<F> From<F> for Prop<Option<Role>>
 where
-    F: Fn() -> Role + 'static,
+    F: Fn() -> Option<Role> + 'static,
 {
     fn from(f: F) -> Self {
         Self::Dynamic(Box::new(f))
+    }
+}
+
+impl From<Role> for Prop<Option<Role>> {
+    fn from(value: Role) -> Self {
+        Self::Static(Some(value))
+    }
+}
+
+impl From<Option<Node>> for Prop<Option<Node>> {
+    fn from(value: Option<Node>) -> Self {
+        Self::Static(value)
+    }
+}
+
+impl From<ReadSignal<Option<Node>>> for Prop<Option<Node>> {
+    fn from(sig: ReadSignal<Option<Node>>) -> Self {
+        Self::Dynamic(Box::new(move || sig.get()))
+    }
+}
+
+impl<F> From<F> for Prop<Option<Node>>
+where
+    F: Fn() -> Option<Node> + 'static,
+{
+    fn from(f: F) -> Self {
+        Self::Dynamic(Box::new(f))
+    }
+}
+
+impl From<Node> for Prop<Option<Node>> {
+    fn from(value: Node) -> Self {
+        Self::Static(Some(value))
+    }
+}
+
+impl From<()> for Prop<Option<accesskit::Node>> {
+    fn from(_: ()) -> Self {
+        Self::Static(None)
     }
 }
 
@@ -772,34 +811,6 @@ where
 impl From<Option<()>> for Prop<Option<Cow<'static, str>>> {
     fn from(_: Option<()>) -> Self {
         Prop::None
-    }
-}
-
-pub trait IntoA11yLabel {
-    fn into_prop(self) -> Prop<Option<Cow<'static, str>>>;
-}
-
-impl IntoA11yLabel for () {
-    fn into_prop(self) -> Prop<Option<Cow<'static, str>>> {
-        Prop::None
-    }
-}
-
-impl IntoA11yLabel for &'static str {
-    fn into_prop(self) -> Prop<Option<Cow<'static, str>>> {
-        Prop::Static(Some(Cow::Borrowed(self)))
-    }
-}
-
-impl IntoA11yLabel for String {
-    fn into_prop(self) -> Prop<Option<Cow<'static, str>>> {
-        Prop::Static(Some(Cow::Owned(self)))
-    }
-}
-
-impl IntoA11yLabel for Prop<Option<Cow<'static, str>>> {
-    fn into_prop(self) -> Prop<Option<Cow<'static, str>>> {
-        self
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::app::{SearchText, theme::Theme};
-pub use michiu_ui::prelude::*;
+pub use michiu_ui::{Node, Role, prelude::*};
 use std::time::Duration;
 
 pub fn header() -> Element {
@@ -12,11 +12,8 @@ pub fn header() -> Element {
             .border_bottom(BorderStyle::Solid, 1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     )
-    .children([
-        search_box(),
-        toggle_btn(),
-    ])
-    .a11y_n(role::Header)
+    .children([search_box(), toggle_btn()])
+    .a11y_role(Role::Header)
 }
 
 fn search_box() -> Element {
@@ -54,7 +51,7 @@ fn search_box() -> Element {
                 .overflow_scroll()
                 .cursor_text()
         })
-        .a11y(role::SearchInput, A11Y_NO_LABEL); // A11Y_NO_LABEL or ()
+        .a11y_role(Role::SearchInput);
 
     let suffix_element = text("✕")
         .style_d(move |t: &Theme| {
@@ -77,7 +74,7 @@ fn search_box() -> Element {
             let set_input_text = use_provided_setter::<SearchText>();
             set_input_text.set(SearchText(String::new()));
         })
-        .a11y(role::Button, "Clean Button");
+        .a11y_with(Node::new(Role::Button), |n| n.set_label("Clean Button"));
 
     input_wrapper.child(text_input).child(suffix_element)
 }

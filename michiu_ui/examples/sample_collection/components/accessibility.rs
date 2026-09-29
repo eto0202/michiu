@@ -1,15 +1,18 @@
 use michiu_ui::{
+    Node, Role,
     a11y::{self, A11yInferenceTag},
     prelude::*,
 };
 
 pub fn container() -> Element {
-    v_flex(ts().gap(16.0).p(16.0)).children([role_group(), tag_group()])
+    v_flex(ts().gap(16.0).p(16.0))
+        .a11y(Node::new(Role::GenericContainer)) // `a11y` や `a11y_n` は `tag` や `tag_a11y` よりも優先される
+        .children([role_group(), tag_group()])
 }
 
 fn role_group() -> Element {
     v_flex(ts().p(8.0).gap(16.0))
-        .a11y(role::Group, "Role Group") // `a11y` や `a11y_n` は `tag` や `tag_a11y` よりも優先される
+        .a11y_with(Node::new(Role::Group), |n| n.set_label("Role Group"))
         .label("Role", ts())
         .child(h_flex(ts().gap(16.0)).children([
             role_button(),
@@ -25,7 +28,7 @@ fn role_button() -> Element {
         .p(8.0)
         .debug_border_yellow()
         .pressed(ts().debug_border_green()))
-    .a11y_n(role::Button) // label 無しの場合は `a11y_n` を使用できる。
+    .a11y_role(Role::Button)
     .label("Button", ts().font_size(18.0))
 }
 
@@ -75,8 +78,8 @@ fn user_tag_button() -> Element {
 
 struct UserMichiuButton;
 impl A11yInferenceTag for UserMichiuButton {
-    fn inference(_cx: &Context, node: &mut accesskit::Node) {
-        node.set_role(role::Button);
+    fn inference(_cx: &mut Context, _id: accesskit::NodeId, node: &mut accesskit::Node) {
+        node.set_role(Role::Button);
         node.set_label("User Michiu Button");
     }
 }

@@ -1511,6 +1511,7 @@ impl Pipeline {
         });
     }
 
+    #[track_caller]
     #[inline]
     pub(crate) fn handle_accessibility(cx: &mut Context) {
         let _context_guard = bind_context(cx);
@@ -1525,14 +1526,23 @@ impl Pipeline {
         let mut buffer = cx.acce.take_buffer();
         buffer.clear();
 
-        for &id in &cx.topology.topo_flat_dfs_sequence {
+        let count = cx.topology.topo_flat_dfs_sequence.len();
+
+        for i in 0..count {
+            debug_assert!(
+                i < cx.topology.topo_flat_dfs_sequence.len(),
+                "【Michiu A11y Error】Do not delete tree elements inside `inference()`! "
+            );
+
+            let id = cx.topology.topo_flat_dfs_sequence[i];
             let inferences = cx.topology.topo_tag_registry.collect_a11y_inferences(id);
             let user_node = if inferences.is_empty() {
                 None
             } else {
                 let mut node = Node::new(Role::Unknown);
+
                 for inference in inferences {
-                    inference(cx, &mut node);
+                    inference(cx, id.into(), &mut node);
                 }
                 Some(node)
             };
@@ -1552,6 +1562,12 @@ impl Pipeline {
                 &cx.acce.acce_accessibility,
             );
         }
+
+        debug_assert_eq!(
+            cx.topology.topo_flat_dfs_sequence.len(),
+            count,
+            "【Michiu A11y Error】Do not spawn new elements inside `inference()`!"
+        );
 
         // バッファが空ならワーカーへ送らずに保持して抜ける
         if buffer.is_empty() {

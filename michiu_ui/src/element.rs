@@ -3,13 +3,13 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
-    ExternalVisual, IntoA11yLabel, MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState,
+    ExternalVisual, MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState,
     ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, Val,
     a11y::A11yInferenceTag, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{ContextState, trace_lifecycle};
-use accesskit::Role;
+use accesskit::{Node, Role};
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -836,15 +836,11 @@ impl Element {
     /// Sets accessibility roles and labels.
     ///
     /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    #[allow(clippy::unit_arg)]
     #[must_use]
-    pub fn a11y(self, role: impl Into<Prop<Role>>, label: impl IntoA11yLabel) -> Self {
-        let label = match label.into_prop() {
-            Prop::None => None,
-            Prop::Static(l) => l,
-            Prop::Dynamic(f) => f(),
-        };
-        self.bind_prop(role, EffectCategory::Accessibility, move |cx, id, val| {
-            cx.acce.acce_accessibility.insert(id, (val, label.clone()));
+    pub fn a11y(self, node: impl Into<Prop<Option<Node>>>) -> Self {
+        self.bind_prop(node, EffectCategory::Accessibility, move |cx, id, val| {
+            cx.acce.acce_accessibility.insert(id, val);
             cx.topology
                 .topo_active_masks
                 .at_mut(id)
@@ -853,13 +849,36 @@ impl Element {
         })
     }
 
+    /// Sets accessibility roles and labels.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    #[allow(clippy::unit_arg)]
+    #[must_use]
+    pub fn a11y_with<F>(self, node: impl Into<Prop<Option<Node>>>, f: F) -> Self
+    where
+        F: FnOnce(&mut Node),
+    {
+        let mut prop = match node.into() {
+            Prop::None => None,
+            Prop::Static(n) => n,
+            Prop::Dynamic(f) => f(),
+        };
+        
+        if let Some(ref mut n) = prop {
+            f(n);
+        }
+
+        self.a11y(prop)
+    }
+
     /// Sets accessibility roles.
     ///
     /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    #[allow(clippy::unit_arg)]
     #[must_use]
-    pub fn a11y_n(self, role: impl Into<Prop<Role>>) -> Self {
+    pub fn a11y_role(self, role: impl Into<Prop<Option<Role>>>) -> Self {
         self.bind_prop(role, EffectCategory::Accessibility, move |cx, id, val| {
-            cx.acce.acce_accessibility.insert(id, (val, None));
+            cx.acce.acce_accessibility.insert(id, val.map(Node::new));
             cx.topology
                 .topo_active_masks
                 .at_mut(id)
