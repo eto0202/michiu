@@ -31,13 +31,13 @@ fn role_button() -> Element {
 
 fn tag_group() -> Element {
     v_flex(ts().p(8.0).gap(16.0))
-        .tag::<a11y::AAnyGroup>()
+        .tag::<a11y::AContainer>()
         .label("Tag", ts())
         .child(h_flex(ts().gap(16.0)).children([
             tag_button(),
             tag_button(),
             tag_button(),
-            user_tag_input(),
+            user_tag_button(),
         ]))
 }
 
@@ -47,35 +47,36 @@ fn tag_button() -> Element {
         .p(8.0)
         .debug_border_green()
         .pressed(ts().debug_border_red()))
-    .tag_a11y::<a11y::AAnyButton>() // 予約済みのタグを使用する場合、`tag` と `tag_a11y` は同じ
+    .tag_a11y::<a11y::AButton>() // 予約済みのタグを使用する場合、`tag` と `tag_a11y` は同じ
     .label("Button", ts().font_size(18.0))
     .on_click_with(|cx| {
-        let els = cx.query_all::<a11y::AAnyButton>(); // 推論用のタグであっても通常通り使用できる。
+        let els = cx.query_all::<a11y::AButton>(); // 推論用のタグであっても通常通り使用できる。
         for el in els {
             println!("has AAnyButton: {:?}", el.id())
         }
     })
 }
 
-fn user_tag_input() -> Element {
+fn user_tag_button() -> Element {
     div(ts()
         .r(4.0)
         .p(8.0)
         .debug_border_red()
         .pressed(ts().debug_border_blue()))
-    .tag_a11y::<UserMichiuInput>() // 独自の推論用タグを使用する場合は `tag_a11y` で登録する必要がある。
-    .label("Input", ts().font_size(18.0))
+    .tag_a11y::<UserMichiuButton>() // 独自の推論用タグを使用する場合は `tag_a11y` で登録する必要がある。
+    .label("Button", ts().font_size(18.0))
     .on_click_with(|cx| {
-        let els = cx.query_all::<UserMichiuInput>(); // 推論用のタグであっても通常通り使用できる。
+        let els = cx.query_all::<UserMichiuButton>(); // 推論用のタグであっても通常通り使用できる。
         for el in els {
-            println!("has UserMichiuInput: {:?}", el.id())
+            println!("has UserMichiuButton: {:?}", el.id())
         }
     })
 }
 
-struct UserMichiuInput;
-impl A11yInferenceTag for UserMichiuInput {
-    fn inference(node: &mut accesskit::Node) {
-        node.set_role(role::TextInput);
+struct UserMichiuButton;
+impl A11yInferenceTag for UserMichiuButton {
+    fn inference(_cx: &Context, node: &mut accesskit::Node) {
+        node.set_role(role::Button);
+        node.set_label("User Michiu Button");
     }
 }

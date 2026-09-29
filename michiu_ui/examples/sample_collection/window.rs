@@ -138,7 +138,7 @@ unsafe extern "system" fn wnd_proc(
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
-                app.context.handle_accessibility();
+                app.context.update_accessibility();
 
                 app.renderer.draw(&mut app.context);
 

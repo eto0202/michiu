@@ -1,18 +1,18 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, ChildrenSecondary, ComponentMask, DEFAULT_BASIC,
-    DebugStore, Display, EntityId, EventListenersSparse, InputContentsSparse, MichiuSoA,
-    MichiuTagRegistry, Overflow, RectsSecondary, ResolvedBasicSecondary, TaskSender,
-    TextContentsSparse, a11y::InferenceFn, define_sparse_secondary,
+    ActiveInteractionStates, ActiveMasksSecondary, CapacityConfig, ChildrenSecondary,
+    ComponentMask, Context, DEFAULT_BASIC, DebugStore, Display, EntityId, EventListenersSparse,
+    InputContentsSparse, MichiuSoA, MichiuTagRegistry, Overflow, RectsSecondary,
+    ResolvedBasicSecondary, TaskSender, TextContentsSparse, a11y::InferenceFn,
+    define_sparse_secondary,
 };
 use accesskit::{
-    ActionHandler, ActionRequest, ActivationHandler, Node, NodeId, Role, TreeId, TreeInfo,
+    Action, ActionHandler, ActionRequest, ActivationHandler, Node, NodeId, Role, TreeId, TreeInfo,
     TreeUpdate,
 };
 use accesskit_windows::SubclassingAdapter;
 use slotmap::SparseSecondaryMap;
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use std::{
-    any::TypeId,
     borrow::Cow,
     sync::{
         Arc,
@@ -28,8 +28,8 @@ pub struct NodeSnapshot {
     pub id: NodeId,
     /// 直下の子要素リスト
     pub children: Vec<NodeId>,
-    /// 推論用関数
-    pub inferences: SmallVec<[InferenceFn; 1]>,
+    /// ユーザー定義の推論データ
+    pub user_node: Option<Node>,
     /// 画面上の絶対座標
     pub bounds: accesskit::Rect,
     /// ユーザーが明示指定したロール
@@ -37,19 +37,27 @@ pub struct NodeSnapshot {
 
     /// クリックイベントの購読有無
     pub is_clickable: bool,
-    /// テキスト入力可能か
+    /// スクロール可能か
     pub is_scrollable: bool,
     /// チェック状態
     pub checked: Option<bool>,
     /// 無効化フラグ
     pub is_disabled: bool,
+    /// フォーカス可能
+    pub is_focusable: bool,
     /// 非表示フラグ
     pub is_hidden: bool,
+    /// テキスト入力可能か
+    pub is_text: bool,
+    /// 数値入力可能か
+    pub is_numeric: bool,
 
     /// アクセシブル名・表示テキスト
     pub label: Option<Box<str>>,
     /// 入力値・現在値
     pub value: Option<Box<str>>,
+    /// スクロールバー
+    pub scrollbar: bool,
 }
 
 pub struct AccessibilitySnapshot {
@@ -205,34 +213,50 @@ impl AccessibilityStore {
             let mut update_nodes = Vec::with_capacity(snapshot.nodes.len());
 
             for node_data in snapshot.nodes.drain(..) {
-                let role = node_data.role.unwrap_or({
-                    // 詳細な推論は後で
-                    if node_data.is_clickable {
-                        Role::Button
-                    } else if node_data.label.is_some() {
-                        if node_data.value.is_some() {
+                // ユーザー定義があればそれをベースにし、無ければデフォルト推論で作成
+                let mut node = if let Some(user_node) = node_data.user_node {
+                    user_node
+                } else {
+                    let role = node_data.role.unwrap_or({
+                        if node_data.is_clickable {
+                            Role::Button
+                        } else if node_data.value.is_some() {
                             Role::TextInput
-                        } else {
+                        } else if node_data.checked.is_some() {
+                            Role::CheckBox
+                        } else if node_data.label.is_some() {
                             Role::Label
+                        } else {
+                            Role::GenericContainer
                         }
-                    } else if node_data.value.is_some() {
-                        Role::TextInput
-                    } else if node_data.checked.is_some() {
-                        Role::CheckBox
+                    });
+                    Node::new(role)
+                };
+
+                // ユーザーノードの Role が Unknown のままならフォールバック
+                if node.role() == Role::Unknown {
+                    let fallback_role = node_data.role.unwrap_or(if node_data.is_clickable {
+                        Role::Button
                     } else {
                         Role::GenericContainer
-                    }
-                });
+                    });
+                    node.set_role(fallback_role);
+                }
 
-                let mut node = Node::new(role);
                 node.set_bounds(node_data.bounds);
                 node.set_children(node_data.children);
-                if let Some(name) = node_data.label {
+
+                if node.label().is_none()
+                    && let Some(name) = node_data.label
+                {
                     node.set_label(name);
                 }
-                if let Some(value) = node_data.value {
+                if node.value().is_none()
+                    && let Some(value) = node_data.value
+                {
                     node.set_value(value);
                 }
+
                 if node_data.is_disabled {
                     node.set_disabled();
                 }
@@ -240,11 +264,28 @@ impl AccessibilityStore {
                     node.set_hidden();
                 }
                 if node_data.is_clickable {
-                    node.add_action(accesskit::Action::Click);
+                    node.add_action(Action::Click);
                 }
-
-                for inference_fn in node_data.inferences {
-                    inference_fn(&mut node);
+                if node_data.is_focusable {
+                    node.add_action(Action::Focus);
+                }
+                if node_data.is_scrollable {
+                    node.set_role(Role::ScrollView);
+                    node.add_action(Action::ScrollIntoView);
+                }
+                if node_data.scrollbar {
+                    node.set_role(Role::ScrollBar);
+                    node.add_action(Action::Click);
+                }
+                if node_data.is_text {
+                    node.set_role(Role::TextInput);
+                    node.add_action(Action::Click);
+                    node.add_action(Action::Focus);
+                }
+                if node_data.is_numeric {
+                    node.set_role(Role::DateInput);
+                    node.add_action(Action::Click);
+                    node.add_action(Action::Focus);
                 }
 
                 // ユーザーが明示的に role を指定していた場合は最優先
@@ -259,9 +300,11 @@ impl AccessibilityStore {
             window_node.set_children(vec![snapshot.root_id]);
             update_nodes.push((WINDOW_ROOT_ID, window_node));
 
+            let tree = TreeInfo::new(WINDOW_ROOT_ID);
+
             let update = TreeUpdate {
                 nodes: update_nodes,
-                tree: Some(TreeInfo::new(WINDOW_ROOT_ID)),
+                tree: Some(tree),
                 tree_id: TreeId::ROOT,
                 focus: snapshot.focused_id.unwrap_or(WINDOW_ROOT_ID),
             };
@@ -302,9 +345,9 @@ impl AccessibilityStore {
     pub(crate) fn build_accessibility_snapshot(
         buffer: &mut Vec<NodeSnapshot>,
         id: EntityId,
+        user_node: Option<Node>,
         topo_children: &ChildrenSecondary,
         topo_active_masks: &ActiveMasksSecondary,
-        topo_tag_registry: &MichiuTagRegistry,
         evt_listeners: &EventListenersSparse,
         cont_text_contents: &TextContentsSparse,
         cont_input_contents: &InputContentsSparse,
@@ -321,8 +364,6 @@ impl AccessibilityStore {
             .find(id)
             .map_or_else(Vec::new, |c| c.iter().copied().map(Into::into).collect());
 
-        let inferences = topo_tag_registry.collect_a11y_inferences(id);
-
         let (role, user_label) = acce_accessibility
             .find(id)
             .map_or((None, None), |f| (Some(f.0), f.1.clone()));
@@ -334,6 +375,7 @@ impl AccessibilityStore {
         } else {
             false
         };
+
         let is_scrollable = if mask.has(ComponentMask::STYLE_OVERFLOW) {
             matches!(
                 (basic.overflow.x, basic.overflow.y),
@@ -342,6 +384,7 @@ impl AccessibilityStore {
         } else {
             false
         };
+
         let checked = if let Some(l) = listener
             && l.on_select.is_some()
         {
@@ -349,12 +392,16 @@ impl AccessibilityStore {
         } else {
             None
         };
+
         let is_disabled = mask.has(ComponentMask::STATE_DISABLED);
+
         let is_hidden = if mask.has(ComponentMask::STYLE_DISPLAY) {
             basic.display == Display::None
         } else {
             false
         };
+
+        let scrollbar = mask.has(ComponentMask::STYLE_SCROLLBAR);
 
         // 指定がある場合はそれを、無い場合は自身のテキストコンテンツ、それもない場合は子要素のラベル
         let label = if user_label.is_some() {
@@ -369,15 +416,36 @@ impl AccessibilityStore {
             None
         };
 
-        let value = if mask.has_input_content() {
-            cont_input_contents
-                .find(id)
-                .map(|i| i.to_michiu().as_ref().into())
+        let has_input = mask.has_input_content();
+        let mut is_text = false;
+        let mut is_numeric = false;
+        let mut is_focusable = mask.has(ComponentMask::STYLE_FOCUSABLE);
+
+        let value = if has_input {
+            // 入力要素はデフォルトでフォーカス可能
+            is_focusable = true;
+            if let Some(contents) = cont_input_contents.find(id) {
+                if contents.numeric_only {
+                    is_numeric = true;
+                } else {
+                    is_text = true;
+                }
+                Some(contents.to_michiu().as_ref().into())
+            } else {
+                None
+            }
         } else if let Some(children) = topo_children.find(id) {
             children.iter().find_map(|c| {
-                cont_input_contents
-                    .find(*c)
-                    .map(|input| input.to_michiu().as_ref().into())
+                if let Some(contents) = cont_input_contents.find(*c) {
+                    if contents.numeric_only {
+                        is_numeric = true;
+                    } else {
+                        is_text = true;
+                    }
+                    Some(contents.to_michiu().as_ref().into())
+                } else {
+                    None
+                }
             })
         } else {
             None
@@ -386,6 +454,7 @@ impl AccessibilityStore {
         buffer.push(NodeSnapshot {
             id: id.into(),
             children,
+            user_node,
             bounds: rect.into(),
             role,
             is_clickable,
@@ -395,7 +464,10 @@ impl AccessibilityStore {
             is_hidden,
             label,
             value,
-            inferences,
+            is_focusable,
+            is_text,
+            is_numeric,
+            scrollbar,
         });
     }
 }

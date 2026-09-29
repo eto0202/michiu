@@ -151,6 +151,34 @@ impl ThisStyle {
         self.border_solid(1.0).border_color(Color::YELLOW)
     }
 
+    /// Set the outline to a width 1.0, solid and Red.
+    #[inline]
+    #[must_use]
+    pub fn debug_outline_red(self) -> Self {
+        self.outline_solid(1.0).outline_color(Color::RED)
+    }
+
+    /// Set the outline to a width 1.0, solid and Bule.
+    #[inline]
+    #[must_use]
+    pub fn debug_outline_blue(self) -> Self {
+        self.outline_solid(1.0).outline_color(Color::BLUE)
+    }
+
+    /// Set the outline to a width 1.0, solid and Green.
+    #[inline]
+    #[must_use]
+    pub fn debug_outline_green(self) -> Self {
+        self.outline_solid(1.0).outline_color(Color::GREEN)
+    }
+
+    /// Set the outline to a width 1.0, solid and Yellow.
+    #[inline]
+    #[must_use]
+    pub fn debug_outline_yellow(self) -> Self {
+        self.outline_solid(1.0).outline_color(Color::YELLOW)
+    }
+
     /// Set the [`Display`] (Block, Flex, Grid, None).
     ///
     /// Default is [`Display::Flex`].

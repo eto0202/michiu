@@ -820,8 +820,9 @@ impl Context {
         Pipeline::sync_layout(self, root, window_size);
     }
 
+    /// Update accessibility. This must be called after the layout is calculated.
     #[inline]
-    pub fn handle_accessibility(&mut self) {
+    pub fn update_accessibility(&mut self) {
         Pipeline::handle_accessibility(self);
     }
 

@@ -21,6 +21,7 @@ use crate::{
     DirtyReason, FlatBufferTrace, FrameKinds, InstanceKinds, LayoutStage, MichiuTrace, RenderStage,
     RendererViewTrace, trace_lifecycle,
 };
+use accesskit::{Node, Role};
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
 #[cfg(feature = "trace-lifecycle")]
@@ -896,28 +897,6 @@ impl Pipeline {
             }
         }
 
-        // アクセシビリティ用のデータをバッファに詰める
-        if cx.acce.is_active()
-            && let Some(buffer) = &mut cx.acce.acce_buffer
-        {
-            for &id in &cx.topology.topo_flat_dfs_sequence {
-                AccessibilityStore::build_accessibility_snapshot(
-                    buffer,
-                    id,
-                    &cx.topology.topo_children,
-                    &cx.topology.topo_active_masks,
-                    &cx.topology.topo_tag_registry,
-                    &cx.events.evt_listeners,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_input_contents,
-                    &cx.layouts.lay_resolved_basic,
-                    &cx.outputs.out_rects,
-                    &mut cx.debug,
-                    &cx.acce.acce_accessibility,
-                );
-            }
-        }
-
         #[cfg(feature = "trace-lifecycle")]
         trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
             stage: LayoutStage::SyncScrollOffsets,
@@ -1534,6 +1513,8 @@ impl Pipeline {
 
     #[inline]
     pub(crate) fn handle_accessibility(cx: &mut Context) {
+        let _context_guard = bind_context(cx);
+
         if !cx.acce.is_active() {
             return;
         }
@@ -1541,7 +1522,37 @@ impl Pipeline {
         cx.acce
             .ensure_worker_spawned(cx.system.sys_task_sender.clone());
 
-        let buffer = cx.acce.take_buffer();
+        let mut buffer = cx.acce.take_buffer();
+        buffer.clear();
+
+        for &id in &cx.topology.topo_flat_dfs_sequence {
+            let inferences = cx.topology.topo_tag_registry.collect_a11y_inferences(id);
+            let user_node = if inferences.is_empty() {
+                None
+            } else {
+                let mut node = Node::new(Role::Unknown);
+                for inference in inferences {
+                    inference(cx, &mut node);
+                }
+                Some(node)
+            };
+
+            AccessibilityStore::build_accessibility_snapshot(
+                &mut buffer,
+                id,
+                user_node,
+                &cx.topology.topo_children,
+                &cx.topology.topo_active_masks,
+                &cx.events.evt_listeners,
+                &cx.contents.cont_text_contents,
+                &cx.contents.cont_input_contents,
+                &cx.layouts.lay_resolved_basic,
+                &cx.outputs.out_rects,
+                &mut cx.debug,
+                &cx.acce.acce_accessibility,
+            );
+        }
+
         // バッファが空ならワーカーへ送らずに保持して抜ける
         if buffer.is_empty() {
             cx.acce.acce_buffer = Some(buffer);

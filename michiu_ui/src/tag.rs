@@ -1,6 +1,6 @@
 use crate::{
     EntityId, FlatDfsSequenceVec, ParentsSecondary,
-    a11y::{InferenceFn, A11yInferenceTag},
+    a11y::{A11yInferenceTag, InferenceFn},
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
