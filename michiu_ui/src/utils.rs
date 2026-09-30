@@ -294,6 +294,9 @@ pub struct Percent(pub f32);
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Auto;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stretch;
+
 /// Generates actual values.
 #[inline]
 #[must_use]
@@ -313,6 +316,13 @@ pub fn pct(val: f32) -> Percent {
 #[must_use]
 pub fn auto() -> Auto {
     Auto
+}
+
+/// Generate `Stretch`
+#[inline]
+#[must_use]
+pub fn fill() -> Stretch {
+    Stretch
 }
 
 /// Copies text to the `Win32API` clipboard.

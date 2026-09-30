@@ -16,12 +16,12 @@ impl InputContentsSparse {
     pub(crate) fn measure_content<F>(
         &mut self,
         id: EntityId,
-        known_dims: taffy::Size<Option<f32>>,
+        known_dimensions: taffy::Size<Option<f32>>,
         available_space: taffy::Size<taffy::AvailableSpace>,
         topo_active_masks: &ActiveMasksSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         measure_text: F,
-    ) -> taffy::Size<f32>
+    ) -> taffy::LayoutOutput
     where
         F: FnOnce(bool, Option<f32>) -> TextLayoutSize,
     {
@@ -39,17 +39,17 @@ impl InputContentsSparse {
 
         // キャッシュがなく、かつテキストも持たない場合
         if last_layout.is_none() && !has_text {
-            return taffy::Size {
-                width: known_dims.width.unwrap_or(0.0),
-                height: known_dims.height.unwrap_or(0.0),
-            };
+            return taffy::LayoutOutput::from_outer_size(taffy::Size {
+                width: known_dimensions.width.unwrap_or(0.0),
+                height: known_dimensions.height.unwrap_or(0.0),
+            });
         }
 
         // 折り返し設定と最大幅
         let auto_wrap = rnd_visual.auto_wrap(id);
 
         let max_width = if auto_wrap {
-            known_dims.width.or({
+            known_dimensions.width.or({
                 if let taffy::AvailableSpace::Definite(w) = available_space.width {
                     Some(w)
                 } else {
@@ -63,29 +63,29 @@ impl InputContentsSparse {
         // 自動折り返しがない（1行入力、または折り返し無効の複数行）場合
         // 文字が変わらない限りサイズは絶対に変わらないので、前回のサイズを即座に返す
         if !auto_wrap && let Some(layout) = last_layout {
-            return taffy::Size {
-                width: known_dims.width.unwrap_or(layout.width),
-                height: known_dims.height.unwrap_or(layout.height),
-            };
+            return taffy::LayoutOutput::from_outer_size(taffy::Size {
+                width: known_dimensions.width.unwrap_or(layout.width),
+                height: known_dimensions.height.unwrap_or(layout.height),
+            });
         }
 
         // キャッシュが存在し、かつ幅が変わっていない場合
         if let Some(layout) = last_layout {
             // 制限幅が確定していない、または前回計測時と同じなら再利用
             if max_width.is_none() {
-                return taffy::Size {
-                    width: known_dims.width.unwrap_or(layout.width),
-                    height: known_dims.height.unwrap_or(layout.height),
-                };
+                return taffy::LayoutOutput::from_outer_size(taffy::Size {
+                    width: known_dimensions.width.unwrap_or(layout.width),
+                    height: known_dimensions.height.unwrap_or(layout.height),
+                });
             }
         }
 
         // キャッシュが無効（幅が変更された）で、かつテキストを持たない場合
         if !has_text {
-            return taffy::Size {
-                width: known_dims.width.unwrap_or(0.0),
-                height: known_dims.height.unwrap_or(0.0),
-            };
+            return taffy::LayoutOutput::from_outer_size(taffy::Size {
+                width: known_dimensions.width.unwrap_or(0.0),
+                height: known_dimensions.height.unwrap_or(0.0),
+            });
         }
 
         let size = measure_text(auto_wrap, max_width);
@@ -98,10 +98,11 @@ impl InputContentsSparse {
         }
 
         // 文字のみのサイズを返す
-        taffy::Size {
-            width: known_dims.width.unwrap_or(size.width),
-            height: known_dims.height.unwrap_or(size.height),
-        }
+
+        taffy::LayoutOutput::from_outer_size(taffy::Size {
+            width: known_dimensions.width.unwrap_or(size.width),
+            height: known_dimensions.height.unwrap_or(size.height),
+        })
     }
 }
 

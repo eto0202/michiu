@@ -1,11 +1,13 @@
 #![allow(clippy::cast_precision_loss)]
 
+use taffy::{ExpandedDimension, ExpandedLengthPercentage, ExpandedLengthPercentageAuto};
+
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display,
     Element, FlexDirection, FlexWrap, FocusTrigger, Focusable, GridAutoFlow, GridLine,
     GridPlacement, InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length,
     LinearGradient, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size,
-    StyleValue, TextAlign, ThisStyle, Transform, Val, WebView2Contents,
+    Stretch, StyleValue, TextAlign, ThisStyle, Transform, Val, WebView2Contents,
 };
 use std::borrow::Cow;
 
@@ -145,10 +147,10 @@ impl From<Length> for taffy::LengthPercentage {
 impl From<taffy::LengthPercentage> for Length {
     #[inline]
     fn from(t: taffy::style::LengthPercentage) -> Self {
-        let raw = t.into_raw();
-        match raw.tag() {
-            2 => Self::Percent(raw.value() * 100.0),
-            _ => Self::Px(raw.value()), // calc等未対応のものはPxにフォールバック
+        match t.expand() {
+            ExpandedLengthPercentage::Percent(v) => Self::Percent(v * 100.0),
+            ExpandedLengthPercentage::Length(v) => Self::Px(v),
+            ExpandedLengthPercentage::Calc(_) => Self::Px(0.0),
         }
     }
 }
@@ -167,6 +169,7 @@ impl From<Val> for taffy::Dimension {
             Val::Auto => Self::auto(),
             Val::Px(v) => Self::length(v),
             Val::Percent(v) => Self::percent(v / 100.0),
+            Val::Stretch => Self::stretch(),
         }
     }
 }
@@ -174,14 +177,11 @@ impl From<Val> for taffy::Dimension {
 impl From<taffy::Dimension> for Val {
     #[inline]
     fn from(t: taffy::Dimension) -> Self {
-        let raw = t.into_raw();
-        if raw.is_auto() {
-            Self::Auto
-        } else {
-            match raw.tag() {
-                2 => Self::Percent(raw.value() * 100.0),
-                _ => Self::Px(raw.value()),
-            }
+        match t.expand() {
+            ExpandedDimension::Percent(v) => Self::Percent(v * 100.0),
+            ExpandedDimension::Length(v) => Self::Px(v),
+            ExpandedDimension::Stretch => Self::Stretch,
+            _ => Self::Auto,
         }
     }
 }
@@ -190,7 +190,7 @@ impl From<Val> for taffy::LengthPercentage {
     #[inline]
     fn from(val: Val) -> Self {
         match val {
-            Val::Auto => Self::length(0.0),
+            Val::Auto | Val::Stretch => Self::length(0.0),
             Val::Px(v) => Self::length(v),
             Val::Percent(v) => Self::percent(v / 100.0),
         }
@@ -200,14 +200,10 @@ impl From<Val> for taffy::LengthPercentage {
 impl From<taffy::LengthPercentage> for Val {
     #[inline]
     fn from(t: taffy::LengthPercentage) -> Self {
-        let raw = t.into_raw();
-        if raw.is_auto() {
-            Self::Auto
-        } else {
-            match raw.tag() {
-                2 => Self::Percent(raw.value() * 100.0),
-                _ => Self::Px(raw.value()),
-            }
+        match t.expand() {
+            ExpandedLengthPercentage::Percent(v) => Self::Percent(v * 100.0),
+            ExpandedLengthPercentage::Length(v) => Self::Px(v),
+            _ => Self::Auto,
         }
     }
 }
@@ -216,7 +212,7 @@ impl From<Val> for taffy::LengthPercentageAuto {
     #[inline]
     fn from(val: Val) -> Self {
         match val {
-            Val::Auto => Self::auto(),
+            Val::Auto | Val::Stretch => Self::auto(),
             Val::Px(v) => Self::length(v),
             Val::Percent(v) => Self::percent(v / 100.0),
         }
@@ -226,14 +222,10 @@ impl From<Val> for taffy::LengthPercentageAuto {
 impl From<taffy::LengthPercentageAuto> for Val {
     #[inline]
     fn from(t: taffy::LengthPercentageAuto) -> Self {
-        let raw = t.into_raw();
-        if raw.is_auto() {
-            Self::Auto
-        } else {
-            match raw.tag() {
-                2 => Self::Percent(raw.value() * 100.0),
-                _ => Self::Px(raw.value()),
-            }
+        match t.expand() {
+            ExpandedLengthPercentageAuto::Percent(v) => Self::Percent(v * 100.0),
+            ExpandedLengthPercentageAuto::Length(v) => Self::Px(v),
+            _ => Self::Auto,
         }
     }
 }
@@ -256,7 +248,7 @@ impl From<taffy::Display> for Display {
         match t {
             taffy::Display::Flex => Self::Flex,
             taffy::Display::Grid => Self::Grid,
-            taffy::Display::Block => Self::Block,
+            taffy::Display::Block | taffy::Display::FlowRoot => Self::Block,
             taffy::Display::None => Self::None,
         }
     }
@@ -397,6 +389,8 @@ impl From<FlexWrap> for taffy::FlexWrap {
             FlexWrap::NoWrap => Self::NoWrap,
             FlexWrap::Wrap => Self::Wrap,
             FlexWrap::WrapReverse => Self::WrapReverse,
+            FlexWrap::Balance => Self::Balance,
+            FlexWrap::BalanceReverse => Self::BalanceReverse,
         }
     }
 }
@@ -408,6 +402,8 @@ impl From<taffy::FlexWrap> for FlexWrap {
             taffy::FlexWrap::NoWrap => Self::NoWrap,
             taffy::FlexWrap::Wrap => Self::Wrap,
             taffy::FlexWrap::WrapReverse => Self::WrapReverse,
+            taffy::FlexWrap::Balance => Self::Balance,
+            taffy::FlexWrap::BalanceReverse => Self::BalanceReverse,
         }
     }
 }
@@ -428,6 +424,8 @@ impl From<AlignItems> for taffy::AlignItems {
             AlignItems::SafeFlexStart => Self::SAFE_FLEX_START,
             AlignItems::SafeFlexEnd => Self::SAFE_FLEX_END,
             AlignItems::SafeCenter => Self::SAFE_CENTER,
+            AlignItems::SelfStart => Self::SELF_START,
+            AlignItems::SelfEnd => Self::SELF_END,
         }
     }
 }
@@ -447,6 +445,8 @@ impl From<taffy::AlignItems> for AlignItems {
             taffy::AlignItems::SAFE_FLEX_START => Self::SafeFlexStart,
             taffy::AlignItems::SAFE_FLEX_END => Self::SafeFlexEnd,
             taffy::AlignItems::SAFE_CENTER => Self::SafeCenter,
+            taffy::AlignItems::SELF_START => Self::SelfStart,
+            taffy::AlignItems::SELF_END => Self::SelfEnd,
             _ => Self::Stretch,
         }
     }
@@ -468,6 +468,8 @@ impl From<AlignSelf> for taffy::AlignSelf {
             AlignSelf::SafeFlexStart => Self::SAFE_FLEX_START,
             AlignSelf::SafeFlexEnd => Self::SAFE_FLEX_END,
             AlignSelf::SafeCenter => Self::SAFE_CENTER,
+            AlignSelf::SelfStart => Self::SELF_START,
+            AlignSelf::SelfEnd => Self::SELF_END,
         }
     }
 }
@@ -487,6 +489,8 @@ impl From<taffy::style::AlignSelf> for AlignSelf {
             taffy::AlignSelf::SAFE_FLEX_START => Self::SafeFlexStart,
             taffy::AlignSelf::SAFE_FLEX_END => Self::SafeFlexEnd,
             taffy::AlignSelf::SAFE_CENTER => Self::SafeCenter,
+            taffy::AlignSelf::SELF_START => Self::SelfStart,
+            taffy::AlignSelf::SELF_END => Self::SelfEnd,
             _ => Self::Stretch,
         }
     }
@@ -1016,6 +1020,15 @@ where
     }
 }
 
+impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Stretch
+where
+    Stretch: IntoRect<T>,
+{
+    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+        StyleValue::Static(self.into_rect())
+    }
+}
+
 impl<V, H, T> IntoStyleRect<T> for (V, H)
 where
     (V, H): IntoRect<T> + Send + Sync + 'static,
@@ -1097,6 +1110,15 @@ where
     }
 }
 
+impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Stretch
+where
+    Stretch: IntoSize<T>,
+{
+    fn into_style_size(self) -> StyleValue<Size<T>> {
+        StyleValue::Static(self.into_size())
+    }
+}
+
 impl<W, H, T> IntoStyleSize<T> for (W, H)
 where
     (W, H): IntoSize<T> + Send + Sync + 'static,
@@ -1162,6 +1184,15 @@ where
 impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Auto
 where
     Auto: IntoPoint<T>,
+{
+    fn into_style_point(self) -> StyleValue<Point<T>> {
+        StyleValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Stretch
+where
+    Stretch: IntoPoint<T>,
 {
     fn into_style_point(self) -> StyleValue<Point<T>> {
         StyleValue::Static(self.into_point())
@@ -1259,6 +1290,12 @@ impl IntoStyleConvert<Val> for Percent {
     }
 }
 impl IntoStyleConvert<Val> for Auto {
+    fn into_style_convert(self) -> StyleValue<Val> {
+        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+
+impl IntoStyleConvert<Val> for Stretch {
     fn into_style_convert(self) -> StyleValue<Val> {
         StyleValue::Static(<Self as Convert<Val>>::convert(self))
     }
@@ -1620,6 +1657,12 @@ impl Convert<Val> for Auto {
         Val::Auto
     }
 }
+impl Convert<Val> for Stretch {
+    #[inline]
+    fn convert(self) -> Val {
+        Val::Stretch
+    }
+}
 
 impl Convert<Length> for f32 {
     #[inline]
@@ -1736,6 +1779,21 @@ where
     }
 }
 
+impl<T> IntoSize<T> for Stretch
+where
+    Stretch: Convert<T>,
+    T: Clone,
+{
+    #[inline]
+    fn into_size(self) -> Size<T> {
+        let v = self.convert();
+        Size {
+            width: v.clone(),
+            height: v,
+        }
+    }
+}
+
 // 2連タプル (width, height)
 impl<W, H, T> IntoSize<T> for (W, H)
 where
@@ -1826,6 +1884,23 @@ where
 impl<T> IntoRect<T> for Auto
 where
     Auto: Convert<T> + Clone,
+    T: Clone,
+{
+    #[inline]
+    fn into_rect(self) -> Rect<T> {
+        let val = self.convert();
+        Rect {
+            top: val.clone(),
+            right: val.clone(),
+            bottom: val.clone(),
+            left: val,
+        }
+    }
+}
+
+impl<T> IntoRect<T> for Stretch
+where
+    Stretch: Convert<T> + Clone,
     T: Clone,
 {
     #[inline]

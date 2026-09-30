@@ -168,6 +168,25 @@ impl OutputStore {
                 let r = out_rects.find_or_default(id, debug);
                 if is_width { r.width } else { r.height }
             }
+            Val::Stretch => {
+                // すでに Taffy が計算した前フレームの結果があればそれを最優先
+                if let Some(r) = out_rects.find(id) {
+                    return if is_width { r.width } else { r.height };
+                }
+
+                // 初回などでまだ確定値がない場合は、親要素のサイズ（100%）を仮サイズにする
+                let parent_size = topo_parents
+                    .at(id)
+                    .and_then(|p_id| out_rects.find(p_id))
+                    .map(|r| LayoutSize::new(r.width, r.height));
+
+                let ref_size = parent_size.or(win_last_size).unwrap_or_default();
+                if is_width {
+                    ref_size.width
+                } else {
+                    ref_size.height
+                }
+            }
         }
     }
 

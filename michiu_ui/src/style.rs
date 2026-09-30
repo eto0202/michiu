@@ -1,17 +1,8 @@
 use crate::{
-    AlignContent, AlignItems, AlignSelf, AnimationCurve, Backdrop, BasicLayout, BorderAlignment,
-    BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
-    CursorIcon, Direction, Display, DndDragPayload, DndDragPlaceholderParent, DndDragProperty,
-    DndDropProperty, DndDropTarget, EdgeInsets, EntityId, FlexDirection, FlexLayout, FlexWrap,
-    FocusTrigger, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement,
-    InteractionName, InteractionStyles, IntoStyleConvert, IntoStyleCornerRadius, IntoStylePoint,
-    IntoStyleRect, IntoStyleResizable, IntoStyleSize, IntoStyleValue, JustifyContent,
-    KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LinearGradient, MichiuSoA, Overflow,
-    PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
-    TargetStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, pct,
+    AlignContent, AlignItems, AlignSelf, AnimationCurve, Backdrop, BasicLayout, BorderAlignment, BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius, CursorIcon, Direction, Display, DndDragPayload, DndDragPlaceholderParent, DndDragProperty, DndDropProperty, DndDropTarget, EdgeInsets, EntityId, FlexDirection, FlexLayout, FlexWrap, FocusTrigger, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement, InteractionName, InteractionStyles, IntoStyleConvert, IntoStyleCornerRadius, IntoStylePoint, IntoStyleRect, IntoStyleResizable, IntoStyleSize, IntoStyleValue, JustifyContent, KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LinearGradient, MichiuSoA, Overflow, PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, fill, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
-use taffy::{GridTemplateArea, GridTemplateComponent, TrackSizingFunction};
+use taffy::{GridTemplateAreas, GridTemplateComponent, TrackSizingFunction};
 
 // スレッド安全な動的クロージャをサポートする `StyleValue` の定義
 pub enum StyleValue<T> {
@@ -950,6 +941,13 @@ impl ThisStyle {
         self.size(auto())
     }
 
+    /// Set both the width and height of the element to Stretch.
+    #[inline]
+    #[must_use]
+    pub fn size_fill(self) -> Self {
+        self.size(fill())
+    }
+
     /// Sets only the width of the element (the height will retain its existing value).
     #[inline]
     #[must_use]
@@ -1000,6 +998,13 @@ impl ThisStyle {
         self.width(auto())
     }
 
+    /// Set the width of the element to Stretch.
+    #[inline]
+    #[must_use]
+    pub fn w_fill(self) -> Self {
+        self.width(fill())
+    }
+
     /// Sets only the height of the element (the width will retain its existing value).
     #[inline]
     #[must_use]
@@ -1048,6 +1053,13 @@ impl ThisStyle {
     #[must_use]
     pub fn h_auto(self) -> Self {
         self.height(auto())
+    }
+
+    /// Set the height of the element to Stretch.
+    #[inline]
+    #[must_use]
+    pub fn h_fill(self) -> Self {
+        self.height(fill())
     }
 
     /// Set the minimum size.
@@ -1340,6 +1352,13 @@ impl ThisStyle {
     #[must_use]
     pub fn m_auto(self) -> Self {
         self.margin(auto())
+    }
+
+    /// Sets the outer margin Stretch
+    #[inline]
+    #[must_use]
+    pub fn m_fill(self) -> Self {
+        self.margin(fill())
     }
 
     /// Sets the left and right outer margins (margin-left, margin-right) all at once.
@@ -2795,6 +2814,20 @@ impl ThisStyle {
         self.align_items(AlignItems::SafeCenter)
     }
 
+    /// Sets the arrangement of cross axes within the container to  [`AlignItems::SelfStart`].
+    #[inline]
+    #[must_use]
+    pub fn items_self_start(self) -> Self {
+        self.align_items(AlignItems::SelfStart)
+    }
+
+    /// Sets the arrangement of cross axes within the container to a [`AlignItems::SelfEnd`].
+    #[inline]
+    #[must_use]
+    pub fn items_self_end(self) -> Self {
+        self.align_items(AlignItems::SelfEnd)
+    }
+
     /// Sets the cross axis alignment of individual elements.
     ///
     /// Default is [`AlignSelf::Stretch`]
@@ -2909,6 +2942,20 @@ impl ThisStyle {
     #[must_use]
     pub fn self_center_safe(self) -> Self {
         self.align_self(AlignSelf::SafeCenter)
+    }
+
+    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::SelfStart`].
+    #[inline]
+    #[must_use]
+    pub fn self_self_start(self) -> Self {
+        self.align_self(AlignSelf::SelfStart)
+    }
+
+    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::SelfEnd`].
+    #[inline]
+    #[must_use]
+    pub fn self_self_end(self) -> Self {
+        self.align_self(AlignSelf::SelfEnd)
     }
 
     /// Sets the central axis placement within the container.
@@ -3419,6 +3466,13 @@ impl ThisStyle {
         self.gap(auto())
     }
 
+    /// Sets the spacing between child elements in the row and column directions to stretch.
+    #[inline]
+    #[must_use]
+    pub fn gap_fill(self) -> Self {
+        self.gap(fill())
+    }
+
     /// Sets the row-gap (vertical) spacing between child elements.
     #[inline]
     #[must_use]
@@ -3651,6 +3705,20 @@ impl ThisStyle {
         self.flex_wrap_internal(FlexWrap::WrapReverse)
     }
 
+    /// Sets whether child elements are wrapped to multiple lines to  [`FlexWrap::Balance`].
+    #[inline]
+    #[must_use]
+    pub fn flex_wrap_balance(self) -> Self {
+        self.flex_wrap_internal(FlexWrap::Balance)
+    }
+
+    /// Sets whether child elements are wrapped to multiple lines to  [`FlexWrap::BalanceReverse`].
+    #[inline]
+    #[must_use]
+    pub fn flex_wrap_balance_reverse(self) -> Self {
+        self.flex_wrap_internal(FlexWrap::BalanceReverse)
+    }
+
     /// Sets the base dimensions that serve as the basis for the child elements.
     #[inline]
     #[must_use]
@@ -3686,6 +3754,13 @@ impl ThisStyle {
     #[must_use]
     pub fn basis_auto(self) -> Self {
         self.basis(auto())
+    }
+
+    /// Sets the base dimensions that serve as the basis for the child elements to stretch.
+    #[inline]
+    #[must_use]
+    pub fn basis_fill(self) -> Self {
+        self.basis(fill())
     }
 
     /// Sets the base dimensions that serve as the basis for the child elements to 100%.
@@ -4527,7 +4602,7 @@ impl ThisStyle {
     #[must_use]
     pub fn grid_template_areas(
         mut self,
-        value: impl IntoStyleValue<Vec<GridTemplateArea<String>>>,
+        value: impl IntoStyleValue<Option<GridTemplateAreas<String>>>,
     ) -> Self {
         match value.into_style_value() {
             StyleValue::Static(v) => {

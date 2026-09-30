@@ -115,6 +115,7 @@ impl Length {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Val {
     Auto,
+    Stretch,
     Px(f32),
     Percent(f32),
 }
@@ -124,6 +125,12 @@ impl Val {
     #[must_use]
     pub fn auto() -> Self {
         Self::Auto
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn fill() -> Self {
+        Self::Stretch
     }
 
     #[inline]

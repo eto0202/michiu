@@ -220,7 +220,7 @@ pub struct GridLayout {
     pub grid_auto_rows: Vec<taffy::TrackSizingFunction>,
     pub grid_auto_columns: Vec<taffy::TrackSizingFunction>,
     pub grid_auto_flow: GridAutoFlow,
-    pub grid_template_areas: Vec<taffy::GridTemplateArea<String>>,
+    pub grid_template_areas: Option<taffy::GridTemplateAreas<String>>,
     pub grid_template_column_names: Vec<Vec<String>>,
     pub grid_template_row_names: Vec<Vec<String>>,
     pub grid_row: GridLine<GridPlacement<String>>,
@@ -239,7 +239,7 @@ impl Default for GridLayout {
             grid_auto_rows: Vec::new(),
             grid_auto_columns: Vec::new(),
             grid_auto_flow: GridAutoFlow::Row,
-            grid_template_areas: Vec::new(),
+            grid_template_areas: None,
             grid_template_column_names: Vec::new(),
             grid_template_row_names: Vec::new(),
             grid_row: GridLine {
