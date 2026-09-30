@@ -5,9 +5,6 @@ use crate::{
     QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue, TextSpan,
     TextureAtlas, Vertex, VisualProperty, trace_lifecycle,
 };
-use raw_window_handle::{
-    RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle,
-};
 use rustc_hash::FxHashMap;
 use slotmap::SecondaryMap;
 use std::collections::HashMap;
