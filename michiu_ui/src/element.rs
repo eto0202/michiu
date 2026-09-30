@@ -3,12 +3,13 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
-    ExternalVisual, MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState,
-    ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, UiaValue, Val,
-    create_effect, div_n, trace_error,
+    ExternalVisual, IntoOptionProp, MichiuError, MichiuSoA, MichiuTrace, ReadSignal,
+    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, Val,
+    a11y::A11yInferenceTag, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{ContextState, trace_lifecycle};
+use accesskit::{Node, Role};
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -223,6 +224,17 @@ impl Element {
     #[must_use]
     pub fn tag<T: 'static>(self) -> Self {
         with_context(|cx| cx.tag::<T>(self));
+        self
+    }
+
+    /// Configure the user-defined `A11yInferenceTag` used when building the accessibility tree.
+    ///
+    /// `A11yInferenceTag` overrides only the default inferences.
+    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    #[inline]
+    #[must_use]
+    pub fn tag_a11y<T: A11yInferenceTag + 'static>(self) -> Self {
+        with_context(|cx| cx.tag_a11y::<T>(self));
         self
     }
 
@@ -821,78 +833,70 @@ impl Element {
         self
     }
 
-    /// Not implemented
+    /// Sets accessibility roles and labels.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    #[allow(clippy::unit_arg)]
     #[must_use]
-    #[inline]
-    pub fn uia_property(self, property_id: i32, value: impl Into<UiaValue>) -> Self {
-        with_context(|cx| self.uia_property_internal(cx, property_id, value.into()));
-        self
+    pub fn a11y<M>(self, node: impl IntoOptionProp<Node, M>) -> Self {
+        let prop = node.into_option_prop();
+        self.bind_prop(prop, EffectCategory::Accessibility, move |cx, id, val| {
+            cx.acce.acce_accessibility.insert(id, val);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_A11Y);
+            cx.mark_layout_dirty(id);
+        })
     }
 
-    /// Not implemented
+    /// Sets accessibility roles and labels.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    #[allow(clippy::unit_arg)]
     #[must_use]
-    pub fn uia_name(self, name: impl Into<Prop<Cow<'static, str>>>) -> Self {
-        match name.into() {
-            Prop::None => self,
-            Prop::Static(s) => self.uia_property(30005, UiaValue::String(s.into())),
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let s = f();
-                    let el = Element { id };
-                    el.uia_property_internal(cx, 30005, UiaValue::String(s.into()));
-                });
-                with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::UiaName, effect_id);
-                });
-                self
-            }
-        }
+    pub fn a11y_with<M, F>(self, node: impl IntoOptionProp<Node, M>, f: F) -> Self
+    where
+        F: Fn(&mut Node) + 'static,
+    {
+        let prop = match node.into_option_prop() {
+            Prop::None => Prop::None,
+            // node 自体は静的だが、クロージャ f 内部で Signal を読む可能性がある場合
+            Prop::Static(base) => Prop::Dynamic(Box::new(move || {
+                let mut n = base.clone();
+                if let Some(ref mut node) = n {
+                    f(node);
+                }
+                n
+            })),
+            // node 自体も動的で、さらにクロージャ f 内でも Signal を読む場合
+            Prop::Dynamic(dyn_fn) => Prop::Dynamic(Box::new(move || {
+                let mut n = dyn_fn();
+                if let Some(ref mut node) = n {
+                    f(node);
+                }
+                n
+            })),
+        };
+
+        self.a11y(prop)
     }
 
-    fn uia_property_internal(self, cx: &mut Context, property_id: i32, value: UiaValue) {
-        if !cx.system.sys_uia_properties.contains_key(self.id) {
-            cx.system.sys_uia_properties.insert(self.id, Vec::new());
-        }
-        let list = cx.system.sys_uia_properties.at_mut(self.id);
-        if let Some(pos) = list.iter().position(|(k, _)| *k == property_id) {
-            list[pos].1 = value;
-        } else {
-            list.push((property_id, value));
-        }
-        cx.topology
-            .topo_active_masks
-            .at_mut(self.id)
-            .set(ComponentMask::COMP_UIA_CONTENT);
-    }
-
-    /// Not implemented
-    #[inline]
+    /// Sets accessibility roles.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    #[allow(clippy::unit_arg)]
     #[must_use]
-    pub fn uia_automation_id(self, id: impl Into<Prop<Cow<'static, str>>>) -> Self {
-        match id.into() {
-            Prop::None => self,
-            Prop::Static(s) => self.uia_property(30011, UiaValue::String(s.into())),
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let s = f();
-                    let el = Element { id };
-                    el.uia_property_internal(cx, 30011, UiaValue::String(s.into()));
-                });
-                with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::UiaAutomationId, effect_id);
-                });
-                self
-            }
-        }
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn uia_control_type(self, control_type_id: i32) -> Self {
-        self.uia_property(30003, control_type_id)
+    pub fn a11y_role<M>(self, role: impl IntoOptionProp<Role, M>) -> Self {
+        let prop = role.into_option_prop();
+        self.bind_prop(prop, EffectCategory::Accessibility, move |cx, id, val| {
+            cx.acce.acce_accessibility.insert(id, val.map(Node::new));
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_A11Y);
+            cx.mark_layout_dirty(id);
+        })
     }
 
     /// スクロールコンテナのスタイル設定に連動し、

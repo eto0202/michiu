@@ -2,12 +2,14 @@
 
 use std::borrow::Cow;
 
+use accesskit::{Node, Role};
+
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display,
     Element, FlexDirection, FlexWrap, FocusTrigger, Focusable, GridAutoFlow, GridLine,
     GridPlacement, InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length,
     LinearGradient, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size,
-    StyleValue, TextAlign, ThisStyle, Transform, UiaValue, Val, WebView2Contents,
+    StyleValue, TextAlign, ThisStyle, Transform, Val, WebView2Contents,
 };
 
 impl<T, U> From<Size<T>> for taffy::Size<U>
@@ -672,30 +674,6 @@ impl From<taffy::GridPlacement<String>> for GridPlacement<String> {
     }
 }
 
-impl From<&'static str> for UiaValue {
-    fn from(s: &'static str) -> Self {
-        Self::String(String::from(s))
-    }
-}
-
-impl From<String> for UiaValue {
-    fn from(s: String) -> Self {
-        Self::String(s)
-    }
-}
-
-impl From<bool> for UiaValue {
-    fn from(b: bool) -> Self {
-        Self::Bool(b)
-    }
-}
-
-impl From<i32> for UiaValue {
-    fn from(i: i32) -> Self {
-        Self::Int(i)
-    }
-}
-
 impl<T> From<Option<T>> for Prop<T> {
     fn from(opt: Option<T>) -> Self {
         match opt {
@@ -726,6 +704,20 @@ impl From<Cow<'static, str>> for Prop<Cow<'static, str>> {
     }
 }
 
+// &str から Prop<Option<Cow<'static, str>>> へ
+impl From<&'static str> for Prop<Option<Cow<'static, str>>> {
+    fn from(s: &'static str) -> Self {
+        Prop::Static(Some(Cow::Borrowed(s)))
+    }
+}
+
+// String から Prop<Option<Cow<'static, str>>> へ
+impl From<String> for Prop<Option<Cow<'static, str>>> {
+    fn from(s: String) -> Self {
+        Prop::Static(Some(Cow::Owned(s)))
+    }
+}
+
 // Displayを実装している型のSignal (u32, i32など)
 impl<T: std::fmt::Display + Clone + Send + 'static> From<ReadSignal<T>>
     for Prop<Cow<'static, str>>
@@ -743,6 +735,22 @@ where
 {
     fn from(f: F) -> Self {
         Self::Dynamic(Box::new(move || f().into()))
+    }
+}
+
+impl<F, S> From<F> for Prop<Option<Cow<'static, str>>>
+where
+    F: Fn() -> S + 'static,
+    S: Into<Option<Cow<'static, str>>>,
+{
+    fn from(f: F) -> Self {
+        Self::Dynamic(Box::new(move || f().into()))
+    }
+}
+
+impl From<Option<()>> for Prop<Option<Cow<'static, str>>> {
+    fn from(_: Option<()>) -> Self {
+        Prop::None
     }
 }
 
@@ -2041,5 +2049,94 @@ impl Convert<f32> for bool {
     #[inline]
     fn convert(self) -> f32 {
         if self { 1.0 } else { 0.0 }
+    }
+}
+
+// 汎用の変換トレイト（T は中身の型、M はマーカー）
+pub trait IntoOptionProp<T, Marker> {
+    fn into_option_prop(self) -> Prop<Option<T>>;
+}
+
+// マーカー構造体
+pub struct DirectMarker;
+pub struct ValueMarker;
+pub struct ClosureOptMarker;
+pub struct ClosureValueMarker;
+pub struct SignalOptMarker;
+pub struct SignalValueMarker;
+pub struct PropMarker;
+pub struct PropValueMarker;
+pub struct NoneMarker;
+
+// Option<T> そのまま
+impl<T: 'static> IntoOptionProp<T, DirectMarker> for Option<T> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Static(self)
+    }
+}
+
+// T 単体（自動で Some に包む）
+impl<T: 'static> IntoOptionProp<T, ValueMarker> for T {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Static(Some(self))
+    }
+}
+
+// Option<T> を返すクロージャ
+impl<T: 'static, F> IntoOptionProp<T, ClosureOptMarker> for F
+where
+    F: Fn() -> Option<T> + 'static,
+{
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Dynamic(Box::new(self))
+    }
+}
+
+// T を直接返すクロージャ
+impl<T: 'static, F> IntoOptionProp<T, ClosureValueMarker> for F
+where
+    F: Fn() -> T + 'static,
+{
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Dynamic(Box::new(move || Some(self())))
+    }
+}
+
+// Signal<Option<T>>
+impl<T: Clone + 'static> IntoOptionProp<T, SignalOptMarker> for ReadSignal<Option<T>> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+// Signal<T>
+impl<T: Clone + 'static> IntoOptionProp<T, SignalValueMarker> for ReadSignal<T> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Dynamic(Box::new(move || Some(self.get())))
+    }
+}
+
+// Prop<Option<T>> そのまま
+impl<T: 'static> IntoOptionProp<T, PropMarker> for Prop<Option<T>> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        self
+    }
+}
+
+// Prop<T>（Some に包む）
+impl<T: 'static> IntoOptionProp<T, PropValueMarker> for Prop<T> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        match self {
+            Prop::None => Prop::None,
+            Prop::Static(val) => Prop::Static(Some(val)),
+            Prop::Dynamic(f) => Prop::Dynamic(Box::new(move || Some(f()))),
+        }
+    }
+}
+
+// ()（None として扱う）
+impl<T: 'static> IntoOptionProp<T, NoneMarker> for () {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Static(None)
     }
 }

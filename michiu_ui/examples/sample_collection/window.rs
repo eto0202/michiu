@@ -7,17 +7,25 @@ use michiu_ui::{
 use std::cell::{Cell, RefCell};
 use windows::{
     Win32::{
-        Foundation::*, Graphics::Gdi::*, System::LibraryLoader::GetModuleHandleW, UI::{
-            Controls::WM_MOUSELEAVE, Input::{
+        Foundation::*,
+        Graphics::Gdi::*,
+        System::LibraryLoader::GetModuleHandleW,
+        UI::{
+            Controls::WM_MOUSELEAVE,
+            Input::{
                 Ime::{
                     GCS_COMPATTR, GCS_COMPSTR, GCS_CURSORPOS, GCS_RESULTSTR,
                     ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext,
-                }, KeyboardAndMouse::{
-                    GetKeyState, ReleaseCapture, SetCapture, SetFocus, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent, VK_CONTROL, VK_SHIFT,
                 },
-            }, WindowsAndMessaging::*,
+                KeyboardAndMouse::{
+                    GetKeyState, ReleaseCapture, SetCapture, SetFocus, TME_LEAVE, TRACKMOUSEEVENT,
+                    TrackMouseEvent, VK_CONTROL, VK_SHIFT,
+                },
+            },
+            WindowsAndMessaging::*,
         },
-    }, core::{PCWSTR, w},
+    },
+    core::{PCWSTR, w},
 };
 
 use crate::{ALLOW_LOG, AppState};
@@ -129,6 +137,8 @@ unsafe extern "system" fn wnd_proc(
                 let draw_start = std::time::Instant::now();
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
+
+                app.context.update_accessibility();
 
                 app.renderer.draw(&mut app.context);
 

@@ -42,6 +42,12 @@ pub use tag::*;
 pub use types::*;
 pub use utils::*;
 
+pub mod accessibility {
+    pub const NO_A11Y_NODE: crate::Prop<Option<accesskit::Node>> = crate::Prop::None;
+    pub use crate::a11y::{self, A11yInferenceTag};
+    pub use accesskit::{Action, Node, NodeId, Role};
+}
+
 pub mod prelude {
     pub use crate::{
         bitmap::PropertyList,

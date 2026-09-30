@@ -1,21 +1,25 @@
-use std::any::TypeId;
-
+use crate::{
+    EntityId, FlatDfsSequenceVec, ParentsSecondary,
+    a11y::{A11yInferenceTag, InferenceFn},
+};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-
-use crate::{EntityId, FlatDfsSequenceVec, ParentsSecondary};
+use std::any::TypeId;
 
 /// Registry for Managing Tags
 #[derive(Default, Debug, Clone)]
 pub struct MichiuTagRegistry {
     pub type_to_entities: FxHashMap<TypeId, SmallVec<[EntityId; 1]>>,
     pub entity_to_types: FxHashMap<EntityId, SmallVec<[TypeId; 4]>>,
+    pub inference_handlers: FxHashMap<TypeId, InferenceFn>,
 }
 
 impl MichiuTagRegistry {
     #[inline]
     pub(crate) fn new() -> Self {
-        Self::default()
+        let mut registry = Self::default();
+        registry.register_builtin_inferences();
+        registry
     }
 
     /// 特定の型 `T` に紐づく `EntityId` を追加する
@@ -23,8 +27,15 @@ impl MichiuTagRegistry {
     pub(crate) fn register_entity<T: 'static>(&mut self, id: EntityId) {
         let type_id = TypeId::of::<T>();
         self.type_to_entities.entry(type_id).or_default().push(id);
-
         self.entity_to_types.entry(id).or_default().push(type_id);
+    }
+
+    /// 推論ルールを持つタグを登録する関数
+    #[inline]
+    pub(crate) fn register_a11y_inference<T: A11yInferenceTag + 'static>(&mut self) {
+        self.inference_handlers
+            .entry(TypeId::of::<T>())
+            .or_insert(T::inference);
     }
 
     /// 削除
@@ -136,5 +147,22 @@ impl MichiuTagRegistry {
             id = parent;
         }
         false
+    }
+
+    #[inline]
+    pub(crate) fn collect_a11y_inferences(
+        &self,
+        entity_id: EntityId,
+    ) -> SmallVec<[InferenceFn; 1]> {
+        let mut fns = SmallVec::new();
+        if let Some(type_ids) = self.entity_to_types.get(&entity_id) {
+            for type_id in type_ids {
+                // 推論ハンドラがあるタグだけ
+                if let Some(&handler) = self.inference_handlers.get(type_id) {
+                    fns.push(handler);
+                }
+            }
+        }
+        fns
     }
 }

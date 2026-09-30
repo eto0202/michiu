@@ -1,11 +1,12 @@
 use crate::{
-    ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
-    ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
+    AccessibilityStore, ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig,
+    ClipRectsSecondary, ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Element, EntityId, EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX,
     LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuError, MichiuSoA, MichiuTagRegistry,
     OptionTraceExt, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
     StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId,
-    VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec, define_vec,
+    VisualPropertiesSecondary, WindowStore, a11y::A11yInferenceTag, define_secondary, define_smallvec,
+    define_vec,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{MichiuTrace, trace_lifecycle};
@@ -307,6 +308,7 @@ impl TopologyStore {
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
         debug: &mut DebugStore,
+        acce: &mut AccessibilityStore,
     ) {
         // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
         let parent_node = *layouts.lay_taffy_nodes.at(parent);
@@ -329,7 +331,7 @@ impl TopologyStore {
         // 古い子要素（およびその子孫）を完全に安全デスポーン
         TopologyStore::despawn_internal(
             old_child, window, system, reactive, events, contents, topology, states, layouts,
-            renders, outputs, debug,
+            renders, outputs, debug, acce,
         );
 
         LayoutStore::mark_layout_dirty(
@@ -359,6 +361,7 @@ impl TopologyStore {
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
         debug: &mut DebugStore,
+        acce: &mut AccessibilityStore,
     ) {
         if !topology.topo_entities.contains_key(id) {
             return;
@@ -404,7 +407,7 @@ impl TopologyStore {
             for child_id in children_list {
                 TopologyStore::despawn_internal(
                     child_id, window, system, reactive, events, contents, topology, states,
-                    layouts, renders, outputs, debug,
+                    layouts, renders, outputs, debug, acce,
                 );
             }
         }
@@ -420,6 +423,7 @@ impl TopologyStore {
         reactive.despawn(id);
         window.despawn(id);
         system.despawn(id);
+        acce.despawn(id);
     }
 
     /// セッションのクリーンアップを実行
@@ -438,6 +442,7 @@ impl TopologyStore {
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
         debug: &mut DebugStore,
+        acce: &mut AccessibilityStore,
     ) {
         // start_marker 以降に生成された要素をスキャン
         let spawned_in_session: Vec<EntityId> = topology
@@ -454,7 +459,7 @@ impl TopologyStore {
             if has_no_parent && is_not_root {
                 TopologyStore::despawn_internal(
                     id, window, system, reactive, events, contents, topology, states, layouts,
-                    renders, outputs, debug,
+                    renders, outputs, debug, acce,
                 );
             }
         }
@@ -971,6 +976,15 @@ impl TopologyStore {
     }
 
     #[inline]
+    pub(crate) fn tag_a11y<T: A11yInferenceTag + 'static>(
+        el: Element,
+        topo_tag_registry: &mut MichiuTagRegistry,
+    ) {
+        topo_tag_registry.register_entity::<T>(el.id);
+        topo_tag_registry.register_a11y_inference::<T>();
+    }
+
+    #[inline]
     pub(crate) fn try_query_first<T: 'static>(
         topo_tag_registry: &MichiuTagRegistry,
     ) -> Option<Element> {
@@ -1193,6 +1207,7 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
+            &mut self.acce,
         );
     }
 
@@ -1225,6 +1240,7 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
+            &mut self.acce,
         );
     }
 
@@ -1244,6 +1260,7 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
+            &mut self.acce,
         );
     }
 

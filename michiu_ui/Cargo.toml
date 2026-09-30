@@ -8,7 +8,8 @@ description = "The michiu library handles layout and rendering."
 readme = "README.md"
 
 [dependencies]
-accesskit_windows = "0.33.1"
+accesskit = "=0.25.1"
+accesskit_windows = "0.35.1"
 bytemuck = { version = "1.25.0", features = ["derive"] }
 serde = { workspace = true, optional = true }
 slotmap = "1.1.1"

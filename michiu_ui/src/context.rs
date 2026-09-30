@@ -1,3 +1,4 @@
+pub mod acce_store;
 pub mod config;
 pub mod content_store;
 pub mod debug_store;
@@ -13,6 +14,7 @@ pub mod system_store;
 pub mod topology_store;
 pub mod window_store;
 
+pub use acce_store::*;
 pub use config::*;
 pub use content_store::*;
 pub use debug_store::*;
@@ -32,10 +34,11 @@ use crate::trace_lifecycle;
 use crate::{
     BasicLayout, ComponentMask, CursorIcon, Element, FlexLayout, GridLayout, InteractionState,
     LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
-    bind_context, handle_on_click,
+    a11y::A11yInferenceTag, bind_context, handle_on_click,
 };
 use slotmap::new_key_type;
 use std::{borrow::Cow, sync::Arc};
+use windows::Win32::Foundation::HWND;
 
 new_key_type! {
     /// A unique generation management ID that identifies each element ([`Element`]) within the UI.
@@ -47,6 +50,19 @@ impl EntityId {
     #[inline]
     pub fn into_el(self) -> Element {
         Element::from(self)
+    }
+}
+
+impl From<EntityId> for accesskit::NodeId {
+    fn from(value: EntityId) -> Self {
+        Self(value.0.as_ffi())
+    }
+}
+
+impl From<accesskit::NodeId> for EntityId {
+    #[inline]
+    fn from(value: accesskit::NodeId) -> Self {
+        Self(slotmap::KeyData::from_ffi(value.0))
     }
 }
 
@@ -69,6 +85,7 @@ pub struct Context {
     pub(crate) renders: RenderStore,
     pub(crate) outputs: OutputStore,
     pub(crate) debug: DebugStore,
+    pub(crate) acce: AccessibilityStore,
 }
 
 impl Default for Context {
@@ -101,6 +118,7 @@ impl Context {
                 rx,
             ),
             debug: DebugStore::new(),
+            acce: AccessibilityStore::new(),
         }
     }
 
@@ -128,6 +146,7 @@ impl Context {
             renders: RenderStore::with_capacity(capacity),
             outputs: OutputStore::with_capacity(capacity),
             debug: DebugStore::new(),
+            acce: AccessibilityStore::with_capacity(capacity),
         }
     }
 
@@ -165,6 +184,14 @@ impl Context {
         cx
     }
 
+    /// Initialize the accessibility features.
+    #[inline]
+    #[must_use]
+    pub fn with_accessibility(mut self, hwnd: HWND) -> Self {
+        self.acce = AccessibilityStore::init(hwnd);
+        self
+    }
+
     /// Clear the status.
     #[inline]
     pub fn clear(&mut self) {
@@ -178,6 +205,7 @@ impl Context {
         self.reactive.clear();
         self.window.clear();
         self.system.clear();
+        self.acce.clear();
     }
 
     /// 親を持たないルート要素の破棄に使用。
@@ -197,6 +225,7 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
+            &mut self.acce,
         );
     }
 
@@ -566,9 +595,20 @@ impl Context {
     /// This element will be tagged `T`.
     ///
     /// Multiple tags can be attached to the same element.
+    ///
+    /// You can also use `A11yInferenceTag` for accessibility.
     #[inline]
     pub fn tag<T: 'static>(&mut self, el: Element) {
         TopologyStore::tag::<T>(el, &mut self.topology.topo_tag_registry);
+    }
+
+    /// Configure the user-defined inference tags used when building the accessibility tree.
+    ///
+    /// `A11yInferenceTag` overrides only the default inferences.
+    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    #[inline]
+    pub fn tag_a11y<T: A11yInferenceTag + 'static>(&mut self, el: Element) {
+        TopologyStore::tag_a11y::<T>(el, &mut self.topology.topo_tag_registry);
     }
 
     /// Get the first element with the tag `T` found.
@@ -779,6 +819,12 @@ impl Context {
     #[inline]
     pub fn sync_layout(&mut self, root: EntityId, window_size: LayoutSize) {
         Pipeline::sync_layout(self, root, window_size);
+    }
+
+    /// Update accessibility. This must be called after the layout is calculated.
+    #[inline]
+    pub fn update_accessibility(&mut self) {
+        Pipeline::handle_accessibility(self);
     }
 
     /// Get the `RawContext`.
