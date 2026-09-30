@@ -184,6 +184,7 @@ impl Context {
         cx
     }
 
+    /// Initialize the accessibility features.
     #[inline]
     #[must_use]
     pub fn with_accessibility(mut self, hwnd: HWND) -> Self {

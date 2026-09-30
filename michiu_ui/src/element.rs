@@ -3,8 +3,8 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
-    ExternalVisual, MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState,
-    ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, Val,
+    ExternalVisual, IntoOptionProp, MichiuError, MichiuSoA, MichiuTrace, ReadSignal,
+    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, Val,
     a11y::A11yInferenceTag, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
@@ -838,8 +838,9 @@ impl Element {
     /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
     #[allow(clippy::unit_arg)]
     #[must_use]
-    pub fn a11y(self, node: impl Into<Prop<Option<Node>>>) -> Self {
-        self.bind_prop(node, EffectCategory::Accessibility, move |cx, id, val| {
+    pub fn a11y<M>(self, node: impl IntoOptionProp<Node, M>) -> Self {
+        let prop = node.into_option_prop();
+        self.bind_prop(prop, EffectCategory::Accessibility, move |cx, id, val| {
             cx.acce.acce_accessibility.insert(id, val);
             cx.topology
                 .topo_active_masks
@@ -854,19 +855,29 @@ impl Element {
     /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
     #[allow(clippy::unit_arg)]
     #[must_use]
-    pub fn a11y_with<F>(self, node: impl Into<Prop<Option<Node>>>, f: F) -> Self
+    pub fn a11y_with<M, F>(self, node: impl IntoOptionProp<Node, M>, f: F) -> Self
     where
-        F: FnOnce(&mut Node),
+        F: Fn(&mut Node) + 'static,
     {
-        let mut prop = match node.into() {
-            Prop::None => None,
-            Prop::Static(n) => n,
-            Prop::Dynamic(f) => f(),
+        let prop = match node.into_option_prop() {
+            Prop::None => Prop::None,
+            // node 自体は静的だが、クロージャ f 内部で Signal を読む可能性がある場合
+            Prop::Static(base) => Prop::Dynamic(Box::new(move || {
+                let mut n = base.clone();
+                if let Some(ref mut node) = n {
+                    f(node);
+                }
+                n
+            })),
+            // node 自体も動的で、さらにクロージャ f 内でも Signal を読む場合
+            Prop::Dynamic(dyn_fn) => Prop::Dynamic(Box::new(move || {
+                let mut n = dyn_fn();
+                if let Some(ref mut node) = n {
+                    f(node);
+                }
+                n
+            })),
         };
-        
-        if let Some(ref mut n) = prop {
-            f(n);
-        }
 
         self.a11y(prop)
     }
@@ -876,8 +887,9 @@ impl Element {
     /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
     #[allow(clippy::unit_arg)]
     #[must_use]
-    pub fn a11y_role(self, role: impl Into<Prop<Option<Role>>>) -> Self {
-        self.bind_prop(role, EffectCategory::Accessibility, move |cx, id, val| {
+    pub fn a11y_role<M>(self, role: impl IntoOptionProp<Role, M>) -> Self {
+        let prop = role.into_option_prop();
+        self.bind_prop(prop, EffectCategory::Accessibility, move |cx, id, val| {
             cx.acce.acce_accessibility.insert(id, val.map(Node::new));
             cx.topology
                 .topo_active_masks

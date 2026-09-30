@@ -1,5 +1,5 @@
 use crate::app::{SearchText, theme::Theme};
-pub use michiu_ui::{Node, Role, prelude::*};
+pub use michiu_ui::{accessibility::*, prelude::*};
 use std::time::Duration;
 
 pub fn header() -> Element {

@@ -718,66 +718,6 @@ impl From<String> for Prop<Option<Cow<'static, str>>> {
     }
 }
 
-impl From<Option<Role>> for Prop<Option<Role>> {
-    fn from(value: Option<Role>) -> Self {
-        Self::Static(value)
-    }
-}
-
-impl From<ReadSignal<Option<Role>>> for Prop<Option<Role>> {
-    fn from(sig: ReadSignal<Option<Role>>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-
-impl<F> From<F> for Prop<Option<Role>>
-where
-    F: Fn() -> Option<Role> + 'static,
-{
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(f))
-    }
-}
-
-impl From<Role> for Prop<Option<Role>> {
-    fn from(value: Role) -> Self {
-        Self::Static(Some(value))
-    }
-}
-
-impl From<Option<Node>> for Prop<Option<Node>> {
-    fn from(value: Option<Node>) -> Self {
-        Self::Static(value)
-    }
-}
-
-impl From<ReadSignal<Option<Node>>> for Prop<Option<Node>> {
-    fn from(sig: ReadSignal<Option<Node>>) -> Self {
-        Self::Dynamic(Box::new(move || sig.get()))
-    }
-}
-
-impl<F> From<F> for Prop<Option<Node>>
-where
-    F: Fn() -> Option<Node> + 'static,
-{
-    fn from(f: F) -> Self {
-        Self::Dynamic(Box::new(f))
-    }
-}
-
-impl From<Node> for Prop<Option<Node>> {
-    fn from(value: Node) -> Self {
-        Self::Static(Some(value))
-    }
-}
-
-impl From<()> for Prop<Option<accesskit::Node>> {
-    fn from(_: ()) -> Self {
-        Self::Static(None)
-    }
-}
-
 // Displayを実装している型のSignal (u32, i32など)
 impl<T: std::fmt::Display + Clone + Send + 'static> From<ReadSignal<T>>
     for Prop<Cow<'static, str>>
@@ -2109,5 +2049,94 @@ impl Convert<f32> for bool {
     #[inline]
     fn convert(self) -> f32 {
         if self { 1.0 } else { 0.0 }
+    }
+}
+
+// 汎用の変換トレイト（T は中身の型、M はマーカー）
+pub trait IntoOptionProp<T, Marker> {
+    fn into_option_prop(self) -> Prop<Option<T>>;
+}
+
+// マーカー構造体
+pub struct DirectMarker;
+pub struct ValueMarker;
+pub struct ClosureOptMarker;
+pub struct ClosureValueMarker;
+pub struct SignalOptMarker;
+pub struct SignalValueMarker;
+pub struct PropMarker;
+pub struct PropValueMarker;
+pub struct NoneMarker;
+
+// Option<T> そのまま
+impl<T: 'static> IntoOptionProp<T, DirectMarker> for Option<T> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Static(self)
+    }
+}
+
+// T 単体（自動で Some に包む）
+impl<T: 'static> IntoOptionProp<T, ValueMarker> for T {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Static(Some(self))
+    }
+}
+
+// Option<T> を返すクロージャ
+impl<T: 'static, F> IntoOptionProp<T, ClosureOptMarker> for F
+where
+    F: Fn() -> Option<T> + 'static,
+{
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Dynamic(Box::new(self))
+    }
+}
+
+// T を直接返すクロージャ
+impl<T: 'static, F> IntoOptionProp<T, ClosureValueMarker> for F
+where
+    F: Fn() -> T + 'static,
+{
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Dynamic(Box::new(move || Some(self())))
+    }
+}
+
+// Signal<Option<T>>
+impl<T: Clone + 'static> IntoOptionProp<T, SignalOptMarker> for ReadSignal<Option<T>> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+// Signal<T>
+impl<T: Clone + 'static> IntoOptionProp<T, SignalValueMarker> for ReadSignal<T> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Dynamic(Box::new(move || Some(self.get())))
+    }
+}
+
+// Prop<Option<T>> そのまま
+impl<T: 'static> IntoOptionProp<T, PropMarker> for Prop<Option<T>> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        self
+    }
+}
+
+// Prop<T>（Some に包む）
+impl<T: 'static> IntoOptionProp<T, PropValueMarker> for Prop<T> {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        match self {
+            Prop::None => Prop::None,
+            Prop::Static(val) => Prop::Static(Some(val)),
+            Prop::Dynamic(f) => Prop::Dynamic(Box::new(move || Some(f()))),
+        }
+    }
+}
+
+// ()（None として扱う）
+impl<T: 'static> IntoOptionProp<T, NoneMarker> for () {
+    fn into_option_prop(self) -> Prop<Option<T>> {
+        Prop::Static(None)
     }
 }

@@ -29,9 +29,6 @@ mod tag;
 mod types;
 mod utils;
 
-pub use a11y;
-pub use accesskit::Node;
-pub use accesskit::Role;
 pub use bitmap::*;
 pub use context::*;
 pub use element::*;
@@ -44,6 +41,12 @@ pub use style::*;
 pub use tag::*;
 pub use types::*;
 pub use utils::*;
+
+pub mod accessibility {
+    pub const NO_A11Y_NODE: crate::Prop<Option<accesskit::Node>> = crate::Prop::None;
+    pub use crate::a11y::{self, A11yInferenceTag};
+    pub use accesskit::{Action, Node, NodeId, Role};
+}
 
 pub mod prelude {
     pub use crate::{

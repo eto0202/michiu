@@ -80,7 +80,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let inspector = MichiuInspector::new();
     let _sub = inspector.subscribe(None);
 
-    // キャパシティは、ログやスナップショットから各配列のピーク時の長さを調べれば最適化出来る。めんどくさいけど。
     let mut context =
         Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector)
             .with_accessibility(hwnd);
@@ -122,7 +121,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .watch(&mut context)?;
 
     let root = build_ui(&mut context, move || {
-        // 配っていいのかどうかは分からんｗ
         let (read_github, _) = create_signal(GitHubVisual(github_visual));
         let (read_youtube, _) = create_signal(YouTubeVisual(youtube_visual));
         app::create_root()
