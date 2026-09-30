@@ -342,26 +342,6 @@ impl ReactiveStore {
 }
 
 impl Context {
-    /// 要素にエフェクトをカテゴリ指定付きで紐づけて登録します。
-    /// 同一カテゴリのエフェクトが既に存在する場合、自動的に古いエフェクトを破棄してから上書きします。
-    #[inline]
-    pub(crate) fn register_element_effect(
-        &mut self,
-        element_id: EntityId,
-        category: EffectCategory,
-        effect_id: EffectId,
-    ) {
-        ReactiveStore::register_element_effect(
-            element_id,
-            category,
-            effect_id,
-            &mut self.reactive.react_effects,
-            &mut self.reactive.react_element_effects,
-            &mut self.reactive.react_effect_to_element,
-            &mut self.reactive.react_pending_element_effects,
-        );
-    }
-
     /// 要素に動的エフェクト（Style、Text等のリアクティブクロージャ）を安全に登録し、初期評価を実行します。
     #[inline]
     pub(crate) fn create_element_effect<F>(

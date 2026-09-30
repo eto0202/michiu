@@ -1,3 +1,8 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![expect(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+
 use super::*;
 use crate::error::MichiuError;
 use michiu_guard::Validated;
@@ -98,7 +103,7 @@ fn test_add_tray_icon_normal() {
                 uID: 99,
                 ..Default::default()
             };
-            let _ = Shell_NotifyIconW(NIM_DELETE, &nid_cleanup);
+            let _ = Shell_NotifyIconW(NIM_DELETE, &raw const nid_cleanup);
             let _ = DestroyWindow(dummy_hwnd);
 
             assert!(
@@ -435,7 +440,7 @@ fn test_add_tray_icon_with_balloon_normal() {
                 uID: 100,
                 ..Default::default()
             };
-            let _ = Shell_NotifyIconW(NIM_DELETE, &nid_cleanup);
+            let _ = Shell_NotifyIconW(NIM_DELETE, &raw const nid_cleanup);
             let _ = DestroyWindow(dummy_hwnd);
 
             assert!(

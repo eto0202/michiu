@@ -1,3 +1,6 @@
+#![allow(clippy::print_stdout)]
+#![allow(clippy::print_stderr)]
+
 use michiu_window::{
     ComContext, Event, EventPump, Icon, LogicalSize, MichiuEvent, Tray, TrayBuilder, TrayMenuItem,
     Window, WindowBuilder, init_dpi_awareness,
@@ -22,7 +25,7 @@ fn strip_rustdoc_prefix(input: &str) -> (String, Option<&str>) {
     // Detect whether /// or //! appears first
     let prefix = input
         .lines()
-        .map(|l| l.trim_start())
+        .map(str::trim_start)
         .find(|l| l.starts_with("///") || l.starts_with("//!"))
         .map(|l| if l.starts_with("///") { "///" } else { "//!" });
 
@@ -82,7 +85,7 @@ fn add_rustdoc_prefix(formatted_code: &str, prefix: &str) -> String {
             if trimmed.is_empty() {
                 prefix.to_string()
             } else {
-                format!("{} {}", prefix, line)
+                format!("{prefix} {line}")
             }
         })
         .collect::<Vec<_>>()
@@ -90,8 +93,9 @@ fn add_rustdoc_prefix(formatted_code: &str, prefix: &str) -> String {
         + "\n" // Restore the trailing newline
 }
 
+#[expect(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_dpi_awareness();
+    let _ = init_dpi_awareness();
 
     let com_ctx = ComContext::new_com_single()?;
 
@@ -127,7 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Registering a hotkey (Ctrl + Shift + R)
     let modifiers = HOT_KEY_MODIFIERS(0x0002 | 0x0004 | 0x4000);
-    let _ = unsafe { RegisterHotKey(Some(window.hwnd()), HOTKEY_ID, modifiers, VK_R.0 as u32) };
+    let _ = unsafe { RegisterHotKey(Some(window.hwnd()), HOTKEY_ID, modifiers, u32::from(VK_R.0)) };
 
     let mut event_pump = EventPump::new();
 
@@ -191,8 +195,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     Err(err) => {
                                         // Notification when formatting fails due to a syntax error or similar issue
-                                        let err_msg = format!("rustfmt failed:\n{}", err);
-                                        eprintln!("{}", err_msg);
+                                        let err_msg = format!("rustfmt failed: {err}");
+                                        eprintln!("{err_msg}");
                                         let _ = tray_inner_clone.show_balloon(
                                             "Format Failed (Syntax Error)",
                                             "Please verify that the code inside the comment has no syntax errors."

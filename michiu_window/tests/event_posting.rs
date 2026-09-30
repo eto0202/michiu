@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use michiu_window::{
     Event, EventPump, LogicalSize, MichiuEvent, PhysicalSize, WindowBuilder, init_dpi_awareness,
 };
@@ -23,6 +27,7 @@ where
     handle.join().expect("Test thread panicked");
 }
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn test_integration_event_posting_and_translation_lifecycle() {
     let _ = init_dpi_awareness();
@@ -73,7 +78,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
             // 標準ウィンドウメッセージ (WM_SIZE) の生ポスト
             // LPARAM に幅 800 (下位16ビット)、高さ 600 (上位16ビット) をビットパッキング
             // UIスレッド側で Event::Resized(Unvalidated<PhysicalSize>) に翻訳
-            let size_lparam = LPARAM(800 | (600 << 16));
+            let size_lparam = LPARAM(0b11_0010_0000 | (600 << 16));
             unsafe {
                 let _ = PostMessageW(Some(bg_hwnd), WM_SIZE, WPARAM(0), size_lparam);
             }

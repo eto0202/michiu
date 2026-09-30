@@ -283,7 +283,7 @@ fn password_box() -> Element {
     )
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 fn search_box() -> Element {
     let (read_text, write_text) = create_signal(String::new());
     let (menu_open, set_menu_open) = create_signal(false);

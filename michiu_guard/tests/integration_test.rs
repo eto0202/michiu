@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used)]
+
 #[cfg(test)]
 mod tests {
     use michiu_guard::{Unvalidated, Validate, Validated};
@@ -105,7 +107,7 @@ mod tests {
         assert_eq!(err_msg, "Must start with 'valid_'");
 
         // 取り戻した生データを map で修正してリトライ
-        let fixed_data = recovered_raw.map(|s| format!("valid_{}", s));
+        let fixed_data = recovered_raw.map(|s| format!("valid_{s}"));
 
         // 2回目のバリデーション: 成功
         let final_result = fixed_data.try_validate_with(|s| {
@@ -274,8 +276,8 @@ mod tests {
         let validated = Validated::new_unchecked("safe".to_string());
         let unvalidated = Unvalidated::new("raw".to_string());
 
-        assert_eq!(format!("{}", validated), "safe");
-        assert_eq!(format!("{}", unvalidated), "raw");
+        assert_eq!(format!("{validated}"), "safe");
+        assert_eq!(format!("{unvalidated}"), "raw");
     }
 
     #[cfg(feature = "serde")]
@@ -324,7 +326,7 @@ mod tests {
     fn test_serde_struct_with_validated_field() {
         #[derive(Debug, serde::Deserialize)]
         struct Config {
-            #[allow(dead_code)]
+            #[expect(dead_code)]
             id: String,
             value: Validated<PositiveI32>,
         }

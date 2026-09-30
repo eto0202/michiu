@@ -27,12 +27,10 @@ use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::{
-    any::TypeId,
     borrow::Cow,
     fmt::Debug,
-    io,
     panic::Location,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{
         Arc, Mutex, RwLock,
         mpsc::{Receiver, SyncSender},
@@ -199,12 +197,12 @@ pub struct TraceSubscription {
 
 #[cfg(feature = "trace-error")]
 impl TraceSubscription {
-    /// 次のバッチを待つ（ブロッキング）
+    /// Wait for the next batch (blocking)
     pub fn recv(&self) -> std::result::Result<TraceBatch, std::sync::mpsc::RecvError> {
         self.rx.recv()
     }
 
-    /// ノンブロッキングで取得を試みる
+    /// Attempt to retrieve the data in a non-blocking manner
     pub fn try_recv(&self) -> std::result::Result<TraceBatch, std::sync::mpsc::TryRecvError> {
         self.rx.try_recv()
     }
@@ -286,8 +284,10 @@ impl MichiuInspector {
         }
     }
 
-    /// 新しいイベント購読を開始する
-    /// `buffer_size` が None の場合、デフォルトで 128
+    /// Start a new event subscription.
+    ///
+    /// If `buffer_size` is None, the default is 128.
+    #[track_caller]
     #[inline]
     #[must_use]
     pub fn subscribe(&self, buffer_size: Option<usize>) -> TraceSubscription {
@@ -303,7 +303,8 @@ impl MichiuInspector {
         self.sender.clone()
     }
 
-    /// 最新のスナップショットを取得する
+    /// Get the latest snapshot
+    #[track_caller]
     #[inline]
     #[must_use]
     pub fn get(&self, id: EntityId) -> Option<MichiuTraceRecord> {
@@ -329,14 +330,14 @@ impl Context {
 pub enum MichiuTrace {
     None,
 
-    /// アプリ初期化地点を記録
+    /// Record the app's initialization point
     #[cfg(feature = "trace-lifecycle")]
     Init {
         capacity: Option<Arc<CapacityConfig>>,
         add: Option<&'static str>,
     },
 
-    /// ルート要素の作成と `Context` の生ポインタを記録
+    /// Creating a root element and recording a raw pointer to `Context`
     #[cfg(feature = "trace-lifecycle")]
     BuildElement {
         old: Option<usize>,
@@ -345,7 +346,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// スレッドローカルにあるバインドされた `Context` を記録
+    /// Record the bound `Context` in the thread-local storage
     #[cfg(feature = "trace-lifecycle")]
     Context {
         current: Option<usize>,
@@ -353,7 +354,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// 要素のスポーンを記録
+    /// Record Element Spawns
     #[cfg(feature = "trace-entity")]
     EntitySpawn {
         parent: Option<EntityId>,
@@ -361,7 +362,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// 要素のスタイル解決を記録
+    /// Record element style resolution
     #[cfg(feature = "trace-entity")]
     EntityStyle {
         stage: StyleStage,
@@ -372,7 +373,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// ヒットテストを記録
+    /// Record hit tests
     #[cfg(feature = "trace-lifecycle")]
     HitTest {
         found: Option<EntityId>,
@@ -381,7 +382,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// 要素のリアクティビティを記録
+    /// Recording Element Reactivity
     #[cfg(feature = "trace-entity")]
     EntityReactive {
         signal: Option<SignalId>,
@@ -390,14 +391,14 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// 要素のイベントの発生を記録
+    /// Record the occurrence of element events
     #[cfg(feature = "trace-lifecycle")]
     Event {
         kinds: Arc<TraceEventList>,
         add: Option<&'static str>,
     },
 
-    /// 要素が持つ疑似クラスの変更を記録
+    /// Track changes to an element's pseudo-classes
     #[cfg(feature = "trace-entity")]
     EntityStateUpdate {
         flag: ComponentMask,
@@ -406,6 +407,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
+    /// Record the animations associated with an element
     #[cfg(feature = "trace-entity")]
     EntityAnimation {
         kinds: FrameKinds,
@@ -414,51 +416,51 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// 要素にダーティフラグが立てられた瞬間を記録
+    /// Record the moment a dirty flag is set on an element
     #[cfg(feature = "trace-entity")]
     EntityDirtyQueue(Arc<DirtyQueueTrace>),
 
-    /// DFS順配列の構築を記録
+    /// Recording the Construction of a DFS-Ordered Array
     #[cfg(feature = "trace-lifecycle")]
     Dfs {
         after: Arc<[EntityId]>,
         add: Option<&'static str>,
     },
 
-    /// レイアウト解決フェーズを記録
+    /// Recording the Layout Resolution Phase
     #[cfg(feature = "trace-lifecycle")]
     Layout {
         stage: LayoutStage,
         add: Option<&'static str>,
     },
 
-    /// Webivew2要素の更新
+    /// Updating the ExternalVisual Element
     #[cfg(feature = "trace-entity")]
-    EntityWebview2 {
+    EntityExternalVisual {
         add: Option<&'static str>,
     },
 
-    /// 要素が持つテキストレイアウトの計算を記録
+    /// Record the text layout calculations for an element
     #[cfg(feature = "trace-entity")]
     EntityText {
         add: Option<&'static str>,
     },
 
-    /// アニメーション、トランジション、オートスクロールの発生を記録
+    /// Record the occurrence of animations, transitions, and auto-scrolling
     #[cfg(feature = "trace-lifecycle")]
     Animation {
         kinds: FrameKinds,
         add: Option<&'static str>,
     },
 
-    /// 可視性、z-index を元にしたソート済み配列の作成を記録
+    /// Logging the creation of a sorted array based on visibility and z-index
     #[cfg(feature = "trace-lifecycle")]
     Sorted {
         after: Arc<[EntityId]>,
         add: Option<&'static str>,
     },
 
-    /// 描画データの収集と `QuadInstance` の構築を記録
+    /// Recording the collection of rendering data and the construction of `QuadInstance`
     #[cfg(feature = "trace-lifecycle")]
     PrepareRender {
         stage: RenderStage,
@@ -466,26 +468,26 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Wgpu の `write_buffer` を記録
+    /// Recording Wgpu's `write_buffer`
     #[cfg(feature = "trace-lifecycle")]
     WriteBuffer {
         staging: Arc<[QuadInstance]>,
         add: Option<&'static str>,
     },
 
-    /// Wgpu の `present` を記録
+    /// Record Wgpu's `present`
     #[cfg(feature = "trace-lifecycle")]
     Present {
         add: Option<&'static str>,
     },
 
-    /// `DirectComposition` の `Commit` を記録
+    /// Record the `Commit` in Direct Composition
     #[cfg(feature = "trace-lifecycle")]
     Commit {
         add: Option<&'static str>,
     },
 
-    /// 総要素数とダーティフラグを持つ要素数の記録
+    /// Recording the total number of elements and the number of elements with the “dirty” flag
     #[cfg(feature = "trace-lifecycle")]
     ClearDirtyEntities {
         total_entities: usize,
@@ -495,13 +497,13 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// デスポーンしたEntityIdを記録
+    /// Record the EntityId of the despawned entity
     #[cfg(feature = "trace-entity")]
     EntityDespawn {
         add: Option<&'static str>,
     },
 
-    /// フォールバックやキャッシュミスを記録
+    /// Record fallbacks and cache misses
     #[cfg(feature = "trace-entity")]
     EntityInfo {
         detail: MichiuInfo,
@@ -509,7 +511,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// 内部で発生した全エラーを記録
+    /// Log all internal errors
     #[cfg(feature = "trace-error")]
     Error {
         detail: MichiuError,
@@ -589,31 +591,31 @@ pub enum QueueDirtyKinds {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ReactiveKinds {
     None,
-    /// Signal の作成
+    /// Creating a Signal
     CreateSignal,
-    /// 指定された要素、もしくはルート要素に対してシグナルコンテキストを提供
+    /// Provides a signal context for the specified element or the root element
     Provide,
-    /// ルート要素の探索
+    /// Searching for Root Elements
     FindRoot,
-    /// ツリーを親に向かって遡り `ReadSignal` を解決
+    /// Traverse the tree backward toward the parent and resolve `ReadSignal`
     FindReadSignal,
-    /// ツリーを親に向かって遡り `WriteSignal` を解決
+    /// Traverse the tree backward toward the parent and resolve `WriteSignal`
     FindWriteSignal,
-    /// 依存関係のトラッキング
+    /// Dependency Tracking
     Tracking,
-    /// シグナルの読み取り
+    /// Reading Signals
     Getting,
-    /// シグナルの書き換え
+    /// Rewriting Signals
     Writing,
-    /// 指定されたエフェクトをメインスレッドのコンテキスト下で評価
+    /// Evaluate the specified effect in the main thread's context
     ExecuteEffect,
-    /// スレッドローカル経由で実行中エフェクトを解決
+    /// Resolving Running Effects via Thread-Local
     ResolveEffect,
-    /// エフェクトをカテゴリ指定付きで紐づけ
+    /// Link Effects by Category
     RegisterEffect,
-    /// 要素に動的エフェクトを登録し初期評価を実行
+    /// Register dynamic effects on elements and perform an initial evaluation
     CreateEffect,
-    /// 溜まっているすべてのエフェクトを評価完了させる
+    /// Complete the evaluation of all pending effects
     PendingEffect,
 }
 
@@ -623,45 +625,39 @@ pub enum ReactiveKinds {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LayoutStage {
     None,
-    /// レイアウト計算の開始
+    /// Start Layout Calculations
     Start,
-    /// 溜めてある初回評価を実行
+    /// Execute the queued initial evaluations
     FirstEffects,
-    /// 計算が必要ない場合は早期リターン
+    /// Early Return if No Calculations Are Needed
     EarlyReturn(DirtyReason),
-    /// DFS配列の再構築
+    /// Reconstructing a DFS-Ordered Array
     RebuildDfs,
-    /// 各スタイルの解決
+    /// Solutions for Each Style
     ResolveLayout,
-    /// Taffy ツリーへの差分同期
+    /// Synchronizing Changes to the Taffy Tree
     SyncTaffy,
-    /// 1回目のレイアウト計算
+    /// First Layout Calculation
     FirstMeasure,
-    /// レイアウト計算中
-    ProcessingMeasure,
-    /// テキストレイアウト計算
+    /// Text Layout Calculations
     TextMeasure,
-    /// テキストレイアウト計算中
-    ProcessingTextMeasure,
-    /// 1回目の出力領域
+    /// First Output Area
     FirstOutputRect,
-    /// 出力領域の処理中
-    ProcessingOutputRect,
-    /// スクロールサイズ計算
+    /// Scroll Size Calculation
     ScrollSize,
-    /// スクロールバーのスタイルの同期
+    /// Synchronizing Scroll Bar Styles
     SyncScrollBar,
-    /// 2回目レイアウト計算
+    /// Second Layout Calculation
     FinalMeasure,
-    /// 最終的な出力領域
+    /// Final Output Area
     FinalOutputRect,
-    /// Input コンテンツの同期
+    /// Synchronizing Input Content
     UpdateInputContents,
-    /// スクロールオフセット同期
+    /// Scroll Offset Synchronization
     SyncScrollOffsets,
-    /// ダーティフラグのクリア
+    /// Clearing the Dirty Flag
     ClearDirty,
-    /// レイアウト計算の終了
+    /// Completion of Layout Calculations
     End,
 }
 
@@ -679,23 +675,22 @@ pub struct DirtyReason {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RenderStage {
     None,
-    /// レンダリングフェーズ開始
+    /// Rendering Phase Begins
     Start,
-    /// 実効 `z_index` の計算と可視性、それらに基づく要素のソート
+    /// Calculating the Effective `z_index`, Visibility, and Sorting Elements Based on These Factors
     SortedEntities,
-    /// 指定された要素に含まれるすべての文字をアトラスにキャッシュ
+    /// Cache all characters contained in the specified element in the atlas
     FirstGlyphsCache,
-    /// アトラスのクリアが起きた場合、アトラスを再構築して再度キャッシュ
+    /// If the Atlas is cleared, rebuild the Atlas and recache it.
     FullGlyphsCache,
-    /// パッキング
+    /// Packing
     CollectDate(InstanceKinds),
-    /// バッチのフラッシュ
+    /// Batch Flash
     FlushBatch(FlatBufferTrace),
-    /// インスタンスを追加
+    /// Add an Instance
     PushInstance,
-    /// ダーティフラグのクリア
+    /// Clearing the Dirty Flag
     ClearDirty,
-    /// 終了
     End,
 }
 
@@ -742,13 +737,13 @@ type MichiuDuration = [u8; 0];
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeStamp {
     None,
-    /// 初期化からの経過時間
+    /// Time Elapsed Since Initialization
     SinceBoot(MichiuDuration),
-    /// 計測開始
+    /// Start Measurement
     Start(MichiuDuration),
-    /// 途中のステージ（直前のステージからの経過時間）
+    /// Current Stage (Time Elapsed Since the Previous Stage)
     Elapsed(MichiuDuration),
-    /// 計測終了（全体の合計時間）
+    /// Measurement Complete (Total Time)
     End(Duration),
 }
 

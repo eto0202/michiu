@@ -1,3 +1,13 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![expect(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_wrap,
+    clippy::too_many_lines,
+    clippy::float_cmp
+)]
+
 use super::*;
 use crate::{CursorIcon, PhysicalPoint, PhysicalSize, Window, WindowBuilder, WindowId};
 use michiu_guard::{Validate, Validated};
@@ -77,10 +87,10 @@ fn test_translate_and_push_unsafe_raw_fallback() {
                     assert_eq!(wparam.0, wparam_val.0);
                     assert_eq!(lparam.0, lparam_val.0);
                 }
-                other => panic!("Expected Event::UnsafeRaw, but got: {:?}", other),
+                other => panic!("Expected Event::UnsafeRaw, but got: {other:?}"),
             }
         }
-        _ => panic!("Expected MichiuEvent::Event"),
+        MichiuEvent::User(_) => panic!("Expected MichiuEvent::Event"),
     }
 }
 
@@ -138,7 +148,9 @@ fn test_translate_and_push_user_event_downcast_safe() {
             assert!(downcasted.is_ok(), "Downcast to String failed");
             assert_eq!(*downcasted.unwrap(), "User Custom Payload Data");
         }
-        other => panic!("Expected MichiuEvent::User, but got: {:?}", other),
+        other @ MichiuEvent::Window { .. } => {
+            panic!("Expected MichiuEvent::User, but got: {other:?}")
+        }
     }
 }
 
@@ -164,7 +176,7 @@ fn test_translate_and_push_standard_mappings() {
 
     // WM_SIZE
     // LPARAM に幅 1920 (下位16ビット)、高さ 1080 (上位16ビット) をビットパッキング
-    let size_lparam = LPARAM(1920 | (1080 << 16));
+    let size_lparam = LPARAM(0b111_1000_0000 | (1080 << 16));
     let _ = translate_and_push(dummy_hwnd, WM_SIZE, WPARAM(0), size_lparam, &mut state);
 
     match pump.poll_event().unwrap() {
@@ -173,9 +185,9 @@ fn test_translate_and_push_standard_mappings() {
                 // 値は正しいと仮定
                 assert_eq!(unvalidated_size.into_inner(), PhysicalSize::new(1920, 1080));
             }
-            other => panic!("Expected Event::Resized, but got {:?}", other),
+            other => panic!("Expected Event::Resized, but got {other:?}"),
         },
-        _ => panic!("Expected Event"),
+        MichiuEvent::User(_) => panic!("Expected Event"),
     }
 
     // WM_MOVE
@@ -191,9 +203,9 @@ fn test_translate_and_push_standard_mappings() {
                 // 正しく -50 と 150 に符号復元されているか検証
                 assert_eq!(unvalidated_point.into_inner(), PhysicalPoint::new(-50, 150));
             }
-            other => panic!("Expected Event::Moved, but got {:?}", other),
+            other => panic!("Expected Event::Moved, but got {other:?}"),
         },
-        _ => panic!("Expected Event"),
+        MichiuEvent::User(_) => panic!("Expected Event"),
     }
 
     // WM_LBUTTONDOWN
@@ -205,9 +217,9 @@ fn test_translate_and_push_standard_mappings() {
                 assert_eq!(button, MouseButton::Left);
                 assert_eq!(state, ElementState::Pressed);
             }
-            other => panic!("Expected Event::MouseInput, but got {:?}", other),
+            other => panic!("Expected Event::MouseInput, but got {other:?}"),
         },
-        _ => panic!("Expected Event"),
+        MichiuEvent::User(_) => panic!("Expected Event"),
     }
 
     // WM_KEYDOWN
@@ -227,9 +239,9 @@ fn test_translate_and_push_standard_mappings() {
                 assert_eq!(key_code.into_inner(), VK_SPACE);
                 assert_eq!(state, ElementState::Pressed);
             }
-            other => panic!("Expected Event::KeyboardInput, but got {:?}", other),
+            other => panic!("Expected Event::KeyboardInput, but got {other:?}"),
         },
-        _ => panic!("Expected Event"),
+        MichiuEvent::User(_) => panic!("Expected Event"),
     }
 }
 
@@ -263,7 +275,7 @@ fn test_translate_and_push_all_standard_window_events() {
             event: Event::Created,
             ..
         } => {}
-        other => panic!("Expected Event::Created, got {:?}", other),
+        other => panic!("Expected Event::Created, got {other:?}"),
     }
 
     // WM_CLOSE: クローズ要求時
@@ -278,7 +290,7 @@ fn test_translate_and_push_all_standard_window_events() {
             event: Event::CloseRequested,
             ..
         } => {}
-        other => panic!("Expected Event::CloseRequested, got {:?}", other),
+        other => panic!("Expected Event::CloseRequested, got {other:?}"),
     }
 
     // WM_DESTROY: ウィンドウ破棄時
@@ -292,7 +304,7 @@ fn test_translate_and_push_all_standard_window_events() {
             event: Event::Destroyed,
             ..
         } => {}
-        other => panic!("Expected Event::Destroyed, got {:?}", other),
+        other => panic!("Expected Event::Destroyed, got {other:?}"),
     }
 
     // WM_SETFOCUS / WM_KILLFOCUS: フォーカス変更時
@@ -302,7 +314,7 @@ fn test_translate_and_push_all_standard_window_events() {
             event: Event::Focused(true),
             ..
         } => {}
-        other => panic!("Expected Event::Focused(true), got {:?}", other),
+        other => panic!("Expected Event::Focused(true), got {other:?}"),
     }
     let _ = translate_and_push(dummy_hwnd, WM_KILLFOCUS, WPARAM(0), LPARAM(0), &mut state);
     match pump.poll_event().unwrap() {
@@ -310,7 +322,7 @@ fn test_translate_and_push_all_standard_window_events() {
             event: Event::Focused(false),
             ..
         } => {}
-        other => panic!("Expected Event::Focused(false), got {:?}", other),
+        other => panic!("Expected Event::Focused(false), got {other:?}"),
     }
 
     // WM_CHAR: 文字入力時
@@ -326,7 +338,7 @@ fn test_translate_and_push_all_standard_window_events() {
             event: Event::CharacterInput('A'),
             ..
         } => {}
-        other => panic!("Expected Event::CharacterInput('A'), got {:?}", other),
+        other => panic!("Expected Event::CharacterInput('A'), got {other:?}"),
     }
 
     // WM_KEYDOWN / WM_KEYUP / WM_SYSKEYDOWN / WM_SYSKEYUP: 物理キー入力時
@@ -347,7 +359,7 @@ fn test_translate_and_push_all_standard_window_events() {
             assert_eq!(key_code.into_inner(), VK_A);
             assert_eq!(state, ElementState::Pressed);
         }
-        other => panic!("Expected KeyboardInput Pressed, got {:?}", other),
+        other => panic!("Expected KeyboardInput Pressed, got {other:?}"),
     }
     let _ = translate_and_push(
         dummy_hwnd,
@@ -366,7 +378,7 @@ fn test_translate_and_push_all_standard_window_events() {
             assert_eq!(key_code.into_inner(), VK_A);
             assert_eq!(state, ElementState::Released);
         }
-        other => panic!("Expected KeyboardInput Released, got {:?}", other),
+        other => panic!("Expected KeyboardInput Released, got {other:?}"),
     }
     // WM_SYSKEYDOWN/UP は WM_KEYDOWN/UP と同じイベントとして翻訳される
     let _ = translate_and_push(
@@ -386,12 +398,12 @@ fn test_translate_and_push_all_standard_window_events() {
             assert_eq!(key_code.into_inner(), VK_CONTROL);
             assert_eq!(state, ElementState::Pressed);
         }
-        other => panic!("Expected System KeyboardInput Pressed, got {:?}", other),
+        other => panic!("Expected System KeyboardInput Pressed, got {other:?}"),
     }
 
     // WM_MOUSEMOVE / WM_MOUSELEAVE: カーソル移動・領域外移動時
     // 初期状態: is_cursor_inside = false
-    let mouse_move_lparam = LPARAM(100 | (200 << 16)); // x=100, y=200
+    let mouse_move_lparam = LPARAM(0b110_0100 | (200 << 16)); // x=100, y=200
     let _ = translate_and_push(
         dummy_hwnd,
         WM_MOUSEMOVE,
@@ -409,7 +421,7 @@ fn test_translate_and_push_all_standard_window_events() {
             event: Event::CursorEntered,
             ..
         } => {}
-        other => panic!("Expected CursorEntered, got {:?}", other),
+        other => panic!("Expected CursorEntered, got {other:?}"),
     }
     match pump.poll_event().unwrap() {
         MichiuEvent::Window {
@@ -418,7 +430,7 @@ fn test_translate_and_push_all_standard_window_events() {
         } => {
             assert_eq!(position.into_inner(), PhysicalPoint::new(100, 200));
         }
-        other => panic!("Expected CursorMoved, got {:?}", other),
+        other => panic!("Expected CursorMoved, got {other:?}"),
     }
 
     let _ = translate_and_push(dummy_hwnd, WM_MOUSELEAVE, WPARAM(0), LPARAM(0), &mut state);
@@ -431,7 +443,7 @@ fn test_translate_and_push_all_standard_window_events() {
             event: Event::CursorLeft,
             ..
         } => {}
-        other => panic!("Expected CursorLeft, got {:?}", other),
+        other => panic!("Expected CursorLeft, got {other:?}"),
     }
 
     // WM_LBUTTONUP / WM_RBUTTONDOWN / WM_MBUTTONUP: 各種マウスボタン入力時
@@ -444,7 +456,7 @@ fn test_translate_and_push_all_standard_window_events() {
             assert_eq!(button, MouseButton::Left);
             assert_eq!(state, ElementState::Released);
         }
-        other => panic!("Expected Left MouseInput Released, got {:?}", other),
+        other => panic!("Expected Left MouseInput Released, got {other:?}"),
     }
     let _ = translate_and_push(dummy_hwnd, WM_RBUTTONDOWN, WPARAM(0), LPARAM(0), &mut state);
     match pump.poll_event().unwrap() {
@@ -455,7 +467,7 @@ fn test_translate_and_push_all_standard_window_events() {
             assert_eq!(button, MouseButton::Right);
             assert_eq!(state, ElementState::Pressed);
         }
-        other => panic!("Expected Right MouseInput Pressed, got {:?}", other),
+        other => panic!("Expected Right MouseInput Pressed, got {other:?}"),
     }
     let _ = translate_and_push(dummy_hwnd, WM_MBUTTONUP, WPARAM(0), LPARAM(0), &mut state);
     match pump.poll_event().unwrap() {
@@ -466,7 +478,7 @@ fn test_translate_and_push_all_standard_window_events() {
             assert_eq!(button, MouseButton::Middle);
             assert_eq!(state, ElementState::Released);
         }
-        other => panic!("Expected Middle MouseInput Released, got {:?}", other),
+        other => panic!("Expected Middle MouseInput Released, got {other:?}"),
     }
 
     // WM_MOUSEWHEEL: マウスホイール回転時
@@ -486,10 +498,10 @@ fn test_translate_and_push_all_standard_window_events() {
         } => {
             assert_eq!(delta, 1.0); // 120 / 120 = 1.0
         }
-        other => panic!("Expected MouseWheel delta 1.0, got {:?}", other),
+        other => panic!("Expected MouseWheel delta 1.0, got {other:?}"),
     }
     // ホイールデルタ -240 (後方へ2回転)
-    let wheel_wparam_neg = WPARAM((((-240i16) as u16) as usize) << 16);
+    let wheel_wparam_neg = WPARAM(((-0b1111_0000_i16).cast_unsigned() as usize) << 16);
     let _ = translate_and_push(
         dummy_hwnd,
         WM_MOUSEWHEEL,
@@ -504,7 +516,7 @@ fn test_translate_and_push_all_standard_window_events() {
         } => {
             assert_eq!(delta, -2.0); // -240 / 120 = -2.0
         }
-        other => panic!("Expected MouseWheel delta -2.0, got {:?}", other),
+        other => panic!("Expected MouseWheel delta -2.0, got {other:?}"),
     }
 
     // WM_PAINT: 再描画要求時
@@ -519,7 +531,7 @@ fn test_translate_and_push_all_standard_window_events() {
             event: Event::RedrawRequested,
             ..
         } => {}
-        other => panic!("Expected RedrawRequested, got {:?}", other),
+        other => panic!("Expected RedrawRequested, got {other:?}"),
     }
 
     // WM_DPICHANGED: DPI変更時 (auto_dpi_scaling = true の場合)
@@ -532,7 +544,7 @@ fn test_translate_and_push_all_standard_window_events() {
         right: 1200,
         bottom: 900,
     };
-    let rect_lparam = LPARAM(&mut rect as *mut RECT as isize);
+    let rect_lparam = LPARAM(&raw mut rect as isize);
 
     let res = translate_and_push(
         dummy_hwnd,
@@ -563,7 +575,7 @@ fn test_translate_and_push_all_standard_window_events() {
                 PhysicalRect::new(0, 0, 1200, 900)
             );
         }
-        other => panic!("Expected ScaleFactorChanged, got {:?}", other),
+        other => panic!("Expected ScaleFactorChanged, got {other:?}"),
     }
 }
 
@@ -631,7 +643,7 @@ fn test_event_pump_fifo_ordering() {
         dummy_hwnd,
         WM_MOUSEMOVE,
         WPARAM(0),
-        LPARAM(10 | (10 << 16)),
+        LPARAM(0b1010 | (10 << 16)),
         &mut state,
     );
 
@@ -950,10 +962,10 @@ fn test_translate_and_push_ime_bundle_unvalidated_normal() {
                             "ImeStateUpdate validation failed"
                         );
                     }
-                    other => panic!("Expected Event::Ime, but got: {:?}", other),
+                    other => panic!("Expected Event::Ime, but got: {other:?}"),
                 }
             }
-            _ => panic!("Expected MichiuEvent::Event"),
+            MichiuEvent::User(_) => panic!("Expected MichiuEvent::Event"),
         }
 
         window.destroy();
@@ -1135,8 +1147,7 @@ fn test_event_pump_wait_event_blocking_lifecycle() {
         let elapsed = start_time.elapsed();
         assert!(
             elapsed >= std::time::Duration::from_millis(80),
-            "wait_event returned prematurely due to OS system message noise. Elapsed: {:?}",
-            elapsed
+            "wait_event returned prematurely due to OS system message noise. Elapsed: {elapsed:?}"
         );
 
         // クリーンアップ

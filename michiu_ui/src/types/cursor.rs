@@ -53,7 +53,6 @@ impl Default for CursorIcon {
 impl CursorIcon {
     /// Loads and returns the Windows `HCURSOR` physical handle.
     /// If a custom `HCURSOR` is specified, it takes precedence; otherwise, the OS's default is loaded.
-    #[must_use]
     pub fn to_hcursor(self) -> crate::Result<HCURSOR> {
         use windows::Win32::UI::WindowsAndMessaging::{
             IDC_ARROW, IDC_HAND, IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
@@ -140,6 +139,7 @@ impl CursorIcon {
                 ));
             }
 
+            #[expect(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
             let bmi = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
@@ -183,6 +183,7 @@ impl CursorIcon {
                 dest_slice[i + 3] = rgba_pixels[i + 3]; // A
             }
 
+            #[expect(clippy::cast_possible_wrap)]
             let hbm_mask = CreateBitmap(width as i32, height as i32, 1, 1, None);
 
             let icon_info = ICONINFO {

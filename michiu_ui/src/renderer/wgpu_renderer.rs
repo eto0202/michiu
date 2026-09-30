@@ -204,6 +204,7 @@ impl WgpuRenderer {
             .find(wgpu::TextureFormat::is_srgb) // SRGBを優先
             .unwrap_or(caps.formats[0]);
 
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -289,17 +290,15 @@ impl WgpuRenderer {
             vertex: wgpu::VertexState {
                 module: shader,
                 entry_point: Some("vs_main"),
-                buffers: &[
-                    wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &[wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x2,
-                            offset: 0,
-                            shader_location: 0,
-                        }],
-                    },
-                ],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x2,
+                        offset: 0,
+                        shader_location: 0,
+                    }],
+                }],
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -453,6 +452,7 @@ impl WgpuRenderer {
 
     /// ウィンドウサイズが変更された際の再設定
     /// `new_physical_size`: (width, height)
+    #[expect(clippy::cast_precision_loss)]
     pub(crate) fn resize(&mut self, new_physical_size: (u32, u32), scale_factor: f32) {
         if new_physical_size.0 > 0 && new_physical_size.1 > 0 {
             self.config.width = new_physical_size.0;
@@ -565,6 +565,7 @@ impl WgpuRenderer {
             // 現在アクティブなパイプラインを記録
             let mut current_pipeline = None;
 
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             for batch in &render_data.batches {
                 let offset = batch.instance_offset as u32;
                 let count = batch.instance_count as u32;
@@ -800,6 +801,7 @@ impl WgpuRenderer {
 
         // モード、座標、UV は呼び出し元で既に決定されているためそのまま転送
         (
+            #[expect(clippy::cast_precision_loss)]
             QuadInstance {
                 rect: instance.rect,
                 transform: packed_transform,

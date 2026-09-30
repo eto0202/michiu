@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use michiu_window::{
     CustomTrayMenu, Event, EventPump, Icon, LogicalSize, MichiuEvent, TrayBuilder, TrayMenuItem,
     WindowBuilder, init_dpi_awareness,

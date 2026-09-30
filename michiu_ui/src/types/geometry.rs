@@ -208,10 +208,10 @@ impl Default for LayoutRect {
 impl From<LayoutRect> for accesskit::Rect {
     fn from(r: LayoutRect) -> Self {
         Self {
-            x0: r.x as f64,
-            y0: r.y as f64,
-            x1: (r.x + r.width) as f64,
-            y1: (r.y + r.height) as f64,
+            x0: f64::from(r.x),
+            y0: f64::from(r.y),
+            x1: f64::from(r.x + r.width),
+            y1: f64::from(r.y + r.height),
         }
     }
 }

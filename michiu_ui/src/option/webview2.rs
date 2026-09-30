@@ -15,9 +15,9 @@ use webview2_com::{
         COREWEBVIEW2_CAPTURE_PREVIEW_IMAGE_FORMAT_PNG, COREWEBVIEW2_COLOR,
         COREWEBVIEW2_MOUSE_EVENT_KIND, COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS,
         COREWEBVIEW2_MOVE_FOCUS_REASON, COREWEBVIEW2_MOVE_FOCUS_REASON_PREVIOUS,
-        COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC, CreateCoreWebView2EnvironmentWithOptions,
-        ICoreWebView2, ICoreWebView2CompositionController, ICoreWebView2Controller,
-        ICoreWebView2Controller2, ICoreWebView2Environment, ICoreWebView2Environment3,
+        CreateCoreWebView2EnvironmentWithOptions, ICoreWebView2,
+        ICoreWebView2CompositionController, ICoreWebView2Controller, ICoreWebView2Controller2,
+        ICoreWebView2Environment, ICoreWebView2Environment3,
     },
 };
 use windows::{
@@ -441,7 +441,7 @@ impl WebView2Visual {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub(crate) unsafe fn init_webview2_composition(
         hwnd: HWND,
         webview_visual: &IDCompositionVisual2,
@@ -477,7 +477,7 @@ impl WebView2Visual {
                     Box::new(
                         move |res, controller: Option<ICoreWebView2CompositionController>| {
                             // このクロージャは後から非同期にブラウザの初期化が終わった瞬間に実行。
-                            res.map_err(webview2_com::Error::WindowsError);
+                            let _ = res.map_err(webview2_com::Error::WindowsError);
 
                             let comp_controller =
                                 controller.ok_or_else(windows_core::Error::from_thread)?;
@@ -616,7 +616,7 @@ impl WebView2Visual {
         // 初期起動時（env_slot がまだロード途中）の場合のフォールバック
         let handler = webview2_com::CreateCoreWebView2EnvironmentCompletedHandler::create(
             Box::new(move |res, environment: Option<ICoreWebView2Environment>| {
-                res.map_err(webview2_com::Error::WindowsError);
+                let _ = res.map_err(webview2_com::Error::WindowsError);
                 let env = environment.ok_or_else(windows_core::Error::from_thread)?;
                 let env3: ICoreWebView2Environment3 = env.cast()?;
 

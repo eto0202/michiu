@@ -4,7 +4,7 @@ use std::borrow::Cow;
 pub struct FontDate {
     pub size: Option<f32>,
     pub family: Option<Cow<'static, str>>,
-    pub weight: Option<u32>,
+    pub weight: Option<u16>,
     pub style: Option<u32>,
 }
 

@@ -78,6 +78,8 @@ impl EventPump {
     /// Creates a default configured `EventPump` instance.
     ///
     /// Warns if another `EventPump` is already active on the current thread.
+    #[must_use]
+    #[inline]
     pub fn new() -> Self {
         PUMP_ACTIVE.with(|active| {
                 if active.get() {
@@ -117,7 +119,7 @@ impl EventPump {
             // - GetMessageW は WM_QUIT を受信した際に FALSE (0) を返す
             // - エラーが発生した場合は -1 を返す
             loop {
-                let res = GetMessageW(&mut msg, None, 0, 0);
+                let res = GetMessageW(&raw mut msg, None, 0, 0);
 
                 if res.0 == 0 {
                     // WM_QUIT (0) を受信した場合は正常終了とみなし、残りのメモリをフラッシュして Ok(None)
@@ -130,8 +132,8 @@ impl EventPump {
                     ));
                 }
 
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+                let _ = TranslateMessage(&raw const msg);
+                DispatchMessageW(&raw const msg);
 
                 // メッセージ処理によってイベント（WindowEvent や UserEvent）がキューに積まれた場合、
                 // 即座にブロックを解除してそのイベントを呼び出し元に返す。
@@ -186,7 +188,7 @@ impl EventPump {
         unsafe {
             let mut msg = std::mem::zeroed();
             // PeekMessageW でメッセージを非ブロッキング取得
-            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+            while PeekMessageW(&raw mut msg, None, 0, 0, PM_REMOVE).as_bool() {
                 // WM_QUIT (PostQuitMessage) が送られてきた場合の終了ハンドリング
                 if msg.message == WM_QUIT {
                     break;
@@ -206,8 +208,8 @@ impl EventPump {
                     }
                 }
 
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+                let _ = TranslateMessage(&raw const msg);
+                DispatchMessageW(&raw const msg);
 
                 // メッセージを1つ処理した結果、イベントキューに何か入ったら
                 // 1フレーム遅延を防ぐためにループを抜けて即座に呼び出し元に返す
@@ -225,9 +227,10 @@ impl EventPump {
 /// Parses received Win32 messages, translates them into safe Events, and stores them.
 ///
 /// If `Some(LRESULT)` is returned,
-/// the WndProc bypasses further processing (such as DefWindowProcW) and returns immediately.
+/// the `WndProc` bypasses further processing (such as `DefWindowProcW`) and returns immediately.
 /// If `None` is returned, processing is not bypassed;
 /// instead, the message is passed directly to the OS's default handling.
+#[allow(clippy::too_many_lines)]
 pub(crate) fn translate_and_push(
     hwnd: HWND,
     msg: u32,
@@ -316,7 +319,7 @@ pub(crate) fn translate_and_push(
                     dwHoverTime: 0,
                 };
                 unsafe {
-                    let _ = TrackMouseEvent(&mut tme);
+                    let _ = TrackMouseEvent(&raw mut tme);
                 }
             }
 
@@ -391,9 +394,9 @@ pub(crate) fn translate_and_push(
         WM_PAINT => {
             let mut ps = PAINTSTRUCT::default();
             unsafe {
-                let _hdc = BeginPaint(hwnd, &mut ps);
+                let _hdc = BeginPaint(hwnd, &raw mut ps);
                 push_win_event(Event::RedrawRequested);
-                let _ = EndPaint(hwnd, &ps);
+                let _ = EndPaint(hwnd, &raw const ps);
             }
             // DefWindowProcW のデフォルト描画をスキップ
             Some(LRESULT(0))
@@ -643,6 +646,7 @@ unsafe impl Sync for EventSender {}
 
 impl EventSender {
     /// Creates a default configured `EventSender` instance.
+    #[must_use]
     #[inline]
     pub fn new(hwnd: HWND) -> Self {
         Self { hwnd }
@@ -723,7 +727,7 @@ unsafe fn flush_remaining_pointer_messages() {
     let mut msg = unsafe { std::mem::zeroed() };
     // スレッドメッセージキューからカスタムメッセージの範囲 (WM_USER ～ WM_USER + 200) を
     // PM_REMOVE で全て回収しポインタを解放する
-    while unsafe { PeekMessageW(&mut msg, None, WM_USER, WM_USER + 200, PM_REMOVE) }.as_bool() {
+    while unsafe { PeekMessageW(&raw mut msg, None, WM_USER, WM_USER + 200, PM_REMOVE) }.as_bool() {
         if msg.message == WM_WINDOW_COMMAND
             || msg.message == WM_RUN_ON_UI_THREAD
             || msg.message == WM_USER_EVENT
@@ -763,6 +767,7 @@ pub struct EventBus {
 
 impl EventBus {
     /// Creates a new, empty `EventBus` instance.
+    #[must_use]
     #[inline]
     pub fn new() -> Self {
         Self {

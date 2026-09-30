@@ -26,7 +26,7 @@ thread_local! {
 /// use michiu_ui::{build_ui, div, div_n, ts, Color, Context};
 ///
 /// let mut cx = Context::new();
-/// let root = build_ui(cx, || {
+/// let root = build_ui(&mut cx, || {
 ///     div(ts().bg_color(Color::GREEN))
 ///         .child(div_n()) // empty container
 /// });
@@ -68,7 +68,7 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
 ///
 /// Context が無く、トレースが送信出来ないためパニックで落とす。
 #[track_caller]
-#[allow(clippy::panic)]
+#[expect(clippy::panic)]
 #[inline]
 pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
     let ptr = ACTIVE_CONTEXT.get().unwrap_or_else(|| {
@@ -214,10 +214,12 @@ impl Element {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```no_run
+    /// use michiu_ui::div_n;
+    /// 
     /// struct Tag;
     ///
-    /// div_n().tag::<Tag>()
+    /// let _tag = div_n().tag::<Tag>();
     ///
     /// ```
     #[inline]
@@ -539,7 +541,7 @@ impl Element {
     ///
     /// # Panics
     /// Not supported dynamic nested elements inside `children_d`.
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[must_use]
     pub fn children_d<P, F, I, E>(self, f: F) -> Self
@@ -642,7 +644,7 @@ impl Element {
     }
 
     /// This will replace the contents of this container. All previous contents will be discarded.
-    #[allow(clippy::return_self_not_must_use)]
+    #[expect(clippy::return_self_not_must_use)]
     pub fn set_contents(self, contents: impl Into<Prop<Element>>) -> Self {
         match contents.into() {
             Prop::None => {}
@@ -836,7 +838,6 @@ impl Element {
     /// Sets accessibility roles and labels.
     ///
     /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
-    #[allow(clippy::unit_arg)]
     #[must_use]
     pub fn a11y<M>(self, node: impl IntoOptionProp<Node, M>) -> Self {
         let prop = node.into_option_prop();
@@ -853,7 +854,6 @@ impl Element {
     /// Sets accessibility roles and labels.
     ///
     /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
-    #[allow(clippy::unit_arg)]
     #[must_use]
     pub fn a11y_with<M, F>(self, node: impl IntoOptionProp<Node, M>, f: F) -> Self
     where
@@ -885,7 +885,6 @@ impl Element {
     /// Sets accessibility roles.
     ///
     /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
-    #[allow(clippy::unit_arg)]
     #[must_use]
     pub fn a11y_role<M>(self, role: impl IntoOptionProp<Role, M>) -> Self {
         let prop = role.into_option_prop();

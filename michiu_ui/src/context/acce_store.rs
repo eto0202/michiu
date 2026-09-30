@@ -1,8 +1,7 @@
 use crate::{
-    ActiveInteractionStates, ActiveMasksSecondary, CapacityConfig, ChildrenSecondary,
-    ComponentMask, Context, DEFAULT_BASIC, DebugStore, Display, EntityId, EventListeners,
-    EventListenersSparse, InputContentsSparse, MichiuSoA, MichiuTagRegistry, Overflow,
-    RectsSecondary, ResolvedBasicSecondary, TaskSender, TextContentsSparse, a11y::InferenceFn,
+    ActiveMasksSecondary, CapacityConfig, ChildrenSecondary, ComponentMask, DEFAULT_BASIC,
+    DebugStore, Display, EntityId, EventListenersSparse, InputContentsSparse, MichiuSoA, Overflow,
+    RectsSecondary, ResolvedBasicSecondary, TaskSender, TextContentsSparse,
     define_sparse_secondary,
 };
 use accesskit::{
@@ -11,7 +10,6 @@ use accesskit::{
 };
 use accesskit_windows::SubclassingAdapter;
 use slotmap::SparseSecondaryMap;
-use smallvec::{SmallVec, smallvec};
 use std::{
     borrow::Cow,
     sync::{
@@ -199,7 +197,7 @@ impl AccessibilityStore {
     }
 
     /// `TreeUpdate` の構築とタスク送信
-    #[allow(clippy::needless_pass_by_value)]
+    #[expect(clippy::needless_pass_by_value)]
     fn worker_loop(rx: Receiver<AccessibilitySnapshot>, task_sender: TaskSender) {
         while let Ok(mut snapshot) = rx.recv() {
             // ノードが空の場合は OS のツリーを破壊しないようスキップ

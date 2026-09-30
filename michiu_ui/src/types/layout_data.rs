@@ -311,7 +311,7 @@ pub(crate) struct CurrentStyle {
     pub(crate) text_color: Color,
     pub(crate) font_size: f32,
     pub(crate) font_family: Option<Cow<'static, str>>,
-    pub(crate) font_weight: u32,
+    pub(crate) font_weight: u16,
     pub(crate) font_style: u32,
     pub(crate) auto_wrap: bool,
     pub(crate) pointer_events: PointerEvents,
@@ -686,7 +686,7 @@ pub struct InteractionStyles {
 impl InteractionStyles {
     /// 与えられた疑似状態（StyleTarget）に対応する Option<ThisStyle> フィールドの実体可変参照を取得します
     #[track_caller]
-    #[allow(clippy::unreachable)]
+    #[expect(clippy::unreachable)]
     #[inline]
     pub(crate) fn get_style_target_mut(&mut self, target: StyleTarget) -> &mut ThisStyle {
         match target {

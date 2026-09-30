@@ -429,7 +429,7 @@ fn apply_declarations_to_style(
                 use lightningcss::properties::font::{AbsoluteFontWeight, FontWeight};
                 let weight_val = match fw {
                     FontWeight::Absolute(val) => match val {
-                        AbsoluteFontWeight::Weight(w) => Some(*w as u32),
+                        AbsoluteFontWeight::Weight(w) => Some(*w as u16),
                         AbsoluteFontWeight::Normal => Some(400),
                         AbsoluteFontWeight::Bold => Some(700),
                     },
@@ -814,7 +814,7 @@ fn parse_border_side_width(
 }
 
 // モノモルファイズの削減
-#[allow(clippy::expect_used)]
+#[expect(clippy::expect_used)]
 #[inline]
 fn map_style_prop<F>(style: ThisStyle, target: crate::StyleTarget, f: F) -> ThisStyle
 where

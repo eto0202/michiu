@@ -150,7 +150,14 @@ impl Icon {
                 LR_DEFAULTCOLOR,
             );
 
-            if offset <= 0 || (offset as usize) >= bytes.len() {
+            let Ok(offset) = usize::try_from(offset) else {
+                return Err(MichiuError::ValidationError {
+                    parameter: "bytes",
+                    message: "Failed to parse image directory header from memory.".into(),
+                });
+            };
+
+            if offset == 0 || offset >= bytes.len() {
                 return Err(MichiuError::ValidationError {
                     parameter: "bytes",
                     message: "Failed to parse image directory header from memory.".into(),
@@ -158,11 +165,11 @@ impl Icon {
             }
 
             // 特定された位置のデータから HICON を生成する
-            let icon_bits = &bytes[offset as usize..];
+            let icon_bits = &bytes[offset..];
             let hicon_raw = CreateIconFromResourceEx(
                 icon_bits,
-                true,       // true = Icon
-                0x00030000, // Windows 3.0 以降の標準バージョン指定
+                true,        // true = Icon
+                0x0003_0000, // Windows 3.0 以降の標準バージョン指定
                 0,
                 0,
                 LR_DEFAULTCOLOR,
@@ -204,6 +211,7 @@ impl Icon {
     ///     Ok(())
     /// }
     /// ```
+    #[must_use]
     #[inline]
     pub unsafe fn from_raw(hicon: HICON) -> Self {
         Self {
@@ -220,6 +228,9 @@ impl Icon {
     }
 }
 
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,7 +355,7 @@ mod tests {
             MichiuError::ResourceLoadFailed { path, .. } => {
                 assert!(path.contains("non_existent_and_fake_icon_file_12345.ico"));
             }
-            other => panic!("Expected ResourceLoadFailed error, got: {:?}", other),
+            other => panic!("Expected ResourceLoadFailed error, got: {other:?}"),
         }
     }
 
@@ -358,7 +369,7 @@ mod tests {
                 assert_eq!(parameter, "bytes");
                 assert!(message.contains("cannot be empty"));
             }
-            other => panic!("Expected ValidationError error, got: {:?}", other),
+            other => panic!("Expected ValidationError error, got: {other:?}"),
         }
     }
 
@@ -374,7 +385,7 @@ mod tests {
                 assert_eq!(parameter, "bytes");
                 assert!(message.contains("Failed to parse image directory header"));
             }
-            other => panic!("Expected ValidationError, got: {:?}", other),
+            other => panic!("Expected ValidationError, got: {other:?}"),
         }
     }
 }

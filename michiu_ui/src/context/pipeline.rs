@@ -295,13 +295,11 @@ impl Pipeline {
     #[track_caller]
     #[inline]
     pub(crate) fn update_state(cx: &mut Context, id: EntityId, state_flag: u128, actived: bool) {
-        let mut was_active = false;
         let mut state_changed = false;
 
         let mask = cx.topology.topo_active_masks.at_mut(id); // 絶対に生きてるはず
 
-        was_active = mask.has(state_flag);
-        if was_active == actived {
+        if mask.has(state_flag) == actived {
             return;
         }
 
@@ -1000,6 +998,7 @@ impl Pipeline {
         }
     }
 
+    #[allow(unused)]
     #[track_caller]
     #[inline]
     pub(crate) fn collect_render_data(cx: &mut Context, view: &mut RendererView) {
@@ -2207,7 +2206,9 @@ impl Pipeline {
                 let char_phys_y = physical.y - value.offset_y; // Swash の top は上向き正のため減算
 
                 // 論理座標に戻す
+                #[expect(clippy::cast_precision_loss)]
                 let char_x = char_phys_x as f32 / win_scale_factor;
+                #[expect(clippy::cast_precision_loss)]
                 let char_y = char_phys_y as f32 / win_scale_factor;
 
                 // 文字の矩形
@@ -2215,10 +2216,10 @@ impl Pipeline {
 
                 // スパンごとに指定されたカラー、指定がなければベースの文字色を採用
                 let char_color = glyph.color_opt.map_or(resolved_color, |c| Color {
-                    r: c.r() as f32 / 255.0,
-                    g: c.g() as f32 / 255.0,
-                    b: c.b() as f32 / 255.0,
-                    a: c.a() as f32 / 255.0,
+                    r: f32::from(c.r()) / 255.0,
+                    g: f32::from(c.g()) / 255.0,
+                    b: f32::from(c.b()) / 255.0,
+                    a: f32::from(c.a()) / 255.0,
                 });
 
                 let glyph_instance = QuadInstance {

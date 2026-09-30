@@ -199,10 +199,10 @@
 //! You can get a thread-safe [`EventSender`] from `WindowHandle::sender()`. It uses `PostMessageW`
 //! internally to send a `Box<dyn Any + Send>` to the UI thread, waking up the event loop safely.
 //!
-//! ### Option B: Standard Rust `std::sync::mpsc` Channels (With wake_up)
+//! ### Option B: Standard Rust `std::sync::mpsc` Channels (With `wake_up`)
 //! You can use standard Rust channels alongside the blocking `wait_event` loop.
 //! By calling `handle.wake_up()` after sending data to the channel, you can safely wake up
-//! the UI thread's sleep state (GetMessage) to process the queue immediately, avoiding any busy polling.
+//! the UI thread's sleep state (`GetMessage`) to process the queue immediately, avoiding any busy polling.
 //!
 //! ```no_run
 //! use std::sync::mpsc;
@@ -216,7 +216,7 @@
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Always initialize High-DPI support first
-//! init_dpi_awareness();
+//! let _ = init_dpi_awareness();
 //!
 //! let builder = WindowBuilder::new().with_title("Centralized App");
 //! let validated = builder.into_unvalidated().try_into()?;

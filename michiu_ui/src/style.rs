@@ -512,6 +512,8 @@ impl ThisStyle {
     /// This setting determines how child elements are displayed when they extend beyond the element's boundaries.
     ///
     /// ```rust
+    /// use michiu_ui::Overflow;
+    /// 
     /// pub struct LayoutOverflow {
     ///    pub x: Overflow,
     ///    pub y: Overflow,
@@ -3538,10 +3540,12 @@ impl ThisStyle {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```no_run
+    /// use michiu_ui::{ts, div, v_flex, h_flex, FlexDirection};
+    /// 
     /// // Recommended: Use the layout shortcuts directly
-    /// h_flex(/* style */);
-    /// v_flex(/* style */);
+    /// h_flex(ts());
+    /// v_flex(ts());
     ///
     /// // Equivalent low-level approach:
     /// div(ts().flex().flex_direction(FlexDirection::Row));
@@ -5667,7 +5671,7 @@ impl ThisStyle {
     /// Default is 400
     #[inline]
     #[must_use]
-    pub fn font_weight(mut self, weight: impl IntoStyleValue<u32>) -> Self {
+    pub fn font_weight(mut self, weight: impl IntoStyleValue<u16>) -> Self {
         match weight.into_style_value() {
             StyleValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -6004,8 +6008,7 @@ impl ThisStyle {
 
     // すべての疑似クラスおよび within 伝播系のスタイルと動的セッターを統合する共通ヘルパー
     #[track_caller]
-    #[allow(clippy::too_many_lines)]
-    #[allow(clippy::unreachable)]
+    #[expect(clippy::too_many_lines, clippy::unreachable)]
     fn apply_interaction_style(
         mut self,
         style: impl IntoStyleValue<ThisStyle>,

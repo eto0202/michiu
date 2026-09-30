@@ -1397,9 +1397,9 @@ impl RenderStore {
             .outline_alignments
             .unwrap_or([BorderAlignment::default(); 4]);
 
-        let mut o_flags = 0u32;
+        let mut o_flags = 0u16;
         // 1つの辺あたり4ビットを割り当て各辺の位置（idx * 4）へ配置
-        // ビットレイアウト (u32, 下位16ビットを使用)
+        // ビットレイアウト
         //  15      12 11       8 7       4 3        0
         // +---------+---------+---------+---------+
         // |  Left   | Bottom  |  Right  |   Top   |  <-- 各4ビット (Edge)
@@ -1409,15 +1409,15 @@ impl RenderStore {
         // う～ん、分からんｗ
         for (idx, (&style, &align)) in o_styles.iter().zip(o_aligns.iter()).enumerate() {
             // 将来列挙型が増えた際、隣のビットを汚染しないよう 2ビット（0b11）でマスク
-            let style_bits = (style as u32) & 0b11; // 下位2ビット (0〜3)
-            let align_bits = (align as u32) & 0b11; // 上位2ビット (0〜3)
+            let style_bits = (style as u16) & 0b11; // 下位2ビット (0〜3)
+            let align_bits = (align as u16) & 0b11; // 上位2ビット (0〜3)
 
             let edge_flags = style_bits | (align_bits << 2); // 4ビット分のデータ
 
             o_flags |= edge_flags << (idx * 4); // 対象の辺の位置（0, 4, 8, 12ビット目）
         }
 
-        let outline_offset_and_flags = [o_offset, o_flags as f32, 0.0, 0.0];
+        let outline_offset_and_flags = [o_offset, f32::from(o_flags), 0.0, 0.0];
 
         (o_width, o_color, o_lengths, outline_offset_and_flags)
     }
@@ -1445,7 +1445,8 @@ impl RenderStore {
                 let duration_secs = anim.duration.as_secs_f32();
 
                 // 現在の周回回数
-                let current_iteration = (elapsed_secs / duration_secs).floor() as u32;
+                let iterations = elapsed.as_millis() / anim.duration.as_millis();
+                let current_iteration = u32::try_from(iterations).unwrap_or(u32::MAX);
 
                 // ループ制限に達しているかチェック
                 let is_finished = match anim.iteration_count {

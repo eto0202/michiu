@@ -12,7 +12,8 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{HMODULE, HWND, LPARAM, POINT, RECT, WPARAM}, Graphics::{
+        Foundation::{HMODULE, HWND, LPARAM, POINT, RECT, WPARAM},
+        Graphics::{
             Direct3D::{D3D_DRIVER_TYPE_HARDWARE, ID3DInclude_Impl},
             Direct3D11::{
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
@@ -29,10 +30,16 @@ use windows::{
             Dxgi::*,
             Gdi::InvalidateRect,
             Imaging::{CLSID_WICImagingFactory, IWICImagingFactory},
-        }, System::{Com::{CLSCTX_INPROC_SERVER, CoCreateInstance}, LibraryLoader::GetModuleHandleW}, UI::WindowsAndMessaging::{
+        },
+        System::{
+            Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
+            LibraryLoader::GetModuleHandleW,
+        },
+        UI::WindowsAndMessaging::{
             GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
         },
-    }, core::{Interface, PCWSTR, PWSTR, w},
+    },
+    core::{Interface, PCWSTR, PWSTR, w},
 };
 use windows_numerics::Matrix3x2;
 
@@ -133,6 +140,7 @@ impl ComposedRenderer {
     /// Updates the overall settings and resizes wgpu when the window size changes.
     ///
     /// `new_physical_size`: (width, height)
+    #[expect(clippy::cast_precision_loss)]
     #[inline]
     pub fn resize(&mut self, new_physical_size: (u32, u32), scale_factor: f32) {
         self.scale_factor = scale_factor;
@@ -803,6 +811,7 @@ unsafe extern "system" {
 }
 
 // apply_system_backdrop を拡張してダークモードとフレーム拡張を統合
+#[expect(clippy::cast_possible_truncation)]
 pub(crate) fn apply_system_backdrop(hwnd: HWND, backdrop: Backdrop) {
     unsafe {
         // DWMWA_USE_HOSTBACKDROPBRUSH (17) を TRUE に設定

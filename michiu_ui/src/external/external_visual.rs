@@ -103,9 +103,9 @@ pub struct VisualUpdateContext<'a> {
 pub struct ExternalVisualMetadata {
     /// Recommended Initial Size
     pub size: LayoutSize,
-    /// Whether to leave the rounded-corner clipping on the DComp side to the engine
+    /// Whether to leave the rounded-corner clipping on the Direct Composition side to the engine
     pub auto_clip: bool,
-    /// Whether to leave the affine transformation on the DComp side to the engine
+    /// Whether to leave the affine transformation on the Direct Composition side to the engine
     pub auto_transform: bool,
 }
 
@@ -159,6 +159,7 @@ pub fn dispatch_raw_input_to_external_visual(
     };
 
     let rect = cx.outputs.out_rects.find_or_default(id, &mut cx.debug);
+    #[expect(clippy::cast_possible_truncation)]
     let local_phys_pos = POINT {
         x: (window_phys_pos.x - rect.x * scale_factor).round() as i32,
         y: (window_phys_pos.y - rect.y * scale_factor).round() as i32,

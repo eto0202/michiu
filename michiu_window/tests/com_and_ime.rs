@@ -1,3 +1,9 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![allow(clippy::ref_as_ptr)]
+#![allow(clippy::inline_always)]
+
 use michiu_guard::Validated;
 use michiu_window::{
     ComContext, Event, EventPump, FileDropTarget, ImeContext, LogicalSize, MichiuEvent,
@@ -39,6 +45,7 @@ where
     handle.join().expect("Test thread panicked");
 }
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn test_integration_com_sta_and_ime_relay_lifecycle() {
     let _ = init_dpi_awareness();
@@ -74,7 +81,7 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
         let mut client_stream = None;
         let connect_start = Instant::now();
         while connect_start.elapsed() < Duration::from_secs(1) {
-            if let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{}", test_port)) {
+            if let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{test_port}")) {
                 // UIスレッドをフリーズさせないよう非ブロッキングに設定
                 stream.set_nonblocking(true).unwrap();
                 client_stream = Some(stream);
@@ -148,7 +155,7 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
                 &mock_data,
                 MODIFIERKEYS_FLAGS(0),
                 POINTL { x: 0, y: 0 },
-                &mut effect,
+                &raw mut effect,
             )
         };
 
@@ -207,6 +214,7 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
     });
 }
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn test_integration_ime_relay_multi_client_robustness() {
     let _ = init_dpi_awareness();
@@ -233,14 +241,14 @@ fn test_integration_ime_relay_multi_client_robustness() {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(1) {
             if client_a.is_none()
-                && let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{}", test_port))
+                && let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{test_port}"))
             {
                 stream.set_nonblocking(true).unwrap();
                 client_a = Some(stream);
             }
             if client_a.is_some()
                 && client_b.is_none()
-                && let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{}", test_port))
+                && let Ok(stream) = TcpStream::connect(format!("127.0.0.1:{test_port}"))
             {
                 stream.set_nonblocking(true).unwrap();
                 client_b = Some(stream);
@@ -451,6 +459,7 @@ unsafe fn create_mock_hdrop(paths: &[PathBuf]) -> HGLOBAL {
     let h_mem = unsafe { GlobalAlloc(GMEM_MOVEABLE, total_size).unwrap() };
     let ptr = unsafe { GlobalLock(h_mem) };
 
+    #[expect(clippy::cast_possible_truncation)]
     let dropfiles = DROPFILES {
         pFiles: dropfiles_size as u32,
         pt: POINT { x: 0, y: 0 },
@@ -459,10 +468,11 @@ unsafe fn create_mock_hdrop(paths: &[PathBuf]) -> HGLOBAL {
     };
 
     unsafe {
-        std::ptr::write(ptr as *mut DROPFILES, dropfiles);
+        std::ptr::write(ptr.cast::<DROPFILES>(), dropfiles);
+        #[expect(clippy::cast_ptr_alignment)]
         std::ptr::copy_nonoverlapping(
             path_bytes.as_ptr(),
-            (ptr as *mut u8).add(dropfiles_size) as *mut u16,
+            ptr.cast::<u8>().add(dropfiles_size).cast::<u16>(),
             path_bytes.len(),
         );
     }

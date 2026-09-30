@@ -1,3 +1,6 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::print_stdout)]
+
 use michiu_guard::{Unvalidated, Validate as MichiuValidate, Validated};
 use validator::Validate as ValidatorValidate;
 
@@ -37,7 +40,7 @@ fn run_pattern_a() {
     let result: Result<Validated<SignupForm>, _> = raw_input.try_into();
 
     if let Err(errors) = result {
-        println!("Pattern A failed as expected:\n{:#?}", errors);
+        println!("Pattern A failed as expected:\n{errors:#?}");
     }
 }
 

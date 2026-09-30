@@ -5,8 +5,8 @@ use crate::{
     LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuError, MichiuSoA, MichiuTagRegistry,
     OptionTraceExt, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
     StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId,
-    VisualPropertiesSecondary, WindowStore, a11y::A11yInferenceTag, define_secondary, define_smallvec,
-    define_vec,
+    VisualPropertiesSecondary, WindowStore, a11y::A11yInferenceTag, define_secondary,
+    define_smallvec, define_vec,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{MichiuTrace, trace_lifecycle};
@@ -803,7 +803,7 @@ impl TopologyStore {
                 topo_active_masks
                     .at_mut(id)
                     .set(ComponentMask::STATE_RENDER_VISIBLE);
-                topo_sort_cache.push((id, eff_z, index as u32));
+                topo_sort_cache.push((id, eff_z, u32::try_from(index).unwrap_or(u32::MAX)));
             } else {
                 topo_active_masks
                     .at_mut(id)

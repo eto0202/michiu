@@ -102,6 +102,7 @@ pub struct Window {
 pub struct WindowId(pub(crate) isize);
 
 impl WindowId {
+    #[must_use]
     #[inline]
     pub fn id(&self) -> isize {
         self.0
@@ -129,6 +130,7 @@ impl Window {
     /// # Ok(())
     /// # }
     /// ```
+    #[allow(clippy::too_many_lines)]
     pub fn build(builder: Validated<WindowBuilder<'_>>) -> Result<Self> {
         let hmodule = unsafe { GetModuleHandleW(None).map_err(MichiuError::UnexpectedOsError)? };
         let hinstance = HINSTANCE(hmodule.0);
@@ -202,7 +204,7 @@ impl Window {
                 None,
                 None,
                 // filter_raw_ptr の代わりに、context のポインタを渡す
-                Some(&mut context as *mut CreationContext as *const c_void),
+                Some(&raw mut context as *const c_void),
             )
         };
 
@@ -253,7 +255,7 @@ impl Window {
         }
 
         let mut process_id: u32 = 0;
-        let thread_id = unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id)) };
+        let thread_id = unsafe { GetWindowThreadProcessId(hwnd, Some(&raw mut process_id)) };
 
         let tray = builder.tray;
 
@@ -288,6 +290,7 @@ impl Window {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     #[inline]
     pub fn handle(&self) -> Unvalidated<WindowHandle> {
         Unvalidated::new(WindowHandle {
@@ -298,12 +301,14 @@ impl Window {
     }
 
     /// Retrieves the current physical DPI value for this window.
+    #[must_use]
     #[inline]
     pub fn dpi(&self) -> u32 {
         unsafe { GetDpiForWindow(self.hwnd) }
     }
 
     /// Retrieves the current scaling ratio between physical pixels and logical pixels (e.g., `1.5` for 150% scaling).
+    #[must_use]
     #[inline]
     pub fn scale_factor(&self) -> f64 {
         self.dpi() as f64 / 96.0
@@ -312,7 +317,7 @@ impl Window {
     /// Safely registers a high-level subclassing callback closure for this window.
     ///
     /// The handler closure processes Win32 messages and returns a [`SubclassResult`].
-    /// If [`SubclassResult::Continue`] is returned, the next subclass, main wnd_proc, and custom
+    /// If [`SubclassResult::Continue`] is returned, the next subclass, main `wnd_proc`, and custom
     /// filters in the chain are automatically and safely called.
     ///
     /// Upon receiving `WM_NCDESTROY`, the heap-allocated closure is automatically and safely freed,
@@ -339,8 +344,6 @@ impl Window {
     where
         F: FnMut(HWND, u32, WPARAM, LPARAM) -> SubclassResult + 'static,
     {
-        let boxed_handler = Box::into_raw(Box::new(handler));
-
         unsafe extern "system" fn safe_subclass_proc<F2>(
             hwnd: HWND,
             msg: u32,
@@ -391,6 +394,8 @@ impl Window {
             // インターセプトしない場合はライブラリ側が責任を持って自動でチェーンを呼ぶ
             unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
         }
+
+        let boxed_handler = Box::into_raw(Box::new(handler));
 
         unsafe {
             let result = SetWindowSubclass(
@@ -472,24 +477,28 @@ impl Window {
     }
 
     /// Returns the raw Win32 `HWND` handle associated with the window.
+    #[must_use]
     #[inline]
     pub fn hwnd(&self) -> HWND {
         self.hwnd
     }
 
     /// Returns the raw Win32 `HINSTANCE` module handle associated with the window.
+    #[must_use]
     #[inline]
     pub fn hinstance(&self) -> HINSTANCE {
         self.hinstance
     }
 
     /// Returns the OS Thread ID of the UI thread that created this window.
+    #[must_use]
     #[inline]
     pub fn thread_id(&self) -> u32 {
         self.thread_id
     }
 
     /// Returns the unique `WindowId` of this window.
+    #[must_use]
     #[inline]
     pub fn id(&self) -> WindowId {
         WindowId(self.hwnd().0 as isize)
@@ -505,10 +514,10 @@ impl Window {
     /// Updates the window caption (title) text.
     #[inline]
     pub fn set_title(&self, title: impl Into<Cow<'static, str>>) {
-        self.set_title_inner(title.into());
+        self.set_title_inner(title.into().as_ref());
     }
 
-    fn set_title_inner(&self, title: Cow<'static, str>) {
+    fn set_title_inner(&self, title: &str) {
         unsafe {
             let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
             let _ = SetWindowTextW(self.hwnd, PCWSTR(title_wide.as_ptr()));
@@ -595,8 +604,7 @@ impl Window {
         unsafe {
             // テーマ設定に応じて、タイトルバーを黒にするかどうかを動的に判定する
             let enable_dark_titlebar = match mode {
-                PreferredAppMode::ForceDark => true,   // 強制ダークなので常に黒
-                PreferredAppMode::ForceLight => false, // 強制ライトなので常に白
+                PreferredAppMode::ForceDark => true, // 強制ダークなので常に黒
                 PreferredAppMode::AllowDark | PreferredAppMode::Default => {
                     // システム準拠なのでOS自体のダークモード設定を読み取って自動判定
                     is_system_dark_mode()
@@ -732,6 +740,7 @@ impl HasDisplayHandle for Window {
 ///     }
 /// }
 /// ```
+#[must_use]
 #[inline]
 pub fn init_dpi_awareness() -> bool {
     unsafe {
@@ -745,7 +754,7 @@ pub fn init_dpi_awareness() -> bool {
 /// Used alongside [`Window::subclass`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubclassResult {
-    /// Completely intercepts the message, blocking further propagation to downstream procedures (including MessageFilter).
+    /// Completely intercepts the message, blocking further propagation to downstream procedures (including `MessageFilter`).
     Intercept(LRESULT),
     /// Continues forwarding the message to the next procedure in the subclass/WndProc chain.
     Continue,
@@ -839,7 +848,7 @@ unsafe extern "system" fn global_wnd_proc(
     if msg == WM_NCCREATE {
         let create_struct = lparam.0 as *const CREATESTRUCTW;
         if !create_struct.is_null() {
-            let context_ptr = unsafe { (*create_struct).lpCreateParams as *mut CreationContext };
+            let context_ptr = unsafe { (*create_struct).lpCreateParams.cast::<CreationContext>() };
             if !context_ptr.is_null() {
                 let context = unsafe { &mut *context_ptr };
                 unsafe {
@@ -947,7 +956,7 @@ fn register_window_class(
         hIconSm: HICON::default(),
     };
 
-    let atom = unsafe { RegisterClassExW(&wnd_class) };
+    let atom = unsafe { RegisterClassExW(&raw const wnd_class) };
     if atom == 0 {
         let err = windows::core::Error::from_thread();
 
@@ -1000,7 +1009,7 @@ fn calc_window_rect(
                 bottom: physical_height,
             };
             unsafe {
-                AdjustWindowRectExForDpi(&mut rect, style, false, ex_style, dpi).map_err(
+                AdjustWindowRectExForDpi(&raw mut rect, style, false, ex_style, dpi).map_err(
                     |err| MichiuError::GeometryUpdateFailed {
                         x: 0,
                         y: 0,
@@ -1089,15 +1098,15 @@ fn build_raw_ex_style(builder: &WindowBuilder<'_>) -> WINDOW_EX_STYLE {
 ///
 /// # Safety
 ///
-/// This function dynamically loads and calls Windows' undocumented DwmAPI ordinal API.
+/// This function dynamically loads and calls Windows' undocumented `DwmAPI` ordinal API.
 pub(crate) unsafe fn enable_dark_mode_titlebar(hwnd: HWND, enable: bool) {
-    let value: i32 = if enable { 1 } else { 0 };
+    let value: i32 = i32::from(enable);
     // DWMWA_USE_IMMERSIVE_DARK_MODE (属性値: 20)
     let _ = unsafe {
         DwmSetWindowAttribute(
             hwnd,
             DWMWA_USE_IMMERSIVE_DARK_MODE,
-            &value as *const i32 as *const _,
+            (&raw const value).cast(),
             std::mem::size_of::<i32>() as u32,
         )
     };
@@ -1108,7 +1117,7 @@ pub(crate) unsafe fn enable_dark_mode_titlebar(hwnd: HWND, enable: bool) {
 ///
 /// # Safety
 ///
-/// This function dynamically loads and calls Windows' undocumented UXTheme ordinal API.
+/// This function dynamically loads and calls Windows' undocumented `UXTheme` ordinal API.
 pub(crate) unsafe fn set_app_theme(mode: PreferredAppMode) {
     let uxtheme_name: Vec<u16> = "uxtheme.dll"
         .encode_utf16()
@@ -1154,7 +1163,7 @@ pub(crate) fn is_system_dark_mode() -> bool {
             windows::core::PCWSTR(subkey.as_ptr()),
             Some(0),
             KEY_READ,
-            &mut hkey,
+            &raw mut hkey,
         )
         .is_ok()
         {
@@ -1171,9 +1180,9 @@ pub(crate) fn is_system_dark_mode() -> bool {
                 hkey,
                 windows::core::PCWSTR(value_name.as_ptr()),
                 None,
-                Some(&mut value_type),
-                Some(&mut data as *mut u32 as *mut u8),
-                Some(&mut data_size),
+                Some(&raw mut value_type),
+                Some((&raw mut data).cast::<u32>().cast::<u8>()),
+                Some(&raw mut data_size),
             );
 
             let _ = RegCloseKey(hkey);
@@ -1210,10 +1219,10 @@ pub(crate) fn set_clipboard_text_impl(hwnd: HWND, text: &str) -> Result<()> {
             ));
         }
 
-        std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr as *mut u16, wide.len());
+        std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr.cast::<u16>(), wide.len());
         let _ = GlobalUnlock(HGLOBAL(h_mem.0));
 
-        if SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(h_mem.0 as _))).is_err() {
+        if SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(h_mem.0.cast()))).is_err() {
             let _ = GlobalFree(Some(h_mem)); // メモリの解放漏れを防止
             let _ = CloseClipboard();
             return Err(MichiuError::UnexpectedOsError(
@@ -1282,7 +1291,7 @@ pub(crate) fn set_cursor_clipping_impl(hwnd: HWND, clip: bool) {
     unsafe {
         if clip {
             let mut rect = RECT::default();
-            let _ = GetClientRect(hwnd, &mut rect);
+            let _ = GetClientRect(hwnd, &raw mut rect);
 
             let mut points = [
                 windows::Win32::Foundation::POINT {
@@ -1303,7 +1312,7 @@ pub(crate) fn set_cursor_clipping_impl(hwnd: HWND, clip: bool) {
                 right: points[1].x,
                 bottom: points[1].y,
             };
-            let _ = ClipCursor(Some(&screen_rect));
+            let _ = ClipCursor(Some(&raw const screen_rect));
         } else {
             let _ = ClipCursor(None);
         }
@@ -1317,7 +1326,7 @@ pub(crate) fn get_monitor_rect(hwnd: HWND) -> RECT {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
-        let _ = GetMonitorInfoW(monitor, &mut info);
+        let _ = GetMonitorInfoW(monitor, &raw mut info);
         info.rcMonitor // フルスクリーンのため rcMonitor を使用
     }
 }
@@ -1325,7 +1334,7 @@ pub(crate) fn get_monitor_rect(hwnd: HWND) -> RECT {
 pub(crate) fn center_on_screen_impl(hwnd: HWND) {
     let monitor_rect = get_monitor_rect(hwnd);
     let mut window_rect = RECT::default();
-    let _ = unsafe { GetWindowRect(hwnd, &mut window_rect) };
+    let _ = unsafe { GetWindowRect(hwnd, &raw mut window_rect) };
 
     let win_width = window_rect.right - window_rect.left;
     let win_height = window_rect.bottom - window_rect.top;
@@ -1363,7 +1372,7 @@ pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
                 let style = WINDOW_STYLE(GetWindowLongPtrW(hwnd, GWL_STYLE) as _);
                 let ex_style = WINDOW_EX_STYLE(GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as _);
                 let mut rect = RECT::default();
-                let _ = GetWindowRect(hwnd, &mut rect);
+                let _ = GetWindowRect(hwnd, &raw mut rect);
 
                 state.saved_style = Some(style);
                 state.saved_ex_style = Some(ex_style);

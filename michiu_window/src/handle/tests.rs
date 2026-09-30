@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use super::*;
 use crate::{ComContext, EventPump, Window, WindowBuilder};
 use michiu_guard::{Unvalidated, Validate, Validated};
@@ -122,7 +126,7 @@ fn test_handle_validation_scenarios() {
                 assert_eq!(parameter, "WindowHandle");
                 assert!(message.contains("recycled by another process"));
             }
-            other => panic!("Expected ValidationError, got: {:?}", other),
+            other => panic!("Expected ValidationError, got: {other:?}"),
         }
     });
 }

@@ -101,7 +101,7 @@ impl TextEngine {
             default_attrs = default_attrs.family(Family::Name(family));
         }
         if let Some(weight) = font.weight {
-            default_attrs = default_attrs.weight(Weight(weight as u16));
+            default_attrs = default_attrs.weight(Weight(weight));
         }
         if let Some(style) = font.style {
             default_attrs = default_attrs.style(match style {
@@ -151,18 +151,21 @@ impl TextEngine {
                             attrs = attrs.metrics(Metrics::new(size, size * 1.4));
                         }
                         if let Some(color) = span.color {
+                            #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                            let f32_to_u8 = |c: f32| (c * 255.0).clamp(0.0, 255.0).round() as u8;
+
                             attrs = attrs.color(cosmic_text::Color::rgba(
-                                (color.r * 255.0).clamp(0.0, 255.0).round() as u8,
-                                (color.g * 255.0).clamp(0.0, 255.0).round() as u8,
-                                (color.b * 255.0).clamp(0.0, 255.0).round() as u8,
-                                (color.a * 255.0).clamp(0.0, 255.0).round() as u8,
+                                f32_to_u8(color.r),
+                                f32_to_u8(color.g),
+                                f32_to_u8(color.b),
+                                f32_to_u8(color.a),
                             ));
                         }
                         if let Some(ref family) = span.font_family {
                             attrs = attrs.family(Family::Name(family));
                         }
                         if let Some(weight) = span.font_weight {
-                            attrs = attrs.weight(Weight(weight as u16));
+                            attrs = attrs.weight(Weight(weight));
                         }
                         if let Some(style) = span.font_style {
                             attrs = attrs.style(match style {
@@ -427,7 +430,9 @@ impl TextEngine {
         let (uv_min, uv_max) = view.atlas.texel_to_uv(x, y, width, height);
         let offset_x = image.placement.left;
         let offset_y = image.placement.top;
+        #[expect(clippy::cast_precision_loss)]
         let log_width = width as f32 / scale_factor;
+        #[expect(clippy::cast_precision_loss)]
         let log_height = height as f32 / scale_factor;
 
         let value = TextCacheValue {
@@ -574,6 +579,7 @@ impl TextureAtlas {
     }
 
     /// ピクセル座標を NDC (0.0 ~ 1.0) の UV 座標に変換する
+    #[expect(clippy::cast_precision_loss)] 
     pub(crate) fn texel_to_uv(
         &self,
         x: u32,

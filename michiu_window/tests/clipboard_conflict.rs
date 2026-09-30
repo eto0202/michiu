@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use michiu_window::{ComContext, LogicalSize, MichiuError, WindowBuilder, init_dpi_awareness};
 use windows::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
 
@@ -11,6 +15,7 @@ where
     handle.join().expect("Test thread panicked");
 }
 
+#[allow(clippy::print_stdout)]
 #[test]
 fn test_integration_clipboard_lock_conflict_and_recovery() {
     let _ = init_dpi_awareness();
@@ -64,10 +69,9 @@ fn test_integration_clipboard_lock_conflict_and_recovery() {
                     err.message()
                 );
             }
-            other => panic!(
-                "Expected UnexpectedOsError under clipboard conflict, but got {:?}",
-                other
-            ),
+            other => {
+                panic!("Expected UnexpectedOsError under clipboard conflict, but got {other:?}")
+            }
         }
 
         // 同様にロック状態での読み込み失敗のハンドリングを検証

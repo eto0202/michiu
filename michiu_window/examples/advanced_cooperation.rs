@@ -1,3 +1,8 @@
+#![allow(clippy::print_stdout)]
+#![allow(clippy::print_stderr)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+
 use michiu_window::{
     ComContext, Event, EventPump, Icon, LogicalSize, MichiuEvent, Tray, TrayBuilder, TrayMenuItem,
     Window, WindowBuilder, init_dpi_awareness,
@@ -15,7 +20,7 @@ enum AppCommand {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize High-DPI support (Per-Monitor v2)
-    init_dpi_awareness();
+    let _ = init_dpi_awareness();
 
     // 2. Initialize OLE STA COM context (required for Clipboard, Drag & Drop, and IME)
     let com_ctx = ComContext::new_com_single()?;

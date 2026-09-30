@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use michiu_window::{
     ComContext, EventPump, LogicalSize, WindowBuilder, WindowHandle, init_dpi_awareness,
 };

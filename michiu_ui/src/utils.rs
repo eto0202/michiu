@@ -80,7 +80,7 @@ pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
 ///
 /// # Examples
 /// ```rust
-/// use crate::hex;
+/// use michiu_ui::hex;
 ///
 /// hex("#ff0000");
 /// hex(0x00_FF00);
@@ -392,6 +392,7 @@ pub fn get_win32_clipboard() -> Option<String> {
 /// `raw_delta`: Raw value obtained from `WM_MOUSEWHEEL`, etc. (forward: positive, backward: negative)
 ///
 /// The return value is the logical pixel distance to scroll (scrolling forward = scrolling down = positive value).
+#[expect(clippy::cast_precision_loss)]
 #[must_use]
 pub fn raw_wheel_delta_to_logical_pixels(raw_delta: f32) -> f32 {
     use windows::Win32::UI::WindowsAndMessaging::{

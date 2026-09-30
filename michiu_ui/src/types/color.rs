@@ -132,7 +132,7 @@ impl Color {
 
     /// Generate a [`Color`] by applying an alpha value (0.0..1.0) to HSL
     #[must_use]
-    #[allow(clippy::many_single_char_names)]
+    #[expect(clippy::many_single_char_names)]
     pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Self {
         // 色相（h）を 0..360 の範囲に正規化
         let h_mod = (h % 360.0 + 360.0) % 360.0;
@@ -201,15 +201,22 @@ impl IntoHexColor for u32 {
 #[inline]
 fn parse_u32_to_color(num: u32, is_8digit: bool) -> Color {
     if is_8digit {
-        let r = ((num >> 24) & 0xFF) as f32 / 255.0;
-        let g = ((num >> 16) & 0xFF) as f32 / 255.0;
-        let b = ((num >> 8) & 0xFF) as f32 / 255.0;
-        let a = (num & 0xFF) as f32 / 255.0;
-        Color { r, g, b, a }
+        // 0xRRGGBBAA を [R, G, B, A] の [u8; 4] に分解
+        let [r, g, b, a] = num.to_be_bytes();
+        Color {
+            r: f32::from(r) / 255.0,
+            g: f32::from(g) / 255.0,
+            b: f32::from(b) / 255.0,
+            a: f32::from(a) / 255.0,
+        }
     } else {
-        let r = ((num >> 16) & 0xFF) as f32 / 255.0;
-        let g = ((num >> 8) & 0xFF) as f32 / 255.0;
-        let b = (num & 0xFF) as f32 / 255.0;
-        Color { r, g, b, a: 1.0 }
+        // 先頭はダミーの 0
+        let [_, r, g, b] = num.to_be_bytes();
+        Color {
+            r: f32::from(r) / 255.0,
+            g: f32::from(g) / 255.0,
+            b: f32::from(b) / 255.0,
+            a: 1.0,
+        }
     }
 }

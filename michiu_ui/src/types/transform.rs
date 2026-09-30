@@ -55,7 +55,7 @@ impl Transform {
     }
 
     /// 4x4 行列の乗算処理（列優先 / Column-Major 対応）
-    #[allow(clippy::needless_range_loop)]
+    #[expect(clippy::needless_range_loop)]
     fn mul(&self, other: &Self) -> Self {
         let mut out = [[0.0; 4]; 4];
         for i in 0..4 {

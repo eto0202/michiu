@@ -44,7 +44,7 @@ pub enum MichiuError {
         source: windows::core::Error,
     },
 
-    /// Failed to initialize COM or Windows Runtime (WinRT) threading contexts.
+    /// Failed to initialize COM or Windows Runtime (`WinRT`) threading contexts.
     #[error("Failed to initialize COM/WinRT context ({context_type:?}). System error: {source}")]
     ComInitializationFailed {
         context_type: &'static str,
@@ -146,6 +146,8 @@ pub enum MichiuError {
     /// A generic fallback for other unexpected Windows OS errors.
     #[error("Unexpected OS error (HRESULT: {0:?})")]
     UnexpectedOsError(#[from] windows::core::Error),
+
+    
 }
 
 // windows::core::Error internally owns immutable HRESULT/message data.
@@ -162,21 +164,21 @@ pub type Result<T> = std::result::Result<T, MichiuError>;
 /// followed by raw OS HRESULT codes (with common explanations) and helpful remedy advice.
 pub struct RichReport<'a>(&'a MichiuError);
 
-impl<'a> fmt::Display for RichReport<'a> {
+impl fmt::Display for RichReport<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let err = self.0;
 
         // 基本エラーメッセージ
-        write!(f, "Error: {}", err)?;
+        write!(f, "Error: {err}")?;
 
         // OSのエラー情報を委譲 (SysErrorInfo の Display を呼び出す)
         if let Some(sys_info) = err.sys_error_info() {
-            write!(f, "\n\n[OS Error Details]:\n{}", sys_info)?;
+            write!(f, "\n\n[OS Error Details]:\n{sys_info}")?;
         }
 
         // 対処法の追加
         if let Some(remedy_text) = err.remedy() {
-            write!(f, "\n\n[How to Fix / Remedy]:\n{}", remedy_text)?;
+            write!(f, "\n\n[How to Fix / Remedy]:\n{remedy_text}")?;
         }
 
         Ok(())
@@ -203,7 +205,7 @@ impl fmt::Display for SysErrorInfo {
         )?;
 
         if let Some(explanation) = self.common_explanation() {
-            write!(f, "\n\n[Error Explanation]:\n{}", explanation)?;
+            write!(f, "\n\n[Error Explanation]:\n{explanation}")?;
         }
         Ok(())
     }
@@ -211,12 +213,14 @@ impl fmt::Display for SysErrorInfo {
 
 impl MichiuError {
     /// Wraps this error in a helper type designed to render a beautiful diagnostic report.
+    #[must_use]
     #[inline]
     pub fn report(&self) -> RichReport<'_> {
         RichReport(self)
     }
     /// Returns explicit, practical remedy advice (troubleshooting hints) to resolve this error.
     /// Returns `None` if no specific remedy is defined.
+    #[must_use]
     pub fn remedy(&self) -> Option<&'static str> {
         match self {
             Self::WindowCreationFailed { class_name, .. } => {
@@ -298,70 +302,75 @@ impl MichiuError {
 
     /// Extracts the raw Windows OS error details (HRESULT and system message).
     /// Returns `None` if the error variant is not derived from an underlying OS error (such as `ThreadMismatch`).
+    #[must_use]
     pub fn sys_error_info(&self) -> Option<SysErrorInfo> {
         let win_err = match self {
-            Self::WindowCreationFailed { source, .. } => Some(source),
-            Self::SetTitleFailed { source, .. } => Some(source),
-            Self::GeometryUpdateFailed { source, .. } => Some(source),
-            Self::ResourceLoadFailed { source, .. } => Some(source),
-            Self::ClassRegistrationFailed { source, .. } => Some(source),
-            Self::SubclassSetupFailed { source, .. } => Some(source),
-            Self::TrayWindowCreationFailed { source, .. } => Some(source),
-            Self::TrayIconOperationFailed { source, .. } => Some(source),
-            Self::ComInitializationFailed { source, .. } => Some(source),
-            Self::PopupMenuCreationFailed { source } => Some(source),
-            Self::UnexpectedOsError(source) => Some(source),
-            Self::ImeStringQueryFailed { source, .. } => Some(source),
+            Self::WindowCreationFailed { source, .. }
+            | Self::SetTitleFailed { source, .. }
+            | Self::GeometryUpdateFailed { source, .. }
+            | Self::ResourceLoadFailed { source, .. }
+            | Self::ClassRegistrationFailed { source, .. }
+            | Self::SubclassSetupFailed { source, .. }
+            | Self::TrayWindowCreationFailed { source, .. }
+            | Self::TrayIconOperationFailed { source, .. }
+            | Self::ComInitializationFailed { source, .. }
+            | Self::PopupMenuCreationFailed { source }
+            | Self::UnexpectedOsError(source)
+            | Self::ImeStringQueryFailed { source, .. } => Some(source),
             _ => None,
         };
 
         win_err.map(|err| SysErrorInfo {
             hresult: err.code(),
-            message: err.message().to_string(),
+            message: err.message().clone(),
         })
     }
 }
 
 impl SysErrorInfo {
     /// Formats the HRESULT error code as a standard hexadecimal string (e.g., `"0x80070005"`).
+    #[must_use]
+    #[inline]
     pub fn hex_code(&self) -> String {
-        format!("0x{:08X}", self.hresult.0 as u32)
+        format!("0x{:08X}", self.hresult.0.cast_unsigned())
     }
 
-    /// Returns a clear, human-readable English explanation for common Win32 HRESULT codes (e.g., E_ACCESSDENIED).
+    /// Returns a clear,
+    /// human-readable English explanation for common Win32 HRESULT codes (e.g., `E_ACCESSDENIED`).
     /// Returns `None` if the error code is unrecognized.
+    #[must_use]
     pub fn common_explanation(&self) -> Option<&'static str> {
-        match self.hresult.0 as u32 {
-            0x80070005 => Some(
+        match self.hresult.0.cast_unsigned() {
+            0x8007_0005 => Some(
                 "E_ACCESSDENIED: Access is denied. The operation might require administrator privileges, \
                 or the target resource might be locked by another process.",
             ),
-            0x80070057 => Some(
+            0x8007_0057 => Some(
                 "E_INVALIDARG: One or more arguments are invalid. An invalid argument, struct member, \
                 or incompatible combination of styles was passed to a Win32 API.",
             ),
-            0x80004005 => Some(
+            0x8000_4005 => Some(
                 "E_FAIL: Unspecified failure. An unexpected failure occurred internally within the OS, \
                 but no detailed reason was reported.",
             ),
-            0x8007000E => Some(
+            0x8007_000E => Some(
                 "E_OUTOFMEMORY: Out of memory. System resources are depleted, or an excessively large \
                 memory allocation request occurred.",
             ),
-            0x800401F0 => Some(
+            0x8004_01F0 => Some(
                 "CO_E_NOTINITIALIZED: CoInitialize has not been called. The COM library has not been \
                 initialized on this thread. Please construct a ComContext to initialize COM before calling COM functions.",
             ),
-            0x800401F1 => Some("CO_E_ALREADYINITIALIZED: The COM library is already initialized."),
-            0x80070578 => Some(
+            0x8004_01F1 => Some("CO_E_ALREADYINITIALIZED: The COM library is already initialized."),
+            0x8007_0578 => Some(
                 "ERROR_INVALID_WINDOW_HANDLE: Invalid window handle (HWND). The target window has already been destroyed, \
                 or it was not created successfully.",
             ),
-            0x80040154 => Some(
+            0x8004_0154 => Some(
                 "REGDB_E_CLASSNOTREG: Class not registered. The COM component you attempted to call is not registered \
                 on the system, or there is a target platform mismatch (32-bit vs 64-bit build configuration).",
             ),
-            0x80070002 => Some(
+            0x8007_0002 => Some(
                 "ERROR_FILE_NOT_FOUND: The system cannot find the file or resource specified. Please check that the path \
                 or resource identifier is correct.",
             ),
@@ -370,6 +379,8 @@ impl SysErrorInfo {
     }
 }
 
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::print_stdout)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,7 +389,8 @@ mod tests {
     #[test]
     fn test_error_basic_display_and_debug() {
         // テスト対象のエラーを生成
-        let raw_os_error = WinError::new(HRESULT(0x80070005u32 as i32), "Access is denied.");
+        let raw_os_error =
+            WinError::new(HRESULT(0x8007_0005_u32.cast_signed()), "Access is denied.");
         let err = MichiuError::WindowCreationFailed {
             title: Cow::Borrowed("MainWindow"),
             class_name: Cow::Borrowed("MichiuWindowClass_0.1.0"),
@@ -387,14 +399,14 @@ mod tests {
 
         // 標準の Display 形式 ({}) に変換
         let display_string = err.to_string();
-        let debug_string = format!("{:?}", err);
+        let debug_string = format!("{err:?}");
 
         // `cargo test -- --nocapture` を指定して実行したときのみ出力。
         println!("\n=== [DEBUG] Basic Display ({{}}) ===");
-        println!("{}", display_string);
+        println!("{display_string}");
 
         println!("\n=== [DEBUG] Basic Debug ({{:?}}) ===");
-        println!("{}", debug_string);
+        println!("{debug_string}");
         println!("====================================\n");
 
         // standard Display に 期待されるプレフィックスと OSエラー情報が含まれているか
@@ -410,7 +422,8 @@ mod tests {
     fn test_error_rich_report_rendering() {
         // windows-rs の生のエラーを擬似的に生成
         // (0x80070005 = E_ACCESSDENIED)
-        let raw_os_error = WinError::new(HRESULT(0x80070005u32 as i32), "Access is denied.");
+        let raw_os_error =
+            WinError::new(HRESULT(0x8007_0005_u32.cast_signed()), "Access is denied.");
 
         let err = MichiuError::WindowCreationFailed {
             title: Cow::Borrowed("MainWindow"),
@@ -424,7 +437,7 @@ mod tests {
 
         // `cargo test -- --nocapture` を指定して実行したときのみ出力
         println!("\n=== [DEBUG] Rendered RichReport ===");
-        println!("{}", report_string);
+        println!("{report_string}");
         println!("===================================\n");
 
         // エラー内容、OSエラー詳細、対処法のすべてが文字列に含まれているか確認
@@ -472,7 +485,7 @@ mod tests {
     fn test_sys_error_info_parsing() {
         // CO_E_NOTINITIALIZED (0x800401F0) を生成
         let win_err = WinError::new(
-            HRESULT(0x800401F0u32 as i32),
+            HRESULT(0x8004_01F0_u32.cast_signed()),
             "CoInitialize has not been called.",
         );
         let err = MichiuError::UnexpectedOsError(win_err);
