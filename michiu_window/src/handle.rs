@@ -73,6 +73,7 @@ pub const WM_RUN_ON_UI_THREAD: u32 = WM_USER + 103;
 
 impl WindowHandle {
     /// Checks whether the current thread is the UI thread that originally created this window.
+    #[must_use]
     #[inline]
     pub fn is_on_ui_thread(&self) -> bool {
         let current_tid = unsafe { GetCurrentThreadId() };
@@ -97,30 +98,35 @@ impl WindowHandle {
     }
 
     /// Returns the raw Win32 `HWND` associated with the referenced window.
+    #[must_use]
     #[inline]
     pub fn hwnd(&self) -> HWND {
         self.hwnd
     }
 
     /// Returns the raw Win32 `HINSTANCE` associated with the referenced window.
+    #[must_use]
     #[inline]
     pub fn hinstance(&self) -> HINSTANCE {
         self.hinstance
     }
 
     /// Returns the thread ID of the UI thread that created the referenced window.
+    #[must_use]
     #[inline]
     pub fn thread_id(&self) -> u32 {
         self.thread_id
     }
 
     /// Returns the unique `WindowId` of the referenced window.
+    #[must_use]
     #[inline]
     pub fn id(&self) -> WindowId {
         WindowId(self.hwnd().0 as isize)
     }
 
     /// Creates a thread-safe [`EventSender`] that targets this window's raw handle.
+    #[must_use]
     #[inline]
     pub fn sender(&self) -> EventSender {
         EventSender::new(self.hwnd)
@@ -270,8 +276,7 @@ impl WindowHandle {
             self.run_on_ui_thread(move |hwnd| {
                 // テーマ設定に応じて、タイトルバーを黒にするかどうかを動的に判定する
                 let enable_dark_titlebar = match mode {
-                    PreferredAppMode::ForceDark => true,   // 強制ダークなので常に黒
-                    PreferredAppMode::ForceLight => false, // 強制ライトなので常に白
+                    PreferredAppMode::ForceDark => true, // 強制ダークなので常に黒
                     PreferredAppMode::AllowDark | PreferredAppMode::Default => {
                         // システム準拠なのでOS自体のダークモード設定を読み取って自動判定
                         is_system_dark_mode()
@@ -543,7 +548,7 @@ impl Validate for WindowHandle {
         }
 
         let mut process_id = 0u32;
-        let _ = unsafe { GetWindowThreadProcessId(self.hwnd, Some(&mut process_id)) };
+        let _ = unsafe { GetWindowThreadProcessId(self.hwnd, Some(&raw mut process_id)) };
 
         let current_pid = unsafe { GetCurrentProcessId() };
         if process_id != current_pid {

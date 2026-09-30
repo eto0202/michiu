@@ -1,23 +1,26 @@
 #![allow(clippy::pedantic, clippy::restriction, unused_must_use)]
 
-use std::cell::{Cell, RefCell};
-
 use michiu_ui::{
-    ComposedRenderer, ElementState, ImeState, Modifiers, MouseButton, VirtualKey, prelude::*,
-    raw_wheel_delta_to_logical_pixels,
+    ComposedRenderer, ElementState, ImeState, Modifiers, MouseButton, VirtualKey,
+    dispatch_raw_input_to_external_visual, prelude::*, raw_wheel_delta_to_logical_pixels,
 };
+use std::cell::{Cell, RefCell};
 use windows::{
     Win32::{
         Foundation::*,
         Graphics::Gdi::*,
         System::LibraryLoader::GetModuleHandleW,
         UI::{
+            Controls::WM_MOUSELEAVE,
             Input::{
                 Ime::{
                     GCS_COMPATTR, GCS_COMPSTR, GCS_CURSORPOS, GCS_RESULTSTR,
                     ImmGetCompositionStringW, ImmGetContext, ImmReleaseContext,
                 },
-                KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_SHIFT},
+                KeyboardAndMouse::{
+                    GetKeyState, ReleaseCapture, SetCapture, SetFocus, TME_LEAVE, TRACKMOUSEEVENT,
+                    TrackMouseEvent, VK_CONTROL, VK_SHIFT,
+                },
             },
             WindowsAndMessaging::*,
         },
@@ -64,18 +67,14 @@ unsafe extern "system" fn wnd_proc(
                 return LRESULT(0);
             }
             WM_NULL => {
-                let app_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut AppState;
-                if !app_ptr.is_null() {
-                    let app = unsafe { &mut *app_ptr };
+                // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
+                app.context.process_main_thread_tasks();
 
-                    // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
-                    app.context.process_main_thread_tasks();
-
-                    // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
-                    if app.context.has_dirty() {
-                        let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                    }
+                // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
+                if app.context.has_dirty() {
+                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
+
                 return LRESULT(0);
             }
             WM_DPICHANGED => {
@@ -97,9 +96,23 @@ unsafe extern "system" fn wnd_proc(
 
                 // レンダラーのリサイズとレイアウト物理サイズの更新
                 app.renderer
-                    .resize((width, height), app.renderer.scale_factor);
+                    .resize((width, height), app.renderer.scale_factor());
 
                 // 再描画要求
+                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                let _ = unsafe { UpdateWindow(hwnd) };
+                return LRESULT(0);
+            }
+            WM_ENTERSIZEMOVE => {
+                app.context.set_window_resized(true);
+                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                let _ = unsafe { UpdateWindow(hwnd) };
+                return LRESULT(0);
+            }
+            // ウィンドウドラッグリサイズの完了をキャッチ
+            WM_EXITSIZEMOVE => {
+                app.context.set_window_resized(false);
+                // リサイズ完了後の再描画を即座にキックして、新サイズでの静止画キャプチャを誘発
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 let _ = unsafe { UpdateWindow(hwnd) };
                 return LRESULT(0);
@@ -114,7 +127,7 @@ unsafe extern "system" fn wnd_proc(
 
                 let layout_start = std::time::Instant::now();
                 app.context
-                    .sync_layout(app.root_id, app.renderer.layout_size);
+                    .sync_layout(app.root_id, app.renderer.layout_size());
                 let layout_elapsed = layout_start.elapsed();
 
                 let comp_start = std::time::Instant::now();
@@ -124,6 +137,8 @@ unsafe extern "system" fn wnd_proc(
                 let draw_start = std::time::Instant::now();
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
+
+                app.context.update_accessibility();
 
                 app.renderer.draw(&mut app.context);
 
@@ -241,25 +256,60 @@ unsafe extern "system" fn wnd_proc(
                 let x = (lparam.0 & 0xffff) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
 
-                // DPIスケールを考慮して論理座標に直して注入
-                let logical_pos =
-                    LayoutPoint::new(x / app.renderer.scale_factor, y / app.renderer.scale_factor);
+                // TrackMouseEvent を使って、マウスが外に出たときに WM_MOUSELEAVE を発行させる
+                let mut tme = TRACKMOUSEEVENT {
+                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                    dwFlags: TME_LEAVE,
+                    hwndTrack: hwnd,
+                    dwHoverTime: 0,
+                };
+                let _ = unsafe { TrackMouseEvent(&mut tme) };
+
+                let phys_pos = LayoutPoint::new(x, y);
+                let logical_pos = LayoutPoint::new(
+                    x / app.renderer.scale_factor(),
+                    y / app.renderer.scale_factor(),
+                );
 
                 app.context
                     .inject_user_action(UserAction::PointerMove(logical_pos));
 
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor(),
+                );
+
                 // インタラクションによる変化（ホバー状態）をリアルタイムに再描画
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                let _ = unsafe { UpdateWindow(hwnd) };
                 return LRESULT(0);
             }
+            WM_MOUSELEAVE => {
+                // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
+                app.context
+                    .inject_user_action(UserAction::PointerMove(LayoutPoint::new(
+                        -9999.0, -9999.0,
+                    )));
 
+                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                return LRESULT(0);
+            }
             WM_LBUTTONDOWN | WM_LBUTTONUP => {
+                unsafe { SetFocus(Some(hwnd)) };
                 let state = if msg == WM_LBUTTONDOWN {
                     ElementState::Pressed
                 } else {
                     ElementState::Released
                 };
+
+                if state == ElementState::Pressed {
+                    unsafe { SetCapture(hwnd) };
+                } else {
+                    let _ = unsafe { ReleaseCapture() };
+                }
 
                 // VK_CONTROL(0x11) および VK_SHIFT(0x10) の物理状態を直接クエリ
                 let ctrl_pressed = unsafe { GetKeyState(0x11) } < 0;
@@ -279,11 +329,24 @@ unsafe extern "system" fn wnd_proc(
                     modifiers,
                 });
 
+                let x = (lparam.0 & 0xffff) as i16 as f32;
+                let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
+                let phys_pos = LayoutPoint::new(x, y);
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor(),
+                );
+
                 // フォーカス取得（点滅カーソル表示開始）のために再描画
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             WM_RBUTTONDOWN | WM_RBUTTONUP => {
+                unsafe { SetFocus(Some(hwnd)) };
                 let state = if msg == WM_RBUTTONDOWN {
                     ElementState::Pressed
                 } else {
@@ -296,10 +359,23 @@ unsafe extern "system" fn wnd_proc(
                     modifiers: Modifiers::default(),
                 });
 
+                let x = (lparam.0 & 0xffff) as i16 as f32;
+                let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
+                let phys_pos = LayoutPoint::new(x, y);
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor(),
+                );
+
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             WM_LBUTTONDBLCLK => {
+                unsafe { SetFocus(Some(hwnd)) };
                 let ctrl_pressed = unsafe { GetKeyState(0x11) } < 0;
                 let shift_pressed = unsafe { GetKeyState(0x10) } < 0;
 
@@ -319,10 +395,28 @@ unsafe extern "system" fn wnd_proc(
                 app.context
                     .inject_user_action(UserAction::PointerDoubleClick { modifiers });
 
+                let x = (lparam.0 & 0xffff) as i16 as f32;
+                let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
+                let phys_pos = LayoutPoint::new(x, y);
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor(),
+                );
+
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
             }
             WM_MOUSEWHEEL => {
+                let mut pt = POINT {
+                    x: (lparam.0 & 0xffff) as i16 as i32,
+                    y: ((lparam.0 >> 16) & 0xffff) as i16 as i32,
+                };
+                let _ = unsafe { ScreenToClient(hwnd, &mut pt) };
+
                 // wparam の上位16ビットから符号付き生ホイールデルタを取得
                 let raw_delta = (wparam.0 >> 16) as i16 as f32;
 
@@ -335,6 +429,16 @@ unsafe extern "system" fn wnd_proc(
                     scroll_y,
                 });
 
+                let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor(),
+                );
+
                 // 画面を再描画
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -342,6 +446,12 @@ unsafe extern "system" fn wnd_proc(
 
             // マウスホイール処理（横
             WM_MOUSEHWHEEL => {
+                let mut pt = POINT {
+                    x: (lparam.0 & 0xffff) as i16 as i32,
+                    y: ((lparam.0 >> 16) & 0xffff) as i16 as i32,
+                };
+                let _ = unsafe { ScreenToClient(hwnd, &mut pt) };
+
                 let raw_delta = (wparam.0 >> 16) as i16 as f32;
 
                 // 横スクロール時は、右チルト（プラス値）された際に
@@ -353,6 +463,16 @@ unsafe extern "system" fn wnd_proc(
                     scroll_x,
                     scroll_y: 0.0,
                 });
+
+                let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
+                let _consumed = dispatch_raw_input_to_external_visual(
+                    &mut app.context,
+                    msg,
+                    wparam,
+                    lparam,
+                    phys_pos,
+                    app.renderer.scale_factor(),
+                );
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);
@@ -578,6 +698,7 @@ unsafe extern "system" fn wnd_proc(
                 // ホバー要素がない場合は、システム標準の処理にフォールバック
                 return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) };
             }
+
             _ => {}
         }
     }

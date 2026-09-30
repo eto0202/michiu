@@ -204,6 +204,7 @@ impl ScrollbarStore {
         dirty_ids
     }
 
+    #[track_caller]
     pub(crate) fn hit_decision_element_scrollbar(
         target_id: EntityId,
         pointer_pos: LayoutPoint,
@@ -240,7 +241,7 @@ impl ScrollbarStore {
 
         // 親スクロールコンテナ
         let sb_state = bar_styles.at(c_id);
-        let container_rect = *out_rects.at(c_id);
+        let container_rect = out_rects.find_or_default(c_id, debug);
         let scroll_size = sc_sizes.find_or_default(c_id, debug);
         let offset = sc_offsets.find_or_default(c_id, debug);
 
@@ -269,7 +270,7 @@ impl ScrollbarStore {
                 };
 
                 // ヒット先があるなら Some のはず
-                let track_rect = *out_rects.at(target_id);
+                let track_rect = out_rects.find_or_default(target_id, debug);
                 let thumb_rect = thumb_id
                     .and_then(|i| out_rects.find(i).copied())
                     .unwrap_or_default();
@@ -442,6 +443,7 @@ impl ScrollbarStore {
         (thumb_len, thumb_main_pos, thumb_cross_len, thumb_cross_pos)
     }
 
+    #[track_caller]
     pub(crate) fn sync_bar_styles(
         win_last_size: Option<LayoutSize>,
         topo_active_masks: &ActiveMasksSecondary,
@@ -469,7 +471,7 @@ impl ScrollbarStore {
 
         for id in scrollbar_ids {
             let sb_state = bar_styles.at(id);
-            let rect = *out_rects.at(id);
+            let rect = out_rects.find_or_default(id, debug);
             let scroll_size = sc_sizes.find_or_default(id, debug);
             let current_scroll = sc_offsets.find_or_default(id, debug);
 
@@ -867,6 +869,7 @@ impl ScrollbarStore {
     }
 
     /// スクロールバー用要素をレイアウト上から安全に隠します。
+    #[track_caller]
     #[inline]
     fn hide_scrollbar_element(
         id: EntityId,

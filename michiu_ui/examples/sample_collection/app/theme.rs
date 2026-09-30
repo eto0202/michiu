@@ -142,13 +142,13 @@ impl Theme {
     }
 
     /// プライマリの HSL 値を変更し、依存するカラーパレット全体を再算出します。
-    #[allow(unused)]
+    #[expect(unused)]
     pub fn with_primary_hsl(self, h: f32, s: f32, l: f32) -> Self {
         Self::from_hsl(self.is_dark, (h, s, l), self.background_hsl)
     }
 
     /// バックグラウンドの HSL 値を変更し、依存するカラーパレット全体を再算出します。
-    #[allow(unused)]
+    #[expect(unused)]
     pub fn with_background_hsl(self, h: f32, s: f32, l: f32) -> Self {
         Self::from_hsl(self.is_dark, self.primary_hsl, (h, s, l))
     }

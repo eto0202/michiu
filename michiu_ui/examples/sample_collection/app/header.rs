@@ -1,5 +1,5 @@
 use crate::app::{SearchText, theme::Theme};
-pub use michiu_ui::prelude::*;
+pub use michiu_ui::{accessibility::*, prelude::*};
 use std::time::Duration;
 
 pub fn header() -> Element {
@@ -13,6 +13,7 @@ pub fn header() -> Element {
             .border_color(dynamic(|t: &Theme| t.border)),
     )
     .children([search_box(), toggle_btn()])
+    .a11y_role(Role::Header)
 }
 
 fn search_box() -> Element {
@@ -49,7 +50,8 @@ fn search_box() -> Element {
                 .select_text()
                 .overflow_scroll()
                 .cursor_text()
-        });
+        })
+        .a11y_role(Role::SearchInput);
 
     let suffix_element = text("✕")
         .style_d(move |t: &Theme| {
@@ -71,7 +73,8 @@ fn search_box() -> Element {
         .on_click(move || {
             let set_input_text = use_provided_setter::<SearchText>();
             set_input_text.set(SearchText(String::new()));
-        });
+        })
+        .a11y_with(Node::new(Role::Button), |n| n.set_label("Clean Button"));
 
     input_wrapper.child(text_input).child(suffix_element)
 }

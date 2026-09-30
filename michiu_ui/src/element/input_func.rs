@@ -144,6 +144,7 @@ impl Element {
         edit_selections.insert(id, range);
     }
 
+    #[track_caller]
     fn handle_input_mouse_pressed(
         cx: &mut Context,
         id: EntityId,
@@ -658,6 +659,7 @@ impl Element {
         true
     }
 
+    #[track_caller]
     fn handle_input_key_pressed(
         cx: &mut Context,
         id: EntityId,

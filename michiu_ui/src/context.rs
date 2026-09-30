@@ -1,3 +1,4 @@
+pub mod acce_store;
 pub mod config;
 pub mod content_store;
 pub mod debug_store;
@@ -13,6 +14,7 @@ pub mod system_store;
 pub mod topology_store;
 pub mod window_store;
 
+pub use acce_store::*;
 pub use config::*;
 pub use content_store::*;
 pub use debug_store::*;
@@ -32,10 +34,11 @@ use crate::trace_lifecycle;
 use crate::{
     BasicLayout, ComponentMask, CursorIcon, Element, FlexLayout, GridLayout, InteractionState,
     LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
-    bind_context, handle_on_click,
+    a11y::A11yInferenceTag, bind_context, handle_on_click,
 };
 use slotmap::new_key_type;
 use std::{borrow::Cow, sync::Arc};
+use windows::Win32::Foundation::HWND;
 
 new_key_type! {
     /// A unique generation management ID that identifies each element ([`Element`]) within the UI.
@@ -47,6 +50,19 @@ impl EntityId {
     #[inline]
     pub fn into_el(self) -> Element {
         Element::from(self)
+    }
+}
+
+impl From<EntityId> for accesskit::NodeId {
+    fn from(value: EntityId) -> Self {
+        Self(value.0.as_ffi())
+    }
+}
+
+impl From<accesskit::NodeId> for EntityId {
+    #[inline]
+    fn from(value: accesskit::NodeId) -> Self {
+        Self(slotmap::KeyData::from_ffi(value.0))
     }
 }
 
@@ -69,6 +85,7 @@ pub struct Context {
     pub(crate) renders: RenderStore,
     pub(crate) outputs: OutputStore,
     pub(crate) debug: DebugStore,
+    pub(crate) acce: AccessibilityStore,
 }
 
 impl Default for Context {
@@ -101,6 +118,7 @@ impl Context {
                 rx,
             ),
             debug: DebugStore::new(),
+            acce: AccessibilityStore::new(),
         }
     }
 
@@ -128,6 +146,7 @@ impl Context {
             renders: RenderStore::with_capacity(capacity),
             outputs: OutputStore::with_capacity(capacity),
             debug: DebugStore::new(),
+            acce: AccessibilityStore::with_capacity(capacity),
         }
     }
 
@@ -165,6 +184,14 @@ impl Context {
         cx
     }
 
+    /// Initialize the accessibility features.
+    #[inline]
+    #[must_use]
+    pub fn with_accessibility(mut self, hwnd: HWND) -> Self {
+        self.acce = AccessibilityStore::init(hwnd);
+        self
+    }
+
     /// Clear the status.
     #[inline]
     pub fn clear(&mut self) {
@@ -178,6 +205,7 @@ impl Context {
         self.reactive.clear();
         self.window.clear();
         self.system.clear();
+        self.acce.clear();
     }
 
     /// 親を持たないルート要素の破棄に使用。
@@ -197,6 +225,7 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
+            &mut self.acce,
         );
     }
 
@@ -566,20 +595,27 @@ impl Context {
     /// This element will be tagged `T`.
     ///
     /// Multiple tags can be attached to the same element.
+    ///
+    /// You can also use `A11yInferenceTag` for accessibility.
     #[inline]
     pub fn tag<T: 'static>(&mut self, el: Element) {
-        self.topology.topo_tag_registry.register_entity::<T>(el.id);
+        TopologyStore::tag::<T>(el, &mut self.topology.topo_tag_registry);
+    }
+
+    /// Configure the user-defined inference tags used when building the accessibility tree.
+    ///
+    /// `A11yInferenceTag` overrides only the default inferences.
+    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    #[inline]
+    pub fn tag_a11y<T: A11yInferenceTag + 'static>(&mut self, el: Element) {
+        TopologyStore::tag_a11y::<T>(el, &mut self.topology.topo_tag_registry);
     }
 
     /// Get the first element with the tag `T` found.
     #[inline]
     #[must_use]
     pub fn try_query_first<T: 'static>(&self) -> Option<Element> {
-        self.topology
-            .topo_tag_registry
-            .get_entities::<T>()
-            .and_then(|t| t.first().copied())
-            .map(EntityId::into_el)
+        TopologyStore::try_query_first::<T>(&self.topology.topo_tag_registry)
     }
 
     /// Get the first element with the tag `T` found.
@@ -587,40 +623,25 @@ impl Context {
     #[inline]
     #[must_use]
     pub fn quer_first<T: 'static>(&mut self) -> Element {
-        self.topology
-            .topo_tag_registry
-            .get_entities::<T>()
-            .and_then(|t| t.first().copied())
-            .map(EntityId::into_el)
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
-                type_name: std::any::type_name::<T>(),
-            })
+        TopologyStore::quer_first::<T>(&mut self.topology.topo_tag_registry, &mut self.debug)
     }
 
     /// Get all elements with the tag `T`.
     #[inline]
     pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = Element> + '_ {
-        self.topology
-            .topo_tag_registry
-            .get_entities::<T>()
-            .map(|t| t.iter().copied())
-            .into_iter()
-            .flatten()
-            .map(EntityId::into_el)
+        TopologyStore::query_all::<T>(&self.topology.topo_tag_registry)
     }
 
     /// Retrieve the first element of type `T` found among the descendants.
     #[inline]
     #[must_use]
     pub fn try_query_descendant<T: 'static>(&self, parent: EntityId) -> Option<Element> {
-        self.topology
-            .topo_tag_registry
-            .query_first_descendant_of_type::<T>(
-                parent,
-                &self.topology.topo_flat_dfs_sequence,
-                &self.topology.topo_parents,
-            )
-            .map(EntityId::into_el)
+        TopologyStore::try_query_descendant::<T>(
+            parent,
+            &self.topology.topo_tag_registry,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+        )
     }
 
     /// Retrieve the first element of type `T` found among the descendants.
@@ -628,17 +649,13 @@ impl Context {
     #[inline]
     #[must_use]
     pub fn query_descendant<T: 'static>(&mut self, parent: EntityId) -> Element {
-        self.topology
-            .topo_tag_registry
-            .query_first_descendant_of_type::<T>(
-                parent,
-                &self.topology.topo_flat_dfs_sequence,
-                &self.topology.topo_parents,
-            )
-            .map(EntityId::into_el)
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::TagNotFound {
-                type_name: std::any::type_name::<T>(),
-            })
+        TopologyStore::query_descendant::<T>(
+            parent,
+            &self.topology.topo_tag_registry,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+            &mut self.debug,
+        )
     }
 
     /// Search for an element of type `T` among its descendants.
@@ -647,14 +664,12 @@ impl Context {
         &self,
         parent: EntityId,
     ) -> impl Iterator<Item = Element> + '_ {
-        self.topology
-            .topo_tag_registry
-            .query_descendants_of_type::<T>(
-                parent,
-                &self.topology.topo_flat_dfs_sequence,
-                &self.topology.topo_parents,
-            )
-            .map(EntityId::into_el)
+        TopologyStore::query_descendants::<T>(
+            parent,
+            &self.topology.topo_tag_registry,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+        )
     }
 
     /// Resolve [`CursorIcon`] by traversing the parent tree from the currently hovered element.
@@ -671,7 +686,7 @@ impl Context {
 
     /// Determine if there are active transitions or animations.
     #[inline]
-    pub fn has_active_frame(&self) -> bool {
+    pub fn has_active_frame(&mut self) -> bool {
         RenderStore::has_active_frame(
             &self.events.evt_interaction_states,
             self.events.evt_current_pointer_position.as_ref(),
@@ -681,6 +696,7 @@ impl Context {
             &self.renders.rnd_active_transitions,
             &self.renders.rnd_active_animations,
             &self.outputs.out_clip_rects,
+            &mut self.debug,
         )
     }
 
@@ -805,8 +821,14 @@ impl Context {
         Pipeline::sync_layout(self, root, window_size);
     }
 
+    /// Update accessibility. This must be called after the layout is calculated.
+    #[inline]
+    pub fn update_accessibility(&mut self) {
+        Pipeline::handle_accessibility(self);
+    }
+
     /// Get the `RawContext`.
-    /// 
+    ///
     /// This is an escape hatch. While it allows you to directly manipulate the internals of `Context`,
     /// the integrity of its lifecycle and internal data is not guaranteed.
     #[inline]

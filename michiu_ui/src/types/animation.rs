@@ -1,4 +1,4 @@
-use crate::{AnimationCurve, BoxShadow, Color, CornerRadius, LayoutPoint, PropertyList};
+use crate::{BoxShadow, Color, CornerRadius, LayoutPoint, PropertyList};
 use std::{
     f32::consts::PI,
     time::{Duration, Instant},
@@ -164,4 +164,128 @@ fn recompose_2d(d: &Decomposed2D) -> [[f32; 4]; 4] {
     m[3][1] = d.translation[1];
 
     m
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Transition {
+    pub property_list: PropertyList,
+    pub duration: Duration,
+    pub curve: AnimationCurve,
+}
+
+impl Transition {
+    #[must_use]
+    pub fn new(property_list: PropertyList, duration: Duration, curve: AnimationCurve) -> Self {
+        Self {
+            property_list,
+            duration,
+            curve,
+        }
+    }
+
+    #[must_use]
+    pub fn property_list(mut self, property_list: PropertyList) -> Self {
+        self.property_list = property_list;
+        self
+    }
+
+    #[must_use]
+    pub fn duration(mut self, duration: Duration) -> Self {
+        self.duration = duration;
+        self
+    }
+
+    #[must_use]
+    pub fn curve(mut self, curve: AnimationCurve) -> Self {
+        self.curve = curve;
+        self
+    }
+}
+
+/// Define the easing curve for the animation.
+// TODO: バネ物理シミュレーション Spring Physics
+// 摩擦（Damping）とバネの強さ（Stiffness）のパラメータから毎フレーム物理演算
+#[derive(Debug, Clone, Copy)]
+pub enum AnimationCurve {
+    /// No easing (linear)
+    Linear,
+    /// Standard quadratic easing for acceleration and deceleration
+    EaseInOutQuad,
+    /// Accelerate
+    EaseInQuad,
+    /// Deceleration
+    EaseOutQuad,
+    /// An escape hatch capable of performing custom easing calculations
+    /// (accepts values between 0.0 and 1.0 and returns values between 0.0 and 1.0)
+    Custom(fn(f32) -> f32),
+}
+
+impl AnimationCurve {
+    /// Evaluate the smoothed value based on the progress ratio t (0.0 <= t <= 1.0).
+    #[must_use]
+    pub fn evaluate(&self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match *self {
+            AnimationCurve::Linear => t,
+            AnimationCurve::EaseInQuad => t * t,
+            AnimationCurve::EaseOutQuad => t * (2.0 - t),
+            AnimationCurve::EaseInOutQuad => {
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    -1.0 + (4.0 - 2.0 * t) * t
+                }
+            }
+            AnimationCurve::Custom(f) => f(t),
+        }
+    }
+}
+
+impl PartialEq for AnimationCurve {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Linear, Self::Linear)
+            | (Self::EaseInOutQuad, Self::EaseInOutQuad)
+            | (Self::EaseInQuad, Self::EaseInQuad)
+            | (Self::EaseOutQuad, Self::EaseOutQuad) => true,
+            (Self::Custom(f1), Self::Custom(f2)) => std::ptr::fn_addr_eq(*f1, *f2),
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackCount {
+    Infinite,
+    Count(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct KeyframeAnimation {
+    /// What to Animate
+    pub property: PropertyList,
+    /// Time per lap (loop)
+    pub duration: Duration,
+    /// Number of loops
+    pub iteration_count: PlaybackCount,
+    /// Easing Curve
+    pub curve: AnimationCurve,
+}
+
+impl KeyframeAnimation {
+    #[inline]
+    #[must_use]
+    pub fn new(
+        property: PropertyList,
+        duration: Duration,
+        iteration_count: PlaybackCount,
+        curve: AnimationCurve,
+    ) -> Self {
+        Self {
+            property,
+            duration,
+            iteration_count,
+            curve,
+        }
+    }
 }

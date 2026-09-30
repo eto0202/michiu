@@ -3,13 +3,10 @@ use crate::{DebugStore, EntityId, MichiuError, OptionTraceExt, Result};
 pub trait MichiuSoA {
     type Item;
 
-    /// 存在しない場合は None を返す
     fn find(&self, id: EntityId) -> Option<&Self::Item>;
 
-    /// 可変参照用
     fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item>;
 
-    /// 存在しない場合は Err を返す
     #[inline]
     fn require(&self, id: EntityId) -> Result<&Self::Item> {
         self.find(id).ok_or_else(|| MichiuError::ComponentNotFound {
@@ -18,7 +15,6 @@ pub trait MichiuSoA {
         })
     }
 
-    /// 可変参照用
     #[inline]
     fn require_mut(&mut self, id: EntityId) -> Result<&mut Self::Item> {
         let component = std::any::type_name::<Self>();
@@ -26,7 +22,7 @@ pub trait MichiuSoA {
             .ok_or(MichiuError::ComponentNotFound { id, component })
     }
 
-    /// パニック可能な不変参照アクセサ
+    /// Panic-Prone Immutable Reference Accessors
     #[inline]
     #[track_caller]
     #[allow(clippy::panic)]
@@ -49,7 +45,6 @@ pub trait MichiuSoA {
         })
     }
 
-    /// パニック可能な可変参照アクセサ
     #[inline]
     #[track_caller]
     #[allow(clippy::panic)]
@@ -72,7 +67,7 @@ pub trait MichiuSoA {
         })
     }
 
-    /// デフォルト値でフォールバック
+    /// Fallback to the default value
     #[inline]
     #[track_caller]
     fn find_or_default(&self, id: EntityId, debug: &mut DebugStore) -> Self::Item
@@ -84,7 +79,7 @@ pub trait MichiuSoA {
             .unwrap_or_default_trace(Some(id), debug)
     }
 
-    /// 指定の値でフォールバック
+    /// Fallback to the specified value
     #[inline]
     #[track_caller]
     fn find_or<'a>(
@@ -118,7 +113,6 @@ pub trait MichiuSoA {
         }
     }
 
-    /// その要素がコンポーネントを保持しているか
     #[inline]
     fn contains(&self, id: EntityId) -> bool {
         self.find(id).is_some()

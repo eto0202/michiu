@@ -27,7 +27,7 @@ pub struct TaskSender {
 impl TaskSender {
     /// ワーカースレッド等からメインスレッドで実行してほしい処理（クロージャ）を送信します。
     /// ライブラリ内部で自動的に Box に包むため、呼び出し側での `Box::new` は不要です。
-    #[allow(clippy::result_unit_err)]
+    #[expect(clippy::result_unit_err)]
     pub fn send<F>(&self, f: F) -> Result<(), ()>
     where
         F: FnOnce(&mut Context) + Send + 'static,
@@ -144,7 +144,7 @@ impl SystemStore {
         buffer
     }
 
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     #[inline]
     pub(crate) fn sync_imm_window_position(
         geom: &ResolvedGeometry,
@@ -263,9 +263,7 @@ impl SystemStore {
     }
 
     #[inline]
-    pub fn task_receiver_mut(
-        &mut self,
-    ) -> &mut Receiver<Box<dyn FnOnce(&mut Context) + Send + 'static>> {
+    pub fn task_receiver_mut(&mut self) -> &mut Receiver<TaskRecv> {
         &mut self.sys_task_receiver
     }
 

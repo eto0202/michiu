@@ -18,39 +18,37 @@ use wgpu::wgt::CommandEncoderDescriptor;
 use wgpu::{CurrentSurfaceTexture, PipelineCompilationOptions};
 
 pub struct WgpuRenderer {
-    pub surface: wgpu::Surface<'static>,
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
-    pub config: wgpu::SurfaceConfiguration,
+    pub(crate) surface: wgpu::Surface<'static>,
+    pub(crate) device: wgpu::Device,
+    pub(crate) queue: wgpu::Queue,
+    pub(crate) config: wgpu::SurfaceConfiguration,
 
-    pub pipeline: wgpu::RenderPipeline,
-    pub punchout_pipeline: wgpu::RenderPipeline,
+    pub(crate) pipeline: wgpu::RenderPipeline,
+    pub(crate) punchout_pipeline: wgpu::RenderPipeline,
 
     // 頂点データ（共通の 1x1 矩形）
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
+    pub(crate) vertex_buffer: wgpu::Buffer,
+    pub(crate) index_buffer: wgpu::Buffer,
 
     // インスタンスデータ（可変長バッファ）
-    pub instance_buffer: wgpu::Buffer,
-    pub instance_buffer_capacity: usize,
-    pub instance_staging: Vec<QuadInstance>,
+    pub(crate) instance_buffer: wgpu::Buffer,
+    pub(crate) instance_buffer_capacity: usize,
+    pub(crate) instance_staging: Vec<QuadInstance>,
 
     // スクリーン投影用 Uniform
-    pub config_buffer: wgpu::Buffer,
-    pub config_bind_group: wgpu::BindGroup,
+    pub(crate) config_buffer: wgpu::Buffer,
+    pub(crate) config_bind_group: wgpu::BindGroup,
     // ebView2 の静止画を描画する際にバインドグループを動的生成するため保持
-    pub config_bind_group_layout: wgpu::BindGroupLayout,
+    pub(crate) config_bind_group_layout: wgpu::BindGroupLayout,
 
-    pub atlas: TextureAtlas,
-    pub temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
-    pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
-    // 非アクティブ状態の WebView2 の静止画キャッシュ
-    pub webview_static_caches: FxHashMap<EntityId, wgpu::TextureView>,
+    pub(crate) atlas: TextureAtlas,
+    pub(crate) temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
+    pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
 
-    pub render_data: RenderData,
+    pub(crate) render_data: RenderData,
 
     /// 外部テクスチャ用の `BindGroup` キャッシュ
-    pub external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
+    pub(crate) external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
 }
 
 #[repr(C)]
@@ -169,7 +167,6 @@ impl WgpuRenderer {
             atlas,
             temp_uv_map: SecondaryMap::new(),
             text_cache: FxHashMap::default(),
-            webview_static_caches: FxHashMap::default(),
             render_data: RenderData::new(),
             external_bind_groups: FxHashMap::default(),
         })
@@ -207,6 +204,7 @@ impl WgpuRenderer {
             .find(wgpu::TextureFormat::is_srgb) // SRGBを優先
             .unwrap_or(caps.formats[0]);
 
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
@@ -292,18 +290,15 @@ impl WgpuRenderer {
             vertex: wgpu::VertexState {
                 module: shader,
                 entry_point: Some("vs_main"),
-                buffers: &[
-                    // Vertex Buffer
-                    wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &[wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x2,
-                            offset: 0,
-                            shader_location: 0,
-                        }],
-                    },
-                ],
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &[wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x2,
+                        offset: 0,
+                        shader_location: 0,
+                    }],
+                }],
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -457,6 +452,7 @@ impl WgpuRenderer {
 
     /// ウィンドウサイズが変更された際の再設定
     /// `new_physical_size`: (width, height)
+    #[expect(clippy::cast_precision_loss)]
     pub(crate) fn resize(&mut self, new_physical_size: (u32, u32), scale_factor: f32) {
         if new_physical_size.0 > 0 && new_physical_size.1 > 0 {
             self.config.width = new_physical_size.0;
@@ -483,7 +479,6 @@ impl WgpuRenderer {
         // 破棄された要素のキャッシュを解放
         for id in cx.topology.topo_despawned_queue.drain(..) {
             self.external_bind_groups.remove(&id);
-            self.webview_static_caches.remove(&id);
         }
 
         // 前面と背面に分類されたバッチを Context から引き出す
@@ -570,6 +565,7 @@ impl WgpuRenderer {
             // 現在アクティブなパイプラインを記録
             let mut current_pipeline = None;
 
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             for batch in &render_data.batches {
                 let offset = batch.instance_offset as u32;
                 let count = batch.instance_count as u32;
@@ -678,55 +674,27 @@ impl WgpuRenderer {
         }
     }
 
-    /// バッチ内に静止 `WebView2` テクスチャが含まれる場合、バインドグループを動的に切り替える
+    /// バッチ内に外部テクスチャが含まれる場合、バインドグループを動的に切り替える
     fn bind_texture_for_batch<'a>(
         &'a self,
         rpass: &mut wgpu::RenderPass<'a>,
         batch: &DrawBatch,
         entity_ids: &[EntityId],
     ) {
-        // バッチに含まれる最初の要素が静止 WebView2 キャッシュを持っているか
-        // instance_offsetの位置にある要素の ID を取得
         if let Some(&first_id) = entity_ids.get(batch.instance_offset) {
-            // キャッシュが存在する場合
+            // 外部テクスチャのキャッシュが存在する場合
             if let Some((_, bind_group)) = self.external_bind_groups.get(&first_id) {
                 rpass.set_bind_group(0, bind_group, &[]);
                 return;
             }
-
-            // WebView2 の静止画キャッシュ
-            if let Some(cached_view) = self.webview_static_caches.get(&first_id) {
-                let temp_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &self.config_bind_group_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: self.config_buffer.as_entire_binding(),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(cached_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::Sampler(&self.atlas.sampler),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: self.instance_buffer.as_entire_binding(),
-                        },
-                    ],
-                    label: None,
-                });
-                rpass.set_bind_group(0, &temp_bind_group, &[]);
-                return;
-            }
-            // 通常のアトラス
-            rpass.set_bind_group(0, &self.config_bind_group, &[]);
         }
+
+        // 通常のアトラス
+        rpass.set_bind_group(0, &self.config_bind_group, &[]);
     }
 
     /// `QuadInstance` に静的バインドする
+    #[track_caller]
     fn build_quad_instance_for_entity(
         cx: &mut Context,
         entity_id: EntityId,
@@ -792,26 +760,27 @@ impl WgpuRenderer {
         }
 
         // 影のカラーと形状の解決
+        // 元インスタンスで意図的に影が無効化されている (TRANSPARENT) 場合は上書きしない
         let shadow_color =
             if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
                 let mut color = visual.shadow_color.unwrap_or_default();
-                // WebViewアクティブ（DCompブレンド時）の濃さの補正
-                let mut has_active_webview_parent = false;
+                // DCompブレンド時の濃さの補正
+                let mut has_active_visual_parent = false;
                 let mut curr_id = entity_id;
                 while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
                     if cx
                         .topology
                         .topo_active_masks
                         .at(parent_id)
-                        .has_webveiw2_content()
-                        && cx.renders.rnd_active_webviews.contains(&parent_id)
+                        .has_external_visual_content()
+                        && cx.renders.rnd_active_external_visual.contains(&parent_id)
                     {
-                        has_active_webview_parent = true;
+                        has_active_visual_parent = true;
                         break;
                     }
                     curr_id = parent_id;
                 }
-                if has_active_webview_parent {
+                if has_active_visual_parent {
                     color.a *= 0.45;
                 }
                 color
@@ -832,6 +801,7 @@ impl WgpuRenderer {
 
         // モード、座標、UV は呼び出し元で既に決定されているためそのまま転送
         (
+            #[expect(clippy::cast_precision_loss)]
             QuadInstance {
                 rect: instance.rect,
                 transform: packed_transform,
@@ -858,7 +828,7 @@ impl WgpuRenderer {
                 outline_color: o_color,
                 outline_lengths: o_lengths,
                 outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
-                alpha_mode_y_flip_srgb: instance.alpha_mode_y_flip_srgb,
+                alpha_mode_y_flip_srgb_gamma: instance.alpha_mode_y_flip_srgb_gamma,
             },
             false, // アトラスを直接操作しないため常に false
         )
@@ -909,4 +879,161 @@ impl WgpuRenderer {
             });
         }
     }
+
+    #[inline]
+    #[must_use]
+    pub fn surface(&self) -> &wgpu::Surface<'_> {
+        &self.surface
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn config(&self) -> &wgpu::SurfaceConfiguration {
+        &self.config
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn pipeline(&self) -> &wgpu::RenderPipeline {
+        &self.pipeline
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn punchout_pipeline(&self) -> &wgpu::RenderPipeline {
+        &self.punchout_pipeline
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn vertex_buffer(&self) -> &wgpu::Buffer {
+        &self.vertex_buffer
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn index_buffer(&self) -> &wgpu::Buffer {
+        &self.index_buffer
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn instance_buffer(&self) -> &wgpu::Buffer {
+        &self.instance_buffer
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn instance_buffer_capacity(&self) -> &usize {
+        &self.instance_buffer_capacity
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn config_buffer(&self) -> &wgpu::Buffer {
+        &self.config_buffer
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn config_bind_group(&self) -> &wgpu::BindGroup {
+        &self.config_bind_group
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn config_bind_group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.config_bind_group_layout
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn atlas(&self) -> &TextureAtlas {
+        &self.atlas
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn temp_uv_map(&self) -> &SecondaryMap<EntityId, [f32; 4]> {
+        &self.temp_uv_map
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn text_cache(&self) -> &FxHashMap<TextCacheKey, TextCacheValue> {
+        &self.text_cache
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn render_data(&self) -> &RenderData {
+        &self.render_data
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn external_bind_groups(
+        &self,
+    ) -> &FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)> {
+        &self.external_bind_groups
+    }
+
+    #[inline]
+    pub(crate) fn raw_wgpu_renderer_mut(&mut self) -> RawWgpuRenderer<'_> {
+        RawWgpuRenderer {
+            surface: &mut self.surface,
+            device: &mut self.device,
+            queue: &mut self.queue,
+            config: &mut self.config,
+            pipeline: &mut self.pipeline,
+            punchout_pipeline: &mut self.punchout_pipeline,
+            vertex_buffer: &mut self.vertex_buffer,
+            index_buffer: &mut self.index_buffer,
+            instance_buffer: &mut self.instance_buffer,
+            instance_buffer_capacity: &mut self.instance_buffer_capacity,
+            instance_staging: &mut self.instance_staging,
+            config_buffer: &mut self.config_buffer,
+            config_bind_group: &mut self.config_bind_group,
+            config_bind_group_layout: &mut self.config_bind_group_layout,
+            atlas: &mut self.atlas,
+            temp_uv_map: &mut self.temp_uv_map,
+            text_cache: &mut self.text_cache,
+            render_data: &mut self.render_data,
+            external_bind_groups: &mut self.external_bind_groups,
+        }
+    }
+}
+
+pub struct RawWgpuRenderer<'a> {
+    pub surface: &'a mut wgpu::Surface<'static>,
+    pub device: &'a mut wgpu::Device,
+    pub queue: &'a mut wgpu::Queue,
+    pub config: &'a mut wgpu::SurfaceConfiguration,
+    pub pipeline: &'a mut wgpu::RenderPipeline,
+    pub punchout_pipeline: &'a mut wgpu::RenderPipeline,
+    pub vertex_buffer: &'a mut wgpu::Buffer,
+    pub index_buffer: &'a mut wgpu::Buffer,
+    pub instance_buffer: &'a mut wgpu::Buffer,
+    pub instance_buffer_capacity: &'a mut usize,
+    pub instance_staging: &'a mut Vec<QuadInstance>,
+    pub config_buffer: &'a mut wgpu::Buffer,
+    pub config_bind_group: &'a mut wgpu::BindGroup,
+    pub config_bind_group_layout: &'a mut wgpu::BindGroupLayout,
+    pub atlas: &'a mut TextureAtlas,
+    pub temp_uv_map: &'a mut SecondaryMap<EntityId, [f32; 4]>,
+    pub text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
+    pub render_data: &'a mut RenderData,
+    pub external_bind_groups: &'a mut FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
 }

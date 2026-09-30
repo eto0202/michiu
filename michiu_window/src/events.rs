@@ -32,22 +32,22 @@ pub enum MichiuEvent {
 /// forcing you to explicitly validate them at your application boundary.
 #[derive(Debug, Clone)]
 pub enum Event {
-    /// Issued when the window is first instantiated. (WM_CREATE)
+    /// Issued when the window is first instantiated. (`WM_CREATE`)
     Created,
 
     /// Issued when the user clicks the "Close" (X) button.
-    /// Useful for intercepting close signals to show "Save changes?" dialogs. (WM_CLOSE)
+    /// Useful for intercepting close signals to show "Save changes?" dialogs. (`WM_CLOSE`)
     CloseRequested,
 
-    /// Issued when the window is destroyed. (WM_DESTROY)
+    /// Issued when the window is destroyed. (`WM_DESTROY`)
     Destroyed,
 
     /// Issued when the window has been resized.
-    /// Holds the unvalidated new dimensions. (WM_SIZE)
+    /// Holds the unvalidated new dimensions. (`WM_SIZE`)
     Resized(Unvalidated<PhysicalSize>),
 
     /// Issued when the window has been relocated.
-    /// Holds the unvalidated new coordinate position. (WM_MOVE)
+    /// Holds the unvalidated new coordinate position. (`WM_MOVE`)
     Moved(Unvalidated<PhysicalPoint>),
 
     /// Issued when the window gains (`true`) or loses (`false`) focus.
@@ -60,7 +60,7 @@ pub enum Event {
         state: ElementState,
     },
 
-    /// Issued when a character is input (handles localization and key repeats). (WM_CHAR)
+    /// Issued when a character is input (handles localization and key repeats). (`WM_CHAR`)
     CharacterInput(char),
 
     /// Issued when the mouse cursor enters the window's boundary.
@@ -69,7 +69,7 @@ pub enum Event {
     /// Issued when the mouse cursor leaves the window's boundary.
     CursorLeft,
 
-    /// Issued when the mouse cursor is moved inside the window. (WM_MOUSEMOVE)
+    /// Issued when the mouse cursor is moved inside the window. (`WM_MOUSEMOVE`)
     CursorMoved {
         position: Unvalidated<PhysicalPoint>,
     },
@@ -81,16 +81,16 @@ pub enum Event {
         state: ElementState,
     },
 
-    /// Issued when the mouse wheel is rotated. (positive: forward, negative: backward). (WM_MOUSEWHEEL)
+    /// Issued when the mouse wheel is rotated. (positive: forward, negative: backward). (`WM_MOUSEWHEEL`)
     MouseWheel { delta: f32 },
 
-    /// Issued when the window client area needs to be repainted. (WM_PAINT)
+    /// Issued when the window client area needs to be repainted. (`WM_PAINT`)
     ///
     /// On Windows, this is automatically wrapped by `BeginPaint`/`EndPaint` inside the loop,
     /// so you can safely render custom graphics (e.g. DirectX, Vulkan, GDI) right away.
     RedrawRequested,
 
-    /// Issued when the DPI scale factor of the window changes. (WM_DPICHANGED)
+    /// Issued when the DPI scale factor of the window changes. (`WM_DPICHANGED`)
     ScaleFactorChanged {
         scale_factor: f64,
         /// Suggested new window coordinate position and size recommended by Windows to maintain scaling consistency.
@@ -117,6 +117,8 @@ pub enum Event {
     },
 }
 
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,7 +213,7 @@ mod tests {
                 assert_eq!(id, WindowId(12345));
                 assert!(matches!(event, Event::CloseRequested));
             }
-            _ => panic!("Expected MichiuEvent::Event"),
+            MichiuEvent::User(_) => panic!("Expected MichiuEvent::Event"),
         }
     }
 

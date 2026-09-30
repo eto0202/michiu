@@ -4,8 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+readme.workspace = true
 description = "This is a facade for michiu, a GUI library for Windows."
-readme = "README.md"
+
+[lints]
+workspace = true
 
 [dependencies]
 michiu_ui = { workspace = true, optional = true }

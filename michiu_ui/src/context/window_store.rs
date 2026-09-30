@@ -35,6 +35,7 @@ impl WindowStore {
         self.win_default_himc = None;
     }
 
+    #[allow(clippy::unused_self)]
     #[inline]
     pub(crate) fn despawn(&mut self, _id: EntityId) {}
 }

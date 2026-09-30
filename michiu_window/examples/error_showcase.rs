@@ -1,3 +1,8 @@
+#![allow(clippy::print_stdout)]
+#![allow(clippy::print_stderr)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+
 use michiu_guard::{Unvalidated, Validated};
 use michiu_window::{ComContext, Window, WindowBuilder, WindowHandle, init_dpi_awareness};
 
@@ -5,7 +10,7 @@ use michiu_window::{ComContext, Window, WindowBuilder, WindowHandle, init_dpi_aw
 
 fn main() {
     // Initialize high-DPI support
-    init_dpi_awareness();
+    let _ = init_dpi_awareness();
 
     println!("--- [1] Triggering ValidationError (Style Conflict) ---");
 
@@ -43,7 +48,7 @@ fn main() {
             let check_result = handle_clone.assert_ui_thread();
 
             match check_result {
-                Ok(_) => println!("Assertion passed on foreign thread? (Should not happen)"),
+                Ok(()) => println!("Assertion passed on foreign thread? (Should not happen)"),
                 Err(err) => {
                     println!("{}", err.report());
                 }

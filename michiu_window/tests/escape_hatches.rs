@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use michiu_window::{
     Event, EventPump, LogicalSize, MichiuEvent, SubclassResult, WindowBuilder, init_dpi_awareness,
 };
@@ -47,6 +51,7 @@ unsafe extern "system" fn raw_subclass_test_proc(
     unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
 }
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn test_integration_escape_hatches_coexistence_and_precedence() {
     let _ = init_dpi_awareness();

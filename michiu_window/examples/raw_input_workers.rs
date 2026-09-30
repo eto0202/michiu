@@ -1,3 +1,8 @@
+#![allow(clippy::print_stdout)]
+#![allow(clippy::print_stderr)]
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+
 use michiu_guard::Validated;
 use michiu_window::{
     ComContext, Event, EventPump, Icon, LogicalSize, MichiuEvent, PhysicalPoint, Tray, TrayBuilder,
@@ -46,7 +51,7 @@ type ThreadSignal = Arc<(Mutex<WorkerControl>, Condvar)>;
 fn heavy_calculation(n: u32) -> u128 {
     let mut sum: u128 = 0;
     for i in 0..n {
-        sum = sum.wrapping_add(i as u128);
+        sum = sum.wrapping_add(u128::from(i));
     }
     sum
 }
@@ -88,7 +93,7 @@ fn spawn_worker_thread(
                 // Thread A: Get mouse coordinates
                 WorkerRole::CursorTracker => {
                     let mut pt = windows::Win32::Foundation::POINT::default();
-                    let _ = unsafe { GetCursorPos(&mut pt) };
+                    let _ = unsafe { GetCursorPos(&raw mut pt) };
                     // mpsc で送信し、即座にUIスレッドのメッセージスリープを起こす
                     tx.send(WorkerReport::CursorPos(PhysicalPoint::new(pt.x, pt.y)))
                         .unwrap();
@@ -105,8 +110,7 @@ fn spawn_worker_thread(
 
             // High-precision 5-millisecond sleep using a Waitable Timer
             let due_time: i64 = -50_000;
-            let _ =
-                unsafe { SetWaitableTimer(h_timer, &due_time as *const i64, 0, None, None, false) };
+            let _ = unsafe { SetWaitableTimer(h_timer, &raw const due_time, 0, None, None, false) };
 
             // Suspend the thread until the timer enters the signal state (5 ms have elapsed)
             let _ = unsafe { WaitForSingleObject(h_timer, INFINITE) };
@@ -117,6 +121,7 @@ fn spawn_worker_thread(
 }
 
 // Helper function for registering RawInput with the Windows OS
+#[allow(clippy::cast_possible_truncation)]
 fn register_rawinput_devices(hwnd: HWND) {
     let rid = RAWINPUTDEVICE {
         usUsagePage: 1, // Generic Desktop Page
@@ -130,9 +135,10 @@ fn register_rawinput_devices(hwnd: HWND) {
     }
 }
 
+#[expect(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize high-DPI support
-    init_dpi_awareness();
+    let _ = init_dpi_awareness();
 
     let com_ctx = ComContext::new_com_single()?;
 

@@ -1,3 +1,6 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+
 use super::*;
 use crate::error::MichiuError;
 use michiu_guard::Validated;

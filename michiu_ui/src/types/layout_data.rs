@@ -11,32 +11,6 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NormalLayout {
-    pub basic: BasicLayout,
-    pub flex: FlexLayout,
-}
-
-impl NormalLayout {
-    #[inline]
-    #[must_use]
-    pub fn split(&self) -> (&BasicLayout, &FlexLayout) {
-        (&self.basic, &self.flex)
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn split_mut(&mut self) -> (&mut BasicLayout, &mut FlexLayout) {
-        (&mut self.basic, &mut self.flex)
-    }
-
-    #[inline]
-    pub fn override_with(&mut self, basic: &BasicLayout, flex: &FlexLayout, mask: ComponentMask) {
-        self.basic.override_with(basic, mask);
-        self.flex.override_with(flex, mask);
-    }
-}
-
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BasicLayout {
@@ -337,7 +311,7 @@ pub(crate) struct CurrentStyle {
     pub(crate) text_color: Color,
     pub(crate) font_size: f32,
     pub(crate) font_family: Option<Cow<'static, str>>,
-    pub(crate) font_weight: u32,
+    pub(crate) font_weight: u16,
     pub(crate) font_style: u32,
     pub(crate) auto_wrap: bool,
     pub(crate) pointer_events: PointerEvents,
@@ -712,7 +686,7 @@ pub struct InteractionStyles {
 impl InteractionStyles {
     /// 与えられた疑似状態（StyleTarget）に対応する Option<ThisStyle> フィールドの実体可変参照を取得します
     #[track_caller]
-    #[allow(clippy::unreachable)]
+    #[expect(clippy::unreachable)]
     #[inline]
     pub(crate) fn get_style_target_mut(&mut self, target: StyleTarget) -> &mut ThisStyle {
         match target {

@@ -68,6 +68,7 @@ impl ImeContext {
     }
 
     /// Checks whether the IME is currently active/open (e.g., Japanese/Chinese input mode is ON).
+    #[must_use]
     #[inline]
     pub fn is_open(&self) -> bool {
         unsafe { ImmGetOpenStatus(self.himc).as_bool() }
@@ -82,13 +83,18 @@ impl ImeContext {
     }
 
     /// Retrieves the raw conversion mode and sentence mode flags.
+    #[must_use]
     #[inline]
     pub fn get_conversion_status(&self) -> (u32, u32) {
         let mut conversion = IME_CONVERSION_MODE::default();
         let mut sentence = IME_SENTENCE_MODE::default();
         unsafe {
-            if ImmGetConversionStatus(self.himc, Some(&mut conversion), Some(&mut sentence))
-                .as_bool()
+            if ImmGetConversionStatus(
+                self.himc,
+                Some(&raw mut conversion),
+                Some(&raw mut sentence),
+            )
+            .as_bool()
             {
                 (conversion.0, sentence.0)
             } else {
@@ -146,16 +152,17 @@ impl ImeContext {
             rcArea: RECT::default(),
         };
         unsafe {
-            let _ = ImmSetCompositionWindow(self.himc, &form);
+            let _ = ImmSetCompositionWindow(self.himc, &raw const form);
         }
     }
 
     /// Retrieves the current physical coordinate position of the IME candidate window as set by the OS.
+    #[must_use]
     #[inline]
     pub fn get_composition_window_position(&self) -> Option<PhysicalPoint> {
         let mut form = COMPOSITIONFORM::default();
         unsafe {
-            if ImmGetCompositionWindow(self.himc, &mut form).as_bool() {
+            if ImmGetCompositionWindow(self.himc, &raw mut form).as_bool() {
                 Some(PhysicalPoint {
                     x: form.ptCurrentPos.x,
                     y: form.ptCurrentPos.y,
@@ -196,7 +203,7 @@ impl ImeContext {
             let res_bytes = ImmGetCompositionStringW(
                 self.himc,
                 index,
-                Some(buf.as_mut_ptr() as *mut _),
+                Some(buf.as_mut_ptr().cast()),
                 buffer_capacity_bytes as u32,
             );
 
@@ -224,6 +231,7 @@ impl Drop for ImeContext {
 /// Retrieves the active thread's keyboard layout Language ID (LANGID).
 ///
 /// Returns standard LANGIDs, such as `0x0411` (1041) for Japanese, `0x0409` (1033) for US English, etc.
+#[must_use]
 #[inline]
 pub fn get_active_keyboard_layout_id() -> u32 {
     unsafe {
@@ -291,7 +299,7 @@ impl ImeRelayServer {
 
         // 新規接続を待ち受けるリスナースレッド
         let clients_listener = clients.clone();
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", port))?;
+        let listener = TcpListener::bind(format!("127.0.0.1:{port}"))?;
 
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
@@ -491,6 +499,8 @@ impl<'de> serde::Deserialize<'de> for ImeStateUpdate {
     }
 }
 
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
 #[cfg(test)]
 mod tests {
     use michiu_guard::Validate;

@@ -58,6 +58,7 @@ unsafe impl Sync for TrayInner {}
 
 impl Drop for TrayInner {
     fn drop(&mut self) {
+        #[expect(clippy::cast_possible_truncation)]
         let nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: self.dummy_hwnd,
@@ -66,7 +67,7 @@ impl Drop for TrayInner {
         };
         unsafe {
             // システムトレイからアイコンを削除
-            let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
+            let _ = Shell_NotifyIconW(NIM_DELETE, &raw const nid);
             // 非表示のダミーウィンドウを安全に破棄
             let _ = PostMessageW(Some(self.dummy_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
         }
@@ -208,8 +209,8 @@ impl Tray {
             return Err(MichiuError::ValidationError {
                 parameter: "balloon_title",
                 message: format!(
-                    "Balloon title exceeds the OS limit of 63 UTF-16 code units (current: {}).",
-                    title_len
+                    "Balloon title exceeds the OS limit of 63 UTF-16 code units (current: {title_len})."
+
                 )
                 .into(),
             });
@@ -219,7 +220,7 @@ impl Tray {
         if text_len >= 256 {
             return Err(MichiuError::ValidationError {
                     parameter: "balloon_text",
-                    message: format!("Balloon text message exceeds the OS limit of 255 UTF-16 code units (current: {}).", text_len).into(),
+                    message: format!("Balloon text message exceeds the OS limit of 255 UTF-16 code units (current: {text_len})." ).into(),
                 });
         }
 
@@ -239,6 +240,7 @@ impl Tray {
         sz_info_title[..title_wide.len()].copy_from_slice(&title_wide);
 
         // すでに登録されている HWND と uID をターゲットにして通知を送信
+        #[expect(clippy::cast_possible_truncation)]
         let nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: self.inner.dummy_hwnd,
@@ -262,6 +264,7 @@ impl Tray {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 unsafe extern "system" fn tray_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -271,7 +274,7 @@ unsafe extern "system" fn tray_wnd_proc(
     if msg == WM_NCCREATE {
         let create_struct = lparam.0 as *const CREATESTRUCTW;
         if !create_struct.is_null() {
-            let data_ptr = unsafe { (*create_struct).lpCreateParams as *mut TrayInternalData };
+            let data_ptr = unsafe { (*create_struct).lpCreateParams.cast::<TrayInternalData>() };
             unsafe {
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, data_ptr as isize);
             }
@@ -300,7 +303,7 @@ unsafe extern "system" fn tray_wnd_proc(
                         let hwnd_menu = custom_menu.window_handle.hwnd();
                         unsafe {
                             let mut pt = POINT::default();
-                            let _ = GetCursorPos(&mut pt);
+                            let _ = GetCursorPos(&raw mut pt);
 
                             // マウス位置にカスタムウィンドウ（メニュー）を移動させて表示
                             let _ = SetWindowPos(
@@ -341,7 +344,7 @@ unsafe extern "system" fn tray_wnd_proc(
                                     }
 
                                     let mut pt = POINT::default();
-                                    let _ = GetCursorPos(&mut pt);
+                                    let _ = GetCursorPos(&raw mut pt);
 
                                     let _ = SetForegroundWindow(hwnd);
 
@@ -430,6 +433,7 @@ fn add_tray_icon(hwnd: HWND, u_id: u32, icon: Option<Icon>, tooltip: Option<&str
         sz_tip[..len].copy_from_slice(&tip_wide[..len]);
     }
 
+    #[expect(clippy::cast_possible_truncation)]
     let nid = NOTIFYICONDATAW {
         cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
         hWnd: hwnd,
@@ -442,7 +446,7 @@ fn add_tray_icon(hwnd: HWND, u_id: u32, icon: Option<Icon>, tooltip: Option<&str
     };
 
     // アイコンをOSのシステムトレイに登録(NIM_ADD)
-    let success = unsafe { Shell_NotifyIconW(NIM_ADD, &nid) };
+    let success = unsafe { Shell_NotifyIconW(NIM_ADD, &raw const nid) };
     if success.as_bool() {
         Ok(())
     } else {
@@ -464,6 +468,7 @@ impl CustomTrayMenu {
     ///
     /// Under the hood, clicking the tray icon will automatically relocate the target window
     /// to the cursor position, set it as topmost, and show it.
+    #[must_use]
     #[inline]
     pub fn new(window_handle: WindowHandle) -> Self {
         Self { window_handle }
@@ -506,6 +511,7 @@ impl TrayMenuItem {
     }
 
     /// Registers a callback triggered when clicking this menu item.
+    #[must_use]
     #[inline]
     pub fn with_on_click<F>(mut self, on_click: F) -> Self
     where
@@ -516,6 +522,7 @@ impl TrayMenuItem {
     }
 
     /// Registers a callback triggered when hovering over this menu item.
+    #[must_use]
     #[inline]
     pub fn with_on_hover<F>(mut self, on_hover: F) -> Self
     where
@@ -526,6 +533,7 @@ impl TrayMenuItem {
     }
 
     /// Sets whether the menu item is enabled (clickable) or grayed out. (Default: `true`)
+    #[must_use]
     #[inline]
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
@@ -587,6 +595,7 @@ impl Default for TrayBuilder {
 
 impl TrayBuilder {
     /// Creates a default configured `TrayBuilder` instance.
+    #[must_use]
     #[inline]
     pub fn new() -> Self {
         Self::default()
@@ -595,6 +604,7 @@ impl TrayBuilder {
     /// Sets the tooltip text displayed when hovering over the tray icon.
     ///
     /// Must be under 128 characters.
+    #[must_use]
     #[inline]
     pub fn with_tooltip(mut self, tooltip: impl Into<Cow<'static, str>>) -> Self {
         self.tooltip = Some(tooltip.into());
@@ -602,6 +612,7 @@ impl TrayBuilder {
     }
 
     /// Assigns a custom [`Icon`] for the tray. (Required)
+    #[must_use]
     #[inline]
     pub fn with_icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
@@ -609,6 +620,7 @@ impl TrayBuilder {
     }
 
     /// Registers a callback triggered when left-clicking (or double-clicking) the tray icon.
+    #[must_use]
     #[inline]
     pub fn on_left_click<F>(mut self, callback: F) -> Self
     where
@@ -622,6 +634,7 @@ impl TrayBuilder {
     ///
     /// Note: This is mutually exclusive with custom menu items. If menu items or custom menus
     /// are configured, right-clicking will show the menu instead.
+    #[must_use]
     #[inline]
     pub fn on_right_click<F>(mut self, callback: F) -> Self
     where
@@ -632,6 +645,7 @@ impl TrayBuilder {
     }
 
     /// Appends a standard native item to the tray context menu.
+    #[must_use]
     #[inline]
     pub fn with_menu_item(mut self, mut item: TrayMenuItem) -> Self {
         item.id = self.next_menu_id;
@@ -642,6 +656,7 @@ impl TrayBuilder {
     }
 
     /// Registers a custom popup window to display when right-clicking the tray icon.
+    #[must_use]
     #[inline]
     pub fn with_custom_menu(mut self, custom_menu: CustomTrayMenu) -> Self {
         self.custom_menu = Some(custom_menu);
@@ -649,6 +664,7 @@ impl TrayBuilder {
     }
 
     /// Forces the tray native context menu to Windows 11's native dark mode.
+    #[must_use]
     #[inline]
     pub fn with_dark_mode_menus(mut self, enabled: bool) -> Self {
         self.dark_mode_menus = enabled;
@@ -656,6 +672,7 @@ impl TrayBuilder {
     }
 
     /// Wraps the current builder state into an [`Unvalidated`] wrapper.
+    #[must_use]
     #[inline]
     pub fn into_unvalidated(self) -> Unvalidated<Self> {
         Unvalidated::new(self)
@@ -690,8 +707,8 @@ impl Validate for TrayBuilder {
                 return Err(MichiuError::ValidationError {
                     parameter: "tooltip",
                     message: format!(
-                        "Tray tooltip exceeds the OS limit of 127 UTF-16 code units (current: {}).",
-                        utf16_len
+                        "Tray tooltip exceeds the OS limit of 127 UTF-16 code units (current: {utf16_len})."
+
                     )
                     .into(),
                 });
@@ -709,6 +726,7 @@ fn register_tray_window_class(
 ) -> Result<()> {
     let hcursor = unsafe { LoadCursorW(None, IDC_ARROW).map_err(MichiuError::UnexpectedOsError)? };
 
+    #[expect(clippy::cast_possible_truncation)]
     let tray_wnd_class = WNDCLASSEXW {
         cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
         style: CS_HREDRAW | CS_VREDRAW,
@@ -724,7 +742,7 @@ fn register_tray_window_class(
         hIconSm: HICON::default(),
     };
 
-    let atom = unsafe { RegisterClassExW(&tray_wnd_class) };
+    let atom = unsafe { RegisterClassExW(&raw const tray_wnd_class) };
     if atom == 0 {
         let err = windows::core::Error::from_thread();
 

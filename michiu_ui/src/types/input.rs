@@ -122,7 +122,7 @@ pub struct TextSpan {
     /// Partial Font Family Override
     pub(crate) font_family: Option<Cow<'static, str>>,
     /// Partial Font Weight Override
-    pub(crate) font_weight: Option<u32>,
+    pub(crate) font_weight: Option<u16>,
     /// Partial Font Style Override
     pub(crate) font_style: Option<u32>,
 
@@ -202,7 +202,7 @@ impl TextSpan {
     /// Partial Font Weight Override
     #[inline]
     #[must_use]
-    pub fn font_weight(mut self, weight: u32) -> Self {
+    pub fn font_weight(mut self, weight: u16) -> Self {
         self.font_weight = Some(weight);
         self
     }
@@ -318,24 +318,25 @@ impl InputContents {
     /// Generate new input content.
     ///
     /// # Examples
-    /// ```rust
-    /// use crate::{InputContents, div_n, create_signal};
+    /// ```no_run
+    /// use michiu_ui::{div_n, create_signal, InputContents};
     ///
     /// let (text, set_text) = create_signal(String::new());
-    /// div_n().input(InputContents::new((text, set_text)))
+    /// let _input = div_n().input(InputContents::new((text, set_text)));
     ///
     /// ```
     ///
     /// For Newtype patterns, you can use `bi_map`.
-    /// ```rust
-    /// use crate::{InputContents, div_n, create_signal};
+    /// ```no_run
+    /// use michiu_ui::{div_n, create_signal, InputContents};
     ///
+    /// #[derive(Clone, PartialEq)]
     /// struct SearchText(String);
     /// let (reader, writer) = create_signal(SearchText(String::new()));
     /// let (text, set_text) =
     ///     reader.bi_map(writer, |t| t.0.clone(), SearchText);
     ///
-    /// div_n().input(InputContents::new((text, set_text)))
+    /// let _input = div_n().input(InputContents::new((text, set_text)));
     ///
     /// ```
     #[must_use]

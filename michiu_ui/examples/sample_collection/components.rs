@@ -1,3 +1,4 @@
+pub mod accessibility;
 pub mod background;
 pub mod border;
 pub mod button;
@@ -7,9 +8,11 @@ pub mod cursor;
 pub mod div;
 pub mod draggable;
 pub mod dropdown;
+pub mod external_visual;
 pub mod flexbox;
 pub mod focusable;
 pub mod hover;
+pub mod image;
 pub mod input;
 pub mod input_area;
 pub mod list;
@@ -17,7 +20,6 @@ pub mod outline;
 pub mod resizable;
 pub mod scrollbar;
 pub mod stress_test;
-pub mod image;
 
 use crate::app::theme::Theme;
 use michiu_ui::prelude::*;

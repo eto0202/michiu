@@ -1,9 +1,13 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![expect(clippy::cast_possible_truncation)]
 
 use super::*;
 use crate::{ComContext, WindowBuilder};
 use michiu_guard::Validate;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
+use std::sync::atomic::{AtomicBool, Ordering};
 use windows::{
     Win32::{
         Foundation::{ERROR_ACCESS_DENIED, GetLastError},
@@ -544,7 +548,7 @@ fn test_global_wnd_proc_min_max_info_dpi_scaling_normal() {
                 window.hwnd(),
                 WM_GETMINMAXINFO,
                 Some(WPARAM(0)),
-                Some(LPARAM(&mut mmi as *mut MINMAXINFO as isize)),
+                Some(LPARAM(&raw mut mmi as isize)),
             );
         }
 

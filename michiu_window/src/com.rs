@@ -1,3 +1,6 @@
+#![allow(clippy::ref_as_ptr)]
+#![allow(clippy::inline_always)]
+
 use crate::error::{MichiuError, Result};
 use crate::{Event, MichiuEvent, WindowId, push_event};
 use michiu_guard::Unvalidated;
@@ -24,9 +27,10 @@ use windows::Win32::{
 };
 use windows::core::{Ref, implement};
 
-/// A thread-affine RAII guard managing the lifecycle of COM or Windows Runtime (WinRT) initialization on the current thread.
+/// A thread-affine RAII guard managing the lifecycle of COM or Windows Runtime (`WinRT`) initialization on the current thread.
 ///
-/// Since COM and WinRT threading apartments are strictly thread-affine, `ComContext` is **`!Send` and `!Sync`**.
+/// Since COM and `WinRT` threading apartments are strictly thread-affine,
+///  `ComContext` is **`!Send` and `!Sync`**.
 ///
 /// Cloning a `ComContext` correctly increments the underlying OS-side initialization reference counter
 /// on the same thread, and dropping a `ComContext` automatically decrements it by calling the appropriate
@@ -42,9 +46,9 @@ pub(crate) enum ComContextKind {
     WinRtOleCombo,
 }
 
-/// A thread-affine RAII guard that manages COM or Windows Runtime (WinRT) initialization.
+/// A thread-affine RAII guard that manages COM or Windows Runtime (`WinRT`) initialization.
 ///
-/// Because COM and WinRT threading models are fundamentally thread-affine, this structure
+/// Because COM and `WinRT` threading models are fundamentally thread-affine, this structure
 /// does not implement `Send` or `Sync`. When cloned on the same thread, it correctly increments
 /// the OS initialization reference counter. Dropping this guard automatically calls the
 /// corresponding uninitialization API (`CoUninitialize` or `RoUninitialize`).
@@ -110,7 +114,7 @@ impl ComContext {
         })
     }
 
-    /// Initializes the Windows Runtime (WinRT) on the current thread under the Single-Threaded Apartment model.
+    /// Initializes the Windows Runtime (`WinRT`) on the current thread under the Single-Threaded Apartment model.
     ///
     /// # Errors
     /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
@@ -130,7 +134,7 @@ impl ComContext {
         })
     }
 
-    /// Initializes the Windows Runtime (WinRT) on the current thread under the Multi-Threaded Apartment model.
+    /// Initializes the Windows Runtime (`WinRT`) on the current thread under the Multi-Threaded Apartment model.
     ///
     /// # Errors
     /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
@@ -150,8 +154,8 @@ impl ComContext {
         })
     }
 
-    /// A dedicated method for initializing WinRT (STA) and OLE in this order.
-    /// Required when using OLE drag and drop and WinRTAPI (notifications, etc.) on the same thread.
+    /// A dedicated method for initializing `WinRT` (STA) and OLE in this order.
+    /// Required when using OLE drag and drop and `WinRT` API (notifications, etc.) on the same thread.
     #[inline]
     pub fn new_winrt_ole_combo() -> Result<Self> {
         unsafe {
@@ -256,6 +260,7 @@ impl Drop for ComContext {
 /// # Ok(())
 /// # }
 /// ```
+
 #[implement(IDropTarget)]
 pub struct FileDropTarget {
     hwnd: HWND,
@@ -276,6 +281,7 @@ impl FileDropTarget {
     /// # Ok(())
     /// # }
     /// ```
+    #[must_use]
     #[inline]
     pub fn new(hwnd: HWND) -> Self {
         Self { hwnd }
@@ -292,6 +298,7 @@ impl FileDropTarget {
     /// let target_hwnd = drop_target.hwnd();
     /// assert!(target_hwnd.is_invalid());
     /// ```
+    #[must_use]
     #[inline]
     pub fn hwnd(&self) -> HWND {
         self.hwnd
@@ -317,7 +324,7 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
                     tymed: TYMED_HGLOBAL.0 as u32,
                 };
 
-                if data_obj.QueryGetData(&format_etc).is_ok() {
+                if data_obj.QueryGetData(&raw const format_etc).is_ok() {
                     *effect = DROPEFFECT_COPY;
                 } else {
                     *effect = DROPEFFECT_NONE;
@@ -363,10 +370,10 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
                 };
 
                 // IDataObject から HDROP データを抽出
-                if let Ok(mut medium) = data_obj.GetData(&format_etc) {
-                    let hdrop = HDROP(medium.u.hGlobal.0 as _);
+                if let Ok(mut medium) = data_obj.GetData(&raw const format_etc) {
+                    let hdrop = HDROP(medium.u.hGlobal.0.cast());
 
-                    let file_count = DragQueryFileW(hdrop, 0xFFFFFFFF, None);
+                    let file_count = DragQueryFileW(hdrop, 0xFFFF_FFFF, None);
                     let mut files = Vec::with_capacity(file_count as usize);
 
                     for i in 0..file_count {
@@ -379,7 +386,7 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
                         }
                     }
 
-                    ReleaseStgMedium(&mut medium);
+                    ReleaseStgMedium(&raw mut medium);
 
                     if !files.is_empty() {
                         // イベントキューに通知
@@ -396,6 +403,9 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
     }
 }
 
+#[allow(clippy::unwrap_used)]
+#[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 #[cfg(test)]
 mod tests {
     use std::os::windows::ffi::OsStrExt;
@@ -524,14 +534,13 @@ mod tests {
                     assert_eq!(context_type, "COM Multi");
 
                     // Windows SDK エラーコード: 0x80010106 (RPC_E_CHANGED_MODE)
-                    let error_code = source.code().0 as u32;
+                    let error_code = source.code().0.cast_unsigned();
                     assert_eq!(
-                        error_code, 0x80010106,
-                        "Expected RPC_E_CHANGED_MODE (0x80010106) but got 0x{:08X}",
-                        error_code
+                        error_code, 0x8001_0106,
+                        "Expected RPC_E_CHANGED_MODE (0x80010106) but got 0x{error_code:08X}"
                     );
                 }
-                other => panic!("Expected ComInitializationFailed, but got: {:?}", other),
+                other => panic!("Expected ComInitializationFailed, but got: {other:?}"),
             }
         });
     }
@@ -573,8 +582,11 @@ mod tests {
 
                 // DragOver の COM 経由での呼び出しテスト (戻り値に DROPEFFECT_COPY が書き戻されるか検証)
                 let mut effect = DROPEFFECT_NONE;
-                let res_over =
-                    target.DragOver(MODIFIERKEYS_FLAGS(0), POINTL { x: 0, y: 0 }, &mut effect);
+                let res_over = target.DragOver(
+                    MODIFIERKEYS_FLAGS(0),
+                    POINTL { x: 0, y: 0 },
+                    &raw mut effect,
+                );
 
                 assert!(res_over.is_ok(), "DragOver should succeed");
                 assert_eq!(
@@ -586,6 +598,7 @@ mod tests {
     }
 
     // テスト用の擬似 IDataObject モックの実装
+
     #[implement(IDataObject)]
     struct MockDataObject {
         paths: Vec<std::path::PathBuf>,
@@ -673,6 +686,7 @@ mod tests {
         let h_mem = unsafe { GlobalAlloc(GMEM_MOVEABLE, total_size).unwrap() };
         let ptr = unsafe { GlobalLock(h_mem) };
 
+        #[expect(clippy::cast_possible_truncation)]
         let dropfiles = DROPFILES {
             pFiles: dropfiles_size as u32,
             pt: windows::Win32::Foundation::POINT { x: 0, y: 0 },
@@ -680,11 +694,14 @@ mod tests {
             fWide: true.into(),
         };
 
+        // `ptr` は `dropfiles_size + path_bytes のサイズ` 以上に確保されていること
+        // dropfiles_size (20 bytes) は直後の u16 のアライメントも満たしている
         unsafe {
-            std::ptr::write(ptr as *mut DROPFILES, dropfiles);
+            std::ptr::write(ptr.cast::<DROPFILES>(), dropfiles);
+            #[expect(clippy::cast_ptr_alignment)]
             std::ptr::copy_nonoverlapping(
                 path_bytes.as_ptr(),
-                (ptr as *mut u8).add(dropfiles_size) as *mut u16,
+                ptr.cast::<u8>().add(dropfiles_size).cast::<u16>(),
                 path_bytes.len(),
             );
         }
@@ -723,7 +740,7 @@ mod tests {
                     &mock_data,
                     windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS(0),
                     windows::Win32::Foundation::POINTL { x: 0, y: 0 },
-                    &mut effect,
+                    &raw mut effect,
                 )
             };
 
@@ -748,10 +765,10 @@ mod tests {
                                 });
                             assert!(validated.is_ok());
                         }
-                        other => panic!("Expected Event::FileDropped, got {:?}", other),
+                        other => panic!("Expected Event::FileDropped, got {other:?}"),
                     }
                 }
-                _ => panic!("Expected Event"),
+                MichiuEvent::User(_) => panic!("Expected Event"),
             }
         });
     }

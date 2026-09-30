@@ -1,3 +1,6 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::print_stdout)]
+
 use michiu_guard::{Unvalidated, Validate as MichiuValidate, Validated};
 use nutype::nutype;
 
@@ -58,7 +61,7 @@ fn run_pattern_a() {
     let result: Result<Validated<RawRegistrationForm>, _> = raw_input.try_into();
 
     if let Err(err_msg) = result {
-        println!("Pattern A failed as expected: {}", err_msg);
+        println!("Pattern A failed as expected: {err_msg}");
     }
 }
 

@@ -59,6 +59,7 @@ impl ScrollStore {
 impl ScrollStore {
     /// スクロールオフセットを目標位置へクランプした上で代入。
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
+    #[track_caller]
     pub(crate) fn scroll_to(
         id: EntityId,
         mut x: f32,
@@ -76,7 +77,7 @@ impl ScrollStore {
         sc_sizes: &ScrollSizesSecondary,
         debug: &mut DebugStore,
     ) -> bool {
-        let rect = *out_rects.at(id);
+        let rect = out_rects.find_or_default(id, debug);
 
         let scroll_size = sc_sizes.find_or_default(id, debug);
 
@@ -126,6 +127,7 @@ impl ScrollStore {
         }
     }
 
+    #[track_caller]
     pub(crate) fn sync_scrollbar_drag(
         logical_pos: LayoutPoint,
         win_last_size: Option<LayoutSize>,
@@ -175,7 +177,7 @@ impl ScrollStore {
 
         let (sb_state, container_rect, scroll_size) = {
             let sb_state = bar_styles.find_or_default(current_id, debug);
-            let container_rect = *out_rects.at(current_id);
+            let container_rect = out_rects.find_or_default(current_id, debug);
             let scroll_size = sc_sizes.find_or_default(current_id, debug);
             (sb_state, container_rect, scroll_size)
         };
@@ -188,8 +190,8 @@ impl ScrollStore {
                 else {
                     return;
                 };
-                let track_rect = *out_rects.at(track_id);
-                let thumb_rect = *out_rects.at(thumb_id);
+                let track_rect = out_rects.find_or_default(track_id, debug);
+                let thumb_rect = out_rects.find_or_default(thumb_id, debug);
 
                 let (mut margin_top, mut margin_bottom) = (0.0, 0.0);
                 if let Some(ref thumb_style) = sb_state.style.v_thumb {
@@ -317,6 +319,7 @@ impl ScrollStore {
         )
     }
 
+    #[track_caller]
     pub(crate) fn autoscroll_occurred(
         id: EntityId,
         win_last_size: Option<LayoutSize>,
@@ -384,6 +387,7 @@ impl ScrollStore {
     }
 
     /// 指定された要素の子要素全体のスクロール領域を親ローカル座標系で算出します。
+    #[track_caller]
     pub(crate) fn get_scroll_size(
         id: EntityId,
         sys_text_engine: &mut TextEngine,

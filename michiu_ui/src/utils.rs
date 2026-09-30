@@ -1,6 +1,6 @@
 use crate::{
-    BoxShadow, Color, Convert, Element, ExternalTexture, FlexDirection, InputContents,
-    IntoHexColor, IntoLayoutPoint, Prop, ReadSignal, StyleValue, ThisStyle, WebView2Contents,
+    BoxShadow, Color, Convert, Element, ExternalTexture, ExternalVisual, FlexDirection,
+    InputContents, IntoHexColor, IntoLayoutPoint, Prop, ReadSignal, StyleValue, ThisStyle,
     WriteSignal, with_context,
 };
 use std::borrow::Cow;
@@ -80,7 +80,7 @@ pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
 ///
 /// # Examples
 /// ```rust
-/// use crate::hex;
+/// use michiu_ui::hex;
 ///
 /// hex("#ff0000");
 /// hex(0x00_FF00);
@@ -187,10 +187,10 @@ pub fn external_texture(texture: impl ExternalTexture + 'static) -> Element {
     div_n().external_texture(texture)
 }
 
-/// Webview2 Container
+/// External Visual Container
 #[inline]
-pub fn webview2(contents: impl Into<Prop<WebView2Contents>>) -> Element {
-    div_n().webview2(contents)
+pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
+    div_n().external_visual(visual)
 }
 
 /// A generic container that dynamically resolves `ThisStyle` from provider `P` and applies the style
@@ -258,16 +258,6 @@ where
     F: Fn(&P) -> InputContents + Send + Sync + 'static,
 {
     div_n().input_area_d(f)
-}
-
-/// A container that creates and applies WebView2 elements dynamically resolved from provider `P`.
-#[inline]
-pub fn webview2_d<P, F>(f: F) -> Element
-where
-    P: Clone + 'static,
-    F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
-{
-    div_n().webview2_d(f)
 }
 
 /// Creates a `BoxShadow`.
@@ -402,6 +392,7 @@ pub fn get_win32_clipboard() -> Option<String> {
 /// `raw_delta`: Raw value obtained from `WM_MOUSEWHEEL`, etc. (forward: positive, backward: negative)
 ///
 /// The return value is the logical pixel distance to scroll (scrolling forward = scrolling down = positive value).
+#[expect(clippy::cast_precision_loss)]
 #[must_use]
 pub fn raw_wheel_delta_to_logical_pixels(raw_delta: f32) -> f32 {
     use windows::Win32::UI::WindowsAndMessaging::{

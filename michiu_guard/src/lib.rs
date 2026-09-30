@@ -7,7 +7,7 @@
 //! As the name suggests, `michiu_guard` is built specifically to protect the core
 //! of the `michiu` GUI framework from untrusted external inputs.
 //!
-//! ## Design Philosophy: The OS Input Firewall
+//! ## Design Philosophy:
 //!
 //! GUI applications continuously receive a stream of untrusted, asynchronous data from the OS
 //! (e.g., keyboard events, mouse coordinates, clipboard texts, and drag-and-dropped file paths).

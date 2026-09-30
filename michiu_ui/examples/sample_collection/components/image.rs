@@ -1,7 +1,10 @@
 use crate::app::theme::Theme;
 use image::{DynamicImage, ImageBuffer};
 pub use michiu_ui::prelude::*;
-use michiu_ui::{ExternalTexture, ExternalTextureAlphaMode, ExternalTextureMetadata, UserSelect};
+use michiu_ui::{
+    ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
+    ExternalTextureMetadata, UserSelect,
+};
 use std::{path::Path, sync::OnceLock};
 use tiff_reader::TiffFile;
 
@@ -133,6 +136,7 @@ impl ImageExternalTexture {
             alpha_mode: ExternalTextureAlphaMode::Straight,
             y_flip: false,
             is_srgb: true,
+            compositing_mode: ExternalTextureCompositingMode::LinearLight,
         };
 
         Ok(Self {
@@ -166,6 +170,7 @@ impl ImageExternalTexture {
             alpha_mode: ExternalTextureAlphaMode::Straight,
             y_flip: false,
             is_srgb: true,
+            compositing_mode: ExternalTextureCompositingMode::LinearLight,
         };
 
         Ok(Self {

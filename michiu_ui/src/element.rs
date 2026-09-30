@@ -3,12 +3,13 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
-    MichiuError, MichiuSoA, MichiuTrace, ReadSignal, ScrollBarState, ScrollbarDisplay,
-    ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, UiaValue, Val, WebView2Contents,
-    create_effect, div_n, trace_error,
+    ExternalVisual, IntoOptionProp, MichiuError, MichiuSoA, MichiuTrace, ReadSignal,
+    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, Val,
+    a11y::A11yInferenceTag, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{ContextState, trace_lifecycle};
+use accesskit::{Node, Role};
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -25,7 +26,7 @@ thread_local! {
 /// use michiu_ui::{build_ui, div, div_n, ts, Color, Context};
 ///
 /// let mut cx = Context::new();
-/// let root = build_ui(cx, || {
+/// let root = build_ui(&mut cx, || {
 ///     div(ts().bg_color(Color::GREEN))
 ///         .child(div_n()) // empty container
 /// });
@@ -67,7 +68,7 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
 ///
 /// Context が無く、トレースが送信出来ないためパニックで落とす。
 #[track_caller]
-#[allow(clippy::panic)]
+#[expect(clippy::panic)]
 #[inline]
 pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
     let ptr = ACTIVE_CONTEXT.get().unwrap_or_else(|| {
@@ -213,16 +214,29 @@ impl Element {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```no_run
+    /// use michiu_ui::div_n;
+    ///
     /// struct Tag;
     ///
-    /// div_n().tag::<Tag>()
+    /// let _tag = div_n().tag::<Tag>();
     ///
     /// ```
     #[inline]
     #[must_use]
     pub fn tag<T: 'static>(self) -> Self {
         with_context(|cx| cx.tag::<T>(self));
+        self
+    }
+
+    /// Configure the user-defined `A11yInferenceTag` used when building the accessibility tree.
+    ///
+    /// `A11yInferenceTag` overrides only the default inferences.
+    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    #[inline]
+    #[must_use]
+    pub fn tag_a11y<T: A11yInferenceTag + 'static>(self) -> Self {
+        with_context(|cx| cx.tag_a11y::<T>(self));
         self
     }
 
@@ -527,7 +541,7 @@ impl Element {
     ///
     /// # Panics
     /// Not supported dynamic nested elements inside `children_d`.
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[must_use]
     pub fn children_d<P, F, I, E>(self, f: F) -> Self
@@ -630,7 +644,7 @@ impl Element {
     }
 
     /// This will replace the contents of this container. All previous contents will be discarded.
-    #[allow(clippy::return_self_not_must_use)]
+    #[expect(clippy::return_self_not_must_use)]
     pub fn set_contents(self, contents: impl Into<Prop<Element>>) -> Self {
         match contents.into() {
             Prop::None => {}
@@ -669,6 +683,7 @@ impl Element {
     }
 
     /// 既存のクロージャをクリアせずに、子要素の差し替え（マウント）のみを実行する
+    #[track_caller]
     fn set_contents_internal(self, cx: &mut Context, new_child: Element) {
         let id = self.id;
 
@@ -791,113 +806,101 @@ impl Element {
         self
     }
 
-    /// Place the webview2 component.
     #[inline]
     #[must_use]
-    pub fn webview2(self, contents: impl Into<Prop<WebView2Contents>>) -> Self {
-        self.bind_prop(contents, EffectCategory::Movie, |cx, id, src| {
-            cx.contents.cont_webview_contents.insert(id, src);
-            cx.topology.topo_webview_entities.push(id);
+    pub fn external_visual(self, visual: impl ExternalVisual + 'static) -> Self {
+        let visual_arc = Arc::new(visual);
+        let id = self.id;
+
+        let metadata = visual_arc.metadata();
+
+        with_context(|cx| {
+            cx.contents.cont_external_visual.insert(id, visual_arc);
             cx.topology
                 .topo_active_masks
                 .at_mut(id)
-                .set(ComponentMask::COMP_WEBVIEW_CONTENT);
+                .set(ComponentMask::COMP_EXTERNAL_VISUAL_CONTENT);
+
+            if metadata.size.width > 0.0 || metadata.size.height > 0.0 {
+                if !cx.layouts.lay_base_basic.contains_key(id) {
+                    cx.layouts.lay_base_basic.insert(id, BasicLayout::default());
+                }
+                let basic = cx.layouts.lay_base_basic.at_mut(id);
+                basic.size.width = Val::Px(metadata.size.width);
+                basic.size.height = Val::Px(metadata.size.height);
+            }
+
             cx.mark_dirty(id);
-        })
-    }
-
-    /// Dynamically resolves and attaches webview2 settings from provider `P`.
-    #[must_use]
-    #[inline]
-    pub fn webview2_d<P, F>(self, f: F) -> Self
-    where
-        P: Clone + 'static,
-        F: Fn(&P) -> WebView2Contents + Send + Sync + 'static,
-    {
-        let dynamic_prop = Prop::Dynamic(Box::new(move || {
-            let signal = with_context(|cx| cx.use_provided::<P>());
-            let val = signal.get();
-            f(&val)
-        }));
-        self.webview2(dynamic_prop)
-    }
-
-    /// Not implemented
-    #[must_use]
-    #[inline]
-    pub fn uia_property(self, property_id: i32, value: impl Into<UiaValue>) -> Self {
-        with_context(|cx| self.uia_property_internal(cx, property_id, value.into()));
+        });
         self
     }
 
-    /// Not implemented
+    /// Sets accessibility roles and labels.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
     #[must_use]
-    pub fn uia_name(self, name: impl Into<Prop<Cow<'static, str>>>) -> Self {
-        match name.into() {
-            Prop::None => self,
-            Prop::Static(s) => self.uia_property(30005, UiaValue::String(s.into())),
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let s = f();
-                    let el = Element { id };
-                    el.uia_property_internal(cx, 30005, UiaValue::String(s.into()));
-                });
-                with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::UiaName, effect_id);
-                });
-                self
-            }
-        }
+    pub fn a11y<M>(self, node: impl IntoOptionProp<Node, M>) -> Self {
+        let prop = node.into_option_prop();
+        self.bind_prop(prop, EffectCategory::Accessibility, move |cx, id, val| {
+            cx.acce.acce_accessibility.insert(id, val);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_A11Y);
+            cx.mark_layout_dirty(id);
+        })
     }
 
-    fn uia_property_internal(self, cx: &mut Context, property_id: i32, value: UiaValue) {
-        if !cx.system.sys_uia_properties.contains_key(self.id) {
-            cx.system.sys_uia_properties.insert(self.id, Vec::new());
-        }
-        let list = cx.system.sys_uia_properties.at_mut(self.id);
-        if let Some(pos) = list.iter().position(|(k, _)| *k == property_id) {
-            list[pos].1 = value;
-        } else {
-            list.push((property_id, value));
-        }
-        cx.topology
-            .topo_active_masks
-            .at_mut(self.id)
-            .set(ComponentMask::COMP_UIA_CONTENT);
+    /// Sets accessibility roles and labels.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    #[must_use]
+    pub fn a11y_with<M, F>(self, node: impl IntoOptionProp<Node, M>, f: F) -> Self
+    where
+        F: Fn(&mut Node) + 'static,
+    {
+        let prop = match node.into_option_prop() {
+            Prop::None => Prop::None,
+            // node 自体は静的だが、クロージャ f 内部で Signal を読む可能性がある場合
+            Prop::Static(base) => Prop::Dynamic(Box::new(move || {
+                let mut n = base.clone();
+                if let Some(ref mut node) = n {
+                    f(node);
+                }
+                n
+            })),
+            // node 自体も動的で、さらにクロージャ f 内でも Signal を読む場合
+            Prop::Dynamic(dyn_fn) => Prop::Dynamic(Box::new(move || {
+                let mut n = dyn_fn();
+                if let Some(ref mut node) = n {
+                    f(node);
+                }
+                n
+            })),
+        };
+
+        self.a11y(prop)
     }
 
-    /// Not implemented
-    #[inline]
+    /// Sets accessibility roles.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
     #[must_use]
-    pub fn uia_automation_id(self, id: impl Into<Prop<Cow<'static, str>>>) -> Self {
-        match id.into() {
-            Prop::None => self,
-            Prop::Static(s) => self.uia_property(30011, UiaValue::String(s.into())),
-            Prop::Dynamic(f) => {
-                let id = self.id;
-                let effect_id = create_effect(move |cx| {
-                    let s = f();
-                    let el = Element { id };
-                    el.uia_property_internal(cx, 30011, UiaValue::String(s.into()));
-                });
-                with_context(|cx| {
-                    cx.register_element_effect(id, EffectCategory::UiaAutomationId, effect_id);
-                });
-                self
-            }
-        }
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn uia_control_type(self, control_type_id: i32) -> Self {
-        self.uia_property(30003, control_type_id)
+    pub fn a11y_role<M>(self, role: impl IntoOptionProp<Role, M>) -> Self {
+        let prop = role.into_option_prop();
+        self.bind_prop(prop, EffectCategory::Accessibility, move |cx, id, val| {
+            cx.acce.acce_accessibility.insert(id, val.map(Node::new));
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_A11Y);
+            cx.mark_layout_dirty(id);
+        })
     }
 
     /// スクロールコンテナのスタイル設定に連動し、
     /// トラック・サムに相当する要素を遅延生成して親子関係にアタッチする。
+    #[track_caller]
     #[inline]
     pub(crate) fn ensure_scrollbar_elements(
         cx: &mut Context,

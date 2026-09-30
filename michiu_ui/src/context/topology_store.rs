@@ -1,11 +1,12 @@
 use crate::{
-    ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig, ClipRectsSecondary,
-    ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, EntityId, EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX,
-    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuSoA, MichiuTagRegistry, OptionTraceExt,
-    OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore, StateStore,
-    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId,
-    VisualPropertiesSecondary, WindowStore, define_secondary, define_smallvec, define_vec,
+    AccessibilityStore, ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig,
+    ClipRectsSecondary, ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
+    DirtyRenderEntitiesVec, Element, EntityId, EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX,
+    LayoutPoint, LayoutRect, LayoutSize, LayoutStore, MichiuError, MichiuSoA, MichiuTagRegistry,
+    OptionTraceExt, OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore,
+    StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId,
+    VisualPropertiesSecondary, WindowStore, a11y::A11yInferenceTag, define_secondary,
+    define_smallvec, define_vec,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{MichiuTrace, trace_lifecycle};
@@ -203,6 +204,7 @@ impl TopologyStore {
     }
 
     /// 親子関係の追加
+    #[track_caller]
     #[inline]
     pub(crate) fn add_child(
         parent: EntityId,
@@ -289,6 +291,7 @@ impl TopologyStore {
     }
 
     /// 親要素の特定の古い子要素を新しい子要素へ直接差し替える
+    #[track_caller]
     #[inline]
     pub(crate) fn replace_child(
         parent: EntityId,
@@ -305,6 +308,7 @@ impl TopologyStore {
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
         debug: &mut DebugStore,
+        acce: &mut AccessibilityStore,
     ) {
         // Taffy ツリー側の同期（古いノードを外し、新しいノードをアタッチ）
         let parent_node = *layouts.lay_taffy_nodes.at(parent);
@@ -327,7 +331,7 @@ impl TopologyStore {
         // 古い子要素（およびその子孫）を完全に安全デスポーン
         TopologyStore::despawn_internal(
             old_child, window, system, reactive, events, contents, topology, states, layouts,
-            renders, outputs, debug,
+            renders, outputs, debug, acce,
         );
 
         LayoutStore::mark_layout_dirty(
@@ -342,6 +346,7 @@ impl TopologyStore {
     }
 
     /// 要素を安全に破棄（Despawn）。親が消えた場合子はフレーム末尾のクリーンアップフェーズで一掃
+    #[track_caller]
     #[inline]
     pub(crate) fn despawn_internal(
         id: EntityId,
@@ -356,6 +361,7 @@ impl TopologyStore {
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
         debug: &mut DebugStore,
+        acce: &mut AccessibilityStore,
     ) {
         if !topology.topo_entities.contains_key(id) {
             return;
@@ -401,7 +407,7 @@ impl TopologyStore {
             for child_id in children_list {
                 TopologyStore::despawn_internal(
                     child_id, window, system, reactive, events, contents, topology, states,
-                    layouts, renders, outputs, debug,
+                    layouts, renders, outputs, debug, acce,
                 );
             }
         }
@@ -417,9 +423,11 @@ impl TopologyStore {
         reactive.despawn(id);
         window.despawn(id);
         system.despawn(id);
+        acce.despawn(id);
     }
 
     /// セッションのクリーンアップを実行
+    #[track_caller]
     #[inline]
     pub(crate) fn end_session(
         start_marker: usize,
@@ -434,6 +442,7 @@ impl TopologyStore {
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
         debug: &mut DebugStore,
+        acce: &mut AccessibilityStore,
     ) {
         // start_marker 以降に生成された要素をスキャン
         let spawned_in_session: Vec<EntityId> = topology
@@ -450,7 +459,7 @@ impl TopologyStore {
             if has_no_parent && is_not_root {
                 TopologyStore::despawn_internal(
                     id, window, system, reactive, events, contents, topology, states, layouts,
-                    renders, outputs, debug,
+                    renders, outputs, debug, acce,
                 );
             }
         }
@@ -459,6 +468,7 @@ impl TopologyStore {
     }
 
     /// 親トポロジーから子要素をデタッチする
+    #[track_caller]
     #[inline]
     pub(crate) fn detach_from_parent(
         child: EntityId,
@@ -519,6 +529,7 @@ impl TopologyStore {
 
     /// DFS配列の高速再構築
     #[allow(unused)]
+    #[track_caller]
     #[inline]
     pub(crate) fn rebuild_dfs_sequence(
         root: EntityId,
@@ -551,6 +562,7 @@ impl TopologyStore {
     }
 
     /// 子孫要素のインタラクション状態を走査
+    #[track_caller]
     #[inline]
     #[must_use]
     pub(crate) fn has_descendant_with_state(
@@ -599,6 +611,7 @@ impl TopologyStore {
     }
 
     /// 直近の親要素（1世代上）が特定のインタラクション状態を持っているか検証
+    #[track_caller]
     #[inline]
     pub(crate) fn has_parent_with_state(
         id: EntityId,
@@ -619,6 +632,7 @@ impl TopologyStore {
 
     /// ドロップ先コンテナのフレックス方向に基づいて、
     /// マウスのドロップ座標がどの子要素の手前（インデックス）に位置するかを逆引き算出。
+    #[track_caller]
     #[inline]
     pub(crate) fn calculate_insert_index(
         parent: EntityId,
@@ -650,6 +664,7 @@ impl TopologyStore {
     }
 
     /// 指定された要素（target）が、ある親要素（parent）自身、またはその子孫であるかを判定します。
+    #[track_caller]
     #[inline]
     pub(crate) fn is_descendant_of(
         target: EntityId,
@@ -670,6 +685,7 @@ impl TopologyStore {
     }
 
     /// 実効 `z_index` の計算と、それに基づく要素のソート
+    #[track_caller]
     #[inline]
     pub(crate) fn prepare_sorted_entities(
         win_last_size: Option<LayoutSize>,
@@ -739,7 +755,7 @@ impl TopologyStore {
             };
 
             // クリップ矩形のインライン累積
-            let rect = *out_rects.at(id);
+            let rect = out_rects.find_or_default(id, debug);
             let eff_clip = *out_clip_rects.find_or(id, &default_clip, debug);
 
             // トランスフォームの適用されているブランチか伝播判定
@@ -787,7 +803,7 @@ impl TopologyStore {
                 topo_active_masks
                     .at_mut(id)
                     .set(ComponentMask::STATE_RENDER_VISIBLE);
-                topo_sort_cache.push((id, eff_z, index as u32));
+                topo_sort_cache.push((id, eff_z, u32::try_from(index).unwrap_or(u32::MAX)));
             } else {
                 topo_active_masks
                     .at_mut(id)
@@ -816,6 +832,7 @@ impl TopologyStore {
         });
     }
 
+    #[track_caller]
     #[inline]
     pub(crate) fn restore_child(
         src_id: EntityId,
@@ -872,6 +889,7 @@ impl TopologyStore {
 
     /// マウス座標などが、要素の描画領域かつ表示枠内に収まっているかを判定。
     /// 階層的な早期枝刈りヒットテスト
+    #[track_caller]
     #[inline]
     pub(crate) fn hit_test(
         point: LayoutPoint,
@@ -915,12 +933,12 @@ impl TopologyStore {
             }
 
             // 物理範囲に含まれているか
-            if !out_rects.at(id).contains(point) {
+            if !out_rects.find_or_default(id, debug).contains(point) {
                 continue;
             }
 
             // 親などの overflow 等でクリップされている表示範囲外ならスキップ
-            if !out_clip_rects.at(id).contains(point) {
+            if !out_clip_rects.find_or_default(id, debug).contains(point) {
                 continue;
             }
 
@@ -950,6 +968,98 @@ impl TopologyStore {
         });
 
         None
+    }
+
+    #[inline]
+    pub(crate) fn tag<T: 'static>(el: Element, topo_tag_registry: &mut MichiuTagRegistry) {
+        topo_tag_registry.register_entity::<T>(el.id);
+    }
+
+    #[inline]
+    pub(crate) fn tag_a11y<T: A11yInferenceTag + 'static>(
+        el: Element,
+        topo_tag_registry: &mut MichiuTagRegistry,
+    ) {
+        topo_tag_registry.register_entity::<T>(el.id);
+        topo_tag_registry.register_a11y_inference::<T>();
+    }
+
+    #[inline]
+    pub(crate) fn try_query_first<T: 'static>(
+        topo_tag_registry: &MichiuTagRegistry,
+    ) -> Option<Element> {
+        topo_tag_registry
+            .get_entities::<T>()
+            .and_then(|t| t.first().copied())
+            .map(EntityId::into_el)
+    }
+
+    #[track_caller]
+    #[inline]
+    pub(crate) fn quer_first<T: 'static>(
+        topo_tag_registry: &mut MichiuTagRegistry,
+        debug: &mut DebugStore,
+    ) -> Element {
+        topo_tag_registry
+            .get_entities::<T>()
+            .and_then(|t| t.first().copied())
+            .map(EntityId::into_el)
+            .unwrap_or_trace(None, debug, || MichiuError::TagNotFound {
+                type_name: std::any::type_name::<T>(),
+            })
+    }
+
+    #[inline]
+    pub(crate) fn query_all<T: 'static>(
+        topo_tag_registry: &MichiuTagRegistry,
+    ) -> impl Iterator<Item = Element> + '_ {
+        topo_tag_registry
+            .get_entities::<T>()
+            .map(|t| t.iter().copied())
+            .into_iter()
+            .flatten()
+            .map(EntityId::into_el)
+    }
+
+    #[inline]
+    pub(crate) fn try_query_descendant<T: 'static>(
+        parent: EntityId,
+        topo_tag_registry: &MichiuTagRegistry,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+    ) -> Option<Element> {
+        topo_tag_registry
+            .query_first_descendant_of_type::<T>(parent, topo_parents, topo_flat_dfs_sequence)
+            .map(EntityId::into_el)
+    }
+
+    #[track_caller]
+    #[inline]
+    pub(crate) fn query_descendant<T: 'static>(
+        parent: EntityId,
+        topo_tag_registry: &MichiuTagRegistry,
+        topo_parents: &ParentsSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        debug: &mut DebugStore,
+    ) -> Element {
+        topo_tag_registry
+            .query_first_descendant_of_type::<T>(parent, topo_parents, topo_flat_dfs_sequence)
+            .map(EntityId::into_el)
+            .unwrap_or_trace(None, debug, || MichiuError::TagNotFound {
+                type_name: std::any::type_name::<T>(),
+            })
+    }
+
+    #[inline]
+    pub(crate) fn query_descendants<'a, T: 'static>(
+        parent: EntityId,
+        topo_tag_registry: &'a MichiuTagRegistry,
+        topo_parents: &'a ParentsSecondary,
+        topo_flat_dfs_sequence: &'a FlatDfsSequenceVec,
+    ) -> impl Iterator<Item = Element> + 'a {
+        topo_tag_registry
+            .query_descendants_of_type::<T>(parent, topo_parents, topo_flat_dfs_sequence)
+            .map(EntityId::into_el)
     }
 
     #[inline]
@@ -1097,6 +1207,7 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
+            &mut self.acce,
         );
     }
 
@@ -1129,6 +1240,7 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
+            &mut self.acce,
         );
     }
 
@@ -1148,6 +1260,7 @@ impl Context {
             &mut self.renders,
             &mut self.outputs,
             &mut self.debug,
+            &mut self.acce,
         );
     }
 

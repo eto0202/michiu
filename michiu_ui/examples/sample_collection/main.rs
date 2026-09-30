@@ -6,7 +6,9 @@ use crate::{
         client_rect, create_renderer, create_window, message_loop, register_class, show_window,
     },
 };
-use michiu_ui::{CapacityConfig, Dss, DssSet, prelude::*};
+use michiu_ui::{
+    CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual, prelude::*,
+};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
@@ -31,8 +33,12 @@ struct AppState {
     renderer: ComposedRenderer,
     context: Context,
     root_id: EntityId,
-    webview_id: Option<EntityId>,
 }
+
+#[derive(Clone)]
+pub struct GitHubVisual(WebView2Visual);
+#[derive(Clone)]
+pub struct YouTubeVisual(WebView2Visual);
 
 // HWND を Send/Sync 化するラッパー
 struct SendHwnd(HWND);
@@ -45,7 +51,7 @@ impl SendHwnd {
     }
 }
 
-pub const ALLOW_LOG: bool = true;
+pub const ALLOW_LOG: bool = false;
 // これ起動めちゃ遅くなるので注意
 pub const ALLOW_STRESS_TEST: bool = false;
 
@@ -67,41 +73,66 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (h_instance, class_name, _wnd_class) = register_class()?;
     let hwnd = create_window(h_instance, class_name)?;
 
+    let dpi = unsafe { GetDpiForWindow(hwnd) };
+    let scale_factor = dpi as f32 / 96.0;
+    let renderer = create_renderer(hwnd, scale_factor)?;
+
     let inspector = MichiuInspector::new();
     let _sub = inspector.subscribe(None);
 
-    // キャパシティは、ログやスナップショットから各配列のピーク時の長さを調べれば最適化出来る。めんどくさいけど。
     let mut context =
-        Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector);
+        Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector)
+            .with_accessibility(hwnd);
 
     // デバッグログ用のスレッド
     #[cfg(feature = "trace-error")]
     logger(_sub);
 
-    let send_hwnd = SendHwnd(hwnd);
+    let device = renderer.composition_device()?;
+    let task_sender = context.task_sender();
 
+    let github = WebView2Contents::from_url(
+        "https://github.com/eto0202/michiu/tree/feat/ver0.02/michiu_ui/examples/sample_collection",
+    )
+    .enable_context_menu(true)
+    .enable_dev_tools(true)
+    .allow_interaction(true)
+    .always_active(false);
+
+    let youtube = WebView2Contents::from_url("https://www.youtube.com/")
+        .allow_interaction(true)
+        .always_active(true);
+
+    let github_visual = WebView2Visual::new(&device, hwnd, github, scale_factor, &task_sender)
+        .expect("Failed to create WebView2Visual");
+
+    let youtube_visual = WebView2Visual::new(&device, hwnd, youtube, scale_factor, &task_sender)
+        .expect("Failed to create WebView2Visual");
+
+    let send_hwnd = SendHwnd(hwnd);
     context.set_waker(move || send_hwnd.wake());
 
     let css_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/examples/sample_collection/global.css"
     );
+    let (styles_sig, _guard) = ExternalDataSetBuilder::new()
+        .add("global", css_path, CssLoader)
+        .watch(&mut context)?;
 
-    let (styles_sig, _guard) = DssSet::builder()
-        .add_sheet(Dss::new("global").from_file(css_path).hot_reload(true))
-        .build_and_watch(&mut context);
-
-    let root = build_ui(&mut context, move || app::create_root(styles_sig));
-
-    let dpi = unsafe { GetDpiForWindow(hwnd) };
-    let scale_factor = dpi as f32 / 96.0;
-    let renderer = create_renderer(hwnd, scale_factor)?;
+    let root = build_ui(&mut context, move || {
+        let (read_github, _) = create_signal(GitHubVisual(github_visual));
+        let (read_youtube, _) = create_signal(YouTubeVisual(youtube_visual));
+        app::create_root()
+            .provide(styles_sig)
+            .provide(read_github)
+            .provide(read_youtube)
+    });
 
     let app_state = Box::new(AppState {
         renderer,
         context,
         root_id: root.id(),
-        webview_id: None,
     });
 
     unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(app_state) as isize) };
@@ -111,10 +142,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (width, height) = client_rect(hwnd);
     app.renderer.resize((width, height), scale_factor);
-
-    if app.webview_id.is_some() {
-        app.renderer.prewarm_webview2();
-    }
+    WebView2Visual::prewarm_webview2();
 
     let _ = show_window(hwnd);
 

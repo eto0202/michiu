@@ -4,11 +4,17 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "The michiu library handles layout and rendering."
 readme = "README.md"
 
+[lints]
+workspace = true
+
 [dependencies]
-accesskit_windows = "0.33.1"
+accesskit = "=0.25.1"
+accesskit_windows = "0.35.1"
 bytemuck = { version = "1.25.0", features = ["derive"] }
 serde = { workspace = true, optional = true }
 slotmap = "1.1.1"
@@ -18,7 +24,7 @@ wgpu = {version= "29.0.3", default-features = false, features = ["dx12", "wgsl"]
 raw-window-handle = "0.6.2"
 webview2-com = "0.39.1"
 windows-result = "0.4.1"
-pollster = "0.4.0"
+pollster = "1.0.1"
 windows-numerics = "0.3.1"
 dhat = { version = "0.3.3", optional = true }
 strum = {version = "0.28.0", features = ["derive"] }
@@ -67,7 +73,7 @@ features = [
 [features]
 serde = ["dep:serde"]
 dhat-heap = ["dep:dhat"]
-default = ["trace-error"]
+default = ["trace-error", "webview2", "css"]
 # エラーのみ。優しい。
 trace-error = []
 # ライフサイクルなど。マクロな追跡。普通。
@@ -77,21 +83,11 @@ trace-entity = ["trace-lifecycle"]
 # Context などのフレーム最後のスナップショット。まあまあ危険。
 snapshot = ["trace-error"]
 
+webview2 = []
+css = []
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 default-target = "x86_64-pc-windows-msvc"
 targets = ["x86_64-pc-windows-msvc"]
-
-[lints.clippy]
-pedantic = { level = "warn", priority = -1 }
-unwrap_used = "warn"
-expect_used = "warn"
-panic = "warn"
-todo = "warn"
-unimplemented = "warn"
-unreachable = "warn"
-dbg_macro = "warn"
-print_stdout = "warn"
-print_stderr = "warn"
-similar_names = "allow"

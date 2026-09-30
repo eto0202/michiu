@@ -1,5 +1,7 @@
 use crate::{
-    ActiveMasksSecondary, BasicLayoutsSecondary, ComponentMask, Context, Display, EntitiesSlot, EntityId, MichiuSoA, ParentsSecondary, Pipeline, SystemStore, TextEditStore, VisualPropertiesSecondary, handle_on_blur, handle_on_focus,
+    ActiveMasksSecondary, BasicLayoutsSecondary, ComponentMask, Context, Display, EntitiesSlot,
+    EntityId, MichiuSoA, ParentsSecondary, Pipeline, SystemStore, TextEditStore,
+    VisualPropertiesSecondary, handle_on_blur, handle_on_focus,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
@@ -31,6 +33,7 @@ pub(crate) struct FocusStore {}
 impl FocusStore {
     /// 指定要素またはその親階層において、フォーカスの略奪を防止すべきか判定
     #[inline]
+    #[track_caller]
     pub(crate) fn should_prevent_focus_steal(cx: &Context, target_id: EntityId) -> bool {
         let mut curr = Some(target_id);
         while let Some(curr_id) = curr {
@@ -71,7 +74,7 @@ impl FocusStore {
     ) -> bool {
         let focusable = rnd_visual.find(id).and_then(|v| v.focusable).or_else(|| {
             let mask = topo_active_masks.at(id);
-            if mask.has_input_content() || mask.has_webveiw2_content() {
+            if mask.has_input_content() || mask.has_external_visual_content() {
                 Some(Focusable::Inherit(FocusTrigger::Both)) // 未指定時はキーボードフォーカス
             } else {
                 None
@@ -99,6 +102,7 @@ impl FocusStore {
         Pipeline::update_state(cx, id, ComponentMask::STATE_FOCUSED_VISIBLE, show_visible);
     }
 
+    #[track_caller]
     pub(crate) fn auto_focus_switch_by_trigger(
         cx: &mut Context,
         id: EntityId,
@@ -178,6 +182,7 @@ impl FocusStore {
     }
 
     /// 対象の要素がキーボードフォーカス可能であるかを検証
+    #[track_caller]
     pub(crate) fn is_keyboard_focusable(
         id: EntityId,
         topo_entities: &EntitiesSlot,
@@ -204,7 +209,7 @@ impl FocusStore {
             }
             Some(Focusable::None) => false,
             // 設定がない場合の暗黙的なフォールバック（Input / Webview はデフォルトでフォーカス対象とする）
-            None => mask.has_input_content() || mask.has_webveiw2_content(),
+            None => mask.has_input_content() || mask.has_external_visual_content(),
         };
 
         if !is_target {

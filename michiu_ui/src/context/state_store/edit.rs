@@ -278,6 +278,7 @@ impl TextEditStore {
     }
 
     /// 現在フォーカスされている要素で範囲選択されている文字列を取得します。
+    #[track_caller]
     pub(crate) fn get_selected_text(
         evt_interaction_states: &ActiveInteractionStates,
         cont_text_contents: &TextContentsSparse,
@@ -307,6 +308,7 @@ impl TextEditStore {
         None
     }
 
+    #[track_caller]
     pub(crate) fn handle_user_select_text(
         id: EntityId,
         pointer_pos: LayoutPoint,
@@ -408,6 +410,7 @@ impl TextEditStore {
         RenderStore::mark_render_dirty(id, topo_active_masks, rnd_dirty_entities);
     }
 
+    #[track_caller]
     pub(crate) fn handle_text_selection_click(
         id: EntityId,
         start_pos: ByteIndex,
@@ -513,6 +516,7 @@ impl TextEditStore {
     }
 
     /// 指定されたテキスト要素の内容をすべて選択状態に
+    #[track_caller]
     pub(crate) fn handle_select_all(
         id: EntityId,
         win_scale_factor: f32,
@@ -631,6 +635,7 @@ impl TextEditStore {
         }
     }
 
+    #[track_caller]
     pub(crate) fn apply_input_update(
         id: EntityId,
         op: InputOp,

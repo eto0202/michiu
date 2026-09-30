@@ -20,6 +20,7 @@ impl Modifiers {
     pub const LOGO: Self = Self(1 << 3);
 
     /// Creates an empty modifier state.
+    #[must_use]
     #[inline]
     pub const fn empty() -> Self {
         Self(0)
@@ -45,6 +46,7 @@ impl Modifiers {
     /// assert!(mods.contains(Modifiers::CONTROL));
     /// assert!(!mods.contains(Modifiers::ALT));
     /// ```
+    #[must_use]
     #[inline]
     pub fn contains(&self, other: Self) -> bool {
         (self.0 & other.0) == other.0
@@ -102,12 +104,14 @@ pub struct PhysicalPoint {
 
 impl PhysicalPoint {
     /// Creates `PhysicalPoint` instance.
+    #[must_use]
     #[inline]
     pub fn new(x: i32, y: i32) -> Self {
         Self { x, y }
     }
 
     /// Converts this physical coordinate point to a logical point based on the specified DPI scaling factor.
+    #[must_use]
     #[inline]
     pub fn to_logical(&self, scale_factor: f64) -> LogicalPoint {
         LogicalPoint {
@@ -126,11 +130,13 @@ pub struct PhysicalSize {
 
 impl PhysicalSize {
     /// Creates `PhysicalSize` instance.
+    #[must_use]
     #[inline]
     pub fn new(width: i32, height: i32) -> Self {
         Self { width, height }
     }
     /// Converts this physical size to a logical size based on the specified DPI scaling factor.
+    #[must_use]
     #[inline]
     pub fn to_logical(&self, scale_factor: f64) -> LogicalSize {
         LogicalSize {
@@ -151,6 +157,7 @@ pub struct PhysicalRect {
 
 impl PhysicalRect {
     /// Creates `PhysicalRect` instance.
+    #[must_use]
     #[inline]
     pub fn new(left: i32, top: i32, right: i32, bottom: i32) -> Self {
         Self {
@@ -161,6 +168,7 @@ impl PhysicalRect {
         }
     }
     /// Converts this physical rect to a logical rect based on the specified DPI scaling factor.
+    #[must_use]
     #[inline]
     pub fn to_logical(&self, scale_factor: f64) -> LogicalRect {
         LogicalRect {
@@ -181,12 +189,14 @@ pub struct LogicalPoint {
 
 impl LogicalPoint {
     /// Creates `LogicalPoint` instance.
+    #[must_use]
     #[inline]
     pub fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
     /// Converts this logical coordinate point to a physical point based on the specified DPI scaling factor,
     /// applying standard round-to-nearest rounding.
+    #[must_use]
     #[inline]
     pub fn to_physical(&self, scale_factor: f64) -> PhysicalPoint {
         PhysicalPoint {
@@ -205,11 +215,13 @@ pub struct LogicalSize {
 
 impl LogicalSize {
     /// Creates `LogicalSize` instance.
+    #[must_use]
     #[inline]
     pub fn new(width: f64, height: f64) -> Self {
         Self { width, height }
     }
     /// Converts this logical size to a physical size, applying standard round-to-nearest rounding.
+    #[must_use]
     #[inline]
     pub fn to_physical(&self, scale_factor: f64) -> PhysicalSize {
         PhysicalSize {
@@ -230,6 +242,7 @@ pub struct LogicalRect {
 
 impl LogicalRect {
     /// Creates `LogicalRect` instance.
+    #[must_use]
     #[inline]
     pub fn new(left: f64, top: f64, right: f64, bottom: f64) -> Self {
         Self {
@@ -240,6 +253,7 @@ impl LogicalRect {
         }
     }
     /// Converts this logical rect to a physical rect, applying standard round-to-nearest rounding.
+    #[must_use]
     #[inline]
     pub fn to_physical(&self, scale_factor: f64) -> PhysicalRect {
         PhysicalRect {

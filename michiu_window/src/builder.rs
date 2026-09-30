@@ -20,6 +20,7 @@ use windows::Win32::{
 /// It ensures that all specified Win32 styles and custom configurations are mutually consistent
 /// during validation. Any conflicting styles (e.g., transparent window with OS borders enabled)
 /// are caught at compile-time or run-time before the window is physically allocated by the OS.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct WindowBuilder<'a> {
     pub(crate) title: Cow<'static, str>,
@@ -50,7 +51,7 @@ pub struct WindowBuilder<'a> {
     pub(crate) ime_expose_port: Option<u16>,
 }
 
-impl<'a> Default for WindowBuilder<'a> {
+impl Default for WindowBuilder<'_> {
     #[inline]
     fn default() -> Self {
         Self {
@@ -84,8 +85,9 @@ impl<'a> Default for WindowBuilder<'a> {
     }
 }
 
-impl<'a> WindowBuilder<'a> {
+impl WindowBuilder<'_> {
     /// Creates a default configured `WindowBuilder` instance.
+    #[must_use]
     #[inline]
     pub fn new() -> Self {
         Self::default()
@@ -94,6 +96,7 @@ impl<'a> WindowBuilder<'a> {
 
 impl<'a> WindowBuilder<'a> {
     /// Sets the window title.
+    #[must_use]
     #[inline]
     pub fn with_title(mut self, title: impl Into<Cow<'static, str>>) -> Self {
         self.title = title.into();
@@ -101,6 +104,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Assigns a custom [`Icon`] for the window.
+    #[must_use]
     #[inline]
     pub fn with_icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
@@ -108,6 +112,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets the initial client area size of the window (in logical pixels).
+    #[must_use]
     #[inline]
     pub fn with_inner_size(mut self, size: LogicalSize) -> Self {
         self.inner_size = Some(size);
@@ -115,6 +120,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Limits the minimum window client size (in logical pixels).
+    #[must_use]
     #[inline]
     pub fn with_min_size(mut self, size: LogicalSize) -> Self {
         self.min_inner_size = Some(size);
@@ -122,6 +128,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Limits the maximum window client size (in logical pixels).
+    #[must_use]
     #[inline]
     pub fn with_max_size(mut self, size: LogicalSize) -> Self {
         self.max_inner_size = Some(size);
@@ -129,6 +136,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets the initial screen position of the window (in logical pixels).
+    #[must_use]
     #[inline]
     pub fn with_position(mut self, position: LogicalPoint) -> Self {
         self.position = Some(position);
@@ -136,6 +144,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets whether the window should be visible upon creation. (Default: `true`)
+    #[must_use]
     #[inline]
     pub fn with_visible(mut self, is_visible: bool) -> Self {
         self.visible = is_visible;
@@ -143,6 +152,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets whether the window is resizable by the user. (Default: `true`)
+    #[must_use]
     #[inline]
     pub fn with_resizable(mut self, is_resizable: bool) -> Self {
         self.resizable = is_resizable;
@@ -150,6 +160,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets whether the window has standard OS decorations like a titlebar and borders. (Default: `true`)
+    #[must_use]
     #[inline]
     pub fn with_decorations(mut self, is_decorations: bool) -> Self {
         self.decorations = is_decorations;
@@ -159,6 +170,7 @@ impl<'a> WindowBuilder<'a> {
     /// Sets whether the window background is transparent.
     ///
     /// Requires decorations to be disabled `WindowBuilder::with_decorations(false)` to prevent artifacts.
+    #[must_use]
     #[inline]
     pub fn with_transparent(mut self, is_transparent: bool) -> Self {
         self.transparent = is_transparent;
@@ -166,6 +178,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets whether the window is maximized upon creation.
+    #[must_use]
     #[inline]
     pub fn with_maximized(mut self, is_maximized: bool) -> Self {
         self.maximized = is_maximized;
@@ -173,6 +186,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets whether the window permits mouse click hits. If set to `false`, clicks pass through.
+    #[must_use]
     #[inline]
     pub fn with_hittest(mut self, is_hittest: bool) -> Self {
         self.hittest = is_hittest;
@@ -180,6 +194,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets whether the window is constructed as a standard overlapped window. (Default: `true`)
+    #[must_use]
     #[inline]
     pub fn with_overlapped_window(mut self, is_enabled: bool) -> Self {
         self.overlapped_window = is_enabled;
@@ -187,15 +202,17 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets whether the window displays a button in the OS taskbar. (Default: `true`)
+    #[must_use]
     #[inline]
     pub fn with_taskbar_button(mut self, is_taskbar_button: bool) -> Self {
         self.taskbar_button = is_taskbar_button;
         self
     }
 
-    /// Configures the window to request no redirection bitmap (required for DirectComposition).
+    /// Configures the window to request no redirection bitmap (required for Direct Composition).
     ///
     /// Requires a valid [`ComContext`] and disabled decorations.
+    #[must_use]
     #[inline]
     pub fn with_no_redirection_bitmap(mut self, is_enabled: bool) -> Self {
         self.no_redirection_bitmap = is_enabled;
@@ -203,6 +220,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Binds a valid [`ComContext`] reference.
+    #[must_use]
     #[inline]
     pub fn with_com_context(mut self, com_context: &'a ComContext) -> Self {
         self.com_context = Some(com_context);
@@ -210,6 +228,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Associates an optional system tray ([`Tray`]) control.
+    #[must_use]
     #[inline]
     pub fn with_tray(mut self, tray: Tray) -> Self {
         self.tray = Some(tray);
@@ -220,6 +239,7 @@ impl<'a> WindowBuilder<'a> {
     ///
     /// This method automatically adjusts internal flags: `overlapped_window` and `taskbar_button`
     /// are set to `false`, and Win32 raw styles are adjusted to safely support parent-child bounds.
+    #[must_use]
     #[inline]
     pub fn with_child_of(mut self, parent_hwnd: HWND) -> Self {
         self.parent_hwnd = Some(parent_hwnd);
@@ -253,6 +273,7 @@ impl<'a> WindowBuilder<'a> {
     /// let builder = WindowBuilder::new()
     ///     .with_custom_class_name("MyCustomAppWindowClass");
     /// ```
+    #[must_use]
     #[inline]
     pub fn with_custom_class_name(mut self, class_name: impl Into<Cow<'static, str>>) -> Self {
         self.custom_class_name = Some(class_name.into());
@@ -260,6 +281,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Overwrites raw basic Win32 styles (`WINDOW_STYLE`).
+    #[must_use]
     #[inline]
     pub fn with_raw_style(mut self, style: WINDOW_STYLE) -> Self {
         self.raw_style = Some(style);
@@ -267,6 +289,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Overwrites raw extended Win32 styles (`WINDOW_EX_STYLE`).
+    #[must_use]
     #[inline]
     pub fn with_raw_ex_style(mut self, ex_style: WINDOW_EX_STYLE) -> Self {
         self.raw_ex_style = Some(ex_style);
@@ -298,6 +321,7 @@ impl<'a> WindowBuilder<'a> {
     ///         None // Continue standard message propagation for other messages
     ///     });
     /// ```
+    #[must_use]
     #[inline]
     pub fn with_message_filter<F>(mut self, filter: F) -> Self
     where
@@ -308,6 +332,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Sets whether the window scales its dimensions automatically based on monitor DPI shifts. (Default: `true`)
+    #[must_use]
     #[inline]
     pub fn with_auto_dpi_scaling(mut self, is_enabled: bool) -> Self {
         self.auto_dpi_scaling = is_enabled;
@@ -315,6 +340,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Applies Windows 11 native dark mode styling to the window frame and menus at startup.
+    #[must_use]
     #[inline]
     pub fn with_dark_mode(mut self, enabled: bool) -> Self {
         self.dark_mode = enabled;
@@ -324,6 +350,7 @@ impl<'a> WindowBuilder<'a> {
     /// Enables OLE file Drag & Drop support.
     ///
     /// Requires a valid, OLE-initialized (single-threaded) [`ComContext`].
+    #[must_use]
     #[inline]
     pub fn with_drag_and_drop(mut self, enabled: bool) -> Self {
         self.drag_and_drop = enabled;
@@ -331,6 +358,7 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Exposes active IME/TSF updates on the specified localhost TCP port.
+    #[must_use]
     #[inline]
     pub fn with_ime_expose_port(mut self, port: u16) -> Self {
         self.ime_expose_port = Some(port);
@@ -338,13 +366,14 @@ impl<'a> WindowBuilder<'a> {
     }
 
     /// Wraps the current builder state into an [`Unvalidated`] wrapper ready for validation.
+    #[must_use]
     #[inline]
     pub fn into_unvalidated(self) -> Unvalidated<Self> {
         Unvalidated::new(self)
     }
 }
 
-impl<'a> Validate for WindowBuilder<'a> {
+impl Validate for WindowBuilder<'_> {
     type Error = MichiuError;
 
     /// Validates all configuration parameters to ensure Win32 style consistency and subsystem compatibility.
@@ -380,6 +409,7 @@ impl<'a> Validate for WindowBuilder<'a> {
     /// # Ok(())
     /// # }
     /// ```
+    #[allow(clippy::too_many_lines)]
     #[inline]
     fn validate(self) -> Result<Self> {
         if self.no_redirection_bitmap && self.com_context.is_none() {

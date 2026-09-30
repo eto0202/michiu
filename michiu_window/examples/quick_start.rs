@@ -4,7 +4,7 @@ use michiu_window::{Event, EventPump, MichiuEvent, Window, WindowBuilder, init_d
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize High-DPI support (Per-Monitor v2)
-    init_dpi_awareness();
+    let _ = init_dpi_awareness();
 
     // 2. Configure, validate, and build a simple window
     let builder = WindowBuilder::new().with_title("Michiu Minimal Window");

@@ -1,13 +1,9 @@
 #![allow(unused)]
 mod composed_renderer;
-mod init_webview2;
-mod interop;
 mod text;
 mod wgpu_renderer;
 
 pub use composed_renderer::*;
-pub use init_webview2::*;
-pub use interop::*;
 pub use text::*;
 pub use wgpu_renderer::*;
 
@@ -15,7 +11,7 @@ use crate::{Color, CornerRadius, EdgeInsets, EntityId, LayoutRect};
 use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 
-#[allow(clippy::pub_underscore_fields)]
+#[expect(clippy::pub_underscore_fields)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct QuadInstance {
@@ -42,11 +38,11 @@ pub struct QuadInstance {
 
     pub border_lengths: EdgeInsets, // 16B
 
-    pub outline_width: EdgeInsets,          // 16B.
-    pub outline_color: Color,               // 16B
-    pub outline_lengths: EdgeInsets,        // 16B
-    pub outline_offset_and_flags: [f32; 4], // 16B (flags: [offset, flags, 0.0, 0.0])
-    pub alpha_mode_y_flip_srgb: [f32; 4],   // 16B ([alpha_mode, y_flip, srbg, 0.0])
+    pub outline_width: EdgeInsets,              // 16B.
+    pub outline_color: Color,                   // 16B
+    pub outline_lengths: EdgeInsets,            // 16B
+    pub outline_offset_and_flags: [f32; 4],     // 16B (flags: [offset, flags, 0.0, 0.0])
+    pub alpha_mode_y_flip_srgb_gamma: [f32; 4], // 16B ([alpha_mode, y_flip, srbg, gamma])
 }
 
 impl Default for QuadInstance {
@@ -72,7 +68,7 @@ impl Default for QuadInstance {
             outline_color: Color::TRANSPARENT,
             outline_lengths: EdgeInsets::ZERO,
             outline_offset_and_flags: [0.0; 4],
-            alpha_mode_y_flip_srgb: [0.0; 4],
+            alpha_mode_y_flip_srgb_gamma: [0.0; 4],
         }
     }
 }

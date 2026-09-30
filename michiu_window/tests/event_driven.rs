@@ -1,3 +1,7 @@
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+
 use michiu_window::{EventPump, LogicalSize, WindowBuilder, init_dpi_awareness};
 use std::{
     sync::mpsc,

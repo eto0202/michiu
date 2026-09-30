@@ -1,6 +1,6 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, InputContents, LayoutRect,
-    MichiuString, TextLayoutSize, TextSpan, VisualPropertiesSecondary, WebView2Contents,
+    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, ExternalVisual, InputContents,
+    LayoutRect, MichiuString, TextLayoutSize, TextSpan, VisualPropertiesSecondary,
     define_sparse_secondary, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
@@ -9,7 +9,6 @@ use std::sync::Arc;
 define_sparse_secondary!(pub struct TextContentsSparse(MichiuString));
 define_sparse_secondary!(pub struct TextSpansSparse(Vec<TextSpan>));
 define_sparse_secondary!(pub struct InputContentsSparse(InputContents));
-define_sparse_secondary!(pub struct WebviewContentsSparse(WebView2Contents));
 
 impl InputContentsSparse {
     /// テキストやインプットのサイズを cosmic-text を用いて計測し、Taffy 向けサイズを返す。\n\
@@ -144,12 +143,44 @@ impl std::fmt::Debug for ExternalTextureSparse {
     }
 }
 
+#[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+#[into_iterator(owned, ref, ref_mut)]
+pub struct ExternalVisualSparse(pub SparseSecondaryMap<EntityId, Arc<dyn ExternalVisual>>);
+
+impl MichiuSoA for ExternalVisualSparse {
+    type Item = Arc<dyn ExternalVisual>;
+    #[inline]
+    fn find(&self, id: EntityId) -> Option<&Self::Item> {
+        self.0.get(id)
+    }
+    #[inline]
+    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+        self.0.get_mut(id)
+    }
+}
+impl std::fmt::Debug for ExternalVisualSparse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut map = f.debug_map();
+        for (id, tex) in &self.0 {
+            map.entry(
+                &id,
+                &format_args!(
+                    "ExternalVisual {{ ptr: {:p}, meta: {:?} }}",
+                    Arc::as_ptr(tex),
+                    tex.metadata()
+                ),
+            );
+        }
+        map.finish()
+    }
+}
+
 pub struct ContentStore {
     pub(crate) cont_text_contents: TextContentsSparse,
     pub(crate) cont_text_spans: TextSpansSparse,
     pub(crate) cont_input_contents: InputContentsSparse,
     pub(crate) cont_external_textures: ExternalTextureSparse,
-    pub(crate) cont_webview_contents: WebviewContentsSparse,
+    pub(crate) cont_external_visual: ExternalVisualSparse,
     pub(crate) cont_cut_text: Option<MichiuString>,
 }
 
@@ -168,7 +199,7 @@ impl ContentStore {
             cont_text_spans: TextSpansSparse(SparseSecondaryMap::new()),
             cont_input_contents: InputContentsSparse(SparseSecondaryMap::new()),
             cont_external_textures: ExternalTextureSparse(SparseSecondaryMap::new()),
-            cont_webview_contents: WebviewContentsSparse(SparseSecondaryMap::new()),
+            cont_external_visual: ExternalVisualSparse(SparseSecondaryMap::new()),
             cont_cut_text: None,
         }
     }
@@ -187,8 +218,8 @@ impl ContentStore {
             cont_external_textures: ExternalTextureSparse(SparseSecondaryMap::with_capacity(
                 c.cont_external_textures,
             )),
-            cont_webview_contents: WebviewContentsSparse(SparseSecondaryMap::with_capacity(
-                c.cont_webview_contents,
+            cont_external_visual: ExternalVisualSparse(SparseSecondaryMap::with_capacity(
+                c.cont_external_visual,
             )),
             ..Default::default()
         }
@@ -200,7 +231,7 @@ impl ContentStore {
         self.cont_text_spans.clear();
         self.cont_input_contents.clear();
         self.cont_external_textures.clear();
-        self.cont_webview_contents.clear();
+        self.cont_external_visual.clear();
         self.cont_cut_text = None;
     }
 
@@ -210,7 +241,7 @@ impl ContentStore {
         self.cont_text_spans.remove(id);
         self.cont_input_contents.remove(id);
         self.cont_external_textures.remove(id);
-        self.cont_webview_contents.remove(id);
+        self.cont_external_visual.remove(id);
         self.cont_cut_text = None;
     }
 
@@ -240,8 +271,8 @@ impl ContentStore {
     }
 
     #[inline]
-    pub fn webview_contents_mut(&mut self) -> &mut WebviewContentsSparse {
-        &mut self.cont_webview_contents
+    pub fn webview_contents_mut(&mut self) -> &mut ExternalVisualSparse {
+        &mut self.cont_external_visual
     }
 }
 

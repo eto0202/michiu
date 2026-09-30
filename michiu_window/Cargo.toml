@@ -4,8 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "It handles window management for the michiu library."
 readme = "README.md"
+
+[lints]
+workspace = true
 
 [dependencies]
 michiu_guard = { workspace = true }
@@ -56,15 +61,4 @@ rustdoc-args = ["--cfg", "docsrs"]
 default-target = "x86_64-pc-windows-msvc"
 targets = ["x86_64-pc-windows-msvc"]
 
-[lints.clippy]
-pedantic = { level = "warn", priority = -1 }
-unwrap_used = "warn"
-expect_used = "warn"
-panic = "warn"
-todo = "warn"
-unimplemented = "warn"
-unreachable = "warn"
-dbg_macro = "warn"
-print_stdout = "warn"
-print_stderr = "warn"
-similar_names = "allow"
+
