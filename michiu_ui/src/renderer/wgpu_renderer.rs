@@ -80,6 +80,7 @@ impl WgpuRenderer {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+                apply_limit_buckets: false,
             })
             .await
             .map_err(|e| MichiuError::RequestAdapterError { source: e })?;
@@ -211,6 +212,7 @@ impl WgpuRenderer {
             alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
+            color_space: wgpu::SurfaceColorSpace::Auto,
         }
     }
 
@@ -287,7 +289,7 @@ impl WgpuRenderer {
             vertex: wgpu::VertexState {
                 module: shader,
                 entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[wgpu::VertexAttribute {
@@ -295,7 +297,7 @@ impl WgpuRenderer {
                         offset: 0,
                         shader_location: 0,
                     }],
-                }],
+                })],
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -329,7 +331,7 @@ impl WgpuRenderer {
             vertex: wgpu::VertexState {
                 module: shader,
                 entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[wgpu::VertexAttribute {
@@ -337,7 +339,7 @@ impl WgpuRenderer {
                         offset: 0,
                         shader_location: 0,
                     }],
-                }],
+                })],
                 compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -621,7 +623,7 @@ impl WgpuRenderer {
             }
         }
         self.queue.submit(Some(encoder.finish()));
-        surface_texture.present();
+        self.queue.present(surface_texture);
 
         #[cfg(feature = "trace-lifecycle")]
         trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Present { add: None });
