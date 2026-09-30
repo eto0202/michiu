@@ -91,13 +91,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device = renderer.composition_device()?;
     let task_sender = context.task_sender();
 
-    let github = WebView2Contents::from_url(
-        "https://github.com/eto0202/michiu/tree/feat/ver0.02/michiu_ui/examples/sample_collection",
-    )
-    .enable_context_menu(true)
-    .enable_dev_tools(true)
-    .allow_interaction(true)
-    .always_active(false);
+    let github = WebView2Contents::from_url("https://github.com/eto0202/michiu/tree/main")
+        .enable_context_menu(true)
+        .enable_dev_tools(true)
+        .allow_interaction(true)
+        .always_active(false);
 
     let youtube = WebView2Contents::from_url("https://www.youtube.com/")
         .allow_interaction(true)
