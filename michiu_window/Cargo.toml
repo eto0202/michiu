@@ -48,7 +48,7 @@ features = [
 serde = ["dep:serde"]
 
 [dev-dependencies]
-eframe = "0.34.3"
+eframe = "0.36.2"
 serde = { version = "1.0.228", features = ["derive"] }
 windows = { version = "0.62.2", features = [
     "Win32_Security",
@@ -60,5 +60,3 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 default-target = "x86_64-pc-windows-msvc"
 targets = ["x86_64-pc-windows-msvc"]
-
-
