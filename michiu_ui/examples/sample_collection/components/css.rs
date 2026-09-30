@@ -12,7 +12,7 @@ pub fn css_flex() -> Element {
     div_n().child(move || {
         let css = use_provided::<CssMapSet>().sheet("global");
         let flex_1 = css.class("flex-1");
-        let flex_2 = css.class( "flex-2");
+        let flex_2 = css.class("flex-2");
 
         div(flex_1).children([
             h_flex(&flex_2),

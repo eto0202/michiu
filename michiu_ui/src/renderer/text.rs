@@ -579,7 +579,7 @@ impl TextureAtlas {
     }
 
     /// ピクセル座標を NDC (0.0 ~ 1.0) の UV 座標に変換する
-    #[expect(clippy::cast_precision_loss)] 
+    #[expect(clippy::cast_precision_loss)]
     pub(crate) fn texel_to_uv(
         &self,
         x: u32,

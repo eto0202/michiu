@@ -216,7 +216,7 @@ impl Element {
     ///
     /// ```no_run
     /// use michiu_ui::div_n;
-    /// 
+    ///
     /// struct Tag;
     ///
     /// let _tag = div_n().tag::<Tag>();

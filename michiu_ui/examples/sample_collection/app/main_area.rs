@@ -2,8 +2,8 @@ use crate::{
     ALLOW_STRESS_TEST,
     app::{ComponentType, theme::Theme},
     components::{
-        accessibility, background, border, button, color, css, cursor, div, draggable, external_visual,
-        focusable, hover, image, input, outline, resizable, stress_test,
+        accessibility, background, border, button, color, css, cursor, div, draggable,
+        external_visual, focusable, hover, image, input, outline, resizable, stress_test,
     },
 };
 pub use michiu_ui::prelude::*;

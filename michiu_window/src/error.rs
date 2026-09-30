@@ -146,8 +146,6 @@ pub enum MichiuError {
     /// A generic fallback for other unexpected Windows OS errors.
     #[error("Unexpected OS error (HRESULT: {0:?})")]
     UnexpectedOsError(#[from] windows::core::Error),
-
-    
 }
 
 // windows::core::Error internally owns immutable HRESULT/message data.

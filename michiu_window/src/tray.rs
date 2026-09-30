@@ -58,7 +58,7 @@ unsafe impl Sync for TrayInner {}
 
 impl Drop for TrayInner {
     fn drop(&mut self) {
-         #[expect(clippy::cast_possible_truncation)]
+        #[expect(clippy::cast_possible_truncation)]
         let nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: self.dummy_hwnd,

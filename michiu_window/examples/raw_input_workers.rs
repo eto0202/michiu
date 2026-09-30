@@ -110,8 +110,7 @@ fn spawn_worker_thread(
 
             // High-precision 5-millisecond sleep using a Waitable Timer
             let due_time: i64 = -50_000;
-            let _ =
-                unsafe { SetWaitableTimer(h_timer, &raw const due_time, 0, None, None, false) };
+            let _ = unsafe { SetWaitableTimer(h_timer, &raw const due_time, 0, None, None, false) };
 
             // Suspend the thread until the timer enters the signal state (5 ms have elapsed)
             let _ = unsafe { WaitForSingleObject(h_timer, INFINITE) };

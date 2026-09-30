@@ -513,7 +513,7 @@ impl ThisStyle {
     ///
     /// ```rust
     /// use michiu_ui::Overflow;
-    /// 
+    ///
     /// pub struct LayoutOverflow {
     ///    pub x: Overflow,
     ///    pub y: Overflow,
@@ -3542,7 +3542,7 @@ impl ThisStyle {
     ///
     /// ```no_run
     /// use michiu_ui::{ts, div, v_flex, h_flex, FlexDirection};
-    /// 
+    ///
     /// // Recommended: Use the layout shortcuts directly
     /// h_flex(ts());
     /// v_flex(ts());
