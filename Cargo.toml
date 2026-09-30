@@ -8,22 +8,36 @@ members = [
 ]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/eto0202/michiu"
+authors = ["eto0202"]
 readme = "README.md"
 keywords = ["gui", "windows", "ui"]
 categories = ["gui"]
 
 [workspace.dependencies]
-michiu = { version = "0.0.1", path = "michiu" }
-michiu_ui = { version = "0.0.1", path = "michiu_ui" }
-michiu_guard = { version = "0.0.1", path = "michiu_guard" }
-michiu_window = { version = "0.0.1", path = "michiu_window" }
+michiu = { version = "0.0.2", path = "michiu" }
+michiu_ui = { version = "0.0.2", path = "michiu_ui" }
+michiu_guard = { version = "0.0.2", path = "michiu_guard" }
+michiu_window = { version = "0.0.2", path = "michiu_window" }
 serde = { version = "1.0.228", features = ["derive"] }
 
 [profile.release]
 debug = 2
 strip = "none"
 split-debuginfo = "packed"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+unreachable = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+similar_names = "allow"

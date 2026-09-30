@@ -3,8 +3,13 @@ name = "michiu_guard"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Enforces validation in the michiu library."
 readme = "README.md"
+
+[lints]
+workspace = true
 
 [dependencies]
 serde = { workspace = true, optional = true }
