@@ -86,7 +86,7 @@ fn main_aria() -> Element {
                 ts().p(8.0)
                     .r(4.0)
                     .min_size((400.0, 200.0))
-                    .max_size((1000.0, 400.0))
+                    .max_size((950.0, 400.0))
                     .resizable_right(true)
                     .resizable_bottom(true)
                     .border_dashed(1.0)
@@ -123,10 +123,12 @@ fn table() -> Element {
 
     let label = ts().font_size(12.0).text_color(dynamic(|t: &Theme| t.text));
 
-    let row = ts()
+    let row_1 = ts()
         .w_full()
         .border_right(BorderStyle::Dashed, 1.0)
         .border_color(dynamic(|t: &Theme| t.border));
+
+    let row_2 = ts().w_full();
 
     let col_1 = ts()
         .p_x(4.0)
@@ -157,7 +159,7 @@ fn table() -> Element {
             )
     })
     .children([
-        v_flex(&row).children({
+        v_flex(&row_1).children({
             let col_1 = ts().p_x(4.0).h(40.0).justify_start();
             let col_2 = col_1
                 .clone()
@@ -173,7 +175,7 @@ fn table() -> Element {
                 div(&col_2).label("JustifyContent", &label),
             ]
         }),
-        v_flex(&row).children({
+        v_flex(&row_1).children({
             let default = ts()
                 .p_x(4.0)
                 .h(40.0)
@@ -243,7 +245,7 @@ fn table() -> Element {
                     }),
             ]
         }),
-        v_flex(&row).children({
+        v_flex(&row_1).children({
             [
                 div(&col_1),
                 div(&col_2),
@@ -285,7 +287,7 @@ fn table() -> Element {
                     }),
             ]
         }),
-        v_flex(&row).children({
+        v_flex(&row_1).children({
             [
                 div(&col_1),
                 div(&col_2),
@@ -327,7 +329,7 @@ fn table() -> Element {
                     }),
             ]
         }),
-        v_flex(&row).children({
+        v_flex(&row_1).children({
             [
                 div(&col_1),
                 div(&col_2),
@@ -371,7 +373,7 @@ fn table() -> Element {
                     }),
             ]
         }),
-        v_flex(&row).children({
+        v_flex(&row_1).children({
             [
                 div(&col_1),
                 div(&col_2),
@@ -408,7 +410,7 @@ fn table() -> Element {
                     }),
             ]
         }),
-        v_flex(&row).children({
+        v_flex(&row_1).children({
             [
                 div(&col_1),
                 div(&col_2),
@@ -440,7 +442,7 @@ fn table() -> Element {
                     }),
             ]
         }),
-        v_flex(&row).children({
+        v_flex(&row_1).children({
             [
                 div(&col_1),
                 div(&col_2),
@@ -474,14 +476,24 @@ fn table() -> Element {
                     }),
             ]
         }),
-        v_flex(&row).children({
+        v_flex(&row_1).children({
             [
                 div(&col_1),
                 div(&col_2),
                 div(&col_1),
                 div(&col_2),
-                div(&col_1),
-                div(&col_2),
+                div(&col_1)
+                    .label("SelfStart", &label)
+                    .select(|| use_provided::<AlignSelf>().get() == AlignSelf::SelfStart)
+                    .on_click(|| {
+                        use_provided_setter::<AlignSelf>().set(AlignSelf::SelfStart);
+                    }),
+                div(&col_2)
+                    .label("SelfStart", &label)
+                    .select(|| use_provided::<AlignItems>().get() == AlignItems::SelfStart)
+                    .on_click(|| {
+                        use_provided_setter::<AlignItems>().set(AlignItems::SelfStart);
+                    }),
                 div(&col_1)
                     .label("Around", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::SpaceAround)
@@ -498,14 +510,24 @@ fn table() -> Element {
                     }),
             ]
         }),
-        v_flex(&row).children({
+        v_flex(&row_2).children({
             [
                 div(&col_1),
                 div(&col_2),
                 div(&col_1),
                 div(&col_2),
-                div(&col_1),
-                div(&col_2),
+                div(&col_1)
+                    .label("SelfEnd", &label)
+                    .select(|| use_provided::<AlignSelf>().get() == AlignSelf::SelfEnd)
+                    .on_click(|| {
+                        use_provided_setter::<AlignSelf>().set(AlignSelf::SelfEnd);
+                    }),
+                div(&col_2)
+                    .label("SelfEnd", &label)
+                    .select(|| use_provided::<AlignItems>().get() == AlignItems::SelfEnd)
+                    .on_click(|| {
+                        use_provided_setter::<AlignItems>().set(AlignItems::SelfEnd);
+                    }),
                 div(&col_1)
                     .label("Evenly", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::SpaceEvenly)
