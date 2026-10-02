@@ -595,41 +595,43 @@ impl Pipeline {
         // Taffy 1回目レイアウト計算
         let root_node = *cx.layouts.lay_taffy_nodes.at(root);
         // 計測関数をクロージャとして定義
-        let measure_func = |known_dims: taffy::Size<Option<f32>>,
-                            available_space: taffy::Size<taffy::AvailableSpace>,
+        let measure_func = |layout: taffy::LayoutInput,
                             _node_id: taffy::NodeId,
                             context: Option<&mut EntityId>,
                             _style: &taffy::Style|
-         -> taffy::Size<f32> {
+         -> taffy::LayoutOutput {
             // 幅と高さの両方がすでにスタイル（known_dims）として解決されている場合はそれを最優先する
-            if let (Some(w), Some(h)) = (known_dims.width, known_dims.height) {
-                return taffy::Size {
-                    width: w,
-                    height: h,
-                };
+            if let (Some(width), Some(height)) = (
+                layout.known_dimensions.width,
+                layout.known_dimensions.height,
+            ) {
+                return taffy::LayoutOutput::from_outer_size(taffy::Size { width, height });
             }
 
             // テキスト内容を持っているかチェック
             // クロージャの外側の Context は直接キャプチャできないため、
             //  一時的に bind_context されているスレッドローカル経由で取得
-            context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                cx.contents.cont_input_contents.measure_content(
-                    id,
-                    known_dims,
-                    available_space,
-                    &cx.topology.topo_active_masks,
-                    &cx.renders.rnd_visual,
-                    |auto_wrap, max_width| {
-                        let text = cx.contents.cont_text_contents.at(id);
-                        let font = cx.renders.rnd_visual.font(id);
-                        let text_align = cx.layouts.lay_resolved_flex.text_algin(id);
-                        let spans = cx.contents.cont_text_spans.span(id);
-                        cx.system
-                            .sys_text_engine
-                            .measure_text(text, &font, text_align, max_width, auto_wrap, spans)
-                    },
-                )
-            })
+            context
+                .as_deref()
+                .copied()
+                .map_or(taffy::LayoutOutput::HIDDEN, |id| {
+                    cx.contents.cont_input_contents.measure_content(
+                        id,
+                        layout.known_dimensions,
+                        layout.available_space,
+                        &cx.topology.topo_active_masks,
+                        &cx.renders.rnd_visual,
+                        |auto_wrap, max_width| {
+                            let text = cx.contents.cont_text_contents.at(id);
+                            let font = cx.renders.rnd_visual.font(id);
+                            let text_align = cx.layouts.lay_resolved_flex.text_algin(id);
+                            let spans = cx.contents.cont_text_spans.span(id);
+                            cx.system
+                                .sys_text_engine
+                                .measure_text(text, &font, text_align, max_width, auto_wrap, spans)
+                        },
+                    )
+                })
         };
 
         cx.layouts
@@ -769,34 +771,39 @@ impl Pipeline {
                     width: taffy::AvailableSpace::Definite(window_size.width),
                     height: taffy::AvailableSpace::Definite(window_size.height),
                 },
-                |known_dims: taffy::Size<Option<f32>>,
-                 _available_space: taffy::Size<taffy::AvailableSpace>,
+                |layout: taffy::LayoutInput,
                  _node_id: taffy::NodeId,
                  context: Option<&mut EntityId>,
                  _style: &taffy::Style|
-                 -> taffy::Size<f32> {
-                    context.as_deref().copied().map_or(taffy::Size::ZERO, |id| {
-                        let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
-                        if is_input {
-                            // マスクがあるなら Some のはず
-                            let contents = cx.contents.cont_input_contents.at(id);
-                            if let Some(layout_rect) = contents.last_layout {
-                                return taffy::Size {
-                                    width: known_dims.width.unwrap_or(layout_rect.width),
-                                    height: known_dims.height.unwrap_or(layout_rect.height),
-                                };
+                 -> taffy::LayoutOutput {
+                    context
+                        .as_deref()
+                        .copied()
+                        .map_or(taffy::LayoutOutput::HIDDEN, |id| {
+                            let known_dims = layout.known_dimensions;
+                            let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
+                            if is_input {
+                                // マスクがあるなら Some のはず
+                                let contents = cx.contents.cont_input_contents.at(id);
+                                if let Some(layout_rect) = contents.last_layout {
+                                    return taffy::LayoutOutput::from_outer_size(taffy::Size {
+                                        width: known_dims.width.unwrap_or(layout_rect.width),
+                                        height: known_dims.height.unwrap_or(layout_rect.height),
+                                    });
+                                }
                             }
-                        }
 
-                        // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
-                        cx.outputs
-                            .out_rects
-                            .find(id)
-                            .map_or(taffy::Size::ZERO, |rect| taffy::Size {
-                                width: known_dims.width.unwrap_or(rect.width),
-                                height: known_dims.height.unwrap_or(rect.height),
-                            })
-                    })
+                            // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
+                            cx.outputs.out_rects.find(id).map_or(
+                                taffy::LayoutOutput::HIDDEN,
+                                |rect| {
+                                    taffy::LayoutOutput::from_outer_size(taffy::Size {
+                                        width: known_dims.width.unwrap_or(rect.width),
+                                        height: known_dims.height.unwrap_or(rect.height),
+                                    })
+                                },
+                            )
+                        })
                 },
             )
             .unwrap_or_trace(Some(root), &mut cx.debug);

@@ -95,6 +95,8 @@ pub enum FlexWrap {
     NoWrap,
     Wrap,
     WrapReverse,
+    Balance,
+    BalanceReverse,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -112,6 +114,8 @@ pub enum AlignItems {
     SafeFlexStart,
     SafeFlexEnd,
     SafeCenter,
+    SelfStart,
+    SelfEnd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -129,6 +133,8 @@ pub enum AlignSelf {
     SafeFlexStart,
     SafeFlexEnd,
     SafeCenter,
+    SelfStart,
+    SelfEnd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

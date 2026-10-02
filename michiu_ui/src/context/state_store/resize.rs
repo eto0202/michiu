@@ -290,7 +290,7 @@ impl ResizeStore {
                     out_rects,
                     debug,
                 ),
-                Val::Auto => fallback,
+                Val::Auto | Val::Stretch => fallback,
             };
 
             let user_min_w = resolve_val(basic.min_size.width, true, 0.0);

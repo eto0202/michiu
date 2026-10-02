@@ -3,7 +3,7 @@ use crate::{
     app::{ComponentType, theme::Theme},
     components::{
         accessibility, background, border, button, color, css, cursor, div, draggable,
-        external_visual, focusable, hover, image, input, outline, resizable, stress_test,
+        external_visual, flexbox, focusable, hover, image, input, outline, resizable, stress_test,
     },
 };
 pub use michiu_ui::prelude::*;
@@ -43,7 +43,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Background => wrapper(background::container()),
         ComponentType::Div => wrapper(div::container()),
         ComponentType::Dropdown => text("Dropdown"),
-        ComponentType::Flexbox => text("Flexbox"),
+        ComponentType::Flexbox => wrapper(flexbox::container()),
         ComponentType::Border => wrapper(border::container()),
         ComponentType::Card => text("Card"),
         ComponentType::List => text("List"),
@@ -60,6 +60,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Image => wrapper(image::container()),
         ComponentType::ExternalVisual => wrapper(external_visual::container()),
         ComponentType::Accessibility => wrapper(accessibility::container()),
+        ComponentType::Size => text("Size"),
         ComponentType::StressTest => {
             if ALLOW_STRESS_TEST {
                 wrapper(stress_test::container())

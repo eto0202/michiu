@@ -111,6 +111,8 @@ pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
 /// A container that applies a style and generates content.
 ///
 /// It is the same as `Element::new().style(style)`.
+/// 
+/// Default is Flex Box
 #[inline]
 pub fn div(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
@@ -294,6 +296,9 @@ pub struct Percent(pub f32);
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Auto;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stretch;
+
 /// Generates actual values.
 #[inline]
 #[must_use]
@@ -313,6 +318,13 @@ pub fn pct(val: f32) -> Percent {
 #[must_use]
 pub fn auto() -> Auto {
     Auto
+}
+
+/// Generate `Stretch`
+#[inline]
+#[must_use]
+pub fn fill() -> Stretch {
+    Stretch
 }
 
 /// Copies text to the `Win32API` clipboard.
