@@ -111,12 +111,19 @@ pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
 /// A container that applies a style and generates content.
 ///
 /// It is the same as `Element::new().style(style)`.
-/// 
+///
 /// Default is Flex Box
+#[inline]
+pub fn flex(style: impl Into<Prop<ThisStyle>>) -> Element {
+    let el = Element::new();
+    el.style(style)
+}
+
+/// A container that applies a style and generates content.
 #[inline]
 pub fn div(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
-    el.style(style)
+    el.style(ts().block()).style(style)
 }
 
 pub const NO_STYLE: Option<ThisStyle> = None;
@@ -125,7 +132,7 @@ pub const NO_STYLE: Option<ThisStyle> = None;
 #[inline]
 #[must_use]
 pub fn div_n() -> Element {
-    div(NO_STYLE)
+    flex(NO_STYLE)
 }
 
 /// Horizontal flex container.

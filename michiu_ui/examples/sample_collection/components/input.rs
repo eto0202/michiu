@@ -29,7 +29,7 @@ fn input_item(d: &'static str, el: Element) -> Element {
             .font_weight(400),
     );
 
-    let wrapper = div(ts()
+    let wrapper = flex(ts()
         .flex()
         .items_center()
         .p((6.0, 4.0))
@@ -156,7 +156,7 @@ fn spin_box() -> Element {
 
     let (read_1, write_1) = create_signal(String::new());
 
-    let btn_left = div(btn.clone().r_left(3.0))
+    let btn_left = flex(btn.clone().r_left(3.0))
         .label("-", &label)
         .on_click(move || {
             let mut i = read_1.get().parse::<i32>().unwrap_or(0);
@@ -168,7 +168,7 @@ fn spin_box() -> Element {
             write_1.set(i.to_string());
         });
 
-    let btn_right = div(btn.clone().r_right(3.0))
+    let btn_right = flex(btn.clone().r_right(3.0))
         .label("+", &label)
         .on_click(move || {
             let mut i = read_1.get().parse::<i32>().unwrap_or(0);
@@ -486,7 +486,7 @@ fn search_box() -> Element {
 
 fn multiline_container() -> Element {
     let (read, write) = create_signal(String::new());
-    let area = div(ts()
+    let area = flex(ts()
         .flex()
         .p((6.0, 6.0))
         .r(4.0)

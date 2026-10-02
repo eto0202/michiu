@@ -23,7 +23,7 @@ fn item(label: &'static str, style: ThisStyle) -> Element {
     let (show_popup, set_show_popup) = create_signal(false);
     let (popup_pos, set_popup_pos) = create_signal(LayoutPoint::ZERO);
 
-    div(style
+    flex(style
         .p(10.0)
         .r(4.0)
         .size((70.0, 70.0))
@@ -38,7 +38,7 @@ fn item(label: &'static str, style: ThisStyle) -> Element {
             let offset_x = pos.x + 12.0;
             let offset_y = pos.y + 12.0;
 
-            div(ts()
+            flex(ts()
                 .absolute()
                 .z_1()
                 .left(offset_x)
@@ -156,7 +156,7 @@ fn hsla_container() -> Element {
 
 // こういう実装方法も可能
 fn item_direct(label: &'static str, style: ThisStyle) -> Element {
-    let el = div(style
+    let el = flex(style
         .p(10.0)
         .r(4.0)
         .size((70.0, 70.0))
@@ -180,7 +180,7 @@ fn item_direct(label: &'static str, style: ThisStyle) -> Element {
 }
 
 fn item_event(label: &'static str, style: ThisStyle) -> Element {
-    div(style
+    flex(style
         .p(10.0)
         .r(4.0)
         .size((70.0, 70.0))
@@ -204,7 +204,7 @@ fn item_tag(label: &'static str, style: ThisStyle) -> Element {
     struct HyperMichiu;
     struct UltraMichiu;
 
-    div(style
+    flex(style
         .p(10.0)
         .r(4.0)
         .size((70.0, 70.0))
@@ -233,7 +233,7 @@ fn create_tooltip(label: &'static str, pos: LayoutPoint) -> Element {
     let offset_x = pos.x + 12.0;
     let offset_y = pos.y + 12.0;
 
-    div(ts()
+    flex(ts()
         .absolute()
         .z_1()
         .left(offset_x)

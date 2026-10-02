@@ -37,7 +37,7 @@ fn section_draggable(parent_id: EntityId) -> Element {
         .dnd_draggable_placeholder(ts().p(16.0).border_solid(1.0));
 
     // 動的なカラースタイルのみを style_d で評価
-    div(layout)
+    flex(layout)
         .style_d(|t: &Theme| {
             ts().bg_color(t.background)
                 .border_color(t.border)
@@ -64,7 +64,7 @@ fn item_draggable(parent_id: EntityId) -> Element {
         .dnd_draggable_original(ts().p(16.0).border_dashed(1.0).opacity_50())
         .dnd_draggable_placeholder(ts().p(16.0).border_solid(1.0));
 
-    div(layout)
+    flex(layout)
         .style_d(|t: &Theme| {
             ts().bg_color(t.background)
                 .border_color(t.border)

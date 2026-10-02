@@ -41,10 +41,10 @@ fn base(change: bool) -> ThisStyle {
 }
 
 fn style_container() -> Element {
-    let solid = div(base(false).border_solid(2.0)).label("solid", label_style());
-    let dashed = div(base(false).border_dashed(2.0)).label("dashed", label_style());
-    let dotted = div(base(false).border_dotted(2.0)).label("dotted", label_style());
-    let double = div(base(false).border_double(4.0)).label("double", label_style());
+    let solid = flex(base(false).border_solid(2.0)).label("solid", label_style());
+    let dashed = flex(base(false).border_dashed(2.0)).label("dashed", label_style());
+    let dotted = flex(base(false).border_dotted(2.0)).label("dotted", label_style());
+    let double = flex(base(false).border_double(4.0)).label("double", label_style());
 
     v_flex(section_style()).children([
         section_title("Border Style"),
@@ -53,10 +53,10 @@ fn style_container() -> Element {
 }
 
 fn weight_container() -> Element {
-    let one = div(base(false).border_solid(1.0)).label("1.0 px", label_style());
-    let two = div(base(false).border_solid(2.0)).label("2.0 px", label_style());
-    let four = div(base(false).border_solid(4.0)).label("4.0 px", label_style());
-    let eight = div(base(false).border_solid(8.0)).label("8.0 px", label_style());
+    let one = flex(base(false).border_solid(1.0)).label("1.0 px", label_style());
+    let two = flex(base(false).border_solid(2.0)).label("2.0 px", label_style());
+    let four = flex(base(false).border_solid(4.0)).label("4.0 px", label_style());
+    let eight = flex(base(false).border_solid(8.0)).label("8.0 px", label_style());
 
     v_flex(section_style()).children([
         section_title("Border Weight"),
@@ -65,18 +65,18 @@ fn weight_container() -> Element {
 }
 
 fn length_container() -> Element {
-    let top_only = div(base(false)
+    let top_only = flex(base(false)
         .border_solid(2.0)
         .border_lengths((1.0, 0.0, 0.0, 0.0)))
     .label("top only", label_style());
 
     let half_all =
-        div(base(false).border_solid(2.0).border_lengths(0.5)).label("all 50%", label_style());
+        flex(base(false).border_solid(2.0).border_lengths(0.5)).label("all 50%", label_style());
 
-    let vertical_only = div(base(false).border_solid(2.0).border_lengths((1.0, 0.0)))
+    let vertical_only = flex(base(false).border_solid(2.0).border_lengths((1.0, 0.0)))
         .label("vertical", label_style());
 
-    let horizontal_only = div(base(false).border_solid(2.0).border_lengths((0.0, 1.0)))
+    let horizontal_only = flex(base(false).border_solid(2.0).border_lengths((0.0, 1.0)))
         .label("horizontal", label_style());
 
     v_flex(section_style()).children([
@@ -86,19 +86,19 @@ fn length_container() -> Element {
 }
 
 fn align_container() -> Element {
-    let start = div(base(false)
+    let start = flex(base(false)
         .border_solid(2.0)
         .border_lengths(0.5)
         .border_align(BorderAlignment::Start))
     .label("Start", label_style());
 
-    let center = div(base(false)
+    let center = flex(base(false)
         .border_solid(2.0)
         .border_lengths(0.5)
         .border_align(BorderAlignment::Center))
     .label("Center", label_style());
 
-    let end = div(base(false)
+    let end = flex(base(false)
         .border_solid(2.0)
         .border_lengths(0.5)
         .border_align(BorderAlignment::End))
@@ -112,13 +112,13 @@ fn align_container() -> Element {
 
 fn color_container() -> Element {
     let red =
-        div(base(true).border_solid(2.0).border_color(Color::RED)).label("Red", label_style());
-    let yellow = div(base(true).border_solid(2.0).border_color(Color::YELLOW))
+        flex(base(true).border_solid(2.0).border_color(Color::RED)).label("Red", label_style());
+    let yellow = flex(base(true).border_solid(2.0).border_color(Color::YELLOW))
         .label("Yellow", label_style());
     let green =
-        div(base(true).border_solid(2.0).border_color(Color::GREEN)).label("Green", label_style());
+        flex(base(true).border_solid(2.0).border_color(Color::GREEN)).label("Green", label_style());
     let blue =
-        div(base(true).border_solid(2.0).border_color(Color::BLUE)).label("Blue", label_style());
+        flex(base(true).border_solid(2.0).border_color(Color::BLUE)).label("Blue", label_style());
 
     v_flex(section_style()).children([
         section_title("Border Color"),

@@ -23,7 +23,7 @@ fn role_group() -> Element {
 }
 
 fn role_button() -> Element {
-    div(ts()
+    flex(ts()
         .r(4.0)
         .p(8.0)
         .debug_border_yellow()
@@ -45,7 +45,7 @@ fn tag_group() -> Element {
 }
 
 fn tag_button() -> Element {
-    div(ts()
+    flex(ts()
         .r(4.0)
         .p(8.0)
         .debug_border_green()
@@ -70,7 +70,7 @@ impl A11yInferenceTag for UserMichiuButton {
 }
 
 fn user_tag_button() -> Element {
-    div(ts()
+    flex(ts()
         .r(4.0)
         .p(8.0)
         .debug_border_red()

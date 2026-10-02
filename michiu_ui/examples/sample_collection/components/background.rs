@@ -1,7 +1,7 @@
 pub use michiu_ui::prelude::*;
 
 pub fn container() -> Element {
-    div(ts().flex().grow().p(16.0).items_center().justify_center()).child(
+    flex(ts().flex().grow().p(16.0).items_center().justify_center()).child(
         h_flex(
             ts().w_full()
                 .h_auto()
@@ -9,7 +9,7 @@ pub fn container() -> Element {
                 .aspect_ratio(1.618, 1.0),
         )
         .children([
-            div(hover_opacity()
+            flex(hover_opacity()
                 .width(pct(61.8))
                 .h_full()
                 .bg_color(Color::BLUE)
@@ -21,7 +21,7 @@ pub fn container() -> Element {
 
 fn step_1() -> Element {
     v_flex(ts()).children([
-        div(hover_opacity()
+        flex(hover_opacity()
             .w_full()
             .height(pct(61.8))
             .bg_color(Color::CYAN)
@@ -33,7 +33,7 @@ fn step_1() -> Element {
 fn step_2() -> Element {
     h_flex(ts()).children([
         step_3().style(ts().width(pct(38.2)).h_full()),
-        div(hover_opacity()
+        flex(hover_opacity()
             .width(pct(61.8))
             .h_full()
             .bg_color(Color::GREEN)
@@ -44,7 +44,7 @@ fn step_2() -> Element {
 fn step_3() -> Element {
     v_flex(ts()).children([
         step_4().style(ts().w_full().height(pct(38.2))),
-        div(hover_opacity()
+        flex(hover_opacity()
             .w_full()
             .height(pct(61.8))
             .bg_color(Color::YELLOW)),
@@ -53,7 +53,7 @@ fn step_3() -> Element {
 
 fn step_4() -> Element {
     h_flex(ts()).children([
-        div(hover_opacity()
+        flex(hover_opacity()
             .width(pct(61.8))
             .h_full()
             .bg_color(Color::PURPLE)),
@@ -63,7 +63,7 @@ fn step_4() -> Element {
 
 fn step_5() -> Element {
     v_flex(ts()).children([
-        div(hover_opacity()
+        flex(hover_opacity()
             .w_full()
             .height(pct(61.8))
             .bg_color(Color::ORANGE)),
@@ -74,7 +74,7 @@ fn step_5() -> Element {
 fn step_6() -> Element {
     h_flex(ts()).children([
         step_7().style(ts().width(pct(38.2)).h_full()),
-        div(hover_opacity()
+        flex(hover_opacity()
             .width(pct(61.8))
             .h_full()
             .bg_color(Color::MAGENTA)),
@@ -82,7 +82,7 @@ fn step_6() -> Element {
 }
 
 fn step_7() -> Element {
-    div(hover_opacity().size_full().bg_color(Color::RED))
+    flex(hover_opacity().size_full().bg_color(Color::RED))
 }
 
 fn hover_opacity() -> ThisStyle {

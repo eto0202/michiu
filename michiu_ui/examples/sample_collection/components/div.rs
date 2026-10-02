@@ -63,7 +63,7 @@ fn flex_container() -> Element {
 }
 
 fn div_container() -> Element {
-    div(ts()
+    flex(ts()
         .grow()
         .r(4.0)
         .p(20.0)

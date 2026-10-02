@@ -29,20 +29,20 @@ fn item_style() -> ThisStyle {
 }
 
 fn section_hover() -> Element {
-    let item_1 = div(item_style().hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover))))
+    let item_1 = flex(item_style().hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover))))
         .label("Background", label_style());
 
-    let item_2 = div(item_style().hovered(
+    let item_2 = flex(item_style().hovered(
         ts().border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border_hover)),
     ))
     .label("Border", label_style());
 
     let item_3 =
-        div(item_style().hovered(ts().transform_scale(1.05, 1.05))).label("Scale", label_style());
+        flex(item_style().hovered(ts().transform_scale(1.05, 1.05))).label("Scale", label_style());
 
     let item_4 =
-        div(item_style().hovered(ts().transform_scale(0.95, 0.95))).label("Scale", label_style());
+        flex(item_style().hovered(ts().transform_scale(0.95, 0.95))).label("Scale", label_style());
 
     let wrapper = h_flex(wrapper_style()).children([item_1, item_2, item_3, item_4]);
 
@@ -50,7 +50,7 @@ fn section_hover() -> Element {
 }
 
 fn transition_item(ms: u64, label_text: &'static str) -> Element {
-    div(item_style()
+    flex(item_style()
         .hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover)))
         .trans_bg_color(Duration::from_millis(ms), AnimationCurve::EaseInOutQuad))
     .label(label_text, label_style())

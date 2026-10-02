@@ -31,7 +31,7 @@ pub fn container() -> Element {
 
 fn common_inner() -> [Element; 9] {
     let inner = |label: &'static str| {
-        div(ts()
+        flex(ts()
             .border_solid(1.0)
             .r(4.0)
             .size((80.0, 40.0))
@@ -49,7 +49,7 @@ fn common_inner() -> [Element; 9] {
         inner("2"),
         inner("3"),
         inner("4"),
-        div(ts()
+        flex(ts()
             .border_solid(1.0)
             .r(4.0)
             .min_size((80.0, 40.0))
@@ -74,7 +74,7 @@ fn main_aria() -> Element {
             ts().text_color(dynamic(|t: &Theme| t.text)).font_size(16.0),
         )
         .child(|| {
-            div(ts()
+            flex(ts()
                 .gap(use_provided::<Gap>().get().0)
                 .flex_direction(use_provided::<FlexDirection>().get())
                 .flex_wrap_internal(use_provided::<FlexWrap>().get())
@@ -165,14 +165,14 @@ fn table() -> Element {
                 .clone()
                 .bg_color(dynamic(|t: &Theme| t.background_hover));
             [
-                div(&col_1),
-                div(&col_2).label("Gap", &label),
-                div(&col_1).label("FlexDirection", &label),
-                div(&col_2).label("FlexWrap", &label),
-                div(&col_1).label("AlignSelf", &label),
-                div(&col_2).label("AlignItems", &label),
-                div(&col_1).label("AlignContent", &label),
-                div(&col_2).label("JustifyContent", &label),
+                flex(&col_1),
+                flex(&col_2).label("Gap", &label),
+                flex(&col_1).label("FlexDirection", &label),
+                flex(&col_2).label("FlexWrap", &label),
+                flex(&col_1).label("AlignSelf", &label),
+                flex(&col_2).label("AlignItems", &label),
+                flex(&col_1).label("AlignContent", &label),
+                flex(&col_2).label("JustifyContent", &label),
             ]
         }),
         v_flex(&row_1).children({
@@ -182,7 +182,7 @@ fn table() -> Element {
                 .justify_start()
                 .hovered(ts().bg_color(dynamic(|t: &Theme| t.border)));
             [
-                div(default).label("Default", &label).on_click(move || {
+                flex(default).label("Default", &label).on_click(move || {
                     use_provided_setter::<Gap>().set(Gap::default());
                     set_gap.set("8".to_string());
                     use_provided_setter::<FlexDirection>().set(FlexDirection::default());
@@ -192,7 +192,7 @@ fn table() -> Element {
                     use_provided_setter::<AlignContent>().set(AlignContent::default());
                     use_provided_setter::<JustifyContent>().set(JustifyContent::default());
                 }),
-                div(&col_2)
+                flex(&col_2)
                     .input(move || {
                         InputContents::new((gap, set_gap))
                             .numeric_only(true)
@@ -207,37 +207,37 @@ fn table() -> Element {
                         set_gap.set(gap);
                         use_provided_setter().set(Gap(i));
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("Row", &label)
                     .select(|| use_provided::<FlexDirection>().get() == FlexDirection::Row)
                     .on_click(|| {
                         use_provided_setter::<FlexDirection>().set(FlexDirection::Row);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("NoWrap", &label)
                     .select(|| use_provided::<FlexWrap>().get() == FlexWrap::NoWrap)
                     .on_click(|| {
                         use_provided_setter::<FlexWrap>().set(FlexWrap::NoWrap);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("Stretch", &label)
                     .select(|| use_provided::<AlignSelf>().get() == AlignSelf::Stretch)
                     .on_click(|| {
                         use_provided_setter::<AlignSelf>().set(AlignSelf::Stretch);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Stretch", &label)
                     .select(|| use_provided::<AlignItems>().get() == AlignItems::Stretch)
                     .on_click(|| {
                         use_provided_setter::<AlignItems>().set(AlignItems::Stretch);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("Stretch", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::Stretch)
                     .on_click(|| {
                         use_provided_setter::<AlignContent>().set(AlignContent::Stretch);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Stretch", &label)
                     .select(|| use_provided::<JustifyContent>().get() == JustifyContent::Stretch)
                     .on_click(|| {
@@ -247,39 +247,39 @@ fn table() -> Element {
         }),
         v_flex(&row_1).children({
             [
-                div(&col_1),
-                div(&col_2),
-                div(&col_1)
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1)
                     .label("Column", &label)
                     .select(|| use_provided::<FlexDirection>().get() == FlexDirection::Column)
                     .on_click(|| {
                         use_provided_setter::<FlexDirection>().set(FlexDirection::Column);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Wrap", &label)
                     .select(|| use_provided::<FlexWrap>().get() == FlexWrap::Wrap)
                     .on_click(|| {
                         use_provided_setter::<FlexWrap>().set(FlexWrap::Wrap);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("Start", &label)
                     .select(|| use_provided::<AlignSelf>().get() == AlignSelf::Start)
                     .on_click(|| {
                         use_provided_setter::<AlignSelf>().set(AlignSelf::Start);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Start", &label)
                     .select(|| use_provided::<AlignItems>().get() == AlignItems::Start)
                     .on_click(|| {
                         use_provided_setter::<AlignItems>().set(AlignItems::Start);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("Start", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::Start)
                     .on_click(|| {
                         use_provided_setter::<AlignContent>().set(AlignContent::Start);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Start", &label)
                     .select(|| use_provided::<JustifyContent>().get() == JustifyContent::Start)
                     .on_click(|| {
@@ -289,39 +289,39 @@ fn table() -> Element {
         }),
         v_flex(&row_1).children({
             [
-                div(&col_1),
-                div(&col_2),
-                div(&col_1)
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1)
                     .label("RowReverse", &label)
                     .select(|| use_provided::<FlexDirection>().get() == FlexDirection::RowReverse)
                     .on_click(|| {
                         use_provided_setter::<FlexDirection>().set(FlexDirection::RowReverse);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("WrapReverse", &label)
                     .select(|| use_provided::<FlexWrap>().get() == FlexWrap::WrapReverse)
                     .on_click(|| {
                         use_provided_setter::<FlexWrap>().set(FlexWrap::WrapReverse);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("End", &label)
                     .select(|| use_provided::<AlignSelf>().get() == AlignSelf::End)
                     .on_click(|| {
                         use_provided_setter::<AlignSelf>().set(AlignSelf::End);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("End", &label)
                     .select(|| use_provided::<AlignItems>().get() == AlignItems::End)
                     .on_click(|| {
                         use_provided_setter::<AlignItems>().set(AlignItems::End);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("End", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::End)
                     .on_click(|| {
                         use_provided_setter::<AlignContent>().set(AlignContent::End);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("End", &label)
                     .select(|| use_provided::<JustifyContent>().get() == JustifyContent::End)
                     .on_click(|| {
@@ -331,9 +331,9 @@ fn table() -> Element {
         }),
         v_flex(&row_1).children({
             [
-                div(&col_1),
-                div(&col_2),
-                div(&col_1)
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1)
                     .label("ColumnReverse", &label)
                     .select(|| {
                         use_provided::<FlexDirection>().get() == FlexDirection::ColumnReverse
@@ -341,31 +341,31 @@ fn table() -> Element {
                     .on_click(|| {
                         use_provided_setter::<FlexDirection>().set(FlexDirection::ColumnReverse);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Balance", &label)
                     .select(|| use_provided::<FlexWrap>().get() == FlexWrap::Balance)
                     .on_click(|| {
                         use_provided_setter::<FlexWrap>().set(FlexWrap::Balance);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("FlexStart", &label)
                     .select(|| use_provided::<AlignSelf>().get() == AlignSelf::FlexStart)
                     .on_click(|| {
                         use_provided_setter::<AlignSelf>().set(AlignSelf::FlexStart);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("FlexStart", &label)
                     .select(|| use_provided::<AlignItems>().get() == AlignItems::FlexStart)
                     .on_click(|| {
                         use_provided_setter::<AlignItems>().set(AlignItems::FlexStart);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("FlexStart", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::FlexStart)
                     .on_click(|| {
                         use_provided_setter::<AlignContent>().set(AlignContent::FlexStart);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("FlexStart", &label)
                     .select(|| use_provided::<JustifyContent>().get() == JustifyContent::FlexStart)
                     .on_click(|| {
@@ -375,34 +375,34 @@ fn table() -> Element {
         }),
         v_flex(&row_1).children({
             [
-                div(&col_1),
-                div(&col_2),
-                div(&col_1),
-                div(&col_2)
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1),
+                flex(&col_2)
                     .label("BalanceReverse", &label)
                     .select(|| use_provided::<FlexWrap>().get() == FlexWrap::BalanceReverse)
                     .on_click(|| {
                         use_provided_setter::<FlexWrap>().set(FlexWrap::BalanceReverse);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("FlexEnd", &label)
                     .select(|| use_provided::<AlignSelf>().get() == AlignSelf::FlexEnd)
                     .on_click(|| {
                         use_provided_setter::<AlignSelf>().set(AlignSelf::FlexEnd);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("FlexEnd", &label)
                     .select(|| use_provided::<AlignItems>().get() == AlignItems::FlexEnd)
                     .on_click(|| {
                         use_provided_setter::<AlignItems>().set(AlignItems::FlexEnd);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("FlexEnd", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::FlexEnd)
                     .on_click(|| {
                         use_provided_setter::<AlignContent>().set(AlignContent::FlexEnd);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("FlexEnd", &label)
                     .select(|| use_provided::<JustifyContent>().get() == JustifyContent::FlexEnd)
                     .on_click(|| {
@@ -412,29 +412,29 @@ fn table() -> Element {
         }),
         v_flex(&row_1).children({
             [
-                div(&col_1),
-                div(&col_2),
-                div(&col_1),
-                div(&col_2),
-                div(&col_1)
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1)
                     .label("Center", &label)
                     .select(|| use_provided::<AlignSelf>().get() == AlignSelf::Center)
                     .on_click(|| {
                         use_provided_setter::<AlignSelf>().set(AlignSelf::Center);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Center", &label)
                     .select(|| use_provided::<AlignItems>().get() == AlignItems::Center)
                     .on_click(|| {
                         use_provided_setter::<AlignItems>().set(AlignItems::Center);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("Center", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::Center)
                     .on_click(|| {
                         use_provided_setter::<AlignContent>().set(AlignContent::Center);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Center", &label)
                     .select(|| use_provided::<JustifyContent>().get() == JustifyContent::Center)
                     .on_click(|| {
@@ -444,29 +444,29 @@ fn table() -> Element {
         }),
         v_flex(&row_1).children({
             [
-                div(&col_1),
-                div(&col_2),
-                div(&col_1),
-                div(&col_2),
-                div(&col_1)
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1)
                     .label("Baseline", &label)
                     .select(|| use_provided::<AlignSelf>().get() == AlignSelf::Baseline)
                     .on_click(|| {
                         use_provided_setter::<AlignSelf>().set(AlignSelf::Baseline);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Baseline", &label)
                     .select(|| use_provided::<AlignItems>().get() == AlignItems::Baseline)
                     .on_click(|| {
                         use_provided_setter::<AlignItems>().set(AlignItems::Baseline);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("Between", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::SpaceBetween)
                     .on_click(|| {
                         use_provided_setter::<AlignContent>().set(AlignContent::SpaceBetween);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Between", &label)
                     .select(|| {
                         use_provided::<JustifyContent>().get() == JustifyContent::SpaceBetween
@@ -478,29 +478,29 @@ fn table() -> Element {
         }),
         v_flex(&row_1).children({
             [
-                div(&col_1),
-                div(&col_2),
-                div(&col_1),
-                div(&col_2),
-                div(&col_1)
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1)
                     .label("SelfStart", &label)
                     .select(|| use_provided::<AlignSelf>().get() == AlignSelf::SelfStart)
                     .on_click(|| {
                         use_provided_setter::<AlignSelf>().set(AlignSelf::SelfStart);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("SelfStart", &label)
                     .select(|| use_provided::<AlignItems>().get() == AlignItems::SelfStart)
                     .on_click(|| {
                         use_provided_setter::<AlignItems>().set(AlignItems::SelfStart);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("Around", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::SpaceAround)
                     .on_click(|| {
                         use_provided_setter::<AlignContent>().set(AlignContent::SpaceAround);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Around", &label)
                     .select(|| {
                         use_provided::<JustifyContent>().get() == JustifyContent::SpaceAround
@@ -512,29 +512,29 @@ fn table() -> Element {
         }),
         v_flex(&row_2).children({
             [
-                div(&col_1),
-                div(&col_2),
-                div(&col_1),
-                div(&col_2),
-                div(&col_1)
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1),
+                flex(&col_2),
+                flex(&col_1)
                     .label("SelfEnd", &label)
                     .select(|| use_provided::<AlignSelf>().get() == AlignSelf::SelfEnd)
                     .on_click(|| {
                         use_provided_setter::<AlignSelf>().set(AlignSelf::SelfEnd);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("SelfEnd", &label)
                     .select(|| use_provided::<AlignItems>().get() == AlignItems::SelfEnd)
                     .on_click(|| {
                         use_provided_setter::<AlignItems>().set(AlignItems::SelfEnd);
                     }),
-                div(&col_1)
+                flex(&col_1)
                     .label("Evenly", &label)
                     .select(|| use_provided::<AlignContent>().get() == AlignContent::SpaceEvenly)
                     .on_click(|| {
                         use_provided_setter::<AlignContent>().set(AlignContent::SpaceEvenly);
                     }),
-                div(&col_2)
+                flex(&col_2)
                     .label("Evenly", &label)
                     .select(|| {
                         use_provided::<JustifyContent>().get() == JustifyContent::SpaceEvenly

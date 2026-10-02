@@ -90,7 +90,7 @@ fn image_list() -> Element {
                 if let Some(img) = selected_image.get() {
                     external_texture(img).style(&base)
                 } else {
-                    div(&base)
+                    flex(&base)
                 }
             }),
             text(move || {

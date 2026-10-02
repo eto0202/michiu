@@ -37,7 +37,7 @@ fn item(label: &'static str, change: bool, style: ThisStyle) -> Element {
         s.outline_color(dynamic(|t: &Theme| t.border))
     };
 
-    div(new).label(label, label_style())
+    flex(new).label(label, label_style())
 }
 
 fn style_container() -> Element {

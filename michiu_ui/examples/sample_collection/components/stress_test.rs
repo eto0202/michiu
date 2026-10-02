@@ -35,7 +35,7 @@ fn element_1() -> Vec<Element> {
 fn base_el(i: i32) -> Element {
     let label_str = DIGITS.get(i as usize).copied().unwrap_or("");
 
-    div(ts().hovered(ts().bg_color(dynamic(|t: &Theme| t.primary))))
+    flex(ts().hovered(ts().bg_color(dynamic(|t: &Theme| t.primary))))
         .label(
             label_str,
             ts().font_size(16.0)

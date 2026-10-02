@@ -18,7 +18,7 @@ fn wrapper_style() -> ThisStyle {
 }
 
 fn item(label: &'static str, style: ThisStyle) -> Element {
-    div(style
+    flex(style
         .p(12.0)
         .r(4.0)
         .justify_center()

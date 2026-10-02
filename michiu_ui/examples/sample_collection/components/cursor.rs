@@ -23,7 +23,7 @@ fn wrapper_style() -> ThisStyle {
 }
 
 fn item(label: &'static str, style: ThisStyle) -> Element {
-    div(style
+    flex(style
         .p(10.0)
         .r(4.0)
         .size((150.0, 60.0))
@@ -109,7 +109,7 @@ fn custom_container() -> Element {
     v_flex(section_style()).children([
         section_title("Custom Cursor"),
         wrapper.children([
-            div(ts().p(10.0).r(4.0).justify_center().items_center()).label("Grab", label_style()),
+            flex(ts().p(10.0).r(4.0).justify_center().items_center()).label("Grab", label_style()),
             grabbing,
         ]),
     ])
