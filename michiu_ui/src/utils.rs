@@ -111,6 +111,8 @@ pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
 /// A container that applies a style and generates content.
 ///
 /// It is the same as `Element::new().style(style)`.
+/// 
+/// Default is Flex Box
 #[inline]
 pub fn div(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();

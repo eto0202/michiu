@@ -203,7 +203,7 @@ impl From<taffy::LengthPercentage> for Val {
         match t.expand() {
             ExpandedLengthPercentage::Percent(v) => Self::Percent(v * 100.0),
             ExpandedLengthPercentage::Length(v) => Self::Px(v),
-            _ => Self::Auto,
+            ExpandedLengthPercentage::Calc(_) => Self::Auto,
         }
     }
 }

@@ -64,4 +64,5 @@ pub enum ComponentType {
     Image,
     ExternalVisual,
     Accessibility,
+    Size,
 }

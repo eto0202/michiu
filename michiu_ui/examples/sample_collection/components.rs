@@ -19,6 +19,7 @@ pub mod list;
 pub mod outline;
 pub mod resizable;
 pub mod scrollbar;
+pub mod size;
 pub mod stress_test;
 
 use crate::app::theme::Theme;
