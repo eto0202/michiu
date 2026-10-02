@@ -586,23 +586,19 @@ fn apply_declarations_to_style(
                     AlignItems::SelfPosition { overflow, value } => match overflow {
                         Some(OverflowPosition::Safe) => match value {
                             SelfPosition::Center => Some(crate::AlignItems::SafeCenter),
-                            SelfPosition::Start | SelfPosition::SelfStart => {
-                                Some(crate::AlignItems::SafeStart)
-                            }
-                            SelfPosition::End | SelfPosition::SelfEnd => {
-                                Some(crate::AlignItems::SafeEnd)
-                            }
+                            SelfPosition::Start => Some(crate::AlignItems::Start),
+                            SelfPosition::SelfStart => Some(crate::AlignItems::SelfStart),
+                            SelfPosition::End => Some(crate::AlignItems::End),
+                            SelfPosition::SelfEnd => Some(crate::AlignItems::SelfEnd),
                             SelfPosition::FlexStart => Some(crate::AlignItems::SafeFlexStart),
                             SelfPosition::FlexEnd => Some(crate::AlignItems::SafeFlexEnd),
                         },
                         _ => match value {
                             SelfPosition::Center => Some(crate::AlignItems::Center),
-                            SelfPosition::Start | SelfPosition::SelfStart => {
-                                Some(crate::AlignItems::Start)
-                            }
-                            SelfPosition::End | SelfPosition::SelfEnd => {
-                                Some(crate::AlignItems::End)
-                            }
+                            SelfPosition::Start => Some(crate::AlignItems::Start),
+                            SelfPosition::SelfStart => Some(crate::AlignItems::SafeStart),
+                            SelfPosition::End => Some(crate::AlignItems::End),
+                            SelfPosition::SelfEnd => Some(crate::AlignItems::SelfEnd),
                             SelfPosition::FlexStart => Some(crate::AlignItems::FlexStart),
                             SelfPosition::FlexEnd => Some(crate::AlignItems::FlexEnd),
                         },
@@ -619,23 +615,19 @@ fn apply_declarations_to_style(
                     AlignSelf::SelfPosition { overflow, value } => match overflow {
                         Some(OverflowPosition::Safe) => match value {
                             SelfPosition::Center => Some(crate::AlignSelf::SafeCenter),
-                            SelfPosition::Start | SelfPosition::SelfStart => {
-                                Some(crate::AlignSelf::SafeStart)
-                            }
-                            SelfPosition::End | SelfPosition::SelfEnd => {
-                                Some(crate::AlignSelf::SafeEnd)
-                            }
+                            SelfPosition::Start => Some(crate::AlignSelf::SafeStart),
+                            SelfPosition::SelfStart => Some(crate::AlignSelf::SelfStart),
+                            SelfPosition::End => Some(crate::AlignSelf::SafeEnd),
+                            SelfPosition::SelfEnd => Some(crate::AlignSelf::SelfEnd),
                             SelfPosition::FlexStart => Some(crate::AlignSelf::SafeFlexStart),
                             SelfPosition::FlexEnd => Some(crate::AlignSelf::SafeFlexEnd),
                         },
                         _ => match value {
                             SelfPosition::Center => Some(crate::AlignSelf::Center),
-                            SelfPosition::Start | SelfPosition::SelfStart => {
-                                Some(crate::AlignSelf::Start)
-                            }
-                            SelfPosition::End | SelfPosition::SelfEnd => {
-                                Some(crate::AlignSelf::End)
-                            }
+                            SelfPosition::Start => Some(crate::AlignSelf::Start),
+                            SelfPosition::SelfStart => Some(crate::AlignSelf::SelfStart),
+                            SelfPosition::End => Some(crate::AlignSelf::End),
+                            SelfPosition::SelfEnd => Some(crate::AlignSelf::SelfEnd),
                             SelfPosition::FlexStart => Some(crate::AlignSelf::FlexStart),
                             SelfPosition::FlexEnd => Some(crate::AlignSelf::FlexEnd),
                         },
@@ -743,6 +735,7 @@ fn parse_css_size(size: &Size) -> Option<crate::Val> {
             LengthPercentage::Percentage(p) => Some(crate::Val::Percent(p.0 * 100.0)),
             LengthPercentage::Calc(_) => None,
         },
+        Size::Stretch(_) => Some(crate::Val::Stretch),
         _ => None,
     }
 }
@@ -757,6 +750,7 @@ fn parse_css_max_size(max_size: &lightningcss::properties::size::MaxSize) -> Opt
             LengthPercentage::Percentage(p) => Some(crate::Val::Percent(p.0 * 100.0)),
             LengthPercentage::Calc(_) => None,
         },
+        MaxSize::Stretch(_) => Some(crate::Val::Stretch),
         _ => None,
     }
 }
