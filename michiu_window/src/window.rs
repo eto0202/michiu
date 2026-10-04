@@ -10,11 +10,14 @@ use raw_window_handle::{
 };
 use std::{borrow::Cow, ffi::c_void, marker::PhantomData, num::NonZeroIsize, sync::Arc};
 use windows::Win32::Foundation::{FreeLibrary, GlobalFree};
+use windows::Win32::Graphics::Dwm::DwmFlush;
+use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
 use windows::Win32::System::Memory::GlobalSize;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_DBLCLKS, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND,
-    IDC_IBEAM, IDC_WAIT, SetCursor, WM_NCLBUTTONDOWN,
+    CS_DBLCLKS, HCURSOR, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND,
+    IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, IDC_WAIT,
+    SetCursor, WM_NCLBUTTONDOWN,
 };
 use windows::{
     Win32::{
@@ -518,6 +521,7 @@ impl Window {
         self.set_title_inner(title.into().as_ref());
     }
 
+    #[inline]
     fn set_title_inner(&self, title: &str) {
         unsafe {
             let title_wide: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
@@ -601,6 +605,7 @@ impl Window {
     /// # Ok(())
     /// # }
     /// ```
+    #[inline]
     pub fn set_theme(&self, mode: PreferredAppMode) {
         unsafe {
             // テーマ設定に応じて、タイトルバーを黒にするかどうかを動的に判定する
@@ -623,6 +628,7 @@ impl Window {
     ///
     /// # Errors
     /// Returns an error if opening or emptying the clipboard fails, or memory allocation fails.
+    #[inline]
     pub fn set_clipboard_text(&self, text: impl Into<Cow<'static, str>>) -> Result<()> {
         set_clipboard_text_impl(self.hwnd, &text.into())
     }
@@ -631,22 +637,26 @@ impl Window {
     ///
     /// # Errors
     /// Returns an error if the clipboard cannot be opened, or the data is not Unicode text.
+    #[inline]
     pub fn get_clipboard_text(&self) -> Result<String> {
         get_clipboard_text_impl(self.hwnd)
     }
 
     /// Captures the mouse cursor so that the window continues to receive mouse events
     /// even if the cursor moves outside the window's boundary.
+    #[inline]
     pub fn set_cursor_capture(&self, capture: bool) {
         set_cursor_capture_impl(self.hwnd, capture);
     }
 
     /// Restricts the mouse cursor within the physical client area of the window.
+    #[inline]
     pub fn set_cursor_clipping(&self, clip: bool) {
         set_cursor_clipping_impl(self.hwnd, clip);
     }
 
     /// Moves the window to the exact physical center of the monitor screen it is currently on.
+    #[inline]
     pub fn center_on_screen(&self) {
         center_on_screen_impl(self.hwnd);
     }
@@ -654,6 +664,7 @@ impl Window {
     /// Toggles borderless fullscreen mode on or off.
     ///
     /// This temporarily removes window borders and expands to cover the current active monitor.
+    #[inline]
     pub fn set_fullscreen(&self, fullscreen: bool) {
         set_fullscreen_impl(self.hwnd, fullscreen);
     }
@@ -676,6 +687,7 @@ impl Window {
     }
 
     /// Changes the standard mouse cursor shape (arrow, hand, text field, wait) for the window.
+    #[inline]
     pub fn set_cursor_icon(&self, cursor: CursorIcon) {
         unsafe {
             let state_ptr = GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as *mut WindowState;
@@ -684,6 +696,23 @@ impl Window {
                 let _ = apply_cursor_icon_impl(self.hwnd, cursor);
             }
         }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn redraw_requested(&self) -> bool {
+        unsafe { InvalidateRect(Some(self.hwnd), None, false).into() }
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn updata_window(&self) -> bool {
+        unsafe { UpdateWindow(self.hwnd).into() }
+    }
+
+    #[inline]
+    pub fn dwm_flush(&self) -> Result<()> {
+        unsafe { DwmFlush().map_err(MichiuError::UnexpectedOsError) }
     }
 }
 
@@ -1430,22 +1459,28 @@ pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
 
 #[allow(unused)]
 pub(crate) fn apply_cursor_icon_impl(hwnd: HWND, cursor: crate::CursorIcon) -> LRESULT {
-    unsafe {
+    let hcursor = if let CursorIcon::Other(h) = cursor {
+        h
+    } else {
         let idc = match cursor {
-            crate::CursorIcon::Default => IDC_ARROW,
-            crate::CursorIcon::Hand => IDC_HAND,
-            crate::CursorIcon::IBeam => IDC_IBEAM,
-            crate::CursorIcon::Wait => IDC_WAIT,
-            crate::CursorIcon::Cross => IDC_CROSS,
+            CursorIcon::Hand => IDC_HAND,
+            CursorIcon::IBeam => IDC_IBEAM,
+            CursorIcon::Wait => IDC_WAIT,
+            CursorIcon::Cross => IDC_CROSS,
+            CursorIcon::Grab | CursorIcon::Grabbing => IDC_SIZEALL,
+            CursorIcon::NotAllowed => IDC_NO,
+            CursorIcon::ResizeNs => IDC_SIZENS,
+            CursorIcon::ResizeEw => IDC_SIZEWE,
+            CursorIcon::ResizeNesw => IDC_SIZENESW,
+            CursorIcon::ResizeNwse => IDC_SIZENWSE,
+            _ => IDC_ARROW,
         };
+        unsafe { LoadCursorW(None, idc).unwrap_or_default() }
+    };
 
-        // システムのカーソルリソースをロードして適用
-        if let Ok(hcursor) = LoadCursorW(None, idc) {
-            let _ = SetCursor(Some(hcursor));
-        }
+    let _ = unsafe { SetCursor(Some(hcursor)) };
 
-        LRESULT(1) // DefWindowProcWに流さない
-    }
+    LRESULT(1) // DefWindowProcWに流さない
 }
 
 #[cfg(test)]

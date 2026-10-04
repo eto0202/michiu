@@ -3,11 +3,14 @@ use raw_window_handle::{
     DisplayHandle as RwhDisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle,
     Win32WindowHandle, WindowHandle as RwhWindowHandle,
 };
-use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, HDC, PAINTSTRUCT};
+use windows::Win32::Graphics::Dwm::DwmFlush;
+use windows::Win32::Graphics::Gdi::{
+    BeginPaint, EndPaint, HDC, InvalidateRect, PAINTSTRUCT, UpdateWindow,
+};
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    DestroyWindow, GWLP_USERDATA, GetWindowLongPtrW, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST,
-    HWND_TOPMOST, PostQuitMessage, SendMessageW, WM_NCLBUTTONDOWN, WM_NULL,
+    GWLP_USERDATA, GetWindowLongPtrW, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST,
+    PostQuitMessage, SendMessageW, WM_NCLBUTTONDOWN, WM_NULL,
 };
 use windows::core::PCWSTR;
 
@@ -65,6 +68,9 @@ pub(crate) enum SetWindowCommand {
     SetCursor(CursorIcon),
     Destroy,
     Quit,
+    RedrawRequested,
+    UpdateWindow,
+    DwmFlush,
 }
 
 /// Message ID used internally for posting async Window commands to the UI thread.
@@ -538,6 +544,33 @@ impl WindowHandle {
                 ps,
                 _marker: std::marker::PhantomData,
             })
+        }
+    }
+
+    #[inline]
+    pub fn redraw_requested(&self) {
+        if self.is_on_ui_thread() {
+            let _ = unsafe { InvalidateRect(Some(self.hwnd), None, false) };
+        } else {
+            self.post_command(SetWindowCommand::RedrawRequested);
+        }
+    }
+
+    #[inline]
+    pub fn update_window(&self) {
+        if self.is_on_ui_thread() {
+            let _ = unsafe { UpdateWindow(self.hwnd) };
+        } else {
+            self.post_command(SetWindowCommand::UpdateWindow);
+        }
+    }
+
+    #[inline]
+    pub fn dwm_flush(&self) {
+        if self.is_on_ui_thread() {
+            let _ = unsafe { DwmFlush() };
+        } else {
+            self.post_command(SetWindowCommand::DwmFlush);
         }
     }
 }

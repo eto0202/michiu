@@ -1,3 +1,5 @@
+use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
+
 /// Describes the state of a physical input element (e.g., Keyboard Key, Mouse Button).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ElementState {
@@ -67,7 +69,7 @@ pub enum MouseButton {
 }
 
 /// Represents standard system mouse cursor shapes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorIcon {
     /// The standard arrow cursor.
     #[default]
@@ -80,6 +82,14 @@ pub enum CursorIcon {
     Wait,
     /// The crosshair cursor, used for drawing or precise click locations.
     Cross,
+    Grab,
+    Grabbing,
+    NotAllowed,
+    ResizeNs,
+    ResizeEw,
+    ResizeNesw,
+    ResizeNwse,
+    Other(HCURSOR),
 }
 
 /// Specifies the positioning (Z-order) of a window relative to other windows on the screen.

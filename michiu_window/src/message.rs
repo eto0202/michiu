@@ -13,6 +13,10 @@ use std::{
 use windows::{
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+        Graphics::{
+            Dwm::DwmFlush,
+            Gdi::{InvalidateRect, UpdateWindow},
+        },
         UI::{
             Controls::WM_MOUSELEAVE,
             Input::{
@@ -620,6 +624,15 @@ pub(crate) fn translate_and_dispatch(
                         }
                         SetWindowCommand::Quit => {
                             PostQuitMessage(0);
+                        }
+                        SetWindowCommand::RedrawRequested => {
+                            let _ = InvalidateRect(Some(hwnd), None, false);
+                        }
+                        SetWindowCommand::UpdateWindow => {
+                            let _ = UpdateWindow(hwnd);
+                        }
+                        SetWindowCommand::DwmFlush => {
+                            let _ = DwmFlush();
                         }
                     }
                 }

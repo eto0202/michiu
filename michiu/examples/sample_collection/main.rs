@@ -145,10 +145,7 @@ pub fn create_renderer(
 }
 
 fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_window::Result<()> {
-    use windows::Win32::{
-        Graphics::Gdi::{InvalidateRect, UpdateWindow},
-        UI::WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL},
-    };
+    use windows::Win32::UI::WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL};
 
     let hwnd = handle.hwnd();
 
@@ -162,20 +159,20 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
 
                 // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
                 if app.context.has_dirty() {
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                    handle.redraw_requested();
                 }
             }
             WM_ENTERSIZEMOVE => {
                 app.context.set_window_resized(true);
-                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                let _ = unsafe { UpdateWindow(hwnd) };
+                handle.redraw_requested();
+                handle.update_window();
             }
             // ウィンドウドラッグリサイズの完了をキャッチ
             WM_EXITSIZEMOVE => {
                 app.context.set_window_resized(false);
                 // リサイズ完了後の再描画を即座にキックして、新サイズでの静止画キャプチャを誘発
-                let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                let _ = unsafe { UpdateWindow(hwnd) };
+                handle.redraw_requested();
+                handle.update_window();
             }
 
             _ => {}
@@ -198,8 +195,8 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                         .resize((width, height), app.renderer.scale_factor());
 
                     // 再描画要求
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
-                    let _ = unsafe { UpdateWindow(hwnd) };
+                    handle.redraw_requested();
+                    handle.update_window();
                 }
                 Event::RedrawRequested => {
                     redraw_requested(app, handle.clone());
@@ -225,7 +222,7 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
 
                     let hcursor = target_cursor.to_hcursor().unwrap();
 
-                    unsafe { windows::Win32::UI::WindowsAndMessaging::SetCursor(Some(hcursor)) };
+                    handle.set_cursor_icon(michiu_window::CursorIcon::Other(hcursor));
 
                     app.context
                         .inject_user_action(UserAction::PointerMove(logical_pos));
@@ -240,7 +237,7 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                     );
 
                     // インタラクションによる変化（ホバー状態）をリアルタイムに再描画
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                    handle.redraw_requested();
                 }
                 Event::CursorLeft => {
                     // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
@@ -249,7 +246,7 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                             -9999.0, -9999.0,
                         )));
 
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                    handle.redraw_requested();
                 }
                 Event::MouseInput {
                     button,
@@ -264,10 +261,10 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                         michiu_window::MouseButton::Other(_) => MouseButton::X1,
                     };
                     let modifiers = Modifiers {
-                        shift: modifiers == michiu_window::Modifiers::SHIFT,
-                        ctrl: modifiers == michiu_window::Modifiers::CONTROL,
-                        alt: modifiers == michiu_window::Modifiers::ALT,
-                        logo: modifiers == michiu_window::Modifiers::LOGO,
+                        shift: modifiers.contains(michiu_window::Modifiers::SHIFT),
+                        ctrl: modifiers.contains(michiu_window::Modifiers::CONTROL),
+                        alt: modifiers.contains(michiu_window::Modifiers::ALT),
+                        logo: modifiers.contains(michiu_window::Modifiers::LOGO),
                     };
                     let state = match state {
                         michiu_window::ElementState::Pressed => ElementState::Pressed,
@@ -311,11 +308,11 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                     );
 
                     // フォーカス取得（点滅カーソル表示開始）のために再描画
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                    handle.redraw_requested();
                 }
                 Event::CharacterInput(c) => {
                     app.context.inject_user_action(UserAction::Character(c));
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                    handle.redraw_requested();
                 }
                 Event::KeyboardInput {
                     key_code,
@@ -325,10 +322,10 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                     let key_code = key_code.assume_valid().into_inner();
                     let key = VirtualKey::from_windows(key_code);
                     let modifiers = Modifiers {
-                        shift: modifiers == michiu_window::Modifiers::SHIFT,
-                        ctrl: modifiers == michiu_window::Modifiers::CONTROL,
-                        alt: modifiers == michiu_window::Modifiers::ALT,
-                        logo: modifiers == michiu_window::Modifiers::LOGO,
+                        shift: modifiers.contains(michiu_window::Modifiers::SHIFT),
+                        ctrl: modifiers.contains(michiu_window::Modifiers::CONTROL),
+                        alt: modifiers.contains(michiu_window::Modifiers::ALT),
+                        logo: modifiers.contains(michiu_window::Modifiers::LOGO),
                     };
                     let state = match state {
                         michiu_window::ElementState::Pressed => ElementState::Pressed,
@@ -380,7 +377,7 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                         modifiers,
                     });
 
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                    handle.redraw_requested();
                 }
                 Event::MouseWheel {
                     raw_delta_x,
@@ -418,7 +415,7 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                     );
 
                     // 画面を再描画
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                    handle.redraw_requested();
                 }
                 Event::Ime(ime) => {
                     let ime = ime.assume_valid().into_inner();
@@ -438,7 +435,7 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                     };
 
                     app.context.inject_user_action(UserAction::Ime(ime_state));
-                    let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
+                    handle.redraw_requested();
                 }
                 _ => {}
             }

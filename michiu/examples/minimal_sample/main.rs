@@ -13,8 +13,7 @@ struct AppState {
     root_id: EntityId,
 }
 
-const ALLOW_LOG: bool = true;
-
+// cargo build --example minimal_sample --release
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = init_dpi_awareness();
 
@@ -100,16 +99,24 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
 
                     app.renderer
                         .resize((width, height), app.renderer.scale_factor());
-                    let _ = unsafe {
-                        windows::Win32::Graphics::Gdi::InvalidateRect(
-                            Some(handle.hwnd()),
-                            None,
-                            false,
-                        )
-                    };
+                    handle.redraw_requested();
                 }
                 Event::RedrawRequested => {
-                    redraw_requested(app, handle.clone());
+                    app.context.begin_frame();
+                    app.context.tick_system_frame(&TickType::All);
+
+                    app.context
+                        .sync_layout(app.root_id, app.renderer.layout_size());
+
+                    app.renderer.update_composition_tree(&mut app.context);
+
+                    if let Some(_ctx) = handle.begin_paint() {
+                        app.renderer.draw(&mut app.context);
+                    }
+                    if app.context.has_active_frame() {
+                        handle.dwm_flush();
+                        handle.redraw_requested();
+                    }
                 }
                 Event::CursorMoved { position } => {
                     let pos = position.assume_valid().into_inner();
@@ -122,13 +129,7 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
 
                     app.context
                         .inject_user_action(UserAction::PointerMove(logical_pos));
-                    let _ = unsafe {
-                        windows::Win32::Graphics::Gdi::InvalidateRect(
-                            Some(handle.hwnd()),
-                            None,
-                            false,
-                        )
-                    };
+                    handle.redraw_requested();
                 }
                 Event::MouseInput {
                     button,
@@ -158,13 +159,7 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                         state,
                         modifiers,
                     });
-                    let _ = unsafe {
-                        windows::Win32::Graphics::Gdi::InvalidateRect(
-                            Some(handle.hwnd()),
-                            None,
-                            false,
-                        )
-                    };
+                    handle.redraw_requested();
                 }
                 _ => {}
             }
@@ -172,133 +167,4 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
     })? {}
 
     Ok(())
-}
-
-fn redraw_requested(app: &mut AppState, handle: Validated<WindowHandle>) {
-    let frame_start = std::time::Instant::now();
-
-    let update_start = std::time::Instant::now();
-    app.context.begin_frame();
-    app.context.tick_system_frame(&TickType::All);
-    let update_elapsed = update_start.elapsed();
-
-    let layout_start = std::time::Instant::now();
-    app.context
-        .sync_layout(app.root_id, app.renderer.layout_size());
-    let layout_elapsed = layout_start.elapsed();
-
-    let comp_start = std::time::Instant::now();
-    app.renderer.update_composition_tree(&mut app.context);
-    let comp_elapsed = comp_start.elapsed();
-
-    let draw_start = std::time::Instant::now();
-    if let Some(_ctx) = handle.begin_paint() {
-        app.renderer.draw(&mut app.context);
-    }
-    let draw_elapsed = draw_start.elapsed();
-
-    let cpu_active_elapsed = update_elapsed + layout_elapsed + comp_elapsed + draw_elapsed;
-
-    let sync_start = std::time::Instant::now();
-    if app.context.has_active_frame() {
-        let _ = unsafe { windows::Win32::Graphics::Dwm::DwmFlush() };
-        let _ = unsafe {
-            windows::Win32::Graphics::Gdi::InvalidateRect(Some(handle.hwnd()), None, false)
-        };
-    }
-    let sync_elapsed = sync_start.elapsed();
-    let total_elapsed = frame_start.elapsed();
-
-    thread_local! {
-        static LAST_PRINT: std::cell::Cell<Option<std::time::Instant>>  = const { std::cell::Cell::new(None) };
-        // 1秒間のデータを一時保存するバッファ
-        static FRAME_DATA: std::cell::RefCell<Vec<FrameMetrics>>  = const { std::cell::RefCell::new(Vec::new()) };
-    }
-
-    struct FrameMetrics {
-        update: f64,
-        layout: f64,
-        comp: f64,
-        draw: f64,
-        sync: f64,
-        cpu_active: f64,
-        total: f64,
-    }
-
-    FRAME_DATA.with(|data| {
-        data.borrow_mut().push(FrameMetrics {
-            update: update_elapsed.as_secs_f64() * 1000.0,
-            layout: layout_elapsed.as_secs_f64() * 1000.0,
-            comp: comp_elapsed.as_secs_f64() * 1000.0,
-            draw: draw_elapsed.as_secs_f64() * 1000.0,
-            sync: sync_elapsed.as_secs_f64() * 1000.0,
-            cpu_active: cpu_active_elapsed.as_secs_f64() * 1000.0,
-            total: total_elapsed.as_secs_f64() * 1000.0,
-        });
-    });
-
-    let now = std::time::Instant::now();
-    let should_print = LAST_PRINT.with(|c| match c.get() {
-        None => {
-            c.set(Some(now));
-            true
-        }
-        Some(last) => {
-            if now.duration_since(last).as_secs_f32() >= 1.0 {
-                c.set(Some(now));
-                true
-            } else {
-                false
-            }
-        }
-    });
-
-    if should_print {
-        FRAME_DATA.with(|data| {
-            let mut frames = data.borrow_mut();
-            let count = frames.len();
-            if count > 0 {
-                // 各メトリクスの平均値
-                let avg_update =
-                    frames.iter().map(|f| f.update).sum::<f64>() / count as f64;
-                let avg_layout =
-                    frames.iter().map(|f| f.layout).sum::<f64>() / count as f64;
-                let avg_comp =
-                    frames.iter().map(|f| f.comp).sum::<f64>() / count as f64;
-                let avg_draw =
-                    frames.iter().map(|f| f.draw).sum::<f64>() / count as f64;
-                let avg_sync =
-                    frames.iter().map(|f| f.sync).sum::<f64>() / count as f64;
-                let avg_cpu =
-                    frames.iter().map(|f| f.cpu_active).sum::<f64>() / count as f64;
-                let avg_total =
-                    frames.iter().map(|f| f.total).sum::<f64>() / count as f64;
-
-                // P99を計算
-                frames.sort_by(|a, b| a.cpu_active.partial_cmp(&b.cpu_active).unwrap());
-                let p99_idx = (count * 99 / 100).min(count - 1);
-                let p99_cpu = frames[p99_idx].cpu_active;
-                let max_cpu = frames.last().unwrap().cpu_active;
-
-                if ALLOW_LOG {
-                    println!(
-                        "[Loop Count: {:>3}] (Total Frame: {:5.2}ms)\n\
-                            ├─ Phase Avg:   Upd: {:5.2}ms | Lay: {:5.2}ms | Cmp: {:5.2}ms | Drw: {:5.2}ms | Sync: {:5.2}ms\n\
-                            └─ CPU Active:  Avg: {:5.2}ms | P99: {:5.2}ms | Max: {:5.2}ms",
-                        count,
-                        avg_total,
-                        avg_update,
-                        avg_layout,
-                        avg_comp,
-                        avg_draw,
-                        avg_sync,
-                        avg_cpu,
-                        p99_cpu,
-                        max_cpu
-                    );
-                }
-                frames.clear();
-            }
-        });
-    }
 }
