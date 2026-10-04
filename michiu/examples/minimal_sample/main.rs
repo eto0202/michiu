@@ -94,16 +94,19 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                     handle.quit();
                 }
                 Event::Resized(phy_size) => {
-                    use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
                     let size = phy_size.assume_valid().into_inner();
                     let width = size.width as u32;
                     let height = size.height as u32;
 
                     app.renderer
                         .resize((width, height), app.renderer.scale_factor());
-
-                    let _ = unsafe { InvalidateRect(Some(handle.hwnd()), None, false) };
-                    let _ = unsafe { UpdateWindow(handle.hwnd()) };
+                    let _ = unsafe {
+                        windows::Win32::Graphics::Gdi::InvalidateRect(
+                            Some(handle.hwnd()),
+                            None,
+                            false,
+                        )
+                    };
                 }
                 Event::RedrawRequested => {
                     redraw_requested(app, handle.clone());
@@ -119,6 +122,13 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
 
                     app.context
                         .inject_user_action(UserAction::PointerMove(logical_pos));
+                    let _ = unsafe {
+                        windows::Win32::Graphics::Gdi::InvalidateRect(
+                            Some(handle.hwnd()),
+                            None,
+                            false,
+                        )
+                    };
                 }
                 Event::MouseInput {
                     button,
@@ -148,6 +158,13 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
                         state,
                         modifiers,
                     });
+                    let _ = unsafe {
+                        windows::Win32::Graphics::Gdi::InvalidateRect(
+                            Some(handle.hwnd()),
+                            None,
+                            false,
+                        )
+                    };
                 }
                 _ => {}
             }
@@ -175,7 +192,9 @@ fn redraw_requested(app: &mut AppState, handle: Validated<WindowHandle>) {
     let comp_elapsed = comp_start.elapsed();
 
     let draw_start = std::time::Instant::now();
-    app.renderer.draw(&mut app.context);
+    if let Some(_ctx) = handle.begin_paint() {
+        app.renderer.draw(&mut app.context);
+    }
     let draw_elapsed = draw_start.elapsed();
 
     let cpu_active_elapsed = update_elapsed + layout_elapsed + comp_elapsed + draw_elapsed;

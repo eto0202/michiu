@@ -30,7 +30,7 @@ pub struct GitHubVisual(WebView2Visual);
 #[derive(Clone)]
 pub struct YouTubeVisual(WebView2Visual);
 
-pub const ALLOW_LOG: bool = false;
+pub const ALLOW_LOG: bool = true;
 // これ起動めちゃ遅くなるので注意
 pub const ALLOW_STRESS_TEST: bool = false;
 
@@ -469,7 +469,9 @@ fn redraw_requested(app: &mut AppState, handle: Validated<WindowHandle>) {
 
     app.context.update_accessibility();
 
-    app.renderer.draw(&mut app.context);
+    if let Some(_ctx) = handle.begin_paint() {
+        app.renderer.draw(&mut app.context);
+    }
 
     let draw_elapsed = draw_start.elapsed();
 
