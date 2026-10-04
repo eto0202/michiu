@@ -74,7 +74,7 @@ fn test_integration_cross_thread_control_lifecycle() {
         // ポストされたクロージャがUIスレッド上で安全に実行され、
         // アトミックフラグが true に書き換わるまでメッセージポンプを回す
         while start_time.elapsed() < Duration::from_secs(2) {
-            let _ = event_pump.poll_event();
+            let _ = event_pump.poll_one_event();
 
             if executed.load(Ordering::SeqCst) {
                 break;

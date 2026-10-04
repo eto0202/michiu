@@ -227,7 +227,7 @@ fn test_handle_wake_up_with_mpsc_channel_normal() {
         while start_time.elapsed() < std::time::Duration::from_secs(2) {
             // wake_up() によって送られた WM_NULL がメッセージループを回し、
             // 即座にチャネルの try_recv のチェックに処理を到達させる
-            let _ = event_pump.poll_event();
+            let _ = event_pump.poll_one_event();
 
             if let Ok(msg) = rx.try_recv() {
                 assert_eq!(msg, "Wake Up Signal!");
@@ -271,7 +271,7 @@ fn test_handle_asynchronous_destroy_and_zombie_validation() {
         let mut window_destroyed = false;
 
         while start_time.elapsed() < std::time::Duration::from_secs(2) {
-            let _ = event_pump.poll_event();
+            let _ = event_pump.poll_one_event();
 
             // OSの IsWindow APIを用いて、ウィンドウが物理的に解体されたか監視
             let is_alive = unsafe {

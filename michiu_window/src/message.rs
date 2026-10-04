@@ -7,13 +7,13 @@ use michiu_guard::Unvalidated;
 use std::{
     any::{Any, TypeId},
     cell::{Cell, RefCell},
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     rc::Rc,
 };
 use windows::{
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
-        Graphics::Gdi::{BeginPaint, EndPaint, PAINTSTRUCT},
+        Graphics::Gdi::ValidateRect,
         UI::{
             Controls::WM_MOUSELEAVE,
             Input::KeyboardAndMouse::{
@@ -22,34 +22,60 @@ use windows::{
             },
             WindowsAndMessaging::{
                 DestroyWindow, DispatchMessageW, GetMessageW, HTCAPTION, HWND_BOTTOM,
-                HWND_NOTOPMOST, HWND_TOPMOST, IsWindow, PM_REMOVE, PeekMessageW, PostMessageW,
-                SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-                SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CHAR,
-                WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_IME_COMPOSITION,
-                WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE,
-                WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
-                WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCLBUTTONDOWN, WM_PAINT,
-                WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE,
-                WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
+                HWND_NOTOPMOST, HWND_TOPMOST, IsWindow, MSG, PM_REMOVE, PeekMessageW, PostMessageW,
+                PostQuitMessage, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+                SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow,
+                TranslateMessage, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED,
+                WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION,
+                WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN,
+                WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE,
+                WM_NCLBUTTONDOWN, WM_NULL, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+                WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
             },
         },
     },
     core::PCWSTR,
 };
 
+/// For events originating from COM callbacks, such as `IDropTarget`,
+/// the value is 0 because there is no corresponding Win32 message.
+#[derive(Debug, Clone, Default)]
+pub struct RawEvent {
+    pub msg: u32,
+    pub wparam: WPARAM,
+    pub lparam: LPARAM,
+}
+
+pub type HandlerPtr = *mut (dyn FnMut(MichiuEvent, WindowId, RawEvent) + 'static);
 thread_local! {
-    static EVENT_QUEUE: RefCell<VecDeque<MichiuEvent>> = const { RefCell::new(VecDeque::new()) };
+    pub static CURRENT_HANDLER: Cell<Option<HandlerPtr>> = const { Cell::new(None) };
     // 重複したメッセージポンプが同じスレッドで活性化されていないかを管理するフラグ
     static PUMP_ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 
+// 呼び出し側（translate_and_push や wnd_proc）で安全にクロージャを実行する関数
+pub(crate) fn dispatch_to_active_handler(event: MichiuEvent, id: WindowId, raw: RawEvent) {
+    CURRENT_HANDLER.with(|cell| {
+        // take することで再帰呼び出し時の多重借用を防ぐ
+        if let Some(ptr) = cell.take() {
+            unsafe {
+                (*ptr)(event, id, raw);
+            }
+            // 実行が終わったら元に戻す
+            cell.set(Some(ptr));
+        }
+    });
+}
+
+pub struct HandlerGuard;
+impl Drop for HandlerGuard {
+    fn drop(&mut self) {
+        CURRENT_HANDLER.with(|h| h.set(None));
+    }
+}
+
 /// Message ID used internally for posting custom user-defined events ([`MichiuEvent::User`]) to the UI thread.
 pub const WM_USER_EVENT: u32 = WM_USER + 101;
-
-// WndProc の中でイベントを蓄積する関数
-pub(crate) fn push_event(event: MichiuEvent) {
-    EVENT_QUEUE.with(|q| q.borrow_mut().push_back(event));
-}
 
 /// A thread-affine message pump responsible for polling OS messages and driving the event loop.
 ///
@@ -65,13 +91,6 @@ pub(crate) fn push_event(event: MichiuEvent) {
 /// asynchronous closures and commands) remaining in the thread's Win32 message queue to prevent memory leaks.
 pub struct EventPump {
     _marker: std::marker::PhantomData<*const ()>,
-}
-
-impl Default for EventPump {
-    #[inline]
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl EventPump {
@@ -96,100 +115,57 @@ impl EventPump {
         }
     }
 
-    /// Blocks the current thread (completely suspends CPU usage to 0%) until a new windowing
-    /// or user-defined event arrives.
-    ///
-    /// # Returns
-    /// - `Ok(Some(event))` if an event was successfully processed.
-    /// - `Ok(None)` if the loop received a normal quit signal (`WM_QUIT`).
-    /// - `Err(MichiuError)` if a low-level Win32 system error occurred.
+    /// Pause the thread until a message arrives, process one message, and then resume.
     ///
     /// # Errors
     /// Returns [`MichiuError::UnexpectedOsError`] if `GetMessageW` returns `-1`.
-    pub fn wait_event(&mut self) -> crate::Result<Option<MichiuEvent>> {
-        // すでにキューに溜まっているイベントがあれば即座に返す (ブロッキングしない)
-        if let Some(event) = EVENT_QUEUE.with(|q| q.borrow_mut().pop_front()) {
-            return Ok(Some(event));
-        }
+    pub fn wait_event<F>(&mut self, mut f: F) -> crate::Result<bool>
+    where
+        F: FnMut(MichiuEvent, WindowId, RawEvent),
+    {
+        let f_trait: &mut (dyn FnMut(MichiuEvent, WindowId, RawEvent) + '_) = &mut f;
+        let erased_ptr: HandlerPtr = unsafe { std::mem::transmute(f_trait) };
+
+        CURRENT_HANDLER.with(|h| h.set(Some(erased_ptr)));
+        let _guard = HandlerGuard;
 
         unsafe {
-            let mut msg = std::mem::zeroed();
+            let mut msg = MSG::default();
 
-            // GetMessageW を呼び出し、次のメッセージがメッセージキューに来るまでスレッドを完全にサスペンド
-            // - GetMessageW は WM_QUIT を受信した際に FALSE (0) を返す
-            // - エラーが発生した場合は -1 を返す
-            loop {
-                let res = GetMessageW(&raw mut msg, None, 0, 0);
+            let res = GetMessageW(&raw mut msg, None, 0, 0);
 
-                if res.0 == 0 {
-                    // WM_QUIT (0) を受信した場合は正常終了とみなし、残りのメモリをフラッシュして Ok(None)
-                    flush_remaining_pointer_messages();
-                    break;
-                } else if res.0 == -1 {
-                    // GetMessageW がエラー (-1) を返した場合は、OSエラーを安全に早期リターン
-                    return Err(MichiuError::UnexpectedOsError(
-                        windows::core::Error::from_thread(),
-                    ));
-                }
-
-                let _ = TranslateMessage(&raw const msg);
-                DispatchMessageW(&raw const msg);
-
-                // メッセージ処理によってイベント（WindowEvent や UserEvent）がキューに積まれた場合、
-                // 即座にブロックを解除してそのイベントを呼び出し元に返す。
-                // wake_up() による WM_NULL などの場合、空のイベントとしてループが解除される
-                if let Some(event) = EVENT_QUEUE.with(|q| q.borrow_mut().pop_front()) {
-                    return Ok(Some(event));
-                }
+            if res.0 == 0 {
+                // WM_QUIT (0) を受信した場合は正常終了とみなし、残りのメモリをフラッシュ
+                flush_remaining_pointer_messages();
+                return Ok(false);
+            } else if res.0 == -1 {
+                // GetMessageW がエラー (-1) を返した場合は、OSエラーを安全に早期リターン
+                return Err(MichiuError::UnexpectedOsError(
+                    windows::core::Error::from_thread(),
+                ));
             }
-        }
 
-        Ok(None)
+            let _ = TranslateMessage(&raw const msg);
+            DispatchMessageW(&raw const msg);
+        }
+        Ok(true)
     }
 
-    /// Non-blockingly polls and retrieves a single event from the event queue.
-    ///
-    /// First checks the internal thread-local FIFO queue. If empty, it queries the OS message queue
-    /// via `PeekMessageW`. If a message is processed and pushes a translated event, it immediately
-    /// returns it to prevent 1-frame input latency.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, EventPump, Event, MichiuEvent};
-    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
-    /// let mut event_pump = EventPump::new();
-    ///
-    /// 'main_loop: loop {
-    ///     while let Some(event) = event_pump.poll_event() {
-    ///         match event {
-    ///             MichiuEvent::Window { id, event } => match event {
-    ///                 Event::CloseRequested => {
-    ///                     break 'main_loop;
-    ///                 }
-    ///                 _ => {}
-    ///             },
-    ///             _ => {}
-    ///         }
-    ///     }
-    ///     std::thread::sleep(std::time::Duration::from_millis(16)); // ~60 FPS
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn poll_event(&mut self) -> Option<MichiuEvent> {
-        // すでにキューにたまっているイベントがあればそれを返す
-        if let Some(event) = EVENT_QUEUE.with(|q| q.borrow_mut().pop_front()) {
-            return Some(event);
-        }
+    /// Process all messages in the queue in a non-blocking manner and return.
+    pub fn poll_event<F>(&mut self, mut f: F)
+    where
+        F: FnMut(MichiuEvent, WindowId, RawEvent),
+    {
+        let f_trait: &mut (dyn FnMut(MichiuEvent, WindowId, RawEvent) + '_) = &mut f;
+        let erased_ptr: HandlerPtr = unsafe { std::mem::transmute(f_trait) };
 
-        // キューが空ならOSのメッセージキューからメッセージを処理する
+        CURRENT_HANDLER.with(|h| h.set(Some(erased_ptr)));
+        let _guard = HandlerGuard;
+
         unsafe {
-            let mut msg = std::mem::zeroed();
+            let mut msg = MSG::default();
             // PeekMessageW でメッセージを非ブロッキング取得
             while PeekMessageW(&raw mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                // WM_QUIT (PostQuitMessage) が送られてきた場合の終了ハンドリング
                 if msg.message == WM_QUIT {
                     break;
                 }
@@ -198,29 +174,91 @@ impl EventPump {
                     || msg.message == WM_RUN_ON_UI_THREAD
                     || msg.message == WM_USER_EVENT;
 
-                if is_ptr_message {
-                    use windows::Win32::UI::WindowsAndMessaging::IsWindow;
-                    // HWND が無効（既に破棄されている）場合、DispatchMessageWを呼んでも
-                    // wnd_procは呼ばれないため、その場で即座にポインタを回収する
-                    if !msg.hwnd.is_invalid() && !IsWindow(Some(msg.hwnd)).as_bool() {
-                        free_raw_message_pointer(msg.message, msg.lParam);
-                        continue;
-                    }
+                // HWND が無効（既に破棄されている）場合、DispatchMessageWを呼んでも
+                // wnd_procは呼ばれないため、その場で即座にポインタを回収する
+                if is_ptr_message && !msg.hwnd.is_invalid() && !IsWindow(Some(msg.hwnd)).as_bool() {
+                    free_raw_message_pointer(msg.message, msg.lParam);
+                    continue;
+                }
+
+                let _ = TranslateMessage(&raw const msg);
+                DispatchMessageW(&raw const msg);
+            }
+        }
+    }
+
+    /// Retrieves and returns exactly one event from the queue.
+    /// If there are no valid events, it immediately returns `None` (non-blocking).
+    pub fn poll_one_event(&mut self) -> Option<MichiuEvent> {
+        let mut captured: Option<MichiuEvent> = None;
+
+        // 捕獲用の一時クロージャ
+        let mut capture_fn = |event: MichiuEvent, _id: WindowId, _raw: RawEvent| {
+            captured = Some(event);
+        };
+
+        // スレッドローカルに一時登録
+        let f_trait: &mut (dyn FnMut(MichiuEvent, WindowId, RawEvent) + '_) = &mut capture_fn;
+        let erased_ptr: HandlerPtr = unsafe { std::mem::transmute(f_trait) };
+
+        CURRENT_HANDLER.with(|h| h.set(Some(erased_ptr)));
+        let _guard = HandlerGuard;
+
+        unsafe {
+            let mut msg = MSG::default();
+
+            // 1件ずつ Peek してディスパッチする
+            while PeekMessageW(&raw mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                if msg.message == WM_QUIT {
+                    break;
+                }
+
+                // ポインタ型メッセージの安全性チェック）
+                let is_ptr_message = msg.message == WM_WINDOW_COMMAND
+                    || msg.message == WM_RUN_ON_UI_THREAD
+                    || msg.message == WM_USER_EVENT;
+
+                if is_ptr_message && !msg.hwnd.is_invalid() && !IsWindow(Some(msg.hwnd)).as_bool() {
+                    free_raw_message_pointer(msg.message, msg.lParam);
+                    continue;
                 }
 
                 let _ = TranslateMessage(&raw const msg);
                 DispatchMessageW(&raw const msg);
 
-                // メッセージを1つ処理した結果、イベントキューに何か入ったら
-                // 1フレーム遅延を防ぐためにループを抜けて即座に呼び出し元に返す
-                if !EVENT_QUEUE.with(|q| q.borrow().is_empty()) {
+                // translate_and_dispatch 経由で MichiuEvent が1つでも捕獲できたら即座にリターン
+                // （残りのメッセージはメッセージキューに残る）
+                if captured.is_some() {
                     break;
                 }
             }
         }
 
-        // 溜まったイベントの先頭を返す（無ければ None）
-        EVENT_QUEUE.with(|q| q.borrow_mut().pop_front())
+        captured
+    }
+
+    /// Discard and clear all remaining unprocessed events.
+    #[inline]
+    pub fn clear_event(&mut self) {
+        self.poll_event(|_, _, _| {});
+    }
+}
+
+impl Default for EventPump {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// EventPump 破棄時に活性化フラグをリセットし、スレッド内で次のポンプ生成を許容する
+impl Drop for EventPump {
+    fn drop(&mut self) {
+        PUMP_ACTIVE.with(|active| {
+            active.set(false);
+        });
+        unsafe {
+            flush_remaining_pointer_messages();
+        }
     }
 }
 
@@ -231,29 +269,32 @@ impl EventPump {
 /// If `None` is returned, processing is not bypassed;
 /// instead, the message is passed directly to the OS's default handling.
 #[allow(clippy::too_many_lines)]
-pub(crate) fn translate_and_push(
+pub(crate) fn translate_and_dispatch(
     hwnd: HWND,
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
     state: &mut WindowState,
 ) -> Option<LRESULT> {
+    let id = WindowId(hwnd.0 as isize);
+    let raw = RawEvent {
+        msg,
+        wparam,
+        lparam,
+    };
+
     // 渡された Event を自動的に Event::Event に包んでキューに積む
     let push_win_event = |e: Event| {
-        push_event(MichiuEvent::Window {
-            id: WindowId(hwnd.0 as isize),
-            event: e,
-        });
+        dispatch_to_active_handler(MichiuEvent::Window { id, event: e }, id, raw.clone());
     };
 
     match msg {
         WM_CREATE => {
             push_win_event(Event::Created);
-            None // DefWindowProcW に流して正常に初期化を完了させる
+            None
         }
         WM_CLOSE => {
             push_win_event(Event::CloseRequested);
-            // 早期リターンして DefWindowProcW に渡るのをせき止める
             Some(LRESULT(0))
         }
         WM_DESTROY => {
@@ -264,9 +305,10 @@ pub(crate) fn translate_and_push(
         WM_SIZE => {
             let width = (lparam.0 & 0xffff) as i32;
             let height = ((lparam.0 >> 16) & 0xffff) as i32;
-            push_win_event(Event::Resized(Unvalidated::new(PhysicalSize::new(
-                width, height,
-            ))));
+            push_win_event(Event::Resized(Unvalidated::new(PhysicalSize {
+                width,
+                height,
+            })));
             None
         }
         WM_MOVE => {
@@ -392,12 +434,7 @@ pub(crate) fn translate_and_push(
             None
         }
         WM_PAINT => {
-            let mut ps = PAINTSTRUCT::default();
-            unsafe {
-                let _hdc = BeginPaint(hwnd, &raw mut ps);
-                push_win_event(Event::RedrawRequested);
-                let _ = EndPaint(hwnd, &raw const ps);
-            }
+            push_win_event(Event::RedrawRequested);
             // DefWindowProcW のデフォルト描画をスキップ
             Some(LRESULT(0))
         }
@@ -417,27 +454,27 @@ pub(crate) fn translate_and_push(
                     scale_factor,
                     suggested_bounds: Unvalidated::new(bounds),
                 });
-            }
-            if state.auto_dpi_scaling {
-                let rect_ptr = lparam.0 as *const RECT;
-                if !rect_ptr.is_null() {
-                    let rect = unsafe { *rect_ptr };
-                    unsafe {
-                        let _ = SetWindowPos(
-                            hwnd,
-                            None,
-                            rect.left,
-                            rect.top,
-                            rect.right - rect.left,
-                            rect.bottom - rect.top,
-                            SWP_NOZORDER | SWP_NOACTIVATE,
-                        );
+
+                if state.auto_dpi_scaling {
+                    let rect_ptr = lparam.0 as *const RECT;
+                    if !rect_ptr.is_null() {
+                        let rect = unsafe { *rect_ptr };
+                        unsafe {
+                            let _ = SetWindowPos(
+                                hwnd,
+                                None,
+                                rect.left,
+                                rect.top,
+                                rect.right - rect.left,
+                                rect.bottom - rect.top,
+                                SWP_NOZORDER | SWP_NOACTIVATE,
+                            );
+                        }
                     }
+                    return Some(LRESULT(0));
                 }
-                Some(LRESULT(0))
-            } else {
-                None
             }
+            None
         }
         WM_SETCURSOR => {
             // wparam にはウィンドウのHWND、lparam の下位16ビットにはヒットテスト値が入る。
@@ -457,20 +494,19 @@ pub(crate) fn translate_and_push(
         | WM_IME_ENDCOMPOSITION
         | WM_IME_COMPOSITION
         | WM_INPUTLANGCHANGE => {
-            push_ime_state_update(hwnd, state);
+            push_ime_state_update(hwnd, id, raw, state);
             None
         }
         WM_IME_NOTIFY => {
             let sub_msg = wparam.0 as u32;
             // 状態変更通知 (IMN_SETOPENSTATUS = 0x000F, IMN_SETCONVERSIONMODE = 0x0006) のみフック
             if sub_msg == 0x000F || sub_msg == 0x0006 {
-                push_ime_state_update(hwnd, state);
+                push_ime_state_update(hwnd, id, raw, state);
             }
             None
         }
         WM_WINDOW_COMMAND => {
             let raw_ptr = lparam.0 as *mut SetWindowCommand;
-
             if !raw_ptr.is_null() {
                 unsafe {
                     let command = Box::from_raw(raw_ptr);
@@ -559,6 +595,9 @@ pub(crate) fn translate_and_push(
                                 let _ = DestroyWindow(hwnd);
                             }
                         }
+                        SetWindowCommand::Quit => {
+                            PostQuitMessage(0);
+                        }
                     }
                 }
             }
@@ -567,7 +606,6 @@ pub(crate) fn translate_and_push(
         }
         WM_RUN_ON_UI_THREAD => {
             let raw_ptr = lparam.0 as *mut Box<dyn FnOnce(HWND) + Send + 'static>;
-
             if !raw_ptr.is_null() {
                 unsafe {
                     let closure = Box::from_raw(raw_ptr);
@@ -585,23 +623,18 @@ pub(crate) fn translate_and_push(
         }
         WM_USER_EVENT => {
             let raw_ptr = lparam.0 as *mut Box<dyn Any + Send>;
-
             if !raw_ptr.is_null() {
                 unsafe {
                     let boxed_any = Box::from_raw(raw_ptr);
-                    push_event(MichiuEvent::User(*boxed_any));
+                    dispatch_to_active_handler(MichiuEvent::User(*boxed_any), id, raw);
                 }
             }
 
             Some(LRESULT(0)) // 処理完了
         }
         _ => {
-            push_win_event(Event::UnsafeRaw {
-                msg,
-                wparam,
-                lparam,
-            });
-            None // DefWindowProcW を妨げないように None
+            dispatch_to_active_handler(MichiuEvent::Other, id, raw);
+            None
         }
     }
 }
@@ -737,18 +770,6 @@ unsafe fn flush_remaining_pointer_messages() {
     }
 }
 
-// EventPump 破棄時に活性化フラグをリセットし、スレッド内で次のポンプ生成を許容する
-impl Drop for EventPump {
-    fn drop(&mut self) {
-        PUMP_ACTIVE.with(|active| {
-            active.set(false);
-        });
-        unsafe {
-            flush_remaining_pointer_messages();
-        }
-    }
-}
-
 // コールバック関数を保持するための型
 type Listener = Rc<dyn Fn(&dyn Any)>;
 
@@ -842,7 +863,7 @@ impl EventBus {
     }
 }
 
-fn push_ime_state_update(hwnd: HWND, state: &WindowState) {
+fn push_ime_state_update(hwnd: HWND, id: WindowId, raw: RawEvent, state: &WindowState) {
     // ImeContext を生成して現在の最新状態を一括クエリする
     if let Ok(ctx) = ImeContext::new(hwnd) {
         let is_open = ctx.is_open();
@@ -862,7 +883,7 @@ fn push_ime_state_update(hwnd: HWND, state: &WindowState) {
         let caret_position = ctx.get_composition_window_position();
 
         let update = ImeStateUpdate {
-            window_id: hwnd.0 as isize,
+            window_id: id.0,
             is_open,
             conversion_mode,
             sentence_mode,
@@ -878,10 +899,14 @@ fn push_ime_state_update(hwnd: HWND, state: &WindowState) {
         }
 
         // 本ライブラリのメインイベントキューへバンドルイベントとしてプッシュ
-        push_event(MichiuEvent::Window {
-            id: WindowId(hwnd.0 as isize),
-            event: Event::Ime(Unvalidated::new(update)),
-        });
+        dispatch_to_active_handler(
+            MichiuEvent::Window {
+                id,
+                event: Event::Ime(Unvalidated::new(update)),
+            },
+            id,
+            raw,
+        );
     }
 }
 

@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_pump = EventPump::new();
 
     // Process OS window and input events first (DPI, close requested, resize, drag & drop, etc.)
-    while let Some(event) = event_pump.wait_event()? {
+    while event_pump.wait_event(|event, _, _| {
         if let MichiuEvent::Window { event, .. } = event {
             match event {
                 Event::CloseRequested => {
@@ -92,7 +92,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 Event::Destroyed => {
                     // Exit the message loop cleanly after the window is physically destroyed
-                    break;
+                    handle.quit();
                 }
                 Event::FileDropped(unvalidated_files) => {
                     // Securely validate raw OS inputs before letting them mutate application state
@@ -119,7 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 _ => {}
             }
         }
-
+    })? {
         // Process custom application commands sequentially (Safe UI mutations on the UI thread)
         while let Ok(command) = rx.try_recv() {
             match command {
@@ -132,5 +132,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
+
     Ok(())
 }

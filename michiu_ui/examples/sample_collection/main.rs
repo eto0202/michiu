@@ -107,6 +107,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let youtube_visual = WebView2Visual::new(&device, hwnd, youtube, scale_factor, &task_sender)
         .expect("Failed to create WebView2Visual");
 
+    WebView2Visual::prewarm_webview2();
+
     let send_hwnd = SendHwnd(hwnd);
     context.set_waker(move || send_hwnd.wake());
 
@@ -134,13 +136,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(app_state) as isize) };
-
-    let app_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) } as *mut AppState;
-    let app = unsafe { &mut *app_ptr };
-
-    let (width, height) = client_rect(hwnd);
-    app.renderer.resize((width, height), scale_factor);
-    WebView2Visual::prewarm_webview2();
 
     let _ = show_window(hwnd);
 

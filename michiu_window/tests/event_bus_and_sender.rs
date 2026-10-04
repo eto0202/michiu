@@ -112,33 +112,33 @@ fn test_integration_event_bus_and_sender_cooperation() {
         let mut b_completed = false;
         let mut c_completed = false;
 
-        while start_time.elapsed() < Duration::from_secs(3) {
-            // 各バックグラウンドから返ってきた WM_USER_EVENT を回収する
-            if let Some(event) = event_pump.wait_event().unwrap()
-                && let MichiuEvent::User(boxed_any) = event
-            {
-                // 送信されてきた TaskResult 型にダウンキャスト
-                if let Ok(res) = boxed_any.downcast::<TaskResult>() {
-                    match res.from {
-                        "Window B" => {
-                            assert_eq!(res.result_val, 70, "Window B calculated values mismatched");
-                            b_completed = true;
+        while !(b_completed && c_completed) && start_time.elapsed() < Duration::from_secs(3) {
+            event_pump
+                .wait_event(|event, _id, _raw| {
+                    if let MichiuEvent::User(boxed_any) = event {
+                        // 送信されてきた TaskResult 型にダウンキャスト
+                        if let Ok(res) = boxed_any.downcast::<TaskResult>() {
+                            match res.from {
+                                "Window B" => {
+                                    assert_eq!(
+                                        res.result_val, 70,
+                                        "Window B calculated values mismatched"
+                                    );
+                                    b_completed = true;
+                                }
+                                "Window C" => {
+                                    assert_eq!(
+                                        res.result_val, 140,
+                                        "Window C calculated values mismatched"
+                                    );
+                                    c_completed = true;
+                                }
+                                _ => {}
+                            }
                         }
-                        "Window C" => {
-                            assert_eq!(
-                                res.result_val, 140,
-                                "Window C calculated values mismatched"
-                            );
-                            c_completed = true;
-                        }
-                        _ => {}
                     }
-                }
-            }
-
-            if b_completed && c_completed {
-                break;
-            }
+                })
+                .expect("wait_event failed");
         }
 
         // 双方向のブロードキャスト＆ポストバック連携が完結したことを確認

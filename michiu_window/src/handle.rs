@@ -3,10 +3,11 @@ use raw_window_handle::{
     DisplayHandle as RwhDisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle,
     Win32WindowHandle, WindowHandle as RwhWindowHandle,
 };
+use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, HDC, PAINTSTRUCT};
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
     DestroyWindow, GWLP_USERDATA, GetWindowLongPtrW, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST,
-    HWND_TOPMOST, SendMessageW, WM_NCLBUTTONDOWN, WM_NULL,
+    HWND_TOPMOST, PostQuitMessage, SendMessageW, WM_NCLBUTTONDOWN, WM_NULL,
 };
 use windows::core::PCWSTR;
 
@@ -63,6 +64,7 @@ pub(crate) enum SetWindowCommand {
     StartDragging,
     SetCursor(CursorIcon),
     Destroy,
+    Quit,
 }
 
 /// Message ID used internally for posting async Window commands to the UI thread.
@@ -503,10 +505,55 @@ impl WindowHandle {
     /// ```
     #[inline]
     pub fn destroy(&self) {
+        self.post_command(SetWindowCommand::Destroy);
+    }
+
+    #[inline]
+    pub fn quit(&self) {
         if self.is_on_ui_thread() {
-            let _ = unsafe { DestroyWindow(self.hwnd) };
+            unsafe { PostQuitMessage(0) };
         } else {
-            self.post_command(SetWindowCommand::Destroy);
+            self.post_command(SetWindowCommand::Quit);
+        }
+    }
+
+    /// Initialize a context for GDI drawing (UI thread only)
+    pub fn begin_paint(&self) -> Option<PaintContext<'_>> {
+        // UIスレッドでなければ即座に拒否
+        if !self.is_on_ui_thread() {
+            tracing::warn!("begin_paint must be called on the UI thread during RedrawRequested.");
+            return None;
+        }
+
+        unsafe {
+            let mut ps = PAINTSTRUCT::default();
+            let hdc = BeginPaint(self.hwnd(), &raw mut ps);
+            if hdc.0.is_null() {
+                return None;
+            }
+
+            Some(PaintContext {
+                hwnd: self.hwnd(),
+                hdc,
+                ps,
+                _marker: std::marker::PhantomData,
+            })
+        }
+    }
+}
+
+/// RAII Guard for Managing the Drawing Scope
+pub struct PaintContext<'a> {
+    hwnd: HWND,
+    pub hdc: HDC,
+    pub ps: PAINTSTRUCT,
+    _marker: std::marker::PhantomData<&'a ()>,
+}
+
+impl<'a> Drop for PaintContext<'a> {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = EndPaint(self.hwnd, &raw const self.ps);
         }
     }
 }

@@ -12,14 +12,33 @@ description = "This is a facade for michiu, a GUI library for Windows."
 [lints]
 workspace = true
 
+[dev-dependencies]
+pollster = "1.0.1"
+tiff-reader = "0.8.1"
+strum = {version = "0.28.0", features = ["derive"] }
+image = "0.25.10"
+smallvec = "1.15.2"
+wgpu = {version= "30.0.1", default-features = false, features = ["dx12", "wgsl"]}
+
 [dependencies]
 michiu_ui = { workspace = true, optional = true }
 michiu_guard = { workspace = true, optional = true }
 michiu_window = { workspace = true, optional = true }
+dhat = { version = "0.3.3", optional = true }
+
+[dependencies.windows]
+version = "0.62.2"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+
 
 [features]
-default = ["ui", "guard", "window"]
+default = ["ui", "guard", "window", "trace-error"]
 ui = ["dep:michiu_ui"]
+trace-error = []
 guard = ["dep:michiu_guard"]
 window = ["dep:michiu_window"]
 serde = [
@@ -27,6 +46,8 @@ serde = [
     "michiu_guard?/serde",
     "michiu_window?/serde"
 ]
+dhat-heap = ["dep:dhat"]
+
 
 [package.metadata.docs.rs]
 all-features = true

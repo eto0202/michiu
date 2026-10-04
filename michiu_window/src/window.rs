@@ -1,7 +1,7 @@
 use crate::error::{MichiuError, Result};
 use crate::{
     CursorIcon, FileDropTarget, ImeRelayServer, LogicalSize, PhysicalPoint, PhysicalSize,
-    PreferredAppMode, Tray, WindowBuilder, WindowHandle, ZOrder, translate_and_push,
+    PreferredAppMode, Tray, WindowBuilder, WindowHandle, ZOrder, translate_and_dispatch,
 };
 use michiu_guard::{Unvalidated, Validated};
 use raw_window_handle::{
@@ -888,7 +888,7 @@ unsafe extern "system" fn global_wnd_proc(
     if !state_ptr.is_null() {
         let state = unsafe { &mut *state_ptr };
 
-        if let Some(result) = translate_and_push(hwnd, msg, wparam, lparam, state)
+        if let Some(result) = translate_and_dispatch(hwnd, msg, wparam, lparam, state)
             && msg != WM_NCDESTROY
         {
             return result;

@@ -437,12 +437,6 @@ impl Validate for WindowBuilder<'_> {
                         });
             }
         }
-        if self.no_redirection_bitmap && self.decorations {
-            return Err(MichiuError::ValidationError {
-                parameter: "decorations",
-                message: "Windows with no_redirection_bitmap enabled cannot have standard OS decorations. Set decorations to false.".into(),
-            });
-        }
 
         // 透明ウィンドウと標準の装飾の間に不整合がないか確認
         if self.transparent && self.decorations {

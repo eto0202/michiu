@@ -18,7 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut event_pump = EventPump::new();
 
     // 4. Event-driven loop using `wait_event()`
-    while let Some(event) = event_pump.wait_event()? {
+    while event_pump.wait_event(|event, _, _| {
         // Note that MichiuEvent also includes a User variant, not just Window.
         if let MichiuEvent::Window { event, .. } = event {
             match event {
@@ -30,11 +30,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Event::Destroyed => {
                     // Post-processing after the window is completely destroyed.
                     // Exit the event loop.
-                    break;
+                    handle.quit();
                 }
                 _ => {}
             }
         }
-    }
+    })? {}
+
     Ok(())
 }

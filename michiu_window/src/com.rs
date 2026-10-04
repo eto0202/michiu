@@ -2,10 +2,11 @@
 #![allow(clippy::inline_always)]
 
 use crate::error::{MichiuError, Result};
-use crate::{Event, MichiuEvent, WindowId, push_event};
+use crate::{Event, MichiuEvent, RawEvent, WindowId, dispatch_to_active_handler};
 use michiu_guard::Unvalidated;
 use std::marker::PhantomData;
 use std::path::PathBuf;
+use windows::Win32::Foundation::{LPARAM, WPARAM};
 use windows::Win32::{
     Foundation::{HWND, POINTL},
     System::{
@@ -389,11 +390,20 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
                     ReleaseStgMedium(&raw mut medium);
 
                     if !files.is_empty() {
+                        let id = WindowId(self.hwnd.0 as isize);
                         // イベントキューに通知
-                        push_event(MichiuEvent::Window {
-                            id: WindowId(self.hwnd.0 as isize),
-                            event: Event::FileDropped(Unvalidated::new(files)),
-                        });
+                        dispatch_to_active_handler(
+                            MichiuEvent::Window {
+                                id,
+                                event: Event::FileDropped(Unvalidated::new(files)),
+                            },
+                            id,
+                            RawEvent {
+                                msg: 0,
+                                wparam: WPARAM(0),
+                                lparam: LPARAM(0),
+                            },
+                        );
                         *effect = DROPEFFECT_COPY;
                     }
                 }
@@ -422,7 +432,7 @@ mod tests {
     use windows_core::{BOOL, HRESULT};
 
     use super::*;
-    use crate::{EventPump, error::MichiuError};
+    use crate::{CURRENT_HANDLER, HandlerGuard, HandlerPtr, error::MichiuError};
 
     // 各テストケースをCOMの初期化状態が完全にクリーンな新規スレッドで実行。
     // 並行して走る他のテストからのスレッド干渉を防ぐ。
@@ -734,30 +744,41 @@ mod tests {
 
             let mut effect = DROPEFFECT_NONE;
 
-            // OLE の Drop イベントを擬似呼び出し
-            let res_drop = unsafe {
-                target.Drop(
-                    &mock_data,
-                    windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS(0),
-                    windows::Win32::Foundation::POINTL { x: 0, y: 0 },
-                    &raw mut effect,
-                )
+            let mut captured_event = None;
+            let mut capture_fn = |event: MichiuEvent, _id: WindowId, _raw: RawEvent| {
+                captured_event = Some(event);
             };
 
-            assert!(res_drop.is_ok());
-            assert_eq!(effect, windows::Win32::System::Ole::DROPEFFECT_COPY);
+            {
+                let f_trait: &mut (dyn FnMut(MichiuEvent, WindowId, RawEvent) + '_) =
+                    &mut capture_fn;
+                let erased_ptr: HandlerPtr = unsafe { std::mem::transmute(f_trait) };
+                CURRENT_HANDLER.with(|h| h.set(Some(erased_ptr)));
+                let _guard = HandlerGuard;
 
-            // イベントキューからプッシュされたデータを取り出し検証
-            let mut pump = EventPump::new();
-            let ev = pump.poll_event();
-            assert!(ev.is_some());
+                let res_drop = unsafe {
+                    target.Drop(
+                        &mock_data,
+                        windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS(0),
+                        windows::Win32::Foundation::POINTL { x: 0, y: 0 },
+                        &raw mut effect,
+                    )
+                };
 
-            match ev.unwrap() {
-                MichiuEvent::Window { id, event } => {
+                assert!(res_drop.is_ok());
+                assert_eq!(effect, windows::Win32::System::Ole::DROPEFFECT_COPY);
+            }
+
+            assert!(
+                captured_event.is_some(),
+                "No event was received by EventPump"
+            );
+
+            match captured_event.unwrap() {
+                MichiuEvent::Window { id, event, .. } => {
                     assert_eq!(id, WindowId(dummy_hwnd.0 as isize));
                     match event {
                         Event::FileDropped(unvalidated_files) => {
-                            // 境界防御の validate_with で安全に検査
                             let validated: Result<Validated<Vec<PathBuf>>> = unvalidated_files
                                 .validate_with(|files| {
                                     assert_eq!(files, expected_paths);
@@ -769,6 +790,7 @@ mod tests {
                     }
                 }
                 MichiuEvent::User(_) => panic!("Expected Event"),
+                _ => {}
             }
         });
     }

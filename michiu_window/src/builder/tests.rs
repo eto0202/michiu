@@ -72,30 +72,6 @@ fn test_conflict_no_redirection_bitmap_without_com() {
 }
 
 #[test]
-fn test_conflict_no_redirection_bitmap_with_decorations() {
-    // DirectCompositionを有効にしながら、標準デコレーションを有効（デフォルト: true）にした場合はエラー
-    // テストスレッドをCOM用にSTA化してComContextを用意
-    run_on_clean_thread(|| {
-        let com_ctx = ComContext::new_com_single().unwrap();
-        let builder = WindowBuilder::new()
-            .with_title("DirectCompWindow")
-            .with_com_context(&com_ctx)
-            .with_no_redirection_bitmap(true)
-            .with_decorations(true); // デコレーションがtrueなので衝突エラー
-
-        let result: Result<Validated<WindowBuilder>> = builder.into_unvalidated().try_into();
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            MichiuError::ValidationError {
-                parameter: "decorations",
-                ..
-            }
-        ));
-    });
-}
-
-#[test]
 fn test_conflict_transparent_with_decorations() {
     // 透明ウィンドウを有効にしながら、標準デコレーションを有効にした場合はエラー
     let builder = WindowBuilder::new()

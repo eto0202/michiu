@@ -6,8 +6,8 @@
 
 use michiu_guard::Validated;
 use michiu_window::{
-    ComContext, Event, EventPump, FileDropTarget, ImeContext, LogicalSize, MichiuEvent,
-    WindowBuilder, init_dpi_awareness,
+    CURRENT_HANDLER, ComContext, Event, EventPump, FileDropTarget, HandlerGuard, HandlerPtr,
+    ImeContext, LogicalSize, MichiuEvent, RawEvent, WindowBuilder, WindowId, init_dpi_awareness,
 };
 use std::{
     io::Read,
@@ -115,7 +115,7 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
 
         // まずはTCP経由でJSONテキストを受信する
         while loop_start.elapsed() < Duration::from_secs(2) {
-            let _ = event_pump.wait_event();
+            let _ = event_pump.wait_event(|_, _, _| {});
 
             let mut buf = [0u8; 1024];
             if let Ok(bytes_read) = stream.read(&mut buf)
@@ -163,28 +163,22 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
         assert_eq!(effect, DROPEFFECT_COPY);
 
         // イベントループを回し、プッシュされた Event::FileDropped を回収する
-        let loop_start_dnd = Instant::now();
         let mut dnd_verified = false;
 
-        while loop_start_dnd.elapsed() < Duration::from_secs(2) {
-            if let Some(event) = event_pump.poll_event()
-                && let MichiuEvent::Window { id, event } = event
-            {
-                assert_eq!(id, main_id);
+        let mut capture_fn = |event: MichiuEvent, _id: WindowId, _raw: RawEvent| {
+            if let MichiuEvent::Window { id: win_id, event } = event {
+                assert_eq!(win_id, main_id);
 
                 if let Event::FileDropped(unvalidated_files) = event {
-                    // 検証を行いドロップされたファイルの中身をチェック
                     let validated_res: Result<Validated<Vec<PathBuf>>, &str> = unvalidated_files
                         .validate_with(|files| {
                             assert_eq!(files.len(), 1, "Expected exactly one dropped file");
                             assert_eq!(files[0], temp_file_path, "Dropped file path mismatched");
 
-                            // ドロップされたファイル（一時ファイル）の中身を読み込む
                             let mut file_content = String::new();
                             let mut file = std::fs::File::open(&files[0]).unwrap();
                             file.read_to_string(&mut file_content).unwrap();
 
-                            // ドロップされたファイルの中身が、先ほどIMEサーバーから受信したJSONデータと完全一致することを確認
                             assert_eq!(
                                 file_content, received_json,
                                 "Dropped file content mismatched the original IME JSON data"
@@ -195,10 +189,29 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
 
                     assert!(validated_res.is_ok(), "FileDropped event validation failed");
                     dnd_verified = true;
-                    break;
                 }
             }
-            std::thread::sleep(Duration::from_millis(10));
+        };
+
+        {
+            // スレッドローカルに一時ハンドラを有効化
+            let f_trait: &mut (dyn FnMut(MichiuEvent, WindowId, RawEvent) + '_) = &mut capture_fn;
+            let erased_ptr: HandlerPtr = unsafe { std::mem::transmute(f_trait) };
+            CURRENT_HANDLER.with(|h| h.set(Some(erased_ptr)));
+            let _guard = HandlerGuard;
+
+            // この瞬間に Drop 内の dispatch_to_active_handler が走り、capture_fn が即座に呼ばれる！
+            let res_drop = unsafe {
+                drop_target.Drop(
+                    &mock_data,
+                    MODIFIERKEYS_FLAGS(0),
+                    POINTL { x: 0, y: 0 },
+                    &raw mut effect,
+                )
+            };
+
+            assert!(res_drop.is_ok(), "Simulated drop target call failed");
+            assert_eq!(effect, DROPEFFECT_COPY);
         }
 
         // 一時ファイルを削除
@@ -292,7 +305,7 @@ fn test_integration_ime_relay_multi_client_robustness() {
 
         // 両クライアントが同じJSONを同時に正常に受け取れることを検証
         while loop_start.elapsed() < Duration::from_secs(2) {
-            let _ = event_pump.poll_event();
+            let _ = event_pump.poll_one_event();
 
             let mut buf_a = [0u8; 1024];
             if !a_received
@@ -352,7 +365,7 @@ fn test_integration_ime_relay_multi_client_robustness() {
         // Aが切断されていても、中継サーバーやメインUIスレッドが一切道連れクラッシュすることなく、
         // 生き残ったクライアント B に対して正常に2回目の更新情報が届き続けるかをアサーション
         while loop_start_2.elapsed() < Duration::from_secs(2) {
-            let _ = event_pump.poll_event();
+            let _ = event_pump.poll_one_event();
 
             let mut buf_b = [0u8; 1024];
             if let Ok(n) = stream_b.read(&mut buf_b)

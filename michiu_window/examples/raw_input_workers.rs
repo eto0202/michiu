@@ -236,53 +236,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // 5. Event-driven loop using `wait_event()`
-    while let Some(event) = event_pump.wait_event()? {
+    while event_pump.wait_event(|event, _, raw| {
         if let MichiuEvent::Window { event, .. } = event {
             match event {
                 Event::CloseRequested => {
                     handle.destroy();
                 }
                 Event::Destroyed => {
-                    break;
-                }
-                // If the mouse remains idle for 2 seconds,
-                // the OS automatically posts a `WM_TIMER` message to wake it up
-                Event::UnsafeRaw { msg: 0x0113, .. } => {
-                    println!(
-                        "[UI Thread] 2 seconds of silence detected. Suspending all specialized workers..."
-                    );
-
-                    let (lock, cvar) = &*signal;
-                    let mut control = lock.lock().unwrap();
-                    control.active = false;
-                    cvar.notify_all();
-
-                    drop(control);
-
-                    // System toast notifications for aggregated statistics
-                    let notification_text = format!(
-                        "Threads suspended safely.\nFinal Mouse Pos: ({}, {})\nFinal Calc Val: ({})\nProcessed Samples: (Mouse: {}, Calc: {})",
-                        last_position.x,
-                        last_position.y,
-                        last_calculated_val,
-                        total_mouse_samples,
-                        total_calc_samples
-                    );
-
-                    let _ = tray_clone.show_balloon("System Idle Detected", &notification_text);
-
-                    // Set the timer to function as a one-shot timer
-
-                    let _ = unsafe { KillTimer(Some(window.hwnd()), TIMER_ID) };
-
-                    // Clean up statistical data in preparation for the next wake-up
-                    total_mouse_samples = 0;
-                    total_calc_samples = 0;
+                    handle.quit();
                 }
                 _ => {}
             }
         }
 
+        // If the mouse remains idle for 2 seconds,
+        // the OS automatically posts a `WM_TIMER` message to wake it up
+        if raw.msg ==  0x0113 {
+            println!(
+                "[UI Thread] 2 seconds of silence detected. Suspending all specialized workers..."
+            );
+
+            let (lock, cvar) = &*signal;
+            let mut control = lock.lock().unwrap();
+            control.active = false;
+            cvar.notify_all();
+
+            drop(control);
+
+            // System toast notifications for aggregated statistics
+            let notification_text = format!(
+                "Threads suspended safely.\nFinal Mouse Pos: ({}, {})\nFinal Calc Val: ({})\nProcessed Samples: (Mouse: {}, Calc: {})",
+                last_position.x,
+                last_position.y,
+                last_calculated_val,
+                total_mouse_samples,
+                total_calc_samples
+            );
+
+            let _ = tray_clone.show_balloon("System Idle Detected", &notification_text);
+
+            // Set the timer to function as a one-shot timer
+
+            let _ = unsafe { KillTimer(Some(window.hwnd()), TIMER_ID) };
+
+            // Clean up statistical data in preparation for the next wake-up
+            total_mouse_samples = 0;
+            total_calc_samples = 0;
+        }
+    })? {
         // Immediately after waking up via wake_up() (WM_NULL),
         // merge all worker results queued in the channel at once on the UI thread
         while let Ok(report) = rx.try_recv() {

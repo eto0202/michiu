@@ -98,7 +98,15 @@ fn test_integration_event_posting_and_translation_lifecycle() {
 
         // 3つの異なるイベントがすべて順番に正しく回収されるまで、メッセージループを回す
         while start_time.elapsed() < Duration::from_secs(2) {
-            if let Some(event) = event_pump.poll_event() {
+            event_pump.poll_event(|event, _, raw| {
+                // OSが自発的に送信した無関係なシステムメッセージ（NCCREATE: 129 など）は無視し、
+                // 自前でポストした 1912 (WM_USER+888) のメッセージが届いた時のみ検証
+                if raw.msg == WM_USER + 888 {
+                    assert_eq!(raw.wparam.0, 777);
+                    assert_eq!(raw.lparam.0, 999);
+                    raw_event_received = true;
+                }
+
                 match event {
                     MichiuEvent::User(boxed_any) => {
                         let downcasted = boxed_any.downcast::<MyCustomPayload>();
@@ -118,20 +126,6 @@ fn test_integration_event_posting_and_translation_lifecycle() {
                         match event {
                             Event::CloseRequested => {
                                 close_event_received = true;
-                            }
-
-                            Event::UnsafeRaw {
-                                msg,
-                                wparam,
-                                lparam,
-                            } => {
-                                // OSが自発的に送信した無関係なシステムメッセージ（NCCREATE: 129 など）は無視し、
-                                // 自前でポストした 1912 (WM_USER+888) のメッセージが届いた時のみ検証
-                                if msg == WM_USER + 888 {
-                                    assert_eq!(wparam.0, 777);
-                                    assert_eq!(lparam.0, 999);
-                                    raw_event_received = true;
-                                }
                             }
                             Event::Resized(unvalidated_size) => {
                                 // michiu_guard の validate_with を用いて境界検証を実行
@@ -155,8 +149,9 @@ fn test_integration_event_posting_and_translation_lifecycle() {
                             _ => {}
                         }
                     }
+                    _ => {}
                 }
-            }
+            });
 
             if custom_event_received
                 && close_event_received

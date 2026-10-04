@@ -4,10 +4,7 @@ use crate::{
 };
 use michiu_guard::Unvalidated;
 use std::{any::Any, path::PathBuf};
-use windows::Win32::{
-    Foundation::{LPARAM, WPARAM},
-    UI::Input::KeyboardAndMouse::VIRTUAL_KEY,
-};
+use windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
 
 /// The top-level Event enumeration yielded by the event loop.
 #[derive(Debug)]
@@ -24,6 +21,9 @@ pub enum MichiuEvent {
     ///
     /// Extensible via `Box<dyn Any + Send>`.
     User(Box<dyn Any + Send>),
+
+    /// Other Events
+    Other,
 }
 
 /// Represents specific events sent by the OS windowing and input system.
@@ -106,15 +106,6 @@ pub enum Event {
     ///
     /// Bundles a complete, cohesive snapshot of the state update (mode, preedit/confirmed text, layout, caret coordinates).
     Ime(Unvalidated<ImeStateUpdate>),
-
-    /// Raw, unhandled fallback OS window messages.
-    ///
-    /// Useful for implementing obscure Win32 features not yet natively wrapped by the library.
-    UnsafeRaw {
-        msg: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-    },
 }
 
 #[allow(clippy::unwrap_used)]
@@ -214,6 +205,7 @@ mod tests {
                 assert!(matches!(event, Event::CloseRequested));
             }
             MichiuEvent::User(_) => panic!("Expected MichiuEvent::Event"),
+            _ => {}
         }
     }
 

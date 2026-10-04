@@ -48,7 +48,7 @@ fn test_integration_minimal_lifecycle() {
         // イベントポンプの最小限の駆動テスト
         let mut event_pump = EventPump::new();
         // 最初のポーリング
-        let _event = event_pump.poll_event();
+        let _event = event_pump.poll_one_event();
 
         // ウィンドウの明示的な破棄
         window.destroy();

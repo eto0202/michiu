@@ -69,7 +69,7 @@ fn test_integration_event_driven_channel_lifecycle() {
         // wake_up() で送られたシグナル（WM_NULL）により、
         // スリープ中のメッセージループが確実に1周し、チャネルの try_recv 処理に到達します。
         while start_time.elapsed() < Duration::from_secs(2) {
-            let _ = event_pump.wait_event();
+            let _ = event_pump.wait_event(|_, _, _| {});
 
             // 起床したループ内で、チャネルからタスクを取り出して安全に処理（UIスレッド同期更新）
             while let Ok(cmd) = rx.try_recv() {

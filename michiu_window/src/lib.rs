@@ -26,25 +26,25 @@
 //!     let mut event_pump = EventPump::new();
 //!
 //!     // 4. Event-driven loop using `wait_event()`
-//!     while let Some(event) = event_pump.wait_event()? {
-//!         // Note that MichiuEvent also includes a User variant, not just Window.
-//!         if let MichiuEvent::Window { event, .. } = event {
-//!             match event {
-//!                 Event::CloseRequested => {
-//!                     // You can also handle close confirmation logic here.
-//!                     // Destroy the window directly from the event loop using the handle
-//!                     handle.destroy();
-//!                 }
-//!                 Event::Destroyed => {
-//!                     // Post-processing after the window is completely destroyed.
-//!                     // Exit the event loop.
-//!                     break;
-//!                 }
-//!                 _ => {}
-//!             }
+//!     while event_pump.wait_event(|event, _, _| {
+//!        // Note that MichiuEvent also includes a User variant, not just Window.
+//!        if let MichiuEvent::Window { event, .. } = event {
+//!            match event {
+//!                Event::CloseRequested => {
+//!                    // You can also handle close confirmation logic here.
+//!                    // Destroy the window directly from the event loop using the handle
+//!                    handle.destroy();
+//!                }
+//!                Event::Destroyed => {
+//!                    // Post-processing after the window is completely destroyed.
+//!                    // Exit the event loop.
+//!                    handle.quit();
+//!                }
+//!                _ => {}
+//!            }
 //!         }
-//!     }
-//!     Ok(())
+//!     })? {}
+//!  Ok(())
 //! }
 //! ```
 //! ### Architectural Note: The OS Input Firewall
@@ -87,25 +87,22 @@
 //!     let handle = window.handle().assume_valid();
 //!     let mut event_pump = EventPump::new();
 //!
-//!     'main_loop: loop {
-//!         // Non-blocking poll; processes all currently pending OS messages instantly
-//!         while let Some(event) = event_pump.poll_event() {
+//!     // Non-blocking poll; processes all currently pending OS messages instantly
+//!     let mut running = true;
+//!     while running {
+//!         event_pump.poll_event(|event, _, _| {
 //!             match event {
 //!                 MichiuEvent::Window { id, event } => match event {
 //!                     Event::CloseRequested => {
 //!                         handle.destroy();
-//!                     }
-//!                     Event::Destroyed => {
-//!                         break 'main_loop;
+//!                         running = false;
 //!                     }
 //!                     _ => {}
 //!                 }
 //!                 _ => {}
 //!             }
-//!         }
-//!
+//!         });
 //!         // Update your game states and redraw frames continuously here...
-//!
 //!         // Throttle the loop to target ~60 FPS
 //!         std::thread::sleep(std::time::Duration::from_millis(16));
 //!     }
@@ -240,25 +237,22 @@
 //!     handle_clone.wake_up();
 //! });
 //!
-//! 'main_loop: loop {
-//!     // 1. Process OS window events first (DPI, close requested, resize, etc.)
-//!     // Blocks on wait_event (0.0% CPU) when idle!
-//!     if let Some(event) = event_pump.wait_event()? {
-//!         match event {
-//!             MichiuEvent::Window { id, event } => match event {
-//!                 Event::CloseRequested => {
-//!                     handle.destroy();
-//!                 }
-//!                 Event::Destroyed => {
-//!                     // Exit the loop since the window is already gone
-//!                     break 'main_loop;
-//!                 }
-//!                 _ => {}
+//! // 1. Process OS window events first (DPI, close requested, resize, etc.)
+//! // Blocks on wait_event (0.0% CPU) when idle!
+//! while event_pump.wait_event(|event, _, _| {
+//!     match event {
+//!         MichiuEvent::Window { id, event } => match event {
+//!             Event::CloseRequested => {
+//!                 handle.destroy();
+//!             }
+//!             Event::Destroyed => {
+//!                 handle.quit();
 //!             }
 //!             _ => {}
 //!         }
+//!         _ => {}
 //!     }
-//!
+//! })? {
 //!     // 2. Process custom application commands sequentially (Safe UI mutations)
 //!     while let Ok(command) = rx.try_recv() {
 //!         match command {
@@ -272,6 +266,7 @@
 //!         }
 //!     }
 //! }
+//!
 //! # Ok(())
 //! # }
 //! ```

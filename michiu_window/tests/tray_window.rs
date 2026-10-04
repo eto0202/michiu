@@ -118,23 +118,22 @@ fn test_integration_tray_and_multi_window_routing() {
         let mut menu_close_received = false;
 
         // 両ウィンドウのクローズイベントを、ID識別を介して正しく検知するまで回す
-        while start_time.elapsed() < Duration::from_secs(2) {
-            if let Some(event) = event_pump.wait_event().unwrap()
-                && let MichiuEvent::Window { id, event } = event
-                && let Event::CloseRequested = event
-            {
-                if id == main_id {
-                    main_close_received = true;
-                } else if id == menu_id {
-                    menu_close_received = true;
-                } else {
-                    panic!("Received CloseRequested from an unrecognized WindowId");
+        while !(main_close_received && menu_close_received)
+            && start_time.elapsed() < Duration::from_secs(2)
+        {
+            let _ = event_pump.wait_event(|event, _window_id, _raw| {
+                if let MichiuEvent::Window { id, event, .. } = event
+                    && let Event::CloseRequested = event
+                {
+                    if id == main_id {
+                        main_close_received = true;
+                    } else if id == menu_id {
+                        menu_close_received = true;
+                    } else {
+                        panic!("Received CloseRequested from an unrecognized WindowId");
+                    }
                 }
-            }
-
-            if main_close_received && menu_close_received {
-                break;
-            }
+            });
         }
 
         // マルチウィンドウイベントの個別のルーティングが成功したことを確認
