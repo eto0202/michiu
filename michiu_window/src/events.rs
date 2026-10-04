@@ -1,5 +1,5 @@
 use crate::{
-    ImeStateUpdate, Modifiers, PhysicalPoint, PhysicalRect, PhysicalSize, WindowId,
+    ImeStateUpdate, Modifiers, PhysicalPoint, PhysicalRect, PhysicalSize, WheelDelta, WindowId,
     types::{ElementState, MouseButton},
 };
 use michiu_guard::Unvalidated;
@@ -79,10 +79,16 @@ pub enum Event {
         button: MouseButton,
         modifiers: Modifiers,
         state: ElementState,
+        click_count: u8,
     },
 
-    /// Issued when the mouse wheel is rotated. (positive: forward, negative: backward). (`WM_MOUSEWHEEL`)
-    MouseWheel { delta: f32 },
+    /// Issued when the mouse wheel is rotated.(`WM_MOUSEWHEEL`)
+    MouseWheel {
+        /// Left and right (right is positive, left is negative)
+        raw_delta_x: Unvalidated<WheelDelta>,
+        /// Up and down (up is positive, down is negative)
+        raw_delta_y: Unvalidated<WheelDelta>,
+    },
 
     /// Issued when the window client area needs to be repainted. (`WM_PAINT`)
     ///

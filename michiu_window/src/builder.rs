@@ -49,6 +49,7 @@ pub struct WindowBuilder<'a> {
     pub(crate) dark_mode: bool,
     pub(crate) drag_and_drop: bool,
     pub(crate) ime_expose_port: Option<u16>,
+    pub(crate) default_composition_window: bool,
 }
 
 impl Default for WindowBuilder<'_> {
@@ -81,6 +82,7 @@ impl Default for WindowBuilder<'_> {
             dark_mode: false,
             drag_and_drop: false,
             ime_expose_port: None,
+            default_composition_window: true,
         }
     }
 }
@@ -362,6 +364,14 @@ impl<'a> WindowBuilder<'a> {
     #[inline]
     pub fn with_ime_expose_port(mut self, port: u16) -> Self {
         self.ime_expose_port = Some(port);
+        self
+    }
+
+    /// Displays the default Windows IME composition window. (Default: `true`)
+    #[must_use]
+    #[inline]
+    pub fn with_default_composition_window(mut self, enabled: bool) -> Self {
+        self.default_composition_window = enabled;
         self
     }
 

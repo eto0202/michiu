@@ -1,7 +1,7 @@
 use crate::{
     ElementState, Event, ImeContext, ImeStateUpdate, MichiuError, MichiuEvent, Modifiers,
     MouseButton, PhysicalPoint, PhysicalRect, PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD,
-    WM_WINDOW_COMMAND, WindowId, WindowState, ZOrder,
+    WM_WINDOW_COMMAND, WheelDelta, WindowId, WindowState, ZOrder,
 };
 use michiu_guard::Unvalidated;
 use std::{
@@ -13,12 +13,14 @@ use std::{
 use windows::{
     Win32::{
         Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
-        Graphics::Gdi::ValidateRect,
         UI::{
             Controls::WM_MOUSELEAVE,
-            Input::KeyboardAndMouse::{
-                GetKeyState, ReleaseCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
-                VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+            Input::{
+                Ime::{GCS_COMPATTR, GCS_CURSORPOS, GCS_RESULTSTR, ImmGetCompositionStringW},
+                KeyboardAndMouse::{
+                    GetKeyState, ReleaseCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
+                    VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+                },
             },
             WindowsAndMessaging::{
                 DestroyWindow, DispatchMessageW, GetMessageW, HTCAPTION, HWND_BOTTOM,
@@ -27,10 +29,11 @@ use windows::{
                 SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow,
                 TranslateMessage, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED,
                 WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION,
-                WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDOWN,
-                WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE,
-                WM_NCLBUTTONDOWN, WM_NULL, WM_PAINT, WM_QUIT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-                WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
+                WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK,
+                WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP,
+                WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCLBUTTONDOWN, WM_PAINT,
+                WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS,
+                WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
             },
         },
     },
@@ -378,11 +381,12 @@ pub(crate) fn translate_and_dispatch(
             push_win_event(Event::CursorLeft);
             None
         }
-        WM_LBUTTONDOWN => {
+        WM_LBUTTONDOWN | WM_LBUTTONDBLCLK => {
             push_win_event(Event::MouseInput {
                 button: MouseButton::Left,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Pressed,
+                click_count: if msg == WM_LBUTTONDBLCLK { 2 } else { 1 },
             });
             None
         }
@@ -391,14 +395,16 @@ pub(crate) fn translate_and_dispatch(
                 button: MouseButton::Left,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Released,
+                click_count: 1,
             });
             None
         }
-        WM_RBUTTONDOWN => {
+        WM_RBUTTONDOWN | WM_RBUTTONDBLCLK => {
             push_win_event(Event::MouseInput {
                 button: MouseButton::Right,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Pressed,
+                click_count: if msg == WM_RBUTTONDBLCLK { 2 } else { 1 },
             });
             None
         }
@@ -407,14 +413,16 @@ pub(crate) fn translate_and_dispatch(
                 button: MouseButton::Right,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Released,
+                click_count: 1,
             });
             None
         }
-        WM_MBUTTONDOWN => {
+        WM_MBUTTONDOWN | WM_MBUTTONDBLCLK => {
             push_win_event(Event::MouseInput {
                 button: MouseButton::Middle,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Pressed,
+                click_count: if msg == WM_MBUTTONDBLCLK { 2 } else { 1 },
             });
             None
         }
@@ -423,14 +431,24 @@ pub(crate) fn translate_and_dispatch(
                 button: MouseButton::Middle,
                 modifiers: get_active_modifiers(),
                 state: ElementState::Released,
+                click_count: 1,
             });
             None
         }
         WM_MOUSEWHEEL => {
-            // wparam の上位16ビットに回転量
-            // （WHEEL_DELTA = 120 の倍数が入るため、120で割って値を規格化する）
-            let delta = (wparam.0 >> 16) as i16 as f32 / 120.0;
-            push_win_event(Event::MouseWheel { delta });
+            let delta = (wparam.0 >> 16) as i32;
+            push_win_event(Event::MouseWheel {
+                raw_delta_x: Unvalidated::new(WheelDelta(0)),
+                raw_delta_y: Unvalidated::new(WheelDelta(delta)), // 上がプラス、下がマイナス
+            });
+            None
+        }
+        WM_MOUSEHWHEEL => {
+            let delta = (wparam.0 >> 16) as i32;
+            push_win_event(Event::MouseWheel {
+                raw_delta_x: Unvalidated::new(WheelDelta(delta)), // 右がプラス、左がマイナス
+                raw_delta_y: Unvalidated::new(WheelDelta(0)),
+            });
             None
         }
         WM_PAINT => {
@@ -495,6 +513,11 @@ pub(crate) fn translate_and_dispatch(
         | WM_IME_COMPOSITION
         | WM_INPUTLANGCHANGE => {
             push_ime_state_update(hwnd, id, raw, state);
+
+            if !state.default_composition_window {
+                return Some(LRESULT(0));
+            }
+
             None
         }
         WM_IME_NOTIFY => {
@@ -875,12 +898,61 @@ fn push_ime_state_update(hwnd: HWND, id: WindowId, raw: RawEvent, state: &Window
             .get_composition_string()
             .unwrap_or_default()
             .unwrap_or_default();
-        let result_text = ctx
-            .get_result_string()
-            .unwrap_or_default()
-            .unwrap_or_default();
+
+        let has_result_flag =
+            raw.msg == WM_IME_COMPOSITION && (raw.lparam.0 as u32 & GCS_RESULTSTR.0) != 0;
+
+        let result_text = if has_result_flag {
+            ctx.get_result_string()
+                .unwrap_or_default()
+                .unwrap_or_default()
+        } else {
+            String::new() // WM_IME_ENDCOMPOSITION 等では空文字にする！
+        };
 
         let caret_position = ctx.get_composition_window_position();
+
+        // WM_IME_COMPOSITION かつ該当フラグが立っている時だけ取得する
+        let is_composition_msg = raw.msg == WM_IME_COMPOSITION;
+        let lparam_flags = raw.lparam.0 as u32;
+
+        // カーソル位置の取得
+        let composition_cursor = if is_composition_msg && (lparam_flags & GCS_CURSORPOS.0) != 0 {
+            let cursor_pos = unsafe { ImmGetCompositionStringW(ctx.himc, GCS_CURSORPOS, None, 0) };
+            if cursor_pos >= 0 {
+                cursor_pos as usize
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        // 文字属性配列（下線情報）の取得
+        let composition_attrs = if is_composition_msg && (lparam_flags & GCS_COMPATTR.0) != 0 {
+            let len = unsafe { ImmGetCompositionStringW(ctx.himc, GCS_COMPATTR, None, 0) };
+            if len > 0 {
+                let mut attrs = vec![0u8; len as usize];
+                let written = unsafe {
+                    ImmGetCompositionStringW(
+                        ctx.himc,
+                        GCS_COMPATTR,
+                        Some(attrs.as_mut_ptr().cast()),
+                        len as u32,
+                    )
+                };
+                if written > 0 {
+                    attrs.truncate(written as usize);
+                    attrs
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
 
         let update = ImeStateUpdate {
             window_id: id.0,
@@ -891,6 +963,8 @@ fn push_ime_state_update(hwnd: HWND, id: WindowId, raw: RawEvent, state: &Window
             composition_text,
             result_text,
             caret_position,
+            composition_cursor,
+            composition_attrs,
         };
 
         // オプトインされた中継サーバーが有効な場合は即座に外部へプッシュ配信

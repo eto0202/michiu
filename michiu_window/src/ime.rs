@@ -35,8 +35,8 @@ const IMM_ERROR_GENERAL: i32 = -2;
 /// and composition/result string buffers.
 #[derive(Debug)]
 pub struct ImeContext {
-    hwnd: HWND,
-    himc: HIMC,
+    pub(crate) hwnd: HWND,
+    pub(crate) himc: HIMC,
 }
 
 impl ImeContext {
@@ -263,6 +263,8 @@ pub struct ImeStateUpdate {
     pub result_text: String,
     /// The physical coordinate of the IME composition candidate window (caret position).
     pub caret_position: Option<PhysicalPoint>,
+    pub composition_cursor: usize,
+    pub composition_attrs: Vec<u8>,
 }
 
 /// A lightweight, zero-dependency TCP JSON broadcast server designed to stream the active window's IME state securely on localhost.
@@ -434,6 +436,8 @@ impl<'de> serde::Deserialize<'de> for ImeStateUpdate {
                 let mut composition_text = None;
                 let mut result_text = None;
                 let mut caret_position_tuple: Option<Option<(i32, i32)>> = None;
+                let mut composition_cursor = None;
+                let mut composition_attrs = None;
 
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
@@ -445,6 +449,8 @@ impl<'de> serde::Deserialize<'de> for ImeStateUpdate {
                         "composition_text" => composition_text = Some(map.next_value()?),
                         "result_text" => result_text = Some(map.next_value()?),
                         "caret_position" => caret_position_tuple = Some(map.next_value()?),
+                        "composition_cursor" => composition_cursor = Some(map.next_value()?),
+                        "composition_attrs" => composition_attrs = Some(map.next_value()?),
                         _ => {
                             let _: serde::de::IgnoredAny = map.next_value()?;
                         }
@@ -469,6 +475,11 @@ impl<'de> serde::Deserialize<'de> for ImeStateUpdate {
                     .flatten()
                     .map(|(x, y)| PhysicalPoint { x, y });
 
+                let composition_cursor = composition_cursor
+                    .ok_or_else(|| serde::de::Error::missing_field("composition_cursor"))?;
+                let composition_attrs = composition_attrs
+                    .ok_or_else(|| serde::de::Error::missing_field("composition_attrs"))?;
+
                 Ok(ImeStateUpdate {
                     window_id,
                     is_open,
@@ -478,6 +489,8 @@ impl<'de> serde::Deserialize<'de> for ImeStateUpdate {
                     composition_text,
                     result_text,
                     caret_position,
+                    composition_cursor,
+                    composition_attrs,
                 })
             }
         }

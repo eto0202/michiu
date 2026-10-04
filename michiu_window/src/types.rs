@@ -265,6 +265,27 @@ impl LogicalRect {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct WheelDelta(pub i32);
+
+impl WheelDelta {
+    pub const STANDARD_NOTCH: i32 = 120;
+
+    /// Retrieve the raw integer value sent by the OS (typically 120 per notch)
+    #[must_use]
+    #[inline]
+    pub const fn raw(self) -> i32 {
+        self.0
+    }
+
+    /// Retrieve the number of rows normalized to 1.0 per notch (supports high-precision wheels)
+    #[must_use]
+    #[inline]
+    pub fn notches(self) -> f32 {
+        self.0 as f32 / Self::STANDARD_NOTCH as f32
+    }
+}
+
 /// Specifies the preferred application visual mode for standard Win32 menus and titles.
 #[repr(i32)]
 pub enum PreferredAppMode {

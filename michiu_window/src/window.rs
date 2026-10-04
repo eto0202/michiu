@@ -13,8 +13,8 @@ use windows::Win32::Foundation::{FreeLibrary, GlobalFree};
 use windows::Win32::System::Memory::GlobalSize;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND, IDC_IBEAM, IDC_WAIT,
-    SetCursor, WM_NCLBUTTONDOWN,
+    CS_DBLCLKS, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND,
+    IDC_IBEAM, IDC_WAIT, SetCursor, WM_NCLBUTTONDOWN,
 };
 use windows::{
     Win32::{
@@ -180,6 +180,7 @@ impl Window {
             saved_rect: None,
             current_cursor: CursorIcon::Default,
             ime_relay: ime_relay.clone(),
+            default_composition_window: builder.default_composition_window,
         });
         let state_raw_ptr: *mut WindowState = Box::into_raw(window_state);
 
@@ -832,6 +833,7 @@ pub(crate) struct WindowState {
     pub(crate) saved_rect: Option<RECT>,
     pub(crate) current_cursor: CursorIcon,
     pub(crate) ime_relay: Option<Arc<ImeRelayServer>>,
+    pub(crate) default_composition_window: bool,
 }
 
 struct CreationContext {
@@ -943,7 +945,7 @@ fn register_window_class(
 
     let wnd_class = WNDCLASSEXW {
         cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-        style: CS_HREDRAW | CS_VREDRAW,
+        style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
         lpfnWndProc: Some(global_wnd_proc),
         cbClsExtra: 0,
         cbWndExtra: 0,
