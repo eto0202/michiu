@@ -3,6 +3,7 @@ use std::{
     borrow::Cow,
     fmt,
     ops::{Deref, Range},
+    sync::Arc,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -314,6 +315,12 @@ impl From<String> for MichiuString {
     #[inline]
     fn from(s: String) -> Self {
         Self(Cow::Owned(s))
+    }
+}
+
+impl From<Arc<String>> for MichiuString {
+    fn from(arc_str: Arc<String>) -> Self {
+        Self((*arc_str).clone().into())
     }
 }
 

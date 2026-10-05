@@ -15,7 +15,7 @@ use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
 use windows::Win32::System::Memory::GlobalSize;
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CS_DBLCLKS, HCURSOR, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND,
+    CS_DBLCLKS, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND,
     IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, IDC_WAIT,
     SetCursor, WM_NCLBUTTONDOWN,
 };

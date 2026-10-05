@@ -1,29 +1,22 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
 use crate::logger::logger;
-use michiu_guard::Validated;
-use michiu_ui::{
-    CapacityConfig, CharIndex, CssLoader, ExternalDataSetBuilder, ImeState, VirtualKey,
-    WebView2Contents, WebView2Visual, dispatch_raw_input_to_external_visual, prelude::*,
-    raw_wheel_delta_to_logical_pixels,
-};
-use michiu_window::{
-    ComContext, Event, EventPump, LogicalSize, MichiuEvent, Window, WindowBuilder, WindowHandle,
-    init_dpi_awareness,
+use michiu::{
+    AutoSyncMode, MichiuApp, MichiuAppBuilder,
+    ui::{
+        CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
+        prelude::*,
+    },
+    window::{
+        ComContext, Event, EventPump, LogicalSize, MichiuEvent, Window, WindowBuilder,
+        init_dpi_awareness,
+    },
 };
 use std::cell::{Cell, RefCell};
-use windows::Win32::Foundation::HWND;
 
 mod app;
 mod components;
 mod logger;
-
-/// ウィンドウメッセージ処理時に Context と Renderer を一元管理するためのアプリケーション状態
-struct AppState {
-    renderer: ComposedRenderer,
-    context: Context,
-    root_id: EntityId,
-}
 
 #[derive(Clone)]
 pub struct GitHubVisual(WebView2Visual);
@@ -64,24 +57,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let handle = window.handle().assume_valid();
     let hwnd = handle.hwnd();
 
-    let renderer = create_renderer(hwnd, scale_factor)?;
+    // レンダラーを作成
+    let renderer = pollster::block_on(ComposedRenderer::new(
+        hwnd,
+        LayoutSize::new(1000.0, 800.0),
+        scale_factor,
+    ))?;
 
     let inspector = MichiuInspector::new();
     let _sub = inspector.subscribe(None);
 
-    let mut context =
-        Context::with_capacity_and_inspector(&CapacityConfig::from_base_nodes(1024), &inspector)
-            .with_accessibility(hwnd);
-
-    let h_clone = handle.clone();
-    context.set_waker(move || h_clone.wake_up());
+    let (mut app, mut pump) = MichiuAppBuilder::new(window)
+        .with_accessibility_support(true)
+        .with_capacity_config(CapacityConfig::from_base_nodes(1024))
+        .with_inspector(inspector)
+        .with_sync_mode(AutoSyncMode::DwmFlush)
+        .with_external_visual_support(true)
+        .with_default_shortcuts(true)
+        .with_auto_resolve_cursor(true)
+        .build(renderer)?;
 
     // デバッグログ用のスレッド
     #[cfg(feature = "trace-error")]
     logger(_sub);
 
-    let device = renderer.composition_device()?;
-    let task_sender = context.task_sender();
+    let device = app.renderer.composition_device()?;
+    let task_sender = app.context.task_sender();
 
     WebView2Visual::prewarm_webview2();
 
@@ -105,9 +106,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let (styles_sig, _guard) = ExternalDataSetBuilder::new()
         .add("global", css_path, CssLoader)
-        .watch(&mut context)?;
+        .watch(&mut app.context)?;
 
-    let root = build_ui(&mut context, move || {
+    app.build_ui(move || {
         let (read_github, _) = create_signal(GitHubVisual(github_visual));
         let (read_youtube, _) = create_signal(YouTubeVisual(youtube_visual));
         app::create_root()
@@ -116,326 +117,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .provide(read_youtube)
     });
 
-    let mut app = AppState {
-        renderer,
-        context,
-        root_id: root.id(),
-    };
-
     handle.set_visible(true);
 
-    event_loop(&mut app, handle)?;
+    event_loop(&mut app, &mut pump)?;
 
     Ok(())
 }
 
-pub fn create_renderer(
-    hwnd: HWND,
-    scale_factor: f32,
-) -> Result<ComposedRenderer, Box<dyn std::error::Error>> {
-    let initial_layout_size = LayoutSize::new(1000.0, 800.0);
-    // レンダラーを作成
-    let renderer = pollster::block_on(ComposedRenderer::new(
-        hwnd,
-        initial_layout_size,
-        scale_factor,
-    ))?;
+fn event_loop(app: &mut MichiuApp, pump: &mut EventPump) -> michiu_window::Result<()> {
+    while pump.wait_event(|event, _, raw| {
+        let resp = app.standard_handle_window_event(&event, &raw);
 
-    Ok(renderer)
-}
+        if resp.needs_redraw {
+            app.redraw_requested();
+        }
+        if resp.needs_update_window {
+            app.update_window();
+        }
 
-fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_window::Result<()> {
-    use windows::Win32::UI::WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL};
-
-    let hwnd = handle.hwnd();
-
-    let mut event_pump = EventPump::new();
-
-    while event_pump.wait_event(|event, _, raw| {
-        match raw.msg {
-            WM_NULL => {
-                // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
-                app.context.process_main_thread_tasks();
-
-                // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
-                if app.context.has_dirty() {
-                    handle.redraw_requested();
-                }
-            }
-            WM_ENTERSIZEMOVE => {
-                app.context.set_window_resized(true);
-                handle.redraw_requested();
-                handle.update_window();
-            }
-            // ウィンドウドラッグリサイズの完了をキャッチ
-            WM_EXITSIZEMOVE => {
-                app.context.set_window_resized(false);
-                // リサイズ完了後の再描画を即座にキックして、新サイズでの静止画キャプチャを誘発
-                handle.redraw_requested();
-                handle.update_window();
-            }
-
-            _ => {}
+        if resp.consumed {
+            return;
         }
 
         if let MichiuEvent::Window { event, .. } = event {
             match event {
                 Event::CloseRequested => {
-                    handle.destroy();
+                    app.destroy();
                 }
                 Event::Destroyed => {
-                    handle.quit();
-                }
-                Event::Resized(phy_size) => {
-                    let size = phy_size.assume_valid().into_inner();
-                    let width = size.width as u32;
-                    let height = size.height as u32;
-                    // レンダラーのリサイズとレイアウト物理サイズの更新
-                    app.renderer
-                        .resize((width, height), app.renderer.scale_factor());
-
-                    // 再描画要求
-                    handle.redraw_requested();
-                    handle.update_window();
+                    app.quit();
                 }
                 Event::RedrawRequested => {
-                    redraw_requested(app, handle.clone());
-                }
-                Event::CursorMoved { position } => {
-                    let pos = position.assume_valid().into_inner();
-                    let x = pos.x as f32;
-                    let y = pos.y as f32;
-                    let phys_pos = LayoutPoint::new(x, y);
-                    let logical_pos = LayoutPoint::new(
-                        x / app.renderer.scale_factor(),
-                        y / app.renderer.scale_factor(),
-                    );
-
-                    // ホバー中要素から最適なカーソルを解決
-                    let target_cursor = if let Some(hovered) =
-                        app.context.interaction_id(InteractionState::Hovered)
-                    {
-                        app.context.resolve_cursor(hovered)
-                    } else {
-                        CursorIcon::Default(None)
-                    };
-
-                    let hcursor = target_cursor.to_hcursor().unwrap();
-
-                    handle.set_cursor_icon(michiu_window::CursorIcon::Other(hcursor));
-
-                    app.context
-                        .inject_user_action(UserAction::PointerMove(logical_pos));
-
-                    let _consumed = dispatch_raw_input_to_external_visual(
-                        &mut app.context,
-                        raw.msg,
-                        raw.wparam,
-                        raw.lparam,
-                        phys_pos,
-                        app.renderer.scale_factor(),
-                    );
-
-                    // インタラクションによる変化（ホバー状態）をリアルタイムに再描画
-                    handle.redraw_requested();
-                }
-                Event::CursorLeft => {
-                    // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
-                    app.context
-                        .inject_user_action(UserAction::PointerMove(LayoutPoint::new(
-                            -9999.0, -9999.0,
-                        )));
-
-                    handle.redraw_requested();
-                }
-                Event::MouseInput {
-                    button,
-                    modifiers,
-                    state,
-                    click_count,
-                } => {
-                    let button = match button {
-                        michiu_window::MouseButton::Left => MouseButton::Left,
-                        michiu_window::MouseButton::Right => MouseButton::Right,
-                        michiu_window::MouseButton::Middle => MouseButton::Middle,
-                        michiu_window::MouseButton::Other(_) => MouseButton::X1,
-                    };
-                    let modifiers = Modifiers {
-                        shift: modifiers.contains(michiu_window::Modifiers::SHIFT),
-                        ctrl: modifiers.contains(michiu_window::Modifiers::CONTROL),
-                        alt: modifiers.contains(michiu_window::Modifiers::ALT),
-                        logo: modifiers.contains(michiu_window::Modifiers::LOGO),
-                    };
-                    let state = match state {
-                        michiu_window::ElementState::Pressed => ElementState::Pressed,
-                        michiu_window::ElementState::Released => ElementState::Released,
-                    };
-
-                    // ホバー中要素から最適なカーソルを解決
-                    let target_cursor = if let Some(hovered) =
-                        app.context.interaction_id(InteractionState::Hovered)
-                    {
-                        app.context.resolve_cursor(hovered)
-                    } else {
-                        CursorIcon::Default(None)
-                    };
-
-                    let hcursor = target_cursor.to_hcursor().unwrap();
-
-                    unsafe { windows::Win32::UI::WindowsAndMessaging::SetCursor(Some(hcursor)) };
-
-                    app.context.inject_user_action(UserAction::PointerButton {
-                        button,
-                        state,
-                        modifiers,
-                    });
-
-                    if click_count == 2 {
-                        app.context
-                            .inject_user_action(UserAction::PointerDoubleClick { modifiers });
-                    }
-
-                    let x = (raw.lparam.0 & 0xffff) as i16 as f32;
-                    let y = ((raw.lparam.0 >> 16) & 0xffff) as i16 as f32;
-                    let phys_pos = LayoutPoint::new(x, y);
-                    let _consumed = dispatch_raw_input_to_external_visual(
-                        &mut app.context,
-                        raw.msg,
-                        raw.wparam,
-                        raw.lparam,
-                        phys_pos,
-                        app.renderer.scale_factor(),
-                    );
-
-                    // フォーカス取得（点滅カーソル表示開始）のために再描画
-                    handle.redraw_requested();
-                }
-                Event::CharacterInput(c) => {
-                    app.context.inject_user_action(UserAction::Character(c));
-                    handle.redraw_requested();
-                }
-                Event::KeyboardInput {
-                    key_code,
-                    modifiers,
-                    state,
-                } => {
-                    let key_code = key_code.assume_valid().into_inner();
-                    let key = VirtualKey::from_windows(key_code);
-                    let modifiers = Modifiers {
-                        shift: modifiers.contains(michiu_window::Modifiers::SHIFT),
-                        ctrl: modifiers.contains(michiu_window::Modifiers::CONTROL),
-                        alt: modifiers.contains(michiu_window::Modifiers::ALT),
-                        logo: modifiers.contains(michiu_window::Modifiers::LOGO),
-                    };
-                    let state = match state {
-                        michiu_window::ElementState::Pressed => ElementState::Pressed,
-                        michiu_window::ElementState::Released => ElementState::Released,
-                    };
-
-                    if modifiers.ctrl {
-                        match raw.wparam.0 as i32 {
-                            // Ctrl + C
-                            0x43 => {
-                                // 'C' キー
-                                if let Some(selected_text) = app.context.get_selected_text() {
-                                    let _ = set_win32_clipboard(&selected_text);
-                                }
-                            }
-                            // Ctrl + V
-                            0x56 => {
-                                // 'V' キー
-                                if let Some(pasted_text) = get_win32_clipboard() {
-                                    app.context
-                                        .inject_user_action(UserAction::Paste(pasted_text.into()));
-                                }
-                            }
-                            // Ctrl + X (切り取り)
-                            0x58 => {
-                                // 'X'
-                                if let Some(selected_text) = app.context.get_selected_text() {
-                                    let _ = set_win32_clipboard(&selected_text);
-                                }
-                                app.context.inject_user_action(UserAction::Cut);
-                            }
-                            // Ctrl + Z (Undo)
-                            0x5A => {
-                                // 'Z'
-                                app.context.inject_user_action(UserAction::Undo);
-                            }
-                            // Ctrl + Y (Redo)
-                            0x59 => {
-                                // 'Y'
-                                app.context.inject_user_action(UserAction::Redo);
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    app.context.inject_user_action(UserAction::KeyboardKey {
-                        key,
-                        state,
-                        modifiers,
-                    });
-
-                    handle.redraw_requested();
-                }
-                Event::MouseWheel {
-                    raw_delta_x,
-                    raw_delta_y,
-                } => {
-                    let mut pt = windows::Win32::Foundation::POINT {
-                        x: (raw.lparam.0 & 0xffff) as i16 as i32,
-                        y: ((raw.lparam.0 >> 16) & 0xffff) as i16 as i32,
-                    };
-                    let _ = unsafe { windows::Win32::Graphics::Gdi::ScreenToClient(hwnd, &mut pt) };
-
-                    // 横スクロール時は、右チルト（プラス値）された際に
-                    // 右方向へスクロール（オフセット加算）させるため、符号の方向性を補正
-                    let scroll_x = {
-                        let x = raw_delta_x.assume_valid().into_inner();
-                        -raw_wheel_delta_to_logical_pixels(x.raw() as f32)
-                    };
-
-                    let scroll_y = {
-                        let y = raw_delta_y.assume_valid().into_inner();
-                        raw_wheel_delta_to_logical_pixels(y.raw() as f32)
-                    };
-
-                    app.context
-                        .inject_user_action(UserAction::MouseWheel { scroll_x, scroll_y });
-
-                    let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
-                    let _consumed = dispatch_raw_input_to_external_visual(
-                        &mut app.context,
-                        raw.msg,
-                        raw.wparam,
-                        raw.lparam,
-                        phys_pos,
-                        app.renderer.scale_factor(),
-                    );
-
-                    // 画面を再描画
-                    handle.redraw_requested();
-                }
-                Event::Ime(ime) => {
-                    let ime = ime.assume_valid().into_inner();
-                    let ime_state = ImeState {
-                        is_open: ime.is_open,
-                        conversion_mode: ime.conversion_mode,
-                        sentence_mode: ime.sentence_mode,
-                        keyboard_layout_id: ime.keyboard_layout_id,
-                        composition_text: ime.composition_text.into(),
-                        result_text: ime.result_text.into(),
-                        caret_position: ime.caret_position.map(|p| LayoutPoint {
-                            x: p.x as f32,
-                            y: p.y as f32,
-                        }),
-                        composition_cursor: CharIndex(ime.composition_cursor),
-                        composition_attrs: ime.composition_attrs,
-                    };
-
-                    app.context.inject_user_action(UserAction::Ime(ime_state));
-                    handle.redraw_requested();
+                    redraw_requested(app);
                 }
                 _ => {}
             }
@@ -445,17 +158,18 @@ fn event_loop(app: &mut AppState, handle: Validated<WindowHandle>) -> michiu_win
     Ok(())
 }
 
-fn redraw_requested(app: &mut AppState, handle: Validated<WindowHandle>) {
+fn redraw_requested(app: &mut MichiuApp) {
     let frame_start = std::time::Instant::now();
 
     let update_start = std::time::Instant::now();
     app.context.begin_frame();
+    app.standard_update_cursor_icon();
     app.context.tick_system_frame(&TickType::All);
     let update_elapsed = update_start.elapsed();
 
     let layout_start = std::time::Instant::now();
     app.context
-        .sync_layout(app.root_id, app.renderer.layout_size());
+        .sync_layout(app.root_id(), app.renderer.layout_size());
     let layout_elapsed = layout_start.elapsed();
 
     let comp_start = std::time::Instant::now();
@@ -466,7 +180,7 @@ fn redraw_requested(app: &mut AppState, handle: Validated<WindowHandle>) {
 
     app.context.update_accessibility();
 
-    if let Some(_ctx) = handle.begin_paint() {
+    if let Some(_ctx) = app.handle.begin_paint() {
         app.renderer.draw(&mut app.context);
     }
 
@@ -478,7 +192,7 @@ fn redraw_requested(app: &mut AppState, handle: Validated<WindowHandle>) {
     if app.context.has_active_frame() {
         let _ = unsafe { windows::Win32::Graphics::Dwm::DwmFlush() };
         let _ = unsafe {
-            windows::Win32::Graphics::Gdi::InvalidateRect(Some(handle.hwnd()), None, false)
+            windows::Win32::Graphics::Gdi::InvalidateRect(Some(app.handle.hwnd()), None, false)
         };
     }
     let sync_elapsed = sync_start.elapsed();
