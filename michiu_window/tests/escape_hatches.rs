@@ -2,7 +2,9 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
 
-use michiu_window::{EventPump, LogicalSize, SubclassResult, WindowBuilder, init_dpi_awareness};
+use michiu_window::{
+    LogicalSize, MichiuEventPump, MichiuWindow, MichiuWindowBuilder, SubclassResult,
+};
 use std::{
     sync::{
         Arc, Mutex,
@@ -52,14 +54,14 @@ unsafe extern "system" fn raw_subclass_test_proc(
 #[allow(clippy::too_many_lines)]
 #[test]
 fn test_integration_escape_hatches_coexistence_and_precedence() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     run_on_clean_thread(|| {
         let tracker: OrderTracker = Arc::new(Mutex::new(Vec::new()));
 
         // with_message_filter を登録してウィンドウを構築
         let tracker_for_filter = tracker.clone();
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("Escape Hatches Test Window")
             .with_visible(false)
             .with_inner_size(LogicalSize::new(400.0, 300.0))
@@ -79,7 +81,7 @@ fn test_integration_escape_hatches_coexistence_and_precedence() {
             .try_into()
             .expect("Integration builder validation failed");
 
-        let window = michiu_window::Window::build(validated).expect("Failed to build window");
+        let window = michiu_window::MichiuWindow::build(validated).expect("Failed to build window");
 
         // subclass (安全なサブクラス) を登録
         let tracker_for_subclass = tracker.clone();
@@ -103,7 +105,7 @@ fn test_integration_escape_hatches_coexistence_and_precedence() {
                 .expect("Failed to register raw subclass");
         }
 
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
 
         // 実行順序（優先度）の検証
         let res_500 = unsafe {

@@ -16,7 +16,7 @@ use windows::core::PCWSTR;
 
 use crate::error::{MichiuError, Result};
 use crate::{
-    CursorIcon, EventSender, PhysicalPoint, PhysicalSize, PreferredAppMode, WindowId, WindowState,
+    CursorIcon, MichiuEventSender, PhysicalPoint, PhysicalSize, PreferredAppMode, WindowId, WindowState,
     ZOrder, enable_dark_mode_titlebar, is_system_dark_mode, set_app_theme,
 };
 use std::{borrow::Cow, num::NonZeroIsize};
@@ -133,11 +133,11 @@ impl WindowHandle {
         WindowId(self.hwnd().0 as isize)
     }
 
-    /// Creates a thread-safe [`EventSender`] that targets this window's raw handle.
+    /// Creates a thread-safe [`MichiuEventSender`] that targets this window's raw handle.
     #[must_use]
     #[inline]
-    pub fn sender(&self) -> EventSender {
-        EventSender::new(self.hwnd)
+    pub fn sender(&self) -> MichiuEventSender {
+        MichiuEventSender::new(self.hwnd)
     }
 
     /// Posts a harmless empty message (`WM_NULL`) to the window to wake up the message loop asynchronously.

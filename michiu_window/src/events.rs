@@ -8,13 +8,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::VIRTUAL_KEY;
 
 /// The top-level Event enumeration yielded by the event loop.
 #[derive(Debug)]
-pub enum MichiuEvent {
+pub enum MichiuAnyEvent {
     /// Events triggered by a specific active window.
     Window {
         /// Identifies which window generated this event.
         id: WindowId,
         /// The specific windowing or input event.
-        event: Event,
+        event: MichiuEvent,
     },
 
     /// A custom, thread-safe user-defined event.
@@ -31,7 +31,7 @@ pub enum MichiuEvent {
 /// All raw OS coordinates and keys are kept unvalidated inside [`Unvalidated`] wrappers,
 /// forcing you to explicitly validate them at your application boundary.
 #[derive(Debug, Clone)]
-pub enum Event {
+pub enum MichiuEvent {
     /// Issued when the window is first instantiated. (`WM_CREATE`)
     Created,
 
@@ -126,9 +126,9 @@ mod tests {
     fn test_window_event_validation_success() {
         // OSから正常なサイズ（800x600）を受け取ったと仮定
         let raw_size = PhysicalSize::new(800, 600);
-        let event = Event::Resized(Unvalidated::new(raw_size));
+        let event = MichiuEvent::Resized(Unvalidated::new(raw_size));
 
-        if let Event::Resized(unvalidated_size) = event {
+        if let MichiuEvent::Resized(unvalidated_size) = event {
             // `validate_with` を用いて、アプリケーションの境界で安全に検証を行う
             // 例として「幅・高さが共に0より大きいこと」を検証ルールとする
             let validation_result: Result<Validated<PhysicalSize>, &str> = unvalidated_size
@@ -155,9 +155,9 @@ mod tests {
     fn test_window_event_validation_failure() {
         // OSから不正なサイズ（マイナス幅など、Win32の不具合や予期せぬ値）を受け取ったと仮定
         let invalid_raw_size = PhysicalSize::new(-100, 600);
-        let event = Event::Resized(Unvalidated::new(invalid_raw_size));
+        let event = MichiuEvent::Resized(Unvalidated::new(invalid_raw_size));
 
-        if let Event::Resized(unvalidated_size) = event {
+        if let MichiuEvent::Resized(unvalidated_size) = event {
             // `validate_with` を用いて同様に検証を行う
             let validation_result: Result<Validated<PhysicalSize>, &str> = unvalidated_size
                 .validate_with(|size| {
@@ -185,9 +185,9 @@ mod tests {
         let custom_data = String::from("Custom Command");
 
         // Box に包んで User とする
-        let event = MichiuEvent::User(Box::new(custom_data));
+        let event = MichiuAnyEvent::User(Box::new(custom_data));
 
-        if let MichiuEvent::User(boxed_any) = event {
+        if let MichiuAnyEvent::User(boxed_any) = event {
             // Any型から元の String 型へ安全にダウンキャストできるか検証
             let downcasted = boxed_any.downcast_ref::<String>();
             assert!(downcasted.is_some(), "Downcast to String should succeed");
@@ -200,17 +200,17 @@ mod tests {
     #[test]
     fn test_michiu_event_window_id_binding() {
         // ウィンドウIDが正しく結びついているかのテスト
-        let event = MichiuEvent::Window {
+        let event = MichiuAnyEvent::Window {
             id: WindowId(12345),
-            event: Event::CloseRequested,
+            event: MichiuEvent::CloseRequested,
         };
 
         match event {
-            MichiuEvent::Window { id, event } => {
+            MichiuAnyEvent::Window { id, event } => {
                 assert_eq!(id, WindowId(12345));
-                assert!(matches!(event, Event::CloseRequested));
+                assert!(matches!(event, MichiuEvent::CloseRequested));
             }
-            MichiuEvent::User(_) => panic!("Expected MichiuEvent::Event"),
+            MichiuAnyEvent::User(_) => panic!("Expected MichiuEvent::Event"),
             _ => {}
         }
     }

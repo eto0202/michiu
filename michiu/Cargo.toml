@@ -33,8 +33,6 @@ features = [
     "Win32_UI_WindowsAndMessaging",
 ]
 
-
-
 [features]
 default = ["ui", "guard", "window", "trace-error"]
 

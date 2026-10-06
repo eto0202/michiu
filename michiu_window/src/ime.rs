@@ -519,7 +519,7 @@ mod tests {
     use michiu_guard::Validate;
 
     use super::*;
-    use crate::{Window, WindowBuilder};
+    use crate::{MichiuWindowBuilder, MichiuWindow};
 
     fn run_on_clean_thread<F>(f: F)
     where
@@ -532,8 +532,8 @@ mod tests {
     #[test]
     fn test_ime_context_lifecycle_and_getters_normal() {
         run_on_clean_thread(|| {
-            let builder = WindowBuilder::new().with_title("ImeLifecycleTestWindow");
-            let window = Window::build(builder.validate_into().unwrap()).unwrap();
+            let builder = MichiuWindowBuilder::new().with_title("ImeLifecycleTestWindow");
+            let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
 
             // IMEコンテキストの取得
             let ime_ctx_res = ImeContext::new(window.hwnd());

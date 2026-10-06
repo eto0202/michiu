@@ -6,8 +6,9 @@
 
 use michiu_guard::Validated;
 use michiu_window::{
-    CURRENT_HANDLER, ComContext, Event, EventPump, FileDropTarget, HandlerGuard, HandlerPtr,
-    ImeContext, LogicalSize, MichiuEvent, RawEvent, WindowBuilder, WindowId, init_dpi_awareness,
+    CURRENT_HANDLER, MichiuEvent, FileDropTarget, HandlerGuard, HandlerPtr, ImeContext, LogicalSize,
+    MichiuAnyEvent, MichiuComContext, MichiuEventPump, MichiuRawEvent, MichiuWindow,
+    MichiuWindowBuilder, WindowId,
 };
 use std::{
     io::Read,
@@ -48,18 +49,19 @@ where
 #[allow(clippy::too_many_lines)]
 #[test]
 fn test_integration_com_sta_and_ime_relay_lifecycle() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     run_on_clean_thread(|| {
         // OLE STA コンテキストの初期化
-        let com_ctx = ComContext::new_com_single().expect("Failed to initialize OLE STA context");
+        let com_ctx =
+            MichiuComContext::new_com_single().expect("Failed to initialize OLE STA context");
 
         // テスト並行実行時のポート重複を防ぐため、スレッドIDから安全な一意のポートを算出 (10000 - 19999)
         let thread_id = unsafe { GetCurrentThreadId() };
         let test_port = 10000 + (thread_id % 10000) as u16;
 
         // ドラッグ＆ドロップを有効にし、IME中継用ポートを指定してウィンドウを構築
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("COM and IME Integration Window")
             .with_com_context(&com_ctx)
             .with_drag_and_drop(true) // OLE D&D 有効
@@ -71,7 +73,7 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
             .try_into()
             .expect("Integration builder validation failed");
 
-        let window = michiu_window::Window::build(validated)
+        let window = michiu_window::MichiuWindow::build(validated)
             .expect("Failed to build window with OLE and IME Relay");
 
         let main_id = window.id();
@@ -109,7 +111,7 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
         }
 
         // メッセージループを回して、WndProc内の IME 更新翻訳・送信ロジックを実行させる
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let loop_start = Instant::now();
         let mut received_json = String::new();
 
@@ -165,11 +167,11 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
         // イベントループを回し、プッシュされた Event::FileDropped を回収する
         let mut dnd_verified = false;
 
-        let mut capture_fn = |event: MichiuEvent, _id: WindowId, _raw: RawEvent| {
-            if let MichiuEvent::Window { id: win_id, event } = event {
+        let mut capture_fn = |event: MichiuAnyEvent, _id: WindowId, _raw: MichiuRawEvent| {
+            if let MichiuAnyEvent::Window { id: win_id, event } = event {
                 assert_eq!(win_id, main_id);
 
-                if let Event::FileDropped(unvalidated_files) = event {
+                if let MichiuEvent::FileDropped(unvalidated_files) = event {
                     let validated_res: Result<Validated<Vec<PathBuf>>, &str> = unvalidated_files
                         .validate_with(|files| {
                             assert_eq!(files.len(), 1, "Expected exactly one dropped file");
@@ -195,7 +197,8 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
 
         {
             // スレッドローカルに一時ハンドラを有効化
-            let f_trait: &mut (dyn FnMut(MichiuEvent, WindowId, RawEvent) + '_) = &mut capture_fn;
+            let f_trait: &mut (dyn FnMut(MichiuAnyEvent, WindowId, MichiuRawEvent) + '_) =
+                &mut capture_fn;
             let erased_ptr: HandlerPtr = unsafe { std::mem::transmute(f_trait) };
             CURRENT_HANDLER.with(|h| h.set(Some(erased_ptr)));
             let _guard = HandlerGuard;
@@ -230,23 +233,25 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
 #[allow(clippy::too_many_lines)]
 #[test]
 fn test_integration_ime_relay_multi_client_robustness() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     run_on_clean_thread(|| {
-        let com_ctx = ComContext::new_com_single().expect("Failed to initialize OLE STA context");
+        let com_ctx =
+            MichiuComContext::new_com_single().expect("Failed to initialize OLE STA context");
 
         let thread_id = unsafe { GetCurrentThreadId() };
         // テスト衝突防止用の一意なポート
         let test_port = 20000 + (thread_id % 10000) as u16;
 
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("IME Robustness Window")
             .with_com_context(&com_ctx)
             .with_ime_expose_port(test_port)
             .with_inner_size(LogicalSize::new(400.0, 300.0));
 
         let window =
-            michiu_window::Window::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
+            michiu_window::MichiuWindow::build(builder.into_unvalidated().try_into().unwrap())
+                .unwrap();
 
         // 同時に2つのクライアント（A と B）を同じローカルポートに接続させる
         let mut client_a = None;
@@ -298,7 +303,7 @@ fn test_integration_ime_relay_multi_client_robustness() {
             );
         }
 
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let loop_start = Instant::now();
         let mut a_received = false;
         let mut b_received = false;

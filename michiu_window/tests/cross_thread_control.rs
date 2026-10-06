@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
 
-use michiu_window::{EventPump, LogicalSize, WindowBuilder, init_dpi_awareness};
+use michiu_window::{LogicalSize, MichiuEventPump, MichiuWindow, MichiuWindowBuilder};
 use std::{
     sync::{
         Arc,
@@ -27,11 +27,11 @@ where
 
 #[test]
 fn test_integration_cross_thread_control_lifecycle() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     run_on_clean_thread(|| {
         // UIスレッドで初期ウィンドウを生成
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("Initial Title")
             .with_inner_size(LogicalSize::new(400.0, 300.0));
 
@@ -40,7 +40,7 @@ fn test_integration_cross_thread_control_lifecycle() {
             .try_into()
             .expect("Integration builder validation failed");
 
-        let window = michiu_window::Window::build(validated).expect("Failed to build window");
+        let window = michiu_window::MichiuWindow::build(validated).expect("Failed to build window");
 
         // スレッドセーフな WindowHandle の切り出しとクローン
         let unvalidated_handle = window.handle();
@@ -68,7 +68,7 @@ fn test_integration_cross_thread_control_lifecycle() {
         bg_thread.join().expect("Background thread panicked");
 
         // UIスレッド側でメッセージループを回して非同期コマンドを反映
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let start_time = Instant::now();
 
         // ポストされたクロージャがUIスレッド上で安全に実行され、

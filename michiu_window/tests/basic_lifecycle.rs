@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
 
-use michiu_window::{EventPump, LogicalSize, WindowBuilder, init_dpi_awareness};
+use michiu_window::{LogicalSize, MichiuEventPump, MichiuWindow, MichiuWindowBuilder};
 
 // cargo test --test basic_lifecycle
 
@@ -17,12 +17,12 @@ where
 #[test]
 fn test_integration_minimal_lifecycle() {
     // プロセスレベルのDPI認識の初期化
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     // COMやSTA等のスレッド初期化への干渉を防ぐためクリーンなスレッドで実行
     run_on_clean_thread(|| {
         // ビルダーの組み立てと検証
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("Michiu Integration Test")
             .with_inner_size(LogicalSize::new(400.0, 300.0));
 
@@ -32,7 +32,7 @@ fn test_integration_minimal_lifecycle() {
             .expect("Integration builder validation failed");
 
         // ウィンドウ構築
-        let window = michiu_window::Window::build(validated)
+        let window = michiu_window::MichiuWindow::build(validated)
             .expect("Failed to build window in integration context");
 
         // 基本的なプロパティチェックと外部属性更新
@@ -46,7 +46,7 @@ fn test_integration_minimal_lifecycle() {
         window.set_title("Michiu Integration - Title Updated");
 
         // イベントポンプの最小限の駆動テスト
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         // 最初のポーリング
         let _event = event_pump.poll_one_event();
 

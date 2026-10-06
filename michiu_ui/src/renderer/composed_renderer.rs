@@ -43,7 +43,7 @@ use windows::{
 };
 use windows_numerics::Matrix3x2;
 
-pub struct ComposedRenderer {
+pub struct MichiuRenderer {
     pub(crate) hwnd: HWND,
     pub(crate) layout_size: LayoutSize,
     pub(crate) scale_factor: f32,
@@ -92,7 +92,7 @@ pub struct PromotedVisual {
     pub is_visible: bool,
 }
 
-impl ComposedRenderer {
+impl MichiuRenderer {
     /// Initialize the renderer.
     #[inline]
     pub async fn new(
@@ -102,7 +102,7 @@ impl ComposedRenderer {
     ) -> crate::Result<Self> {
         // DirectComposition の構築 (setup_direct_composition を内包)
         let (d3d11_device, desktop_device, target, root_visual, wgpu_visual) =
-            ComposedRenderer::setup_direct_composition(hwnd)?;
+            MichiuRenderer::setup_direct_composition(hwnd)?;
 
         // HINSTANCE（h_instance）の解決
         let h_instance = unsafe { GetModuleHandleW(None)? };
@@ -546,6 +546,29 @@ impl ComposedRenderer {
                 wgpu_visual,
             ))
         }
+    }
+
+    /// Identifies the topmost `ExternalVisual` based on physical pixel coordinates
+    /// and forwards the raw input.
+    ///
+    ///  Returns true if the event has been consumed.
+    #[inline]
+    pub fn dispatch_raw_input_to_external_visual(
+        cx: &mut Context,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        window_phys_pos: LayoutPoint,
+        scale_factor: f32,
+    ) -> bool {
+        crate::dispatch_raw_input_to_external_visual(
+            cx,
+            msg,
+            wparam,
+            lparam,
+            window_phys_pos,
+            scale_factor,
+        )
     }
 
     #[inline]

@@ -3,7 +3,8 @@
 #![allow(clippy::panic)]
 
 use michiu_window::{
-    Event, EventPump, LogicalSize, MichiuEvent, PhysicalSize, WindowBuilder, init_dpi_awareness,
+    LogicalSize, MichiuAnyEvent, MichiuEvent, MichiuEventPump, MichiuWindow, MichiuWindowBuilder,
+    PhysicalSize,
 };
 use std::time::{Duration, Instant};
 use windows::Win32::{
@@ -30,10 +31,10 @@ where
 #[allow(clippy::too_many_lines)]
 #[test]
 fn test_integration_event_posting_and_translation_lifecycle() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("Event Posting Test")
             .with_inner_size(LogicalSize::new(400.0, 300.0));
 
@@ -42,19 +43,19 @@ fn test_integration_event_posting_and_translation_lifecycle() {
             .try_into()
             .expect("Integration builder validation failed");
 
-        let window = michiu_window::Window::build(validated).expect("Failed to build window");
+        let window = michiu_window::MichiuWindow::build(validated).expect("Failed to build window");
 
         // スレッドセーフな WindowHandle を取得
         let unvalidated_handle = window.handle();
         let handle = unvalidated_handle.assume_valid();
 
-        // EventSender を取得
+        // MichiuEventSender を取得
         let sender = window.handle().assume_valid().sender();
         let handle_clone = handle.clone();
 
         // バックグラウンドスレッドを立ち上げて、各種メッセージをポストする
         let bg_thread = std::thread::spawn(move || {
-            // EventSender によるカスタムイベント
+            // MichiuEventSender によるカスタムイベント
             sender.send_event(MyCustomPayload {
                 label: "Payload from background".to_string(),
                 id: 42,
@@ -88,7 +89,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
         bg_thread.join().expect("Background thread panicked");
 
         // UIスレッド側でメッセージループを回してイベントを回収・アサーション
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let start_time = Instant::now();
 
         let mut custom_event_received = false;
@@ -108,7 +109,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
                 }
 
                 match event {
-                    MichiuEvent::User(boxed_any) => {
+                    MichiuAnyEvent::User(boxed_any) => {
                         let downcasted = boxed_any.downcast::<MyCustomPayload>();
                         assert!(
                             downcasted.is_ok(),
@@ -122,12 +123,12 @@ fn test_integration_event_posting_and_translation_lifecycle() {
                         custom_event_received = true;
                     }
 
-                    MichiuEvent::Window { event, .. } => {
+                    MichiuAnyEvent::Window { event, .. } => {
                         match event {
-                            Event::CloseRequested => {
+                            MichiuEvent::CloseRequested => {
                                 close_event_received = true;
                             }
-                            Event::Resized(unvalidated_size) => {
+                            MichiuEvent::Resized(unvalidated_size) => {
                                 // michiu_guard の validate_with を用いて境界検証を実行
                                 let validation_result = unvalidated_size.validate_with(|size| {
                                     // 渡されたサイズが想定（800x600）と一致するか検証

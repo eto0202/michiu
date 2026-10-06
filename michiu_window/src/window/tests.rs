@@ -4,7 +4,7 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use super::*;
-use crate::{ComContext, WindowBuilder};
+use crate::{MichiuComContext, MichiuWindowBuilder};
 use michiu_guard::Validate;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,8 +28,10 @@ where
 #[test]
 fn test_build_raw_style_normal() {
     // 標準構成
-    let builder: Validated<WindowBuilder> =
-        WindowBuilder::new().into_unvalidated().try_into().unwrap();
+    let builder: Validated<MichiuWindowBuilder> = MichiuWindowBuilder::new()
+        .into_unvalidated()
+        .try_into()
+        .unwrap();
     let style = build_raw_style(&builder);
     assert!(
         style.contains(WS_OVERLAPPEDWINDOW),
@@ -37,7 +39,7 @@ fn test_build_raw_style_normal() {
     );
 
     // デコレーションなし構成
-    let builder_no_dec = WindowBuilder::new().with_decorations(false);
+    let builder_no_dec = MichiuWindowBuilder::new().with_decorations(false);
     let style_no_dec = build_raw_style(&builder_no_dec);
     assert!(
         !style_no_dec.contains(WS_CAPTION),
@@ -49,7 +51,7 @@ fn test_build_raw_style_normal() {
     );
 
     // リサイズ不可構成
-    let builder_no_res = WindowBuilder::new().with_resizable(false);
+    let builder_no_res = MichiuWindowBuilder::new().with_resizable(false);
     let style_no_res = build_raw_style(&builder_no_res);
     assert!(
         !style_no_res.contains(WS_THICKFRAME),
@@ -64,7 +66,7 @@ fn test_build_raw_style_normal() {
 #[test]
 fn test_build_raw_ex_style_normal() {
     // 標準構成
-    let builder = WindowBuilder::new();
+    let builder = MichiuWindowBuilder::new();
     let ex_style = build_raw_ex_style(&builder);
     assert!(
         !ex_style.contains(WS_EX_LAYERED),
@@ -72,7 +74,7 @@ fn test_build_raw_ex_style_normal() {
     );
 
     // 透明化構成
-    let builder_trans = WindowBuilder::new().with_transparent(true);
+    let builder_trans = MichiuWindowBuilder::new().with_transparent(true);
     let ex_style_trans = build_raw_ex_style(&builder_trans);
     assert!(
         ex_style_trans.contains(WS_EX_LAYERED),
@@ -80,7 +82,7 @@ fn test_build_raw_ex_style_normal() {
     );
 
     // ヒットテスト無視構成
-    let builder_no_hit = WindowBuilder::new().with_hittest(false);
+    let builder_no_hit = MichiuWindowBuilder::new().with_hittest(false);
     let ex_style_no_hit = build_raw_ex_style(&builder_no_hit);
     assert!(
         ex_style_no_hit.contains(WS_EX_TRANSPARENT),
@@ -91,7 +93,7 @@ fn test_build_raw_ex_style_normal() {
 #[test]
 fn test_calc_window_rect_normal() {
     // 800x600 のインナークライアントサイズを指定
-    let builder = WindowBuilder::new().with_inner_size(LogicalSize::new(800.0, 600.0));
+    let builder = MichiuWindowBuilder::new().with_inner_size(LogicalSize::new(800.0, 600.0));
     let style = WS_OVERLAPPEDWINDOW;
     let ex_style = WINDOW_EX_STYLE(0);
 
@@ -121,13 +123,13 @@ fn test_calc_window_rect_normal() {
 #[test]
 fn test_get_class_name_utf16_normal() {
     // デフォルト名
-    let builder = WindowBuilder::new();
+    let builder = MichiuWindowBuilder::new();
     let name_wide = get_class_name_utf16("DefaultClass", &builder);
     let name_str = String::from_utf16(&name_wide[..name_wide.len() - 1]).unwrap();
     assert_eq!(name_str, "DefaultClass");
 
     // カスタムクラス名
-    let builder_custom = WindowBuilder::new().with_custom_class_name("MyCustomClass");
+    let builder_custom = MichiuWindowBuilder::new().with_custom_class_name("MyCustomClass");
     let name_custom_wide = get_class_name_utf16("DefaultClass", &builder_custom);
     let name_custom_str =
         String::from_utf16(&name_custom_wide[..name_custom_wide.len() - 1]).unwrap();
@@ -146,7 +148,7 @@ fn test_register_window_class_normal() {
         let unique_class_wide: Vec<u16> = unique_class_str.encode_utf16().chain(Some(0)).collect();
         let class_name = PCWSTR(unique_class_wide.as_ptr());
 
-        let builder = WindowBuilder::new();
+        let builder = MichiuWindowBuilder::new();
 
         // 新規登録
         let res = register_window_class(class_name, "DefaultTestClass", hinstance, &builder);
@@ -172,7 +174,7 @@ fn test_is_system_dark_mode_safe() {
 fn test_init_dpi_awareness_safe_and_exact() {
     // SetProcessDpiAwarenessContext はプロセスにつき一度しか設定できない。
     // すでに別テストで設定済みの場合は false になり、GetLastError() が ERROR_ACCESS_DENIED になる。
-    let success = init_dpi_awareness();
+    let success = MichiuWindow::init_dpi_awareness();
     if !success {
         let last_error = unsafe { GetLastError() };
         assert_eq!(
@@ -208,7 +210,7 @@ fn test_enable_dark_mode_titlebar_normal() {
                 class_name,
                 "MichiuDwmTestDummyClass",
                 hinstance,
-                &WindowBuilder::new(),
+                &MichiuWindowBuilder::new(),
             );
 
             // DWMを設定するための実HWNDダミーを生成
@@ -242,7 +244,7 @@ fn test_enable_dark_mode_titlebar_normal() {
 fn test_window_build_and_basic_properties_and_rwh_normal() {
     run_on_clean_thread(|| {
         // 有効な Window を構築
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("Michiu Core Window")
             .with_inner_size(LogicalSize::new(800.0, 600.0));
 
@@ -250,7 +252,7 @@ fn test_window_build_and_basic_properties_and_rwh_normal() {
             .into_unvalidated()
             .try_into()
             .expect("Failed to validate builder");
-        let window_result = Window::build(validated);
+        let window_result = MichiuWindow::build(validated);
         assert!(
             window_result.is_ok(),
             "Window::build failed: {:?}",
@@ -336,8 +338,8 @@ fn test_window_build_and_basic_properties_and_rwh_normal() {
 #[test]
 fn test_window_handle_generation_and_validation_lifecycle() {
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new().with_title("HandleLifecycleTestWindow");
-        let window = Window::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("HandleLifecycleTestWindow");
+        let window = MichiuWindow::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
 
         // 未検証ハンドル (Unvalidated<WindowHandle>) の切り出し
         let unvalidated_handle = window.handle();
@@ -420,8 +422,8 @@ unsafe extern "system" fn mock_user_subclass_proc(
 #[test]
 fn test_raw_subclass_normal_and_abnormal_lifecycle() {
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new().with_title("SubclassNormalTest");
-        let window = Window::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("SubclassNormalTest");
+        let window = MichiuWindow::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
 
         // サブクラス内でコールバックが実行されたかを追跡するアトミックフラグ
         let intercept_tracker = Arc::new(AtomicBool::new(false));
@@ -456,7 +458,7 @@ fn test_raw_subclass_normal_and_abnormal_lifecycle() {
         window.destroy(); // HWND は無効（ゾンビ状態）になる
 
         // すでに解体されて存在しない HWND に対して SetWindowSubclass の適用を試みる
-        let stale_window = Window {
+        let stale_window = MichiuWindow {
             hwnd: raw_hwnd,
             hinstance: HINSTANCE::default(),
             thread_id: 0,
@@ -491,7 +493,7 @@ fn test_global_wnd_proc_message_filter_bypass_normal() {
         let filter_executed_clone = filter_executed.clone();
 
         // WM_USER + 300 の場合に LRESULT(42) を返して処理を打ち切るフィルターを設定
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("MessageFilterTest")
             .with_message_filter(move |_hwnd, msg, _wparam, _lparam| {
                 if msg == WM_USER + 300 {
@@ -501,7 +503,7 @@ fn test_global_wnd_proc_message_filter_bypass_normal() {
                 None
             });
 
-        let window = Window::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
+        let window = MichiuWindow::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
 
         // カスタムメッセージを同期送信
         let send_result = unsafe {
@@ -532,12 +534,12 @@ fn test_global_wnd_proc_message_filter_bypass_normal() {
 fn test_global_wnd_proc_min_max_info_dpi_scaling_normal() {
     run_on_clean_thread(|| {
         // 論理サイズ制限（Min: 400x300, Max: 800x600）を指定してビルド
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("MinMaxScalingTest")
             .with_min_size(LogicalSize::new(400.0, 300.0))
             .with_max_size(LogicalSize::new(800.0, 600.0));
 
-        let window = Window::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
+        let window = MichiuWindow::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
 
         // OSの伸縮制限データ構造体 (MINMAXINFO) をスタックに確保
         let mut mmi = MINMAXINFO::default();
@@ -583,14 +585,14 @@ fn test_global_wnd_proc_min_max_info_dpi_scaling_normal() {
 #[test]
 fn test_window_build_with_drag_and_drop_lifecycle() {
     run_on_clean_thread(|| {
-        let com_ctx = ComContext::new_com_single().unwrap();
-        let builder = WindowBuilder::new()
+        let com_ctx = MichiuComContext::new_com_single().unwrap();
+        let builder = MichiuWindowBuilder::new()
             .with_title("DndWindowBuildTest")
             .with_drag_and_drop(true)
             .with_com_context(&com_ctx);
 
         let validated = builder.validate_into().unwrap();
-        let window_res = Window::build(validated);
+        let window_res = MichiuWindow::build(validated);
         assert!(
             window_res.is_ok(),
             "Failed to build window with drag_and_drop: {:?}",
@@ -614,11 +616,11 @@ fn test_window_build_with_drag_and_drop_lifecycle() {
 fn test_window_clipboard_synchronous_normal() {
     run_on_clean_thread(|| {
         // クリップボード操作には OLE STA が必須なので com_single で初期化
-        let com_ctx = ComContext::new_com_single().unwrap();
-        let builder = WindowBuilder::new()
+        let com_ctx = MichiuComContext::new_com_single().unwrap();
+        let builder = MichiuWindowBuilder::new()
             .with_title("ClipboardSyncTest")
             .with_com_context(&com_ctx);
-        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
 
         let test_text = "Michiu Framework Clipboard Sync Verification Text";
 
@@ -648,8 +650,8 @@ fn test_window_clipboard_synchronous_normal() {
 #[test]
 fn test_window_cursor_and_monitor_apis_synchronous_normal() {
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new().with_title("CursorAndMonitorTest");
-        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("CursorAndMonitorTest");
+        let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
 
         // カーソルキャプチャの実行確認 (パニックせずに終了するか)
         window.set_cursor_capture(true);
@@ -673,8 +675,8 @@ fn test_window_cursor_and_monitor_apis_synchronous_normal() {
 #[test]
 fn test_safe_subclass_intercept_and_continue_lifecycle() {
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new().with_title("SafeSubclassTestWindow");
-        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("SafeSubclassTestWindow");
+        let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
 
         let intercept_called = Arc::new(AtomicBool::new(false));
         let intercept_called_clone = intercept_called.clone();

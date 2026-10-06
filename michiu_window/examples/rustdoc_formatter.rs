@@ -2,8 +2,8 @@
 #![allow(clippy::print_stderr)]
 
 use michiu_window::{
-    ComContext, Event, EventPump, Icon, LogicalSize, MichiuEvent, Tray, TrayBuilder, TrayMenuItem,
-    Window, WindowBuilder, init_dpi_awareness,
+    LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuEvent, MichiuEventPump, MichiuIcon,
+    MichiuTray, MichiuTrayBuilder, MichiuTrayMenuItem, MichiuWindow, MichiuWindowBuilder,
 };
 use std::{
     io::Write,
@@ -94,30 +94,30 @@ fn add_rustdoc_prefix(formatted_code: &str, prefix: &str) -> String {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
-    let com_ctx = ComContext::new_com_single()?;
+    let com_ctx = MichiuComContext::new_com_single()?;
 
     let hicon = unsafe { LoadIconW(None, IDI_APPLICATION)? };
-    let icon = unsafe { Icon::from_raw(hicon) };
+    let icon = unsafe { MichiuIcon::from_raw(hicon) };
 
     let (tx, rx) = mpsc::channel::<()>();
 
     // Tray Menu
     let tx_for_menu = tx.clone();
-    let tray_builder = TrayBuilder::new()
+    let tray_builder = MichiuTrayBuilder::new()
         .with_icon(icon.clone())
         .with_tooltip("Rustdoc Code Formatter (Ctrl+Shift+R)")
         .with_menu_item(
-            TrayMenuItem::new("Exit Application").with_on_click(move || {
+            MichiuTrayMenuItem::new("Exit Application").with_on_click(move || {
                 let _ = tx_for_menu.send(());
             }),
         );
 
-    let tray = Tray::build(tray_builder.into_unvalidated().try_into()?)?;
+    let tray = MichiuTray::build(tray_builder.into_unvalidated().try_into()?)?;
     let tray_clone = tray.clone();
 
-    let builder = WindowBuilder::new()
+    let builder = MichiuWindowBuilder::new()
         .with_title("Rustdoc Formatter Window")
         .with_visible(false)
         .with_taskbar_button(false)
@@ -125,14 +125,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_tray(tray)
         .with_inner_size(LogicalSize::new(200.0, 150.0));
 
-    let window = Window::build(builder.into_unvalidated().try_into()?)?;
+    let window = MichiuWindow::build(builder.into_unvalidated().try_into()?)?;
     let handle = window.handle().assume_valid();
 
     // Registering a hotkey (Ctrl + Shift + R)
     let modifiers = HOT_KEY_MODIFIERS(0x0002 | 0x0004 | 0x4000);
     let _ = unsafe { RegisterHotKey(Some(window.hwnd()), HOTKEY_ID, modifiers, u32::from(VK_R.0)) };
 
-    let mut event_pump = EventPump::new();
+    let mut event_pump = MichiuEventPump::new();
 
     println!("Intelligent Rustdoc Formatter is active on system tray.");
     println!(
@@ -201,12 +201,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        if let MichiuEvent::Window { event, .. } = event {
+        if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
-                Event::CloseRequested => {
+                MichiuEvent::CloseRequested => {
                     handle.destroy();
                 }
-                Event::Destroyed => {
+                MichiuEvent::Destroyed => {
                     handle.quit();
                 }
                 _ => {}

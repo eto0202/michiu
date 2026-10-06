@@ -5,8 +5,9 @@
 
 use michiu_guard::Validated;
 use michiu_window::{
-    ComContext, Event, EventPump, Icon, LogicalSize, MichiuEvent, PhysicalPoint, Tray, TrayBuilder,
-    TrayMenuItem, Window, WindowBuilder, WindowHandle, init_dpi_awareness,
+    LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuEvent, MichiuEventPump, MichiuIcon,
+    MichiuTray, MichiuTrayBuilder, MichiuTrayMenuItem, MichiuWindow, MichiuWindowBuilder,
+    PhysicalPoint, WindowHandle,
 };
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use windows::Win32::Foundation::{CloseHandle, HWND};
@@ -138,28 +139,28 @@ fn register_rawinput_devices(hwnd: HWND) {
 #[expect(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize high-DPI support
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
-    let com_ctx = ComContext::new_com_single()?;
+    let com_ctx = MichiuComContext::new_com_single()?;
 
     let hicon = unsafe { LoadIconW(None, IDI_APPLICATION)? };
-    let icon = unsafe { Icon::from_raw(hicon) };
+    let icon = unsafe { MichiuIcon::from_raw(hicon) };
 
     // Preparing a channel to centrally collect instructions from each thread, tray, etc.
     let (tx, rx) = mpsc::channel();
 
     // 3. Creating a system tray icon (Adding an Exit menu item)
     let tx_for_menu = tx.clone();
-    let tray_builder = TrayBuilder::new()
+    let tray_builder = MichiuTrayBuilder::new()
         .with_icon(icon.clone())
         .with_tooltip("RawInput Worker Controller")
         .with_menu_item(
-            TrayMenuItem::new("Exit Application").with_on_click(move || {
+            MichiuTrayMenuItem::new("Exit Application").with_on_click(move || {
                 let _ = tx_for_menu.send(WorkerReport::Exit);
             }),
         );
 
-    let tray = Tray::build(tray_builder.into_unvalidated().try_into()?)?;
+    let tray = MichiuTray::build(tray_builder.into_unvalidated().try_into()?)?;
     let tray_clone = tray.clone();
 
     // Control signals for worker threads
@@ -175,7 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let signal_for_filter = signal.clone();
 
     // Creating a special window that is invisible and does not perform hit testing
-    let builder = WindowBuilder::new()
+    let builder = MichiuWindowBuilder::new()
         .with_title("RawInput Invisible Window")
         .with_visible(false)
         .with_hittest(false)
@@ -202,7 +203,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         });
 
-    let window = Window::build(builder.into_unvalidated().try_into()?)?;
+    let window = MichiuWindow::build(builder.into_unvalidated().try_into()?)?;
     let handle = window.handle().assume_valid();
 
     // Registering RawInput with the Windows OS
@@ -223,7 +224,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Message pump that drives the UI thread
-    let mut event_pump = EventPump::new();
+    let mut event_pump = MichiuEventPump::new();
 
     // Variables for data management
     let mut total_mouse_samples = 0u64;
@@ -237,12 +238,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Event-driven loop using `wait_event()`
     while event_pump.wait_event(|event, _, raw| {
-        if let MichiuEvent::Window { event, .. } = event {
+        if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
-                Event::CloseRequested => {
+                MichiuEvent::CloseRequested => {
                     handle.destroy();
                 }
-                Event::Destroyed => {
+                MichiuEvent::Destroyed => {
                     handle.quit();
                 }
                 _ => {}

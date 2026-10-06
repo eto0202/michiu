@@ -7,10 +7,7 @@ use michiu::{
         CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
         prelude::*,
     },
-    window::{
-        ComContext, Event, EventPump, LogicalSize, MichiuEvent, Window, WindowBuilder,
-        init_dpi_awareness,
-    },
+    window::prelude::*,
 };
 use std::cell::{Cell, RefCell};
 
@@ -38,11 +35,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::builder().trim_backtraces(None).build();
 
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
-    let com = ComContext::new_ro_single()?;
+    let com = MichiuComContext::new_ro_single()?;
 
-    let builder = WindowBuilder::new()
+    let builder = MichiuWindowBuilder::new()
         .with_title("Michiu Sample Collection")
         .with_visible(false)
         .with_no_redirection_bitmap(true)
@@ -51,14 +48,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_default_composition_window(false)
         .into_unvalidated();
 
-    let window = Window::build(builder.try_into()?)?;
+    let window = MichiuWindow::build(builder.try_into()?)?;
 
     let scale_factor = window.scale_factor() as f32;
     let handle = window.handle().assume_valid();
     let hwnd = handle.hwnd();
 
     // レンダラーを作成
-    let renderer = pollster::block_on(ComposedRenderer::new(
+    let renderer = pollster::block_on(MichiuRenderer::new(
         hwnd,
         LayoutSize::new(1000.0, 800.0),
         scale_factor,
@@ -124,7 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn event_loop(app: &mut MichiuApp, pump: &mut EventPump) -> michiu_window::Result<()> {
+fn event_loop(app: &mut MichiuApp, pump: &mut MichiuEventPump) -> michiu_window::Result<()> {
     while pump.wait_event(|event, _, raw| {
         let resp = app.standard_handle_window_event(&event, &raw);
 
@@ -139,15 +136,15 @@ fn event_loop(app: &mut MichiuApp, pump: &mut EventPump) -> michiu_window::Resul
             return;
         }
 
-        if let MichiuEvent::Window { event, .. } = event {
+        if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
-                Event::CloseRequested => {
+                MichiuEvent::CloseRequested => {
                     app.destroy();
                 }
-                Event::Destroyed => {
+                MichiuEvent::Destroyed => {
                     app.quit();
                 }
-                Event::RedrawRequested => {
+                MichiuEvent::RedrawRequested => {
                     redraw_requested(app);
                 }
                 _ => {}

@@ -2,7 +2,9 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
 
-use michiu_window::{ComContext, LogicalSize, MichiuError, WindowBuilder, init_dpi_awareness};
+use michiu_window::{
+    LogicalSize, MichiuComContext, MichiuError, MichiuWindow, MichiuWindowBuilder,
+};
 use windows::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
 
 // cargo test --test clipboard_conflict
@@ -18,18 +20,20 @@ where
 #[allow(clippy::print_stdout)]
 #[test]
 fn test_integration_clipboard_lock_conflict_and_recovery() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     run_on_clean_thread(|| {
-        let com_ctx = ComContext::new_com_single().expect("Failed to initialize OLE STA context");
-        let builder = WindowBuilder::new()
+        let com_ctx =
+            MichiuComContext::new_com_single().expect("Failed to initialize OLE STA context");
+        let builder = MichiuWindowBuilder::new()
             .with_title("Clipboard Conflict Test")
             .with_com_context(&com_ctx)
             .with_visible(false)
             .with_inner_size(LogicalSize::new(200.0, 150.0));
 
         let window =
-            michiu_window::Window::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
+            michiu_window::MichiuWindow::build(builder.into_unvalidated().try_into().unwrap())
+                .unwrap();
 
         // バックグラウンドを立ち上げクリップボードを排他ロックする
         let bg_thread = std::thread::spawn(move || {

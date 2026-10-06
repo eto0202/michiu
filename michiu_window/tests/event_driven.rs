@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
 
-use michiu_window::{EventPump, LogicalSize, WindowBuilder, init_dpi_awareness};
+use michiu_window::{MichiuEventPump, LogicalSize, MichiuWindowBuilder, MichiuWindow};
 use std::{
     sync::mpsc,
     time::{Duration, Instant},
@@ -25,11 +25,11 @@ where
 
 #[test]
 fn test_integration_event_driven_channel_lifecycle() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     run_on_clean_thread(|| {
         // UIスレッドで初期ウィンドウを生成
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title("Original Title")
             .with_inner_size(LogicalSize::new(400.0, 300.0));
 
@@ -38,7 +38,7 @@ fn test_integration_event_driven_channel_lifecycle() {
             .try_into()
             .expect("Integration builder validation failed");
 
-        let window = michiu_window::Window::build(validated).expect("Failed to build window");
+        let window = michiu_window::MichiuWindow::build(validated).expect("Failed to build window");
 
         let handle = window.handle().assume_valid();
         let handle_clone = handle.clone();
@@ -62,7 +62,7 @@ fn test_integration_event_driven_channel_lifecycle() {
         bg_thread.join().expect("Background thread panicked");
 
         // UIスレッド側のメッセージループ
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let start_time = Instant::now();
         let mut command_executed = false;
 

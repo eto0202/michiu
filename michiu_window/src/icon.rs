@@ -20,15 +20,15 @@ use windows::core::PCWSTR;
 /// # Examples
 ///
 /// ```no_run
-/// use michiu_window::Icon;
+/// use michiu_window::MichiuIcon;
 ///
 /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let icon = Icon::from_path("assets/app_icon.ico")?;
+///     let icon = MichiuIcon::from_path("assets/app_icon.ico")?;
 ///     Ok(())
 /// }
 /// ```
 #[derive(Clone, Debug)]
-pub struct Icon {
+pub struct MichiuIcon {
     inner: Arc<IconInner>,
 }
 
@@ -51,7 +51,7 @@ impl Drop for IconInner {
     }
 }
 
-impl Icon {
+impl MichiuIcon {
     /// Loads an icon from the specified image file path.
     ///
     /// Under the hood, this converts the path to a wide string and invokes `LoadImageW`
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn test_icon_from_bytes_normal() {
         // メモリ上の有効なバイト配列から正しく HICON が生成されるかを検証
-        let icon_result = Icon::from_bytes(MINIMAL_ICO_BYTES);
+        let icon_result = MichiuIcon::from_bytes(MINIMAL_ICO_BYTES);
         assert!(
             icon_result.is_ok(),
             "Failed to load icon from minimal bytes: {:?}",
@@ -304,7 +304,7 @@ mod tests {
 
         fs::write(&temp_ico_path, MINIMAL_ICO_BYTES).expect("Failed to write temp ico file");
 
-        let icon_result = Icon::from_path(&temp_ico_path);
+        let icon_result = MichiuIcon::from_path(&temp_ico_path);
 
         // クリーンアップはテスト結果を問わず行う
         let _ = fs::remove_file(&temp_ico_path);
@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn test_icon_clone() {
-        let icon = Icon::from_bytes(MINIMAL_ICO_BYTES).unwrap();
+        let icon = MichiuIcon::from_bytes(MINIMAL_ICO_BYTES).unwrap();
 
         // クローンによって参照カウントが増え、元のハンドルと同じ値が維持されるか検証
         let icon_cloned = icon.clone();
@@ -334,7 +334,7 @@ mod tests {
             .expect("Failed to load Win32 IDI_APPLICATION icon");
 
         // 外部（システム）所有の生 HICON から非所有型 Icon を作成
-        let icon = unsafe { Icon::from_raw(hicon_system) };
+        let icon = unsafe { MichiuIcon::from_raw(hicon_system) };
         assert_eq!(icon.as_raw(), hicon_system);
 
         // クローンし、スコープを抜けてDropされた際に「システム所有のアイコン」が
@@ -348,7 +348,7 @@ mod tests {
     fn test_icon_from_path_not_found() {
         // 存在しないパスからのロードをテスト
         let fake_path = std::path::Path::new("non_existent_and_fake_icon_file_12345.ico");
-        let result = Icon::from_path(fake_path);
+        let result = MichiuIcon::from_path(fake_path);
 
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -362,7 +362,7 @@ mod tests {
     #[test]
     fn test_icon_from_bytes_empty() {
         // 空のバイト配列を渡された場合のバリデーションエラーを検証
-        let result = Icon::from_bytes(&[]);
+        let result = MichiuIcon::from_bytes(&[]);
         assert!(result.is_err());
         match result.unwrap_err() {
             MichiuError::ValidationError { parameter, message } => {
@@ -377,7 +377,7 @@ mod tests {
     fn test_icon_from_bytes_malformed_header() {
         // 不正な形式を渡された場合のヘッダ解析エラーを検証
         let malformed_bytes = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-        let result = Icon::from_bytes(&malformed_bytes);
+        let result = MichiuIcon::from_bytes(&malformed_bytes);
 
         assert!(result.is_err());
         match result.unwrap_err() {

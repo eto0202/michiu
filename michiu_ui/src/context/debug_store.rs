@@ -6,13 +6,13 @@ use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveResizeHoverOption,
     ActiveTransitionsSparse, Backdrop, BaseBasicLayoutsSecondary, BaseFlexLayoutsSecondary,
     BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType, CapacityConfig,
-    ChildrenSecondary, ClipRectsSecondary, ComponentMask, ComposedRenderer, Context,
-    DespawnedQueueVec, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPropertiesSparse,
+    ChildrenSecondary, ClipRectsSecondary, ComponentMask, Context, DespawnedQueueVec,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPropertiesSparse,
     DndDropPropertiesSparse, EffectId, EffectToElementSecondary, EffectiveZindicesSecondary,
     ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, ExternalTextureSparse,
     FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuString,
-    MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingDcompRelease,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuRenderer,
+    MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingDcompRelease,
     PendingElementEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
     QuadInstance, RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
@@ -1025,7 +1025,7 @@ macro_rules! flush_trace {
 macro_rules! flush_trace {
     ($cx:expr, $r:expr) => {
         let _: &$crate::Context = $cx;
-        let _: &$crate::ComposedRenderer = $r;
+        let _: &$crate::MichiuRenderer = $r;
 
         if let Some(tx) = $cx.debug.dbg_tx.clone() {
             $cx.debug.frame += 1;

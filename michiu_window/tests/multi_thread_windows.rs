@@ -3,7 +3,7 @@
 #![allow(clippy::panic)]
 
 use michiu_window::{
-    ComContext, EventPump, LogicalSize, WindowBuilder, WindowHandle, init_dpi_awareness,
+    MichiuComContext, LogicalSize, MichiuEventPump, MichiuWindowBuilder, WindowHandle, MichiuWindow,
 };
 use std::{
     sync::mpsc::{self, Receiver, Sender},
@@ -38,22 +38,23 @@ fn spawn_isolated_ui_thread(
 
     let join_handle = std::thread::spawn(move || {
         // スレッドごとに独立した COM STA コンテキストを初期化
-        let com_ctx = ComContext::new_com_single().unwrap();
+        let com_ctx = MichiuComContext::new_com_single().unwrap();
 
-        let builder = WindowBuilder::new()
+        let builder = MichiuWindowBuilder::new()
             .with_title(title)
             .with_com_context(&com_ctx)
             .with_visible(false) // 画面がウィンドウで埋まるのを防ぐため非表示
             .with_inner_size(LogicalSize::new(200.0, 150.0));
 
         let window =
-            michiu_window::Window::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
+            michiu_window::MichiuWindow::build(builder.into_unvalidated().try_into().unwrap())
+                .unwrap();
         let handle = window.handle().assume_valid();
 
         // 構築したスレッド固有の WindowHandle を呼び出し元に返す
         handle_tx.send(handle).unwrap();
 
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let start_time = Instant::now();
 
         // スレッドローカルな接続トポロジー状態
@@ -114,7 +115,7 @@ fn spawn_isolated_ui_thread(
 
 #[test]
 fn test_integration_multi_thread_windows_and_broadcasting() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     // 各種通信用のチャネル準備
     let (tx_a, rx_a) = mpsc::channel();

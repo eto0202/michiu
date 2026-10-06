@@ -1,35 +1,27 @@
 #![allow(clippy::pedantic, clippy::restriction)]
 
-use michiu::{
-    MichiuApp, MichiuAppBuilder,
-    ui::prelude::*,
-    window::{
-        ComContext, Event, LogicalSize, MichiuEvent, Window, WindowBuilder, init_dpi_awareness,
-    },
-};
-use michiu_window::EventPump;
+use michiu::{MichiuApp, MichiuAppBuilder, ui::prelude::*, window::prelude::*};
 
 // cargo build --example minimal_sample --release
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
-    let com = ComContext::new_ro_single()?;
+    let com = MichiuComContext::new_ro_single()?;
 
-    let builder = WindowBuilder::new()
+    let builder = MichiuWindowBuilder::new()
         .with_title("Sample App")
         .with_com_context(&com)
         .with_no_redirection_bitmap(true)
         .with_inner_size(LogicalSize::new(600.0, 500.0))
         .into_unvalidated();
 
-    let window = Window::build(builder.try_into()?)?;
+    let window = MichiuWindow::build(builder.try_into()?)?;
 
     let scale_factor = window.scale_factor() as f32;
     let handle = window.handle().assume_valid();
-    let hwnd = handle.hwnd();
 
-    let renderer = pollster::block_on(ComposedRenderer::new(
-        hwnd,
+    let renderer = pollster::block_on(MichiuRenderer::new(
+        handle.hwnd(),
         LayoutSize::new(600.0, 500.0),
         scale_factor,
     ))?;
@@ -65,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn event_loop(app: &mut MichiuApp, pump: &mut EventPump) -> michiu_window::Result<()> {
+fn event_loop(app: &mut MichiuApp, pump: &mut MichiuEventPump) -> michiu_window::Result<()> {
     while pump.wait_event(|event, _, raw| {
         let resp = app.standard_handle_window_event(&event, &raw);
 
@@ -80,15 +72,15 @@ fn event_loop(app: &mut MichiuApp, pump: &mut EventPump) -> michiu_window::Resul
             return;
         }
 
-        if let MichiuEvent::Window { event, .. } = event {
+        if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
-                Event::CloseRequested => {
+                MichiuEvent::CloseRequested => {
                     app.destroy();
                 }
-                Event::Destroyed => {
+                MichiuEvent::Destroyed => {
                     app.quit();
                 }
-                Event::RedrawRequested => {
+                MichiuEvent::RedrawRequested => {
                     app.standard_redraw();
                 }
                 _ => {}

@@ -3,8 +3,8 @@
 #![allow(clippy::panic)]
 
 use michiu_window::{
-    CustomTrayMenu, Event, EventPump, Icon, LogicalSize, MichiuEvent, TrayBuilder, TrayMenuItem,
-    WindowBuilder, init_dpi_awareness,
+    LogicalSize, MichiuAnyEvent, MichiuCustomTrayMenu, MichiuEvent, MichiuEventPump, MichiuIcon,
+    MichiuTrayBuilder, MichiuTrayMenuItem, MichiuWindow, MichiuWindowBuilder,
 };
 use std::time::{Duration, Instant};
 use windows::Win32::{
@@ -24,17 +24,17 @@ where
 
 #[test]
 fn test_integration_tray_and_multi_window_routing() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     run_on_clean_thread(|| {
         // システム標準アイコンのロード
         let hicon_sys =
             unsafe { LoadIconW(None, IDI_APPLICATION).expect("Failed to load IDI_APPLICATION") };
-        let icon = unsafe { Icon::from_raw(hicon_sys) };
+        let icon = unsafe { MichiuIcon::from_raw(hicon_sys) };
 
         // カスタムメニューとしてポップアップ表示させるサブウィンドウの構築
         // デコレーションなし、タスクバー非表示でビルド
-        let menu_builder = WindowBuilder::new()
+        let menu_builder = MichiuWindowBuilder::new()
             .with_title("Custom Tray Menu Window")
             .with_decorations(false)
             .with_taskbar_button(false)
@@ -46,34 +46,36 @@ fn test_integration_tray_and_multi_window_routing() {
             .try_into()
             .expect("Menu window validation failed");
 
-        let menu_window = michiu_window::Window::build(validated_menu_builder)
+        let menu_window = michiu_window::MichiuWindow::build(validated_menu_builder)
             .expect("Failed to build custom menu window");
 
         // カスタムメニューとネイティブアイテムを含むトレイを構築
-        let custom_menu = CustomTrayMenu::new(menu_window.handle().assume_valid().into_inner());
+        let custom_menu =
+            MichiuCustomTrayMenu::new(menu_window.handle().assume_valid().into_inner());
 
-        let tray_builder = TrayBuilder::new()
+        let tray_builder = MichiuTrayBuilder::new()
             .with_icon(icon.clone())
             .with_tooltip("Michiu Integration Tray")
             .with_custom_menu(custom_menu)
             // ネイティブのメニュー項目も併設
-            .with_menu_item(TrayMenuItem::new("Exit Application"));
+            .with_menu_item(MichiuTrayMenuItem::new("Exit Application"));
 
-        let tray = michiu_window::Tray::build(tray_builder.into_unvalidated().try_into().unwrap())
-            .expect("Failed to build Tray");
+        let tray =
+            michiu_window::MichiuTray::build(tray_builder.into_unvalidated().try_into().unwrap())
+                .expect("Failed to build Tray");
 
         // クローンしてバックグラウンドへ持ち出し可能にする
         let tray_clone = tray.clone();
 
         // トレイをバインドしたメインウィンドウの構築
-        let main_builder = WindowBuilder::new()
+        let main_builder = MichiuWindowBuilder::new()
             .with_title("Main Tray Window")
             .with_icon(icon.clone())
             .with_inner_size(LogicalSize::new(500.0, 400.0))
             .with_tray(tray);
 
         let window =
-            michiu_window::Window::build(main_builder.into_unvalidated().try_into().unwrap())
+            michiu_window::MichiuWindow::build(main_builder.into_unvalidated().try_into().unwrap())
                 .expect("Failed to build main window");
 
         // 各種ウィンドウの一意な WindowId と WindowHandle の取得
@@ -111,7 +113,7 @@ fn test_integration_tray_and_multi_window_routing() {
         bg_thread.join().expect("Background thread panicked");
 
         // UIスレッド側で1つのメッセージループを回し、複数のウィンドウからのイベントをIDで識別回収
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let start_time = Instant::now();
 
         let mut main_close_received = false;
@@ -122,8 +124,8 @@ fn test_integration_tray_and_multi_window_routing() {
             && start_time.elapsed() < Duration::from_secs(2)
         {
             let _ = event_pump.wait_event(|event, _window_id, _raw| {
-                if let MichiuEvent::Window { id, event, .. } = event
-                    && let Event::CloseRequested = event
+                if let MichiuAnyEvent::Window { id, event, .. } = event
+                    && let MichiuEvent::CloseRequested = event
                 {
                     if id == main_id {
                         main_close_received = true;

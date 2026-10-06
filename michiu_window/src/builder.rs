@@ -1,6 +1,6 @@
-use crate::{ComContext, LogicalPoint, LogicalSize, MessageFilter, Tray};
+use crate::{MichiuComContext, LogicalPoint, LogicalSize, MessageFilter, MichiuTray};
 use crate::{
-    Icon,
+    MichiuIcon,
     error::{MichiuError, Result},
 };
 use michiu_guard::{Unvalidated, Validate};
@@ -16,15 +16,15 @@ use windows::Win32::{
 
 /// A builder helper used to configure the properties, styles, and subsystems of a Win32 window before creation.
 ///
-/// `WindowBuilder` implements [`Default`] and [`Validate`] (from `michiu_guard`).
+/// `MichiuWindowBuilder` implements [`Default`] and [`Validate`] (from `michiu_guard`).
 /// It ensures that all specified Win32 styles and custom configurations are mutually consistent
 /// during validation. Any conflicting styles (e.g., transparent window with OS borders enabled)
 /// are caught at compile-time or run-time before the window is physically allocated by the OS.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
-pub struct WindowBuilder<'a> {
+pub struct MichiuWindowBuilder<'a> {
     pub(crate) title: Cow<'static, str>,
-    pub(crate) icon: Option<Icon>,
+    pub(crate) icon: Option<MichiuIcon>,
     pub(crate) inner_size: Option<LogicalSize>,
     pub(crate) min_inner_size: Option<LogicalSize>,
     pub(crate) max_inner_size: Option<LogicalSize>,
@@ -38,8 +38,8 @@ pub struct WindowBuilder<'a> {
     pub(crate) overlapped_window: bool,
     pub(crate) taskbar_button: bool,
     pub(crate) no_redirection_bitmap: bool,
-    pub(crate) com_context: Option<&'a ComContext>,
-    pub(crate) tray: Option<Tray>,
+    pub(crate) com_context: Option<&'a MichiuComContext>,
+    pub(crate) tray: Option<MichiuTray>,
     pub(crate) parent_hwnd: Option<HWND>,
     pub(crate) custom_class_name: Option<Cow<'static, str>>,
     pub(crate) raw_style: Option<WINDOW_STYLE>,
@@ -52,7 +52,7 @@ pub struct WindowBuilder<'a> {
     pub(crate) default_composition_window: bool,
 }
 
-impl Default for WindowBuilder<'_> {
+impl Default for MichiuWindowBuilder<'_> {
     #[inline]
     fn default() -> Self {
         Self {
@@ -87,8 +87,8 @@ impl Default for WindowBuilder<'_> {
     }
 }
 
-impl WindowBuilder<'_> {
-    /// Creates a default configured `WindowBuilder` instance.
+impl MichiuWindowBuilder<'_> {
+    /// Creates a default configured `MichiuWindowBuilder` instance.
     #[must_use]
     #[inline]
     pub fn new() -> Self {
@@ -96,7 +96,7 @@ impl WindowBuilder<'_> {
     }
 }
 
-impl<'a> WindowBuilder<'a> {
+impl<'a> MichiuWindowBuilder<'a> {
     /// Sets the window title.
     #[must_use]
     #[inline]
@@ -105,10 +105,10 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
-    /// Assigns a custom [`Icon`] for the window.
+    /// Assigns a custom [`MichiuIcon`] for the window.
     #[must_use]
     #[inline]
-    pub fn with_icon(mut self, icon: Icon) -> Self {
+    pub fn with_icon(mut self, icon: MichiuIcon) -> Self {
         self.icon = Some(icon);
         self
     }
@@ -213,7 +213,7 @@ impl<'a> WindowBuilder<'a> {
 
     /// Configures the window to request no redirection bitmap (required for Direct Composition).
     ///
-    /// Requires a valid [`ComContext`] and disabled decorations.
+    /// Requires a valid [`MichiuComContext`] and disabled decorations.
     #[must_use]
     #[inline]
     pub fn with_no_redirection_bitmap(mut self, is_enabled: bool) -> Self {
@@ -221,18 +221,18 @@ impl<'a> WindowBuilder<'a> {
         self
     }
 
-    /// Binds a valid [`ComContext`] reference.
+    /// Binds a valid [`MichiuComContext`] reference.
     #[must_use]
     #[inline]
-    pub fn with_com_context(mut self, com_context: &'a ComContext) -> Self {
+    pub fn with_com_context(mut self, com_context: &'a MichiuComContext) -> Self {
         self.com_context = Some(com_context);
         self
     }
 
-    /// Associates an optional system tray ([`Tray`]) control.
+    /// Associates an optional system tray ([`MichiuTray`]) control.
     #[must_use]
     #[inline]
-    pub fn with_tray(mut self, tray: Tray) -> Self {
+    pub fn with_tray(mut self, tray: MichiuTray) -> Self {
         self.tray = Some(tray);
         self
     }
@@ -271,8 +271,8 @@ impl<'a> WindowBuilder<'a> {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::WindowBuilder;
-    /// let builder = WindowBuilder::new()
+    /// # use michiu_window::MichiuWindowBuilder;
+    /// let builder = MichiuWindowBuilder::new()
     ///     .with_custom_class_name("MyCustomAppWindowClass");
     /// ```
     #[must_use]
@@ -307,11 +307,11 @@ impl<'a> WindowBuilder<'a> {
     /// # Examples
     ///
     /// ```no_run
-    /// use michiu_window::{WindowBuilder, LogicalSize};
+    /// use michiu_window::{MichiuWindowBuilder, LogicalSize};
     /// use windows::Win32::Foundation::LRESULT;
     /// use windows::Win32::UI::WindowsAndMessaging::WM_USER;
     ///
-    /// let builder = WindowBuilder::new()
+    /// let builder = MichiuWindowBuilder::new()
     ///     .with_title("Custom WndProc Filter")
     ///     .with_message_filter(|_hwnd, msg, _wparam, _lparam| {
     ///         // Intercept a custom user message (WM_USER + 100)
@@ -383,7 +383,7 @@ impl<'a> WindowBuilder<'a> {
     }
 }
 
-impl Validate for WindowBuilder<'_> {
+impl Validate for MichiuWindowBuilder<'_> {
     type Error = MichiuError;
 
     /// Validates all configuration parameters to ensure Win32 style consistency and subsystem compatibility.
@@ -407,10 +407,10 @@ impl Validate for WindowBuilder<'_> {
     /// # Examples
     ///
     /// ```
-    /// # use michiu_window::{WindowBuilder, LogicalSize};
+    /// # use michiu_window::{MichiuWindowBuilder, LogicalSize};
     /// # use michiu_guard::Validated;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let builder = WindowBuilder::new()
+    /// let builder = MichiuWindowBuilder::new()
     ///     .with_title("Main Frame")
     ///     .with_inner_size(LogicalSize::new(800.0, 600.0));
     ///

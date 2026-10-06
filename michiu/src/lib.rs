@@ -1,13 +1,13 @@
-use michiu_guard::Validated;
+use crate::guard::Validated;
+use crate::ui::{
+    CapacityConfig, CharIndex, ImeState, VirtualKey, prelude::*, raw_wheel_delta_to_logical_pixels,
+};
+use crate::window::{WindowHandle, prelude::*};
+use windows::Win32::UI::WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL};
+
 #[cfg(feature = "ui")]
 #[doc(inline)]
 pub use michiu_ui as ui;
-use michiu_ui::{
-    CapacityConfig, CharIndex, ComposedRenderer, Context, CursorIcon, Element, ElementState,
-    EntityId, ImeState, InteractionState, LayoutPoint, MichiuInspector, Modifiers, MouseButton,
-    TickType, UserAction, VirtualKey, build_ui, dispatch_raw_input_to_external_visual,
-    get_win32_clipboard, raw_wheel_delta_to_logical_pixels, set_win32_clipboard,
-};
 
 #[cfg(feature = "guard")]
 #[doc(inline)]
@@ -16,16 +16,20 @@ pub use michiu_guard as guard;
 #[cfg(feature = "window")]
 #[doc(inline)]
 pub use michiu_window as window;
-use michiu_window::{Event, EventPump, MichiuEvent, RawEvent, Window, WindowHandle};
-use windows::Win32::UI::WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL};
+
+pub mod prelude {
+    pub use crate::guard::{Unvalidated, Validate, Validated};
+    pub use crate::ui::prelude::*;
+    pub use crate::window::prelude::*;
+}
 
 pub struct MichiuApp {
     pub context: Context,
-    pub renderer: ComposedRenderer,
-    pub window: Window,
+    pub renderer: MichiuRenderer,
+    pub window: MichiuWindow,
     pub handle: Validated<WindowHandle>,
     root_id: Option<EntityId>,
-    pub config: BuilderConfig,
+    pub config: MichiuBuilderConfig,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -91,8 +95,8 @@ impl MichiuApp {
 
     pub fn standard_handle_window_event(
         &mut self,
-        event: &MichiuEvent,
-        raw: &RawEvent,
+        event: &MichiuAnyEvent,
+        raw: &MichiuRawEvent,
     ) -> MichiuEventResponse {
         let mut consumed = false;
         let mut ext_consumed = false;
@@ -135,9 +139,9 @@ impl MichiuApp {
             _ => {}
         }
 
-        if let MichiuEvent::Window { event, .. } = event {
+        if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
-                Event::Resized(phy_size) => {
+                MichiuEvent::Resized(phy_size) => {
                     let size = phy_size.assume_valid().into_inner();
                     let width = size.width as u32;
                     let height = size.height as u32;
@@ -149,7 +153,7 @@ impl MichiuApp {
                     needs_redraw = true;
                     needs_update_window = true;
                 }
-                Event::CursorMoved { position } => {
+                MichiuEvent::CursorMoved { position } => {
                     let pos = position.assume_valid().into_inner();
                     let x = pos.x as f32;
                     let y = pos.y as f32;
@@ -163,7 +167,7 @@ impl MichiuApp {
                         .inject_user_action(UserAction::PointerMove(logical_pos));
 
                     if self.config.external_visual_support {
-                        ext_consumed = dispatch_raw_input_to_external_visual(
+                        ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                             &mut self.context,
                             raw.msg,
                             raw.wparam,
@@ -176,7 +180,7 @@ impl MichiuApp {
                     consumed = has_hovered || ext_consumed;
                     needs_redraw = true;
                 }
-                Event::CursorLeft => {
+                MichiuEvent::CursorLeft => {
                     // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
                     self.context
                         .inject_user_action(UserAction::PointerMove(LayoutPoint::new(
@@ -185,7 +189,7 @@ impl MichiuApp {
 
                     needs_redraw = true;
                 }
-                Event::MouseInput {
+                MichiuEvent::MouseInput {
                     button,
                     modifiers,
                     state,
@@ -223,7 +227,7 @@ impl MichiuApp {
                         let x = (raw.lparam.0 & 0xffff) as i16 as f32;
                         let y = ((raw.lparam.0 >> 16) & 0xffff) as i16 as f32;
                         let phys_pos = LayoutPoint::new(x, y);
-                        ext_consumed = dispatch_raw_input_to_external_visual(
+                        ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                             &mut self.context,
                             raw.msg,
                             raw.wparam,
@@ -236,12 +240,12 @@ impl MichiuApp {
                     consumed = has_hovered || ext_consumed;
                     needs_redraw = true;
                 }
-                Event::CharacterInput(c) => {
+                MichiuEvent::CharacterInput(c) => {
                     self.context.inject_user_action(UserAction::Character(*c));
                     consumed = has_focused;
                     needs_redraw = true;
                 }
-                Event::KeyboardInput {
+                MichiuEvent::KeyboardInput {
                     key_code,
                     modifiers,
                     state,
@@ -308,7 +312,7 @@ impl MichiuApp {
                     consumed = has_focused || shortcut_handled;
                     needs_redraw = true;
                 }
-                Event::MouseWheel {
+                MichiuEvent::MouseWheel {
                     raw_delta_x,
                     raw_delta_y,
                 } => {
@@ -340,7 +344,7 @@ impl MichiuApp {
 
                     if self.config.external_visual_support {
                         let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
-                        ext_consumed = dispatch_raw_input_to_external_visual(
+                        ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                             &mut self.context,
                             raw.msg,
                             raw.wparam,
@@ -353,7 +357,7 @@ impl MichiuApp {
                     consumed = has_hovered || ext_consumed;
                     needs_redraw = true;
                 }
-                Event::Ime(ime) => {
+                MichiuEvent::Ime(ime) => {
                     let ime = ime.clone().assume_valid().into_inner();
                     let ime_state = ImeState {
                         is_open: ime.is_open,
@@ -441,7 +445,7 @@ pub enum AutoSyncMode {
 
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy)]
-pub struct BuilderConfig {
+pub struct MichiuBuilderConfig {
     pub external_visual_support: bool,
     pub default_shortcuts: bool,
     pub sync_mode: AutoSyncMode,
@@ -449,7 +453,7 @@ pub struct BuilderConfig {
     pub auto_resolve_cursor: bool,
 }
 
-impl BuilderConfig {
+impl MichiuBuilderConfig {
     fn new() -> Self {
         Self {
             external_visual_support: false,
@@ -463,8 +467,8 @@ impl BuilderConfig {
 
 #[allow(clippy::struct_excessive_bools)]
 pub struct MichiuAppBuilder {
-    pub config: BuilderConfig,
-    pub window: Window,
+    pub config: MichiuBuilderConfig,
+    pub window: MichiuWindow,
     pub inspector: Option<MichiuInspector>,
     pub capacity: Option<CapacityConfig>,
 }
@@ -472,9 +476,9 @@ pub struct MichiuAppBuilder {
 impl MichiuAppBuilder {
     #[must_use]
     #[inline]
-    pub fn new(window: Window) -> Self {
+    pub fn new(window: MichiuWindow) -> Self {
         Self {
-            config: BuilderConfig::new(),
+            config: MichiuBuilderConfig::new(),
             window,
             inspector: None,
             capacity: None,
@@ -485,8 +489,8 @@ impl MichiuAppBuilder {
     #[inline]
     pub fn build(
         self,
-        renderer: ComposedRenderer,
-    ) -> michiu_window::Result<(MichiuApp, EventPump)> {
+        renderer: MichiuRenderer,
+    ) -> michiu_window::Result<(MichiuApp, MichiuEventPump)> {
         let handle: Validated<WindowHandle> = self.window.handle().try_into()?;
         let hwnd = handle.hwnd();
 
@@ -505,7 +509,7 @@ impl MichiuAppBuilder {
         let h_waker = handle.clone();
         context.set_waker(move || h_waker.wake_up());
 
-        let pump = EventPump::new();
+        let pump = MichiuEventPump::new();
         Ok((
             MichiuApp {
                 window: self.window,
@@ -523,9 +527,9 @@ impl MichiuAppBuilder {
     #[inline]
     pub fn build_with_ui<F>(
         self,
-        renderer: ComposedRenderer,
+        renderer: MichiuRenderer,
         ui_fn: F,
-    ) -> michiu_window::Result<(MichiuApp, EventPump)>
+    ) -> michiu_window::Result<(MichiuApp, MichiuEventPump)>
     where
         F: FnOnce() -> Element,
     {

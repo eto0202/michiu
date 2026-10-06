@@ -86,7 +86,7 @@ fn test_add_tray_icon_normal() {
 
             // システム標準アイコンを仮ロード
             let hicon_sys = LoadIconW(None, IDI_APPLICATION).unwrap();
-            let test_icon = Icon::from_raw(hicon_sys);
+            let test_icon = MichiuIcon::from_raw(hicon_sys);
 
             // トレイアイコン追加のテスト実行
             let add_result = add_tray_icon(
@@ -118,11 +118,11 @@ fn test_add_tray_icon_normal() {
 #[test]
 fn test_tray_builder_normal() {
     let hicon_sys = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap() };
-    let icon = unsafe { Icon::from_raw(hicon_sys) };
+    let icon = unsafe { MichiuIcon::from_raw(hicon_sys) };
 
-    let builder = TrayBuilder::new().with_icon(icon);
+    let builder = MichiuTrayBuilder::new().with_icon(icon);
 
-    let validated_result: Result<Validated<TrayBuilder>> = builder.into_unvalidated().try_into();
+    let validated_result: Result<Validated<MichiuTrayBuilder>> = builder.into_unvalidated().try_into();
     assert!(
         validated_result.is_ok(),
         "TrayBuilder validation should succeed"
@@ -132,9 +132,9 @@ fn test_tray_builder_normal() {
 #[test]
 fn test_tray_builder_missing_icon_abnormal() {
     // アイコンがない場合は検証エラーになる
-    let builder = TrayBuilder::new().with_tooltip("No Icon");
+    let builder = MichiuTrayBuilder::new().with_tooltip("No Icon");
 
-    let result: Result<Validated<TrayBuilder>> = builder.into_unvalidated().try_into();
+    let result: Result<Validated<MichiuTrayBuilder>> = builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
@@ -148,15 +148,15 @@ fn test_tray_builder_missing_icon_abnormal() {
 #[test]
 fn test_tray_builder_tooltip_overflow_abnormal() {
     let hicon_sys = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap() };
-    let icon = unsafe { Icon::from_raw(hicon_sys) };
+    let icon = unsafe { MichiuIcon::from_raw(hicon_sys) };
 
     // 128文字を指定して検証エラーを検知するかテスト
     let overflow_tooltip = "a".repeat(128);
-    let builder = TrayBuilder::new()
+    let builder = MichiuTrayBuilder::new()
         .with_icon(icon)
         .with_tooltip(overflow_tooltip);
 
-    let result: Result<Validated<TrayBuilder>> = builder.into_unvalidated().try_into();
+    let result: Result<Validated<MichiuTrayBuilder>> = builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
@@ -172,10 +172,10 @@ fn test_tray_build_and_lifecycle_normal() {
     run_on_clean_thread(|| {
         // システム標準アイコンをロード
         let hicon_sys = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap() };
-        let icon = unsafe { Icon::from_raw(hicon_sys) };
+        let icon = unsafe { MichiuIcon::from_raw(hicon_sys) };
 
         // 有効な TrayBuilder を作成
-        let builder = TrayBuilder::new()
+        let builder = MichiuTrayBuilder::new()
             .with_icon(icon)
             .with_tooltip("Tray Lifecycle Testing Tooltip");
 
@@ -184,7 +184,7 @@ fn test_tray_build_and_lifecycle_normal() {
         assert!(validated_builder.is_ok(), "Failed to validate TrayBuilder");
 
         // Tray を構築
-        let tray_result = Tray::build(validated_builder.unwrap());
+        let tray_result = MichiuTray::build(validated_builder.unwrap());
         assert!(
             tray_result.is_ok(),
             "Tray::build failed: {:?}",
@@ -228,10 +228,10 @@ fn test_tray_wnd_proc_messaging_normal() {
 
         // システム標準アイコンをロード
         let hicon_sys = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap() };
-        let icon = unsafe { Icon::from_raw(hicon_sys) };
+        let icon = unsafe { MichiuIcon::from_raw(hicon_sys) };
 
         // コールバックとメニューアイテムを持つビルダーを構築
-        let builder = TrayBuilder::new()
+        let builder = MichiuTrayBuilder::new()
             .with_icon(icon)
             .with_tooltip("Tray WndProc Test Tooltip")
             .on_left_click(move || {
@@ -240,13 +240,13 @@ fn test_tray_wnd_proc_messaging_normal() {
             .on_right_click(move || {
                 right_clicked_clone.store(true, Ordering::SeqCst);
             })
-            .with_menu_item(TrayMenuItem::new("Test MenuItem").with_on_click(move || {
+            .with_menu_item(MichiuTrayMenuItem::new("Test MenuItem").with_on_click(move || {
                 menu_clicked_clone.store(true, Ordering::SeqCst);
             }));
 
         // Tray の構築
         let validated_builder = builder.into_unvalidated().try_into();
-        let tray = Tray::build(validated_builder.unwrap()).unwrap();
+        let tray = MichiuTray::build(validated_builder.unwrap()).unwrap();
 
         // テスト用に非公開のダミーHWNDを取得
         let dummy_hwnd = tray.inner.dummy_hwnd;
@@ -353,17 +353,17 @@ fn test_tray_wnd_proc_custom_menu_routing() {
                 hinstance,
                 thread_id: 0,
             };
-            let custom_menu = CustomTrayMenu::new(handle);
+            let custom_menu = MichiuCustomTrayMenu::new(handle);
 
             // ビルダーにカスタムメニューをセットしてトレイ作成
             let hicon_sys = LoadIconW(None, IDI_APPLICATION).unwrap();
-            let icon = Icon::from_raw(hicon_sys);
+            let icon = MichiuIcon::from_raw(hicon_sys);
 
-            let builder = TrayBuilder::new()
+            let builder = MichiuTrayBuilder::new()
                 .with_icon(icon)
                 .with_custom_menu(custom_menu);
 
-            let tray = Tray::build(builder.validate_into().unwrap()).unwrap();
+            let tray = MichiuTray::build(builder.validate_into().unwrap()).unwrap();
             let dummy_tray_hwnd = tray.inner.dummy_hwnd;
 
             // 初期状態ではカスタムメニューは非表示であるはず
@@ -424,7 +424,7 @@ fn test_add_tray_icon_with_balloon_normal() {
             .expect("Failed to create temporary dummy window");
 
             let hicon_sys = LoadIconW(None, IDI_APPLICATION).unwrap();
-            let test_icon = Icon::from_raw(hicon_sys);
+            let test_icon = MichiuIcon::from_raw(hicon_sys);
 
             // バルーンテキストを伴うトレイアイコン追加のテスト実行
             let add_result = add_tray_icon(
@@ -457,14 +457,15 @@ fn test_tray_show_balloon_normal() {
     run_on_clean_thread(|| {
         // システム標準アイコンをロード
         let hicon_sys = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap() };
-        let icon = unsafe { Icon::from_raw(hicon_sys) };
+        let icon = unsafe { MichiuIcon::from_raw(hicon_sys) };
 
         // トレイのビルド
-        let builder = TrayBuilder::new()
+        let builder = MichiuTrayBuilder::new()
             .with_icon(icon)
             .with_tooltip("Tray ShowBalloon Test Tooltip");
 
-        let tray = Tray::build(builder.validate_into().unwrap()).expect("Failed to build Tray");
+        let tray =
+            MichiuTray::build(builder.validate_into().unwrap()).expect("Failed to build Tray");
 
         // 任意のタイミングで動的にバルーンを発生させ、エラーなく Ok(()) が返るか検証
         let result = tray.show_balloon(
@@ -487,14 +488,14 @@ fn test_tray_show_balloon_limits() {
     run_on_clean_thread(|| {
         // システム標準アイコンをロード
         let hicon_sys = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap() };
-        let icon = unsafe { Icon::from_raw(hicon_sys) };
+        let icon = unsafe { MichiuIcon::from_raw(hicon_sys) };
 
         // トレイのビルド
-        let builder = TrayBuilder::new()
+        let builder = MichiuTrayBuilder::new()
             .with_icon(icon)
             .with_tooltip("Tray Balloon Limit Test");
 
-        let tray = Tray::build(builder.validate_into().unwrap()).unwrap();
+        let tray = MichiuTray::build(builder.validate_into().unwrap()).unwrap();
 
         // タイトル文字数制限テスト（UTF-16換算で64文字、上限63を超える場合）
         // OSが定める制限を超過した際に、即座に ValidationError を返せるか検証

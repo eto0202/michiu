@@ -3,7 +3,7 @@
 #![allow(clippy::panic)]
 
 use super::*;
-use crate::{ComContext, EventPump, Window, WindowBuilder};
+use crate::{MichiuComContext, MichiuEventPump, MichiuWindow, MichiuWindowBuilder};
 use michiu_guard::{Unvalidated, Validate, Validated};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,8 +20,8 @@ where
 #[test]
 fn test_handle_properties_normal() {
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new().with_title("PropertyTest");
-        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("PropertyTest");
+        let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
 
         // WindowHandle の生成
         let unvalidated_handle = window.handle();
@@ -40,8 +40,8 @@ fn test_handle_properties_normal() {
 #[test]
 fn test_handle_thread_affinity_checks() {
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new().with_title("AffinityTest");
-        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("AffinityTest");
+        let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
         let handle = window.handle().assume_valid();
 
         // UIスレッド（作成元スレッド）上での検証
@@ -78,8 +78,8 @@ fn test_handle_thread_affinity_checks() {
 fn test_handle_validation_scenarios() {
     run_on_clean_thread(|| {
         // 正常（存命ウインドウ）
-        let builder = WindowBuilder::new().with_title("ValidationTest");
-        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("ValidationTest");
+        let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
         let handle = window.handle();
 
         let val_res: Result<Validated<WindowHandle>> = handle.clone().try_into();
@@ -134,8 +134,8 @@ fn test_handle_validation_scenarios() {
 #[test]
 fn test_handle_run_on_ui_thread_synchronous() {
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new().with_title("SyncRunTest");
-        let window = Window::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("SyncRunTest");
+        let window = MichiuWindow::build(builder.into_unvalidated().try_into().unwrap()).unwrap();
         let handle = window.handle().assume_valid();
 
         let executed = Arc::new(AtomicBool::new(false));
@@ -167,11 +167,11 @@ fn test_handle_run_on_ui_thread_synchronous() {
 fn test_handle_clipboard_read_from_foreign_thread_normal() {
     run_on_clean_thread(|| {
         // OLE STA の初期化
-        let com_ctx = ComContext::new_com_single().unwrap();
-        let builder = WindowBuilder::new()
+        let com_ctx = MichiuComContext::new_com_single().unwrap();
+        let builder = MichiuWindowBuilder::new()
             .with_title("HandleClipboardTest")
             .with_com_context(&com_ctx);
-        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
         let handle = window.handle().assume_valid();
 
         let test_text = "Cross-thread clipboard transfer data";
@@ -201,8 +201,8 @@ fn test_handle_clipboard_read_from_foreign_thread_normal() {
 #[test]
 fn test_handle_wake_up_with_mpsc_channel_normal() {
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new().with_title("WakeUpTestWindow");
-        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("WakeUpTestWindow");
+        let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
         let handle = window.handle().assume_valid();
 
         // 標準の MPSC チャネルを用意
@@ -220,7 +220,7 @@ fn test_handle_wake_up_with_mpsc_channel_normal() {
         bg_thread.join().expect("Background thread panicked");
 
         // UIスレッド側のメッセージループ
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let start_time = std::time::Instant::now();
         let mut signal_received = false;
 
@@ -250,8 +250,8 @@ fn test_handle_wake_up_with_mpsc_channel_normal() {
 #[test]
 fn test_handle_asynchronous_destroy_and_zombie_validation() {
     run_on_clean_thread(|| {
-        let builder = WindowBuilder::new().with_title("AsyncDestroyTestWindow");
-        let window = Window::build(builder.validate_into().unwrap()).unwrap();
+        let builder = MichiuWindowBuilder::new().with_title("AsyncDestroyTestWindow");
+        let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
         let handle = window.handle().assume_valid();
 
         // 初期状態では当然 IsWindow は true
@@ -266,7 +266,7 @@ fn test_handle_asynchronous_destroy_and_zombie_validation() {
         bg_thread.join().expect("Background thread panicked");
 
         // メッセージループを回して、UIスレッド側で非同期破棄コマンドを実行させる
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let start_time = std::time::Instant::now();
         let mut window_destroyed = false;
 

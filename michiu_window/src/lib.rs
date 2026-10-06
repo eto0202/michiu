@@ -66,7 +66,7 @@
 //!
 //! It completely suspends the UI thread while idle. It unblocks immediately
 //! when the OS generates window messages or when a background thread calls [`WindowHandle::wake_up()`] or
-//! [`EventSender::send_event()`].
+//! [`MichiuEventSender::send_event()`].
 //!
 //! ---
 //!
@@ -192,8 +192,8 @@
 //!
 //! There are two ways to achieve this:
 //!
-//! ### Option A: Native `EventSender` (Via `MichiuEvent::User`)
-//! You can get a thread-safe [`EventSender`] from `WindowHandle::sender()`. It uses `PostMessageW`
+//! ### Option A: Native `MichiuEventSender` (Via `MichiuEvent::User`)
+//! You can get a thread-safe [`MichiuEventSender`] from `WindowHandle::sender()`. It uses `PostMessageW`
 //! internally to send a `Box<dyn Any + Send>` to the UI thread, waking up the event loop safely.
 //!
 //! ### Option B: Standard Rust `std::sync::mpsc` Channels (With `wake_up`)
@@ -307,3 +307,10 @@ pub use message::*;
 pub use tray::*;
 pub use types::*;
 pub use window::*;
+
+pub mod prelude {
+    pub use crate::{
+        LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuError, MichiuEvent, MichiuEventPump,
+        MichiuRawEvent, MichiuWindow, MichiuWindowBuilder,
+    };
+}

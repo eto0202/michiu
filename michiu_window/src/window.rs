@@ -1,7 +1,7 @@
 use crate::error::{MichiuError, Result};
 use crate::{
-    CursorIcon, FileDropTarget, ImeRelayServer, LogicalSize, PhysicalPoint, PhysicalSize,
-    PreferredAppMode, Tray, WindowBuilder, WindowHandle, ZOrder, translate_and_dispatch,
+    CursorIcon, FileDropTarget, ImeRelayServer, LogicalSize, MichiuTray, MichiuWindowBuilder,
+    PhysicalPoint, PhysicalSize, PreferredAppMode, WindowHandle, ZOrder, translate_and_dispatch,
 };
 use michiu_guard::{Unvalidated, Validated};
 use raw_window_handle::{
@@ -78,17 +78,17 @@ use windows::{
 /// that instantiated the window.
 ///
 /// To reference or manipulate this window from other background threads, obtain an unvalidated,
-/// cloneable handle using [`Window::handle`].
+/// cloneable handle using [`MichiuWindow::handle`].
 ///
 /// This structure automatically implements [`raw_window_handle::HasWindowHandle`] and
 /// [`raw_window_handle::HasDisplayHandle`] (v0.6)
 /// for seamless integration with external rendering libraries.
-pub struct Window {
+pub struct MichiuWindow {
     hwnd: HWND,
     hinstance: HINSTANCE,
     thread_id: u32,
     #[allow(dead_code)]
-    tray: Option<Tray>,
+    tray: Option<MichiuTray>,
     #[allow(dead_code)]
     drop_target: Option<IDropTarget>,
     #[allow(dead_code)]
@@ -114,7 +114,7 @@ impl WindowId {
 
 const DEFAULT_CLASS_NAME: &str = concat!("MichiuWindowClass_", env!("CARGO_PKG_VERSION"));
 
-impl Window {
+impl MichiuWindow {
     /// Instantiates a new Win32 window based on the validated configuration parameters.
     ///
     /// # Errors
@@ -124,17 +124,17 @@ impl Window {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let builder = WindowBuilder::new().with_title("Main Frame");
+    /// let builder = MichiuWindowBuilder::new().with_title("Main Frame");
     /// let validated = builder.into_unvalidated().try_into()?;
     ///
-    /// let window = Window::build(validated)?;
+    /// let window = MichiuWindow::build(validated)?;
     /// # Ok(())
     /// # }
     /// ```
     #[allow(clippy::too_many_lines)]
-    pub fn build(builder: Validated<WindowBuilder<'_>>) -> Result<Self> {
+    pub fn build(builder: Validated<MichiuWindowBuilder<'_>>) -> Result<Self> {
         let hmodule = unsafe { GetModuleHandleW(None).map_err(MichiuError::UnexpectedOsError)? };
         let hinstance = HINSTANCE(hmodule.0);
 
@@ -281,9 +281,9 @@ impl Window {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// let unvalidated_handle = window.handle();
     ///
     /// // Safely pass the handle to a background thread
@@ -330,10 +330,10 @@ impl Window {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, SubclassResult};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, SubclassResult};
     /// # use windows::Win32::UI::WindowsAndMessaging::WM_USER;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// window.subclass(101, |hwnd, msg, wparam, lparam| {
     ///     if msg == WM_USER + 100 {
     ///         println!("Custom hook executed!");
@@ -436,7 +436,7 @@ impl Window {
     /// Here is how to register the custom subclass procedure callback with a window instance:
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, RawSubclassProc};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, RawSubclassProc};
     /// # use windows::Win32::Foundation::{HWND, WPARAM, LPARAM, LRESULT};
     /// # use windows::Win32::UI::Shell::DefSubclassProc;
     /// # use windows::Win32::UI::WindowsAndMessaging::WM_USER;
@@ -448,7 +448,7 @@ impl Window {
     /// # }
     /// #
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// // Subclass ID to uniquely identify this registration
     /// let subclass_id = 999;
     /// // Arbitrary user data passed down to the procedure (e.g., pointer to a state structure)
@@ -597,9 +597,9 @@ impl Window {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, PreferredAppMode};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, PreferredAppMode};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// // Forces native dark mode theme across the window and context menus
     /// window.set_theme(PreferredAppMode::ForceDark);
     /// # Ok(())
@@ -714,9 +714,37 @@ impl Window {
     pub fn dwm_flush(&self) -> Result<()> {
         unsafe { DwmFlush().map_err(MichiuError::UnexpectedOsError) }
     }
+
+    /// Initializes the entire application process for High-DPI support (Per-Monitor DPI v2).
+    ///
+    /// This must be called at the very beginning of the `main` function before creating any window.
+    /// If skipped, Windows OS will render the entire application window blurry and stretched.
+    ///
+    /// # Returns
+    /// Returns `true` if High-DPI initialization succeeded, or `false` (e.g., already set).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use michiu_window::init_dpi_awareness;
+    ///
+    /// fn main() {
+    ///     if init_dpi_awareness() {
+    ///         println!("High-DPI Per-Monitor v2 initialized successfully.");
+    ///     }
+    /// }
+    /// ```
+    #[must_use]
+    #[inline]
+    pub fn init_dpi_awareness() -> bool {
+        unsafe {
+            // Windows 10 Creators Update以降の推奨されるDPIモード
+            SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2).is_ok()
+        }
+    }
 }
 
-impl Drop for Window {
+impl Drop for MichiuWindow {
     fn drop(&mut self) {
         unsafe {
             let is_alive = IsWindow(Some(self.hwnd)).as_bool();
@@ -727,7 +755,7 @@ impl Drop for Window {
     }
 }
 
-impl HasWindowHandle for Window {
+impl HasWindowHandle for MichiuWindow {
     #[inline]
     fn window_handle(&self) -> std::result::Result<RwhWindowHandle<'_>, HandleError> {
         let hwnd_val = self.hwnd.0 as isize;
@@ -744,38 +772,10 @@ impl HasWindowHandle for Window {
     }
 }
 
-impl HasDisplayHandle for Window {
+impl HasDisplayHandle for MichiuWindow {
     #[inline]
     fn display_handle(&self) -> std::result::Result<RwhDisplayHandle<'_>, HandleError> {
         Ok(RwhDisplayHandle::windows())
-    }
-}
-
-/// Initializes the entire application process for High-DPI support (Per-Monitor DPI v2).
-///
-/// This must be called at the very beginning of the `main` function before creating any window.
-/// If skipped, Windows OS will render the entire application window blurry and stretched.
-///
-/// # Returns
-/// Returns `true` if High-DPI initialization succeeded, or `false` (e.g., already set).
-///
-/// # Examples
-///
-/// ```no_run
-/// use michiu_window::init_dpi_awareness;
-///
-/// fn main() {
-///     if init_dpi_awareness() {
-///         println!("High-DPI Per-Monitor v2 initialized successfully.");
-///     }
-/// }
-/// ```
-#[must_use]
-#[inline]
-pub fn init_dpi_awareness() -> bool {
-    unsafe {
-        // Windows 10 Creators Update以降の推奨されるDPIモード
-        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2).is_ok()
     }
 }
 
@@ -968,7 +968,7 @@ fn register_window_class(
     class_name: PCWSTR,
     default_class_name: &'static str,
     hinstance: HINSTANCE,
-    builder: &WindowBuilder<'_>,
+    builder: &MichiuWindowBuilder<'_>,
 ) -> Result<()> {
     let hcursor = unsafe { LoadCursorW(None, IDC_ARROW).map_err(MichiuError::UnexpectedOsError)? };
 
@@ -1009,7 +1009,7 @@ fn register_window_class(
     Ok(())
 }
 
-fn get_class_name_utf16(default_class_name: &str, builder: &WindowBuilder<'_>) -> Vec<u16> {
+fn get_class_name_utf16(default_class_name: &str, builder: &MichiuWindowBuilder<'_>) -> Vec<u16> {
     if let Some(ref custom_name) = builder.custom_class_name {
         custom_name.encode_utf16().chain(Some(0)).collect()
     } else {
@@ -1020,7 +1020,7 @@ fn get_class_name_utf16(default_class_name: &str, builder: &WindowBuilder<'_>) -
 fn calc_window_rect(
     style: WINDOW_STYLE,
     ex_style: WINDOW_EX_STYLE,
-    builder: &WindowBuilder<'_>,
+    builder: &MichiuWindowBuilder<'_>,
     dpi: u32,
     scale_factor: f64,
 ) -> Result<(i32, i32)> {
@@ -1058,7 +1058,7 @@ fn calc_window_rect(
     }
 }
 
-fn build_raw_style(builder: &WindowBuilder<'_>) -> WINDOW_STYLE {
+fn build_raw_style(builder: &MichiuWindowBuilder<'_>) -> WINDOW_STYLE {
     if let Some(raw) = builder.raw_style {
         raw
     } else {
@@ -1099,7 +1099,7 @@ fn build_raw_style(builder: &WindowBuilder<'_>) -> WINDOW_STYLE {
     }
 }
 
-fn build_raw_ex_style(builder: &WindowBuilder<'_>) -> WINDOW_EX_STYLE {
+fn build_raw_ex_style(builder: &MichiuWindowBuilder<'_>) -> WINDOW_EX_STYLE {
     if let Some(raw_ex) = builder.raw_ex_style {
         raw_ex
     } else {

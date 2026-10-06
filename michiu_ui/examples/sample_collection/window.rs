@@ -1,8 +1,8 @@
 #![allow(clippy::pedantic, clippy::restriction, unused_must_use)]
 
 use michiu_ui::{
-    ComposedRenderer, ElementState, ImeState, Modifiers, MouseButton, VirtualKey,
-    dispatch_raw_input_to_external_visual, prelude::*, raw_wheel_delta_to_logical_pixels,
+    ElementState, ImeState, Modifiers, MouseButton, VirtualKey, prelude::*,
+    raw_wheel_delta_to_logical_pixels,
 };
 use std::cell::{Cell, RefCell};
 use windows::{
@@ -274,7 +274,7 @@ unsafe extern "system" fn wnd_proc(
                 app.context
                     .inject_user_action(UserAction::PointerMove(logical_pos));
 
-                let _consumed = dispatch_raw_input_to_external_visual(
+                let _consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                     &mut app.context,
                     msg,
                     wparam,
@@ -332,7 +332,7 @@ unsafe extern "system" fn wnd_proc(
                 let x = (lparam.0 & 0xffff) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
                 let phys_pos = LayoutPoint::new(x, y);
-                let _consumed = dispatch_raw_input_to_external_visual(
+                let _consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                     &mut app.context,
                     msg,
                     wparam,
@@ -362,7 +362,7 @@ unsafe extern "system" fn wnd_proc(
                 let x = (lparam.0 & 0xffff) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
                 let phys_pos = LayoutPoint::new(x, y);
-                let _consumed = dispatch_raw_input_to_external_visual(
+                let _consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                     &mut app.context,
                     msg,
                     wparam,
@@ -398,7 +398,7 @@ unsafe extern "system" fn wnd_proc(
                 let x = (lparam.0 & 0xffff) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
                 let phys_pos = LayoutPoint::new(x, y);
-                let _consumed = dispatch_raw_input_to_external_visual(
+                let _consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                     &mut app.context,
                     msg,
                     wparam,
@@ -430,7 +430,7 @@ unsafe extern "system" fn wnd_proc(
                 });
 
                 let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
-                let _consumed = dispatch_raw_input_to_external_visual(
+                let _consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                     &mut app.context,
                     msg,
                     wparam,
@@ -465,7 +465,7 @@ unsafe extern "system" fn wnd_proc(
                 });
 
                 let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
-                let _consumed = dispatch_raw_input_to_external_visual(
+                let _consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                     &mut app.context,
                     msg,
                     wparam,
@@ -751,14 +751,11 @@ pub fn create_window(h_instance: HMODULE, class_name: PCWSTR) -> windows_result:
 pub fn create_renderer(
     hwnd: HWND,
     scale_factor: f32,
-) -> Result<ComposedRenderer, Box<dyn std::error::Error>> {
+) -> Result<MichiuRenderer, Box<dyn std::error::Error>> {
     let initial_layout_size = LayoutSize::new(900.0, 700.0);
     // レンダラーを作成
-    let renderer = pollster::block_on(ComposedRenderer::new(
-        hwnd,
-        initial_layout_size,
-        scale_factor,
-    ))?;
+    let renderer =
+        pollster::block_on(MichiuRenderer::new(hwnd, initial_layout_size, scale_factor))?;
 
     Ok(renderer)
 }

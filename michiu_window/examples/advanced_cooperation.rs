@@ -4,8 +4,8 @@
 #![allow(clippy::expect_used)]
 
 use michiu_window::{
-    ComContext, Event, EventPump, Icon, LogicalSize, MichiuEvent, Tray, TrayBuilder, TrayMenuItem,
-    Window, WindowBuilder, init_dpi_awareness,
+    LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuEvent, MichiuEventPump, MichiuIcon,
+    MichiuTray, MichiuTrayBuilder, MichiuTrayMenuItem, MichiuWindow, MichiuWindowBuilder,
 };
 use std::sync::mpsc;
 use windows::Win32::UI::WindowsAndMessaging::{IDI_APPLICATION, LoadIconW};
@@ -20,35 +20,35 @@ enum AppCommand {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Initialize High-DPI support (Per-Monitor v2)
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     // 2. Initialize OLE STA COM context (required for Clipboard, Drag & Drop, and IME)
-    let com_ctx = ComContext::new_com_single()?;
+    let com_ctx = MichiuComContext::new_com_single()?;
 
     // Load system default application icon
     let hicon = unsafe { LoadIconW(None, IDI_APPLICATION)? };
-    let icon = unsafe { Icon::from_raw(hicon) };
+    let icon = unsafe { MichiuIcon::from_raw(hicon) };
 
     // Create a standard MPSC channel to centralize application logic
     let (tx, rx) = mpsc::channel();
 
     // 3. Build a System Tray Icon with a native exit menu item
     let tx_for_menu = tx.clone();
-    let tray_builder = TrayBuilder::new()
+    let tray_builder = MichiuTrayBuilder::new()
         .with_icon(icon.clone())
         .with_tooltip("Quick Start App")
         // Trigger exit command asynchronously on the main loop when clicked
         .with_menu_item(
-            TrayMenuItem::new("Exit Application").with_on_click(move || {
+            MichiuTrayMenuItem::new("Exit Application").with_on_click(move || {
                 let _ = tx_for_menu.send(AppCommand::Exit);
             }),
         );
 
-    let tray = Tray::build(tray_builder.into_unvalidated().try_into()?)?;
+    let tray = MichiuTray::build(tray_builder.into_unvalidated().try_into()?)?;
     let tray_clone = tray.clone();
 
     // 4. Configure, validate, and build the window
-    let builder = WindowBuilder::new()
+    let builder = MichiuWindowBuilder::new()
         .with_title("Michiu Quick Start")
         .with_icon(icon.clone())
         .with_com_context(&com_ctx)
@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_inner_size(LogicalSize::new(640.0, 480.0));
 
     let validated = builder.into_unvalidated().try_into()?;
-    let window = Window::build(validated)?;
+    let window = MichiuWindow::build(validated)?;
     let handle = window.handle().assume_valid();
 
     // 5. Create an MPSC channel and drive asynchronous tasks in the background
@@ -80,21 +80,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // 6. Initialize the EventPump to drive the message loop on the UI thread
-    let mut event_pump = EventPump::new();
+    let mut event_pump = MichiuEventPump::new();
 
     // Process OS window and input events first (DPI, close requested, resize, drag & drop, etc.)
     while event_pump.wait_event(|event, _, _| {
-        if let MichiuEvent::Window { event, .. } = event {
+        if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
-                Event::CloseRequested => {
+                MichiuEvent::CloseRequested => {
                     // Safely trigger window destruction directly from the event loop using the handle
                     handle.destroy();
                 }
-                Event::Destroyed => {
+                MichiuEvent::Destroyed => {
                     // Exit the message loop cleanly after the window is physically destroyed
                     handle.quit();
                 }
-                Event::FileDropped(unvalidated_files) => {
+                MichiuEvent::FileDropped(unvalidated_files) => {
                     // Securely validate raw OS inputs before letting them mutate application state
                     // For example, verify that all dropped paths actually exist on the disk.
                     let validated_files = unvalidated_files.validate_with(|paths| {

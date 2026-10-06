@@ -30,7 +30,7 @@ mod window;
 
 /// ウィンドウメッセージ処理時に Context と Renderer を一元管理するためのアプリケーション状態
 struct AppState {
-    renderer: ComposedRenderer,
+    renderer: MichiuRenderer,
     context: Context,
     root_id: EntityId,
 }

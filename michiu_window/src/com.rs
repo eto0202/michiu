@@ -2,7 +2,7 @@
 #![allow(clippy::inline_always)]
 
 use crate::error::{MichiuError, Result};
-use crate::{Event, MichiuEvent, RawEvent, WindowId, dispatch_to_active_handler};
+use crate::{MichiuEvent, MichiuAnyEvent, MichiuRawEvent, WindowId, dispatch_to_active_handler};
 use michiu_guard::Unvalidated;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -33,14 +33,14 @@ use windows::core::{Ref, implement};
 /// Since COM and `WinRT` threading apartments are strictly thread-affine,
 ///  `ComContext` is **`!Send` and `!Sync`**.
 ///
-/// Cloning a `ComContext` correctly increments the underlying OS-side initialization reference counter
-/// on the same thread, and dropping a `ComContext` automatically decrements it by calling the appropriate
+/// Cloning a `MichiuComContext` correctly increments the underlying OS-side initialization reference counter
+/// on the same thread, and dropping a `MichiuComContext` automatically decrements it by calling the appropriate
 /// uninitialization API (`CoUninitialize`, `OleUninitialize`, or `RoUninitialize`).
 ///
 /// Under the hood, this helps prevent runtime threading model conflicts (e.g., `RPC_E_CHANGED_MODE` (0x80010106))
 /// by consolidating thread-apartment initialization inside a safe Rust scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ComContextKind {
+pub(crate) enum ComKind {
     Classic(COINIT),
     Ole,
     WinRt(RO_INIT_TYPE),
@@ -54,16 +54,16 @@ pub(crate) enum ComContextKind {
 /// the OS initialization reference counter. Dropping this guard automatically calls the
 /// corresponding uninitialization API (`CoUninitialize` or `RoUninitialize`).
 #[derive(Debug)]
-pub struct ComContext {
-    pub(crate) kind: ComContextKind,
+pub struct MichiuComContext {
+    pub(crate) kind: ComKind,
     _marker: PhantomData<*const ()>, // !Send and !Sync
 }
 
-impl ComContext {
+impl MichiuComContext {
     /// Initializes the OLE library on the current thread under the Single-Threaded Apartment (STA) model.
     ///
     /// This apartment model is highly recommended and required if your window utilizes standard system clipboard
-    /// operations, IME, or OLE file drag-and-drop ([`crate::builder::WindowBuilder::with_drag_and_drop`]).
+    /// operations, IME, or OLE file drag-and-drop ([`crate::builder::MichiuWindowBuilder::with_drag_and_drop`]).
     ///
     /// # Errors
     /// Returns [`MichiuError::ComInitializationFailed`] if the underlying `OleInitialize` fails.
@@ -71,11 +71,11 @@ impl ComContext {
     /// # Examples
     ///
     /// ```no_run
-    /// use michiu_window::ComContext;
+    /// use michiu_window::MichiuComContext;
     ///
     /// fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     // Initialize OLE STA on the main UI thread
-    ///     let com_ctx = ComContext::new_com_single()?;
+    ///     let com_ctx = MichiuComContext::new_com_single()?;
     ///     Ok(())
     /// }
     /// ```
@@ -88,7 +88,7 @@ impl ComContext {
             })?;
         }
         Ok(Self {
-            kind: ComContextKind::Ole,
+            kind: ComKind::Ole,
             _marker: PhantomData,
         })
     }
@@ -110,7 +110,7 @@ impl ComContext {
                 })?;
         }
         Ok(Self {
-            kind: ComContextKind::Classic(COINIT_MULTITHREADED),
+            kind: ComKind::Classic(COINIT_MULTITHREADED),
             _marker: PhantomData,
         })
     }
@@ -130,7 +130,7 @@ impl ComContext {
             })?;
         }
         Ok(Self {
-            kind: ComContextKind::WinRt(RO_INIT_SINGLETHREADED),
+            kind: ComKind::WinRt(RO_INIT_SINGLETHREADED),
             _marker: PhantomData,
         })
     }
@@ -150,7 +150,7 @@ impl ComContext {
             })?;
         }
         Ok(Self {
-            kind: ComContextKind::WinRt(RO_INIT_MULTITHREADED),
+            kind: ComKind::WinRt(RO_INIT_MULTITHREADED),
             _marker: PhantomData,
         })
     }
@@ -180,33 +180,33 @@ impl ComContext {
         }
 
         Ok(Self {
-            kind: ComContextKind::WinRtOleCombo,
+            kind: ComKind::WinRtOleCombo,
             _marker: PhantomData,
         })
     }
 
     #[inline]
     pub(crate) fn is_ole(&self) -> bool {
-        matches!(self.kind, ComContextKind::Ole)
+        matches!(self.kind, ComKind::Ole)
     }
 }
 
 // When cloning the context, we must also increment the OS-side initialization reference counter
 // to maintain a correct balance when drops occur.
-impl Clone for ComContext {
+impl Clone for MichiuComContext {
     #[inline]
     fn clone(&self) -> Self {
         match self.kind {
-            ComContextKind::Classic(init) => {
+            ComKind::Classic(init) => {
                 let _ = unsafe { CoInitializeEx(None, init) };
             }
-            ComContextKind::Ole => {
+            ComKind::Ole => {
                 let _ = unsafe { OleInitialize(None) };
             }
-            ComContextKind::WinRt(init) => {
+            ComKind::WinRt(init) => {
                 let _ = unsafe { RoInitialize(init) };
             }
-            ComContextKind::WinRtOleCombo => unsafe {
+            ComKind::WinRtOleCombo => unsafe {
                 // 初期化時と同じ順序で参照カウントを増やす
                 let _ = RoInitialize(RO_INIT_SINGLETHREADED);
                 let _ = OleInitialize(None);
@@ -220,15 +220,15 @@ impl Clone for ComContext {
     }
 }
 
-impl Drop for ComContext {
+impl Drop for MichiuComContext {
     fn drop(&mut self) {
         unsafe {
             // Uninitialize only the API that was actually initialized for this context.
             match self.kind {
-                ComContextKind::Classic(_) => CoUninitialize(),
-                ComContextKind::Ole => OleUninitialize(),
-                ComContextKind::WinRt(_) => RoUninitialize(),
-                ComContextKind::WinRtOleCombo => {
+                ComKind::Classic(_) => CoUninitialize(),
+                ComKind::Ole => OleUninitialize(),
+                ComKind::WinRt(_) => RoUninitialize(),
+                ComKind::WinRtOleCombo => {
                     // 初期化時と逆の順序で解放する
                     OleUninitialize();
                     RoUninitialize();
@@ -250,11 +250,11 @@ impl Drop for ComContext {
 /// This struct can also be used manually in integration tests to emulate drag-and-drop actions on a window:
 ///
 /// ```no_run
-/// # use michiu_window::{Window, WindowBuilder, FileDropTarget, ComContext};
+/// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, FileDropTarget, MichiuComContext};
 /// # use windows::Win32::System::Ole::IDropTarget;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// # let com_ctx = ComContext::new_com_single()?;
-/// # let window = Window::build(WindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
+/// # let com_ctx = MichiuComContext::new_com_single()?;
+/// # let window = MichiuWindow::build(WindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
 /// let drop_target_impl = FileDropTarget::new(window.hwnd());
 /// // Convert to raw COM IDropTarget interface for invocation
 /// let drop_target: IDropTarget = drop_target_impl.into();
@@ -273,10 +273,10 @@ impl FileDropTarget {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, FileDropTarget, ComContext};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, FileDropTarget, MichiuComContext};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # let com_ctx = ComContext::new_com_single()?;
-    /// # let window = Window::build(WindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
     /// // Create a drop target bound to the window's HWND
     /// let drop_target = FileDropTarget::new(window.hwnd());
     /// # Ok(())
@@ -393,12 +393,12 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
                         let id = WindowId(self.hwnd.0 as isize);
                         // イベントキューに通知
                         dispatch_to_active_handler(
-                            MichiuEvent::Window {
+                            MichiuAnyEvent::Window {
                                 id,
-                                event: Event::FileDropped(Unvalidated::new(files)),
+                                event: MichiuEvent::FileDropped(Unvalidated::new(files)),
                             },
                             id,
-                            RawEvent {
+                            MichiuRawEvent {
                                 msg: 0,
                                 wparam: WPARAM(0),
                                 lparam: LPARAM(0),
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn test_com_single_initialization_normal() {
         run_on_clean_thread(|| {
-            let context_result = ComContext::new_com_single();
+            let context_result = MichiuComContext::new_com_single();
             assert!(
                 context_result.is_ok(),
                 "Failed to initialize COM STA: {:?}",
@@ -460,7 +460,7 @@ mod tests {
     #[test]
     fn test_com_multi_initialization_normal() {
         run_on_clean_thread(|| {
-            let context_result = ComContext::new_com_multi();
+            let context_result = MichiuComContext::new_com_multi();
             assert!(
                 context_result.is_ok(),
                 "Failed to initialize COM MTA: {:?}",
@@ -472,7 +472,7 @@ mod tests {
     #[test]
     fn test_ro_single_initialization_normal() {
         run_on_clean_thread(|| {
-            let context_result = ComContext::new_ro_single();
+            let context_result = MichiuComContext::new_ro_single();
             assert!(
                 context_result.is_ok(),
                 "Failed to initialize WinRT Single: {:?}",
@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn test_ro_multi_initialization_normal() {
         run_on_clean_thread(|| {
-            let context_result = ComContext::new_ro_multi();
+            let context_result = MichiuComContext::new_ro_multi();
             assert!(
                 context_result.is_ok(),
                 "Failed to initialize WinRT Multi: {:?}",
@@ -496,18 +496,18 @@ mod tests {
     #[test]
     fn test_com_context_cloning_and_reference_balance() {
         run_on_clean_thread(|| {
-            let context = ComContext::new_com_single().unwrap();
+            let context = MichiuComContext::new_com_single().unwrap();
 
             // クローンすることにより、OS側の初期化参照カウントが正しくインクリメントされる
             let context_clone = context.clone();
 
             // 双方が同一スレッド上に安全に共存できることをテスト
             assert!(
-                matches!(context.kind, ComContextKind::Ole),
+                matches!(context.kind, ComKind::Ole),
                 "Original context kind should match"
             );
             assert!(
-                matches!(context_clone.kind, ComContextKind::Ole),
+                matches!(context_clone.kind, ComKind::Ole),
                 "Cloned context kind should match"
             );
 
@@ -523,10 +523,10 @@ mod tests {
     fn test_com_threading_mode_conflict_abnormal() {
         run_on_clean_thread(|| {
             // 同一スレッドで STA (Single-Threaded Apartment) を強制的に有効化
-            let _context_sta = ComContext::new_com_single().unwrap();
+            let _context_sta = MichiuComContext::new_com_single().unwrap();
 
             // すでにSTAとして設定された同じスレッドで、MTA (Multi-Threaded) に切り替えようとする
-            let context_mta_result = ComContext::new_com_multi();
+            let context_mta_result = MichiuComContext::new_com_multi();
 
             // COMの仕様上、一度設定したスレッドモードは変更できないため、エラーになるはず
             assert!(
@@ -559,7 +559,7 @@ mod tests {
     fn test_com_context_is_ole_check() {
         // OLE STA のテスト
         run_on_clean_thread(|| {
-            let context_single = ComContext::new_com_single().unwrap();
+            let context_single = MichiuComContext::new_com_single().unwrap();
             assert!(
                 context_single.is_ole(),
                 "new_com_single must be recognized as OLE STA"
@@ -568,7 +568,7 @@ mod tests {
 
         // MTA のテスト
         run_on_clean_thread(|| {
-            let context_multi = ComContext::new_com_multi().unwrap();
+            let context_multi = MichiuComContext::new_com_multi().unwrap();
             assert!(!context_multi.is_ole(), "new_com_multi is not OLE");
         });
     }
@@ -745,12 +745,12 @@ mod tests {
             let mut effect = DROPEFFECT_NONE;
 
             let mut captured_event = None;
-            let mut capture_fn = |event: MichiuEvent, _id: WindowId, _raw: RawEvent| {
+            let mut capture_fn = |event: MichiuAnyEvent, _id: WindowId, _raw: MichiuRawEvent| {
                 captured_event = Some(event);
             };
 
             {
-                let f_trait: &mut (dyn FnMut(MichiuEvent, WindowId, RawEvent) + '_) =
+                let f_trait: &mut (dyn FnMut(MichiuAnyEvent, WindowId, MichiuRawEvent) + '_) =
                     &mut capture_fn;
                 let erased_ptr: HandlerPtr = unsafe { std::mem::transmute(f_trait) };
                 CURRENT_HANDLER.with(|h| h.set(Some(erased_ptr)));
@@ -775,10 +775,10 @@ mod tests {
             );
 
             match captured_event.unwrap() {
-                MichiuEvent::Window { id, event, .. } => {
+                MichiuAnyEvent::Window { id, event, .. } => {
                     assert_eq!(id, WindowId(dummy_hwnd.0 as isize));
                     match event {
-                        Event::FileDropped(unvalidated_files) => {
+                        MichiuEvent::FileDropped(unvalidated_files) => {
                             let validated: Result<Validated<Vec<PathBuf>>> = unvalidated_files
                                 .validate_with(|files| {
                                     assert_eq!(files, expected_paths);
@@ -789,7 +789,7 @@ mod tests {
                         other => panic!("Expected Event::FileDropped, got {other:?}"),
                     }
                 }
-                MichiuEvent::User(_) => panic!("Expected Event"),
+                MichiuAnyEvent::User(_) => panic!("Expected Event"),
                 _ => {}
             }
         });

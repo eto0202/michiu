@@ -3,7 +3,7 @@
 #![allow(clippy::panic)]
 
 use michiu_window::{
-    EventBus, EventPump, LogicalSize, MichiuEvent, WindowBuilder, init_dpi_awareness,
+    MichiuEventBus, LogicalSize, MichiuAnyEvent, MichiuEventPump, MichiuWindowBuilder, MichiuWindow,
 };
 use std::time::{Duration, Instant};
 
@@ -31,41 +31,41 @@ where
 
 #[test]
 fn test_integration_event_bus_and_sender_cooperation() {
-    let _ = init_dpi_awareness();
+    let _ = MichiuWindow::init_dpi_awareness();
 
     run_on_clean_thread(|| {
         // シングルスレッド専用イベントバスを生成
-        let event_bus = EventBus::new();
+        let event_bus = MichiuEventBus::new();
 
         // 3つのウィンドウを同じUIスレッド上に生成
-        let window_a = WindowBuilder::new()
+        let window_a = MichiuWindowBuilder::new()
             .with_title("Window A")
             .with_visible(false)
             .with_inner_size(LogicalSize::new(200.0, 150.0))
             .into_unvalidated()
             .try_into()
-            .and_then(michiu_window::Window::build)
+            .and_then(michiu_window::MichiuWindow::build)
             .unwrap();
 
-        let window_b = WindowBuilder::new()
+        let window_b = MichiuWindowBuilder::new()
             .with_title("Window B")
             .with_visible(false)
             .with_inner_size(LogicalSize::new(200.0, 150.0))
             .into_unvalidated()
             .try_into()
-            .and_then(michiu_window::Window::build)
+            .and_then(michiu_window::MichiuWindow::build)
             .unwrap();
 
-        let window_c = WindowBuilder::new()
+        let window_c = MichiuWindowBuilder::new()
             .with_title("Window C")
             .with_visible(false)
             .with_inner_size(LogicalSize::new(200.0, 150.0))
             .into_unvalidated()
             .try_into()
-            .and_then(michiu_window::Window::build)
+            .and_then(michiu_window::MichiuWindow::build)
             .unwrap();
 
-        // メインウィンドウAに直接結果をポストするための EventSender を準備
+        // メインウィンドウAに直接結果をポストするための MichiuEventSender を準備
         let sender_to_a = window_a.handle().assume_valid().sender();
 
         // ウィンドウBの振る舞い（EventBusの購読 ＆ 非同期スレッド実行）
@@ -107,7 +107,7 @@ fn test_integration_event_bus_and_sender_cooperation() {
         event_bus.publish(&TriggerTaskEvent { task_id: 7 });
 
         // メインウィンドウAのイベントループを回し、バックグラウンドから返ってきた結果を一極回収
-        let mut event_pump = EventPump::new();
+        let mut event_pump = MichiuEventPump::new();
         let start_time = Instant::now();
         let mut b_completed = false;
         let mut c_completed = false;
@@ -115,7 +115,7 @@ fn test_integration_event_bus_and_sender_cooperation() {
         while !(b_completed && c_completed) && start_time.elapsed() < Duration::from_secs(3) {
             event_pump
                 .wait_event(|event, _id, _raw| {
-                    if let MichiuEvent::User(boxed_any) = event {
+                    if let MichiuAnyEvent::User(boxed_any) = event {
                         // 送信されてきた TaskResult 型にダウンキャスト
                         if let Ok(res) = boxed_any.downcast::<TaskResult>() {
                             match res.from {

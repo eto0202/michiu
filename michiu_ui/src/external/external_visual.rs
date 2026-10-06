@@ -121,7 +121,7 @@ impl Default for ExternalVisualMetadata {
 
 /// Identifies the topmost `ExternalVisual` based on physical pixel coordinates and forwards the raw input.
 /// Returns `true` if the event has been consumed.
-pub fn dispatch_raw_input_to_external_visual(
+pub(crate) fn dispatch_raw_input_to_external_visual(
     cx: &mut Context,
     msg: u32,
     wparam: WPARAM,

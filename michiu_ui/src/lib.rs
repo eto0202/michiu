@@ -56,7 +56,7 @@ pub mod prelude {
         element::{Element, build_ui},
         input::InputContents,
         pipeline::{TickType, UserAction},
-        renderer::ComposedRenderer,
+        renderer::MichiuRenderer,
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
         style::ThisStyle,

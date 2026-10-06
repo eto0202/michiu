@@ -26,7 +26,7 @@ use windows::{
     core::{PCWSTR, w},
 };
 
-use crate::{Icon, PreferredAppMode, set_app_theme};
+use crate::{MichiuIcon, PreferredAppMode, set_app_theme};
 use crate::{
     WindowHandle,
     error::{MichiuError, Result},
@@ -40,10 +40,10 @@ pub const WM_TRAY_CALLBACK: u32 = WM_USER + 100;
 /// It manages an internal dummy hidden window to handle OS shell notification events asynchronously.
 /// `Tray` is designed to be **`Clone`**, **`Send`**, and **`Sync`** (internally managed via `Arc`).
 ///
-/// When all cloned instances of this `Tray` are dropped, the tray icon is automatically
+/// When all cloned instances of this `MichiuTray` are dropped, the tray icon is automatically
 /// deleted from the system shell and its hidden dummy window is safely destroyed.
 #[derive(Debug, Clone)]
-pub struct Tray {
+pub struct MichiuTray {
     inner: Arc<TrayInner>,
 }
 
@@ -78,15 +78,15 @@ struct TrayInternalData {
     on_left_click: Option<Arc<dyn Fn() + Send + Sync>>,
     on_right_click: Option<Arc<dyn Fn() + Send + Sync>>,
     taskbar_created_msg: u32,
-    icon: Option<Icon>,
+    icon: Option<MichiuIcon>,
     tooltip: Option<Cow<'static, str>>,
-    menu_items: Vec<TrayMenuItem>,
-    custom_menu: Option<CustomTrayMenu>,
+    menu_items: Vec<MichiuTrayMenuItem>,
+    custom_menu: Option<MichiuCustomTrayMenu>,
 }
 
 const CLASS_NAME_STR: &str = concat!("MichiuTrayWindowClass_", env!("CARGO_PKG_VERSION"));
 
-impl Tray {
+impl MichiuTray {
     /// Builds and registers a new system tray icon with the OS using the validated builder parameters.
     ///
     /// # Errors
@@ -96,18 +96,18 @@ impl Tray {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Tray, TrayBuilder, Icon};
+    /// # use michiu_window::{MichiuTray, MichiuTrayBuilder, MichiuIcon};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let icon = unsafe { Icon::from_raw(windows::Win32::UI::WindowsAndMessaging::HICON(std::ptr::null_mut())) };
-    /// let builder = TrayBuilder::new()
+    /// # let icon = unsafe { MichiuIcon::from_raw(windows::Win32::UI::WindowsAndMessaging::HICON(std::ptr::null_mut())) };
+    /// let builder = MichiuTrayBuilder::new()
     ///     .with_icon(icon)
     ///     .with_tooltip("My App Tray");
     ///
-    /// let tray = Tray::build(builder.into_unvalidated().try_into()?)?;
+    /// let tray = MichiuTray::build(builder.into_unvalidated().try_into()?)?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn build(builder: Validated<TrayBuilder>) -> Result<Self> {
+    pub fn build(builder: Validated<MichiuTrayBuilder>) -> Result<Self> {
         let builder = builder.into_inner();
 
         let hmodule = unsafe { GetModuleHandleW(None).map_err(MichiuError::UnexpectedOsError)? };
@@ -161,7 +161,7 @@ impl Tray {
 
         add_tray_icon(dummy_hwnd, u_id, builder.icon, builder.tooltip.as_deref())?;
 
-        Ok(Tray {
+        Ok(MichiuTray {
             inner: Arc::new(TrayInner { dummy_hwnd, u_id }),
         })
     }
@@ -188,10 +188,10 @@ impl Tray {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Tray, TrayBuilder, Icon};
+    /// # use michiu_window::{MichiuTray, MichiuTrayBuilder, MichiuIcon};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let icon = unsafe { Icon::from_raw(windows::Win32::UI::WindowsAndMessaging::HICON(std::ptr::null_mut())) };
-    /// # let tray = Tray::build(TrayBuilder::new().with_icon(icon).into_unvalidated().try_into()?)?;
+    /// # let icon = unsafe { MichiuIcon::from_raw(windows::Win32::UI::WindowsAndMessaging::HICON(std::ptr::null_mut())) };
+    /// # let tray = MichiuTray::build(MichiuTrayBuilder::new().with_icon(icon).into_unvalidated().try_into()?)?;
     /// // Display a notification from a background thread
     /// let tray_clone = tray.clone();
     /// std::thread::spawn(move || {
@@ -300,7 +300,7 @@ unsafe extern "system" fn tray_wnd_proc(
                 WM_RBUTTONUP => {
                     // カスタムウィンドウメニューが設定されている場合
                     if let Some(ref custom_menu) = data.custom_menu {
-                        let hwnd_menu = custom_menu.window_handle.hwnd();
+                        let hwnd_menu = custom_menu.handle.hwnd();
                         unsafe {
                             let mut pt = POINT::default();
                             let _ = GetCursorPos(&raw mut pt);
@@ -411,7 +411,12 @@ unsafe extern "system" fn tray_wnd_proc(
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
 }
 
-fn add_tray_icon(hwnd: HWND, u_id: u32, icon: Option<Icon>, tooltip: Option<&str>) -> Result<()> {
+fn add_tray_icon(
+    hwnd: HWND,
+    u_id: u32,
+    icon: Option<MichiuIcon>,
+    tooltip: Option<&str>,
+) -> Result<()> {
     let mut flags = NIF_MESSAGE;
 
     // 有効なアイコンハンドルが指定されている場合は、アイコンフラグを追加
@@ -459,25 +464,25 @@ fn add_tray_icon(hwnd: HWND, u_id: u32, icon: Option<Icon>, tooltip: Option<&str
 /// A custom popup window wrapper used to display a customized UI (e.g., custom window menus)
 /// instead of the standard Win32 native context menu when clicking the tray icon.
 #[derive(Clone, Debug)]
-pub struct CustomTrayMenu {
-    window_handle: WindowHandle,
+pub struct MichiuCustomTrayMenu {
+    handle: WindowHandle,
 }
 
-impl CustomTrayMenu {
+impl MichiuCustomTrayMenu {
     /// Wraps the specified window handle as a custom popup menu.
     ///
     /// Under the hood, clicking the tray icon will automatically relocate the target window
     /// to the cursor position, set it as topmost, and show it.
     #[must_use]
     #[inline]
-    pub fn new(window_handle: WindowHandle) -> Self {
-        Self { window_handle }
+    pub fn new(handle: WindowHandle) -> Self {
+        Self { handle }
     }
 }
 
 /// Represents a single item inside the tray's native pop-up context menu.
 #[derive(Clone)]
-pub struct TrayMenuItem {
+pub struct MichiuTrayMenuItem {
     pub(crate) id: u32,
     text: Cow<'static, str>,
     on_click: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -485,7 +490,7 @@ pub struct TrayMenuItem {
     enabled: bool,
 }
 
-impl std::fmt::Debug for TrayMenuItem {
+impl std::fmt::Debug for MichiuTrayMenuItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TrayMenuItem")
             .field("id", &self.id)
@@ -497,7 +502,7 @@ impl std::fmt::Debug for TrayMenuItem {
     }
 }
 
-impl TrayMenuItem {
+impl MichiuTrayMenuItem {
     /// Creates a new native menu item with the specified label text.
     #[inline]
     pub fn new(text: impl Into<Cow<'static, str>>) -> Self {
@@ -541,22 +546,22 @@ impl TrayMenuItem {
     }
 }
 
-/// A builder helper used to configure and instantiate a [`Tray`].
+/// A builder helper used to configure and instantiate a [`MichiuTray`].
 ///
 /// Implements [`Default`] and [`Validate`] (from `michiu_guard`).
 #[derive(Clone)]
-pub struct TrayBuilder {
+pub struct MichiuTrayBuilder {
     tooltip: Option<Cow<'static, str>>,
-    icon: Option<Icon>,
+    icon: Option<MichiuIcon>,
     on_left_click: Option<Arc<dyn Fn() + Send + Sync>>,
     on_right_click: Option<Arc<dyn Fn() + Send + Sync>>,
-    menu_items: Vec<TrayMenuItem>,
+    menu_items: Vec<MichiuTrayMenuItem>,
     next_menu_id: u32,
-    custom_menu: Option<CustomTrayMenu>,
+    custom_menu: Option<MichiuCustomTrayMenu>,
     dark_mode_menus: bool,
 }
 
-impl std::fmt::Debug for TrayBuilder {
+impl std::fmt::Debug for MichiuTrayBuilder {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TrayBuilder")
             .field("tooltip", &self.tooltip)
@@ -577,7 +582,7 @@ impl std::fmt::Debug for TrayBuilder {
     }
 }
 
-impl Default for TrayBuilder {
+impl Default for MichiuTrayBuilder {
     #[inline]
     fn default() -> Self {
         Self {
@@ -593,7 +598,7 @@ impl Default for TrayBuilder {
     }
 }
 
-impl TrayBuilder {
+impl MichiuTrayBuilder {
     /// Creates a default configured `TrayBuilder` instance.
     #[must_use]
     #[inline]
@@ -611,10 +616,10 @@ impl TrayBuilder {
         self
     }
 
-    /// Assigns a custom [`Icon`] for the tray. (Required)
+    /// Assigns a custom [`MichiuIcon`] for the tray. (Required)
     #[must_use]
     #[inline]
-    pub fn with_icon(mut self, icon: Icon) -> Self {
+    pub fn with_icon(mut self, icon: MichiuIcon) -> Self {
         self.icon = Some(icon);
         self
     }
@@ -647,7 +652,7 @@ impl TrayBuilder {
     /// Appends a standard native item to the tray context menu.
     #[must_use]
     #[inline]
-    pub fn with_menu_item(mut self, mut item: TrayMenuItem) -> Self {
+    pub fn with_menu_item(mut self, mut item: MichiuTrayMenuItem) -> Self {
         item.id = self.next_menu_id;
         self.next_menu_id += 1;
 
@@ -658,7 +663,7 @@ impl TrayBuilder {
     /// Registers a custom popup window to display when right-clicking the tray icon.
     #[must_use]
     #[inline]
-    pub fn with_custom_menu(mut self, custom_menu: CustomTrayMenu) -> Self {
+    pub fn with_custom_menu(mut self, custom_menu: MichiuCustomTrayMenu) -> Self {
         self.custom_menu = Some(custom_menu);
         self
     }
@@ -679,7 +684,7 @@ impl TrayBuilder {
     }
 }
 
-impl Validate for TrayBuilder {
+impl Validate for MichiuTrayBuilder {
     type Error = MichiuError;
 
     /// Validates tray configuration parameters.
