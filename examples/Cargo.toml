@@ -1,0 +1,30 @@
+[package]
+name = "sample_collection"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "sample_collection"
+path = "sample_collection/main.rs"
+
+[dependencies]
+michiu = { workspace = true, features = ["webview2", "css"] }
+pollster = "1.0.1"
+tiff-reader = "0.8.1"
+strum = {version = "0.28.0", features = ["derive"] }
+image = "0.25.10"
+smallvec = "1.15.2"
+wgpu = {version= "30.0.1", default-features = false, features = ["dx12", "wgsl"]}
+dhat = { version = "0.3.3", optional = true }
+
+[dependencies.windows]
+version = "0.62.2"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[features]
+dhat-heap = ["dep:dhat"]
+trace-lifecycle = ["michiu/trace-lifecycle"]
