@@ -18,12 +18,6 @@ Please note that since this is still under development, breaking changes may occ
 
 `michiu` is pronounced roughly like "mee-chee-oo" (written in Japanese as 「みちぅ」).
 
-## Examples
-
-- [michiu examples](https://github.com/eto0202/michiu/tree/main/michiu_ui/examples)
-- [michiu_ui examples](https://github.com/eto0202/michiu/tree/main/michiu_ui/examples)
-- [michiu_window examples](https://github.com/eto0202/michiu/tree/main/michiu_window/examples)
-
 ## Quick Start
 
 Add the following to your `Cargo.toml`:
@@ -58,8 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Initialize renderer
     let scale_factor = window.scale_factor() as f32;
     let handle = window.handle().assume_valid();
-    // MichiuRenderer::new is async. Use any executor of your choice
-    // (e.g., pollster, tokio, futures).
+    // MichiuRenderer::new is async. Use any executor of your choice.
     let renderer = pollster::block_on(MichiuRenderer::new(
         handle.hwnd(),
         LayoutSize::new(600.0, 500.0),
@@ -122,23 +115,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 Run the application:
+
 ```
 cargo run --release
 ```
 
-## Screenshot
+## Screenshots
 
 #### Quick Start Sample
 
-![Quick Start](assets/screenshot/2026-10-06-button)
+<p align="center">
+    <img 
+        width="600" 
+        alt="Quick Start Sample" 
+        src="https://github.com/user-attachments/assets/55aad95b-4c9c-4d68-9fc9-3ce441cb436f" />
+</p>
 
 #### Flexbox Sample
 
-![Border Line](assets/screenshot/2026-10-06-flexbox)
+<p align="center">
+    <img 
+        width="600" 
+        alt="Flexbox Sample" 
+        src="https://github.com/user-attachments/assets/2f99f893-5ebf-4996-b636-59d0455b3c5b" />
+</p>
 
-#### Webview2 (External Visual) Sample
+#### WebView2 (External Visual) Sample
 
-![External Visual](assets/screenshot/2026-10-06-external_visual)
+<p align="center">
+    <img 
+        width="600" 
+        alt="WebView2 (External Visual) Sample" 
+        src="https://github.com/user-attachments/assets/098367bc-6758-470f-9822-1be7a944bcc1" />
+</p>
 
 ## License
 
