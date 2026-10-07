@@ -174,7 +174,7 @@
 //! # }
 //! ```
 //!
-//! ## Registers an event-loop wakeup callback.
+//! ## Registers an event-loop wakeup callback ([`Context::set_waker`]).
 //!
 //! This callback is automatically invoked whenever a background task is submitted via [`MichiuTaskSender`](crate::ui::MichiuTaskSender) or [`SignalSender`](crate::SignalSender).
 //!
@@ -194,7 +194,7 @@
 //! # }
 //! ```
 //!
-//! ## Task Submission
+//! ## Task Submission ([`Context::process_main_thread_tasks`])
 //! Drains and executes all pending closures sent from background threads on the UI thread.
 //!
 //! This executes tasks dispatched via [`MichiuTaskSender`](crate::ui::MichiuTaskSender) and updates signals sent via [`SignalSender`](crate::ui::SignalSender).
@@ -252,7 +252,6 @@ pub mod prelude {
 pub mod accessibility {
     pub use crate::ui::accessibility::*;
 }
-
 
 /// Integrated execution status of the Michiu GUI application.
 ///
