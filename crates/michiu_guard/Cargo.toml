@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 keywords.workspace = true
 categories.workspace = true
+repository.workspace = true
 description = "Enforces validation in the michiu library."
 readme = "README.md"
 
