@@ -7,7 +7,7 @@ members = [
 default-members = ["examples"]
 
 [workspace.package]
-version = "0.0.2"
+version = "0.0.3"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/eto0202/michiu"
@@ -17,10 +17,10 @@ keywords = ["gui", "windows", "ui"]
 categories = ["gui"]
 
 [workspace.dependencies]
-michiu = { version = "0.0.2", path = "crates/michiu" }
-michiu_ui = { version = "0.0.2", path = "crates/michiu_ui" }
-michiu_guard = { version = "0.0.2", path = "crates/michiu_guard" }
-michiu_window = { version = "0.0.2", path = "crates/michiu_window" }
+michiu = { version = "0.0.3", path = "crates/michiu" }
+michiu_ui = { version = "0.0.3", path = "crates/michiu_ui" }
+michiu_guard = { version = "0.0.3", path = "crates/michiu_guard" }
+michiu_window = { version = "0.0.3", path = "crates/michiu_window" }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 
 [profile.release]
