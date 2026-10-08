@@ -6,6 +6,18 @@ use crate::{
 use std::borrow::Cow;
 
 /// Creates a new style.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn example() -> Element {
+///     div(
+///         ts().size_full()
+///             .p(8.0)
+///             .bg_color(rgb(209, 92, 174))
+///     )
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn ts() -> ThisStyle {
@@ -15,27 +27,144 @@ pub fn ts() -> ThisStyle {
 /// Generates signals directly from the `Context`.
 ///
 /// This function must be called within the scope of `build_ui`.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn example() -> Element {
+///     let (count, set_count) = create_signal(0u32);
+///     div(
+///         ts().size_full()
+///             .p(8.0)
+///             .bg_color(rgb(209, 92, 174))
+///     )
+///     .on_click(move || set_count.set(count.get() + 1))
+///     .label(move || format!("Count: {}", count.get()), ts())
+/// # }
+/// ```
 pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, WriteSignal<T>) {
     with_context(|cx| cx.create_signal(initial_value))
 }
 
-/// Identify the target element from the current thread-local `Context`
-/// and resolve the [`ReadSignal`] of type `T` by traversing the parent tree.
+/// Retrieves context signals ([`ReadSignal<T>`]) provided by ancestor elements, including itself.
+///
+/// Travers the UI tree upward and searches for and returns signals of type `T` provided via `.provide()`.
+///
+/// Allows state to be shared among descendant components at deep levels without passing arguments through a bucket relay.
+///
+/// Since the return value is [`ReadSignal<T>`], calling `.get()` within a reactive closure automatically subscribes to the dependency,
+/// causing the component to be redrawn when the value is updated by a parent.
+///
+/// # Panics
+/// Panics if type `T` is not provided via `.provide()` anywhere in the ancestor tree.
+///
+/// # Related Features
+/// - [`use_provided_setter`]: Retrieves a [`WriteSignal<T>`] to update the context’s value.
+/// - [`dynamic`](crate::dynamic): Directly binds the context’s value to a single style property.
+/// - [`style_d`](crate::Element::style_d): Dynamically applies an entire style block based on the context’s value.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// #[derive(Debug, Clone)]
+/// struct Theme {
+///     color: Color,
+/// }
+///
+/// fn root() -> Element {
+///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
+///     div_n().provide(theme)
+///            .child(
+///                 div(|| {
+///                     let theme = use_provided::<Theme>().get();
+///                     ts().bg_color(theme.color)
+///                 })
+///                 .on_click(|| {
+///                     let set_theme = use_provided_setter::<Theme>();
+///                     set_theme.set(Theme { color: Color::RED });
+///                 })
+///             )
+/// }
+/// ```
 #[inline]
 #[must_use]
 pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
     with_context(|cx| cx.use_provided::<T>())
 }
 
-/// From the current thread-local `Context`,
-/// we obtain a [`WriteSignal`] for a signal of type `T`, automatically resolving it by traversing the parent tree.
+/// From the current thread-local `Context`, we obtain a [`WriteSignal`] for a signal of type `T`,
+/// automatically resolving it by traversing the parent tree.
+///
+/// # Panics
+/// Panics if type `T` is not provided via `.provide()` anywhere in the ancestor tree.
+///
+/// # Related Features
+/// - [`use_provided_setter`]: Retrieves a [`WriteSignal<T>`] to update the context’s value.
+/// - [`dynamic`](crate::dynamic): Directly binds the context’s value to a single style property.
+/// - [`style_d`](crate::Element::style_d): Dynamically applies an entire style block based on the context’s value.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// #[derive(Debug, Clone)]
+/// struct Theme {
+///     color: Color,
+/// }
+///
+/// fn root() -> Element {
+///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
+///     div_n().provide(theme)
+///            .child(
+///                 div(|| {
+///                     let theme = use_provided::<Theme>().get();
+///                     ts().bg_color(theme.color)
+///                 })
+///                 .on_click(|| {
+///                     let set_theme = use_provided_setter::<Theme>();
+///                     set_theme.set(Theme { color: Color::RED });
+///                 })
+///             )
+/// }
+/// ```
 #[inline]
 #[must_use]
 pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
     with_context(|cx| cx.use_provided_setter::<T>())
 }
 
-/// Generate a dynamic style value by resolving the value `V` from the provider type `P` through the closure `F`
+/// Generates dynamic style values that reactively change based on the value of a provider ([`use_provided`](crate::use_provided)).
+///
+/// Because automatic subscription to signals occurs internally,
+/// only this style property is updated when the provider’s value is updated.
+///
+/// # Tip
+/// By adding a type annotation such as `|t: &Theme|` to the arguments of a selector function,
+/// the system automatically infers which context type to retrieve.
+///
+/// # Panics
+/// Panics if type `T` is not provided via `.provide()` anywhere in the ancestor tree.
+///
+/// # Related Features
+/// - [`use_provided_setter`]: Retrieves a [`WriteSignal<T>`] to update the context’s value.
+/// - [`dynamic`](crate::dynamic): Directly binds the context’s value to a single style property.
+/// - [`style_d`](crate::Element::style_d): Dynamically applies an entire style block based on the context’s value.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// #[derive(Debug, Clone)]
+/// struct Theme {
+///     color: Color,
+/// }
+///
+/// fn root() -> Element {
+///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
+///     div_n().provide(theme)
+///            .child(
+///                 div(ts().bg_color(dynamic(|t: &Theme| t.color)))
+///             )
+/// }
+/// ```
 pub fn dynamic<P, V, F>(selector: F) -> StyleValue<V>
 where
     P: Clone + 'static,
@@ -52,6 +181,14 @@ where
 }
 
 /// Generates an opaque RGB color using an integer value (`u8`) between 0 and 255.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> ThisStyle {
+///    ts().bg_color(rgb(209, 92, 174))
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -65,6 +202,14 @@ pub fn rgb(r: u8, g: u8, b: u8) -> Color {
 
 /// Generates an RGBA color by specifying RGB values as integers from 0 to 255 (`u8`)
 /// and opacity (alpha) values from 0.0 to 1.0 (`f32`).
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> ThisStyle {
+///    ts().bg_color(rgba(209, 92, 174, 0.5))
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
@@ -79,15 +224,15 @@ pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
 /// Generate a HEX.
 ///
 /// # Examples
-/// ```rust
-/// use michiu_ui::hex;
-///
-/// hex("#ff0000");
-/// hex(0x00_FF00);
-/// hex(0x00_00ff);
-/// hex("00000080");
-/// hex("0xFFFFFF80");
-///
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> ThisStyle {
+///    ts().bg_color(hex("#ff0000"))
+///        .border_color(hex(0x00_FF00))
+///        .text_color(hex(0x00_00ff))
+///        .outline_color(hex("00000080"))
+///        .shadow_color(hex("0xFFFFFF80"))
+/// # }
 /// ```
 #[inline]
 pub fn hex(value: impl IntoHexColor) -> Color {
@@ -95,6 +240,14 @@ pub fn hex(value: impl IntoHexColor) -> Color {
 }
 
 /// Generates HSL (Hue: 0..360, Saturation: 0.0..100.0%, Lightness: 0.0..100.0%) colors.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> ThisStyle {
+///    ts().bg_color(hsl(318.0, 56.0, 59.0))
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn hsl(h: f32, s: f32, l: f32) -> Color {
@@ -102,6 +255,14 @@ pub fn hsl(h: f32, s: f32, l: f32) -> Color {
 }
 
 /// Generate HSLA colors by applying an alpha value (0.0..1.0) to HSL
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> ThisStyle {
+///    ts().bg_color(hsla(318.0, 56.0, 59.0, 0.5))
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
@@ -112,14 +273,30 @@ pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
 ///
 /// It is the same as `Element::new().style(style)`.
 ///
-/// Default is Flex Box
+/// Default is Flex Box.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    flex(ts().justify_center())
+/// # }
+/// ```
 #[inline]
 pub fn flex(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
     el.style(style)
 }
 
-/// A container that applies a style and generates content.
+/// A block container that applies a style and generates content.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    div(ts().size(100.0))
+/// # }
+/// ```
 #[inline]
 pub fn div(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
@@ -129,6 +306,14 @@ pub fn div(style: impl Into<Prop<ThisStyle>>) -> Element {
 pub const NO_STYLE: Option<ThisStyle> = None;
 
 /// An empty container with no style.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    div_n().style(ts())
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn div_n() -> Element {
@@ -136,6 +321,14 @@ pub fn div_n() -> Element {
 }
 
 /// Horizontal flex container.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    h_flex(ts().border_solid(1.0))
+/// # }
+/// ```
 #[inline]
 pub fn h_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
@@ -144,6 +337,14 @@ pub fn h_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
 }
 
 /// Vertical flex container.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    h_flex(ts().outline_solid(1.0))
+/// # }
+/// ```
 #[inline]
 pub fn v_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
@@ -159,6 +360,14 @@ pub fn grid_box(style: impl Into<Prop<ThisStyle>>) -> Element {
 }
 
 /// A container used for block placement.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    block_box(ts().size_half())
+/// # }
+/// ```
 #[inline]
 pub fn block_box(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
@@ -166,6 +375,14 @@ pub fn block_box(style: impl Into<Prop<ThisStyle>>) -> Element {
 }
 
 /// Hidden Container
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    hidden_box(ts().size_full())
+/// # }
+/// ```
 #[inline]
 pub fn hidden_box(style: impl Into<Prop<ThisStyle>>) -> Element {
     let el = Element::new();
@@ -173,18 +390,52 @@ pub fn hidden_box(style: impl Into<Prop<ThisStyle>>) -> Element {
 }
 
 /// Text Container
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    text("examples").style(ts().font_size(20.0))
+/// # }
+/// ```
 #[inline]
 pub fn text(content: impl Into<Prop<Cow<'static, str>>>) -> Element {
     div_n().text(content)
 }
 
 /// Input Container
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    let (read_text, write_text) = create_signal(String::new());
+///
+///    input(
+///         InputContents::new((read_text, write_text))
+///             .numeric_only(true)
+///    )
+/// # }
+/// ```
 #[inline]
 pub fn input(contents: impl Into<Prop<InputContents>>) -> Element {
     div_n().input(contents)
 }
 
 /// Input Area (multiline) Container
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() -> Element {
+///    let (text, set_text) = create_signal(String::new());
+///
+///    input_area(
+///         InputContents::new((text, set_text))
+///             .is_ime(true)
+///    )
+/// # }
+/// ```
 #[inline]
 pub fn input_area(contents: impl Into<Prop<InputContents>>) -> Element {
     div_n().input_area(contents)
@@ -203,8 +454,25 @@ pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
 }
 
 /// A generic container that dynamically resolves `ThisStyle` from provider `P` and applies the style
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// #[derive(Debug, Clone)]
+/// struct Theme {
+///     color: Color,
+/// }
+///
+/// fn root() -> Element {
+///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
+///     div_n().provide(theme)
+///            .child(
+///                 flex_d(|t: &Theme| ts().bg_color(theme.color))
+///             )
+/// }
+/// ```
 #[inline]
-pub fn div_d<P, F>(f: F) -> Element
+pub fn flex_d<P, F>(f: F) -> Element
 where
     P: Clone + 'static,
     F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
@@ -212,7 +480,51 @@ where
     Element::new().style_d(f)
 }
 
+/// A block container that dynamically resolves `ThisStyle` from provider `P` and applies the style
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// #[derive(Debug, Clone)]
+/// struct Theme {
+///     color: Color,
+/// }
+///
+/// fn root() -> Element {
+///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
+///     div_n().provide(theme)
+///            .child(
+///                 div_d(|t: &Theme| ts().bg_color(theme.color))
+///             )
+/// }
+/// ```
+#[inline]
+pub fn div_d<P, F>(f: F) -> Element
+where
+    P: Clone + 'static,
+    F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+{
+    Element::new().style(ts().block()).style_d(f)
+}
+
 /// A horizontal flex container that dynamically resolves `ThisStyle` from provider `P` and applies the style
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// #[derive(Debug, Clone)]
+/// struct Theme {
+///     color: Color,
+/// }
+///
+/// fn root() -> Element {
+///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
+///     div_n().provide(theme)
+///            .child(
+///                 h_flex_d(|t: &Theme| ts().bg_color(theme.color))
+///             )
+/// }
+/// ```
 #[inline]
 pub fn h_flex_d<P, F>(f: F) -> Element
 where
@@ -227,6 +539,23 @@ where
 }
 
 /// A vertical flex container that dynamically resolves `ThisStyle` from provider `P` and applies the style
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// #[derive(Debug, Clone)]
+/// struct Theme {
+///     color: Color,
+/// }
+///
+/// fn root() -> Element {
+///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
+///     div_n().provide(theme)
+///            .child(
+///                 v_flex_d(|t: &Theme| ts().bg_color(theme.color))
+///             )
+/// }
+/// ```
 #[inline]
 pub fn v_flex_d<P, F>(f: F) -> Element
 where
@@ -239,6 +568,27 @@ where
 }
 
 /// A container that dynamically resolves and applies text from provider `P`.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// pub enum MichiuOrder {
+///    Small,
+///    Big,
+/// }
+///
+/// fn root() -> Element {
+///     let (order, _) = create_signal(MichiuOrder::Small);
+///     div_n().provide(order)
+///            .child(
+///                 text_d(|order: &MichiuOrder| match order {
+///                     MichiuOrder::Small => "small...",
+///                     MichiuOrder::Big => "BIG!!!",
+///                 })
+///             )
+/// }
+/// ```
 #[inline]
 pub fn text_d<P, F, S>(f: F) -> Element
 where
@@ -250,6 +600,28 @@ where
 }
 
 /// A container that dynamically resolves, generates, and applies input field elements from provider `P`.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// #[derive(Debug, Clone)]
+/// struct Theme {
+///     color: Color,
+/// }
+///
+/// fn root() -> Element {
+///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
+///     let (read_text, write_text) = create_signal(String::new());
+///
+///     div_n().provide(theme)
+///            .child(
+///                 input_d(move |t: &Theme| {
+///                     InputContents::new((read_text, write_text))
+///                         .placeholder_color(t.text_muted)
+/// })
+///             )
+/// }
+/// ```
 #[inline]
 pub fn input_d<P, F>(f: F) -> Element
 where
@@ -307,6 +679,27 @@ pub struct Auto;
 pub struct Stretch;
 
 /// Generates actual values.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() {
+/// // All Directions (f32, i32, px, pct, auto, fill)
+/// ts().p(10.0);
+/// ts().p(10);
+/// ts().p(pct(5.0));
+/// ts().p(auto());
+/// ts().p(fill());
+///
+/// // (vertical, horizontal)
+/// ts().p((10.0, 20.0));
+/// ts().p((px(10.0), pct(50.0)));
+///
+/// // (top, right, bottom, left)
+/// ts().p((10.0, 20.0, 30.0, 40.0));
+/// ts().p((px(10.0), pct(20.0), auto(), fill()));
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn px(val: f32) -> Pixel {
@@ -314,6 +707,27 @@ pub fn px(val: f32) -> Pixel {
 }
 
 /// Generates a percentage value.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() {
+/// // All Directions (f32, i32, px, pct, auto, fill)
+/// ts().p(10.0);
+/// ts().p(10);
+/// ts().p(pct(5.0));
+/// ts().p(auto());
+/// ts().p(fill());
+///
+/// // (vertical, horizontal)
+/// ts().p((10.0, 20.0));
+/// ts().p((px(10.0), pct(50.0)));
+///
+/// // (top, right, bottom, left)
+/// ts().p((10.0, 20.0, 30.0, 40.0));
+/// ts().p((px(10.0), pct(20.0), auto(), fill()));
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn pct(val: f32) -> Percent {
@@ -321,6 +735,27 @@ pub fn pct(val: f32) -> Percent {
 }
 
 /// Generate `Auto`
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() {
+/// // All Directions (f32, i32, px, pct, auto, fill)
+/// ts().p(10.0);
+/// ts().p(10);
+/// ts().p(pct(5.0));
+/// ts().p(auto());
+/// ts().p(fill());
+///
+/// // (vertical, horizontal)
+/// ts().p((10.0, 20.0));
+/// ts().p((px(10.0), pct(50.0)));
+///
+/// // (top, right, bottom, left)
+/// ts().p((10.0, 20.0, 30.0, 40.0));
+/// ts().p((px(10.0), pct(20.0), auto(), fill()));
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn auto() -> Auto {
@@ -328,6 +763,27 @@ pub fn auto() -> Auto {
 }
 
 /// Generate `Stretch`
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn examples() {
+/// // All Directions (f32, i32, px, pct, auto, fill)
+/// ts().p(10.0);
+/// ts().p(10);
+/// ts().p(pct(5.0));
+/// ts().p(auto());
+/// ts().p(fill());
+///
+/// // (vertical, horizontal)
+/// ts().p((10.0, 20.0));
+/// ts().p((px(10.0), pct(50.0)));
+///
+/// // (top, right, bottom, left)
+/// ts().p((10.0, 20.0, 30.0, 40.0));
+/// ts().p((px(10.0), pct(20.0), auto(), fill()));
+/// # }
+/// ```
 #[inline]
 #[must_use]
 pub fn fill() -> Stretch {

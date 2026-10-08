@@ -12,7 +12,7 @@ pub mod external_visual;
 pub mod flexbox;
 pub mod focusable;
 pub mod hover;
-pub mod image;
+pub mod external_texture;
 pub mod input;
 pub mod input_area;
 pub mod list;

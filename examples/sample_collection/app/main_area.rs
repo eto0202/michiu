@@ -3,7 +3,7 @@ use crate::{
     app::{ComponentType, theme::Theme},
     components::{
         accessibility, background, border, button, color, css, cursor, div, draggable,
-        external_visual, flexbox, focusable, hover, image, input, outline, resizable, stress_test,
+        external_visual, flexbox, focusable, hover, external_texture, input, outline, resizable, stress_test,
     },
 };
 pub use michiu::prelude::*;
@@ -18,7 +18,7 @@ pub fn main_area() -> Element {
         let child_el = create_component_element(comp_type);
 
         // 現在の ComponentType と一致しているか否かを動的に解決
-        let styled_child = div_d(move |active: &ComponentType| {
+        let styled_child = flex_d(move |active: &ComponentType| {
             if *active == comp_type {
                 // 表示状態のスタイル
                 ts().size_full().flex() // hidden() と対応させる
@@ -57,7 +57,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Cursor => wrapper(cursor::container()),
         ComponentType::Outline => wrapper(outline::container()),
         ComponentType::Focusable => wrapper(focusable::container()),
-        ComponentType::Image => wrapper(image::container()),
+        ComponentType::ExternalTexture => wrapper(external_texture::container()),
         ComponentType::ExternalVisual => wrapper(external_visual::container()),
         ComponentType::Accessibility => wrapper(accessibility::container()),
         ComponentType::Size => text("Size"),

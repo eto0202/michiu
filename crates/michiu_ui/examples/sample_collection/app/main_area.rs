@@ -18,7 +18,7 @@ pub fn main_area() -> Element {
         let child_el = create_component_element(comp_type);
 
         // 現在の ComponentType と一致しているか否かを動的に解決
-        let styled_child = div_d(move |active: &ComponentType| {
+        let styled_child = flex_d(move |active: &ComponentType| {
             if *active == comp_type {
                 // 表示状態のスタイル
                 ts().size_full().flex() // hidden() と対応させる

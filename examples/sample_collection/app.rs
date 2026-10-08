@@ -61,7 +61,7 @@ pub enum ComponentType {
     Outline,
     Focusable,
     StressTest,
-    Image,
+    ExternalTexture,
     ExternalVisual,
     Accessibility,
     Size,

@@ -47,8 +47,8 @@ fn webview2(github: &GitHubVisual) -> Element {
 
                 is_active.get_else(base.clone().flex(), base.hidden())
             })
-            .child_d(|youtube: &CratesVisual| {
-                external_visual(youtube.0.clone()).style(ts().r(3.0).size_full())
+            .child_d(|crates: &CratesVisual| {
+                external_visual(crates.0.clone()).style(ts().r(3.0).size_full())
             }),
         );
 

@@ -39,7 +39,7 @@ fn header_label() -> Element {
 }
 
 fn sort_toggle() -> Element {
-    div_d(|t: &Theme| {
+    flex_d(|t: &Theme| {
         ts().p_x(8.0)
             .p_y(2.0)
             .r(2.0)

@@ -345,9 +345,39 @@ impl Element {
         self
     }
 
-    /// Dynamically resolve [`ThisStyle`] from provider `P` and apply the style.
+    /// Applies a reactive style block evaluated from a provided context.
     ///
-    /// When `P` changes, the closure is re-evaluated.
+    /// Wraps the closure in a dynamic property that automatically retrieves the provided context of type `P` and tracks signal updates.
+    ///  Whenever the context updates, the style block is re-evaluated and applied.
+    ///
+    /// Use this when multiple style properties depend on the same context (e.g., theming),
+    /// as an alternative to specifying [`dynamic`](crate::dynamic) for each property individually.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use crate::prelude::*;
+    /// #[derive(Debug, Clone)]
+    /// struct Theme {
+    ///     bg_color: Color,
+    ///     text_color: Color,
+    /// }
+    ///
+    /// fn root() -> Element {
+    ///     let (theme, _) = create_signal(Theme {
+    ///         bg_color: Color::BLUE,
+    ///         text_color: Color::WHITE,
+    ///     });
+    ///
+    ///     div_n()
+    ///         .provide(theme)
+    ///         .child(
+    ///             div_n().style_d(|t: &Theme| {
+    ///                 ts().bg_color(t.bg_color)
+    ///                     .text_color(t.text_color)
+    ///             })
+    ///         )
+    /// }
+    /// ```
     #[must_use]
     #[inline]
     pub fn style_d<P, F>(self, f: F) -> Self
