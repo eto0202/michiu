@@ -1,4 +1,4 @@
-use crate::{Context, MichiuTagRegistry};
+use crate::{ComponentMask, Context, Element, MichiuTagRegistry};
 use accesskit::{Action, Role};
 
 pub(crate) type InferenceFn = fn(cx: &mut Context, id: accesskit::NodeId, &mut accesskit::Node);
@@ -54,179 +54,205 @@ macro_rules! define_inference_tags {
 }
 
 define_inference_tags! {
+    // ボタン系
     /// Represents some kind of Button.
-    AButton => |cx, id, node| {
+    AButton => |_cx, _id, node| {
         node.set_role(Role::Button);
         node.add_action(Action::Click);
-        node.add_action(Action::Focus);
-        node.set_keyboard_shortcut("Enter");
-    },
-    /// Represents some kind of Label.
-    ALabel => |cx, id, node| {
-        node.set_role(Role::Label);
-    },
-    /// Represents some kind of Group.
-    AContainer => |cx, id, node| {
-        node.set_role(Role::GenericContainer);
-    },
-    /// Represents some kind of Text Input.
-    ATextInput => |cx, id, node| {
-        node.set_role(Role::TextInput);
-        node.add_action(Action::Click);
-        node.add_action(Action::Focus);
-        node.add_action(Action::SetValue);
-    },
-    /// Represents some kind of Data Input.
-    ADataInput => |cx, id, node| {
-        node.set_role(Role::DateInput);
-        node.add_action(Action::Click);
-        node.add_action(Action::Focus);
-        node.add_action(Action::SetValue);
-    },
-    /// It is interpreted as a Tooltip.
-    ATooltip => |cx, id, node| {
-        node.set_role(Role::Tooltip);
     },
     /// It is interpreted as a Close Button.
-    ACloseButton => |cx, id, node| {
+    ACloseButton => |_cx, _id, node| {
         node.set_role(Role::Button);
         node.add_action(Action::Click);
-        node.add_action(Action::Focus);
-        node.set_keyboard_shortcut("Enter");
+        if node.label().is_none() {
+            node.set_label("Close");
+        }
     },
     /// It is interpreted as a Submit Button.
-    ASubmitButton => |cx, id, node| {
+    ASubmitButton => |_cx, _id, node| {
         node.set_role(Role::Button);
         node.add_action(Action::Click);
-        node.add_action(Action::Focus);
-        node.set_keyboard_shortcut("Enter");
-    },
-    /// It is interpreted as a List.
-    AList => |cx, id, node| {
-        node.set_role(Role::List);
-    },
-    /// It is interpreted as a List Item.
-    AListItem => |cx, id, node| {
-        node.set_role(Role::ListItem);
-    },
-    /// It is interpreted as a Tab.
-    ATab => |cx, id, node| {
-        node.set_role(Role::Tab);
-        node.add_action(Action::Click);
-    },
-    /// It is interpreted as a Tab List.
-    ATabList => |cx, id, node| {
-        node.set_role(Role::TabList);
-    },
-    /// It is interpreted as a Tab Panel.
-    ATabPanel => |cx, id, node| {
-        node.set_role(Role::TabPanel);
-    },
-    /// It is interpreted as a Menu.
-    AMenu => |cx, id, node| {
-        node.set_role(Role::Menu);
-    },
-    /// It is interpreted as a Menu Item.
-    AMenuItem => |cx, id, node| {
-        node.set_role(Role::MenuItem);
-        node.add_action(Action::Click);
+        if node.label().is_none() {
+            node.set_label("Submit");
+        }
     },
     /// It is interpreted as a Toggle Button.
-    AToggleButton => |cx, id, node| {
+    AToggleButton => |_cx, _id, node| {
         node.set_role(Role::Button);
         node.add_action(Action::Click);
     },
     /// It is interpreted as a Switch.
-    ASwitch => |cx, id, node| {
-        node.set_role(Role::Button);
+    ASwitch => |_cx, _id, node| {
+        node.set_role(Role::Switch);
         node.add_action(Action::Click);
     },
-    /// It is interpreted as a Alert.
-    AAlert => |cx, id, node| {
-        node.set_role(Role::Alert);
+    /// It is interpreted as a Checkbox.
+    ACheckBox => |_cx, _id, node| {
+        node.set_role(Role::CheckBox);
+        node.add_action(Action::Click);
     },
-    /// It is interpreted as a Status.
-    AStatus => |cx, id, node| {
-        node.set_role(Role::Status);
+    /// It is interpreted as a Radio Button.
+    ARadioButton => |_cx, _id, node| {
+        node.set_role(Role::RadioButton);
+        node.add_action(Action::Click);
     },
-    /// It is interpreted as a Progress.
-    AProgressBar => |cx, id, node| {
-        node.set_role(Role::ProgressIndicator);
+    /// It is interpreted as a Radio Group container.
+    ARadioGroup => |_cx, _id, node| {
+        node.set_role(Role::RadioGroup);
     },
-    /// It is interpreted as a Slider.
-    ASlider => |cx, id, node| {
+
+    // 入力系
+    /// Represents some kind of Text Input.
+    ATextInput => |_cx, _id, node| {
+        node.set_role(Role::TextInput);
+        node.add_action(Action::Click);
+        node.add_action(Action::SetValue);
+    },
+    /// Represents some kind of Search Input.
+    ASearchInput => |_cx, _id, node| {
+        node.set_role(Role::SearchInput);
+        node.add_action(Action::Click);
+        node.add_action(Action::SetValue);
+        if node.label().is_none() {
+            node.set_label("Search");
+        }
+    },
+    /// Represents some kind of Date Input.
+    ADateInput => |cx, id, node| {
+        node.set_role(Role::DateInput);
+        node.add_action(Action::Click);
+        node.add_action(Action::SetValue);
+    },
+    /// Represents a Spin Button (numeric stepper input).
+    ASpinButton => |_cx, _id, node| {
+        node.set_role(Role::SpinButton);
+        node.add_action(Action::SetValue);
+        node.add_action(Action::Increment);
+        node.add_action(Action::Decrement);
+    },
+    /// Represents some kind of Slider.
+    ASlider => |_cx, _id, node| {
         node.set_role(Role::Slider);
         node.add_action(Action::Click);
         node.add_action(Action::SetValue);
+        node.add_action(Action::Increment);
+        node.add_action(Action::Decrement);
     },
-    /// It is interpreted as a Scrollbar.
-    AScrollbar => |cx, id, node| {
-        node.set_role(Role::ScrollBar);
+
+    // コンボボックス・選択リスト
+    /// Represents a `ComboBox` (Select dropdown).
+    AComboBox => |_cx, _id, node| {
+        node.set_role(Role::ComboBox);
+        node.add_action(Action::Click);
+        node.add_action(Action::Expand);
+        node.add_action(Action::Collapse);
+    },
+    /// Represents a `ListBox` container.
+    AListBox => |_cx, _id, node| {
+        node.set_role(Role::ListBox);
+    },
+    /// Represents an Option within a `ListBox`.
+    AListBoxOption => |_cx, _id, node| {
+        node.set_role(Role::ListBoxOption);
+    },
+
+    // ナビゲーション・階層構造
+    /// Represents a Tree container.
+    ATree => |_cx, _id, node| {
+        node.set_role(Role::Tree);
+    },
+    /// Represents an item within a Tree.
+    ATreeItem => |_cx, _id, node| {
+        node.set_role(Role::TreeItem);
+        node.add_action(Action::Click);
+        node.add_action(Action::Expand);
+        node.add_action(Action::Collapse);
+    },
+    /// Represents some kind of Tab.
+    ATab => |_cx, _id, node| {
+        node.set_role(Role::Tab);
         node.add_action(Action::Click);
     },
-    /// It is interpreted as a Main.
-    AMain => |cx, id, node| {
-        node.set_role(Role::Main);
+    /// Represents some kind of Tab List.
+    ATabList => |_cx, _id, node| {
+        node.set_role(Role::TabList);
     },
-    /// It is interpreted as a Navigation.
-    ANavigation => |cx, id, node| {
-        node.set_role(Role::Navigation);
+    /// Represents some kind of Tab Panel.
+    ATabPanel => |_cx, _id, node| {
+        node.set_role(Role::TabPanel);
     },
-    /// It is interpreted as a Header.
-    AHeader => |cx, id, node| {
-        node.set_role(Role::Header);
+
+    // 見出し
+    /// Represents a Heading Level 1.
+    AHeading1 => |_cx, _id, node| {
+        node.set_role(Role::Heading);
+        node.set_level(1);
     },
-    /// It is interpreted as a Footer.
-    AFooter => |cx, id, node| {
-        node.set_role(Role::Footer);
+    /// Represents a Heading Level 2.
+    AHeading2 => |_cx, _id, node| {
+        node.set_role(Role::Heading);
+        node.set_level(2);
     },
-    /// It is interpreted as a Banner.
-    ABanner => |cx, id, node| {
-        node.set_role(Role::Banner);
-    },
-    /// It is interpreted as a Sidebar.
-    ASidebar => |cx, id, node| {
-        node.set_role(Role::Complementary);
-    },
-    /// It is interpreted as a Complementary.
-    AComplementary => |cx, id, node| {
-        node.set_role(Role::Complementary);
-    },
-    /// It is interpreted as a Search Input.
-    ASearchInput => |cx, id, node| {
-        node.set_role(Role::SearchInput);
-        node.add_action(Action::Click);
-        node.add_action(Action::Focus);
-        node.add_action(Action::SetValue);
-    },
-    /// It is interpreted as a Dialog.
-    ADialog => |cx, id, node| {
-        node.set_role(Role::Dialog);
-    },
-    /// It is interpreted as a Heading.
-    AHeading1 => |cx, id, node| {
+    /// Represents a Heading Level 3.
+    AHeading3 => |_cx, _id, node| {
+        node.set_level(3);
         node.set_role(Role::Heading);
     },
-    /// It is interpreted as a Image.
-    AImage => |cx, id, node| {
+
+    // その他
+    /// Represents some kind of Label.
+    ALabel => |_cx, _id, node| {
+        node.set_role(Role::Label);
+    },
+    /// Represents some kind of Group/Container.
+    AContainer => |_cx, _id, node| {
+        node.set_role(Role::GenericContainer);
+    },
+    /// Represents a Tooltip.
+    ATooltip => |_cx, _id, node| {
+        node.set_role(Role::Tooltip);
+    },
+    /// Represents a Separator / Divider line.
+    ASeparator => |_cx, _id, node| {
+        node.set_role(Role::Splitter);
+    },
+    /// It is interpreted as a Scrollbar.
+    AScrollbar => |_cx, _id, node| {
+        node.set_role(Role::ScrollBar);
+    },
+    /// It is interpreted as an Alert.
+    AAlert => |_cx, _id, node| {
+        node.set_role(Role::Alert);
+        node.set_live(accesskit::Live::Assertive);
+    },
+    /// It is interpreted as a Status.
+    AStatus => |_cx, _id, node| {
+        node.set_role(Role::Status);
+        node.set_live(accesskit::Live::Polite);
+    },
+    /// It is interpreted as a Progress Bar.
+    AProgressBar => |_cx, _id, node| {
+        node.set_role(Role::ProgressIndicator);
+    },
+    /// It is interpreted as a Dialog.
+    ADialog => |_cx, _id, node| {
+        node.set_role(Role::Dialog);
+    },
+    /// It is interpreted as an Image.
+    AImage => |_cx, _id, node| {
         node.set_role(Role::Image);
     },
-    /// It is interpreted as a Image.
-    AIcon => |cx, id, node| {
+    /// It is interpreted as an Icon.
+    AIcon => |_cx, _id, node| {
         node.set_role(Role::Image);
-    },
-    /// It is interpreted as a Media.
-    AMedia => |cx, id, node| {
-        node.set_role(Role::Video);
-        node.add_action(Action::Click);
-    },
-    /// It is interpreted as a Webview2.
-    AWebview2 => |cx, id, node| {
-        node.set_role(Role::WebView);
     },
     /// It is interpreted as a Link.
-    ALink => |cx, id, node| {
+    ALink => |_cx, _id, node| {
         node.set_role(Role::Link);
         node.add_action(Action::Click);
+    },
+    /// It is interpreted as a Webview.
+    AWebView => |_cx, _id, node| {
+        node.set_role(Role::WebView);
     },
 }

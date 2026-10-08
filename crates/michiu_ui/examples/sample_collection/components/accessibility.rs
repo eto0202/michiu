@@ -1,4 +1,6 @@
-use michiu_ui::{accessibility::*, prelude::*};
+use michiu::{accessibility::*, prelude::*};
+
+use crate::app::theme::Theme;
 
 pub fn container() -> Element {
     v_flex(ts().gap(16.0).p(16.0))
@@ -13,45 +15,77 @@ fn role_group() -> Element {
         .label("Role", ts())
         .child(
             // If `Node` is not specified, `NO_A11Y_NODE` can be used.
-            h_flex(ts().gap(16.0)).a11y(NO_A11Y_NODE).children([
-                role_button(),
-                role_button(),
-                role_button(),
-                role_button(),
-            ]),
+            h_flex(
+                ts().gap(16.0).focused(
+                    ts().outline_solid(2.0)
+                        .outline_offset(2.0)
+                        .outline_color(dynamic(|t: &Theme| t.text)),
+                ),
+            )
+            .a11y(NO_A11Y_NODE)
+            .children([role_button(), role_button(), role_button(), label_button()]),
         )
 }
 
 fn role_button() -> Element {
-    flex(ts()
-        .r(4.0)
-        .p(8.0)
-        .debug_border_yellow()
-        .pressed(ts().debug_border_green()))
+    flex(
+        ts().r(4.0)
+            .p(8.0)
+            .debug_border_yellow()
+            .focusable_inherit_keyboard()
+            .pressed(ts().debug_border_green()),
+    )
     .a11y_role(Role::Button) // Specifying `Role` only
-    .label("Button", ts().font_size(18.0))
+    .label(
+        "Button",
+        ts().font_size(18.0).text_color(dynamic(|t: &Theme| t.text)),
+    )
+}
+
+fn label_button() -> Element {
+    flex(
+        ts().r(4.0)
+            .p(8.0)
+            .debug_border_red()
+            .focusable_inherit_keyboard()
+            .pressed(ts().debug_border_green()),
+    )
+    .a11y_label(Role::Button, "Label Button") // `Role` and `label`
+    .label(
+        "Button",
+        ts().font_size(18.0).text_color(dynamic(|t: &Theme| t.text)),
+    )
 }
 
 fn tag_group() -> Element {
     v_flex(ts().p(8.0).gap(16.0))
         .tag::<a11y::AContainer>() // Use the library's standard tags
         .label("Tag", ts())
-        .child(h_flex(ts().gap(16.0)).children([
-            tag_button(),
-            tag_button(),
-            tag_button(),
-            user_tag_button(),
-        ]))
+        .child(
+            h_flex(
+                ts().gap(16.0).focused(
+                    ts().outline_dashed(2.0)
+                        .outline_offset(2.0)
+                        .outline_color(dynamic(|t: &Theme| t.text)),
+                ),
+            )
+            .children([tag_button(), tag_button(), tag_button(), user_tag_button()]),
+        )
 }
 
 fn tag_button() -> Element {
-    flex(ts()
-        .r(4.0)
-        .p(8.0)
-        .debug_border_green()
-        .pressed(ts().debug_border_red()))
+    flex(
+        ts().r(4.0)
+            .p(8.0)
+            .debug_border_green()
+            .focusable_inherit_keyboard()
+            .pressed(ts().debug_border_red()),
+    )
     .tag_a11y::<a11y::AButton>() // When using standard tags, `tag` and `tag_a11y` are the same.
-    .label("Button", ts().font_size(18.0))
+    .label(
+        "Button",
+        ts().font_size(18.0).text_color(dynamic(|t: &Theme| t.text)),
+    )
     .on_click_with(|cx| {
         // Even tags intended for inference can be used as regular tags.
         let els = cx.query_all::<a11y::AButton>();
@@ -70,14 +104,19 @@ impl A11yInferenceTag for UserMichiuButton {
 }
 
 fn user_tag_button() -> Element {
-    flex(ts()
-        .r(4.0)
-        .p(8.0)
-        .debug_border_red()
-        .pressed(ts().debug_border_blue()))
+    flex(
+        ts().r(4.0)
+            .p(8.0)
+            .debug_border_red()
+            .focusable_inherit_keyboard()
+            .pressed(ts().debug_border_blue()),
+    )
     // If you use custom tags for inference, you must register them with `tag_a11y`.
     .tag_a11y::<UserMichiuButton>()
-    .label("Button", ts().font_size(18.0))
+    .label(
+        "Button",
+        ts().font_size(18.0).text_color(dynamic(|t: &Theme| t.text)),
+    )
     .on_click_with(|cx| {
         let els = cx.query_all::<UserMichiuButton>();
         for el in els {

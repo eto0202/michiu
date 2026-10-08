@@ -928,6 +928,31 @@ impl Element {
         })
     }
 
+    /// Sets accessibility roles and label.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    #[must_use]
+    pub fn a11y_label<M>(
+        self,
+        role: impl IntoOptionProp<Role, M>,
+        label: impl Into<Cow<'static, str>>,
+    ) -> Self {
+        let label = label.into();
+        let prop = role.into_option_prop();
+        self.bind_prop(prop, EffectCategory::Accessibility, move |cx, id, val| {
+            let mut node = val.map(Node::new);
+            if let Some(n) = &mut node {
+                n.set_label(label.clone());
+            }
+            cx.acce.acce_accessibility.insert(id, node);
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_A11Y);
+            cx.mark_layout_dirty(id);
+        })
+    }
+
     /// スクロールコンテナのスタイル設定に連動し、
     /// トラック・サムに相当する要素を遅延生成して親子関係にアタッチする。
     #[track_caller]
