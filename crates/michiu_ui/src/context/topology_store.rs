@@ -996,7 +996,7 @@ impl TopologyStore {
 
     #[track_caller]
     #[inline]
-    pub(crate) fn quer_first<T: 'static>(
+    pub(crate) fn query_first<T: 'static>(
         topo_tag_registry: &mut MichiuTagRegistry,
         debug: &mut DebugStore,
     ) -> Element {
@@ -1262,16 +1262,6 @@ impl Context {
             &mut self.debug,
             &mut self.acce,
         );
-    }
-
-    /// ウィンドウ内の最上位ルート要素の `EntityId` を自律解決して返します。
-    #[inline]
-    pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
-        TopologyStore::find_root_entity(
-            &self.topology.topo_entities,
-            &self.topology.topo_parents,
-            &self.topology.topo_flat_dfs_sequence,
-        )
     }
 }
 

@@ -1,7 +1,6 @@
+use crate::app::theme::Theme;
 pub use michiu::prelude::*;
 use michiu::ui::{CssMapSet, CssSetSignalExt};
-
-use crate::app::theme::Theme;
 
 pub fn container() -> Element {
     v_flex(ts().gap(16.0).p(16.0).r(4.0)).children([css_flex(), merge_border()])

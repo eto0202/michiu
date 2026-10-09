@@ -622,8 +622,8 @@ impl Context {
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn quer_first<T: 'static>(&mut self) -> Element {
-        TopologyStore::quer_first::<T>(&mut self.topology.topo_tag_registry, &mut self.debug)
+    pub fn query_first<T: 'static>(&mut self) -> Element {
+        TopologyStore::query_first::<T>(&mut self.topology.topo_tag_registry, &mut self.debug)
     }
 
     /// Get all elements with the tag `T`.
@@ -791,6 +791,26 @@ impl Context {
     #[inline]
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
         EventStore::cycle_keyboard_focus_internal(self, reverse);
+    }
+
+    #[inline]
+    pub fn window_is_resized(&self) -> bool {
+        self.window.win_is_resized
+    }
+
+    /// ウィンドウ内の最上位ルート要素の `EntityId` を自律解決して返します。
+    #[inline]
+    pub fn find_root_entity(&self) -> Option<EntityId> {
+        TopologyStore::find_root_entity(
+            &self.topology.topo_entities,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+        )
+    }
+
+    #[inline]
+    pub fn pointer_position(&self) -> Option<LayoutPoint> {
+        self.events.evt_current_pointer_position
     }
 
     /// Retrieves the first valid element found at the specified coordinates.

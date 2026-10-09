@@ -229,11 +229,11 @@ fn item_tag(label: &'static str, style: ThisStyle) -> Element {
         }
     })
     .on_cursor_moved_with(move |cx, pos| {
-        let el = cx.quer_first::<HyperMichiu>();
+        let el = cx.query_first::<HyperMichiu>();
         el.set_contents(create_tooltip(label, pos));
     })
     .on_mouse_leave_with(move |cx| {
-        let el = cx.quer_first::<UltraMichiu>();
+        let el = cx.query_first::<UltraMichiu>();
         el.set_contents(div_n());
     })
 }

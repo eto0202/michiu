@@ -6,6 +6,7 @@ pub mod theme;
 use crate::app::theme::Theme;
 use michiu::prelude::*;
 
+
 pub fn create_root() -> Element {
     let (theme, _) = create_signal(Theme::dark());
     let (comp_type, _) = create_signal(ComponentType::Div);
@@ -42,10 +43,9 @@ pub enum SidebarSortOrder {
 pub enum ComponentType {
     Button,
     Input,
-    InputArea,
     Scrollbar,
     Border,
-    Card,
+    ContextMenu,
     Background,
     Div,
     Flexbox,

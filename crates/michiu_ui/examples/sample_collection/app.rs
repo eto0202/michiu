@@ -45,7 +45,7 @@ pub enum ComponentType {
     InputArea,
     Scrollbar,
     Border,
-    Card,
+    ContextMenu,
     Background,
     Div,
     Flexbox,

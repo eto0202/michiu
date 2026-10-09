@@ -2,8 +2,9 @@ use crate::{
     ALLOW_STRESS_TEST,
     app::{ComponentType, theme::Theme},
     components::{
-        accessibility, background, border, button, color, css, cursor, div, draggable,
-        external_visual, flexbox, focusable, hover, external_texture, input, outline, resizable, stress_test,
+        accessibility, background, border, button, color, context_menu, css, cursor, div,
+        draggable, external_texture, external_visual, flexbox, focusable, hover, input, outline,
+        resizable, stress_test,
     },
 };
 pub use michiu::prelude::*;
@@ -39,13 +40,12 @@ fn create_component_element(comp_type: ComponentType) -> Element {
     match comp_type {
         ComponentType::Button => wrapper(button::container()),
         ComponentType::Input => wrapper(input::container()),
-        ComponentType::InputArea => text("InputArea"),
         ComponentType::Background => wrapper(background::container()),
         ComponentType::Div => wrapper(div::container()),
         ComponentType::Dropdown => text("Dropdown"),
         ComponentType::Flexbox => wrapper(flexbox::container()),
         ComponentType::Border => wrapper(border::container()),
-        ComponentType::Card => text("Card"),
+        ComponentType::ContextMenu => wrapper(context_menu::container()),
         ComponentType::List => text("List"),
         ComponentType::Scrollbar => text("Scrollbar"),
         ComponentType::Hover => wrapper(hover::container()),

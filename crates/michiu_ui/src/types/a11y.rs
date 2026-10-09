@@ -181,6 +181,23 @@ define_inference_tags! {
     ATabPanel => |_cx, _id, node| {
         node.set_role(Role::TabPanel);
     },
+    /// Represents some kind of Menu.
+    AMenu => |_cx, _id, node| {
+        node.set_role(Role::Menu);
+    },
+    /// Represents some kind of Menu Item.
+    AMenuItem => |_cx, _id, node| {
+        node.set_role(Role::MenuItem);
+    },
+    /// Represents some kind of Menu Bar.
+    AMenuBar => |_cx, _id, node| {
+        node.set_role(Role::MenuBar);
+    },
+    /// Represents some kind of Context Menu.
+    AContextMenu => |_cx, _id, node| {
+        node.set_role(Role::Menu);
+        node.add_action(Action::ShowContextMenu);
+    },
 
     // 見出し
     /// Represents a Heading Level 1.

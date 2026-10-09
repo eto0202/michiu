@@ -66,8 +66,8 @@ pub mod prelude {
             Modifiers, MouseButton, PlaybackCount, PointerEvents, Transform, Transition,
         },
         utils::{
-            auto, block_box, blur, create_signal, div, flex_d, div_n, dynamic, external_texture,
-            fill, flex, get_win32_clipboard, grid_box, h_flex, h_flex_d, hex, hidden_box, hsl,
+            auto, block_box, blur, create_signal, div, div_n, dynamic, external_texture, fill,
+            flex, flex_d, get_win32_clipboard, grid_box, h_flex, h_flex_d, hex, hidden_box, hsl,
             hsla, input, input_area, input_area_d, input_d, offset, pct, px, rgb, rgba,
             set_win32_clipboard, shadow, spread, text, text_d, ts, use_provided,
             use_provided_setter, v_flex, v_flex_d,

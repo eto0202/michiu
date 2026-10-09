@@ -1,7 +1,7 @@
 pub use michiu::prelude::*;
 use michiu::ui::{FocusTrigger, external_visual};
 
-use crate::{GitHubVisual, CratesVisual};
+use crate::{CratesVisual, GitHubVisual};
 
 pub fn container() -> Element {
     v_flex(ts().p(10.0).r(4.0).size_full()).child_d(|github: &GitHubVisual| webview2(github))

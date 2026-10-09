@@ -65,9 +65,11 @@ fn weight_container() -> Element {
 }
 
 fn length_container() -> Element {
-    let top_only = flex(base(false)
-        .border_solid(2.0)
-        .border_lengths((1.0, 0.0, 0.0, 0.0)))
+    let top_only = flex(
+        base(false)
+            .border_solid(2.0)
+            .border_lengths((1.0, 0.0, 0.0, 0.0)),
+    )
     .label("top only", label_style());
 
     let half_all =
@@ -86,22 +88,28 @@ fn length_container() -> Element {
 }
 
 fn align_container() -> Element {
-    let start = flex(base(false)
-        .border_solid(2.0)
-        .border_lengths(0.5)
-        .border_align(BorderAlignment::Start))
+    let start = flex(
+        base(false)
+            .border_solid(2.0)
+            .border_lengths(0.5)
+            .border_align(BorderAlignment::Start),
+    )
     .label("Start", label_style());
 
-    let center = flex(base(false)
-        .border_solid(2.0)
-        .border_lengths(0.5)
-        .border_align(BorderAlignment::Center))
+    let center = flex(
+        base(false)
+            .border_solid(2.0)
+            .border_lengths(0.5)
+            .border_align(BorderAlignment::Center),
+    )
     .label("Center", label_style());
 
-    let end = flex(base(false)
-        .border_solid(2.0)
-        .border_lengths(0.5)
-        .border_align(BorderAlignment::End))
+    let end = flex(
+        base(false)
+            .border_solid(2.0)
+            .border_lengths(0.5)
+            .border_align(BorderAlignment::End),
+    )
     .label("End", label_style());
 
     v_flex(section_style()).children([

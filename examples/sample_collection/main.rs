@@ -97,10 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let crates_visual = WebView2Visual::new(&device, hwnd, crates, scale_factor, &task_sender)
         .expect("Failed to create WebView2Visual");
 
-    let css_path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/sample_collection/global.css"
-    );
+    let css_path = concat!(env!("CARGO_MANIFEST_DIR"), "/sample_collection/global.css");
     let (styles_sig, _guard) = ExternalDataSetBuilder::new()
         .add("global", css_path, CssLoader)
         .watch(&mut app.context)?;
