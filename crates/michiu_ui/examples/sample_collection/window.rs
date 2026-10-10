@@ -84,7 +84,7 @@ unsafe extern "system" fn wnd_proc(
                 let (width, height) = client_rect(hwnd);
 
                 // 新しいスケール因数で wgpu と Taffy レイアウトをリサイズ同期
-                app.renderer.resize((width, height), scale);
+                app.renderer.resize(width, height, scale);
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 let _ = unsafe { UpdateWindow(hwnd) };
@@ -96,7 +96,7 @@ unsafe extern "system" fn wnd_proc(
 
                 // レンダラーのリサイズとレイアウト物理サイズの更新
                 app.renderer
-                    .resize((width, height), app.renderer.scale_factor());
+                    .resize(width, height, app.renderer.scale_factor());
 
                 // 再描画要求
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };

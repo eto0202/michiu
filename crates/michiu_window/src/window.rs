@@ -510,6 +510,19 @@ impl MichiuWindow {
         WindowId(self.hwnd().0 as isize)
     }
 
+    /// get client rect
+    /// (width, height)
+    #[must_use]
+    #[inline]
+    pub fn client_rect(&self) -> PhysicalSize {
+        let mut client_rect = RECT::default();
+        let _ = unsafe { GetClientRect(self.hwnd, &raw mut client_rect) };
+        let width = client_rect.right - client_rect.left;
+        let height = client_rect.bottom - client_rect.top;
+
+        PhysicalSize { width, height }
+    }
+
     /// Explicitly consumes and destroys the window on the UI thread, releasing all OS resources.
     ///
     /// Since this method consumes the ownership (`self`), the window variable cannot be used
@@ -1115,12 +1128,6 @@ fn build_raw_style(builder: &MichiuWindowBuilder<'_>) -> WINDOW_STYLE {
             s &= !WS_VISIBLE;
         }
 
-        if builder.resizable {
-            s |= WS_THICKFRAME | WS_MAXIMIZEBOX;
-        } else {
-            s &= !(WS_THICKFRAME | WS_MAXIMIZEBOX);
-        }
-
         if builder.maximized {
             s |= WS_MAXIMIZE;
         } else {
@@ -1128,11 +1135,16 @@ fn build_raw_style(builder: &MichiuWindowBuilder<'_>) -> WINDOW_STYLE {
         }
 
         if !builder.decorations {
-            s &= !(WS_CAPTION | WS_BORDER | WS_THICKFRAME | WS_DLGFRAME);
-            if builder.parent_hwnd.is_none() {
-                s |= WS_POPUP;
-            }
+            s &= !(WS_CAPTION | WS_BORDER | WS_DLGFRAME);
         }
+
+        // decorations の後に resizable を判定する
+        if builder.resizable {
+            s |= WS_THICKFRAME | WS_MAXIMIZEBOX;
+        } else {
+            s &= !(WS_THICKFRAME | WS_MAXIMIZEBOX);
+        }
+
         s
     }
 }

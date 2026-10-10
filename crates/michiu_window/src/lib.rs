@@ -311,6 +311,6 @@ pub use window::*;
 pub mod prelude {
     pub use crate::{
         LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuError, MichiuEvent, MichiuEventPump,
-        MichiuRawEvent, MichiuWindow, MichiuWindowBuilder,
+        MichiuRawEvent, MichiuWindow, MichiuWindowBuilder, WindowHandle, WindowId,
     };
 }

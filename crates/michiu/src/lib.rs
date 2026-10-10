@@ -669,7 +669,7 @@ impl MichiuApp {
                     let height = size.height as u32;
                     // レンダラーのリサイズとレイアウト物理サイズの更新
                     self.renderer
-                        .resize((width, height), self.renderer.scale_factor());
+                        .resize(width, height, self.renderer.scale_factor());
 
                     // 再描画要求
                     needs_redraw = true;

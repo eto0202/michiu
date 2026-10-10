@@ -6,7 +6,6 @@ pub mod theme;
 use crate::app::theme::Theme;
 use michiu::prelude::*;
 
-
 pub fn create_root() -> Element {
     let (theme, _) = create_signal(Theme::dark());
     let (comp_type, _) = create_signal(ComponentType::Div);
@@ -16,6 +15,7 @@ pub fn create_root() -> Element {
 
     v_flex(move || {
         ts().size_full()
+            .r(6.0)
             .bg_color(theme.get().background)
             .backdrop_acrylic() // 背景色は不透明のため見た目は変化しない
     })

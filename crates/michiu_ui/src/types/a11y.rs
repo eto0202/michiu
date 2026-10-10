@@ -1,4 +1,4 @@
-use crate::{ComponentMask, Context, Element, MichiuTagRegistry};
+use crate::{Context, MichiuTagRegistry};
 use accesskit::{Action, Role};
 
 pub(crate) type InferenceFn = fn(cx: &mut Context, id: accesskit::NodeId, &mut accesskit::Node);
@@ -157,6 +157,26 @@ define_inference_tags! {
     },
 
     // ナビゲーション・階層構造
+    /// It is interpreted as a Main.
+    AMain => |_cx, _id, node| {
+        node.set_role(Role::Main);
+    },
+    /// It is interpreted as a Header.
+    AHeader => |_cx, _id, node| {
+        node.set_role(Role::Header);
+    },
+    /// It is interpreted as a Footer.
+    AFooter => |_cx, _id, node| {
+        node.set_role(Role::Footer);
+    },
+    /// It is interpreted as a Sidebar.
+    ASidebar => |_cx, _id, node| {
+        node.set_role(Role::Navigation);
+    },
+    /// It is interpreted as a Section.
+    ASection => |_cx, _id, node| {
+        node.set_role(Role::Section);
+    },
     /// Represents a Tree container.
     ATree => |_cx, _id, node| {
         node.set_role(Role::Tree);

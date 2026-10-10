@@ -798,6 +798,11 @@ impl Context {
         self.window.win_is_resized
     }
 
+    #[inline]
+    pub fn window_last_size(&self) -> Option<LayoutSize> {
+        self.window.win_last_size
+    }
+
     /// ウィンドウ内の最上位ルート要素の `EntityId` を自律解決して返します。
     #[inline]
     pub fn find_root_entity(&self) -> Option<EntityId> {

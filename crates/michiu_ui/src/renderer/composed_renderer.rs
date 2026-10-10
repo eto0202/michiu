@@ -142,13 +142,14 @@ impl MichiuRenderer {
     /// `new_physical_size`: (width, height)
     #[expect(clippy::cast_precision_loss)]
     #[inline]
-    pub fn resize(&mut self, new_physical_size: (u32, u32), scale_factor: f32) {
+    pub fn resize(&mut self, physical_width: u32, physical_height: u32, scale_factor: f32) {
         self.scale_factor = scale_factor;
         self.layout_size = LayoutSize::new(
-            new_physical_size.0 as f32 / scale_factor,
-            new_physical_size.1 as f32 / scale_factor,
+            physical_width as f32 / scale_factor,
+            physical_height as f32 / scale_factor,
         );
-        self.wgpu_renderer.resize(new_physical_size, scale_factor);
+        self.wgpu_renderer
+            .resize(physical_width, physical_height, scale_factor);
 
         // リサイズが発生したため、キャプチャクールダウンを 15 フレームに設定
         // 拡大リサイズ中およびリサイズ直後の不安定なバッファへのキャプチャを遮断
