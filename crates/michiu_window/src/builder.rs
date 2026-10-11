@@ -1,4 +1,4 @@
-use crate::{MichiuComContext, LogicalPoint, LogicalSize, MessageFilter, MichiuTray};
+use crate::{LogicalPoint, LogicalSize, MessageFilter, MichiuComContext, MichiuTray};
 use crate::{
     MichiuIcon,
     error::{MichiuError, Result},

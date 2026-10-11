@@ -8,10 +8,11 @@ use crate::{
     },
 };
 pub use michiu::prelude::*;
+use michiu::ui::a11y;
 use strum::IntoEnumIterator;
 
 pub fn main_area() -> Element {
-    let main_contents = v_flex(ts().size_full().overflow_hidden().p(20.0));
+    let main_contents = v_flex(ts().size_full().overflow_hidden().p(20.0)).tag::<a11y::AMain>();
 
     // 全ての ComponentType の要素を起動時に一度だけ spawn してマウント
     let mut children = Vec::new();

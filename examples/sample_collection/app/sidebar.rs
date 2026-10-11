@@ -1,5 +1,6 @@
 use crate::app::{ComponentType, SearchText, SidebarSortOrder, theme::Theme};
 pub use michiu::prelude::*;
+use michiu::ui::a11y;
 use strum::IntoEnumIterator;
 
 pub fn sidebar() -> Element {
@@ -13,6 +14,7 @@ pub fn sidebar() -> Element {
             .border_color(dynamic(|t: &Theme| t.border))
             .resizable_right(true),
     )
+    .tag::<a11y::ASidebar>()
     .children([
         controll_header().children([header_label(), sort_toggle()]),
         list_container(),
@@ -75,35 +77,37 @@ fn toggle_label() -> Element {
 }
 
 fn list_container() -> Element {
-    v_flex_d(|t: &Theme| scrollbar(t).grow().overflow_y_scroll()).child(move || {
-        let order = use_provided::<SidebarSortOrder>().get();
-        let query = use_provided::<SearchText>().get().0.to_lowercase();
+    v_flex_d(|t: &Theme| scrollbar(t).grow().overflow_y_scroll())
+        .tag::<a11y::AList>()
+        .child(move || {
+            let order = use_provided::<SidebarSortOrder>().get();
+            let query = use_provided::<SearchText>().get().0.to_lowercase();
 
-        let mut comp_types: Vec<ComponentType> = ComponentType::iter().collect();
+            let mut comp_types: Vec<ComponentType> = ComponentType::iter().collect();
 
-        // 検索フィルタリング
-        if !query.is_empty() {
-            comp_types.retain(|comp| comp.to_string().to_lowercase().contains(&query));
-        }
-
-        // ソート順制御
-        match order {
-            SidebarSortOrder::Ascending => {
-                comp_types.sort_by_key(|a| a.to_string());
+            // 検索フィルタリング
+            if !query.is_empty() {
+                comp_types.retain(|comp| comp.to_string().to_lowercase().contains(&query));
             }
-            SidebarSortOrder::Descending => {
-                comp_types.sort_by_key(|b| std::cmp::Reverse(b.to_string()));
+
+            // ソート順制御
+            match order {
+                SidebarSortOrder::Ascending => {
+                    comp_types.sort_by_key(|a| a.to_string());
+                }
+                SidebarSortOrder::Descending => {
+                    comp_types.sort_by_key(|b| std::cmp::Reverse(b.to_string()));
+                }
             }
-        }
 
-        // リストアイテム
-        let items: Vec<Element> = comp_types
-            .into_iter()
-            .map(|comp_type| sidebar_item(comp_type.to_string(), comp_type))
-            .collect();
+            // リストアイテム
+            let items: Vec<Element> = comp_types
+                .into_iter()
+                .map(|comp_type| sidebar_item(comp_type.to_string(), comp_type))
+                .collect();
 
-        v_flex(ts().w_full()).children(items)
-    })
+            v_flex(ts().w_full()).children(items)
+        })
 }
 
 fn sidebar_item(name: String, item_type: ComponentType) -> Element {
@@ -136,6 +140,7 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Element {
             .border_color(border_color)
             .hovered(ts().bg_color(h_bg))
     })
+    .tag::<a11y::AListItem>()
     .label_d(name, move |t: &Theme| {
         ts().text_color(t.text).font_size(t.font_size_base)
     })

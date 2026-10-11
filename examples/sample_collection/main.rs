@@ -4,7 +4,7 @@ use crate::logger::logger;
 use michiu::{
     AutoSyncMode, MichiuApp, MichiuAppBuilder,
     ui::{
-        CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual, a11y,
+        CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
         prelude::*,
     },
     window::prelude::*,
@@ -37,7 +37,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _profiler = dhat::Profiler::builder().trim_backtraces(None).build();
 
     let _ = MichiuWindow::init_dpi_awareness();
-
     let com = MichiuComContext::new_ro_single()?;
 
     let builder = MichiuWindowBuilder::new()
@@ -48,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_inner_size(LogicalSize::new(1000.0, 800.0))
         .with_com_context(&com)
         .with_default_ime_window(false)
-        .with_message_filter(|hwnd, msg, _, lparam| filter(hwnd, msg, lparam))
+        .with_message_filter(filter)
         .into_unvalidated();
 
     let window = MichiuWindow::build(builder.try_into()?)?;
@@ -129,30 +128,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn event_loop(app: &mut MichiuApp, pump: &mut MichiuEventPump) -> michiu::window::Result<()> {
     while pump.wait_event(|event, _, raw| {
         let resp = app.standard_handle_window_event(&event, &raw);
-
-        if let MichiuAnyEvent::Window { event, .. } = &event
-            && let MichiuEvent::MouseInput { button, state, .. } = event
-            && *state == michiu::window::ElementState::Pressed
-            && *button == michiu::window::MouseButton::Left
-        {
-            let header = app
-                .context
-                .try_query_first::<a11y::AHeader>()
-                .map(|e| e.id());
-            let hovered = app.context.interaction_id(InteractionState::Hovered);
-
-            if header == hovered {
-                // ドラッグが終わってユーザーがマウスを離すまでここで待機する
-                app.handle.set_start_dragging();
-
-                // Released イベントを手動で注入してUIを復帰させる
-                app.context.inject_user_action(UserAction::PointerButton {
-                    button: MouseButton::Left,
-                    state: ElementState::Released,
-                    modifiers: Modifiers::default(),
-                });
-            }
-        }
 
         if resp.needs_redraw {
             app.redraw_requested();
@@ -319,31 +294,101 @@ fn redraw_requested(app: &mut MichiuApp) {
 }
 
 use windows::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, RECT},
-    UI::WindowsAndMessaging::{
-        GetWindowRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTCLOSE, HTLEFT,
-        HTMAXBUTTON, HTMINBUTTON, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, WM_ERASEBKGND,
-        WM_NCCALCSIZE, WM_NCHITTEST,
+    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+    UI::{
+        HiDpi::GetDpiForWindow,
+        WindowsAndMessaging::{
+            GetWindowRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTCLOSE,
+            HTLEFT, HTMAXBUTTON, HTMINBUTTON, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, WM_ERASEBKGND,
+            WM_NCCALCSIZE, WM_NCHITTEST,
+        },
     },
 };
 
-fn filter(hwnd: HWND, msg: u32, lparam: LPARAM) -> Option<LRESULT> {
-    if msg == WM_NCCALCSIZE {
-        return Some(LRESULT(0));
-    }
-
+fn filter(hwnd: HWND, msg: u32, _wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
     if msg == WM_ERASEBKGND {
         // OSによるデフォルト背景の塗りつぶしを阻止する
         return Some(LRESULT(1));
     }
 
+    if msg == WM_NCCALCSIZE {
+        return Some(LRESULT(0));
+    }
+
     if msg == WM_NCHITTEST {
+        // スケールファクター
+        let dpi = unsafe { GetDpiForWindow(hwnd) };
+        let scale = (dpi as f32) / 96.0;
+
         let x = (lparam.0 & 0xffff) as i16 as i32;
         let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
 
         let mut rect = RECT::default();
-        unsafe {
-            let _ = GetWindowRect(hwnd, &mut rect);
+        let _ = unsafe { GetWindowRect(hwnd, &mut rect) };
+
+        let btn_w = (40.0 * scale) as i32;
+        let btn_h = (40.0 * scale) as i32;
+
+        let is_btn_row = y >= rect.top && y < rect.top + btn_h;
+
+        // 閉じるボタン 一番右端
+        let close_left = rect.right - btn_w;
+        if is_btn_row && x >= close_left && x < rect.right {
+            return Some(LRESULT(HTCLOSE as isize));
+        }
+
+        // 最大化ボタン 閉じるの左隣
+        let max_left = close_left - btn_w;
+        if is_btn_row && x >= max_left && x < close_left {
+            return Some(LRESULT(HTMAXBUTTON as isize));
+        }
+
+        // 最小化ボタン 最大化の左隣
+        let min_left = max_left - btn_w;
+        if is_btn_row && x >= min_left && x < max_left {
+            return Some(LRESULT(HTMINBUTTON as isize));
+        }
+
+        // タイトルバー
+        // よい子は真似しないように
+        if is_btn_row {
+            let win_w = (rect.right - rect.left) as f32;
+            let x_f = x as f32;
+            let y_f = y as f32;
+
+            // 検索ボックス領域 (幅 35%、最大 600px、高さ 26px、中央配置)
+            let search_w = (win_w * 0.35).min(600.0 * scale);
+            let center_x = rect.left as f32 + win_w / 2.0;
+            let search_left = center_x - search_w / 2.0;
+            let search_right = center_x + search_w / 2.0;
+
+            let search_h = 26.0 * scale;
+            let search_top = rect.top as f32 + (btn_h as f32 - search_h) / 2.0;
+            let search_bottom = search_top + search_h;
+
+            let is_on_search = x_f >= search_left
+                && x_f < search_right
+                && y_f >= search_top
+                && y_f < search_bottom;
+
+            // トグルボタン領域 (幅 50px、高さ 26px、right: 135px)
+            let toggle_right = rect.right as f32 - (135.0 * scale);
+            let toggle_left = toggle_right - (50.0 * scale);
+            let toggle_top = rect.top as f32 + (btn_h as f32 - search_h) / 2.0;
+            let toggle_bottom = toggle_top + search_h;
+
+            let is_on_toggle = x_f >= toggle_left
+                && x_f < toggle_right
+                && y_f >= toggle_top
+                && y_f < toggle_bottom;
+
+            // UI コントロール上をクリックした場合は通常のクライアント操作
+            if is_on_search || is_on_toggle {
+                return Some(LRESULT(HTCLIENT as isize));
+            }
+
+            // コントロール以外のタイトルバー領域
+            return Some(LRESULT(HTCAPTION as isize));
         }
 
         // リサイズ判定を行う枠の太さ
@@ -380,36 +425,6 @@ fn filter(hwnd: HWND, msg: u32, lparam: LPARAM) -> Option<LRESULT> {
         }
         if on_bottom {
             return Some(LRESULT(HTBOTTOM as isize));
-        }
-
-        const BTN_WIDTH: i32 = 40;
-        const BTN_HEIGHT: i32 = 40;
-
-        let is_btn_row = y >= rect.top && y < rect.top + BTN_HEIGHT;
-
-        // 閉じるボタン 一番右端
-        let close_left = rect.right - BTN_WIDTH;
-        if is_btn_row && x >= close_left && x < rect.right {
-            return Some(LRESULT(HTCLOSE as isize));
-        }
-
-        // 最大化ボタン 閉じるの左隣
-        let max_left = close_left - BTN_WIDTH;
-        if is_btn_row && x >= max_left && x < close_left {
-            return Some(LRESULT(HTMAXBUTTON as isize));
-        }
-
-        // 最小化ボタン 最大化の左隣
-        let min_left = max_left - BTN_WIDTH;
-        if is_btn_row && x >= min_left && x < max_left {
-            return Some(LRESULT(HTMINBUTTON as isize));
-        }
-
-        // タイトルバー
-        // 検索ボックスを邪魔しないよう通知だけ送る。
-        const HEADER_HEIGHT: i32 = 1;
-        if y >= rect.top && y < rect.top + HEADER_HEIGHT {
-            return Some(LRESULT(HTCAPTION as isize));
         }
 
         // 枠線以外の領域は通常のクライアント領域とする

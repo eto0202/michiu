@@ -147,6 +147,14 @@ define_inference_tags! {
         node.add_action(Action::Expand);
         node.add_action(Action::Collapse);
     },
+    /// Represents a `List` container.
+    AList => |_cx, _id, node| {
+        node.set_role(Role::List);
+    },
+    /// Represents a `ListItem ` container.
+    AListItem => |_cx, _id, node| {
+        node.set_role(Role::ListItem);
+    },
     /// Represents a `ListBox` container.
     AListBox => |_cx, _id, node| {
         node.set_role(Role::ListBox);

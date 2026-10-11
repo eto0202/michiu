@@ -12,18 +12,37 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM}, Graphics::{
-            Dwm::{DwmExtendFrameIntoClientArea, DwmFlush}, Gdi::{InvalidateRect, ScreenToClient, UpdateWindow},
-        }, UI::{
-            Controls::{MARGINS, WM_MOUSELEAVE}, Input::{
-                Ime::{GCS_COMPATTR, GCS_CURSORPOS, GCS_RESULTSTR, ImmGetCompositionStringW}, KeyboardAndMouse::{
-                    GetKeyState, ReleaseCapture, TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT, TrackMouseEvent, VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+        Graphics::{
+            Dwm::{DwmExtendFrameIntoClientArea, DwmFlush},
+            Gdi::{InvalidateRect, ScreenToClient, UpdateWindow},
+        },
+        UI::{
+            Controls::{MARGINS, WM_MOUSELEAVE},
+            Input::{
+                Ime::{GCS_COMPATTR, GCS_CURSORPOS, GCS_RESULTSTR, ImmGetCompositionStringW},
+                KeyboardAndMouse::{
+                    GetKeyState, ReleaseCapture, TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT,
+                    TrackMouseEvent, VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
                 },
-            }, WindowsAndMessaging::{
-                DestroyWindow, DispatchMessageW, GetMessagePos, GetMessageW, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IsWindow, MSG, PM_REMOVE, PeekMessageW, PostMessageW, PostQuitMessage, SW_HIDE, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCMOUSEMOVE, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
+            },
+            WindowsAndMessaging::{
+                DestroyWindow, DispatchMessageW, GetMessagePos, GetMessageW, HWND_BOTTOM,
+                HWND_NOTOPMOST, HWND_TOPMOST, IsWindow, MSG, PM_REMOVE, PeekMessageW, PostMessageW,
+                PostQuitMessage, SW_HIDE, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
+                SWP_NOSIZE, SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow,
+                TranslateMessage, WINDOWPOS, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DESTROY,
+                WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY,
+                WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS,
+                WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN,
+                WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCMOUSEMOVE,
+                WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR,
+                WM_SETFOCUS, WM_SIZE, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
+                WM_WINDOWPOSCHANGED,
             },
         },
-    }, core::PCWSTR,
+    },
+    core::PCWSTR,
 };
 
 /// For events originating from COM callbacks, such as `IDropTarget`,

@@ -657,7 +657,6 @@ impl MichiuApp {
                 needs_redraw = true;
                 needs_update_window = true;
             }
-
             _ => {}
         }
 

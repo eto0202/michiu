@@ -13,7 +13,6 @@ pub fn header() -> Element {
             .border_color(dynamic(|t: &Theme| t.border)),
     )
     .children([search_box(), toggle_btn(), window_controll()])
-    .a11y_role(Role::Header)
     .tag::<a11y::AHeader>()
 }
 
@@ -130,7 +129,7 @@ fn window_controll() -> Element {
     let base_btn = |label: &'static str| {
         flex(ts().h_full().justify_center().items_center().w(40.0)).label(
             label,
-            ts().font_size(16.0).text_color(dynamic(|t: &Theme| t.text)),
+            ts().font_size(14.0).text_color(dynamic(|t: &Theme| t.text)),
         )
     };
 
