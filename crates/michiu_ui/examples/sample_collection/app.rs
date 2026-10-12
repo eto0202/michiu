@@ -49,8 +49,6 @@ pub enum ComponentType {
     Background,
     Div,
     Flexbox,
-    Dropdown,
-    List,
     Hover,
     Color,
     Resizable,
@@ -65,4 +63,5 @@ pub enum ComponentType {
     ExternalVisual,
     Accessibility,
     Size,
+    Transform,
 }
