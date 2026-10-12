@@ -320,11 +320,47 @@ fn filter(hwnd: HWND, msg: u32, _wparam: WPARAM, lparam: LPARAM) -> Option<LRESU
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let scale = (dpi as f32) / 96.0;
 
+        // リサイズ判定を行う枠の太さ
+        const BORDER_WIDTH: i32 = 8;
+
         let x = (lparam.0 & 0xffff) as i16 as i32;
         let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
 
         let mut rect = RECT::default();
         let _ = unsafe { GetWindowRect(hwnd, &mut rect) };
+
+        let on_left = x >= rect.left && x < rect.left + BORDER_WIDTH;
+        let on_right = x < rect.right && x >= rect.right - BORDER_WIDTH;
+        let on_top = y >= rect.top && y < rect.top + BORDER_WIDTH;
+        let on_bottom = y < rect.bottom && y >= rect.bottom - BORDER_WIDTH;
+
+        // 角の判定
+        if on_top && on_left {
+            return Some(LRESULT(HTTOPLEFT as isize));
+        }
+        if on_top && on_right {
+            return Some(LRESULT(HTTOPRIGHT as isize));
+        }
+        if on_bottom && on_left {
+            return Some(LRESULT(HTBOTTOMLEFT as isize));
+        }
+        if on_bottom && on_right {
+            return Some(LRESULT(HTBOTTOMRIGHT as isize));
+        }
+
+        // 上下左右の辺の判定
+        if on_left {
+            return Some(LRESULT(HTLEFT as isize));
+        }
+        if on_right {
+            return Some(LRESULT(HTRIGHT as isize));
+        }
+        if on_top {
+            return Some(LRESULT(HTTOP as isize));
+        }
+        if on_bottom {
+            return Some(LRESULT(HTBOTTOM as isize));
+        }
 
         let btn_w = (40.0 * scale) as i32;
         let btn_h = (40.0 * scale) as i32;
@@ -389,42 +425,6 @@ fn filter(hwnd: HWND, msg: u32, _wparam: WPARAM, lparam: LPARAM) -> Option<LRESU
 
             // コントロール以外のタイトルバー領域
             return Some(LRESULT(HTCAPTION as isize));
-        }
-
-        // リサイズ判定を行う枠の太さ
-        const BORDER_WIDTH: i32 = 8;
-
-        let on_left = x >= rect.left && x < rect.left + BORDER_WIDTH;
-        let on_right = x < rect.right && x >= rect.right - BORDER_WIDTH;
-        let on_top = y >= rect.top && y < rect.top + BORDER_WIDTH;
-        let on_bottom = y < rect.bottom && y >= rect.bottom - BORDER_WIDTH;
-
-        // 角の判定
-        if on_top && on_left {
-            return Some(LRESULT(HTTOPLEFT as isize));
-        }
-        if on_top && on_right {
-            return Some(LRESULT(HTTOPRIGHT as isize));
-        }
-        if on_bottom && on_left {
-            return Some(LRESULT(HTBOTTOMLEFT as isize));
-        }
-        if on_bottom && on_right {
-            return Some(LRESULT(HTBOTTOMRIGHT as isize));
-        }
-
-        // 上下左右の辺の判定
-        if on_left {
-            return Some(LRESULT(HTLEFT as isize));
-        }
-        if on_right {
-            return Some(LRESULT(HTRIGHT as isize));
-        }
-        if on_top {
-            return Some(LRESULT(HTTOP as isize));
-        }
-        if on_bottom {
-            return Some(LRESULT(HTBOTTOM as isize));
         }
 
         // 枠線以外の領域は通常のクライアント領域とする

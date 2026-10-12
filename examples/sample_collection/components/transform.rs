@@ -4,7 +4,7 @@ use crate::app::theme::Theme;
 use michiu::prelude::*;
 
 pub fn container() -> Element {
-    v_flex(ts().gap(16.0).p(16.0)).children([
+    v_flex(ts().gap(24.0).p(16.0)).children([
         self_group(),
         inherit_group(),
         transition_group(),
@@ -13,14 +13,22 @@ pub fn container() -> Element {
 }
 
 fn group_container(label: &'static str) -> Element {
-    v_flex(ts().debug_outline_blue().size_full().p(6.0).gap(6.0)).label(
+    v_flex(
+        ts().size_full()
+            .r(4.0)
+            .p(8.0)
+            .gap(16.0)
+            .border_dashed(1.0)
+            .border_color(dynamic(|t: &Theme| t.border)),
+    )
+    .label(
         label,
         ts().font_size(18.0).text_color(dynamic(|t: &Theme| t.text)),
     )
 }
 
 fn items() -> Element {
-    h_flex(ts().gap(16.0).debug_outline_green())
+    h_flex(ts().gap(16.0))
 }
 
 fn item(label: &'static str, style: ThisStyle) -> Element {
@@ -47,7 +55,7 @@ fn self_group() -> Element {
 }
 
 fn inherit_group() -> Element {
-    group_container("Inherit (child moved using absolute positioning.)").child(
+    group_container("Inherit (child moved using absolute positioning)").child(
         items().child(
             item("Parent", ts().transform_rotate(0.5)).child(
                 item("Child", ts()).style(
