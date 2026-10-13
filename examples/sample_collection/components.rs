@@ -12,6 +12,7 @@ pub mod external_texture;
 pub mod external_visual;
 pub mod flexbox;
 pub mod focusable;
+pub mod gradient;
 pub mod hover;
 pub mod input;
 pub mod outline;

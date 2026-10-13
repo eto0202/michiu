@@ -21,6 +21,7 @@ pub mod scrollbar;
 pub mod size;
 pub mod stress_test;
 pub mod transform;
+pub mod gradient;
 
 use crate::app::theme::Theme;
 use michiu_ui::prelude::*;

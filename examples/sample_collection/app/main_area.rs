@@ -3,8 +3,8 @@ use crate::{
     app::{ComponentType, theme::Theme},
     components::{
         accessibility, background, border, button, color, context_menu, css, cursor, div,
-        draggable, external_texture, external_visual, flexbox, focusable, hover, input, outline,
-        resizable, scrollbar, stress_test, transform,
+        draggable, external_texture, external_visual, flexbox, focusable, gradient, hover, input,
+        outline, resizable, scrollbar, stress_test, transform,
     },
 };
 pub use michiu::prelude::*;
@@ -52,7 +52,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Resizable => wrapper(resizable::container()),
         ComponentType::Draggable => wrapper(draggable::container()),
         ComponentType::Css => wrapper(css::container()),
-        ComponentType::Gradient => text("Gradient"),
+        ComponentType::Gradient => wrapper(gradient::container()),
         ComponentType::Cursor => wrapper(cursor::container()),
         ComponentType::Outline => wrapper(outline::container()),
         ComponentType::Focusable => wrapper(focusable::container()),
