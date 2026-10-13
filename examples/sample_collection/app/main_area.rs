@@ -4,7 +4,7 @@ use crate::{
     components::{
         accessibility, background, border, button, color, context_menu, css, cursor, div,
         draggable, external_texture, external_visual, flexbox, focusable, hover, input, outline,
-        resizable, stress_test, transform,
+        resizable, scrollbar, stress_test, transform,
     },
 };
 pub use michiu::prelude::*;
@@ -46,7 +46,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Flexbox => wrapper(flexbox::container()),
         ComponentType::Border => wrapper(border::container()),
         ComponentType::ContextMenu => wrapper(context_menu::container()),
-        ComponentType::Scrollbar => text("Scrollbar"),
+        ComponentType::Scrollbar => wrapper(scrollbar::container()),
         ComponentType::Hover => wrapper(hover::container()),
         ComponentType::Color => wrapper(color::container()),
         ComponentType::Resizable => wrapper(resizable::container()),

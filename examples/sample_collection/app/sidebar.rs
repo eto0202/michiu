@@ -151,7 +151,7 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Element {
 }
 
 pub fn scrollbar(t: &Theme) -> ThisStyle {
-    ts().scrollbar_always()
+    ts().scrollbar_auto()
         .scrollbar_mode(ScrollbarMode::Overlay)
         .scrollbar(
             ScrollbarStyle::new(10.0)

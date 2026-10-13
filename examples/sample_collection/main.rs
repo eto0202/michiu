@@ -191,10 +191,8 @@ fn redraw_requested(app: &mut MichiuApp) {
 
     let sync_start = std::time::Instant::now();
     if app.context.has_active_frame() {
-        let _ = unsafe { windows::Win32::Graphics::Dwm::DwmFlush() };
-        let _ = unsafe {
-            windows::Win32::Graphics::Gdi::InvalidateRect(Some(app.handle.hwnd()), None, false)
-        };
+        app.handle.dwm_flush();
+        app.handle.redraw_requested();
     }
     let sync_elapsed = sync_start.elapsed();
     let total_elapsed = frame_start.elapsed();

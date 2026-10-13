@@ -46,7 +46,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Flexbox => wrapper(flexbox::container()),
         ComponentType::Border => wrapper(border::container()),
         ComponentType::ContextMenu => wrapper(context_menu::container()),
-        ComponentType::Scrollbar => text("Scrollbar"),
+        ComponentType::Scrollbar => wrapper(scrollbar::container()),
         ComponentType::Hover => wrapper(hover::container()),
         ComponentType::Color => wrapper(color::container()),
         ComponentType::Resizable => wrapper(resizable::container()),
