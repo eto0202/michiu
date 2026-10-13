@@ -19,7 +19,7 @@ use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_DBLCLKS, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND,
     IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, IDC_WAIT,
-    SetCursor, WM_NCLBUTTONDOWN,
+    IsZoomed, PostQuitMessage, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SetCursor, WM_NCLBUTTONDOWN,
 };
 use windows::{
     Win32::{
@@ -711,6 +711,30 @@ impl MichiuWindow {
                 let _ = apply_cursor_icon_impl(self.hwnd, cursor);
             }
         }
+    }
+
+    /// Set window minimize.
+    #[inline]
+    pub fn set_minimize(&self) {
+        let _ = unsafe { ShowWindow(self.hwnd, SW_MINIMIZE) };
+    }
+
+    /// Set window maximize.
+    #[inline]
+    pub fn set_maximize(&self) {
+        let is_maximized = unsafe { IsZoomed(self.hwnd).as_bool() };
+        let show = if is_maximized {
+            SW_RESTORE
+        } else {
+            SW_MAXIMIZE
+        };
+        let _ = unsafe { ShowWindow(self.hwnd, show) };
+    }
+
+    /// Close the window.
+    #[inline]
+    pub fn quit(&self) {
+        unsafe { PostQuitMessage(0) };
     }
 
     /// Initialize a context for GDI drawing (UI thread only)

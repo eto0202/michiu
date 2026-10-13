@@ -10,7 +10,8 @@ use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
     GWLP_USERDATA, GetClientRect, GetMessagePos, GetWindowLongPtrW, HWND_BOTTOM, HWND_NOTOPMOST,
-    HWND_TOPMOST, PostQuitMessage, SWP_FRAMECHANGED, SendMessageW, WM_NULL, WM_SYSCOMMAND,
+    HWND_TOPMOST, IsZoomed, PostQuitMessage, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+    SWP_FRAMECHANGED, SendMessageW, WM_NULL, WM_SYSCOMMAND,
 };
 use windows::core::PCWSTR;
 
@@ -73,6 +74,8 @@ pub(crate) enum SetWindowCommand {
     DwmFlush,
     FrameChanged,
     DefaultFrameRendering,
+    Minimize,
+    Maximize,
 }
 
 /// Message ID used internally for posting async Window commands to the UI thread.
@@ -533,6 +536,40 @@ impl WindowHandle {
             if res.is_err() {
                 let _ = Box::from_raw(raw_ptr);
             }
+        }
+    }
+
+    /// Thread-safely set window minimize.
+    ///
+    /// # Performance
+    /// - **On the UI thread**: Directly invokes `ShowWindow` with zero overhead.
+    /// - **On a background thread**: Automatically dispatches the request to the UI thread asynchronously.
+    #[inline]
+    pub fn set_minimize(&self) {
+        if self.is_on_ui_thread() {
+            let _ = unsafe { ShowWindow(self.hwnd, SW_MINIMIZE) };
+        } else {
+            self.post_command(SetWindowCommand::Minimize);
+        }
+    }
+
+    /// Thread-safely set window maximize.
+    ///
+    /// # Performance
+    /// - **On the UI thread**: Directly invokes `ShowWindow` with zero overhead.
+    /// - **On a background thread**: Automatically dispatches the request to the UI thread asynchronously.
+    #[inline]
+    pub fn set_maximize(&self) {
+        if self.is_on_ui_thread() {
+            let is_maximized = unsafe { IsZoomed(self.hwnd).as_bool() };
+            let show = if is_maximized {
+                SW_RESTORE
+            } else {
+                SW_MAXIMIZE
+            };
+            let _ = unsafe { ShowWindow(self.hwnd, show) };
+        } else {
+            self.post_command(SetWindowCommand::Maximize);
         }
     }
 

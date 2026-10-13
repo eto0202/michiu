@@ -229,6 +229,7 @@ use crate::ui::{
     CapacityConfig, CharIndex, ImeState, VirtualKey, prelude::*, raw_wheel_delta_to_logical_pixels,
 };
 use crate::window::{WindowHandle, prelude::*};
+use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL};
 
 #[cfg(feature = "ui")]

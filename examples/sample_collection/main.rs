@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.build_ui(move || {
         let (read_github, _) = create_signal(GitHubVisual(github_visual));
         let (read_youtube, _) = create_signal(CratesVisual(crates_visual));
-        let (read_handle, _) = create_signal(handle);
+        let (read_handle, _) = create_signal(handle.into_inner());
         app::create_root()
             .provide(styles_sig)
             .provide(read_github)
@@ -292,13 +292,14 @@ fn redraw_requested(app: &mut MichiuApp) {
 }
 
 use windows::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+    Graphics::Gdi::ScreenToClient,
     UI::{
         HiDpi::GetDpiForWindow,
         WindowsAndMessaging::{
-            GetWindowRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTCLOSE,
-            HTLEFT, HTMAXBUTTON, HTMINBUTTON, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, WM_ERASEBKGND,
-            WM_NCCALCSIZE, WM_NCHITTEST,
+            GetClientRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT,
+            HTMAXBUTTON, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, WM_ERASEBKGND, WM_NCCALCSIZE,
+            WM_NCHITTEST,
         },
     },
 };
@@ -318,21 +319,38 @@ fn filter(hwnd: HWND, msg: u32, _wparam: WPARAM, lparam: LPARAM) -> Option<LRESU
         let dpi = unsafe { GetDpiForWindow(hwnd) };
         let scale = (dpi as f32) / 96.0;
 
-        // リサイズ判定を行う枠の太さ
+        // スクリーン座標のマウス位置を取得
+        let screen_x = (lparam.0 & 0xffff) as i16 as i32;
+        let screen_y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
+
+        // クライアント座標に変換
+        let mut pt = POINT {
+            x: screen_x,
+            y: screen_y,
+        };
+        let _ = unsafe { ScreenToClient(hwnd, &raw mut pt) };
+
+        // レンダラーと同じ GetClientRect を取得
+        let mut client_rect = RECT::default();
+        let _ = unsafe { GetClientRect(hwnd, &raw mut client_rect) };
+        let width = client_rect.right; // client_rect.left は常に 0
+        let height = client_rect.bottom; // client_rect.top は常に 0
+
         const BORDER_WIDTH: i32 = 8;
+        let btn_w = (47.0 * scale) as i32;
+        let btn_h = (40.0 * scale) as i32;
 
-        let x = (lparam.0 & 0xffff) as i16 as i32;
-        let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
+        // ボタンの領域判定（右端から3個分）
+        let is_btn_row = pt.y >= 0 && pt.y < btn_h;
+        let is_in_btn_area = is_btn_row && pt.x >= width - (btn_w * 3);
 
-        let mut rect = RECT::default();
-        let _ = unsafe { GetWindowRect(hwnd, &mut rect) };
+        // リサイズ枠の判定 (ボタン領域にいるときは除外)
+        let on_left = pt.x < BORDER_WIDTH;
+        let on_right = pt.x >= width - BORDER_WIDTH && !is_in_btn_area;
+        let on_top = pt.y < BORDER_WIDTH && !is_in_btn_area;
+        let on_bottom = pt.y >= height - BORDER_WIDTH;
 
-        let on_left = x >= rect.left && x < rect.left + BORDER_WIDTH;
-        let on_right = x < rect.right && x >= rect.right - BORDER_WIDTH;
-        let on_top = y >= rect.top && y < rect.top + BORDER_WIDTH;
-        let on_bottom = y < rect.bottom && y >= rect.bottom - BORDER_WIDTH;
-
-        // 角の判定
+        // 角
         if on_top && on_left {
             return Some(LRESULT(HTTOPLEFT as isize));
         }
@@ -346,7 +364,7 @@ fn filter(hwnd: HWND, msg: u32, _wparam: WPARAM, lparam: LPARAM) -> Option<LRESU
             return Some(LRESULT(HTBOTTOMRIGHT as isize));
         }
 
-        // 上下左右の辺の判定
+        // 辺
         if on_left {
             return Some(LRESULT(HTLEFT as isize));
         }
@@ -360,44 +378,32 @@ fn filter(hwnd: HWND, msg: u32, _wparam: WPARAM, lparam: LPARAM) -> Option<LRESU
             return Some(LRESULT(HTBOTTOM as isize));
         }
 
-        let btn_w = (40.0 * scale) as i32;
-        let btn_h = (40.0 * scale) as i32;
-
-        let is_btn_row = y >= rect.top && y < rect.top + btn_h;
-
-        // 閉じるボタン 一番右端
-        let close_left = rect.right - btn_w;
-        if is_btn_row && x >= close_left && x < rect.right {
-            return Some(LRESULT(HTCLOSE as isize));
-        }
-
-        // 最大化ボタン 閉じるの左隣
-        let max_left = close_left - btn_w;
-        if is_btn_row && x >= max_left && x < close_left {
+        // ボタンの判定
+        // 最大化ボタン: スナップレイアウト等のため HTMAXBUTTON を返す
+        if is_btn_row && pt.x >= width - (btn_w * 2) && pt.x < width - btn_w {
             return Some(LRESULT(HTMAXBUTTON as isize));
         }
 
-        // 最小化ボタン 最大化の左隣
-        let min_left = max_left - btn_w;
-        if is_btn_row && x >= min_left && x < max_left {
-            return Some(LRESULT(HTMINBUTTON as isize));
+        // 閉じるボタン & 最小化ボタン: UI側でクリック処理するため HTCLIENT を返す
+        // (右端の 3個分のボタンエリアのうち、最大化ボタン以外)
+        if is_in_btn_area {
+            return Some(LRESULT(HTCLIENT as isize));
         }
 
-        // タイトルバー
-        // よい子は真似しないように
+        // タイトルバー領域
         if is_btn_row {
-            let win_w = (rect.right - rect.left) as f32;
-            let x_f = x as f32;
-            let y_f = y as f32;
+            let win_w = (client_rect.right - client_rect.left) as f32;
+            let x_f = pt.x as f32;
+            let y_f = pt.y as f32;
 
             // 検索ボックス領域 (幅 35%、最大 600px、高さ 26px、中央配置)
             let search_w = (win_w * 0.35).min(600.0 * scale);
-            let center_x = rect.left as f32 + win_w / 2.0;
+            let center_x = client_rect.left as f32 + win_w / 2.0;
             let search_left = center_x - search_w / 2.0;
             let search_right = center_x + search_w / 2.0;
 
             let search_h = 26.0 * scale;
-            let search_top = rect.top as f32 + (btn_h as f32 - search_h) / 2.0;
+            let search_top = client_rect.top as f32 + (btn_h as f32 - search_h) / 2.0;
             let search_bottom = search_top + search_h;
 
             let is_on_search = x_f >= search_left
@@ -406,9 +412,9 @@ fn filter(hwnd: HWND, msg: u32, _wparam: WPARAM, lparam: LPARAM) -> Option<LRESU
                 && y_f < search_bottom;
 
             // トグルボタン領域 (幅 50px、高さ 26px、right: 135px)
-            let toggle_right = rect.right as f32 - (135.0 * scale);
+            let toggle_right = client_rect.right as f32 - (160.0 * scale);
             let toggle_left = toggle_right - (50.0 * scale);
-            let toggle_top = rect.top as f32 + (btn_h as f32 - search_h) / 2.0;
+            let toggle_top = client_rect.top as f32 + (btn_h as f32 - search_h) / 2.0;
             let toggle_bottom = toggle_top + search_h;
 
             let is_on_toggle = x_f >= toggle_left
@@ -421,11 +427,9 @@ fn filter(hwnd: HWND, msg: u32, _wparam: WPARAM, lparam: LPARAM) -> Option<LRESU
                 return Some(LRESULT(HTCLIENT as isize));
             }
 
-            // コントロール以外のタイトルバー領域
             return Some(LRESULT(HTCAPTION as isize));
         }
 
-        // 枠線以外の領域は通常のクライアント領域とする
         return Some(LRESULT(HTCLIENT as isize));
     }
 
