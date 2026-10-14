@@ -209,3 +209,9 @@ By participating in this project, you are expected to uphold the following guide
 
 - [行動規範 (Code of Conduct)](CODE_OF_CONDUCT.md): すべての人が安心して参加できるコミュニティ作りのための約束事です。
 - [言語ポリシー (Language Policy)](LANGUAGE_POLICY.md): 多言語コミュニケーションのルールです。母語での記述を歓迎しています（英訳の併記をお願いします）！
+
+---
+
+Created: [2026/10/14]
+
+Last Updated: [2026/10/14]

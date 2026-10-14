@@ -247,3 +247,9 @@ Microsoft 製のツールを使って、AccessKit 経由で UIA に正しくノ�
 - **Open an issue** using the [accessibility issue template](https://github.com/eto0202/michiu/issues/new?template=accessibility_issue.md).
 
 可能であれば「Accessibility Insights での検出結果」や「ナレーターの挙動」を添えて、ラベル `accessibility` を設定していただけると調査がスムーズになります。
+
+---
+
+Created: [2026/10/14]
+
+Last Updated: [2026/10/14]
