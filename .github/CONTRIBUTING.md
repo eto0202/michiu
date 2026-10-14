@@ -4,6 +4,14 @@
 
 ---
 
+> **Important Policies**:
+>
+> - [Code of Conduct](CODE_OF_CONDUCT.md)
+> - [Language Policy](LANGUAGE_POLICY.md)
+> - [Accessibility Guide](ACCESSIBILITY.md)
+
+---
+
 # English
 
 Thank you for your interest in contributing to **michiu**! We welcome all contributions, including bug reports, feature suggestions, documentation improvements, and code contributions.

@@ -1,9 +1,23 @@
 # michiu
 
+<!-- パッケージ & ドキュメント -->
 [![Crates.io](https://img.shields.io/crates/v/michiu.svg)](https://crates.io/crates/michiu)
 [![Docs.rs](https://docs.rs/michiu/badge.svg)](https://docs.rs/michiu)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
-[![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/eto0202/michiu/ci.yml?branch=main&label=CI)](https://github.com/eto0202/michiu/actions)
+[![GitHub Actions CI](https://img.shields.io/github/actions/workflow/status/eto0202/michiu/ci.yml?branch=main&label=CI)](https://github.com/eto0202/michiu/actions)
+
+<!-- プラットフォーム & 動作環境 -->
+[![Platform](https://img.shields.io/badge/platform-Windows-0078d7.svg?logo=windows&logoColor=white)](https://github.com/eto0202/michiu)
+[![Rust](https://img.shields.io/badge/rustc-stable-orange.svg?logo=rust&logoColor=white)](Cargo.toml)
+
+<!-- コミュニティ & ポリシー -->
+[![Language Policy](https://img.shields.io/badge/Policy-Multilingual-purple)](LANGUAGE_POLICY.md)
+[![Accessibility](https://img.shields.io/badge/A11y-AccessKit-pink)](ACCESSIBILITY.md)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
+
+<!-- コントリビューション歓迎 -->
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Good First Issues](https://img.shields.io/github/issues/eto0202/michiu/good%20first%20issue?color=green&label=good%20first%20issues)](https://github.com/eto0202/michiu/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22)
 
 The `michiu` is developing a GUI library for Windows.
 
