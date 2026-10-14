@@ -108,7 +108,7 @@ Check how the content is actually conveyed through audio.
 
 We are currently working on expanding the following features in the library:
 
-- [ ] Optimizing the automatic inference of AccessKit node trees in complex components (such as Tree View and Data Table).
+- [ ] Optimizing the automatic inference of AccessKit node trees in complex components.
 - [ ] Reading scrollbars and scroll positions.
 - [ ] Responding to input from accessibility tools.
 - [ ] Refining `ACCESSIBILITY.md`.
@@ -231,7 +231,7 @@ Microsoft 製のツールを使って、AccessKit 経由で UIA に正しくノ�
 
 現在、ライブラリ側では以下の機能拡充に取り組んでいます：
 
-- [ ] 複雑なコンポーネント（Tree view, Data table 等）における AccessKit ノードツリーの自動推論の最適化。
+- [ ] 複雑なコンポーネントにおける AccessKit ノードツリーの自動推論の最適化。
 - [ ] スクロールバー、スクロール位置の読み取り。
 - [ ] アクセシビリティツール側からの入力への応答。
 - [ ] `ACCESSIBILITY.md` のブラッシュアップ。
