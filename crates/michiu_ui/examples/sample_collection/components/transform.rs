@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::app::theme::Theme;
-use michiu::prelude::*;
+use michiu_ui::prelude::*;
 
 pub fn container() -> Element {
     v_flex(ts().gap(24.0).p(16.0)).children([

@@ -856,7 +856,7 @@ impl HasDisplayHandle for MichiuWindow {
 
 /// Describes the action to take after custom subclass message processing.
 ///
-/// Used alongside [`Window::subclass`].
+/// Used alongside [`MichiuWindow::subclass`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubclassResult {
     /// Completely intercepts the message, blocking further propagation to downstream procedures (including `MessageFilter`).

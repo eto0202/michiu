@@ -1,4 +1,4 @@
-use michiu::{accessibility::*, prelude::*};
+use michiu_ui::{accessibility::*, prelude::*};
 
 use crate::app::theme::Theme;
 

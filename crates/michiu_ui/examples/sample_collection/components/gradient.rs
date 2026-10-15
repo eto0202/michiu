@@ -1,4 +1,4 @@
-use michiu::{prelude::*, ui::LinearGradient};
+use michiu_ui::{LinearGradient, prelude::*};
 
 pub fn container() -> Element {
     v_flex(ts().p(16.0).gap(16.0)).children([section_1(), section_2(), section_3()])

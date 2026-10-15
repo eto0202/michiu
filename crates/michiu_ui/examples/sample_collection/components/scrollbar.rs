@@ -1,5 +1,5 @@
 use crate::app::theme::Theme;
-use michiu::prelude::*;
+use michiu_ui::prelude::*;
 
 pub fn container() -> Element {
     v_flex(ts().p(16.0).gap(16.0)).children([section_top(), section_buttom()])

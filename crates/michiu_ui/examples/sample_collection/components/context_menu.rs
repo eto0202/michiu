@@ -1,5 +1,5 @@
 use crate::app::theme::Theme;
-use michiu::{prelude::*, ui::a11y};
+use michiu_ui::{a11y, prelude::*};
 
 const WIDTH: f32 = 150.0;
 const HEIGHT: f32 = 250.0;

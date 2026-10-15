@@ -243,7 +243,7 @@ pub fn get_active_keyboard_layout_id() -> u32 {
 
 /// Represents a bundled, complete snapshot of the IME and Input Method status for a window.
 ///
-/// This structure implements ([`serde::Serialize`]) and ([`serde::Deserialize`]) when the `serde`
+/// This structure implements (`serde::Serialize`) and (`serde::Deserialize`) when the `serde`
 /// feature is enabled, allowing seamless serialization into JSON for cross-process communication.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImeStateUpdate {

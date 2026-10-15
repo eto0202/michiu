@@ -82,7 +82,7 @@ impl Drop for HandlerGuard {
     }
 }
 
-/// Message ID used internally for posting custom user-defined events ([`MichiuEvent::User`]) to the UI thread.
+/// Message ID used internally for posting custom user-defined events ([`MichiuAnyEvent::User`]) to the UI thread.
 pub const WM_USER_EVENT: u32 = WM_USER + 101;
 
 /// A thread-affine message pump responsible for polling OS messages and driving the event loop.

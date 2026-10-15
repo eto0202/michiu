@@ -690,7 +690,7 @@ impl Validate for MichiuTrayBuilder {
     /// Validates tray configuration parameters.
     ///
     /// Checks:
-    /// 1. A valid [`Icon`] must be provided.
+    /// 1. A valid [`MichiuIcon`] must be provided.
     /// 2. Tooltip length must be under 128 UTF-16 code units.
     ///
     /// # Errors
