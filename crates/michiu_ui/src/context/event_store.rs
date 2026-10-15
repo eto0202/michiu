@@ -4,7 +4,7 @@ use crate::{
     InputOp, LayoutPoint, MichiuError, MichiuString, Modifiers, MouseButton, OptionTraceExt,
     Overflow, Pipeline, RenderStore, ResizeStore, ResolvedGeometry, ScrollStore, ScrollbarStore,
     SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEditStore, TextEngine,
-    TextLayoutSize, TextSelectionsSparse, TopologyStore, UserAction, UserSelect, VirtualKey,
+    TextLayoutSize, TextSelectionsSparse, TopologyStore, EventAction, UserSelect, VirtualKey,
     define_vec, handle_on_click, handle_on_cursor_moved, handle_on_hover, handle_on_keyboard_input,
     handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel,
     handle_on_right_click, soa::MichiuSoA,
@@ -43,7 +43,7 @@ impl ActiveInteractionStates {
     }
 }
 
-define_vec!(pub struct PendingActions(UserAction));
+define_vec!(pub struct PendingActions(EventAction));
 
 #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]

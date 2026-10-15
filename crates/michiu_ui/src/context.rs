@@ -66,12 +66,6 @@ impl From<accesskit::NodeId> for EntityId {
     }
 }
 
-// TODO:
-// 利用者用 Context を用意して安定APIはそちらで公開
-// pub struct EventContext<'a> {
-//    cx: &'a mut Context,
-// }
-
 /// The central context owning all retained state stores and reactive pipelines necessary to drive the GUI.
 pub struct Context {
     pub(crate) window: WindowStore,
@@ -605,7 +599,7 @@ impl Context {
     /// Configure the user-defined inference tags used when building the accessibility tree.
     ///
     /// `A11yInferenceTag` overrides only the default inferences.
-    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    /// It does not override the [`Element::a11y`] roles.
     #[inline]
     pub fn tag_a11y<T: A11yInferenceTag + 'static>(&mut self, el: Element) {
         TopologyStore::tag_a11y::<T>(el, &mut self.topology.topo_tag_registry);
@@ -775,10 +769,10 @@ impl Context {
         }
     }
 
-    /// Call it in the corresponding event and add the user action to the queue ([`UserAction`]).
+    /// Call it in the corresponding event and add the user action to the queue ([`EventAction`]).
     #[inline]
-    pub fn inject_user_action(&mut self, action: UserAction) {
-        Pipeline::inject_user_action(self, action);
+    pub fn inject_action(&mut self, action: EventAction) {
+        Pipeline::inject_action(self, action);
     }
 
     /// Called at the start of a frame to execute the user action registered in the queue.
@@ -793,17 +787,19 @@ impl Context {
         EventStore::cycle_keyboard_focus_internal(self, reverse);
     }
 
+    /// Whether the window is currently being resized
     #[inline]
     pub fn window_is_resized(&self) -> bool {
         self.window.win_is_resized
     }
 
+    /// Retrieves the final window size.
     #[inline]
     pub fn window_last_size(&self) -> Option<LayoutSize> {
         self.window.win_last_size
     }
 
-    /// ウィンドウ内の最上位ルート要素の `EntityId` を自律解決して返します。
+    /// Resolves and returns the `EntityId` of the top-level root element within the window.
     #[inline]
     pub fn find_root_entity(&self) -> Option<EntityId> {
         TopologyStore::find_root_entity(
@@ -813,6 +809,7 @@ impl Context {
         )
     }
 
+    /// Retrieves the coordinates of the current pointer.
     #[inline]
     pub fn pointer_position(&self) -> Option<LayoutPoint> {
         self.events.evt_current_pointer_position

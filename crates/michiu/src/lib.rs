@@ -63,8 +63,7 @@
 //!     // 2. Initialize renderer
 //!     let scale_factor = window.scale_factor() as f32;
 //!     let handle = window.handle().assume_valid();
-//!     // MichiuRenderer::new is async. Use any executor of your choice
-//!         (e.g., pollster, tokio, futures).
+//!     // MichiuRenderer::new is async. Use any executor of your choice.
 //!     let renderer = pollster::block_on(MichiuRenderer::new(
 //!         handle.hwnd(),
 //!         LayoutSize::new(600.0, 500.0),
@@ -176,10 +175,10 @@
 //!
 //! ## Registers an event-loop wakeup callback ([`Context::set_waker`]).
 //!
-//! This callback is automatically invoked whenever a background task is submitted via [`MichiuTaskSender`](crate::ui::MichiuTaskSender) or [`SignalSender`](crate::SignalSender).
+//! This callback is automatically invoked whenever a background task is submitted via [`MichiuTaskSender`](crate::ui::MichiuTaskSender) or [`SignalSender`](crate::ui::SignalSender).
 //!
 //! ### Note (Automatic Setup)
-//! You **rarely need to call this manually**. When using [`MichiuAppBuilder`](crate::MichiuAppBuilder),
+//! You **rarely need to call this manually**. When using [`MichiuAppBuilder`],
 //! it automatically configures a waker that posts `WM_NULL` to wake the UI thread's event pump.
 //!
 //! Call this only if you are constructing a custom headless environment or integrating with an external event loop.
@@ -204,7 +203,7 @@
 //!
 //! ### Manual Event Loop Usage
 //! If you are writing a custom event loop without using [`standard_handle_window_event`](MichiuApp::standard_handle_window_event),
-//! call this method inside your `WM_NULL` handler, then check [`has_dirty`](Self::has_dirty) to determine if a redraw is needed:
+//! call this method inside your `WM_NULL` handler, then check [`has_dirty`](crate::ui::Context::has_dirty) to determine if a redraw is needed:
 //!
 //! ```no_run
 //! # use michiu::prelude::*;
@@ -229,7 +228,6 @@ use crate::ui::{
     CapacityConfig, CharIndex, ImeState, VirtualKey, prelude::*, raw_wheel_delta_to_logical_pixels,
 };
 use crate::window::{WindowHandle, prelude::*};
-use windows::Win32::UI::Controls::WM_MOUSELEAVE;
 use windows::Win32::UI::WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL};
 
 #[cfg(feature = "ui")]
@@ -686,7 +684,7 @@ impl MichiuApp {
                     );
 
                     self.context
-                        .inject_user_action(UserAction::PointerMove(logical_pos));
+                        .inject_action(EventAction::PointerMove(logical_pos));
 
                     if self.config.external_visual_support {
                         ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
@@ -705,7 +703,7 @@ impl MichiuApp {
                 MichiuEvent::CursorLeft => {
                     // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
                     self.context
-                        .inject_user_action(UserAction::PointerMove(LayoutPoint::new(
+                        .inject_action(EventAction::PointerMove(LayoutPoint::new(
                             -9999.0, -9999.0,
                         )));
 
@@ -734,7 +732,7 @@ impl MichiuApp {
                         michiu_window::ElementState::Released => ElementState::Released,
                     };
 
-                    self.context.inject_user_action(UserAction::PointerButton {
+                    self.context.inject_action(EventAction::PointerButton {
                         button,
                         state,
                         modifiers,
@@ -742,7 +740,7 @@ impl MichiuApp {
 
                     if click_count == &2 {
                         self.context
-                            .inject_user_action(UserAction::PointerDoubleClick { modifiers });
+                            .inject_action(EventAction::PointerDoubleClick { modifiers });
                     }
 
                     if self.config.external_visual_support {
@@ -763,7 +761,7 @@ impl MichiuApp {
                     needs_redraw = true;
                 }
                 MichiuEvent::CharacterInput(c) => {
-                    self.context.inject_user_action(UserAction::Character(*c));
+                    self.context.inject_action(EventAction::Character(*c));
                     consumed = has_focused;
                     needs_redraw = true;
                 }
@@ -802,30 +800,30 @@ impl MichiuApp {
                                 && let Some(pasted_text) = get_win32_clipboard() =>
                             {
                                 self.context
-                                    .inject_user_action(UserAction::Paste(pasted_text.into()));
+                                    .inject_action(EventAction::Paste(pasted_text.into()));
                                 shortcut_handled = true;
                             }
                             // Ctrl + X (切り取り)
                             0x58 if let Some(selected_text) = self.context.get_selected_text() => {
                                 let _ = set_win32_clipboard(&selected_text);
-                                self.context.inject_user_action(UserAction::Cut);
+                                self.context.inject_action(EventAction::Cut);
                                 shortcut_handled = true;
                             }
                             // Ctrl + Z (Undo)
                             0x5A if has_focused => {
-                                self.context.inject_user_action(UserAction::Undo);
+                                self.context.inject_action(EventAction::Undo);
                                 shortcut_handled = true;
                             }
                             // Ctrl + Y (Redo)
                             0x59 if has_focused => {
-                                self.context.inject_user_action(UserAction::Redo);
+                                self.context.inject_action(EventAction::Redo);
                                 shortcut_handled = true;
                             }
                             _ => {}
                         }
                     }
 
-                    self.context.inject_user_action(UserAction::KeyboardKey {
+                    self.context.inject_action(EventAction::KeyboardKey {
                         key,
                         state,
                         modifiers,
@@ -862,7 +860,7 @@ impl MichiuApp {
                     };
 
                     self.context
-                        .inject_user_action(UserAction::MouseWheel { scroll_x, scroll_y });
+                        .inject_action(EventAction::MouseWheel { scroll_x, scroll_y });
 
                     if self.config.external_visual_support {
                         let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
@@ -896,7 +894,7 @@ impl MichiuApp {
                         composition_attrs: ime.composition_attrs,
                     };
 
-                    self.context.inject_user_action(UserAction::Ime(ime_state));
+                    self.context.inject_action(EventAction::Ime(ime_state));
                     consumed = has_focused;
                     needs_redraw = true;
                 }

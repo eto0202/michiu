@@ -272,7 +272,7 @@ unsafe extern "system" fn wnd_proc(
                 );
 
                 app.context
-                    .inject_user_action(UserAction::PointerMove(logical_pos));
+                    .inject_action(EventAction::PointerMove(logical_pos));
 
                 let _consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                     &mut app.context,
@@ -290,7 +290,7 @@ unsafe extern "system" fn wnd_proc(
             WM_MOUSELEAVE => {
                 // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
                 app.context
-                    .inject_user_action(UserAction::PointerMove(LayoutPoint::new(
+                    .inject_action(EventAction::PointerMove(LayoutPoint::new(
                         -9999.0, -9999.0,
                     )));
 
@@ -323,7 +323,7 @@ unsafe extern "system" fn wnd_proc(
                     logo: false,
                 };
 
-                app.context.inject_user_action(UserAction::PointerButton {
+                app.context.inject_action(EventAction::PointerButton {
                     button: MouseButton::Left,
                     state,
                     modifiers,
@@ -353,7 +353,7 @@ unsafe extern "system" fn wnd_proc(
                     ElementState::Released
                 };
 
-                app.context.inject_user_action(UserAction::PointerButton {
+                app.context.inject_action(EventAction::PointerButton {
                     button: MouseButton::Right,
                     state,
                     modifiers: Modifiers::default(),
@@ -386,14 +386,14 @@ unsafe extern "system" fn wnd_proc(
                     logo: false,
                 };
 
-                app.context.inject_user_action(UserAction::PointerButton {
+                app.context.inject_action(EventAction::PointerButton {
                     button: MouseButton::Left,
                     state: ElementState::Pressed,
                     modifiers,
                 });
 
                 app.context
-                    .inject_user_action(UserAction::PointerDoubleClick { modifiers });
+                    .inject_action(EventAction::PointerDoubleClick { modifiers });
 
                 let x = (lparam.0 & 0xffff) as i16 as f32;
                 let y = ((lparam.0 >> 16) & 0xffff) as i16 as f32;
@@ -424,7 +424,7 @@ unsafe extern "system" fn wnd_proc(
                 let scroll_y = raw_wheel_delta_to_logical_pixels(raw_delta);
 
                 // 2次元スクロールとして注入 (縦スクロールのため X は 0.0 固定)
-                app.context.inject_user_action(UserAction::MouseWheel {
+                app.context.inject_action(EventAction::MouseWheel {
                     scroll_x: 0.0,
                     scroll_y,
                 });
@@ -459,7 +459,7 @@ unsafe extern "system" fn wnd_proc(
                 let scroll_x = -raw_wheel_delta_to_logical_pixels(raw_delta);
 
                 // 2次元スクロールとして注入 (横スクロールのため Y は 0.0 固定)
-                app.context.inject_user_action(UserAction::MouseWheel {
+                app.context.inject_action(EventAction::MouseWheel {
                     scroll_x,
                     scroll_y: 0.0,
                 });
@@ -479,7 +479,7 @@ unsafe extern "system" fn wnd_proc(
             }
             WM_CHAR => {
                 if let Some(ch) = std::char::from_u32(wparam.0 as u32) {
-                    app.context.inject_user_action(UserAction::Character(ch));
+                    app.context.inject_action(EventAction::Character(ch));
 
                     let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 }
@@ -511,7 +511,7 @@ unsafe extern "system" fn wnd_proc(
                             // 'V' キー
                             if let Some(pasted_text) = get_win32_clipboard() {
                                 app.context
-                                    .inject_user_action(UserAction::Paste(pasted_text.into()));
+                                    .inject_action(EventAction::Paste(pasted_text.into()));
                             }
                             return LRESULT(0);
                         }
@@ -521,19 +521,19 @@ unsafe extern "system" fn wnd_proc(
                             if let Some(selected_text) = app.context.get_selected_text() {
                                 set_win32_clipboard(&selected_text);
                             }
-                            app.context.inject_user_action(UserAction::Cut);
+                            app.context.inject_action(EventAction::Cut);
                             return LRESULT(0);
                         }
                         // Ctrl + Z (Undo)
                         0x5A => {
                             // 'Z'
-                            app.context.inject_user_action(UserAction::Undo);
+                            app.context.inject_action(EventAction::Undo);
                             return LRESULT(0);
                         }
                         // Ctrl + Y (Redo)
                         0x59 => {
                             // 'Y'
-                            app.context.inject_user_action(UserAction::Redo);
+                            app.context.inject_action(EventAction::Redo);
                             return LRESULT(0);
                         }
                         _ => {}
@@ -557,7 +557,7 @@ unsafe extern "system" fn wnd_proc(
                     _ => VirtualKey::UNKNOWN,
                 };
 
-                app.context.inject_user_action(UserAction::KeyboardKey {
+                app.context.inject_action(EventAction::KeyboardKey {
                     key,
                     state: ElementState::Pressed,
                     modifiers,
@@ -584,7 +584,7 @@ unsafe extern "system" fn wnd_proc(
                     .composition_text(String::new())
                     .result_text(String::new());
 
-                app.context.inject_user_action(UserAction::Ime(ime_state));
+                app.context.inject_action(EventAction::Ime(ime_state));
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(1);
             }
@@ -659,7 +659,7 @@ unsafe extern "system" fn wnd_proc(
                     }
 
                     // IME 情報を入力処理へ注入
-                    app.context.inject_user_action(UserAction::Ime(ime_state));
+                    app.context.inject_action(EventAction::Ime(ime_state));
 
                     let _ = unsafe { ImmReleaseContext(hwnd, himc) };
                 }

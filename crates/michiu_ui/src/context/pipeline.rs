@@ -29,7 +29,7 @@ use std::sync::Arc;
 use std::{borrow::Cow, collections::HashSet, path::PathBuf};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum UserAction {
+pub enum EventAction {
     PointerMove(LayoutPoint),
     PointerButton {
         button: MouseButton,
@@ -84,13 +84,13 @@ pub enum StateFlag {
 pub struct Pipeline;
 
 impl Pipeline {
-    pub(crate) fn inject_user_action(cx: &mut Context, action: UserAction) {
+    pub(crate) fn inject_action(cx: &mut Context, action: EventAction) {
         let _context_guard = bind_context(cx);
 
         match action {
             // キューの末尾が PointerMove なら最新座標で上書き
-            UserAction::PointerMove(pos) => {
-                if let Some(UserAction::PointerMove(last_pos)) =
+            EventAction::PointerMove(pos) => {
+                if let Some(EventAction::PointerMove(last_pos)) =
                     cx.events.evt_pending_actions.last_mut()
                 {
                     *last_pos = pos;
@@ -100,8 +100,8 @@ impl Pipeline {
             }
 
             // スクロールの場合は移動量の加算
-            UserAction::MouseWheel { scroll_x, scroll_y } => {
-                if let Some(UserAction::MouseWheel {
+            EventAction::MouseWheel { scroll_x, scroll_y } => {
+                if let Some(EventAction::MouseWheel {
                     scroll_x: last_x,
                     scroll_y: last_y,
                 }) = cx.events.evt_pending_actions.last_mut()
@@ -132,7 +132,7 @@ impl Pipeline {
             let mut event_trace = TraceEventList::None;
 
             match action {
-                UserAction::PointerMove(layout_point) => {
+                EventAction::PointerMove(layout_point) => {
                     #[cfg(feature = "trace-lifecycle")]
                     {
                         event_trace = TraceEventList::PointerMove {
@@ -143,7 +143,7 @@ impl Pipeline {
 
                     EventStore::inject_pointer_move(cx, layout_point);
                 }
-                UserAction::PointerButton {
+                EventAction::PointerButton {
                     button,
                     state,
                     modifiers,
@@ -159,7 +159,7 @@ impl Pipeline {
 
                     EventStore::inject_pointer_button(cx, button, state, modifiers);
                 }
-                UserAction::PointerDoubleClick { modifiers } => {
+                EventAction::PointerDoubleClick { modifiers } => {
                     #[cfg(feature = "trace-lifecycle")]
                     {
                         event_trace = TraceEventList::PointerDoubleClick { modifiers };
@@ -167,7 +167,7 @@ impl Pipeline {
 
                     EventStore::inject_pointer_double_click(cx);
                 }
-                UserAction::MouseWheel { scroll_x, scroll_y } => {
+                EventAction::MouseWheel { scroll_x, scroll_y } => {
                     #[cfg(feature = "trace-lifecycle")]
                     {
                         event_trace = TraceEventList::MouseWheel {
@@ -178,7 +178,7 @@ impl Pipeline {
 
                     EventStore::inject_mouse_wheel(cx, scroll_x, scroll_y);
                 }
-                UserAction::KeyboardKey {
+                EventAction::KeyboardKey {
                     key,
                     state,
                     modifiers,
@@ -194,7 +194,7 @@ impl Pipeline {
 
                     EventStore::inject_keyboard_key(cx, key, state, modifiers);
                 }
-                UserAction::Character(c) => {
+                EventAction::Character(c) => {
                     let Some(focused_id) = cx.events.evt_interaction_states.focused else {
                         return;
                     };
@@ -206,7 +206,7 @@ impl Pipeline {
 
                     handle_on_char_input(cx, focused_id, c);
                 }
-                UserAction::Ime(ime_state) => {
+                EventAction::Ime(ime_state) => {
                     let Some(focused_id) = cx.events.evt_interaction_states.focused else {
                         return;
                     };
@@ -228,7 +228,7 @@ impl Pipeline {
 
                     handle_on_ime(cx, focused_id, ime_state);
                 }
-                UserAction::FileDropped(path_bufs) => {
+                EventAction::FileDropped(path_bufs) => {
                     let Some(target_id) = cx.events.evt_interaction_states.hovered else {
                         return;
                     };
@@ -242,7 +242,7 @@ impl Pipeline {
 
                     handle_on_file_dropped(cx, target_id, path_bufs);
                 }
-                UserAction::Paste(text) => {
+                EventAction::Paste(text) => {
                     #[cfg(feature = "trace-lifecycle")]
                     {
                         event_trace = TraceEventList::Paste { text: text.clone() };
@@ -250,7 +250,7 @@ impl Pipeline {
 
                     EventStore::inject_paste(cx, &text.into());
                 }
-                UserAction::Cut => {
+                EventAction::Cut => {
                     let cut = EventStore::inject_cut(cx);
 
                     #[cfg(feature = "trace-lifecycle")]
@@ -260,7 +260,7 @@ impl Pipeline {
 
                     cx.contents.cont_cut_text = cut;
                 }
-                UserAction::Undo => {
+                EventAction::Undo => {
                     EventStore::inject_undo(cx);
 
                     #[cfg(feature = "trace-lifecycle")]
@@ -268,7 +268,7 @@ impl Pipeline {
                         event_trace = TraceEventList::Undo;
                     }
                 }
-                UserAction::Redo => {
+                EventAction::Redo => {
                     EventStore::inject_redo(cx);
 
                     #[cfg(feature = "trace-lifecycle")]

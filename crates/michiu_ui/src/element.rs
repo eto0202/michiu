@@ -232,7 +232,7 @@ impl Element {
     /// Configure the user-defined `A11yInferenceTag` used when building the accessibility tree.
     ///
     /// `A11yInferenceTag` overrides only the default inferences.
-    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    /// It does not override the [`Element::a11y`] roles.
     #[inline]
     #[must_use]
     pub fn tag_a11y<T: A11yInferenceTag + 'static>(self) -> Self {
@@ -836,6 +836,7 @@ impl Element {
         self
     }
 
+    /// Integrates an arbitrary `IDCompositionVisual2` into the layout tree.
     #[inline]
     #[must_use]
     pub fn external_visual(self, visual: impl ExternalVisual + 'static) -> Self {
