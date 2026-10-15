@@ -44,6 +44,12 @@ When writing an issue, discussion, or PR description, please place the English t
 > **[日本語 / Original]**  
 > ボタンをクリックしても何も反応しません。カウンターが1増えることを期待していました。
 
+## In Closing
+
+A great deal of information is lost the moment it’s put into words. When using machine or AI translation, even more is lost and distorted.
+However, the same is true even within the same language. In fact, there are many things that don’t get across precisely because we’re speaking the same language.
+That’s exactly why we should keep the conversation going!
+
 ---
 
 # 原文
@@ -88,6 +94,12 @@ Issue や PR の本文を書く際は、以下のように AI 翻訳した英語
 
 ---
 
+## 最後に
+
+言葉にした時点で多くの情報が失われます。機械翻訳、AI翻訳を通せば更に失われ歪められてしまいます。
+しかし、それは同じ言語でも同様です。むしろ同じ言語だからこそ伝わらないことは多くあります。
+だからこそ対話を重ねましょう！
+
 Created: [2026/10/14]
 
-Last Updated: [2026/10/14]
+Last Updated: [2026/10/15]

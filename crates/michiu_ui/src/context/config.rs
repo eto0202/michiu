@@ -2,7 +2,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapacityConfig {
     pub sys_text_buffers: usize,
-    pub sys_uia_properties: usize,
     pub react_signals: usize,
     pub react_effects: usize,
     pub react_subscribers: usize,
@@ -118,7 +117,6 @@ impl CapacityConfig {
             rnd_active_animations: base / 20,
 
             sys_text_buffers: base / 3,
-            sys_uia_properties: base / 10,
 
             ..Self::ZERO
         }
@@ -126,7 +124,6 @@ impl CapacityConfig {
 
     pub const ZERO: Self = Self {
         sys_text_buffers: 0,
-        sys_uia_properties: 0,
         react_signals: 0,
         react_effects: 0,
         react_subscribers: 0,

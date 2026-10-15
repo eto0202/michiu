@@ -1073,7 +1073,6 @@ pub struct WindowStoreSnapshot {
 #[derive(Clone)]
 pub struct SystemStoreSnapshot {
     pub sys_text_buffers: SparseSecondaryMap<EntityId, Buffer>,
-    pub sys_uia_properties: UiaPropertiesSparse,
 }
 
 #[derive(Clone)]
@@ -1292,7 +1291,6 @@ impl ContextSnapshot {
                     .iter()
                     .map(|(id, rc_buf)| (id, (**rc_buf).clone()))
                     .collect(),
-                sys_uia_properties: cx.system.sys_uia_properties.clone(),
             },
             reactive: ReactiveStoreSnapshot {
                 react_subscribers: cx.reactive.react_subscribers.clone(),

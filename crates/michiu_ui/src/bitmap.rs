@@ -45,14 +45,14 @@ impl ComponentMask {
         self.0 &= !flag;
     }
 
-    /// 基本レイアウト関連のプロパティが1つでもあるか
+    // 基本レイアウト関連のプロパティが1つでもあるか
     #[inline]
     #[must_use]
     pub(crate) fn has_basic_layout(&self) -> bool {
         self.has(Self::STYLE_BASIC_LAYOUT)
     }
 
-    /// Flexレイアウト関連のプロパティが1つでもあるか
+    // Flexレイアウト関連のプロパティが1つでもあるか
     #[inline]
     #[must_use]
     pub(crate) fn has_flex_layout(&self) -> bool {

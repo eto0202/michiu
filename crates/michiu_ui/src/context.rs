@@ -1,3 +1,127 @@
+//! # `Context`
+//!
+//! A central database maintaining the entire state of the UI application, serving as the core struct that aggregates pipeline operations.
+//!
+//! ---
+//!
+//! ## Overview
+//!
+//! `Context` is not a bloated “god object” that encapsulates logic; rather, it is designed as a centralized database bundling multiple role-specific stores.
+//! Each store contains a Structure of Arrays (SoA) categorized by its responsibility along with dedicated associated functions. By explicitly passing only the required SoA slices to each processing phase via split borrowing, it achieves a zero-cost, memory-safe internal pipeline.
+//!
+//! For application developers, these functions are aggregated and exposed as convenient methods directly on `Context`.
+//!
+//! ---
+//!
+//! ## Important Constraint: Threading Model
+//!
+//! > **Warning: UI Thread Affinity**
+//! > `Context` is bound to a thread-local context and **can only be accessed and manipulated on the main thread (UI thread)**.
+//! > Direct manipulation of `Context` from background (worker) threads is not supported.
+//!
+//! To update state from a worker thread, dispatch messages back to the UI thread using the crate's asynchronous task dispatch system or standard channels (such as `std::sync::mpsc`).
+//!
+//! ---
+//!
+//! ## Two Primary Usage Scenarios
+//!
+//! In application development, you will primarily interact with `Context` (or `&mut Context`) in the following two contexts:
+//!
+//! ### 1. Lifecycle Control Within the Main Loop
+//! When driving your own window procedure or event loop, you explicitly invoke each phase of the pipeline:
+//!
+//! * [`inject_action`](Context::inject_action): Enqueues OS input events
+//! * [`begin_frame`](Context::begin_frame): Flushes the event queue and updates interaction states
+//! * [`tick_system_frame`](Context::tick_system_frame): Advances animations and internal timers
+//! * [`sync_layout`](Context::sync_layout): Executes two-pass Flexbox layout resolution
+//! * [`update_accessibility`](Context::update_accessibility): Synchronizes the AccessKit tree
+//!
+//! ### 2. Element Manipulation Within Event Handlers
+//! In `_with`-style handlers (such as `on_click_with`), the context is provided via the `cx: &mut Context` parameter:
+//!
+//! * `cx.current()`: Retrieves the element that triggered the event
+//! * `cx.query_first::<T>()` / `cx.try_query_first::<T>()`: Searches for other elements using a marker tag
+//! * `cx.find_root_entity()`: Retrieves the root element
+//! * `cx.pointer_position()` / `cx.window_last_size()`: Retrieves the current pointer position or window dimensions
+//!
+//! For additional methods, please refer to the [`Context`] method documentation.
+//!
+//! ---
+//!
+//! ## Internal Structure: Independent Stores
+//!
+//! Internally, `Context` is divided into distinct stores aligned with the execution phases of the pipeline:
+//!
+//! | Category | Store | Responsibilities & Stored Data |
+//! | :--- | :--- | :--- |
+//! | **Environment & System** | `window` | Window properties |
+//! | | `system` | Text layout engine and task messaging subsystem |
+//! | **Structure & State** | `events` | Event listeners and active interaction states (hover, focus, etc.) |
+//! | | `reactive` | Signals, reactive dependencies, and effect runtimes |
+//! | | `contents` | Text strings and dynamic input content |
+//! | | `topology` | Primary entity lifecycle map and structural tree hierarchies |
+//! | | `states` | Drag-and-drop, resize, scrolling, and text selection state |
+//! | **Computation & Evaluation** | `layouts` | Base, current, and resolved layout measurements |
+//! | **Rendering & Output** | `renders` | Non-layout visual properties and animation states |
+//! | | `outputs` | Absolute coordinate caches across current and previous frames |
+//! | | `acce` | Node tree synchronized with AccessKit |
+//! | **Diagnostics** | `debug` | Logs, profiling traces, and snapshot data for MichiuInspector |
+//!
+//! ---
+//!
+//! ## Internal Architecture
+//!
+//! In Rust, inter-method state mutation on a monolithic struct (`Context`) typically triggers `&mut self` borrow conflicts.
+//! `michiu_ui` circumvents this without runtime overhead using a clean three-layer model:
+//!
+//! 1. **Store Layer**:
+//!    Domain logic is encapsulated within associated functions on each store. This keeps namespaces clean, and each function takes only the exact SoA slices it needs.
+//!    All parameters use store-specific prefixes, and argument ordering is strictly defined *(not that we always stick to it ourselves, though)*.
+//! 2. **[`Pipeline`] Layer**:
+//!    Executes **split borrowing** across the stores in `Context`, treating them as distinct fields, and dispatches them into the relevant store functions in sequential order. The entire frame lifecycle is centralized here.
+//! 3. **Context Layer**:
+//!    Wraps the store and pipeline invocations into a coherent, developer-friendly facade API.
+//!
+//! ---
+//!
+//! ## Low-Level Operations and Escape Hatches (`RawContext`)
+//!
+//! While `Context` fields are encapsulated via `pub(crate)`, advanced developers implementing custom renderers or tailoring the pipeline can use [`raw_context_mut`](Context::raw_context_mut) as an escape hatch to directly access internal stores and raw SoA buffers.
+//!
+//! ### Why Use `RawContext`? (Enabling Split Borrows)
+//!
+//! Calling methods on `&mut Context` causes Rust's borrow checker to mutably borrow the entire structure exclusively.
+//! Because [`RawContext<'a>`] exposes all stores as individual `pub &'a mut Store` fields, it enables advanced split borrows—such as simultaneously taking mutable borrows of the layout and render stores and passing them to distinct functions.
+//!
+//! ```rust,ignore
+//! use michiu_ui::prelude::*;
+//!
+//! let mut context = Context::new();
+//!
+//! // 1. Obtain a RawContext where each store is exposed as an independent mutable reference
+//! let mut raw = context.raw_context_mut();
+//!
+//! // 2. Perform split borrows across multiple stores simultaneously
+//! // Example: Access the raw SoA buffers for topology and layout concurrently
+//! let entities: &mut EntitiesSlot = raw.topology.entities_mut();
+//! let basic: &mut BasicLayoutsSecondary = raw.layouts.basic_mut();
+//!
+//! custom_low_level_pass(entities, basic);
+//! ```
+//!
+//! ### Primary Use Cases
+//!
+//! * **Custom Pipeline Assembly**:
+//!   When you need to reconstruct frame execution steps with custom timing or order, bypassing the default [`Pipeline`].
+//! * **Direct SoA Mutation**:
+//!   When bypassing library processing to directly modify or add to the SoA.
+//! * **External Diagnostics & Tooling**:
+//!   When extracting live internal metrics or entity structures for custom visualization. (Note: for general logging and snapshots, [`MichiuInspector`] is recommended).
+//!
+//! > **Warning: Preserving Internal Invariants**
+//! > Methods with the `_mut` suffix (which return raw mutable references to SoA buffers) completely bypass automatic dependency propagation and dirty-flag tracking.
+//! > Use these lower-level APIs only when fully aware of the engine's internal invariants to prevent entity ID desynchronization or broken lifecycle states.
+
 pub mod acce_store;
 pub mod config;
 pub mod content_store;
