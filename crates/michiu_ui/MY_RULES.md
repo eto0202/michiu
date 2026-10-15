@@ -23,8 +23,8 @@
 | 13     | `scrollbar`     | `bar_`   | スクロールバーレイアウト                            |
 | 14     | `renders`       | `rnd_`   | ビジュアルスタイル、アニメーション・トランジション  |
 | 15     | `outputs`       | `out_`   | 最終計算完了後の物理絶対座標キャッシュ              |
-| 16     | `debug`         | `dbg_`   | トレース取得                                        |
-| 17     | `accessibility` | `acce_`  | アクセシビリティ                                    |
+| 16     | `accessibility` | `acce_`  | アクセシビリティ                                    |
+| 17     | `debug`         | `dbg_`   | トレース取得                                        |
 
 ---
 

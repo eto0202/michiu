@@ -190,20 +190,60 @@ impl From<accesskit::NodeId> for EntityId {
     }
 }
 
-/// The central context owning all retained state stores and reactive pipelines necessary to drive the GUI.
+/// A central database maintaining the entire state of the UI application, serving as the core struct that aggregates pipeline operations.
+///
+/// Internally, `Context` is divided into distinct stores aligned with the execution phases of the pipeline:
+///
+/// | Category | Store | Responsibilities & Stored Data |
+/// | :--- | :--- | :--- |
+/// | **Environment & System** | `window` | Window properties |
+/// | | `system` | Text layout engine and task messaging subsystem |
+/// | **Structure & State** | `events` | Event listeners and active interaction states (hover, focus, etc.) |
+/// | | `reactive` | Signals, reactive dependencies, and effect runtimes |
+/// | | `contents` | Text strings and dynamic input content |
+/// | | `topology` | Primary entity lifecycle map and structural tree hierarchies |
+/// | | `states` | Drag-and-drop, resize, scrolling, and text selection state |
+/// | **Computation & Evaluation** | `layouts` | Base, current, and resolved layout measurements |
+/// | **Rendering & Output** | `renders` | Non-layout visual properties and animation states |
+/// | | `outputs` | Absolute coordinate caches across current and previous frames |
+/// | | `acce` | Node tree synchronized with AccessKit |
+/// | **Diagnostics** | `debug` | Logs, profiling traces, and snapshot data for MichiuInspector |
 pub struct Context {
+    /// Responsibilities & Stored Data: Window properties
     pub(crate) window: WindowStore,
+
+    /// Responsibilities & Stored Data: Text layout engine and task messaging subsystem
     pub(crate) system: SystemStore,
+
+    /// Responsibilities & Stored Data: Signals, reactive dependencies, and effect runtimes
     pub(crate) reactive: ReactiveStore,
+
+    /// Responsibilities & Stored Data: Event listeners and active interaction states (hover, focus, etc.)
     pub(crate) events: EventStore,
+
+    /// Responsibilities & Stored Data: Text strings and dynamic input content
     pub(crate) contents: ContentStore,
+
+    /// Responsibilities & Stored Data: Primary entity lifecycle map and structural tree hierarchies
     pub(crate) topology: TopologyStore,
+
+    /// Responsibilities & Stored Data: Drag-and-drop, resize, scrolling, and text selection state
     pub(crate) states: StateStore,
+
+    /// Responsibilities & Stored Data: Base, current, and resolved layout measurements
     pub(crate) layouts: LayoutStore,
+
+    /// Responsibilities & Stored Data: Non-layout visual properties and animation states
     pub(crate) renders: RenderStore,
+
+    /// Responsibilities & Stored Data: Absolute coordinate caches across current and previous frames
     pub(crate) outputs: OutputStore,
-    pub(crate) debug: DebugStore,
+
+    /// Responsibilities & Stored Data: Node tree synchronized with AccessKit
     pub(crate) acce: AccessibilityStore,
+
+    /// Responsibilities & Stored Data: Logs, profiling traces, and snapshot data for MichiuInspector
+    pub(crate) debug: DebugStore,
 }
 
 impl Default for Context {
@@ -235,8 +275,8 @@ impl Context {
                 },
                 rx,
             ),
-            debug: DebugStore::new(),
             acce: AccessibilityStore::new(),
+            debug: DebugStore::new(),
         }
     }
 
@@ -263,8 +303,8 @@ impl Context {
             layouts: LayoutStore::with_capacity(capacity),
             renders: RenderStore::with_capacity(capacity),
             outputs: OutputStore::with_capacity(capacity),
-            debug: DebugStore::new(),
             acce: AccessibilityStore::with_capacity(capacity),
+            debug: DebugStore::new(),
         }
     }
 
@@ -322,8 +362,8 @@ impl Context {
         self.events.clear();
         self.reactive.clear();
         self.window.clear();
-        self.system.clear();
         self.acce.clear();
+        self.system.clear();
     }
 
     /// 親を持たないルート要素の破棄に使用。
@@ -342,8 +382,8 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
-            &mut self.debug,
             &mut self.acce,
+            &mut self.debug,
         );
     }
 
