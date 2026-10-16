@@ -383,6 +383,7 @@
 //!
 //! * [**Renderer Implementation**](crate::renderer) - DirectComposition surface management and rendering command generation via wgpu
 //! * [**`Context` Structure**](crate::context) - Global state maintenance, storage management, and lifecycle control
+//! * [**`pipeline` module**](crate::pipeline) - Frame progression orchestrator
 //! * [**UI Construction and Styling**](crate::element) - Widget tree construction via [`build_ui`] and the list of properties for `ts()` (style builder)
 //! * [**Reactivity**](crate::signal) - Reactive programming model and dependency tracking via [`create_signal`]
 //! * [**Tag Feature**](crate::tag) - Assigning identification tags to elements, and tree traversal and querying

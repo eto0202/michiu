@@ -393,6 +393,7 @@ div(ts().w_full().p_y(4.0))
 
 - [**レンダラーの実装**](crate::renderer) - DirectComposition サーフェス管理と wgpu による描画コマンドの生成
 - [**`Context` の構造**](crate::context) - 全体状態の保持、ストレージ管理、ライフサイクル制御
+- [**`pipeline` モジュール**](crate::pipeline) - フレーム進行のオーケストレーター
 - [**UIの構築とスタイリング**](crate::element) - [`build_ui`] によるウィジェットツリー構築と `ts()`（スタイルビルダー）のプロパティ一覧
 - [**リアクティビティ**](crate::signal) - [`create_signal`] によるリアクティブプログラミングモデルと依存関係の追跡
 - [**Tag機能**](crate::tag) - Element への識別タグ付与とツリー探索・クエリ

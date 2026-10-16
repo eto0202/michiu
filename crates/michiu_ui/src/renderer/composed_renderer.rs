@@ -1,9 +1,144 @@
+//! # `MichiuRenderer`
+//!
+//! The top-level orchestrator integrating Windows DirectComposition with wgpu (DirectX 12).
+//! It coordinates the foreground UI layer ([`WgpuRenderer`]) with the background composition layer (DirectComposition visual tree) hosting zero-copy [`ExternalVisual`](crate::ExternalVisual).
+//!
+//! ---
+//!
+//! ## Visual Tree Hierarchy
+//!
+//! `MichiuRenderer` constructs and maintains the following tree hierarchy over the target window (`HWND`):
+//!
+//! ```text
+//! IDCompositionTarget (Window association)
+//!   └─ root_visual
+//!        ├─ cont_external_visual (Underlay: ExternalVisual collection)
+//!        └─ wgpu_visual          (Overlay: wgpu UI surface + punch-outs)
+//! ```
+//!
+//! ## Execution Lifecycle (`update_composition_tree` → `draw`)
+//!
+//! Frame progression within `MichiuRenderer` operates across two discrete phases:
+//! **DirectComposition tree synchronization (state evaluation and cutout dispatch)** followed by **wgpu execution and commit**.
+//!
+//! ### Phase 1: `update_composition_tree`
+//!
+//! Evaluated immediately following layout finalization (`sync_layout`), synchronizing `ExternalVisual` states with the DComp tree.
+//!
+//! 1. **Backdrop Synchronization**:
+//!    Applies system-level materials (Mica, Acrylic) to the target window.
+//!
+//! 2. **Delayed Release Queue Processing**:
+//!    Advances `pending_dcomp_releases`, safely unlinking Visuals whose replacement wgpu pixels have completed presentation (`RemoveVisual`).
+//!
+//! 3. **Stability Pre-Evaluation**:
+//!    Inspects each `ExternalVisual` to determine stability (e.g., active resizing, transition cooldowns, or animation state). The evaluated flag governs freeze-capture eligibility.
+//!
+//! 4. **External Visual State Hook ([`ExternalVisual::update`](crate::ExternalVisual::update))**:
+//!    Supplies stability flags and device handles via [`VisualUpdateContext`](crate::VisualUpdateContext) to invoke element update callbacks:
+//!
+//!    ```rust,ignore
+//!    pub struct VisualUpdateContext<'a> {
+//!        pub hwnd: HWND,
+//!        pub rect: LayoutRect,
+//!        pub scale_factor: f32,
+//!        pub is_interactive: bool,
+//!        pub is_stable: bool,
+//!        pub device: &'a wgpu::Device,
+//!        pub queue: &'a wgpu::Queue,
+//!        pub wic_factory: &'a IWICImagingFactory,
+//!    }
+//!    ```
+//!    *`ExternalVisual` instances use this context to autonomously capture static fallbacks during stable frames or decode assets via WIC.*
+//!
+//! 5. **Transform and Clip Synchronization (`sync_visual_layout_and_clip`)**:
+//!    Propagates resolved screen coordinates, scaling metrics, and viewport clipping bounds to the underlying DComp Visuals.
+//!
+//! 6. **Static Capture vs. Live Visual Branching**:
+//!    Determines rendering mode based on the return value of [`static_texture`](crate::ExternalVisual::static_texture):
+//!    * **Static Texture Available (`Some`)**: Unmounts the live Visual from the DComp tree, falling back to lightweight texture rendering inside `WgpuRenderer`.
+//!    * **Live Native Visual (`None`)**: Mounts the Visual directly into the DComp underlay and flags the wgpu render pass to punch out the corresponding bounds (`cx.renders.rnd_active_external_visual.insert(id)`).
+//!
+//! 7. **Dormant Entity Cleanup**:
+//!    Detaches (`RemoveVisual`) and frees despawned or inactive `ExternalVisual` nodes from the composition tree.
+//!
+//! ---
+//!
+//! ### Phase 2: `draw`
+//!
+//! Finalizes pixel output, presents composition changes, and flushes diagnostics.
+//!
+//! ```rust,ignore
+//! pub(crate) fn draw(&mut self, cx: &mut Context) {
+//!     // 1. Render foreground UI via wgpu
+//!     self.wgpu_renderer.render(cx, self.scale_factor);
+//!
+//!     // 2. Commit atomic DirectComposition state to DWM
+//!     unsafe {
+//!         self.desktop_device
+//!             .Commit()
+//!             .unwrap_or_trace(None, &mut cx.debug);
+//!     };
+//!
+//!     // 3. Clear dirty flags across the Context upon successful GPU submission
+//!     cx.clear_dirty();
+//!
+//!     // 4. Frame terminus: Flush profiling traces
+//!     flush_trace!(cx, self);
+//! }
+//! ```
+//!
+//! 1. **`wgpu_renderer.render`**:
+//!    Executes punch-out cutouts and composites UI primitives onto the surface via instanced rendering.
+//! 2. **`Commit()`**:
+//!    Atomically presents the foreground wgpu surface alongside background `ExternalVisual` trees to the Desktop Window Manager (DWM).
+//! 3. **`cx.clear_dirty()`**:
+//!    Resets dirty tracking across the `Context`, acknowledging that all pending mutations have been submitted to the GPU.
+//! 4. **`flush_trace!`**:
+//!    Flushes telemetry and performance traces to external inspectors ([`MichiuInspector`](crate::MichiuInspector)).
+//!
+//! ---
+//!
+//! ## Key Struct Fields
+//!
+//! | Field | Type | Responsibility |
+//! | :--- | :--- | :--- |
+//! | **`hwnd`** | `HWND` | Target Win32 window handle |
+//! | **`layout_size` / `scale_factor`** | `LayoutSize` / `f32` | Viewport dimensions and DPI scaling multiplier |
+//! | **`d3d11_device` / `desktop_device`** | D3D11 / DComp types | Core Windows graphics infrastructure driving DirectComposition |
+//! | **`target` / `root_visual`** | `IDComposition...` | Root visual tree target bound to the window |
+//! | **`wgpu_visual`** | `IDCompositionVisual2` | Visual hosting the wgpu swap chain presentation surface |
+//! | **`wgpu_renderer`** | [`WgpuRenderer`] | Subsystem driving instanced UI rendering and punch-out operations |
+//! | **`promoted_visuals`** | `Vec<PromotedVisual>` | Active external visuals mounted into the composition tree |
+//! | **`pending_dcomp_releases`** | `Vec<PendingDcompRelease>` | Release queue deferring Visual destruction to prevent frame flicker |
+//! | **`current_backdrop`** | `Backdrop` | Active system material configuration (Mica, Acrylic) |
+//!
+//! ---
+//!
+//! ## Low-Level Operations and Escape Hatches ([`RawWgpuRenderer<'a>`] & [`RawMichiuRenderer<'a>`])
+//!
+//! While structural fields are encapsulated via `pub(crate)`, advanced extensions can bypass abstractions through [`raw_wgpu_renderer_mut`](WgpuRenderer::raw_wgpu_renderer_mut) and [`raw_michiu_renderer_mut`](MichiuRenderer::raw_michiu_renderer_mut).
+//!
+//! ### Internal Design: Split Borrowing via Raw Renderers
+//!
+//! [`MichiuRenderer`] mirrors `Context`'s split-borrow design. [`RawWgpuRenderer`] can be acquired exclusively through [`MichiuRenderer::raw_wgpu_renderer_mut`](MichiuRenderer::raw_wgpu_renderer_mut):
+//!
+//! ```rust,ignore
+//! // Deconstruct renderer fields into independent mutable borrows
+//! let mut raw_michiu = renderer.raw_michiu_renderer_mut();
+//! let mut raw_wgpu = raw_michiu.raw_wgpu_renderer_mut();
+//!
+//! // Safely dispatch distinct GPU resources across disparate functions concurrently
+//! upload_resources(raw_wgpu.device, raw_wgpu.queue, raw_wgpu.instance_buffer);
+//! update_atlas(raw_wgpu.atlas, raw_wgpu.temp_uv_map);
+//! ```
+//!
+//! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
+
 use crate::{
-    AnimationCurve, Backdrop, ComponentMask, Context, CornerRadius, DebugStore, EntityId,
-    ExternalVisual, ExternalVisualMetadata, InteractionState, LayoutPoint, LayoutRect, LayoutSize,
-    MichiuError, MichiuSoA, MichiuTrace, PlaybackCount, PropertyList, RawWgpuRenderer,
-    ResultTraceExt, StaticExternalTexture, VisualUpdateContext, WgpuRenderer,
-    WindowsResultTraceExt, flush_trace, trace_error, trace_lifecycle,
+    Backdrop, ComponentMask, Context, EntityId, ExternalVisual, ExternalVisualMetadata,
+    InteractionState, LayoutPoint, LayoutSize, MichiuError, MichiuSoA, PropertyList,
+    RawWgpuRenderer, VisualUpdateContext, WgpuRenderer, WindowsResultTraceExt, flush_trace,
 };
 use std::sync::{Arc, OnceLock};
 use windows::{
@@ -27,118 +162,6 @@ use windows::{
 };
 use windows_numerics::Matrix3x2;
 
-/// The top-level orchestrator integrating Windows DirectComposition with wgpu (DirectX 12).
-/// It coordinates the foreground UI layer ([`WgpuRenderer`]) with the background composition layer (DirectComposition visual tree) hosting zero-copy [`ExternalVisual`]s.
-///
-/// ---
-///
-/// ## Visual Tree Hierarchy
-///
-/// `MichiuRenderer` constructs and maintains the following tree hierarchy over the target window (`HWND`):
-///
-/// ```text
-/// IDCompositionTarget (Window association)
-///   └─ root_visual
-///        ├─ cont_external_visual (Underlay: ExternalVisual collection)
-///        └─ wgpu_visual          (Overlay: wgpu UI surface + punch-outs)
-/// ```
-///
-/// ## Execution Lifecycle (`update_composition_tree` → `draw`)
-///
-/// Frame progression within `MichiuRenderer` operates across two discrete phases:
-/// **DirectComposition tree synchronization (state evaluation and cutout dispatch)** followed by **wgpu execution and commit**.
-///
-/// ### Phase 1: `update_composition_tree`
-///
-/// Evaluated immediately following layout finalization (`sync_layout`), synchronizing `ExternalVisual` states with the DComp tree.
-///
-/// 1. **Backdrop Synchronization**:
-///    Applies system-level materials (Mica, Acrylic) to the target window.
-///
-/// 2. **Delayed Release Queue Processing**:
-///    Advances `pending_dcomp_releases`, safely unlinking Visuals whose replacement wgpu pixels have completed presentation (`RemoveVisual`).
-///
-/// 3. **Stability Pre-Evaluation**:
-///    Inspects each `ExternalVisual` to determine stability (e.g., active resizing, transition cooldowns, or animation state). The evaluated flag governs freeze-capture eligibility.
-///
-/// 4. **External Visual State Hook ([`ExternalVisual::update`](crate::ExternalVisual::update))**:
-///    Supplies stability flags and device handles via [`VisualUpdateContext`](crate::VisualUpdateContext) to invoke element update callbacks:
-///
-///    ```rust,ignore
-///    pub struct VisualUpdateContext<'a> {
-///        pub hwnd: HWND,
-///        pub rect: LayoutRect,
-///        pub scale_factor: f32,
-///        pub is_interactive: bool,
-///        pub is_stable: bool,
-///        pub device: &'a wgpu::Device,
-///        pub queue: &'a wgpu::Queue,
-///        pub wic_factory: &'a IWICImagingFactory,
-///    }
-///    ```
-///    *`ExternalVisual` instances use this context to autonomously capture static fallbacks during stable frames or decode assets via WIC.*
-///
-/// 5. **Transform and Clip Synchronization (`sync_visual_layout_and_clip`)**:
-///    Propagates resolved screen coordinates, scaling metrics, and viewport clipping bounds to the underlying DComp Visuals.
-///
-/// 6. **Static Capture vs. Live Visual Branching**:
-///    Determines rendering mode based on the return value of [`static_texture`](crate::ExternalVisual::static_texture):
-///    * **Static Texture Available (`Some`)**: Unmounts the live Visual from the DComp tree, falling back to lightweight texture rendering inside `WgpuRenderer`.
-///    * **Live Native Visual (`None`)**: Mounts the Visual directly into the DComp underlay and flags the wgpu render pass to punch out the corresponding bounds (`cx.renders.rnd_active_external_visual.insert(id)`).
-///
-/// 7. **Dormant Entity Cleanup**:
-///    Detaches (`RemoveVisual`) and frees despawned or inactive `ExternalVisual` nodes from the composition tree.
-///
-/// ---
-///
-/// ### Phase 2: `draw`
-///
-/// Finalizes pixel output, presents composition changes, and flushes diagnostics.
-///
-/// ```rust,ignore
-/// pub(crate) fn draw(&mut self, cx: &mut Context) {
-///     // 1. Render foreground UI via wgpu
-///     self.wgpu_renderer.render(cx, self.scale_factor);
-///
-///     // 2. Commit atomic DirectComposition state to DWM
-///     unsafe {
-///         self.desktop_device
-///             .Commit()
-///             .unwrap_or_trace(None, &mut cx.debug);
-///     };
-///
-///     // 3. Clear dirty flags across the Context upon successful GPU submission
-///     cx.clear_dirty();
-///
-///     // 4. Frame terminus: Flush profiling traces
-///     flush_trace!(cx, self);
-/// }
-/// ```
-///
-/// 1. **`wgpu_renderer.render`**:
-///    Executes punch-out cutouts and composites UI primitives onto the surface via instanced rendering.
-/// 2. **`Commit()`**:
-///    Atomically presents the foreground wgpu surface alongside background `ExternalVisual` trees to the Desktop Window Manager (DWM).
-/// 3. **`cx.clear_dirty()`**:
-///    Resets dirty tracking across the `Context`, acknowledging that all pending mutations have been submitted to the GPU.
-/// 4. **`flush_trace!`**:
-///    Flushes telemetry and performance traces to external inspectors ([`MichiuInspector`](crate::MichiuInspector)).
-///
-/// ---
-///
-/// ## Key Struct Fields
-///
-/// | Field | Type | Responsibility |
-/// | :--- | :--- | :--- |
-/// | **`hwnd`** | `HWND` | Target Win32 window handle |
-/// | **`layout_size` / `scale_factor`** | `LayoutSize` / `f32` | Viewport dimensions and DPI scaling multiplier |
-/// | **`d3d11_device` / `desktop_device`** | D3D11 / DComp types | Core Windows graphics infrastructure driving DirectComposition |
-/// | **`target` / `root_visual`** | `IDComposition...` | Root visual tree target bound to the window |
-/// | **`wgpu_visual`** | `IDCompositionVisual2` | Visual hosting the wgpu swap chain presentation surface |
-/// | **`wgpu_renderer`** | [`WgpuRenderer`] | Subsystem driving instanced UI rendering and punch-out operations |
-/// | **`promoted_visuals`** | `Vec<PromotedVisual>` | Active external visuals mounted into the composition tree |
-/// | **`pending_dcomp_releases`** | `Vec<PendingDcompRelease>` | Release queue deferring Visual destruction to prevent frame flicker |
-/// | **`current_backdrop`** | `Backdrop` | Active system material configuration (Mica, Acrylic) |
 pub struct MichiuRenderer {
     pub(crate) hwnd: HWND,
     pub(crate) layout_size: LayoutSize,
@@ -263,7 +286,9 @@ impl MichiuRenderer {
         };
 
         #[cfg(feature = "trace-lifecycle")]
-        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Commit { add: None });
+        crate::trace_lifecycle!(None, &mut cx.debug, || crate::MichiuTrace::Commit {
+            add: None
+        });
 
         #[cfg(feature = "trace-lifecycle")]
         {
@@ -273,14 +298,16 @@ impl MichiuRenderer {
             let dirty_renders = cx.renders.rnd_dirty_entities.len();
 
             #[cfg(feature = "trace-lifecycle")]
-            trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::ClearDirtyEntities {
-                total_entities,
-                active_entities,
-                dirty_layouts,
-                dirty_renders,
-                add: Some(
-                    "Immediately after this recording, the dirty flag is cleared and the log is sent."
-                ),
+            crate::trace_lifecycle!(None, &mut cx.debug, || {
+                crate::MichiuTrace::ClearDirtyEntities {
+                    total_entities,
+                    active_entities,
+                    dirty_layouts,
+                    dirty_renders,
+                    add: Some(
+                        "Immediately after this recording, the dirty flag is cleared and the log is sent.",
+                    ),
+                }
             });
         }
 

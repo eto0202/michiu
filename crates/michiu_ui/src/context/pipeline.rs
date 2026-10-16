@@ -1,3 +1,188 @@
+//! # `Pipeline`
+//!
+//! A pipeline module acting as the central orchestrator for frame progression,
+//! taking **split borrows** of required SoAs from `Context` stores to drive processing phases sequentially.
+//!
+//! From input event reception to D&D, text editing, IME synchronization, two-pass Flexbox layout resolution,
+//! GPU batch generation, and accessibility dispatch, all internal steps are defined as a deterministic sequence.
+//!
+//! ---
+//!
+//! ## Internal Specifications of Pipeline Functions
+//!
+//! 1. `inject_action`: Enqueuing and normalizing input events
+//! 2. `begin_frame`: Draining the event queue and resolving interactions and edits
+//! 3. `update_state`: Local element state mutation via bitmasks and style propagation
+//! 4. `set_states`: Translating `StateFlag` into component masks
+//! 5. `sync_layout`: Two-pass layout computation coordinating Taffy, scrollbars, and IME
+//! 6. `tick_system_frame`: Advancing clock progression for animations, transitions, and auto-scrolling
+//! 7. `collect_render_data`: Atlas resolution, punch-outs, and instance batch assembly
+//! 8. `handle_accessibility`: Building and dispatching AccessKit tree snapshots to workers
+//!
+//! ---
+//!
+//! ### 1. `inject_action(cx: &mut Context, action: EventAction)`
+//!
+//! Enqueues raw actions received from OS window messages into `cx.events.evt_pending_actions`.
+//!
+//! * **PointerMove Optimization**: Overwrites existing pending move actions with the latest pointer coordinates.
+//! * **MouseWheel Accumulation**: Aggregates continuous scroll deltas occurring within the same frame.
+//!
+//! ---
+//!
+//! ### 2. `begin_frame(cx: &mut Context)`
+//!
+//! Frame inception. Uses `std::mem::take` on `evt_pending_actions` to iterate and dispatch events from oldest to newest.
+//!
+//! #### A. `PointerMove` Processing Flow
+//! 1. **Resize Drag Synchronization** (`ResizeStore::sync_resizing_drag`): If an element/window is currently being resize-dragged, returns early to bypass hover evaluation.
+//! 2. **Scrollbar Drag Synchronization** (`ScrollStore::sync_scrollbar_drag`): Handles active scrollbar thumb dragging.
+//! 3. **Sorted Hit Testing** (`TopologyStore::hit_test`):
+//!    Evaluates `topo_is_sort_dirty` and lazily reconstructs the sorted entity array (`topo_sorted_entities`) taking visibility, transforms, and z-index into account. Hit testing performs reverse traversal (`rev()`) starting from the topmost element.
+//! 4. **Resize Boundary Detection** (`ResizeStore::found_resize_hover`): Traverses upward from the hit element to its ancestors to determine if the pointer hovers over a resizable border.
+//! 5. **Apply Cursor Style** (`ResizeStore::apply_resizable_cursor_style`): Sets the directional resize cursor when over an active boundary.
+//! 6. **Restore Normal Cursor** (`RenderStore::resolve_element_style_state`): Resets to the element's default cursor once the pointer leaves the boundary.
+//! 7. **Text Selection Drag Tracking**:
+//!    If the element is in a `pressed` state and configured with `UserSelect::Text`, synchronizes the text buffer and updates the selection highlight range (`TextEditStore::handle_text_selection_click`).
+//! 8. **Hover State Resolution** (`EventStore::resolve_hover_state`):
+//!    Executes `Pipeline::update_state` across previous and newly hovered elements, triggering `on_mouse_leave`, `on_mouse_enter`, and `on_hover`.
+//! 9. **Cursor Movement Propagation** (`handle_on_cursor_moved`).
+//! 10. **D&D Drag Session Updates** (`DndStore::propagate_dnd_drag_events`):
+//!     Initiates a drag session once movement exceeds the drag threshold (`handle_on_dnd_drag_start`) and emits `handle_on_drag`.
+//! 11. **D&D Placeholder Tracking and Drop Target Intrusion**:
+//!     * Computes inset-based relative coordinates relative to the root element to position the placeholder (`update_inset_based_relative_local`).
+//!     * Detects drop targets under active pointer intrusion (`detect_drop_target_during_intrusion`).
+//!     * Emits `handle_on_dnd_entity_drag` or `handle_on_dnd_id_drag` depending on the `DndDragPayload`.
+//!
+//! #### B. `PointerButton` Processing Flow
+//! * **Pressed**:
+//!   1. **Resize Drag Initiation** (Left-click only): Confirms resize drag start and returns early to prevent child activation.
+//!   2. **Scrollbar Hit Check**: If clicked on a scrollbar, consumes the event and returns early to prevent event pass-through to underlying elements.
+//!   3. **Pressing General Elements**: Updates the pressed state bit via `Pipeline::update_state`. Starts text selection if applicable.
+//!   4. **Focus Resolution**: Evaluates focus theft guards (`should_prevent_focus_steal`) and shifts focus (firing `on_blur` and `on_focus`). Drops focus if the target is non-focusable.
+//!   5. Emits `handle_on_mouse_input`.
+//! * **Released**:
+//!   1. **Finalize Resize Drag**: Terminates the resize session and emits a synthetic `PointerMove` to refresh the cursor state.
+//!   2. **D&D Drop Execution**: Rewrites tree topology (removes and reinserts dragged entities, restores subtrees), invokes drop handlers, and despawns placeholders.
+//!   3. **Scrollbar Update**: Sets dirty flags following drag termination.
+//!   4. **Click Resolution**: If released over the original pressed element, fires `handle_on_click` or `handle_on_right_click`.
+//!
+//! #### C. Additional Action Dispatches
+//! * **`PointerDoubleClick`**: Performs hit testing against text word boundaries to execute double-click word selection.
+//! * **`MouseWheel`**: Walks up the ancestor chain, prioritizing explicit `on_mouse_wheel` handlers. If unhandled, invokes `scroll_by` on the nearest scrollable container and halts event bubbling.
+//! * **`KeyboardKey`**: Automatically manages Tab key focus cycling (`cycle_keyboard_focus_internal`), Enter/Space click emulation, and internal Ctrl+A select-all routines.
+//! * **`Paste` / `Cut` / `Undo` / `Redo`**: Synchronously updates caret indices and the input history buffer (`cont_input_contents`).
+//!
+//! Finally, reclaims the drained event vector back into `cx.events` (zero-allocation preservation).
+//!
+//! ---
+//!
+//! ### 3. `update_state(cx: &mut Context, id: EntityId, state_flag: u128, actived: bool)`
+//!
+//! Evaluates interaction state transitions via bitmasks, performing immediate dynamic style resolution with minimal layout invalidation.
+//!
+//! 1. **Redundant Evaluation Bypass**: Compares against current active flags; returns early if unchanged.
+//! 2. **Flag Mutation**: Toggles target state bits in the SoA.
+//! 3. **Active Layout Cache Invalidation**:
+//!    Resolves dynamic styles associated with the state change (hover, focus, etc.) and updates the active layout cache (`update_resolved_active_layout_cache`).
+//! 4. **Downward Style Propagation**:
+//!    If children contain `ComponentMask::STYLE_INTERACTION_PARENT`, re-resolves child styles in response to parent state changes.
+//! 5. **Ancestor Tree Pruning**:
+//!    Ancestors lacking `ComponentMask::STYLE_INTERACTION_WITHIN` are skipped entirely during layout recalculation.
+//! 6. **Lifecycle Event Emission**: Dispatches `handle_on_disable`, `handle_on_active`, and `handle_on_select`.
+//!
+//! ---
+//!
+//! ### 4. `set_states(cx: &mut Context, id: EntityId, flag: &StateFlag, actived: bool)`
+//!
+//! Translates [`StateFlag`] variants into `ComponentMask` bits (`u128`) and invokes `update_state`.
+//!
+//! * **Keyboard Focus Differentiation**:
+//!   When transitioning to `Focused`, automatically attaches `STATE_FOCUSED_VISIBLE` if triggered via keyboard navigation.
+//!
+//! ---
+//!
+//! ### 5. `sync_layout(cx: &mut Context, root: EntityId, window_size: LayoutSize)`
+//!
+//! A two-pass layout solver coordinating scrollbar-induced viewport shifts and IME positioning.
+//!
+//! 1. **Flushing Pending Effects** (`evaluate_pending_element_effects`):
+//!    Executes all uncommitted signal effects prior to initiating layout measurement.
+//! 2. **Early Return Verification**:
+//!    Skips execution entirely if structural topology (`topo_is_structure_dirty`), style dirty flags (`lay_dirty_entities`), and window dimensions remain unchanged.
+//! 3. **DFS Sequence Rebuilding**: Reconstructs the flat depth-first array (`topo_flat_dfs_sequence`) if structural mutations occurred.
+//! 4. **Taffy Differential Synchronization**: Pushes modified styles into the underlying Taffy tree.
+//! 5. **Taffy Pass 1 (Initial Measurement)**:
+//!    Computes an initial layout pass using known dimension constraints and text content measurement (`measure_content`).
+//! 6. **Primary Rect Finalization**: Swaps double buffers to temporarily determine `out_rects` to accurately assess container overflow.
+//! 7. **Scroll Container Pre-Calculation**: Evaluates `scroll_size` across all scroll containers to determine scrollbar visibility requirements.
+//! 8. **Scrollbar Style Synchronization** (`sync_bar_styles`): Updates scrollbar width, track metrics, and visibility styles.
+//! 9. **Taffy Pass 2 (Final Resolution)**:
+//!    Recomputes the final layout using cached measurements, accounting for content areas deducted by newly visible scrollbars.
+//! 10. **IME & Caret Synchronization**:
+//!     If an input element retains focus, calls the Win32 **IMM32** API (`sync_imm_window_position`) to align the OS IME candidate window directly beneath the resolved caret coordinates.
+//! 11. **Scroll Boundary Clamping**: Automatically clamps container scroll offsets that exceed new boundaries following container resizing.
+//!
+//! ---
+//!
+//! ### 6. `tick_system_frame(cx: &mut Context, tick: &TickType)`
+//!
+//! Advances time-dependent interpolation by one tick.
+//!
+//! * **Transition**: Advances CSS/style transition interpolations (`tick_transitions`).
+//! * **Animation**: Advances active keyframe animations (`tick_animations`).
+//! * **AutoScroll**:
+//!   Advances auto-scrolling. If text content shifts due to scrolling, immediately re-triggers a **synthetic `PointerMove`** at the current pointer coordinates to update drag-selection indices in real time.
+//!
+//! ---
+//!
+//! ### 7. `collect_render_data(cx: &mut Context, view: &mut RendererView)`
+//!
+//! Scans SoA entities to construct GPU instance buffers and segregated draw batches.
+//!
+//! 1. **Font Atlas Pre-Scan & Fallback**:
+//!    Registers all text glyphs for the active frame into the dynamic texture atlas.
+//!    *If glyph insertion forces an atlas overflow (clearing cached textures), an automatic fallback immediately rescans and rebuilds the entire frame's glyph cache from scratch.*
+//! 2. **Sorted Entity Traversal**: Iterates across entities while resolving cumulative transform matrices on the fly.
+//! 3. **`ExternalVisual` (Live Entity) Processing**:
+//!    Appends punch-out instance records and **immediately flushes an isolated punch-out batch**. Subsequently appends foreground decoration instances.
+//! 4. **`ExternalTexture` (Static Capture) Processing**:
+//!    Immediately flushes an independent texture batch to accommodate dedicated texture bind groups.
+//! 5. **Text & Decoration Instance Assembly**:
+//!    * Text selection highlight rects
+//!    * Text background quads + per-glyph instance metrics + foreground passes
+//!    * Fallback rendering for standalone border elements lacking backgrounds
+//!    * Blinking caret instances for active inputs
+//! 6. **Batch Flush**: Concludes by flushing standard UI quad instance batches.
+//!
+//! ---
+//!
+//! ### 8. `handle_accessibility(cx: &mut Context)`
+//!
+//! Governs telemetry and synchronization with Windows UI Automation (via AccessKit).
+//!
+//! 1. Bypasses execution immediately if accessibility features are disabled.
+//! 2. Acquires a reusable snapshot buffer.
+//! 3. Compiles the AccessKit node tree from current topology and text storage (`build_accessibility_snapshot`).
+//! 4. If the diff buffer is empty, skips dispatching to avoid unnecessary thread hops.
+//! 5. Dispatches tree snapshots to worker threads only when structural changes exist.
+//!
+//! ---
+//!
+//! ## Linear Scanning via Two Flat Arrays
+//!
+//! Rather than traversing deep pointer trees or maintaining spatial hierarchies, `michiu_ui` consolidates core engine workloads into two flat, one-dimensional arrays:
+//!
+//! 1. **DFS Sequence Array (`topo_flat_dfs_sequence`)**:
+//!    Represents depth-first tree ordering. Layout solvers (Taffy) and hierarchical style resolutions complete via a single forward linear scan from start to finish.
+//!
+//! 2. **Sorted Entity Array (`topo_sorted_entities`)**:
+//!    A single contiguous array pre-sorted by visibility, cumulative transform, and z-index.
+//!    * **Draw Batch Construction**: Executes a **forward linear scan** (back-to-front) to assemble GPU instances.
+//!    * **Hit Testing**: Executes a **reverse linear scan (`rev()`)** (front-to-back), returning early the instant the topmost entity is encountered.
+//!
+//! Reusing the same contiguous buffer in reverse order eliminating redundant spatial indices.
+
 use crate::{
     AccessibilitySnapshot, AccessibilityStore, ActiveEntitiesVec, ActiveFocusTrigger,
     ActiveMasksSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary,
@@ -601,8 +786,6 @@ impl Pipeline {
             }
 
             // テキスト内容を持っているかチェック
-            // クロージャの外側の Context は直接キャプチャできないため、
-            //  一時的に bind_context されているスレッドローカル経由で取得
             context
                 .as_deref()
                 .copied()

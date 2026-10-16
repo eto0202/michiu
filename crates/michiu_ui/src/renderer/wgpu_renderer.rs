@@ -1,100 +1,119 @@
+//! # `WgpuRenderer`
+//!
+//! The core UI renderer for `michiu_ui`, powered by wgpu (DirectX 12).
+//! It achieves minimal draw calls through **instanced rendering** against a shared 1x1 quad mesh, combined with separate batch pipelines for normal and punch-out passes.
+//!
+//! ---
+//!
+//! ## Rendering Pipeline Lifecycle ([`WgpuRenderer::render`])
+//!
+//! A single frame progresses linearly through the following seven stages:
+//!
+//! ```text
+//! [ Context ]
+//!      │ 1. collect_render_data
+//!      ▼
+//! [ RenderData ] ─── 2. build_quad_instance_for_entity ───► [ instance_staging ]
+//!                                                                 │ 3. queue.write_buffer
+//! ┌───────────────────────────────────────────────────────────────┘
+//! ▼
+//! [ VRAM Instance Buffer ]
+//!      │
+//!      │ 4. begin_render_pass (Bind 1x1 Quad & Config Uniform)
+//!      │
+//!      │ 5. Batch Loop (for batch in render_data.batches)
+//!      │     ├─ Pipeline Selection (Normal: PMA / Punchout: Attenuation Blend)
+//!      │     ├─ Texture Binding (Atlas / ExternalTexture)
+//!      │     ├─ set_scissor_rect (Clipping bounds)
+//!      │     └─ draw_indexed (Instanced draw call)
+//!      │
+//!      ▼
+//! 6. queue.submit & surface.present
+//!      │
+//!      ▼
+//! 7. Return render_data to self (Zero-allocation memory reuse)
+//! ```
+//!
+//! ---
+//!
+//! ### Pipeline Stage Breakdown
+//!
+//! #### Step 1: Collecting Render Data (`collect_render_data`)
+//! Pulls entity data scheduled for the current frame from the `Context`'s SoA via `collect_render_data`.
+//! Updates the dynamic texture atlas and text layout cache through `RendererView`, generating batches segregated into foreground and background passes.
+//!
+//! #### Step 2: Building the Instance Buffer
+//! `michiu_ui` avoids per-element vertex buffer allocations.
+//! All UI primitives (rectangles, rounded panels, borders, text quads) are transformed into [`QuadInstance`] data mapped over a single 1x1 quad mesh. Properties such as bounds, corners, SDF parameters, and colors are packed into `instance_staging`.
+//!
+//! #### Step 3: VRAM Upload
+//! Uploads the packed instance array to the GPU's `instance_buffer` in a single contiguous transfer via `queue.write_buffer`.
+//!
+//! #### Steps 4–5: Render Pass and Batch Dispatch
+//! Instantiates a command encoder, binds the shared quad buffers and viewport uniforms (`config_bind_group`), and iterates through render batches:
+//!
+//! * **Dynamic Pipeline Switching**:
+//!   * `BatchType::Normal`: Standard UI elements using Pre-Multiplied Alpha (PMA) compositing.
+//!   * `BatchType::Punchout`: Transparent cutouts for `ExternalVisual`s using `Zero` + `OneMinusSrcAlpha` blending.
+//!   * *Note: Pipeline bindings are cached and only re-bound on batch type transitions to minimize driver state changes.*
+//! * **Dynamic Texture Binding**:
+//!   Switches between the glyph atlas and cached static captures (`ExternalTexture` in `external_bind_groups`) according to batch requirements.
+//! * **Hardware Scissor Clipping**:
+//!   Constrains layout overflows (`overflow: hidden`) and scroll viewports via physical-pixel `set_scissor_rect` calls.
+//! * **Draw Invocation**:
+//!   Executes instanced draw calls via `draw_indexed` across all quads within the active batch.
+//!
+//! #### Steps 6–7: Submission and Zero-Allocation Reclamation
+//! Submits encoded command buffers to the GPU queue and presents the swap chain surface.
+//! Reclaims `render_data` back into `self.render_data` to preserve vector capacities for subsequent frames, eliminating recurrent heap allocations.
+//!
+//! ---
+//!
+//! ## Key Struct Fields
+//!
+//! | Field | Type | Responsibility |
+//! | :--- | :--- | :--- |
+//! | **`surface` / `device` / `queue`** | wgpu core types | DirectX 12 logical device, command queue, and presentation surface |
+//! | **`pipeline`** | `wgpu::RenderPipeline` | Standard UI rendering pipeline (Pre-Multiplied Alpha) |
+//! | **`punchout_pipeline`** | `wgpu::RenderPipeline` | Cutout pipeline for ExternalVisuals (attenuation blending) |
+//! | **`vertex_buffer` / `index_buffer`** | `wgpu::Buffer` | Shared 1x1 quad unit mesh used across all primitives |
+//! | **`instance_buffer`** | `wgpu::Buffer` | GPU instance storage holding quad transforms, bounds, and SDF data |
+//! | **`atlas`** | `TextureAtlas` | Dynamic font glyph and icon atlas |
+//! | **`text_cache`** | `FxHashMap` | Cache for shaped text layouts and positioned glyph clusters |
+//! | **`external_bind_groups`** | `FxHashMap` | Cached bind groups for static image fallbacks (`ExternalTexture`) |
+//!
+//! ---
+//!
+//! ## Low-Level Operations and Escape Hatches ([`RawWgpuRenderer<'a>`] & [`RawMichiuRenderer<'a>`])
+//!
+//! While structural fields are encapsulated via `pub(crate)`, advanced extensions can bypass abstractions through [`raw_wgpu_renderer_mut`](WgpuRenderer::raw_wgpu_renderer_mut) and [`raw_michiu_renderer_mut`](MichiuRenderer::raw_michiu_renderer_mut).
+//!
+//! ### Internal Design: Split Borrowing via Raw Renderers
+//!
+//! [`MichiuRenderer`] mirrors `Context`'s split-borrow design. [`RawWgpuRenderer`] can be acquired exclusively through [`MichiuRenderer::raw_wgpu_renderer_mut`](MichiuRenderer::raw_wgpu_renderer_mut):
+//!
+//! ```rust,ignore
+//! // Deconstruct renderer fields into independent mutable borrows
+//! let mut raw_michiu = renderer.raw_michiu_renderer_mut();
+//! let mut raw_wgpu = raw_michiu.raw_wgpu_renderer_mut();
+//!
+//! // Safely dispatch distinct GPU resources across disparate functions concurrently
+//! upload_resources(raw_wgpu.device, raw_wgpu.queue, raw_wgpu.instance_buffer);
+//! update_atlas(raw_wgpu.atlas, raw_wgpu.temp_uv_map);
+//! ```
+//!
+//! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
+
 use crate::{
-    BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, CornerRadius,
-    DEFAULT_BASIC, DEFAULT_FLEX, DrawBatch, EdgeInsets, EntityId, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, Length, MichiuError, MichiuSoA, MichiuTrace, OutputStore, Pipeline,
-    QuadInstance, RenderData, RendererView, TextAlign, TextCacheKey, TextCacheValue, TextSpan,
-    TextureAtlas, Vertex, VisualProperty, trace_lifecycle,
+    BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, DEFAULT_BASIC,
+    DEFAULT_FLEX, DrawBatch, EdgeInsets, EntityId, LayoutSize, MichiuError, MichiuSoA, Pipeline,
+    QuadInstance, RenderData, RendererView, TextCacheKey, TextCacheValue, TextureAtlas, Vertex,
+    VisualProperty,
 };
 use rustc_hash::FxHashMap;
 use slotmap::SecondaryMap;
-use std::collections::HashMap;
-use std::num::NonZeroIsize;
-use std::sync::Arc;
 use wgpu::util::DeviceExt;
-use wgpu::wgt::CommandEncoderDescriptor;
-use wgpu::{CurrentSurfaceTexture, PipelineCompilationOptions};
 
-/// The core UI renderer for `michiu_ui`, powered by wgpu (DirectX 12).
-/// It achieves minimal draw calls through **instanced rendering** against a shared 1x1 quad mesh, combined with separate batch pipelines for normal and punch-out passes.
-///
-/// ---
-///
-/// ## Rendering Pipeline Lifecycle ([`WgpuRenderer::render`])
-///
-/// A single frame progresses linearly through the following seven stages:
-///
-/// ```text
-/// [ Context ]
-///      │ 1. collect_render_data
-///      ▼
-/// [ RenderData ] ─── 2. build_quad_instance_for_entity ───► [ instance_staging ]
-///                                                                 │ 3. queue.write_buffer
-/// ┌───────────────────────────────────────────────────────────────┘
-/// ▼
-/// [ VRAM Instance Buffer ]
-///      │
-///      │ 4. begin_render_pass (Bind 1x1 Quad & Config Uniform)
-///      │
-///      │ 5. Batch Loop (for batch in render_data.batches)
-///      │     ├─ Pipeline Selection (Normal: PMA / Punchout: Attenuation Blend)
-///      │     ├─ Texture Binding (Atlas / ExternalTexture)
-///      │     ├─ set_scissor_rect (Clipping bounds)
-///      │     └─ draw_indexed (Instanced draw call)
-///      │
-///      ▼
-/// 6. queue.submit & surface.present
-///      │
-///      ▼
-/// 7. Return render_data to self (Zero-allocation memory reuse)
-/// ```
-///
-/// ---
-///
-/// ### Pipeline Stage Breakdown
-///
-/// #### Step 1: Collecting Render Data (`collect_render_data`)
-/// Pulls entity data scheduled for the current frame from the `Context`'s SoA via `collect_render_data`.
-/// Updates the dynamic texture atlas and text layout cache through `RendererView`, generating batches segregated into foreground and background passes.
-///
-/// #### Step 2: Building the Instance Buffer
-/// `michiu_ui` avoids per-element vertex buffer allocations.
-/// All UI primitives (rectangles, rounded panels, borders, text quads) are transformed into [`QuadInstance`] data mapped over a single 1x1 quad mesh. Properties such as bounds, corners, SDF parameters, and colors are packed into `instance_staging`.
-///
-/// #### Step 3: VRAM Upload
-/// Uploads the packed instance array to the GPU's `instance_buffer` in a single contiguous transfer via `queue.write_buffer`.
-///
-/// #### Steps 4–5: Render Pass and Batch Dispatch
-/// Instantiates a command encoder, binds the shared quad buffers and viewport uniforms (`config_bind_group`), and iterates through render batches:
-///
-/// * **Dynamic Pipeline Switching**:
-///   * `BatchType::Normal`: Standard UI elements using Pre-Multiplied Alpha (PMA) compositing.
-///   * `BatchType::Punchout`: Transparent cutouts for `ExternalVisual`s using `Zero` + `OneMinusSrcAlpha` blending.
-///   * *Note: Pipeline bindings are cached and only re-bound on batch type transitions to minimize driver state changes.*
-/// * **Dynamic Texture Binding**:
-///   Switches between the glyph atlas and cached static captures (`ExternalTexture` in `external_bind_groups`) according to batch requirements.
-/// * **Hardware Scissor Clipping**:
-///   Constrains layout overflows (`overflow: hidden`) and scroll viewports via physical-pixel `set_scissor_rect` calls.
-/// * **Draw Invocation**:
-///   Executes instanced draw calls via `draw_indexed` across all quads within the active batch.
-///
-/// #### Steps 6–7: Submission and Zero-Allocation Reclamation
-/// Submits encoded command buffers to the GPU queue and presents the swap chain surface.
-/// Reclaims `render_data` back into `self.render_data` to preserve vector capacities for subsequent frames, eliminating recurrent heap allocations.
-///
-/// ---
-///
-/// ## Key Struct Fields
-///
-/// | Field | Type | Responsibility |
-/// | :--- | :--- | :--- |
-/// | **`surface` / `device` / `queue`** | wgpu core types | DirectX 12 logical device, command queue, and presentation surface |
-/// | **`pipeline`** | `wgpu::RenderPipeline` | Standard UI rendering pipeline (Pre-Multiplied Alpha) |
-/// | **`punchout_pipeline`** | `wgpu::RenderPipeline` | Cutout pipeline for ExternalVisuals (attenuation blending) |
-/// | **`vertex_buffer` / `index_buffer`** | `wgpu::Buffer` | Shared 1x1 quad unit mesh used across all primitives |
-/// | **`instance_buffer`** | `wgpu::Buffer` | GPU instance storage holding quad transforms, bounds, and SDF data |
-/// | **`atlas`** | `TextureAtlas` | Dynamic font glyph and icon atlas |
-/// | **`text_cache`** | `FxHashMap` | Cache for shaped text layouts and positioned glyph clusters |
-/// | **`external_bind_groups`** | `FxHashMap` | Cached bind groups for static image fallbacks (`ExternalTexture`) |
 pub struct WgpuRenderer {
     pub(crate) surface: wgpu::Surface<'static>,
     pub(crate) device: wgpu::Device,
@@ -379,7 +398,7 @@ impl WgpuRenderer {
                         shader_location: 0,
                     }],
                 })],
-                compilation_options: PipelineCompilationOptions::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: shader,
@@ -389,7 +408,7 @@ impl WgpuRenderer {
                     blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: PipelineCompilationOptions::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
@@ -421,7 +440,7 @@ impl WgpuRenderer {
                         shader_location: 0,
                     }],
                 })],
-                compilation_options: PipelineCompilationOptions::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: shader,
@@ -445,7 +464,7 @@ impl WgpuRenderer {
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                compilation_options: PipelineCompilationOptions::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
@@ -611,15 +630,15 @@ impl WgpuRenderer {
         );
 
         #[cfg(feature = "trace-lifecycle")]
-        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::WriteBuffer {
-            staging: Arc::from(self.instance_staging.clone()),
+        crate::trace_lifecycle!(None, &mut cx.debug, || crate::MichiuTrace::WriteBuffer {
+            staging: std::sync::Arc::from(self.instance_staging.clone()),
             add: None,
         });
 
         // 背面の描画実行
         let mut encoder = self
             .device
-            .create_command_encoder(&CommandEncoderDescriptor::default());
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Background Render Pass"),
@@ -707,7 +726,9 @@ impl WgpuRenderer {
         self.queue.present(surface_texture);
 
         #[cfg(feature = "trace-lifecycle")]
-        trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Present { add: None });
+        crate::trace_lifecycle!(None, &mut cx.debug, || crate::MichiuTrace::Present {
+            add: None
+        });
 
         // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュ
         let _ = self.device.poll(wgpu::PollType::Poll);
