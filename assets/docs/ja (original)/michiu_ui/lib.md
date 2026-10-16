@@ -285,7 +285,7 @@ pub fn create_root() -> Element {
 // 2. 下流の任意のコンポーネントで購読
 fn some_label() -> Element {
     // provide された Theme から primary カラーを購読（自動追従）
-    label("Hello", ts().text_color(dynamic(|t: &Theme| t.primary)))
+    div_n().label("Hello", ts().text_color(dynamic(|t: &Theme| t.primary)))
 }
 ```
 

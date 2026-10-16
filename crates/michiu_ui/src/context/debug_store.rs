@@ -126,14 +126,18 @@ impl DebugStore {
     }
 
     #[inline]
-    pub(crate) fn take_trace_queue(&mut self) -> MichiuTraceVec {
+    pub(crate) fn take_trace_queue(&mut self) -> Option<MichiuTraceVec> {
+        if self.dbg_trace_queue.is_empty() {
+            return None;
+        }
+
         // 直前の容量を取得
         let next_capacity = self.dbg_trace_queue.capacity().max(512);
 
-        std::mem::replace(
+        Some(std::mem::replace(
             &mut self.dbg_trace_queue,
             MichiuTraceVec(Vec::with_capacity(next_capacity)),
-        )
+        ))
     }
 
     #[inline]
@@ -1029,8 +1033,9 @@ macro_rules! flush_trace {
 
         if let Some(tx) = $cx.debug.dbg_tx.clone() {
             $cx.debug.frame += 1;
-            let batch = $cx.debug.take_trace_queue();
-            tx.send_batch(batch);
+            if let Some(batch) = $cx.debug.take_trace_queue() {
+                tx.send_batch(batch);
+            }
         }
     };
 }

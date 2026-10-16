@@ -5,44 +5,140 @@ use crate::{
     ResultTraceExt, StaticExternalTexture, VisualUpdateContext, WgpuRenderer,
     WindowsResultTraceExt, flush_trace, trace_error, trace_lifecycle,
 };
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    sync::{Arc, Mutex, OnceLock},
-};
+use std::sync::{Arc, OnceLock};
 use windows::{
     Win32::{
-        Foundation::{HMODULE, HWND, LPARAM, POINT, RECT, WPARAM},
+        Foundation::{HMODULE, HWND, LPARAM, WPARAM},
         Graphics::{
-            Direct3D::{D3D_DRIVER_TYPE_HARDWARE, ID3DInclude_Impl},
+            Direct3D::D3D_DRIVER_TYPE_HARDWARE,
             Direct3D11::{
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
                 ID3D11Device,
             },
             DirectComposition::{
-                DCompositionCreateDevice2, IDCompositionDesktopDevice,
-                IDCompositionDesktopDevice_Impl, IDCompositionDevice, IDCompositionDevice_Impl,
-                IDCompositionDevice2_Impl, IDCompositionRectangleClip_Impl, IDCompositionTarget,
-                IDCompositionTarget_Impl, IDCompositionTranslateTransform_Impl,
-                IDCompositionTranslateTransform3D_Impl, IDCompositionVisual,
-                IDCompositionVisual_Impl, IDCompositionVisual2, IDCompositionVisual3_Impl,
+                DCompositionCreateDevice2, IDCompositionDesktopDevice, IDCompositionDevice,
+                IDCompositionTarget, IDCompositionVisual2,
             },
-            Dxgi::*,
-            Gdi::InvalidateRect,
             Imaging::{CLSID_WICImagingFactory, IWICImagingFactory},
         },
-        System::{
-            Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
-            LibraryLoader::GetModuleHandleW,
-        },
-        UI::WindowsAndMessaging::{
-            GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WM_MOUSEHWHEEL, WM_MOUSEWHEEL,
-        },
+        System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
     },
-    core::{Interface, PCWSTR, PWSTR, w},
+    core::Interface,
 };
 use windows_numerics::Matrix3x2;
 
+/// The top-level orchestrator integrating Windows DirectComposition with wgpu (DirectX 12).
+/// It coordinates the foreground UI layer ([`WgpuRenderer`]) with the background composition layer (DirectComposition visual tree) hosting zero-copy [`ExternalVisual`]s.
+///
+/// ---
+///
+/// ## Visual Tree Hierarchy
+///
+/// `MichiuRenderer` constructs and maintains the following tree hierarchy over the target window (`HWND`):
+///
+/// ```text
+/// IDCompositionTarget (Window association)
+///   └─ root_visual
+///        ├─ cont_external_visual (Underlay: ExternalVisual collection)
+///        └─ wgpu_visual          (Overlay: wgpu UI surface + punch-outs)
+/// ```
+///
+/// ## Execution Lifecycle (`update_composition_tree` → `draw`)
+///
+/// Frame progression within `MichiuRenderer` operates across two discrete phases:
+/// **DirectComposition tree synchronization (state evaluation and cutout dispatch)** followed by **wgpu execution and commit**.
+///
+/// ### Phase 1: `update_composition_tree`
+///
+/// Evaluated immediately following layout finalization (`sync_layout`), synchronizing `ExternalVisual` states with the DComp tree.
+///
+/// 1. **Backdrop Synchronization**:
+///    Applies system-level materials (Mica, Acrylic) to the target window.
+///
+/// 2. **Delayed Release Queue Processing**:
+///    Advances `pending_dcomp_releases`, safely unlinking Visuals whose replacement wgpu pixels have completed presentation (`RemoveVisual`).
+///
+/// 3. **Stability Pre-Evaluation**:
+///    Inspects each `ExternalVisual` to determine stability (e.g., active resizing, transition cooldowns, or animation state). The evaluated flag governs freeze-capture eligibility.
+///
+/// 4. **External Visual State Hook ([`ExternalVisual::update`](crate::ExternalVisual::update))**:
+///    Supplies stability flags and device handles via [`VisualUpdateContext`](crate::VisualUpdateContext) to invoke element update callbacks:
+///
+///    ```rust,ignore
+///    pub struct VisualUpdateContext<'a> {
+///        pub hwnd: HWND,
+///        pub rect: LayoutRect,
+///        pub scale_factor: f32,
+///        pub is_interactive: bool,
+///        pub is_stable: bool,
+///        pub device: &'a wgpu::Device,
+///        pub queue: &'a wgpu::Queue,
+///        pub wic_factory: &'a IWICImagingFactory,
+///    }
+///    ```
+///    *`ExternalVisual` instances use this context to autonomously capture static fallbacks during stable frames or decode assets via WIC.*
+///
+/// 5. **Transform and Clip Synchronization (`sync_visual_layout_and_clip`)**:
+///    Propagates resolved screen coordinates, scaling metrics, and viewport clipping bounds to the underlying DComp Visuals.
+///
+/// 6. **Static Capture vs. Live Visual Branching**:
+///    Determines rendering mode based on the return value of [`static_texture`](crate::ExternalVisual::static_texture):
+///    * **Static Texture Available (`Some`)**: Unmounts the live Visual from the DComp tree, falling back to lightweight texture rendering inside `WgpuRenderer`.
+///    * **Live Native Visual (`None`)**: Mounts the Visual directly into the DComp underlay and flags the wgpu render pass to punch out the corresponding bounds (`cx.renders.rnd_active_external_visual.insert(id)`).
+///
+/// 7. **Dormant Entity Cleanup**:
+///    Detaches (`RemoveVisual`) and frees despawned or inactive `ExternalVisual` nodes from the composition tree.
+///
+/// ---
+///
+/// ### Phase 2: `draw`
+///
+/// Finalizes pixel output, presents composition changes, and flushes diagnostics.
+///
+/// ```rust,ignore
+/// pub(crate) fn draw(&mut self, cx: &mut Context) {
+///     // 1. Render foreground UI via wgpu
+///     self.wgpu_renderer.render(cx, self.scale_factor);
+///
+///     // 2. Commit atomic DirectComposition state to DWM
+///     unsafe {
+///         self.desktop_device
+///             .Commit()
+///             .unwrap_or_trace(None, &mut cx.debug);
+///     };
+///
+///     // 3. Clear dirty flags across the Context upon successful GPU submission
+///     cx.clear_dirty();
+///
+///     // 4. Frame terminus: Flush profiling traces
+///     flush_trace!(cx, self);
+/// }
+/// ```
+///
+/// 1. **`wgpu_renderer.render`**:
+///    Executes punch-out cutouts and composites UI primitives onto the surface via instanced rendering.
+/// 2. **`Commit()`**:
+///    Atomically presents the foreground wgpu surface alongside background `ExternalVisual` trees to the Desktop Window Manager (DWM).
+/// 3. **`cx.clear_dirty()`**:
+///    Resets dirty tracking across the `Context`, acknowledging that all pending mutations have been submitted to the GPU.
+/// 4. **`flush_trace!`**:
+///    Flushes telemetry and performance traces to external inspectors ([`MichiuInspector`](crate::MichiuInspector)).
+///
+/// ---
+///
+/// ## Key Struct Fields
+///
+/// | Field | Type | Responsibility |
+/// | :--- | :--- | :--- |
+/// | **`hwnd`** | `HWND` | Target Win32 window handle |
+/// | **`layout_size` / `scale_factor`** | `LayoutSize` / `f32` | Viewport dimensions and DPI scaling multiplier |
+/// | **`d3d11_device` / `desktop_device`** | D3D11 / DComp types | Core Windows graphics infrastructure driving DirectComposition |
+/// | **`target` / `root_visual`** | `IDComposition...` | Root visual tree target bound to the window |
+/// | **`wgpu_visual`** | `IDCompositionVisual2` | Visual hosting the wgpu swap chain presentation surface |
+/// | **`wgpu_renderer`** | [`WgpuRenderer`] | Subsystem driving instanced UI rendering and punch-out operations |
+/// | **`promoted_visuals`** | `Vec<PromotedVisual>` | Active external visuals mounted into the composition tree |
+/// | **`pending_dcomp_releases`** | `Vec<PendingDcompRelease>` | Release queue deferring Visual destruction to prevent frame flicker |
+/// | **`current_backdrop`** | `Backdrop` | Active system material configuration (Mica, Acrylic) |
 pub struct MichiuRenderer {
     pub(crate) hwnd: HWND,
     pub(crate) layout_size: LayoutSize,
@@ -50,27 +146,27 @@ pub struct MichiuRenderer {
 
     pub(crate) wic_factory: IWICImagingFactory,
 
-    /// `DirectComposition` リソース
+    // `DirectComposition` リソース
     pub(crate) d3d11_device: ID3D11Device,
     pub(crate) desktop_device: IDCompositionDesktopDevice,
     pub(crate) target: IDCompositionTarget,
     pub(crate) root_visual: IDCompositionVisual2,
-    /// wgpu 用のビジュアル
+    // wgpu 用のビジュアル
     pub(crate) wgpu_visual: IDCompositionVisual2,
 
-    /// wgpu レンダラー
+    // wgpu レンダラー
     pub(crate) wgpu_renderer: WgpuRenderer,
 
-    /// 動的に昇格されたレイヤーの一覧
+    // 動的に昇格されたレイヤーの一覧
     pub(crate) promoted_visuals: Vec<PromotedVisual>,
 
-    /// `DComp` 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
+    // `DComp` 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
     pub(crate) pending_dcomp_releases: Vec<PendingDcompRelease>,
 
-    /// 現在ウィンドウに適用中のバックドロップ状態
+    // 現在ウィンドウに適用中のバックドロップ状態
     pub(crate) current_backdrop: Backdrop,
 
-    /// リサイズが完全に安定するまでキャプチャを保留するカウンター
+    // リサイズが完全に安定するまでキャプチャを保留するカウンター
     pub(crate) resize_cooldown_frames: u32,
 }
 
@@ -100,16 +196,12 @@ impl MichiuRenderer {
         layout_size: LayoutSize,
         scale_factor: f32,
     ) -> crate::Result<Self> {
-        // DirectComposition の構築 (setup_direct_composition を内包)
+        // DirectComposition の構築
         let (d3d11_device, desktop_device, target, root_visual, wgpu_visual) =
             MichiuRenderer::setup_direct_composition(hwnd)?;
 
-        // HINSTANCE（h_instance）の解決
-        let h_instance = unsafe { GetModuleHandleW(None)? };
-
         // wgpu レンダラーの初期化
         let raw_visual_ptr = wgpu_visual.as_raw();
-
         let wgpu_renderer = WgpuRenderer::new(raw_visual_ptr, layout_size, scale_factor).await?;
 
         unsafe {
@@ -521,9 +613,7 @@ impl MichiuRenderer {
         IDCompositionVisual2, // wgpu_visual
     )> {
         unsafe {
-            // 1. D3D11 デバイスを作成
-            // グローバルなマネージャーの解決を試みる（失敗時は呼び出し元にエラーを伝播できるよう、後々 Result にするか
-            // ここではひとまず unwrap() などで処理する形
+            // D3D11 デバイスを作成
             let manager = DCompDeviceManager::global()?;
             let d3d11_device = manager.d3d11_device.clone();
             let desktop_device = manager.desktop_device.clone();
@@ -670,8 +760,8 @@ impl MichiuRenderer {
 
     #[inline]
     #[must_use]
-    pub fn raw_composed_renderer_mut(&mut self) -> RawComposedRenderer<'_> {
-        RawComposedRenderer {
+    pub fn raw_michiu_renderer_mut(&mut self) -> RawMichiuRenderer<'_> {
+        RawMichiuRenderer {
             hwnd: &mut self.hwnd,
             layout_size: &mut self.layout_size,
             scale_factor: &mut self.scale_factor,
@@ -689,7 +779,7 @@ impl MichiuRenderer {
     }
 }
 
-pub struct RawComposedRenderer<'a> {
+pub struct RawMichiuRenderer<'a> {
     pub hwnd: &'a mut HWND,
     pub layout_size: &'a mut LayoutSize,
     pub scale_factor: &'a mut f32,
