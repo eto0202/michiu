@@ -359,21 +359,6 @@ pub fn grid_box(style: impl Into<Prop<ThisStyle>>) -> Element {
     el.style(ts().grid()).style(style)
 }
 
-/// A container used for block placement.
-///
-/// # Examples
-/// ```no_run
-/// # use crate::prelude::*;
-/// # fn examples() -> Element {
-///    block_box(ts().size_half())
-/// # }
-/// ```
-#[inline]
-pub fn block_box(style: impl Into<Prop<ThisStyle>>) -> Element {
-    let el = Element::new();
-    el.style(ts().block()).style(style)
-}
-
 /// Hidden Container
 ///
 /// # Examples
