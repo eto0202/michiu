@@ -12,8 +12,8 @@ pub fn header() -> Element {
             .border_bottom(BorderStyle::Solid, 1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     )
-    .children([search_box(), toggle_btn()])
-    .a11y_role(Role::Header)
+    .children([search_box(), toggle_btn(), window_controll()])
+    .tag::<a11y::AHeader>()
 }
 
 fn search_box() -> Element {
@@ -100,7 +100,7 @@ fn toggle_btn() -> Element {
             .size((50.0, 26.0))
             .bg_color(track_color)
             .absolute()
-            .right(10.0)
+            .right(160.0)
             .focusable_self_keyboard()
             .focused(
                 ts().outline_solid(1.0)
@@ -123,4 +123,29 @@ fn toggle_btn() -> Element {
     .on_click(mode_change);
 
     btn_wrapper.child(btn_inner)
+}
+
+fn window_controll() -> Element {
+    let base_btn = |label: &'static str| {
+        flex(ts().h_full().justify_center().items_center().w(47.0)).label(
+            label,
+            ts().font_size(14.0).text_color(dynamic(|t: &Theme| t.text)),
+        )
+    };
+
+    let style = ts().hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover)));
+
+    h_flex(ts().absolute().right(0.0).h_full().w(141.0)).children([
+        base_btn("－").style(&style).on_click_with(|cx| {
+            let handle = cx.use_provided::<WindowHandle>().get();
+            handle.set_minimize();
+        }),
+        base_btn("▢").style(&style),
+        base_btn("✕")
+            .style(ts().hovered(ts().bg_color(rgb(232, 17, 35))))
+            .on_click_with(|cx| {
+                let handle = cx.use_provided::<WindowHandle>().get();
+                handle.destroy();
+            }),
+    ])
 }

@@ -115,10 +115,9 @@ fn tag_btn() -> Element {
             style.clone().pressed_parent(ts().text_color(Color::WHITE)),
         )
         .on_click_with(move |cx| {
-            if let Some(el) = cx.try_query_first::<MichiuTag>() {
-                count += 1;
-                el.set_contents(div_n().label(move || format!("Tag: {count}"), &style));
-            }
+            let el = cx.query_first::<MichiuTag>();
+            count += 1;
+            el.set_contents(div_n().label(move || format!("Tag: {count}"), &style));
         });
 
     h_flex(

@@ -331,7 +331,7 @@ impl TopologyStore {
         // 古い子要素（およびその子孫）を完全に安全デスポーン
         TopologyStore::despawn_internal(
             old_child, window, system, reactive, events, contents, topology, states, layouts,
-            renders, outputs, debug, acce,
+            renders, outputs, acce, debug,
         );
 
         LayoutStore::mark_layout_dirty(
@@ -360,8 +360,8 @@ impl TopologyStore {
         layouts: &mut LayoutStore,
         renders: &mut RenderStore,
         outputs: &mut OutputStore,
-        debug: &mut DebugStore,
         acce: &mut AccessibilityStore,
+        debug: &mut DebugStore,
     ) {
         if !topology.topo_entities.contains_key(id) {
             return;
@@ -407,7 +407,7 @@ impl TopologyStore {
             for child_id in children_list {
                 TopologyStore::despawn_internal(
                     child_id, window, system, reactive, events, contents, topology, states,
-                    layouts, renders, outputs, debug, acce,
+                    layouts, renders, outputs, acce, debug,
                 );
             }
         }
@@ -459,7 +459,7 @@ impl TopologyStore {
             if has_no_parent && is_not_root {
                 TopologyStore::despawn_internal(
                     id, window, system, reactive, events, contents, topology, states, layouts,
-                    renders, outputs, debug, acce,
+                    renders, outputs, acce, debug,
                 );
             }
         }
@@ -996,7 +996,7 @@ impl TopologyStore {
 
     #[track_caller]
     #[inline]
-    pub(crate) fn quer_first<T: 'static>(
+    pub(crate) fn query_first<T: 'static>(
         topo_tag_registry: &mut MichiuTagRegistry,
         debug: &mut DebugStore,
     ) -> Element {
@@ -1259,19 +1259,9 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
-            &mut self.debug,
             &mut self.acce,
+            &mut self.debug,
         );
-    }
-
-    /// ウィンドウ内の最上位ルート要素の `EntityId` を自律解決して返します。
-    #[inline]
-    pub(crate) fn find_root_entity(&self) -> Option<EntityId> {
-        TopologyStore::find_root_entity(
-            &self.topology.topo_entities,
-            &self.topology.topo_parents,
-            &self.topology.topo_flat_dfs_sequence,
-        )
     }
 }
 

@@ -1,3 +1,127 @@
+//! # `Context`
+//!
+//! A central database maintaining the entire state of the UI application, serving as the core struct that aggregates pipeline operations.
+//!
+//! ---
+//!
+//! ## Overview
+//!
+//! `Context` is not a bloated “god object” that encapsulates logic; rather, it is designed as a centralized database bundling multiple role-specific stores.
+//! Each store contains a Structure of Arrays (SoA) categorized by its responsibility along with dedicated associated functions. By explicitly passing only the required SoA slices to each processing phase via split borrowing, it achieves a zero-cost, memory-safe internal pipeline.
+//!
+//! For application developers, these functions are aggregated and exposed as convenient methods directly on `Context`.
+//!
+//! ---
+//!
+//! ## Important Constraint: Threading Model
+//!
+//! > **Warning: UI Thread Affinity**
+//! > `Context` is bound to a thread-local context and **can only be accessed and manipulated on the main thread (UI thread)**.
+//! > Direct manipulation of `Context` from background (worker) threads is not supported.
+//!
+//! To update state from a worker thread, dispatch messages back to the UI thread using the crate's asynchronous task dispatch system or standard channels (such as `std::sync::mpsc`).
+//!
+//! ---
+//!
+//! ## Two Primary Usage Scenarios
+//!
+//! In application development, you will primarily interact with `Context` (or `&mut Context`) in the following two contexts:
+//!
+//! ### 1. Lifecycle Control Within the Main Loop
+//! When driving your own window procedure or event loop, you explicitly invoke each phase of the pipeline:
+//!
+//! * [`inject_action`](Context::inject_action): Enqueues OS input events
+//! * [`begin_frame`](Context::begin_frame): Flushes the event queue and updates interaction states
+//! * [`tick_system_frame`](Context::tick_system_frame): Advances animations and internal timers
+//! * [`sync_layout`](Context::sync_layout): Executes two-pass Flexbox layout resolution
+//! * [`update_accessibility`](Context::update_accessibility): Synchronizes the AccessKit tree
+//!
+//! ### 2. Element Manipulation Within Event Handlers
+//! In `_with`-style handlers (such as `on_click_with`), the context is provided via the `cx: &mut Context` parameter:
+//!
+//! * `cx.current()`: Retrieves the element that triggered the event
+//! * `cx.query_first::<T>()` / `cx.try_query_first::<T>()`: Searches for other elements using a marker tag
+//! * `cx.find_root_entity()`: Retrieves the root element
+//! * `cx.pointer_position()` / `cx.window_last_size()`: Retrieves the current pointer position or window dimensions
+//!
+//! For additional methods, please refer to the [`Context`] method documentation.
+//!
+//! ---
+//!
+//! ## Internal Structure: Independent Stores
+//!
+//! Internally, `Context` is divided into distinct stores aligned with the execution phases of the pipeline:
+//!
+//! | Category | Store | Responsibilities & Stored Data |
+//! | :--- | :--- | :--- |
+//! | **Environment & System** | `window` | Window properties |
+//! | | `system` | Text layout engine and task messaging subsystem |
+//! | **Structure & State** | `events` | Event listeners and active interaction states (hover, focus, etc.) |
+//! | | `reactive` | Signals, reactive dependencies, and effect runtimes |
+//! | | `contents` | Text strings and dynamic input content |
+//! | | `topology` | Primary entity lifecycle map and structural tree hierarchies |
+//! | | `states` | Drag-and-drop, resize, scrolling, and text selection state |
+//! | **Computation & Evaluation** | `layouts` | Base, current, and resolved layout measurements |
+//! | **Rendering & Output** | `renders` | Non-layout visual properties and animation states |
+//! | | `outputs` | Absolute coordinate caches across current and previous frames |
+//! | | `acce` | Node tree synchronized with AccessKit |
+//! | **Diagnostics** | `debug` | Logs, profiling traces, and snapshot data for MichiuInspector |
+//!
+//! ---
+//!
+//! ## Internal Architecture
+//!
+//! In Rust, inter-method state mutation on a monolithic struct (`Context`) typically triggers `&mut self` borrow conflicts.
+//! `michiu_ui` circumvents this without runtime overhead using a clean three-layer model:
+//!
+//! 1. **Store Layer**:
+//!    Domain logic is encapsulated within associated functions on each store. This keeps namespaces clean, and each function takes only the exact SoA slices it needs.
+//!    All parameters use store-specific prefixes, and argument ordering is strictly defined *(not that we always stick to it ourselves, though)*.
+//! 2. **[`Pipeline`] Layer**:
+//!    Executes **split borrowing** across the stores in `Context`, treating them as distinct fields, and dispatches them into the relevant store functions in sequential order. The entire frame lifecycle is centralized here.
+//! 3. **Context Layer**:
+//!    Wraps the store and pipeline invocations into a coherent, developer-friendly facade API.
+//!
+//! ---
+//!
+//! ## Low-Level Operations and Escape Hatches (`RawContext`)
+//!
+//! While `Context` fields are encapsulated via `pub(crate)`, advanced developers implementing custom renderers or tailoring the pipeline can use [`raw_context_mut`](Context::raw_context_mut) as an escape hatch to directly access internal stores and raw SoA buffers.
+//!
+//! ### Why Use `RawContext`? (Enabling Split Borrows)
+//!
+//! Calling methods on `&mut Context` causes Rust's borrow checker to mutably borrow the entire structure exclusively.
+//! Because [`RawContext<'a>`] exposes all stores as individual `pub &'a mut Store` fields, it enables advanced split borrows—such as simultaneously taking mutable borrows of the layout and render stores and passing them to distinct functions.
+//!
+//! ```rust,ignore
+//! use michiu_ui::prelude::*;
+//!
+//! let mut context = Context::new();
+//!
+//! // 1. Obtain a RawContext where each store is exposed as an independent mutable reference
+//! let mut raw = context.raw_context_mut();
+//!
+//! // 2. Perform split borrows across multiple stores simultaneously
+//! // Example: Access the raw SoA buffers for topology and layout concurrently
+//! let entities: &mut EntitiesSlot = raw.topology.entities_mut();
+//! let basic: &mut BasicLayoutsSecondary = raw.layouts.basic_mut();
+//!
+//! custom_low_level_pass(entities, basic);
+//! ```
+//!
+//! ### Primary Use Cases
+//!
+//! * **Custom Pipeline Assembly**:
+//!   When you need to reconstruct frame execution steps with custom timing or order, bypassing the default [`Pipeline`].
+//! * **Direct SoA Mutation**:
+//!   When bypassing library processing to directly modify or add to the SoA.
+//! * **External Diagnostics & Tooling**:
+//!   When extracting live internal metrics or entity structures for custom visualization. (Note: for general logging and snapshots, [`MichiuInspector`] is recommended).
+//!
+//! > **Warning: Preserving Internal Invariants**
+//! > Methods with the `_mut` suffix (which return raw mutable references to SoA buffers) completely bypass automatic dependency propagation and dirty-flag tracking.
+//! > Use these lower-level APIs only when fully aware of the engine's internal invariants to prevent entity ID desynchronization or broken lifecycle states.
+
 pub mod acce_store;
 pub mod config;
 pub mod content_store;
@@ -66,26 +190,60 @@ impl From<accesskit::NodeId> for EntityId {
     }
 }
 
-// TODO:
-// 利用者用 Context を用意して安定APIはそちらで公開
-// pub struct EventContext<'a> {
-//    cx: &'a mut Context,
-// }
-
-/// The central context owning all retained state stores and reactive pipelines necessary to drive the GUI.
+/// A central database maintaining the entire state of the UI application, serving as the core struct that aggregates pipeline operations.
+///
+/// Internally, `Context` is divided into distinct stores aligned with the execution phases of the pipeline:
+///
+/// | Category | Store | Responsibilities & Stored Data |
+/// | :--- | :--- | :--- |
+/// | **Environment & System** | `window` | Window properties |
+/// | | `system` | Text layout engine and task messaging subsystem |
+/// | **Structure & State** | `events` | Event listeners and active interaction states (hover, focus, etc.) |
+/// | | `reactive` | Signals, reactive dependencies, and effect runtimes |
+/// | | `contents` | Text strings and dynamic input content |
+/// | | `topology` | Primary entity lifecycle map and structural tree hierarchies |
+/// | | `states` | Drag-and-drop, resize, scrolling, and text selection state |
+/// | **Computation & Evaluation** | `layouts` | Base, current, and resolved layout measurements |
+/// | **Rendering & Output** | `renders` | Non-layout visual properties and animation states |
+/// | | `outputs` | Absolute coordinate caches across current and previous frames |
+/// | | `acce` | Node tree synchronized with AccessKit |
+/// | **Diagnostics** | `debug` | Logs, profiling traces, and snapshot data for MichiuInspector |
 pub struct Context {
+    /// Responsibilities & Stored Data: Window properties
     pub(crate) window: WindowStore,
+
+    /// Responsibilities & Stored Data: Text layout engine and task messaging subsystem
     pub(crate) system: SystemStore,
+
+    /// Responsibilities & Stored Data: Signals, reactive dependencies, and effect runtimes
     pub(crate) reactive: ReactiveStore,
+
+    /// Responsibilities & Stored Data: Event listeners and active interaction states (hover, focus, etc.)
     pub(crate) events: EventStore,
+
+    /// Responsibilities & Stored Data: Text strings and dynamic input content
     pub(crate) contents: ContentStore,
+
+    /// Responsibilities & Stored Data: Primary entity lifecycle map and structural tree hierarchies
     pub(crate) topology: TopologyStore,
+
+    /// Responsibilities & Stored Data: Drag-and-drop, resize, scrolling, and text selection state
     pub(crate) states: StateStore,
+
+    /// Responsibilities & Stored Data: Base, current, and resolved layout measurements
     pub(crate) layouts: LayoutStore,
+
+    /// Responsibilities & Stored Data: Non-layout visual properties and animation states
     pub(crate) renders: RenderStore,
+
+    /// Responsibilities & Stored Data: Absolute coordinate caches across current and previous frames
     pub(crate) outputs: OutputStore,
-    pub(crate) debug: DebugStore,
+
+    /// Responsibilities & Stored Data: Node tree synchronized with AccessKit
     pub(crate) acce: AccessibilityStore,
+
+    /// Responsibilities & Stored Data: Logs, profiling traces, and snapshot data for MichiuInspector
+    pub(crate) debug: DebugStore,
 }
 
 impl Default for Context {
@@ -117,8 +275,8 @@ impl Context {
                 },
                 rx,
             ),
-            debug: DebugStore::new(),
             acce: AccessibilityStore::new(),
+            debug: DebugStore::new(),
         }
     }
 
@@ -145,8 +303,8 @@ impl Context {
             layouts: LayoutStore::with_capacity(capacity),
             renders: RenderStore::with_capacity(capacity),
             outputs: OutputStore::with_capacity(capacity),
-            debug: DebugStore::new(),
             acce: AccessibilityStore::with_capacity(capacity),
+            debug: DebugStore::new(),
         }
     }
 
@@ -204,8 +362,8 @@ impl Context {
         self.events.clear();
         self.reactive.clear();
         self.window.clear();
-        self.system.clear();
         self.acce.clear();
+        self.system.clear();
     }
 
     /// 親を持たないルート要素の破棄に使用。
@@ -224,8 +382,8 @@ impl Context {
             &mut self.layouts,
             &mut self.renders,
             &mut self.outputs,
-            &mut self.debug,
             &mut self.acce,
+            &mut self.debug,
         );
     }
 
@@ -605,7 +763,7 @@ impl Context {
     /// Configure the user-defined inference tags used when building the accessibility tree.
     ///
     /// `A11yInferenceTag` overrides only the default inferences.
-    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    /// It does not override the [`Element::a11y`] roles.
     #[inline]
     pub fn tag_a11y<T: A11yInferenceTag + 'static>(&mut self, el: Element) {
         TopologyStore::tag_a11y::<T>(el, &mut self.topology.topo_tag_registry);
@@ -622,8 +780,8 @@ impl Context {
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn quer_first<T: 'static>(&mut self) -> Element {
-        TopologyStore::quer_first::<T>(&mut self.topology.topo_tag_registry, &mut self.debug)
+    pub fn query_first<T: 'static>(&mut self) -> Element {
+        TopologyStore::query_first::<T>(&mut self.topology.topo_tag_registry, &mut self.debug)
     }
 
     /// Get all elements with the tag `T`.
@@ -775,10 +933,10 @@ impl Context {
         }
     }
 
-    /// Call it in the corresponding event and add the user action to the queue ([`UserAction`]).
+    /// Call it in the corresponding event and add the user action to the queue ([`EventAction`]).
     #[inline]
-    pub fn inject_user_action(&mut self, action: UserAction) {
-        Pipeline::inject_user_action(self, action);
+    pub fn inject_action(&mut self, action: EventAction) {
+        Pipeline::inject_action(self, action);
     }
 
     /// Called at the start of a frame to execute the user action registered in the queue.
@@ -791,6 +949,34 @@ impl Context {
     #[inline]
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
         EventStore::cycle_keyboard_focus_internal(self, reverse);
+    }
+
+    /// Whether the window is currently being resized
+    #[inline]
+    pub fn window_is_resized(&self) -> bool {
+        self.window.win_is_resized
+    }
+
+    /// Retrieves the final window size.
+    #[inline]
+    pub fn window_last_size(&self) -> Option<LayoutSize> {
+        self.window.win_last_size
+    }
+
+    /// Resolves and returns the `EntityId` of the top-level root element within the window.
+    #[inline]
+    pub fn find_root_entity(&self) -> Option<EntityId> {
+        TopologyStore::find_root_entity(
+            &self.topology.topo_entities,
+            &self.topology.topo_parents,
+            &self.topology.topo_flat_dfs_sequence,
+        )
+    }
+
+    /// Retrieves the coordinates of the current pointer.
+    #[inline]
+    pub fn pointer_position(&self) -> Option<LayoutPoint> {
+        self.events.evt_current_pointer_position
     }
 
     /// Retrieves the first valid element found at the specified coordinates.

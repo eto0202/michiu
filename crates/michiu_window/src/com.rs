@@ -242,7 +242,7 @@ impl Drop for MichiuComContext {
 ///
 /// This implements the raw Win32 COM `IDropTarget` interface. It processes incoming file drag-and-drop
 /// operations (verifying `CF_HDROP` data format), extracts dropped file paths, and automatically
-/// posts a [`crate::events::Event::FileDropped`] event containing an [`Unvalidated<Vec<PathBuf>>`] payload
+/// posts a [`crate::events::MichiuEvent::FileDropped`] event containing an [`Unvalidated<Vec<PathBuf>>`] payload
 /// to the event queue.
 ///
 /// # Examples

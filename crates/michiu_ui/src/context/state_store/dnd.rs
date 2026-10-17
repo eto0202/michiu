@@ -831,8 +831,8 @@ impl DndStore {
             &mut cx.layouts,
             &mut cx.renders,
             &mut cx.outputs,
-            &mut cx.debug,
             &mut cx.acce,
+            &mut cx.debug,
         );
 
         if let Some(pos) = cx.events.evt_current_pointer_position {

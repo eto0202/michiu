@@ -54,7 +54,6 @@ pub struct SystemStore {
     pub(crate) sys_text_buffers: TextBufferSparse,
     pub(crate) sys_task_sender: MichiuTaskSender,
     pub(crate) sys_task_receiver: Receiver<TaskRecv>,
-    pub(crate) sys_uia_properties: UiaPropertiesSparse,
 }
 
 impl SystemStore {
@@ -66,7 +65,6 @@ impl SystemStore {
             sys_text_buffers: RefCell::new(TextBufferSparseInner(SparseSecondaryMap::new())),
             sys_task_sender,
             sys_task_receiver,
-            sys_uia_properties: UiaPropertiesSparse(SparseSecondaryMap::new()),
         }
     }
 
@@ -84,7 +82,6 @@ impl SystemStore {
             )),
             sys_task_sender,
             sys_task_receiver,
-            sys_uia_properties: UiaPropertiesSparse(SparseSecondaryMap::new()),
         }
     }
 
@@ -92,13 +89,11 @@ impl SystemStore {
     pub(crate) fn clear(&mut self) {
         self.sys_text_buffers.borrow_mut().clear();
         while self.sys_task_receiver.try_recv().is_ok() {}
-        self.sys_uia_properties.clear();
     }
 
     #[inline]
     pub(crate) fn despawn(&mut self, id: EntityId) {
         self.sys_text_buffers.borrow_mut().remove(id);
-        self.sys_uia_properties.remove(id);
     }
 }
 
@@ -280,11 +275,6 @@ impl SystemStore {
     #[inline]
     pub fn text_engine_mut(&mut self) -> &mut TextEngine {
         &mut self.sys_text_engine
-    }
-
-    #[inline]
-    pub fn uia_properties_mut(&mut self) -> &mut UiaPropertiesSparse {
-        &mut self.sys_uia_properties
     }
 }
 

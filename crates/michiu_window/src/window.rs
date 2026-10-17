@@ -19,7 +19,7 @@ use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_DBLCLKS, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND,
     IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, IDC_WAIT,
-    SetCursor, WM_NCLBUTTONDOWN,
+    IsZoomed, PostQuitMessage, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SetCursor, WM_NCLBUTTONDOWN,
 };
 use windows::{
     Win32::{
@@ -510,6 +510,19 @@ impl MichiuWindow {
         WindowId(self.hwnd().0 as isize)
     }
 
+    /// get client rect
+    /// (width, height)
+    #[must_use]
+    #[inline]
+    pub fn client_rect(&self) -> PhysicalSize {
+        let mut client_rect = RECT::default();
+        let _ = unsafe { GetClientRect(self.hwnd, &raw mut client_rect) };
+        let width = client_rect.right - client_rect.left;
+        let height = client_rect.bottom - client_rect.top;
+
+        PhysicalSize { width, height }
+    }
+
     /// Explicitly consumes and destroys the window on the UI thread, releasing all OS resources.
     ///
     /// Since this method consumes the ownership (`self`), the window variable cannot be used
@@ -700,6 +713,30 @@ impl MichiuWindow {
         }
     }
 
+    /// Set window minimize.
+    #[inline]
+    pub fn set_minimize(&self) {
+        let _ = unsafe { ShowWindow(self.hwnd, SW_MINIMIZE) };
+    }
+
+    /// Set window maximize.
+    #[inline]
+    pub fn set_maximize(&self) {
+        let is_maximized = unsafe { IsZoomed(self.hwnd).as_bool() };
+        let show = if is_maximized {
+            SW_RESTORE
+        } else {
+            SW_MAXIMIZE
+        };
+        let _ = unsafe { ShowWindow(self.hwnd, show) };
+    }
+
+    /// Close the window.
+    #[inline]
+    pub fn quit(&self) {
+        unsafe { PostQuitMessage(0) };
+    }
+
     /// Initialize a context for GDI drawing (UI thread only)
     #[must_use]
     #[inline]
@@ -819,7 +856,7 @@ impl HasDisplayHandle for MichiuWindow {
 
 /// Describes the action to take after custom subclass message processing.
 ///
-/// Used alongside [`Window::subclass`].
+/// Used alongside [`MichiuWindow::subclass`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubclassResult {
     /// Completely intercepts the message, blocking further propagation to downstream procedures (including `MessageFilter`).
@@ -1115,12 +1152,6 @@ fn build_raw_style(builder: &MichiuWindowBuilder<'_>) -> WINDOW_STYLE {
             s &= !WS_VISIBLE;
         }
 
-        if builder.resizable {
-            s |= WS_THICKFRAME | WS_MAXIMIZEBOX;
-        } else {
-            s &= !(WS_THICKFRAME | WS_MAXIMIZEBOX);
-        }
-
         if builder.maximized {
             s |= WS_MAXIMIZE;
         } else {
@@ -1128,11 +1159,16 @@ fn build_raw_style(builder: &MichiuWindowBuilder<'_>) -> WINDOW_STYLE {
         }
 
         if !builder.decorations {
-            s &= !(WS_CAPTION | WS_BORDER | WS_THICKFRAME | WS_DLGFRAME);
-            if builder.parent_hwnd.is_none() {
-                s |= WS_POPUP;
-            }
+            s &= !(WS_CAPTION | WS_BORDER | WS_DLGFRAME);
         }
+
+        // decorations の後に resizable を判定する
+        if builder.resizable {
+            s |= WS_THICKFRAME | WS_MAXIMIZEBOX;
+        } else {
+            s &= !(WS_THICKFRAME | WS_MAXIMIZEBOX);
+        }
+
         s
     }
 }

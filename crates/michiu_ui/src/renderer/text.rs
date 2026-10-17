@@ -1,17 +1,12 @@
-use std::borrow::Cow;
-use std::collections::HashMap;
-use std::ops::Range;
-
-use crate::types::LayoutSize;
 use crate::{
-    ByteIndex, DebugStore, EdgeInsets, FontDate, InputContents, LayoutPoint, LayoutRect,
-    MichiuError, MichiuString, OptionTraceExt, RendererView, TextAlign, TextSpan, VisualProperty,
+    ByteIndex, DebugStore, FontDate, LayoutPoint, LayoutRect, MichiuError, MichiuString,
+    OptionTraceExt, RendererView, TextAlign, TextSpan,
 };
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
 };
-use rustc_hash::FxHashMap;
-use smallvec::{SmallVec, smallvec};
+use smallvec::SmallVec;
+use std::ops::Range;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TextLayoutSize {

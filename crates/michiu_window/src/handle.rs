@@ -3,12 +3,15 @@ use raw_window_handle::{
     DisplayHandle as RwhDisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle,
     Win32WindowHandle, WindowHandle as RwhWindowHandle,
 };
-use windows::Win32::Graphics::Dwm::DwmFlush;
+use windows::Win32::Foundation::RECT;
+use windows::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmFlush};
 use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
+use windows::Win32::UI::Controls::MARGINS;
 use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GWLP_USERDATA, GetWindowLongPtrW, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST,
-    PostQuitMessage, SendMessageW, WM_NCLBUTTONDOWN, WM_NULL,
+    GWLP_USERDATA, GetClientRect, GetMessagePos, GetWindowLongPtrW, HWND_BOTTOM, HWND_NOTOPMOST,
+    HWND_TOPMOST, IsZoomed, PostQuitMessage, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+    SWP_FRAMECHANGED, SendMessageW, WM_NULL, WM_SYSCOMMAND,
 };
 use windows::core::PCWSTR;
 
@@ -29,7 +32,7 @@ use windows::Win32::{
 
 /// A lightweight, cloneable, and thread-safe reference to an active Win32 window.
 ///
-/// Unlike [`crate::window::Window`], `WindowHandle` implements **`Send` and `Sync`**, allowing it to be
+/// Unlike [`MichiuWindow`](crate::window::MichiuWindow), `WindowHandle` implements **`Send` and `Sync`**, allowing it to be
 /// safely transferred to background worker threads.
 ///
 /// Methods on this type are designed to be thread-aware:
@@ -69,6 +72,10 @@ pub(crate) enum SetWindowCommand {
     RedrawRequested,
     UpdateWindow,
     DwmFlush,
+    FrameChanged,
+    DefaultFrameRendering,
+    Minimize,
+    Maximize,
 }
 
 /// Message ID used internally for posting async Window commands to the UI thread.
@@ -410,14 +417,21 @@ impl WindowHandle {
     pub fn set_start_dragging(&self) {
         if self.is_on_ui_thread() {
             unsafe {
-                // もしマウスキャプチャ中なら解除する
+                // 0xF012 (SC_MOVE | HTCAPTION) を送る
+                // これを使うと WS_CAPTION がないカスタムウィンドウでも確実にドラッグが開始される
+                const SC_DRAGMOVE: usize = 0xF012;
+
+                // 自前やOSのマウスキャプチャを解放
                 let _ = ReleaseCapture();
-                // OSに対して今まさにタイトルバーが左クリックされたという偽装シグナルを送る
+
+                // 現在のメッセージのスクリーン座標を取得
+                let pos = GetMessagePos();
+
                 SendMessageW(
                     self.hwnd,
-                    WM_NCLBUTTONDOWN,
-                    Some(WPARAM(HTCAPTION as usize)),
-                    Some(LPARAM(0)),
+                    WM_SYSCOMMAND,
+                    Some(WPARAM(SC_DRAGMOVE)),
+                    Some(LPARAM(pos as isize)),
                 );
             }
         } else {
@@ -437,7 +451,6 @@ impl WindowHandle {
                 let state_ptr = GetWindowLongPtrW(self.hwnd, GWLP_USERDATA) as *mut WindowState;
                 if !state_ptr.is_null() {
                     (*state_ptr).current_cursor = cursor;
-                    let _ = crate::apply_cursor_icon_impl(self.hwnd, cursor);
                 }
             }
         } else {
@@ -526,6 +539,40 @@ impl WindowHandle {
         }
     }
 
+    /// Thread-safely set window minimize.
+    ///
+    /// # Performance
+    /// - **On the UI thread**: Directly invokes `ShowWindow` with zero overhead.
+    /// - **On a background thread**: Automatically dispatches the request to the UI thread asynchronously.
+    #[inline]
+    pub fn set_minimize(&self) {
+        if self.is_on_ui_thread() {
+            let _ = unsafe { ShowWindow(self.hwnd, SW_MINIMIZE) };
+        } else {
+            self.post_command(SetWindowCommand::Minimize);
+        }
+    }
+
+    /// Thread-safely set window maximize.
+    ///
+    /// # Performance
+    /// - **On the UI thread**: Directly invokes `ShowWindow` with zero overhead.
+    /// - **On a background thread**: Automatically dispatches the request to the UI thread asynchronously.
+    #[inline]
+    pub fn set_maximize(&self) {
+        if self.is_on_ui_thread() {
+            let is_maximized = unsafe { IsZoomed(self.hwnd).as_bool() };
+            let show = if is_maximized {
+                SW_RESTORE
+            } else {
+                SW_MAXIMIZE
+            };
+            let _ = unsafe { ShowWindow(self.hwnd, show) };
+        } else {
+            self.post_command(SetWindowCommand::Maximize);
+        }
+    }
+
     /// Destroys the window and releases all associated OS resources in a thread-safe manner.
     ///
     /// If called from the UI thread, this executes `DestroyWindow` immediately;
@@ -609,6 +656,63 @@ impl WindowHandle {
         } else {
             self.post_command(SetWindowCommand::DwmFlush);
         }
+    }
+
+    /// Thread-safely frame changed.
+    ///
+    /// # Performance
+    /// - **On the UI thread**: Directly invokes `SetWindowPos` with zero overhead.
+    /// - **On a background thread**: Automatically dispatches the request to the UI thread asynchronously.
+    #[inline]
+    pub fn frame_changed(&self) {
+        if self.is_on_ui_thread() {
+            let _ = unsafe {
+                SetWindowPos(
+                    self.hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                )
+            };
+        } else {
+            self.post_command(SetWindowCommand::FrameChanged);
+        }
+    }
+
+    /// Thread-safely disable the OS's default frame rendering
+    ///
+    /// # Performance
+    /// - **On the UI thread**: Directly invokes `DwmExtendFrameIntoClientArea` with zero overhead.
+    /// - **On a background thread**: Automatically dispatches the request to the UI thread asynchronously.
+    #[inline]
+    pub fn disable_default_frame_rendering(&self) {
+        if self.is_on_ui_thread() {
+            let margins = MARGINS {
+                cxLeftWidth: -1,
+                cxRightWidth: -1,
+                cyTopHeight: -1,
+                cyBottomHeight: -1,
+            };
+            let _ = unsafe { DwmExtendFrameIntoClientArea(self.hwnd, &raw const margins) };
+        } else {
+            self.post_command(SetWindowCommand::DefaultFrameRendering);
+        }
+    }
+
+    /// get client rect
+    /// (width, height)
+    #[must_use]
+    #[inline]
+    pub fn client_rect(&self) -> PhysicalSize {
+        let mut client_rect = RECT::default();
+        let _ = unsafe { GetClientRect(self.hwnd, &raw mut client_rect) };
+        let width = client_rect.right - client_rect.left;
+        let height = client_rect.bottom - client_rect.top;
+
+        PhysicalSize { width, height }
     }
 }
 

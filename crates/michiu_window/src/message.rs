@@ -12,32 +12,33 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
         Graphics::{
-            Dwm::DwmFlush,
-            Gdi::{InvalidateRect, UpdateWindow},
+            Dwm::{DwmExtendFrameIntoClientArea, DwmFlush},
+            Gdi::{InvalidateRect, ScreenToClient, UpdateWindow},
         },
         UI::{
-            Controls::WM_MOUSELEAVE,
+            Controls::{MARGINS, WM_MOUSELEAVE},
             Input::{
                 Ime::{GCS_COMPATTR, GCS_CURSORPOS, GCS_RESULTSTR, ImmGetCompositionStringW},
                 KeyboardAndMouse::{
-                    GetKeyState, ReleaseCapture, TME_LEAVE, TRACKMOUSEEVENT, TrackMouseEvent,
-                    VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+                    GetKeyState, ReleaseCapture, TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT,
+                    TrackMouseEvent, VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
                 },
             },
             WindowsAndMessaging::{
-                DestroyWindow, DispatchMessageW, GetMessageW, HTCAPTION, HWND_BOTTOM,
-                HWND_NOTOPMOST, HWND_TOPMOST, IsWindow, MSG, PM_REMOVE, PeekMessageW, PostMessageW,
-                PostQuitMessage, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-                SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow,
-                TranslateMessage, WM_CHAR, WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED,
-                WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION,
-                WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK,
-                WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP,
-                WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE, WM_NCLBUTTONDOWN, WM_PAINT,
-                WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS,
-                WM_SIZE, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
+                DestroyWindow, DispatchMessageW, GetMessagePos, GetMessageW, HWND_BOTTOM,
+                HWND_NOTOPMOST, HWND_TOPMOST, IsWindow, IsZoomed, MSG, PM_REMOVE, PeekMessageW,
+                PostMessageW, PostQuitMessage, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
+                SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+                SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CHAR,
+                WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_IME_COMPOSITION,
+                WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE,
+                WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
+                WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
+                WM_MOUSEWHEEL, WM_MOVE, WM_NCMOUSEMOVE, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK,
+                WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSCOMMAND,
+                WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
             },
         },
     },
@@ -81,7 +82,7 @@ impl Drop for HandlerGuard {
     }
 }
 
-/// Message ID used internally for posting custom user-defined events ([`MichiuEvent::User`]) to the UI thread.
+/// Message ID used internally for posting custom user-defined events ([`MichiuAnyEvent::User`]) to the UI thread.
 pub const WM_USER_EVENT: u32 = WM_USER + 101;
 
 /// A thread-affine message pump responsible for polling OS messages and driving the event loop.
@@ -383,6 +384,36 @@ pub(crate) fn translate_and_dispatch(
             });
             None
         }
+        WM_NCMOUSEMOVE => {
+            // スクリーン座標を取り出す
+            let x = (lparam.0 & 0xffff) as i16 as i32;
+            let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
+            let mut pt = POINT { x, y };
+
+            // クライアント領域の相対座標に変換
+            unsafe {
+                let _ = ScreenToClient(hwnd, &raw mut pt);
+            }
+
+            // マウスがボタンから外に出た時を検知するため TrackMouseEvent を仕込む
+            let mut tme = TRACKMOUSEEVENT {
+                cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                dwFlags: TME_NONCLIENT | TME_LEAVE,
+                hwndTrack: hwnd,
+                dwHoverTime: 0,
+            };
+            unsafe {
+                let _ = TrackMouseEvent(&raw mut tme);
+            }
+
+            // CursorMoved イベントとして発行
+            push_win_event(MichiuEvent::CursorMoved {
+                position: Unvalidated::new(PhysicalPoint::new(pt.x, pt.y)),
+            });
+
+            // OS標準のスナップレイアウト判定などを邪魔しないよう DefWindowProcW に流す
+            None
+        }
         WM_MOUSELEAVE => {
             state.is_cursor_inside = false;
             push_win_event(MichiuEvent::CursorLeft);
@@ -606,18 +637,20 @@ pub(crate) fn translate_and_dispatch(
                             crate::center_on_screen_impl(hwnd);
                         }
                         SetWindowCommand::StartDragging => {
+                            const SC_DRAGMOVE: usize = 0xF012;
+
                             let _ = ReleaseCapture();
+                            let pos = GetMessagePos();
+
                             SendMessageW(
                                 hwnd,
-                                WM_NCLBUTTONDOWN,
-                                Some(WPARAM(HTCAPTION as usize)),
-                                Some(LPARAM(0)),
+                                WM_SYSCOMMAND,
+                                Some(WPARAM(SC_DRAGMOVE)),
+                                Some(LPARAM(pos as isize)),
                             );
                         }
                         SetWindowCommand::SetCursor(cursor) => {
                             state.current_cursor = cursor;
-                            // その場でカーソルを即座に更新
-                            let _ = crate::apply_cursor_icon_impl(hwnd, cursor);
                         }
                         SetWindowCommand::Destroy => {
                             let is_alive = IsWindow(Some(hwnd)).as_bool();
@@ -636,6 +669,38 @@ pub(crate) fn translate_and_dispatch(
                         }
                         SetWindowCommand::DwmFlush => {
                             let _ = DwmFlush();
+                        }
+                        SetWindowCommand::FrameChanged => {
+                            let _ = SetWindowPos(
+                                hwnd,
+                                None,
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
+                            );
+                        }
+                        SetWindowCommand::DefaultFrameRendering => {
+                            let margins = MARGINS {
+                                cxLeftWidth: -1,
+                                cxRightWidth: -1,
+                                cyTopHeight: -1,
+                                cyBottomHeight: -1,
+                            };
+                            let _ = DwmExtendFrameIntoClientArea(hwnd, &raw const margins);
+                        }
+                        SetWindowCommand::Minimize => {
+                            let _ = ShowWindow(hwnd, SW_MINIMIZE);
+                        }
+                        SetWindowCommand::Maximize => {
+                            let is_maximized = IsZoomed(hwnd).as_bool();
+                            let show = if is_maximized {
+                                SW_RESTORE
+                            } else {
+                                SW_MAXIMIZE
+                            };
+                            let _ = ShowWindow(hwnd, show);
                         }
                     }
                 }

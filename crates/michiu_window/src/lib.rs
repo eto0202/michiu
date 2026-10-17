@@ -121,7 +121,7 @@
 //! To resolve this constraint without losing Rust's memory safety, `michiu_window` separates
 //! window lifecycle management into two key structures:
 //!
-//! - [`Window`]: Represents the active, owned window instance. It is strictly **`!Send` and `!Sync`**
+//! - [`MichiuWindow`]: Represents the active, owned window instance. It is strictly **`!Send` and `!Sync`**
 //!   and must remain on the UI thread where the message loop runs.
 //! - [`WindowHandle`]: A Cloneable handle. It is **`Send` and `Sync`**
 //!   and can be safely passed to any background worker threads.
@@ -277,7 +277,7 @@
 //!
 //! | Feature / Metric | Option A: `wait_event` (Event-Driven) | Option B: `poll_event` (Real-Time) |
 //! | :--- | :--- | :--- |
-//! | **Primary Method** | [`EventPump::wait_event`] | [`EventPump::poll_event`] |
+//! | **Primary Method** | [`MichiuEventPump::wait_event`] | [`MichiuEventPump::poll_event`] |
 //! | **Idle CPU Usage** | **0.0% (OS-level Sleep)** | High (requires manual thread sleep) |
 //! | **Primary Use Case** | Desktop apps, system trays, utilities | Games, CAD, high-performance rendering |
 //! | **Latency** | Immediate (unblocks on interrupt) | Under 16ms (tied to throttle sleep) |
@@ -296,21 +296,33 @@ mod tray;
 mod types;
 mod window;
 
+#[doc(inline)]
 pub use builder::*;
+#[doc(inline)]
 pub use com::*;
+#[doc(inline)]
 pub use error::*;
+#[doc(inline)]
 pub use events::*;
+#[doc(inline)]
 pub use handle::*;
+#[doc(inline)]
 pub use icon::*;
+#[doc(inline)]
 pub use ime::*;
+#[doc(inline)]
 pub use message::*;
+#[doc(inline)]
 pub use tray::*;
+#[doc(inline)]
 pub use types::*;
+#[doc(inline)]
 pub use window::*;
 
+#[doc(hidden)]
 pub mod prelude {
     pub use crate::{
         LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuError, MichiuEvent, MichiuEventPump,
-        MichiuRawEvent, MichiuWindow, MichiuWindowBuilder,
+        MichiuRawEvent, MichiuWindow, MichiuWindowBuilder, WindowHandle, WindowId,
     };
 }

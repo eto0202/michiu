@@ -19,10 +19,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let scale_factor = window.scale_factor() as f32;
     let handle = window.handle().assume_valid();
+    let rect = handle.client_rect();
+    let width = rect.width as f32;
+    let height = rect.height as f32;
 
     let renderer = pollster::block_on(MichiuRenderer::new(
         handle.hwnd(),
-        LayoutSize::new(600.0, 500.0),
+        LayoutSize::new(width, height),
         scale_factor,
     ))?;
 

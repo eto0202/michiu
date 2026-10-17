@@ -1,3 +1,215 @@
+//! # `element`
+//!
+//! This module is responsible for generating the [`Element`] that make up the UI tree, assembling the tree hierarchy, handling events,
+//! and providing declarative styling via [`ThisStyle`].
+//!
+//! ---
+//!
+//! ## Architecture
+//!
+//! `michiu_ui` does not have fixed widget structures such as `Button` or `TextInput`.
+//! All nodes are simply [`Element`]s (whose actual values are lightweight, copyable [`EntityId`]s),
+//! and the capabilities and behaviors of each element are determined entirely by which internal SoA holds its slot.
+//!
+//! ```rust
+//! #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+//! pub struct Element {
+//!     pub(crate) id: EntityId,
+//! }
+//! ```
+//!
+//! ### The Concept of Attaching Capabilities (Attachment, Membership, and Registration)
+//! Method chaining is not merely configuring properties; it is an operation that **registers the element (ID) into a specific internal SoA table**.
+//!
+//! * **`.text(...)`**: Registers the ID into the Text Content SoA, causing the element itself to behave as shaped text.
+//! * **`.input(...)`**: Registers the ID into the Input Content SoA, transforming the element itself into a directly editable text field.
+//! * **`.on_click(...)`**: Registers a listener into the Event SoA, granting the element clickable interactivity.
+//! * **`.draggable(...)`**: Registers the ID into the DnD SoA, granting the element drag-and-drop capability.
+//!
+//! ### Why is Style (`ThisStyle`) Separated?
+//! Rather than exposing styling methods like `.bg_color(...)` directly on `Element`, passing an independent [`ThisStyle`] ([`ts()`](crate::ts)) as an argument serves two primary purposes:
+//!
+//! 1. **Architectural Consistency via DOD**:
+//!    `Element` does not own color or layout fields; it merely holds a key into the internal style SoA tables. Passing styles externally aligns with the unified mental model of injecting definitions from the outside.
+//! 2. **Style Reusability and Readability (Zero-Cost Sharing via CoW)**:
+//!    Styles can be centralized into reusable variables similar to CSS classes and applied across multiple elements.
+//!    Because `ThisStyle` is internally wrapped in an [`Arc`], cloning incurs no heap reallocations. Branching occurs only when properties are mutated or overridden, handled safely and at minimal cost via **CoW (`Arc::make_mut`)**.
+//!
+//! ---
+//!
+//! ## Standardized Suffixes (Naming Conventions)
+//!
+//! * **`_d` suffix**:
+//!   Accepts a dynamic closure that implicitly retrieves types (e.g., `Theme`) provided by ancestor elements via `.provide()` (automatically resolves `use_provided` internally).
+//! * **`_with` suffix**:
+//!   Supplies the context (`cx: &mut Context`) as the first argument to the event handler callback.
+//!
+//! ---
+//!
+//! ## Basic Steps for Building a UI
+//!
+//! 1. Initialize `Context`.
+//! 2. Declare the UI tree using [`build_ui`] (must return a root [`Element`]).
+//! 3. Initialize base elements using layout primitives (`div`, `h_flex`, etc.).
+//! 4. Apply styles using `.style()` or `.style_d()` (or via factory arguments).
+//! 5. Attach child elements, text, inputs, and event handlers.
+//!
+//! ```rust,ignore
+//! use michiu_ui::prelude::*;
+//!
+//! let root = build_ui(&mut context, || {
+//!     h_flex(ts().p(12.0).size(500.0).bg_color(Color::WHITE))
+//!         .child(
+//!             div(ts().size((40.0, 40.0)).bg_color(Color::BLUE))
+//!                 .hovered(ts().bg_color(Color::RED))
+//!                 .on_click(|| println!("Clicked!"))
+//!         )
+//!         .label("Button Text", ts().text_color(Color::BLACK))
+//! });
+//! ```
+//!
+//! ---
+//!
+//! ## Element Factory Primitives (Built-in Functions)
+//!
+//! | Function | Initial `Display` / Layout Attribute | Primary Use Case |
+//! | :--- | :--- | :--- |
+//! | **`div(style)` / `div_d`** | `Display::Block` | Standard block element |
+//! | **`div_n()`** | `NO_STYLE: Option<ThisStyle> = None` | lightweight container completely bypassing style processing |
+//! | **`flex(style)` / `flex_d`** | `Display::Flex` | General-purpose Flexbox container |
+//! | **`h_flex(style)` / `h_flex_d`** | `Display::Flex` + `FlexDirection::Row` | **Horizontal (row)** layout container |
+//! | **`v_flex(style)` / `v_flex_d`** | `Display::Flex` + `FlexDirection::Column` | **Vertical (column)** layout container |
+//! | **`hidden_box(style)`** | `Display::None` | Conditional rendering or invisible layout boundary |
+//!
+//! ---
+//!
+//! ## Styling Specifications (`ThisStyle` / `ts()`)
+//!
+//! Styles are applied via `.style()` or `.style_d()`. Both static `ThisStyle` instances and dynamic closures are supported and can be mixed.
+//! If the same property is chained multiple times, **subsequent declarations override earlier ones (last write wins)**.
+//!
+//! ### 1. Pseudo-Classes (Interaction Styles)
+//! Styles that adapt to user interaction can be defined by nesting `ThisStyle` one level deep (pseudo-classes nested deeper than one level are ignored).
+//!
+//! * **Core Pseudo-Classes**:
+//!   `.hovered(...)`, `.focused(...)`, `.focused_visible(...)` (active only during keyboard navigation), `.pressed(...)`, `.disabled(...)`, `.actived(...)`, `.selected(...)`, `.dragged(...)`
+//! * **`_within` (Child-Triggered)**:
+//!   Applies styles to the element (parent) when an interaction occurs on any of its descendants (e.g., `.hovered_within(...)`).
+//! * **`_parent` (Parent-Triggered)**:
+//!   Applies styles to the element (child) when an interaction occurs on its parent (e.g., `.pressed_parent(...)` to alter text color when the enclosing button is pressed).
+//!
+//! ### 2. Focus Control Attributes (`focusable`)
+//! By default, only input elements accept focus. Regular elements must explicitly declare focus attributes.
+//!
+//! * **Device Suffixes**:
+//!   `_mouse` (mouse focus only), `_keyboard` (keyboard navigation only), `_both` (both inputs)
+//! * **Application Target Suffixes**:
+//!   * `_self`: Applies `.focused(...)` or `.focused_visible(...)` configured directly on the element.
+//!   * `_inherit`: **Inherits and applies the parent element's focus styles**. Ideal for unifying focus styling across composite child elements.
+//!   * `_none`: Explicitly unfocusable.
+//! * **Focus Steal Prevention**:
+//!   * `.prevent_focus_steal(true)`: Prevents stealing focus from currently active elements.
+//!   * `.prevent_focus_steal_within(true)`: Prevents child elements from taking focus away.
+//!
+//! ### 3. Drag-and-Drop Attributes (`draggable` / `droppable`)
+//! * **Behavior by `DndDragPayload`**:
+//!   * `Element`: On drop confirmation, the library **automatically updates tree topology (SoA)** to reparent and move the element.
+//!   * `EntityId`: Tree topology is unaltered; only dispatch events (ID telemetry) are fired.
+//! * **Placeholder Positioning**:
+//!   * `.dnd_draggable_root(...)`: Spawns the drag placeholder directly beneath the root, tracking the cursor via absolute coordinates.
+//!   * `.dnd_draggable_parent(...)`: Spawns the placeholder under an arbitrary ancestor, tracking via absolute positioning.
+//! * **DnD Dedicated Pseudo-Classes**:
+//!   * `.dnd_draggable_original(...)`: Style of the source element being dragged.
+//!   * `.dnd_draggable_placeholder(...)`: Style of the floating placeholder tracking the pointer.
+//!   * `.dnd_drag_over(...)`: Style of the receiving drop target when hovered over by a payload.
+//!
+//! ### 4. Additional Style Attributes
+//! * **Resizing (`resizable`)**: Enables edge dragging along specific borders. `.resizable_cursor(...)` overrides the mouse pointer (highest precedence).
+//! * **Cursor Precedence**: `resizable_cursor` (highest) > `cursor(...)` (element-specific) > `cursor_global(...)` (ancestor baseline)
+//! * **Backdrop Materials (`backdrop`)**: Applies OS materials like Mica or Acrylic (the window background must remain transparent).
+//! * **Diagnostics (`debug...`)**: Shorthands rendering predefined colored borders or outlines to visualize layout bounds.
+//! * **Style Merging**: Combine external styles via `.merge(other_style)`.
+//!
+//! ---
+//!
+//! ## Attaching Features and Events
+//!
+//! ### 1. Precise Distinction: Text vs. Labels
+//! While visually comparable, they differ fundamentally in SoA placement and hierarchy:
+//!
+//! * **`el.text(content)` / `text_d` (Element IS the text)**:
+//!   **The ID of `el` itself** is registered directly into the Text Content SoA. The element becomes the direct subject of text measurement (`measure_content`) and consumes pointer events directly. Dynamic changes mutate the text property on the element itself.
+//!   *The shorthand `text(content)` is equivalent to `div_n().text(content)`.*
+//! * **`el.label(content, style)` / `label_d` (Spawns a child text element)**:
+//!   **A newly generated child ID** is registered into the Text Content SoA and appended as a child of `el`.
+//!   Because this child automatically receives **`PointerEvents::None`**, it never intercepts pointer hits intended for the parent container. This is optimal for centering text inside button frames. Dynamic updates replace the child element.
+//!
+//! ### 2. Adding and Replacing Children
+//! * **Appending**: `.child(el)`, `.children([el1, el2])` (Dynamic variants: `.child_d`, `.children_d`)
+//! * **Dynamic Content Swapping (`set_contents`)**:
+//!   Atomically replaces child hierarchies without rebuilding the parent element. Any reactive effects associated with discarded children are safely disposed of.
+//!
+//! ### 3. Attaching Input and External Surfaces
+//! * **Input Editing**: `.input(contents)` / `input_d` (Shorthand `input(...)` is equivalent to `div_n().input(...)`)
+//! * **External Textures**: `.external_texture(...)`
+//! * **External Visuals**: `.external_visual(...)` (Hardware-composited `IDCompositionVisual2`)
+//!
+//! ### 4. Attaching Accessibility Semantics
+//! * `.a11y(...)`: Attaches an accessibility node.
+//! * `.a11y_with(|node| ...)`: Attaches a node and yields a **mutable reference (`&mut`)** for detailed configuration.
+//! * `.a11y_role(...)`: Sets the semantic role only.
+//! * `.a11y_label(...)`: Sets both the semantic role and accessible name.
+//!
+//! ### 5. Tag Queries
+//! * **Registration**: `.tag::<MyTag>()`, `.tag_a11y::<CustomInferenceTag>()` (for custom `A11yInferenceTag` types).
+//! * **Descendant Traversal**:
+//!   * `el.query_descendant::<T>()` / `el.try_query_descendant::<T>()`
+//!   * `el.query_descendants::<T>()` (collects all matches into a `Vec`)
+//!   * `el.for_each_descendants::<T>(|child| ...)` (lazy iteration over matches)
+//!   * To query starting globally or from arbitrary roots, use `Context` methods such as `cx.query_first::<T>()`.
+//!
+//! ### 6. Event Handler Registry
+//! All handlers provide standard and `_with` variants (receiving `|cx|`). If multiple callbacks of the same event type are registered, they execute sequentially in registration order.
+//!
+//! | Category | Method | Dispatch Condition / Notes |
+//! | :--- | :--- | :--- |
+//! | **Pointer & Mouse** | `on_click`, `on_click_with` | Released over the same element where pressed |
+//! | | `on_right_click`, `on_right_click_with` | Secondary click confirmed |
+//! | | `on_mouse_input`, `on_mouse_input_with` | Raw button press/release transitions |
+//! | | `on_mouse_enter`, `on_mouse_enter_with` | Pointer boundary entry |
+//! | | `on_mouse_leave`, `on_mouse_leave_with` | Pointer boundary exit |
+//! | | `on_cursor_moved`, `on_cursor_moved_with` | Pointer motion within element bounds |
+//! | | `on_mouse_wheel`, `on_mouse_wheel_with` | Scroll wheel rotation (halts bubbling if consumed) |
+//! | | `on_drag`, `on_drag_with` | Pointer motion while holding down button |
+//! | | `on_hover`, `on_hover_with` | Sustained hover state |
+//! | **Keyboard & Text** | `on_char_input`, `on_char_input_with` | Resolved unicode character input |
+//! | | `on_keyboard_input`, `on_keyboard_input_with` | Physical hardware key state changes |
+//! | | `on_ime`, `on_ime_with` | IME composition events |
+//! | **File Drag & Drop** | `on_file_dropped`, `on_file_dropped_with` | OS native file drop completed |
+//! | | `on_file_drag_enter`, `on_file_drag_enter_with` | OS file drag boundary entry |
+//! | | `on_file_drag_leave`, `on_file_drag_leave_with` | OS file drag boundary exit |
+//! | **State Transitions** | `on_focus`, `on_focus_with` | Focus gained (coupled with `focus(true)`) |
+//! | | `on_blur`, `on_blur_with` | Focus lost |
+//! | | `on_disable`, `on_disable_with` | Disabled state applied (coupled with `disable(true)`) |
+//! | | `on_active`, `on_active_with` | Active state applied (coupled with `active(true)`) |
+//! | | `on_select`, `on_select_with` | Selection state altered (coupled with `select(true)`) |
+//! | **In-App DnD** | `on_dnd_drag_start`, `on_dnd_drag_start_with` | Movement exceeded drag threshold |
+//! | | `on_dnd_element_drag(_with)`, `on_dnd_id_drag(_with)` | Active dragging (branches based on payload) |
+//! | | `on_dnd_element_drop(_with)`, `on_dnd_id_drop(_with)` | Drop confirmed |
+//!
+//! ---
+//!
+//! ## Thread Safety and Execution Context
+//!
+//! * **[`Element`] Methods**: Must execute exclusively on the **main thread (UI thread)** to interact with underlying SoA storage directly.
+//! * **[`ThisStyle`]**: Wrapped in a thread-safe [`Arc`]. Being a pure data representation, it can be transferred safely across threads. Mutations execute strictly through `Arc::make_mut` only when an exclusive borrow can be formed, eliminating data races entirely.
+//!    ```rust
+//!    #[derive(Debug, Clone, Default)]
+//!    pub struct ThisStyle {
+//!        pub(crate) inner: Arc<StyleInner>,
+//!    }
+//!    ```
+
 pub mod handler;
 pub mod input_func;
 
@@ -232,7 +444,7 @@ impl Element {
     /// Configure the user-defined `A11yInferenceTag` used when building the accessibility tree.
     ///
     /// `A11yInferenceTag` overrides only the default inferences.
-    /// It does not override the [`Element::a11y`] and [`Element::a11y_n`] roles.
+    /// It does not override the [`Element::a11y`] roles.
     #[inline]
     #[must_use]
     pub fn tag_a11y<T: A11yInferenceTag + 'static>(self) -> Self {
@@ -345,9 +557,39 @@ impl Element {
         self
     }
 
-    /// Dynamically resolve [`ThisStyle`] from provider `P` and apply the style.
+    /// Applies a reactive style block evaluated from a provided context.
     ///
-    /// When `P` changes, the closure is re-evaluated.
+    /// Wraps the closure in a dynamic property that automatically retrieves the provided context of type `P` and tracks signal updates.
+    ///  Whenever the context updates, the style block is re-evaluated and applied.
+    ///
+    /// Use this when multiple style properties depend on the same context (e.g., theming),
+    /// as an alternative to specifying [`dynamic`](crate::dynamic) for each property individually.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use crate::prelude::*;
+    /// #[derive(Debug, Clone)]
+    /// struct Theme {
+    ///     bg_color: Color,
+    ///     text_color: Color,
+    /// }
+    ///
+    /// fn root() -> Element {
+    ///     let (theme, _) = create_signal(Theme {
+    ///         bg_color: Color::BLUE,
+    ///         text_color: Color::WHITE,
+    ///     });
+    ///
+    ///     div_n()
+    ///         .provide(theme)
+    ///         .child(
+    ///             div_n().style_d(|t: &Theme| {
+    ///                 ts().bg_color(t.bg_color)
+    ///                     .text_color(t.text_color)
+    ///             })
+    ///         )
+    /// }
+    /// ```
     #[must_use]
     #[inline]
     pub fn style_d<P, F>(self, f: F) -> Self
@@ -806,6 +1048,7 @@ impl Element {
         self
     }
 
+    /// Integrates an arbitrary `IDCompositionVisual2` into the layout tree.
     #[inline]
     #[must_use]
     pub fn external_visual(self, visual: impl ExternalVisual + 'static) -> Self {
@@ -890,6 +1133,31 @@ impl Element {
         let prop = role.into_option_prop();
         self.bind_prop(prop, EffectCategory::Accessibility, move |cx, id, val| {
             cx.acce.acce_accessibility.insert(id, val.map(Node::new));
+            cx.topology
+                .topo_active_masks
+                .at_mut(id)
+                .set(ComponentMask::COMP_A11Y);
+            cx.mark_layout_dirty(id);
+        })
+    }
+
+    /// Sets accessibility roles and label.
+    ///
+    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    #[must_use]
+    pub fn a11y_label<M>(
+        self,
+        role: impl IntoOptionProp<Role, M>,
+        label: impl Into<Cow<'static, str>>,
+    ) -> Self {
+        let label = label.into();
+        let prop = role.into_option_prop();
+        self.bind_prop(prop, EffectCategory::Accessibility, move |cx, id, val| {
+            let mut node = val.map(Node::new);
+            if let Some(n) = &mut node {
+                n.set_label(label.clone());
+            }
+            cx.acce.acce_accessibility.insert(id, node);
             cx.topology
                 .topo_active_masks
                 .at_mut(id)

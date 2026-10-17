@@ -9,11 +9,13 @@ pub fn container() -> Element {
                 .aspect_ratio(1.618, 1.0),
         )
         .children([
-            flex(hover_opacity()
-                .width(pct(61.8))
-                .h_full()
-                .bg_color(Color::BLUE)
-                .r_left(4.0)),
+            flex(
+                hover_opacity()
+                    .width(pct(61.8))
+                    .h_full()
+                    .bg_color(Color::BLUE)
+                    .r_left(4.0),
+            ),
             step_1().style(ts().width(pct(38.2)).h_full()),
         ]),
     )
@@ -21,11 +23,13 @@ pub fn container() -> Element {
 
 fn step_1() -> Element {
     v_flex(ts()).children([
-        flex(hover_opacity()
-            .w_full()
-            .height(pct(61.8))
-            .bg_color(Color::CYAN)
-            .r((0.0, 4.0, 0.0, 0.0))),
+        flex(
+            hover_opacity()
+                .w_full()
+                .height(pct(61.8))
+                .bg_color(Color::CYAN)
+                .r((0.0, 4.0, 0.0, 0.0)),
+        ),
         step_2().style(ts().w_full().height(pct(38.2))),
     ])
 }
@@ -33,40 +37,48 @@ fn step_1() -> Element {
 fn step_2() -> Element {
     h_flex(ts()).children([
         step_3().style(ts().width(pct(38.2)).h_full()),
-        flex(hover_opacity()
-            .width(pct(61.8))
-            .h_full()
-            .bg_color(Color::GREEN)
-            .r((0.0, 0.0, 4.0, 0.0))),
+        flex(
+            hover_opacity()
+                .width(pct(61.8))
+                .h_full()
+                .bg_color(Color::GREEN)
+                .r((0.0, 0.0, 4.0, 0.0)),
+        ),
     ])
 }
 
 fn step_3() -> Element {
     v_flex(ts()).children([
         step_4().style(ts().w_full().height(pct(38.2))),
-        flex(hover_opacity()
-            .w_full()
-            .height(pct(61.8))
-            .bg_color(Color::YELLOW)),
+        flex(
+            hover_opacity()
+                .w_full()
+                .height(pct(61.8))
+                .bg_color(Color::YELLOW),
+        ),
     ])
 }
 
 fn step_4() -> Element {
     h_flex(ts()).children([
-        flex(hover_opacity()
-            .width(pct(61.8))
-            .h_full()
-            .bg_color(Color::PURPLE)),
+        flex(
+            hover_opacity()
+                .width(pct(61.8))
+                .h_full()
+                .bg_color(Color::PURPLE),
+        ),
         step_5().style(ts().width(pct(38.2)).h_full()),
     ])
 }
 
 fn step_5() -> Element {
     v_flex(ts()).children([
-        flex(hover_opacity()
-            .w_full()
-            .height(pct(61.8))
-            .bg_color(Color::ORANGE)),
+        flex(
+            hover_opacity()
+                .w_full()
+                .height(pct(61.8))
+                .bg_color(Color::ORANGE),
+        ),
         step_6().style(ts().w_full().height(pct(38.2))),
     ])
 }
@@ -74,10 +86,12 @@ fn step_5() -> Element {
 fn step_6() -> Element {
     h_flex(ts()).children([
         step_7().style(ts().width(pct(38.2)).h_full()),
-        flex(hover_opacity()
-            .width(pct(61.8))
-            .h_full()
-            .bg_color(Color::MAGENTA)),
+        flex(
+            hover_opacity()
+                .width(pct(61.8))
+                .h_full()
+                .bg_color(Color::MAGENTA),
+        ),
     ])
 }
 

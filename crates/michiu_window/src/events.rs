@@ -105,7 +105,7 @@ pub enum MichiuEvent {
 
     /// Issued when files are dragged and dropped onto the window client area.
     ///
-    /// Requires `with_drag_and_drop(true)` and an OLE-initialized [`crate::com::ComContext`].
+    /// Requires `with_drag_and_drop(true)` and an OLE-initialized [`MichiuComContext`](crate::com::MichiuComContext).
     FileDropped(Unvalidated<Vec<PathBuf>>),
 
     /// Issued when any active Input Method (IME/TSF) state update occurs.

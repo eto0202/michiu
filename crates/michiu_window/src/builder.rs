@@ -1,4 +1,4 @@
-use crate::{MichiuComContext, LogicalPoint, LogicalSize, MessageFilter, MichiuTray};
+use crate::{LogicalPoint, LogicalSize, MessageFilter, MichiuComContext, MichiuTray};
 use crate::{
     MichiuIcon,
     error::{MichiuError, Result},
@@ -302,7 +302,7 @@ impl<'a> MichiuWindowBuilder<'a> {
     ///
     /// The registered filter runs at the very beginning of the window procedure. If it returns
     /// `Some(LRESULT)`, the message is considered handled, and it bypasses all subsequent processing
-    /// (including ([`crate::events::Event`]) translation and the default OS procedure).
+    /// (including ([`crate::events::MichiuEvent`]) translation and the default OS procedure).
     ///
     /// # Examples
     ///
@@ -351,7 +351,7 @@ impl<'a> MichiuWindowBuilder<'a> {
 
     /// Enables OLE file Drag & Drop support.
     ///
-    /// Requires a valid, OLE-initialized (single-threaded) [`ComContext`].
+    /// Requires a valid, OLE-initialized (single-threaded) [`MichiuComContext`].
     #[must_use]
     #[inline]
     pub fn with_drag_and_drop(mut self, enabled: bool) -> Self {
