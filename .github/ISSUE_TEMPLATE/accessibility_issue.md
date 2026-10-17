@@ -11,15 +11,17 @@ Please write in English or provide both English and your native language.
 See our [Language Policy](https://github.com/eto0202/michiu/blob/main/LANGUAGE_POLICY.md) for details.
 -->
 
-## What happened?
+## [English]
+
+### What happened?
 
 <!-- Please briefly describe the nature of the problem that occurred -->
 
-## Target Components / Element
+### Target Components / Element
 
 <!-- UI element experiencing an issue -->
 
-## Environment
+### Environment
 
 - **OS**: Windows 11 / 10 (Version: )
 - **Assistive Technology / Operation Methods**:
@@ -30,16 +32,20 @@ See our [Language Policy](https://github.com/eto0202/michiu/blob/main/LANGUAGE_P
   - [ ] Other ( )
 - **michiu Version / Commit**:
 
-## Steps to Reproduce
+### Steps to Reproduce
 
 1.
 2.
 3.
 
-## Expected Behavior
+### Expected Behavior
 
 <!-- Please describe how this should work (e.g., the border should appear when the Tab key is pressed, the label should be read aloud by Narrator, etc.) -->
 
-## Screenshots or Logs
+### Screenshots or Logs
 
 <!-- Please attach any Accessibility Insights snapshots or error logs, if available -->
+
+---
+
+## [Original]

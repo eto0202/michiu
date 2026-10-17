@@ -5,17 +5,16 @@
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 [![GitHub Actions CI](https://img.shields.io/github/actions/workflow/status/eto0202/michiu/ci.yml?branch=main&label=CI)](https://github.com/eto0202/michiu/actions)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078d7.svg?logo=windows&logoColor=white)](https://github.com/eto0202/michiu)
-[![Rust](https://img.shields.io/badge/rustc-stable-orange.svg?logo=rust&logoColor=white)](Cargo.toml)
 
 [![Language Policy](https://img.shields.io/badge/Policy-Multilingual-purple)](LANGUAGE_POLICY.md)
 [![Accessibility](https://img.shields.io/badge/A11y-AccessKit-pink)](ACCESSIBILITY.md)
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Good First Issues](https://img.shields.io/github/issues/eto0202/michiu/good%20first%20issue?color=green&label=good%20first%20issues)](https://github.com/eto0202/michiu/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22)
 
 The `michiu` is developing a GUI library for Windows.
 
 Please note that since this is still under development, breaking changes may occur without prior notice.
+
+### Crates.io
 
 - [michiu](https://crates.io/crates/michiu)
 - [michiu_ui](https://crates.io/crates/michiu_ui)
@@ -32,7 +31,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-michiu = "0.0.3"
+michiu = "0.0.4"
 pollster = "1.0.1"
 ```
 
@@ -145,7 +144,7 @@ cargo run --release
     <img 
         width="600" 
         alt="Flexbox Sample" 
-        src="https://github.com/user-attachments/assets/2f99f893-5ebf-4996-b636-59d0455b3c5b" />
+        src="https://github.com/user-attachments/assets/7aa60ea4-3b2c-4da2-8d24-dfc3a083ee8a" />
 </p>
 
 #### WebView2 (External Visual) Sample
@@ -154,7 +153,7 @@ cargo run --release
     <img 
         width="600" 
         alt="WebView2 (External Visual) Sample" 
-        src="https://github.com/user-attachments/assets/098367bc-6758-470f-9822-1be7a944bcc1" />
+        src="https://github.com/user-attachments/assets/709b6fc1-9848-427b-abf8-f6aae284f864" />
 </p>
 
 ## License
