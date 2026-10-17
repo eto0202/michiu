@@ -1,3 +1,52 @@
+## [0.0.4] - 2026-10-17
+
+### Breaking Changes
+
+- Rename `inject_user_action` to `inject_action`
+- Rename `UserAction` to `EventAction`
+
+### 🚀 Features
+
+- Add `a11y_label` to `Element`
+- Add ‘context_menu’ sample
+- Add a custom title bar to the `examples/sample_collection`
+- Fix the custom title bar in `examples/sample_collection`
+- Add a sample `transform.rs` file
+- Add a sample to `transform.rs`
+- Add a sample to `scrollbar.rs`
+- Add a sample to `gradient.rs`
+
+### 🐛 Bug Fixes
+
+- Fix the custom title bar in `examples/sample_collection` (#41)
+
+### 📚 Documentation
+
+- Update the documentation for `michiu`
+- [**breaking**] Add documentation to `utils.rs`
+- Add a top-level document to `michiu_ui`
+- Remove the original text from `lib.rs` (#42)
+- Add a top-level document to `context.rs`
+- Add a document to `Context`
+- Add documentation to `pipeline.rs`
+- Add documentation to `element.rs`
+
+### 🚜 Refactor
+
+- Rename the sample file `image.rs` to `external_texture.rs`
+- [**breaking**] Renamed `inject_user_action` and `UserAction`
+
+### ⚙️ Miscellaneous Tasks
+
+- Modify the `Cargo.toml` and `README.md`
+- Add `ACCESSIBILITY.md` and `accessibility_issue.md`.
+- Add `CODE_OF_CONDUCT.md`
+- Add `CONTRIBUTING.md` and `LANGUAGE_POLICY.md`
+- Update `CONTRIBUTING.md` and `README.md`.
+- Move `CODE_OF_CONDUCT.md` and `CONTRIBUTING.md`.
+- Modify the `assets` folder
+- Rename the folder and update `README.md`
+
 ## [0.0.3] - 2026-10-07
 
 ### Breaking Changes
@@ -98,7 +147,8 @@
 
 - Initial release
 
-[unreleased]: https://github.com/eto0202/michiu/compare/v0.0.3...HEAD
+[unreleased]: https://github.com/eto0202/michiu/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/eto0202/michiu/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/eto0202/michiu/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/eto0202/michiu/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/eto0202/michiu/releases/tag/v0.0.1
