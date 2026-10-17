@@ -2,6 +2,12 @@
 
 This crate handles the windows for the `michiu` crate.
 
+## Crates.io
+
+- [michiu](https://crates.io/crates/michiu)
+- [michiu_ui](https://crates.io/crates/michiu_ui)
+- [michiu_guard](https://crates.io/crates/michiu_guard)
+
 ## Examples
 
 [michiu_window examples](https://github.com/eto0202/michiu/tree/main/michiu_window/examples)
