@@ -20,23 +20,23 @@ Community members are always welcome to help refine or polish translations!
 
 ## Policy Summary
 
-| Item                             | Policy                                                                                                  |
-| :------------------------------- | :------------------------------------------------------------------------------------------------------ |
-| **Title**                        | **English Only**                                                                                        |
-| **Summary / TL;DR**              | **English Only**                                                                                        |
-| **Official Labels / Categories** | **English Only** (Managed by maintainers)                                                               |
-| **Body & Detailed Descriptions** | **Your native/preferred language is encouraged** (*Please provide an English translation alongside it). |
-| **English Translation**          | **AI / Machine translations** (ChatGPT, DeepL, etc.) are completely fine.                               |
-| **Ambiguity in Translation**     | **The original text takes precedence** as the primary source of truth.                                  |
-| **Display Order**                | Place **English on top**, followed by the original language below.                                      |
-| **Docs & Code Comments**         | **English Only**                                                                                        |
-| **Commit Messages**              | **English Only**                                                                                        |
+| Item                             | Policy                                                                                        |
+| :------------------------------- | :-------------------------------------------------------------------------------------------- |
+| **Title**                        | **English only**                                                                              |
+| **Summary / TL;DR**              | **English only**                                                                              |
+| **Official Labels / Categories** | **English only** (Managed by maintainers)                                                     |
+| **Body & Detailed Descriptions** | **Your preferred language is encouraged** (*Please accompany it with an English translation). |
+| **English Translation**          | **AI / Machine translations** (ChatGPT, DeepL, etc.) are more than welcome.                   |
+| **Ambiguity in Translation**     | **The original text takes precedence** as the primary source of truth.                        |
+| **Display Order**                | Place **English on top**, followed by the original language below.                            |
+| **Docs & Code Comments**         | **English only**                                                                              |
+| **Commit Messages**              | **English only**                                                                              |
 
 ---
 
 ## Writing Example (Issues / Discussions / PRs)
 
-When writing an issue, discussion, or PR description, please place the English translation (machine translation is welcome) at the top, and your original language below:
+When opening an issue, discussion, or PR, please place an English translation (machine translation is totally fine!) at the top, and your original language below:
 
 > **[English]** _(AI / Machine translation)_  
 > When clicking the button, nothing happens. I expected the counter to increment by 1.
@@ -46,8 +46,9 @@ When writing an issue, discussion, or PR description, please place the English t
 
 ## In Closing
 
-A great deal of information is lost the moment it’s put into words. When using machine or AI translation, even more is lost and distorted.
+The moment thoughts are put into words, something is inevitably lost. When using machine or AI translation, even more is lost and distorted.
 However, the same is true even within the same language. In fact, there are many things that don’t get across precisely because we’re speaking the same language.
+
 That’s exactly why we should keep the conversation going!
 
 ---
@@ -98,7 +99,10 @@ Issue や PR の本文を書く際は、以下のように AI 翻訳した英語
 
 言葉にした時点で多くの情報が失われます。機械翻訳、AI翻訳を通せば更に失われ歪められてしまいます。
 しかし、それは同じ言語でも同様です。むしろ同じ言語だからこそ伝わらないことは多くあります。
+
 だからこそ対話を重ねましょう！
+
+---
 
 Created: [2026/10/14]
 
