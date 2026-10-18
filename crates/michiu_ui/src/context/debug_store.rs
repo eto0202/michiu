@@ -10,19 +10,18 @@ use crate::{
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPropertiesSparse,
     DndDropPropertiesSparse, EffectId, EffectToElementSecondary, EffectiveZindicesSecondary,
     ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, ExternalTextureSparse,
-    FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuRenderer,
-    MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingDcompRelease,
-    PendingElementEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
-    QuadInstance, RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
-    ScrollbarStylesSparse, SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec,
-    SessionSpawnedVec, SignalId, SortCacheVec, SortedEntitiesVec, SubscribersSecondary,
-    TaffyNodesSecondary, TextCacheKey, TextCacheValue, TextContentsSparse, TextSelectionsSparse,
-    TextSpansSparse, TextureAtlas, UiaPropertiesSparse, VirtualKey, VisualPropertiesSecondary,
-    WebviewEntitiesVec,
+    ExternalVisualSparse, FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse,
+    InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize,
+    MichiuRenderer, MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary,
+    PendingActions, PendingDcompRelease, PendingElementEffectsVec, PrevClipRectsSecondary,
+    PrevRectsSecondary, ProvidersSparseSecondary, QuadInstance, RectsSecondary, RenderData,
+    ResizingState, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse, SelectedRectsSparse,
+    SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
+    SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey, TextCacheValue,
+    TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas, UiaPropertiesSparse,
+    VirtualKey, VisualPropertiesSecondary, WebviewEntitiesVec,
 };
-use crate::{ExternalVisualSparse, PendingActions};
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -32,7 +31,7 @@ use std::{
     panic::Location,
     path::PathBuf,
     sync::{
-        Arc, Mutex, RwLock,
+        Arc,
         mpsc::{Receiver, SyncSender},
     },
     time::{Duration, Instant},
@@ -59,7 +58,7 @@ pub struct MichiuTraceVec(Vec<MichiuTraceRecord>);
 
 #[cfg(feature = "trace-error")]
 pub struct DebugStore {
-    /// Context が起動した時間を0秒とする
+    // Context が起動した時間を0秒とする
     pub(crate) boot_time: Instant,
     pub(crate) frame: u64,
     // グローバルなエラー用にルート要素のIDを持っておく。
@@ -202,11 +201,23 @@ pub struct TraceSubscription {
 #[cfg(feature = "trace-error")]
 impl TraceSubscription {
     /// Wait for the next batch (blocking)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::sync::mpsc::RecvError`] if all senders have been dropped,
+    /// indicating that no more batches will be received.
     pub fn recv(&self) -> std::result::Result<TraceBatch, std::sync::mpsc::RecvError> {
         self.rx.recv()
     }
 
-    /// Attempt to retrieve the data in a non-blocking manner
+    /// Attempt to retrieve the data in a non-blocking manner.
+    ///
+    /// # Errors
+    ///
+    /// - [`std::sync::mpsc::TryRecvError::Empty`]:
+    ///   Returns if the channel is currently empty.
+    /// - [`std::sync::mpsc::TryRecvError::Disconnected`]:
+    ///   Returns if all senders have been dropped.
     pub fn try_recv(&self) -> std::result::Result<TraceBatch, std::sync::mpsc::TryRecvError> {
         self.rx.try_recv()
     }
@@ -220,9 +231,9 @@ impl TraceSubscription {
 pub struct MichiuInspector {
     sender: InspectorSender,
     // ワーカースレッドが更新し、ユーザーが読み取るための共有ストレージ
-    storage: Arc<RwLock<InspecterSecondary>>,
+    storage: Arc<parking_lot::RwLock<InspecterSecondary>>,
     // サブスクライバの送信口を束ねて管理
-    subscribers: Arc<Mutex<Vec<SyncSender<TraceBatch>>>>,
+    subscribers: Arc<parking_lot::Mutex<Vec<SyncSender<TraceBatch>>>>,
 }
 
 #[cfg(feature = "trace-error")]
@@ -238,6 +249,8 @@ impl MichiuInspector {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
+        use parking_lot::{Mutex, RwLock};
+
         let (tx, rx) = std::sync::mpsc::sync_channel(256);
         let storage = Arc::new(RwLock::new(InspecterSecondary(SecondaryMap::new())));
         let subscribers: Arc<Mutex<Vec<SyncSender<TraceBatch>>>> = Arc::new(Mutex::new(Vec::new()));
@@ -253,29 +266,27 @@ impl MichiuInspector {
                 let shared_batch = Arc::new(batch);
 
                 // 購読者全員へ一斉配信（詰まっている、切断されたものは破棄）
-                if let Ok(mut subs) = subs_clone.lock() {
-                    subs.retain(|sub_tx| {
-                        // try_send で送れない場合は捨てるか、
-                        // 接続が切れていればリストから除去する
-                        match sub_tx.try_send(Arc::clone(&shared_batch)) {
-                            Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {
-                                // サブスクライバ側が遅延して溢れた場合（接続は維持）
-                                true
-                            }
-                            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
-                                // サブスクライバがdropされたので登録解除
-                                false
-                            }
+                let mut subs = subs_clone.lock();
+                subs.retain(|sub_tx| {
+                    // try_send で送れない場合は捨てるか、
+                    // 接続が切れていればリストから除去する
+                    match sub_tx.try_send(Arc::clone(&shared_batch)) {
+                        Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                            // サブスクライバ側が遅延して溢れた場合（接続は維持）
+                            true
                         }
-                    });
-                }
+                        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                            // サブスクライバがdropされたので登録解除
+                            false
+                        }
+                    }
+                });
 
-                if let Ok(mut storage) = storage_clone.write() {
-                    for trace in shared_batch.iter() {
-                        if let Some(id) = trace.id {
-                            // trace 自体も clone せず Arc<MichiuTraceRecord> にする？
-                            storage.insert(id, trace.clone());
-                        }
+                let mut storage = storage_clone.write();
+                for trace in shared_batch.iter() {
+                    if let Some(id) = trace.id {
+                        // trace 自体も clone せず Arc<MichiuTraceRecord> にする？
+                        storage.insert(id, trace.clone());
                     }
                 }
             }
@@ -297,7 +308,7 @@ impl MichiuInspector {
     pub fn subscribe(&self, buffer_size: Option<usize>) -> TraceSubscription {
         let bs = buffer_size.unwrap_or(128);
         let (tx, rx) = std::sync::mpsc::sync_channel(bs);
-        self.subscribers.lock().unwrap().push(tx);
+        self.subscribers.lock().push(tx);
         TraceSubscription { rx }
     }
 
@@ -312,7 +323,7 @@ impl MichiuInspector {
     #[inline]
     #[must_use]
     pub fn get(&self, id: EntityId) -> Option<MichiuTraceRecord> {
-        self.storage.read().unwrap().get(id).cloned()
+        self.storage.read().get(id).cloned()
     }
 }
 

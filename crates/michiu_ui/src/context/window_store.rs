@@ -86,3 +86,6 @@ impl WindowStore {
         &mut self.win_last_size
     }
 }
+
+#[cfg(test)]
+mod tests {}
