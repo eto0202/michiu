@@ -968,7 +968,7 @@ impl MichiuApp {
 
         if self.context.has_active_frame() {
             if self.config.sync_mode == AutoSyncMode::DwmFlush {
-                self.handle.dwm_flush();
+                let _ = self.handle.dwm_flush();
             }
             self.handle.redraw_requested();
         }

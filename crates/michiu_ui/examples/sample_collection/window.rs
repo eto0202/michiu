@@ -125,6 +125,14 @@ unsafe extern "system" fn wnd_proc(
                 app.context.tick_system_frame(&TickType::All);
                 let update_elapsed = update_start.elapsed();
 
+                let active_entities = app.context.active_entities();
+                let dirty_entities = app
+                    .context
+                    .raw_context_mut()
+                    .layouts
+                    .dirty_entities_mut()
+                    .len();
+
                 let layout_start = std::time::Instant::now();
                 app.context
                     .sync_layout(app.root_id, app.renderer.layout_size());
@@ -138,12 +146,12 @@ unsafe extern "system" fn wnd_proc(
                 let mut ps = PAINTSTRUCT::default();
                 let _hdc = unsafe { BeginPaint(hwnd, &mut ps) };
 
-                app.context.update_accessibility();
-
                 app.renderer.draw(&mut app.context);
 
                 let _ = unsafe { EndPaint(hwnd, &ps) };
                 let draw_elapsed = draw_start.elapsed();
+
+                app.context.update_accessibility();
 
                 let cpu_active_elapsed =
                     update_elapsed + layout_elapsed + comp_elapsed + draw_elapsed;
@@ -204,22 +212,23 @@ unsafe extern "system" fn wnd_proc(
                     FRAME_DATA.with(|data| {
                         let mut frames = data.borrow_mut();
                         let count = frames.len();
+                        let count_f64 = count as f64;
                         if count > 0 {
                             // 各メトリクスの平均値
                             let avg_update =
-                                frames.iter().map(|f| f.update).sum::<f64>() / count as f64;
+                                frames.iter().map(|f| f.update).sum::<f64>() / count_f64;
                             let avg_layout =
-                                frames.iter().map(|f| f.layout).sum::<f64>() / count as f64;
+                                frames.iter().map(|f| f.layout).sum::<f64>() / count_f64;
                             let avg_comp =
-                                frames.iter().map(|f| f.comp).sum::<f64>() / count as f64;
+                                frames.iter().map(|f| f.comp).sum::<f64>() / count_f64;
                             let avg_draw =
-                                frames.iter().map(|f| f.draw).sum::<f64>() / count as f64;
+                                frames.iter().map(|f| f.draw).sum::<f64>() / count_f64;
                             let avg_sync =
-                                frames.iter().map(|f| f.sync).sum::<f64>() / count as f64;
+                                frames.iter().map(|f| f.sync).sum::<f64>() / count_f64;
                             let avg_cpu =
-                                frames.iter().map(|f| f.cpu_active).sum::<f64>() / count as f64;
+                                frames.iter().map(|f| f.cpu_active).sum::<f64>() / count_f64;
                             let avg_total =
-                                frames.iter().map(|f| f.total).sum::<f64>() / count as f64;
+                                frames.iter().map(|f| f.total).sum::<f64>() / count_f64;
 
                             // P99を計算
                             frames.sort_by(|a, b| a.cpu_active.partial_cmp(&b.cpu_active).unwrap());
@@ -229,9 +238,10 @@ unsafe extern "system" fn wnd_proc(
 
                             if ALLOW_LOG {
                                 println!(
-                                    "[Loop Count: {:>3}] (Total Frame: {:5.2}ms)\n\
-                                        ├─ Phase Avg:   Upd: {:5.2}ms | Lay: {:5.2}ms | Cmp: {:5.2}ms | Drw: {:5.2}ms | Sync: {:5.2}ms\n\
-                                        └─ CPU Active:  Avg: {:5.2}ms | P99: {:5.2}ms | Max: {:5.2}ms",
+                                    "[Loop Count: {:>3}] (Total Frame: {:6.3}ms)\n\
+                                        ├─ Phase Avg:   Upd: {:6.3}ms | Lay: {:6.3}ms | Cmp: {:6.3}ms | Drw: {:6.3}ms | Sync: {:6.3}ms\n\
+                                        ├─ CPU Active:  Avg: {:6.3}ms | P99: {:6.3}ms | Max: {:6.3}ms\n\
+                                        └─ Active Entities: {active_entities} | Dirty Entities: {dirty_entities}",
                                     count,
                                     avg_total,
                                     avg_update,
@@ -290,9 +300,7 @@ unsafe extern "system" fn wnd_proc(
             WM_MOUSELEAVE => {
                 // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
                 app.context
-                    .inject_action(EventAction::PointerMove(LayoutPoint::new(
-                        -9999.0, -9999.0,
-                    )));
+                    .inject_action(EventAction::PointerMove(LayoutPoint::new(-9999.0, -9999.0)));
 
                 let _ = unsafe { InvalidateRect(Some(hwnd), None, false) };
                 return LRESULT(0);

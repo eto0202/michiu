@@ -41,6 +41,23 @@ impl<L: ExternalData> DataWatcher<L> {
     }
 
     /// Binds to `Context` to start file monitoring, then returns a signal and a guard.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if monitoring setup fails:
+    /// - [`MichiuError::CanonicalizeFailed`]:
+    ///     - The `path` does not exist.
+    ///     - A component in the `path` prefix is not a directory.
+    /// - [`MichiuError::ReadStringFailed`]:
+    ///     - Failed to read the file (e.g., lack of permissions or the path is a directory).
+    ///     - The file content is not valid UTF-8.
+    /// - [`ExternalData::load`] fails to parse or construct the initial data.
+    /// - [`MichiuError::WatcherInitFailed`]:
+    ///     - Failed to initialize the OS file-watching backend (e.g., system resource exhaustion).
+    /// - [`MichiuError::WatchTargetFailed`]:
+    ///     - Permission denied to access or monitor the target path.
+    ///     - The OS limit for monitored files has been exceeded.
+    ///     - The target path does not exist, or another OS I/O error occurred.
     pub fn watch(self, cx: &mut Context) -> crate::Result<(ReadSignal<L::Output>, DataWatchGuard)> {
         let raw_path =
             std::fs::canonicalize(&self.path).map_err(|e| MichiuError::CanonicalizeFailed {
@@ -145,9 +162,22 @@ pub trait ExternalData: Send + Sync + 'static {
     type Output: Clone + Send + 'static;
 
     /// Construct data from the source string and file path.
+    ///
+    /// # Errors
+    ///
+    /// Implementations should return an error if:
+    /// - The `content` cannot be parsed or deserialized into [`Self::Output`].
+    /// - The data validation or construction fails.
     fn load(&self, path: &Path, content: &str) -> crate::Result<Self::Output>;
 
     /// Static loading (no monitoring).
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - [`MichiuError::ReadStringFailed`]:
+    ///     - Failed to read the file (e.g., lack of permissions or the path is a directory).
+    ///     - The file content is not valid UTF-8.
+    /// - [`Self::load`] fails to parse or construct the data.
     fn load_file(&self, path: impl AsRef<Path>) -> crate::Result<Self::Output> {
         let path = path.as_ref();
         let content = std::fs::read_to_string(path).map_err(|e| MichiuError::ReadStringFailed {
@@ -240,6 +270,23 @@ impl<L: ExternalData> ExternalDataSetBuilder<L> {
     }
 
     /// Initially load all sheets, start batch monitoring, and return signals and guards.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if monitoring setup fails:
+    /// - [`MichiuError::CanonicalizeFailed`]:
+    ///     - The `path` does not exist.
+    ///     - A component in the `path` prefix is not a directory.
+    /// - [`MichiuError::ReadStringFailed`]:
+    ///     - Failed to read the file (e.g., lack of permissions or the path is a directory).
+    ///     - The file content is not valid UTF-8.
+    /// - [`ExternalData::load`] fails to parse or construct the initial data.
+    /// - [`MichiuError::WatcherInitFailed`]:
+    ///     - Failed to initialize the OS file-watching backend (e.g., system resource exhaustion).
+    /// - [`MichiuError::WatchTargetFailed`]:
+    ///     - Permission denied to access or monitor the target path.
+    ///     - The OS limit for monitored files has been exceeded.
+    ///     - The target path does not exist, or another OS I/O error occurred.
     pub fn watch(
         self,
         cx: &mut Context,

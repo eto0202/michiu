@@ -211,7 +211,7 @@ mod tests {
                 assert!(matches!(event, MichiuEvent::CloseRequested));
             }
             MichiuAnyEvent::User(_) => panic!("Expected MichiuEvent::Event"),
-            _ => {}
+            MichiuAnyEvent::Other => {}
         }
     }
 

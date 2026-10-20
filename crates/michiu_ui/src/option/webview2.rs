@@ -1,7 +1,7 @@
 use crate::{
     Color, ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
     ExternalTextureMetadata, ExternalVisual, ExternalVisualMetadata, LayoutRect, LayoutSize,
-    MichiuError, StaticExternalTexture, MichiuTaskSender, VisualUpdateContext,
+    MichiuError, MichiuTaskSender, StaticExternalTexture, VisualUpdateContext,
 };
 use std::{
     borrow::Cow,
@@ -377,6 +377,16 @@ impl ExternalVisual for WebView2Visual {
 }
 
 impl WebView2Visual {
+    /// Initializes a new WebView2 instance integrated with DirectComposition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the WebView2 environment or compositor fails to initialize:
+    /// - **DirectComposition failure**: The system does not support the `IDCompositionVisual2` interface (e.g., unsupported Windows version).
+    /// - **WebView2 initialization failure**: Failed to create the WebView2 environment or composition controller. Common causes include:
+    ///     - The Microsoft Edge WebView2 Runtime is not installed.
+    ///     - Failed to create the user data folder (insufficient permissions).
+    ///     - The provided `hwnd` is invalid.
     pub fn new(
         dcomp_device: &IDCompositionDevice,
         hwnd: HWND,
@@ -441,7 +451,6 @@ impl WebView2Visual {
         }
     }
 
-    #[expect(clippy::too_many_arguments)]
     pub(crate) unsafe fn init_webview2_composition(
         hwnd: HWND,
         webview_visual: &IDCompositionVisual2,

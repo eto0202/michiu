@@ -253,7 +253,7 @@ impl MichiuTray {
         };
 
         // NIM_MODIFYを送信してトースト通知のみをトリガー
-        let success = unsafe { Shell_NotifyIconW(NIM_MODIFY, &nid) };
+        let success = unsafe { Shell_NotifyIconW(NIM_MODIFY, &raw const nid) };
         if success.as_bool() {
             Ok(())
         } else {

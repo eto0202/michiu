@@ -157,8 +157,22 @@ struct GlobalConfig {
 }
 
 impl WgpuRenderer {
-    pub async fn new(
-        visual: *mut std::ffi::c_void, // 背面ビジュアル
+    /// Initializes wgpu.
+    ///
+    /// # Safety
+    ///
+    /// The caller must satisfy the following safety requirements:
+    /// - `visual` must be a raw pointer to a valid `IDCompositionVisual` (COM object).
+    /// - The object pointed to by `visual` must not be released or destroyed until the created instance is destroyed.。
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the initialization pipeline fails:
+    /// - [`MichiuError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
+    /// - [`MichiuError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
+    /// - [`MichiuError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
+    pub async unsafe fn new(
+        visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
         size: LayoutSize,
         scale_factor: f32,
     ) -> crate::Result<Self> {
@@ -660,7 +674,7 @@ impl WgpuRenderer {
             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
             // 背面用バッチの描画 (instance_offset は 0 から開始)
-            let mut instance_offset = 0;
+            // let mut instance_offset = 0;
             // 現在アクティブなパイプラインを記録
             let mut current_pipeline = None;
 
@@ -805,7 +819,7 @@ impl WgpuRenderer {
             &cx.layouts
                 .lay_resolved_basic
                 .find_or(entity_id, &DEFAULT_BASIC, &mut cx.debug);
-        let flex = &cx
+        let _flex = &cx
             .layouts
             .lay_resolved_flex
             .find_or(entity_id, &DEFAULT_FLEX, &mut cx.debug);

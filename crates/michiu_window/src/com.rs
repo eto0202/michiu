@@ -2,7 +2,7 @@
 #![allow(clippy::inline_always)]
 
 use crate::error::{MichiuError, Result};
-use crate::{MichiuEvent, MichiuAnyEvent, MichiuRawEvent, WindowId, dispatch_to_active_handler};
+use crate::{MichiuAnyEvent, MichiuEvent, MichiuRawEvent, WindowId, dispatch_to_active_handler};
 use michiu_guard::Unvalidated;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -157,6 +157,10 @@ impl MichiuComContext {
 
     /// A dedicated method for initializing `WinRT` (STA) and OLE in this order.
     /// Required when using OLE drag and drop and `WinRT` API (notifications, etc.) on the same thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` and `OleInitialize` fails.
     #[inline]
     pub fn new_winrt_ole_combo() -> Result<Self> {
         unsafe {
@@ -790,7 +794,7 @@ mod tests {
                     }
                 }
                 MichiuAnyEvent::User(_) => panic!("Expected Event"),
-                _ => {}
+                MichiuAnyEvent::Other => {}
             }
         });
     }

@@ -433,6 +433,13 @@ impl MichiuWindow {
     /// Failing to forward messages, or dereferencing invalid raw pointers passed in `ref_data`,
     /// can cause memory leaks, visual hangs, or fatal crashes in the OS message loop.
     ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::SubclassSetupFailed`] if the operating system fails to register
+    /// the subclass procedure via `SetWindowSubclass`. Typical causes include:
+    /// - The window handle (`self.hwnd`) is invalid or has already been destroyed.
+    /// - The system ran out of memory while allocating internal subclass tracking structures.
+    ///
     /// # Examples
     ///
     /// Here is how to register the custom subclass procedure callback with a window instance:
@@ -769,6 +776,18 @@ impl MichiuWindow {
         unsafe { UpdateWindow(self.hwnd).into() }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::UnexpectedOsError`] if `DwmFlush` fails.
+    ///
+    /// This typically happens when the Desktop Window Manager (DWM) is temporarily unavailable (e.g., screen lock, UAC prompt, RDP session)
+    /// or when the GPU driver restarts.
+    ///
+    /// # Note
+    ///
+    /// If this function is used solely for frame synchronization/VSync pacing,
+    /// it is usually safe to **ignore this error** (or log a warning) and continue the render loop.
+    /// The error is often transient, resulting only in a single dropped or skipped frame rather than a permanent failure.
     #[inline]
     pub fn dwm_flush(&self) -> Result<()> {
         unsafe { DwmFlush().map_err(MichiuError::UnexpectedOsError) }
@@ -811,7 +830,7 @@ pub struct PaintContext<'a> {
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Drop for PaintContext<'a> {
+impl Drop for PaintContext<'_> {
     fn drop(&mut self) {
         unsafe {
             let _ = EndPaint(self.hwnd, &raw const self.ps);

@@ -1682,6 +1682,9 @@ pub enum MichiuError {
         #[source]
         source: Arc<notify::Error>,
     },
+
+    #[error("failed to send task: the main thread has been terminated (receiver disconnected)")]
+    SendError,
 }
 
 // ================================================================

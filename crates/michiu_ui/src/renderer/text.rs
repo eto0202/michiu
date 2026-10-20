@@ -445,6 +445,7 @@ impl TextEngine {
     }
 
     /// cosmic-text の Buffer から、指定されたインデックス範囲が占める各行の矩形を計算
+    #[expect(unused)]
     pub(crate) fn calc_span_rects(buffer: &Buffer, range: Range<ByteIndex>) -> Vec<LayoutRect> {
         let mut rects = Vec::with_capacity((range.start.0..range.end.0).len());
 

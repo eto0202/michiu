@@ -213,6 +213,13 @@ pub struct PromotedVisual {
 
 impl MichiuRenderer {
     /// Initialize the renderer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if graphics initialization fails:
+    /// - **DirectComposition / D3D11 failure**: Failed to create the D3D11 device, or compositor resources (targets, visuals) could not be configured (e.g., unsupported GPU or invalid HWND).
+    /// - **WIC initialization failure**: Failed to instantiate the WIC imaging factory (e.g., COM is not initialized on this thread).
+    /// - **wgpu initialization failure**: Failed to request a suitable GPU adapter or create the logical device.
     #[inline]
     pub async fn new(
         hwnd: HWND,
@@ -225,7 +232,8 @@ impl MichiuRenderer {
 
         // wgpu レンダラーの初期化
         let raw_visual_ptr = wgpu_visual.as_raw();
-        let wgpu_renderer = WgpuRenderer::new(raw_visual_ptr, layout_size, scale_factor).await?;
+        let wgpu_renderer =
+            unsafe { WgpuRenderer::new(raw_visual_ptr, layout_size, scale_factor) }.await?;
 
         unsafe {
             desktop_device.Commit()?;
@@ -725,6 +733,9 @@ impl MichiuRenderer {
         &self.desktop_device
     }
 
+    /// # Errors
+    ///
+    /// Failed to obtain the DirectComposition device.
     #[inline]
     pub fn composition_device(&self) -> windows_core::Result<IDCompositionDevice> {
         let result: IDCompositionDevice = self.desktop_device.clone().cast()?;

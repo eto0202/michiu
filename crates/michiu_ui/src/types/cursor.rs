@@ -53,6 +53,11 @@ impl Default for CursorIcon {
 impl CursorIcon {
     /// Loads and returns the Windows `HCURSOR` physical handle.
     /// If a custom `HCURSOR` is specified, it takes precedence; otherwise, the OS's default is loaded.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::WindowsApiError`]:
+    /// - If failed to load the cursor via `LoadCursorW` (e.g., resource not found or system error).
     pub fn to_hcursor(self) -> crate::Result<HCURSOR> {
         use windows::Win32::UI::WindowsAndMessaging::{
             IDC_ARROW, IDC_HAND, IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
@@ -116,6 +121,12 @@ impl CursorIcon {
     }
 
     /// Generates a custom `HCURSOR` with the specified hotspot coordinates from the RGBA8 pixel data in memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::CursorCreationFailed`]:
+    /// - If the length of `rgba_pixels` does not match the expected size (`width * height * 4`).
+    /// - If the underlying Windows API fails to allocate resources or create the icon (e.g. `CreateDIBSection`, `CreateIconIndirect`).
     pub fn create_from_rgba(
         rgba_pixels: &[u8],
         width: u32,
@@ -208,6 +219,16 @@ impl CursorIcon {
     }
 
     /// Generates a custom `HCURSOR` with the specified hotspot coordinates based on the image file path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::ImageLoadFailed`]:
+    /// - if the file cannot be opened (e.g. not found, permission denied).
+    /// - if the image format is unsupported or unrecognized.
+    /// - if the file is corrupted or failed to decode.
+    /// 
+    /// Returns [`MichiuError::CursorCreationFailed`]:
+    /// - If the underlying Windows API fails to allocate resources or create the icon.
     pub fn create_from_path(
         path: impl AsRef<std::path::Path>,
         hotspot_x: u32,

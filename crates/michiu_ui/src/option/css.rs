@@ -87,12 +87,20 @@ impl ExternalData for CssLoader {
 }
 
 /// Scan the abstract syntax tree of lightningcss to generate a map of class names and `ThisStyle` values.
+#[expect(clippy::print_stderr, clippy::expect_used, clippy::missing_panics_doc)]
 #[must_use]
 pub fn parse_css_to_classes(css_content: &str) -> CssMap {
     let mut classes: HashMap<String, ThisStyle> = HashMap::new();
 
-    let stylesheet = StyleSheet::parse(css_content, ParserOptions::default())
-        .unwrap_or_else(|_| StyleSheet::parse("", ParserOptions::default()).unwrap());
+    let stylesheet = StyleSheet::parse(css_content, ParserOptions::default()).unwrap_or_else(|e| {
+        // ホットリロード中はタイピング途中で文法が崩れることは普通なので、エラーは握りつぶしつつ警告ログのみ表示する。
+        if cfg!(debug_assertions) {
+            eprintln!("[WARN] Failed to parse CSS: {e}");
+        }
+
+        StyleSheet::parse("", ParserOptions::default())
+            .expect("parsing an empty stylesheet should never fail")
+    });
 
     for rule in &stylesheet.rules.0 {
         if let CssRule::Style(style_rule) = rule {
@@ -429,7 +437,12 @@ fn apply_declarations_to_style(
                 use lightningcss::properties::font::{AbsoluteFontWeight, FontWeight};
                 let weight_val = match fw {
                     FontWeight::Absolute(val) => match val {
-                        AbsoluteFontWeight::Weight(w) => Some(*w as u16),
+                        // 小数点以下を切り捨てした場合、`399.9` のような値が来た際に `399`になってしまう。本来なら `400` にしたいはず。
+                        // また CSS の仕様範囲は 1〜1000 のため clamp で制限。
+                        #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+                        AbsoluteFontWeight::Weight(w) => {
+                            Some((*w).clamp(1.0, 1000.0).round() as u16)
+                        }
                         AbsoluteFontWeight::Normal => Some(400),
                         AbsoluteFontWeight::Bold => Some(700),
                     },
