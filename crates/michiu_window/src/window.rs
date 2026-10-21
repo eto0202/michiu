@@ -1,4 +1,7 @@
 use crate::error::{MichiuError, Result};
+use crate::utils::{
+    get_window_ex_style, get_window_userdata_mut, get_window_style, round_to_i32, set_window_ex_style, set_window_style, size_of_u32,
+};
 use crate::{
     CursorIcon, FileDropTarget, ImeRelayServer, LogicalSize, MichiuTray, MichiuWindowBuilder,
     PhysicalPoint, PhysicalSize, PreferredAppMode, WindowHandle, ZOrder, translate_and_dispatch,
@@ -151,7 +154,7 @@ impl MichiuWindow {
         let ex_style = build_raw_ex_style(&builder);
 
         let dpi = unsafe { GetDpiForSystem() };
-        let scale_factor = dpi as f64 / 96.0;
+        let scale_factor = f64::from(dpi) / 96.0;
 
         let (x, y) = match builder.position {
             Some(pos) => {
@@ -180,9 +183,7 @@ impl MichiuWindow {
             is_cursor_inside: false,
             min_inner_size: builder.min_inner_size,
             max_inner_size: builder.max_inner_size,
-            saved_style: None,
-            saved_ex_style: None,
-            saved_rect: None,
+            saved_window: None,
             current_cursor: CursorIcon::Default,
             ime_relay: ime_relay.clone(),
             default_composition_window: builder.default_ime_window,
@@ -317,7 +318,7 @@ impl MichiuWindow {
     #[must_use]
     #[inline]
     pub fn scale_factor(&self) -> f64 {
-        self.dpi() as f64 / 96.0
+        f64::from(self.dpi()) / 96.0
     }
 
     /// Safely registers a high-level subclassing callback closure for this window.
@@ -951,12 +952,17 @@ pub(crate) struct WindowState {
     pub(crate) is_cursor_inside: bool,
     pub(crate) min_inner_size: Option<LogicalSize>,
     pub(crate) max_inner_size: Option<LogicalSize>,
-    pub(crate) saved_style: Option<WINDOW_STYLE>,
-    pub(crate) saved_ex_style: Option<WINDOW_EX_STYLE>,
-    pub(crate) saved_rect: Option<RECT>,
+    pub(crate) saved_window: Option<SavedWindowState>,
     pub(crate) current_cursor: CursorIcon,
     pub(crate) ime_relay: Option<Arc<ImeRelayServer>>,
     pub(crate) default_composition_window: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SavedWindowState {
+    pub style: WINDOW_STYLE,
+    pub ex_style: WINDOW_EX_STYLE,
+    pub rect: RECT,
 }
 
 struct CreationContext {
@@ -1029,7 +1035,7 @@ unsafe extern "system" fn global_wnd_proc(
 
             // 現在このウィンドウが存在しているモニターのDPIをリアルタイムに取得
             let dpi = unsafe { GetDpiForWindow(hwnd) };
-            let scale_factor = dpi as f64 / 96.0;
+            let scale_factor = f64::from(dpi) / 96.0;
 
             // 最小サイズ制限の動的スケーリング適用
             if let Some(logical_min) = state.min_inner_size {
@@ -1067,7 +1073,7 @@ fn register_window_class(
     let hcursor = unsafe { LoadCursorW(None, IDC_ARROW).map_err(MichiuError::UnexpectedOsError)? };
 
     let wnd_class = WNDCLASSEXW {
-        cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+        cbSize: size_of_u32::<WNDCLASSEXW>(),
         style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
         lpfnWndProc: Some(global_wnd_proc),
         cbClsExtra: 0,
@@ -1118,38 +1124,45 @@ fn calc_window_rect(
     dpi: u32,
     scale_factor: f64,
 ) -> Result<(i32, i32)> {
-    match builder.inner_size {
-        None => Ok((CW_USEDEFAULT, CW_USEDEFAULT)),
-        Some(logical_size) => {
-            let (physical_width, physical_height) = if builder.auto_dpi_scaling {
-                let physical_size = logical_size.to_physical(scale_factor);
-                (physical_size.width, physical_size.height)
-            } else {
-                (logical_size.width as i32, logical_size.height as i32)
-            };
-            let mut rect = RECT {
-                left: 0,
-                top: 0,
-                right: physical_width,
-                bottom: physical_height,
-            };
-            unsafe {
-                AdjustWindowRectExForDpi(&raw mut rect, style, false, ex_style, dpi).map_err(
-                    |err| MichiuError::GeometryUpdateFailed {
-                        x: 0,
-                        y: 0,
-                        width: logical_size.width as u32,
-                        height: logical_size.height as u32,
-                        dpi,
-                        source: err,
-                    },
-                )?;
+    let Some(logical_size) = builder.inner_size else {
+        return Ok((CW_USEDEFAULT, CW_USEDEFAULT));
+    };
+
+    let (physical_width, physical_height) = if builder.auto_dpi_scaling {
+        let physical_size = logical_size.to_physical(scale_factor);
+        (physical_size.width, physical_size.height)
+    } else {
+        // スケーリングOFFでも小数が指定された場合に備えて round を通す
+        (
+            round_to_i32(logical_size.width),
+            round_to_i32(logical_size.height),
+        )
+    };
+
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: physical_width,
+        bottom: physical_height,
+    };
+
+    unsafe {
+        AdjustWindowRectExForDpi(&raw mut rect, style, false, ex_style, dpi).map_err(|err| {
+            MichiuError::GeometryUpdateFailed {
+                x: 0,
+                y: 0,
+                width: u32::try_from(physical_width.max(0)).unwrap_or(0),
+                height: u32::try_from(physical_height.max(0)).unwrap_or(0),
+                dpi,
+                source: err,
             }
-            let outer_width = rect.right - rect.left;
-            let outer_height = rect.bottom - rect.top;
-            Ok((outer_width, outer_height))
-        }
+        })?;
     }
+
+    let outer_width = rect.right - rect.left;
+    let outer_height = rect.bottom - rect.top;
+
+    Ok((outer_width, outer_height))
 }
 
 fn build_raw_style(builder: &MichiuWindowBuilder<'_>) -> WINDOW_STYLE {
@@ -1231,7 +1244,7 @@ pub(crate) unsafe fn enable_dark_mode_titlebar(hwnd: HWND, enable: bool) {
             hwnd,
             DWMWA_USE_IMMERSIVE_DARK_MODE,
             (&raw const value).cast(),
-            std::mem::size_of::<i32>() as u32,
+            size_of_u32::<i32>(),
         )
     };
 }
@@ -1298,7 +1311,7 @@ pub(crate) fn is_system_dark_mode() -> bool {
 
             let mut value_type = REG_DWORD;
             let mut data = 0u32;
-            let mut data_size = std::mem::size_of::<u32>() as u32;
+            let mut data_size = size_of_u32::<u32>();
 
             let res = RegQueryValueExW(
                 hkey,
@@ -1346,7 +1359,7 @@ pub(crate) fn set_clipboard_text_impl(hwnd: HWND, text: &str) -> Result<()> {
         std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr.cast::<u16>(), wide.len());
         let _ = GlobalUnlock(HGLOBAL(h_mem.0));
 
-        if SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(h_mem.0.cast()))).is_err() {
+        if SetClipboardData(u32::from(CF_UNICODETEXT.0), Some(HANDLE(h_mem.0.cast()))).is_err() {
             let _ = GlobalFree(Some(h_mem)); // メモリの解放漏れを防止
             let _ = CloseClipboard();
             return Err(MichiuError::UnexpectedOsError(
@@ -1365,7 +1378,7 @@ pub(crate) fn get_clipboard_text_impl(hwnd: HWND) -> Result<String> {
                 windows::core::Error::from_thread(),
             ));
         }
-        let h_mem = GetClipboardData(CF_UNICODETEXT.0 as u32).map_err(|err| {
+        let h_mem = GetClipboardData(u32::from(CF_UNICODETEXT.0)).map_err(|err| {
             let _ = CloseClipboard();
             MichiuError::UnexpectedOsError(err)
         })?;
@@ -1447,7 +1460,7 @@ pub(crate) fn get_monitor_rect(hwnd: HWND) -> RECT {
     unsafe {
         let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            cbSize: size_of_u32::<MONITORINFO>(),
             ..Default::default()
         };
         let _ = GetMonitorInfoW(monitor, &raw mut info);
@@ -1483,24 +1496,24 @@ pub(crate) fn center_on_screen_impl(hwnd: HWND) {
 }
 
 pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
-    let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState };
-    if state_ptr.is_null() {
+    let Some(state) = get_window_userdata_mut::<WindowState>(hwnd) else {
         return;
-    }
-    let state = unsafe { &mut *state_ptr };
+    };
 
     if fullscreen {
-        if state.saved_rect.is_none() {
+        if state.saved_window.is_none() {
             unsafe {
                 // 元のウインドウスタイルと位置を退避
-                let style = WINDOW_STYLE(GetWindowLongPtrW(hwnd, GWL_STYLE) as _);
-                let ex_style = WINDOW_EX_STYLE(GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as _);
+                let style = get_window_style(hwnd);
+                let ex_style = get_window_ex_style(hwnd);
                 let mut rect = RECT::default();
                 let _ = GetWindowRect(hwnd, &raw mut rect);
 
-                state.saved_style = Some(style);
-                state.saved_ex_style = Some(ex_style);
-                state.saved_rect = Some(rect);
+                state.saved_window = Some(SavedWindowState {
+                    style,
+                    ex_style,
+                    rect,
+                });
 
                 // 境界線やタイトルバーのスタイルを除去
                 let new_style =
@@ -1508,8 +1521,8 @@ pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
                 let new_ex_style =
                     ex_style & !(WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
 
-                let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, new_style.0 as _);
-                let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex_style.0 as _);
+                set_window_style(hwnd, new_style);
+                set_window_ex_style(hwnd, new_ex_style);
 
                 let monitor_rect = get_monitor_rect(hwnd);
                 // モニター全体を覆うようにサイズ変更
@@ -1524,15 +1537,13 @@ pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
                 );
             }
         }
-    } else if let Some(rect) = state.saved_rect {
-        let style = state.saved_style.unwrap();
-        let ex_style = state.saved_ex_style.unwrap();
-
+    } else if let Some(saved) = state.saved_window.take() {
         unsafe {
             // 元のスタイルに復元
-            let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, style.0 as _);
-            let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style.0 as _);
+            set_window_style(hwnd, saved.style);
+            set_window_ex_style(hwnd, saved.ex_style);
 
+            let rect = saved.rect;
             let _ = SetWindowPos(
                 hwnd,
                 None,
@@ -1540,12 +1551,8 @@ pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
                 rect.top,
                 rect.right - rect.left,
                 rect.bottom - rect.top,
-                windows::Win32::UI::WindowsAndMessaging::SWP_FRAMECHANGED | SWP_NOACTIVATE,
+                SWP_FRAMECHANGED | SWP_NOACTIVATE,
             );
-
-            state.saved_style = None;
-            state.saved_ex_style = None;
-            state.saved_rect = None;
         }
     }
 }

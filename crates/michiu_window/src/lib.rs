@@ -295,6 +295,7 @@ mod message;
 mod tray;
 mod types;
 mod window;
+mod utils;
 
 #[doc(inline)]
 pub use builder::*;

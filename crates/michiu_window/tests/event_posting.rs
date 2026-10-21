@@ -150,7 +150,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
                             _ => {}
                         }
                     }
-                    _ => {}
+                    MichiuAnyEvent::Other => {}
                 }
             });
 

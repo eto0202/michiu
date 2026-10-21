@@ -241,6 +241,7 @@ impl ExternalVisual for WebView2Visual {
             .map(|t| t as Arc<dyn ExternalTexture>)
     }
 
+    #[expect(clippy::cast_possible_truncation)]
     fn update(&self, cx: &VisualUpdateContext) {
         self.current_rect.set(cx.rect);
         self.scale_factor.set(cx.scale_factor);
@@ -289,8 +290,8 @@ impl ExternalVisual for WebView2Visual {
             let _ = unsafe {
                 Self::trigger_capture_async(
                     &webview,
-                    phys_w as u32,
-                    phys_h as u32,
+                    phys_w.cast_unsigned(),
+                    phys_h.cast_unsigned(),
                     device,
                     queue,
                     wic_factory,
@@ -349,10 +350,19 @@ impl ExternalVisual for WebView2Visual {
                 if let Some(ref controller) = *self.controller.borrow()
                     && let Ok(comp) = controller.cast::<ICoreWebView2CompositionController>()
                 {
-                    let event_kind = COREWEBVIEW2_MOUSE_EVENT_KIND(msg as i32);
-                    let virtual_keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS(wparam.0 as i32);
+                    let event_kind = COREWEBVIEW2_MOUSE_EVENT_KIND(msg.cast_signed());
+
+                    let val = i32::try_from(wparam.0).unwrap_or(0);
+                    let virtual_keys = COREWEBVIEW2_MOUSE_EVENT_VIRTUAL_KEYS(val);
+
                     let mouse_data = if msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL {
-                        ((wparam.0 >> 16) as i16) as i32 as u32
+                        let b = wparam.0.to_le_bytes();
+                        // 上位16ビット（bytes[2..3]）を符号付き i16 として取り出す
+                        let hi_i16 = i16::from_le_bytes([b[2], b[3]]);
+                        // i16 -> i32 への符号拡張は From で安全に行える
+                        let extended_i32 = i32::from(hi_i16);
+                        // i32 のビット列をそのまま u32 として再解釈
+                        u32::from_ne_bytes(extended_i32.to_ne_bytes())
                     } else {
                         0
                     };
@@ -465,10 +475,10 @@ impl WebView2Visual {
         let task_sender_clone = sys_task_sender.clone();
         let default_bg = if let Some(c) = settings.default_bg_color {
             COREWEBVIEW2_COLOR {
-                A: c.a as u8,
-                R: c.r as u8,
-                G: c.g as u8,
-                B: c.b as u8,
+                A: f32_to_u8_color(c.a),
+                R: f32_to_u8_color(c.r),
+                G: f32_to_u8_color(c.g),
+                B: f32_to_u8_color(c.b),
             }
         } else {
             COREWEBVIEW2_COLOR {
@@ -928,5 +938,20 @@ impl WebView2Visual {
 
             Ok(wgpu_texture)
         }
+    }
+}
+
+/// f32 をクランプして u8 に変換する
+#[inline]
+#[allow(
+    clippy::as_conversions,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn f32_to_u8_color(val: f32) -> u8 {
+    if val.is_nan() {
+        0
+    } else {
+        val.round().clamp(0.0, 255.0) as u8
     }
 }

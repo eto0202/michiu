@@ -663,8 +663,8 @@ impl MichiuApp {
             match event {
                 MichiuEvent::Resized(phy_size) => {
                     let size = phy_size.assume_valid().into_inner();
-                    let width = size.width as u32;
-                    let height = size.height as u32;
+                    let width = size.width.cast_unsigned();
+                    let height = size.height.cast_unsigned();
                     // レンダラーのリサイズとレイアウト物理サイズの更新
                     self.renderer
                         .resize(width, height, self.renderer.scale_factor());

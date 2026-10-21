@@ -143,6 +143,10 @@ pub enum MichiuError {
         source: windows::core::Error,
     },
 
+    /// Aggregates events such as the failure of immutable conditions—which should never occur—and internal calculation overflows
+    #[error("Internal error: {0}")]
+    Internal(&'static str),
+
     /// A generic fallback for other unexpected Windows OS errors.
     #[error("Unexpected OS error (HRESULT: {0:?})")]
     UnexpectedOsError(#[from] windows::core::Error),

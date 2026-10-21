@@ -2,6 +2,7 @@ use crate::{
     ElementState, ImeContext, ImeStateUpdate, MichiuAnyEvent, MichiuError, MichiuEvent, Modifiers,
     MouseButton, PhysicalPoint, PhysicalRect, PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD,
     WM_WINDOW_COMMAND, WheelDelta, WindowId, WindowState, ZOrder,
+    utils::{get_size_lparam, get_wheel_delta, get_x_y_lparam, lparam_to_u32, wparam_loword},
 };
 use michiu_guard::Unvalidated;
 use std::{
@@ -312,8 +313,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_SIZE => {
-            let width = (lparam.0 & 0xffff) as i32;
-            let height = ((lparam.0 >> 16) & 0xffff) as i32;
+            let (width, height) = get_size_lparam(lparam);
             push_win_event(MichiuEvent::Resized(Unvalidated::new(PhysicalSize {
                 width,
                 height,
@@ -321,8 +321,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_MOVE => {
-            let x = (lparam.0 & 0xffff) as i16 as i32;
-            let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
+            let (x, y) = get_x_y_lparam(lparam);
             push_win_event(MichiuEvent::Moved(Unvalidated::new(PhysicalPoint::new(
                 x, y,
             ))));
@@ -337,7 +336,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_KEYDOWN | WM_SYSKEYDOWN => {
-            let key_code = VIRTUAL_KEY(wparam.0 as u16);
+            let key_code = VIRTUAL_KEY(wparam_loword(wparam));
             push_win_event(MichiuEvent::KeyboardInput {
                 key_code: Unvalidated::new(key_code),
                 modifiers: get_active_modifiers(),
@@ -346,7 +345,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_KEYUP | WM_SYSKEYUP => {
-            let key_code = VIRTUAL_KEY(wparam.0 as u16);
+            let key_code = VIRTUAL_KEY(wparam_loword(wparam));
             push_win_event(MichiuEvent::KeyboardInput {
                 key_code: Unvalidated::new(key_code),
                 modifiers: get_active_modifiers(),
@@ -355,7 +354,8 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_CHAR => {
-            if let Some(c) = char::from_u32(wparam.0 as u32) {
+            let ch = u32::try_from(wparam.0).ok().and_then(char::from_u32);
+            if let Some(c) = ch {
                 push_win_event(MichiuEvent::CharacterInput(c));
             }
             None
@@ -365,8 +365,12 @@ pub(crate) fn translate_and_dispatch(
                 state.is_cursor_inside = true;
                 push_win_event(MichiuEvent::CursorEntered);
 
+                #[expect(clippy::expect_used)]
+                let cb = u32::try_from(std::mem::size_of::<TRACKMOUSEEVENT>())
+                    .expect("TRACKMOUSEEVENT size fits in u32");
+
                 let mut tme = TRACKMOUSEEVENT {
-                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                    cbSize: cb,
                     dwFlags: TME_LEAVE,
                     hwndTrack: hwnd,
                     dwHoverTime: 0,
@@ -376,8 +380,7 @@ pub(crate) fn translate_and_dispatch(
                 }
             }
 
-            let x = (lparam.0 & 0xffff) as i16 as i32;
-            let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
+            let (x, y) = get_x_y_lparam(lparam);
 
             push_win_event(MichiuEvent::CursorMoved {
                 position: Unvalidated::new(PhysicalPoint::new(x, y)),
@@ -386,8 +389,7 @@ pub(crate) fn translate_and_dispatch(
         }
         WM_NCMOUSEMOVE => {
             // スクリーン座標を取り出す
-            let x = (lparam.0 & 0xffff) as i16 as i32;
-            let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
+            let (x, y) = get_x_y_lparam(lparam);
             let mut pt = POINT { x, y };
 
             // クライアント領域の相対座標に変換
@@ -395,9 +397,13 @@ pub(crate) fn translate_and_dispatch(
                 let _ = ScreenToClient(hwnd, &raw mut pt);
             }
 
+            #[expect(clippy::expect_used)]
+            let cb = u32::try_from(std::mem::size_of::<TRACKMOUSEEVENT>())
+                .expect("TRACKMOUSEEVENT size fits in u32");
+
             // マウスがボタンから外に出た時を検知するため TrackMouseEvent を仕込む
             let mut tme = TRACKMOUSEEVENT {
-                cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                cbSize: cb,
                 dwFlags: TME_NONCLIENT | TME_LEAVE,
                 hwndTrack: hwnd,
                 dwHoverTime: 0,
@@ -474,7 +480,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_MOUSEWHEEL => {
-            let delta = (wparam.0 >> 16) as i16 as i32;
+            let delta = get_wheel_delta(wparam);
             push_win_event(MichiuEvent::MouseWheel {
                 raw_delta_x: Unvalidated::new(WheelDelta(0)),
                 raw_delta_y: Unvalidated::new(WheelDelta(delta)), // 上がプラス、下がマイナス
@@ -482,7 +488,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_MOUSEHWHEEL => {
-            let delta = (wparam.0 >> 16) as i16 as i32;
+            let delta = get_wheel_delta(wparam);
             push_win_event(MichiuEvent::MouseWheel {
                 raw_delta_x: Unvalidated::new(WheelDelta(delta)), // 右がプラス、左がマイナス
                 raw_delta_y: Unvalidated::new(WheelDelta(0)),
@@ -497,8 +503,8 @@ pub(crate) fn translate_and_dispatch(
 
         WM_DPICHANGED => {
             // wparam の下位16ビット（LOWORD）に新しいDPI（96, 120, 144, 192など）
-            let dpi = (wparam.0 & 0xffff) as u32;
-            let scale_factor = dpi as f64 / 96.0; // 96 DPI = 1.0 (100%)
+            let dpi = u32::from(wparam_loword(wparam));
+            let scale_factor = f64::from(dpi) / 96.0;
 
             // lparam には新しいDPIにスケーリングされた推奨サイズ（RECT構造体のポインタ）
             let rect_ptr = lparam.0 as *const RECT;
@@ -535,7 +541,8 @@ pub(crate) fn translate_and_dispatch(
         WM_SETCURSOR => {
             // wparam にはウィンドウのHWND、lparam の下位16ビットにはヒットテスト値が入る。
             // ヒットテスト値が HTERROR などのエラーでない場合、かつクライアント領域にある場合はカーソルを上書き
-            let hit_test = (lparam.0 & 0xffff) as u32;
+            let b = lparam.0.to_le_bytes();
+            let hit_test = u32::from(u16::from_le_bytes([b[0], b[1]]));
 
             // クライアント領域 (HTCLIENT = 1) での移動時のみカスタムカーソルを適用
             if hit_test == 1 {
@@ -559,7 +566,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_IME_NOTIFY => {
-            let sub_msg = wparam.0 as u32;
+            let sub_msg = u32::try_from(wparam.0).unwrap_or(0);
             // 状態変更通知 (IMN_SETOPENSTATUS = 0x000F, IMN_SETCONVERSIONMODE = 0x0006) のみフック
             if sub_msg == 0x000F || sub_msg == 0x0006 {
                 push_ime_state_update(hwnd, id, raw, state);
@@ -641,12 +648,14 @@ pub(crate) fn translate_and_dispatch(
 
                             let _ = ReleaseCapture();
                             let pos = GetMessagePos();
+                            let pos_usize = usize::try_from(pos).unwrap_or(0);
+                            let lparam_val = isize::from_ne_bytes(pos_usize.to_ne_bytes());
 
                             SendMessageW(
                                 hwnd,
                                 WM_SYSCOMMAND,
                                 Some(WPARAM(SC_DRAGMOVE)),
-                                Some(LPARAM(pos as isize)),
+                                Some(LPARAM(lparam_val)),
                             );
                         }
                         SetWindowCommand::SetCursor(cursor) => {
@@ -749,16 +758,16 @@ fn get_active_modifiers() -> Modifiers {
     let mut modifiers = Modifiers::empty();
     unsafe {
         // 戻り値がマイナスならキーは押されていると判定
-        if GetKeyState(VK_SHIFT.0 as i32) < 0 {
+        if GetKeyState(i32::from(VK_SHIFT.0)) < 0 {
             modifiers.insert(Modifiers::SHIFT);
         }
-        if GetKeyState(VK_CONTROL.0 as i32) < 0 {
+        if GetKeyState(i32::from(VK_CONTROL.0)) < 0 {
             modifiers.insert(Modifiers::CONTROL);
         }
-        if GetKeyState(VK_MENU.0 as i32) < 0 {
+        if GetKeyState(i32::from(VK_MENU.0)) < 0 {
             modifiers.insert(Modifiers::ALT);
         }
-        if GetKeyState(VK_LWIN.0 as i32) < 0 || GetKeyState(VK_RWIN.0 as i32) < 0 {
+        if GetKeyState(i32::from(VK_LWIN.0)) < 0 || GetKeyState(i32::from(VK_RWIN.0)) < 0 {
             modifiers.insert(Modifiers::LOGO);
         }
     }
@@ -980,8 +989,10 @@ fn push_ime_state_update(hwnd: HWND, id: WindowId, raw: MichiuRawEvent, state: &
             .unwrap_or_default()
             .unwrap_or_default();
 
-        let has_result_flag =
-            raw.msg == WM_IME_COMPOSITION && (raw.lparam.0 as u32 & GCS_RESULTSTR.0) != 0;
+        let is_composition_msg = raw.msg == WM_IME_COMPOSITION;
+        let lparam_flags = lparam_to_u32(raw.lparam);
+
+        let has_result_flag = is_composition_msg && (lparam_flags & GCS_RESULTSTR.0) != 0;
 
         let result_text = if has_result_flag {
             ctx.get_result_string()
@@ -993,47 +1004,41 @@ fn push_ime_state_update(hwnd: HWND, id: WindowId, raw: MichiuRawEvent, state: &
 
         let caret_position = ctx.get_composition_window_position();
 
-        // WM_IME_COMPOSITION かつ該当フラグが立っている時だけ取得する
-        let is_composition_msg = raw.msg == WM_IME_COMPOSITION;
-        let lparam_flags = raw.lparam.0 as u32;
-
         // カーソル位置の取得
         let composition_cursor = if is_composition_msg && (lparam_flags & GCS_CURSORPOS.0) != 0 {
             let cursor_pos = unsafe { ImmGetCompositionStringW(ctx.himc, GCS_CURSORPOS, None, 0) };
-            if cursor_pos >= 0 {
-                cursor_pos as usize
-            } else {
-                0
-            }
+            // cursor_pos が負なら Err になり 0
+            usize::try_from(cursor_pos).unwrap_or(0)
         } else {
             0
         };
 
         // 文字属性配列（下線情報）の取得
-        let composition_attrs = if is_composition_msg && (lparam_flags & GCS_COMPATTR.0) != 0 {
-            let len = unsafe { ImmGetCompositionStringW(ctx.himc, GCS_COMPATTR, None, 0) };
-            if len > 0 {
-                let mut attrs = vec![0u8; len as usize];
-                let written = unsafe {
-                    ImmGetCompositionStringW(
-                        ctx.himc,
-                        GCS_COMPATTR,
-                        Some(attrs.as_mut_ptr().cast()),
-                        len as u32,
-                    )
-                };
-                if written > 0 {
-                    attrs.truncate(written as usize);
-                    attrs
-                } else {
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
+        let composition_attrs = (|| {
+            if !is_composition_msg || (lparam_flags & GCS_COMPATTR.0) == 0 {
+                return None;
             }
-        } else {
-            Vec::new()
-        };
+
+            let len = unsafe { ImmGetCompositionStringW(ctx.himc, GCS_COMPATTR, None, 0) };
+            // len <= 0 や負のエラー値なら早期リターンして Vec::new() に
+            let len_usize = usize::try_from(len).ok().filter(|&l| l > 0)?;
+            let len_u32 = u32::try_from(len).ok()?;
+
+            let mut attrs = vec![0u8; len_usize];
+            let written = unsafe {
+                ImmGetCompositionStringW(
+                    ctx.himc,
+                    GCS_COMPATTR,
+                    Some(attrs.as_mut_ptr().cast()),
+                    len_u32,
+                )
+            };
+
+            let written_usize = usize::try_from(written).ok()?;
+            attrs.truncate(written_usize);
+            Some(attrs)
+        })()
+        .unwrap_or_default();
 
         let update = ImeStateUpdate {
             window_id: id.0,

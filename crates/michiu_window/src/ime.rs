@@ -2,7 +2,8 @@ use crate::{MichiuError, PhysicalPoint};
 #[cfg(any(feature = "serde", docsrs))]
 use serde as _;
 use std::{
-    io::Write,
+    fmt::Write as _,
+    io::Write as _,
     net::{TcpListener, TcpStream},
     sync::{
         Arc, Mutex,
@@ -194,24 +195,32 @@ impl ImeContext {
             }
 
             // バッファサイズ (u16の要素数) を、万が一の奇数バイト報告に備えて安全に切り上げて確保
-            let size_bytes = size_bytes as usize;
+            // 直前のチェックで size_bytes > 0 が保証されてる
+            let size_bytes = usize::try_from(size_bytes)
+                .map_err(|_| MichiuError::Internal("failed to convert size_bytes to usize"))?;
             let u16_count = size_bytes.div_ceil(2);
             let mut buf = vec![0u16; u16_count];
 
-            // 確保されたバッファの実際の最大許容バイト数を第4引数に渡す
-            let buffer_capacity_bytes = buf.len() * 2;
+            // 確保されたバッファの実際のバイト長を第4引数に渡す
+            let buffer_capacity_bytes = u32::try_from(std::mem::size_of_val(&buf[..]))
+                .map_err(|_| MichiuError::Internal("buffer capacity exceeded u32"))?;
+
             let res_bytes = ImmGetCompositionStringW(
                 self.himc,
                 index,
                 Some(buf.as_mut_ptr().cast()),
-                buffer_capacity_bytes as u32,
+                buffer_capacity_bytes,
             );
 
-            if res_bytes > 0 && res_bytes != IMM_ERROR_NODATA && res_bytes != IMM_ERROR_GENERAL {
-                // 事前クエリ値ではなく、実際に書き込まれたバイト数分のスライスのみを UTF-16 文字列に変換
-                let written_u16_count = (res_bytes as usize) / 2;
-                let valid_slice = &buf[..std::cmp::min(written_u16_count, buf.len())];
-                Ok(String::from_utf16(valid_slice).ok())
+            if let Ok(res_bytes) = usize::try_from(res_bytes) {
+                if res_bytes > 0 {
+                    // 事前クエリ値ではなく、実際に書き込まれたバイト数分のスライスのみを UTF-16 文字列に変換
+                    let written_u16_count = res_bytes / 2;
+                    let valid_slice = &buf[..written_u16_count.min(buf.len())];
+                    Ok(String::from_utf16(valid_slice).ok())
+                } else {
+                    Ok(None)
+                }
             } else {
                 Ok(None)
             }
@@ -236,8 +245,13 @@ impl Drop for ImeContext {
 pub fn get_active_keyboard_layout_id() -> u32 {
     unsafe {
         let hkl = GetKeyboardLayout(0);
-        // HKLの低位16ビット（LOWORD）に LANGID が格納されている
-        (hkl.0 as usize & 0xFFFF) as u32
+
+        let bytes = hkl.0.addr().to_le_bytes();
+        // 先頭2バイト（下位16bit）から LANGID (u16) を復元
+        let lang_id = u16::from_le_bytes([bytes[0], bytes[1]]);
+
+        // u16 -> u32 はオーバーフローしないので From で安全に拡大
+        u32::from(lang_id)
     }
 }
 
@@ -375,7 +389,7 @@ fn escape_json(s: &str) -> String {
             '\t' => escaped.push_str("\\t"),
             c if c.is_ascii_control() => {
                 // 0x00〜0x1F, 0x7F などの制御文字を規格通りの \uXXXX 形式へエスケープ
-                escaped.push_str(&format!("\\u{:04x}", c as u32));
+                let _ = write!(escaped, "\\u{:04x}", c as u32);
             }
             c => escaped.push(c),
         }
@@ -519,7 +533,7 @@ mod tests {
     use michiu_guard::Validate;
 
     use super::*;
-    use crate::{MichiuWindowBuilder, MichiuWindow};
+    use crate::{MichiuWindow, MichiuWindowBuilder};
 
     fn run_on_clean_thread<F>(f: F)
     where

@@ -426,12 +426,16 @@ impl WindowHandle {
 
                 // 現在のメッセージのスクリーン座標を取得
                 let pos = GetMessagePos();
+                // Windowsは最低32bitなので絶対成功する
+                let pos_usize = usize::try_from(pos).unwrap_or(0);
+                // usize のネイティブバイト列をそのまま isize として解釈
+                let lparam_val = isize::from_ne_bytes(pos_usize.to_ne_bytes());
 
                 SendMessageW(
                     self.hwnd,
                     WM_SYSCOMMAND,
                     Some(WPARAM(SC_DRAGMOVE)),
-                    Some(LPARAM(pos as isize)),
+                    Some(LPARAM(lparam_val)),
                 );
             }
         } else {
