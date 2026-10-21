@@ -63,10 +63,11 @@
 //!     // 2. Initialize renderer
 //!     let scale_factor = window.scale_factor() as f32;
 //!     let handle = window.handle().assume_valid();
+//!     let rect = handle.client_rect();
 //!     // MichiuRenderer::new is async. Use any executor of your choice.
 //!     let renderer = pollster::block_on(MichiuRenderer::new(
 //!         handle.hwnd(),
-//!         LayoutSize::new(600.0, 500.0),
+//!         rect.cast(),
 //!         scale_factor,
 //!     ))?;
 //!
@@ -223,12 +224,16 @@
 //! }
 //! # }
 //! ```
-use crate::guard::Validated;
-use crate::ui::{
-    CapacityConfig, CharIndex, ImeState, VirtualKey, prelude::*, raw_wheel_delta_to_logical_pixels,
+use crate::{
+    guard::Validated,
+    ui::{CapacityConfig, CharIndex, ImeState, prelude::*, raw_wheel_delta_to_logical_pixels},
+    window::{WindowHandle, prelude::*},
 };
-use crate::window::{WindowHandle, prelude::*};
-use windows::Win32::UI::WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL};
+use thiserror::Error;
+use windows::Win32::UI::{
+    Input::KeyboardAndMouse::{VK_XBUTTON1, VK_XBUTTON2},
+    WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL},
+};
 
 #[cfg(feature = "ui")]
 #[doc(inline)]
@@ -675,13 +680,8 @@ impl MichiuApp {
                 }
                 MichiuEvent::CursorMoved { position } => {
                     let pos = position.assume_valid().into_inner();
-                    let x = pos.x as f32;
-                    let y = pos.y as f32;
-                    let phys_pos = LayoutPoint::new(x, y);
-                    let logical_pos = LayoutPoint::new(
-                        x / self.renderer.scale_factor(),
-                        y / self.renderer.scale_factor(),
-                    );
+                    let phys_pos = pos.cast();
+                    let logical_pos = pos.cast_scaled(self.window.scale_factor());
 
                     self.context
                         .inject_action(EventAction::PointerMove(logical_pos));
@@ -715,22 +715,9 @@ impl MichiuApp {
                     state,
                     click_count,
                 } => {
-                    let button = match button {
-                        michiu_window::MouseButton::Left => MouseButton::Left,
-                        michiu_window::MouseButton::Right => MouseButton::Right,
-                        michiu_window::MouseButton::Middle => MouseButton::Middle,
-                        michiu_window::MouseButton::Other(_) => MouseButton::X1,
-                    };
-                    let modifiers = Modifiers {
-                        shift: modifiers.contains(michiu_window::Modifiers::SHIFT),
-                        ctrl: modifiers.contains(michiu_window::Modifiers::CONTROL),
-                        alt: modifiers.contains(michiu_window::Modifiers::ALT),
-                        logo: modifiers.contains(michiu_window::Modifiers::LOGO),
-                    };
-                    let state = match state {
-                        michiu_window::ElementState::Pressed => ElementState::Pressed,
-                        michiu_window::ElementState::Released => ElementState::Released,
-                    };
+                    let button = button.cast();
+                    let modifiers = modifiers.cast();
+                    let state = state.cast();
 
                     self.context.inject_action(EventAction::PointerButton {
                         button,
@@ -773,17 +760,9 @@ impl MichiuApp {
                     let mut shortcut_handled = false;
 
                     let key_code = key_code.assume_valid().into_inner();
-                    let key = VirtualKey::from_windows(key_code);
-                    let modifiers = Modifiers {
-                        shift: modifiers.contains(michiu_window::Modifiers::SHIFT),
-                        ctrl: modifiers.contains(michiu_window::Modifiers::CONTROL),
-                        alt: modifiers.contains(michiu_window::Modifiers::ALT),
-                        logo: modifiers.contains(michiu_window::Modifiers::LOGO),
-                    };
-                    let state = match state {
-                        michiu_window::ElementState::Pressed => ElementState::Pressed,
-                        michiu_window::ElementState::Released => ElementState::Released,
-                    };
+                    let key = key_code.into();
+                    let modifiers = modifiers.cast();
+                    let state = state.cast();
 
                     if modifiers.ctrl
                         && self.config.default_shortcuts
@@ -886,10 +865,7 @@ impl MichiuApp {
                         keyboard_layout_id: ime.keyboard_layout_id,
                         composition_text: ime.composition_text.into(),
                         result_text: ime.result_text.into(),
-                        caret_position: ime.caret_position.map(|p| LayoutPoint {
-                            x: p.x as f32,
-                            y: p.y as f32,
-                        }),
+                        caret_position: ime.caret_position.map(Cast::cast),
                         composition_cursor: CharIndex(ime.composition_cursor),
                         composition_attrs: ime.composition_attrs,
                     };
@@ -1003,7 +979,7 @@ impl MichiuApp {
 
         if let Ok(hcursor) = target_cursor.to_hcursor() {
             self.handle
-                .set_cursor_icon(michiu_window::CursorIcon::Other(hcursor));
+                .set_cursor_icon(window::CursorIcon::Other(hcursor));
         }
     }
 }
@@ -1179,10 +1155,7 @@ impl MichiuAppBuilder {
     /// # }
     /// ```
     #[inline]
-    pub fn build(
-        self,
-        renderer: MichiuRenderer,
-    ) -> michiu_window::Result<(MichiuApp, MichiuEventPump)> {
+    pub fn build(self, renderer: MichiuRenderer) -> window::Result<(MichiuApp, MichiuEventPump)> {
         let handle: Validated<WindowHandle> = self.window.handle().try_into()?;
         let hwnd = handle.hwnd();
 
@@ -1247,7 +1220,7 @@ impl MichiuAppBuilder {
         self,
         renderer: MichiuRenderer,
         ui_fn: F,
-    ) -> michiu_window::Result<(MichiuApp, MichiuEventPump)>
+    ) -> window::Result<(MichiuApp, MichiuEventPump)>
     where
         F: FnOnce() -> Element,
     {
@@ -1374,4 +1347,322 @@ impl MichiuAppBuilder {
         self.capacity = Some(config);
         self
     }
+}
+
+// ===================================================================
+// ===================================================================
+
+pub trait Cast<Target> {
+    fn cast(self) -> Target;
+}
+
+// window -> ui
+
+impl Cast<ui::LayoutSize> for window::LogicalSize {
+    #[inline]
+    fn cast(self) -> LayoutSize {
+        ui::LayoutSize::new(self.width as f32, self.height as f32)
+    }
+}
+
+impl Cast<ui::LayoutSize> for window::PhysicalSize {
+    #[inline]
+    fn cast(self) -> LayoutSize {
+        ui::LayoutSize::new(self.width as f32, self.height as f32)
+    }
+}
+
+impl Cast<ui::LayoutPoint> for window::LogicalPoint {
+    #[inline]
+    fn cast(self) -> ui::LayoutPoint {
+        ui::LayoutPoint {
+            x: self.x as f32,
+            y: self.y as f32,
+        }
+    }
+}
+
+impl Cast<ui::LayoutPoint> for window::PhysicalPoint {
+    #[inline]
+    fn cast(self) -> ui::LayoutPoint {
+        ui::LayoutPoint {
+            x: self.x as f32,
+            y: self.y as f32,
+        }
+    }
+}
+
+impl Cast<ui::LayoutRect> for window::LogicalRect {
+    #[inline]
+    fn cast(self) -> ui::LayoutRect {
+        ui::LayoutRect {
+            x: self.left as f32,
+            y: self.top as f32,
+            width: (self.right - self.left) as f32,
+            height: (self.bottom - self.top) as f32,
+        }
+    }
+}
+
+impl Cast<ui::LayoutRect> for window::PhysicalRect {
+    #[inline]
+    fn cast(self) -> ui::LayoutRect {
+        ui::LayoutRect {
+            x: self.left as f32,
+            y: self.top as f32,
+            width: (self.right - self.left) as f32,
+            height: (self.bottom - self.top) as f32,
+        }
+    }
+}
+
+// ui -> window
+
+impl Cast<window::LogicalSize> for ui::LayoutSize {
+    #[inline]
+    fn cast(self) -> window::LogicalSize {
+        LogicalSize {
+            width: f64::from(self.width),
+            height: f64::from(self.height),
+        }
+    }
+}
+
+impl Cast<window::PhysicalSize> for ui::LayoutSize {
+    #[inline]
+    fn cast(self) -> window::PhysicalSize {
+        window::PhysicalSize {
+            width: self.width as i32,
+            height: self.height as i32,
+        }
+    }
+}
+
+impl Cast<window::LogicalPoint> for ui::LayoutPoint {
+    #[inline]
+    fn cast(self) -> window::LogicalPoint {
+        window::LogicalPoint {
+            x: f64::from(self.x),
+            y: f64::from(self.y),
+        }
+    }
+}
+
+impl Cast<window::PhysicalPoint> for ui::LayoutPoint {
+    #[inline]
+    fn cast(self) -> window::PhysicalPoint {
+        window::PhysicalPoint {
+            x: self.x as i32,
+            y: self.y as i32,
+        }
+    }
+}
+
+impl Cast<window::LogicalRect> for ui::LayoutRect {
+    #[inline]
+    fn cast(self) -> window::LogicalRect {
+        window::LogicalRect {
+            left: f64::from(self.x),
+            top: f64::from(self.y),
+            right: f64::from(self.x + self.width),
+            bottom: f64::from(self.y + self.height),
+        }
+    }
+}
+
+impl Cast<window::PhysicalRect> for ui::LayoutRect {
+    #[inline]
+    fn cast(self) -> window::PhysicalRect {
+        window::PhysicalRect {
+            left: self.x as i32,
+            top: self.y as i32,
+            right: (self.x + self.width) as i32,
+            bottom: (self.y + self.height) as i32,
+        }
+    }
+}
+
+// ===================================================================
+// ===================================================================
+
+pub trait CastScaled<Target> {
+    fn cast_scaled(self, scale_factor: f64) -> Target;
+}
+
+// window -> ui
+
+impl CastScaled<ui::LayoutSize> for window::PhysicalSize {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> ui::LayoutSize {
+        ui::LayoutSize::new(
+            (f64::from(self.width) / scale_factor) as f32,
+            (f64::from(self.height) / scale_factor) as f32,
+        )
+    }
+}
+
+impl CastScaled<ui::LayoutPoint> for window::PhysicalPoint {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> ui::LayoutPoint {
+        ui::LayoutPoint {
+            x: (f64::from(self.x) / scale_factor) as f32,
+            y: (f64::from(self.y) / scale_factor) as f32,
+        }
+    }
+}
+
+impl CastScaled<ui::LayoutRect> for window::PhysicalRect {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> ui::LayoutRect {
+        ui::LayoutRect {
+            x: (f64::from(self.left) / scale_factor) as f32,
+            y: (f64::from(self.top) / scale_factor) as f32,
+            width: (f64::from(self.right - self.left) / scale_factor) as f32,
+            height: (f64::from(self.bottom - self.top) / scale_factor) as f32,
+        }
+    }
+}
+
+// ui -> window
+
+impl CastScaled<window::PhysicalSize> for ui::LayoutSize {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> window::PhysicalSize {
+        window::PhysicalSize {
+            width: (f64::from(self.width) * scale_factor).round() as i32,
+            height: (f64::from(self.height) * scale_factor).round() as i32,
+        }
+    }
+}
+
+impl CastScaled<window::PhysicalPoint> for ui::LayoutPoint {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> window::PhysicalPoint {
+        window::PhysicalPoint {
+            x: (f64::from(self.x) * scale_factor).round() as i32,
+            y: (f64::from(self.y) * scale_factor).round() as i32,
+        }
+    }
+}
+
+impl CastScaled<window::PhysicalRect> for ui::LayoutRect {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> window::PhysicalRect {
+        let left = (f64::from(self.x) * scale_factor).round() as i32;
+        let top = (f64::from(self.y) * scale_factor).round() as i32;
+        let right = (f64::from(self.x + self.width) * scale_factor).round() as i32;
+        let bottom = (f64::from(self.y + self.height) * scale_factor).round() as i32;
+
+        window::PhysicalRect {
+            left,
+            top,
+            right,
+            bottom,
+        }
+    }
+}
+
+// ===================================================================
+// ===================================================================
+
+// window -> ui
+
+impl Cast<ui::ElementState> for window::ElementState {
+    #[inline]
+    fn cast(self) -> ui::ElementState {
+        match self {
+            window::ElementState::Pressed => ui::ElementState::Pressed,
+            window::ElementState::Released => ui::ElementState::Released,
+        }
+    }
+}
+
+impl Cast<ui::Modifiers> for window::Modifiers {
+    #[inline]
+    fn cast(self) -> ui::Modifiers {
+        ui::Modifiers {
+            shift: self.contains(window::Modifiers::SHIFT),
+            ctrl: self.contains(window::Modifiers::CONTROL),
+            alt: self.contains(window::Modifiers::ALT),
+            logo: self.contains(window::Modifiers::LOGO),
+        }
+    }
+}
+
+impl Cast<ui::MouseButton> for window::MouseButton {
+    #[inline]
+    fn cast(self) -> ui::MouseButton {
+        match self {
+            window::MouseButton::Left => ui::MouseButton::Left,
+            window::MouseButton::Right => ui::MouseButton::Right,
+            window::MouseButton::Middle => ui::MouseButton::Middle,
+            window::MouseButton::Other(param) => {
+                if param == VK_XBUTTON1.0 {
+                    ui::MouseButton::X1
+                } else if param == VK_XBUTTON2.0 {
+                    ui::MouseButton::X2
+                } else {
+                    ui::MouseButton::Left // 一旦 Left にフォールバック
+                }
+            }
+        }
+    }
+}
+
+// ui -> window
+
+impl Cast<window::ElementState> for ui::ElementState {
+    #[inline]
+    fn cast(self) -> window::ElementState {
+        match self {
+            ElementState::Pressed => window::ElementState::Pressed,
+            ElementState::Released => window::ElementState::Released,
+        }
+    }
+}
+
+impl Cast<window::Modifiers> for ui::Modifiers {
+    #[inline]
+    fn cast(self) -> window::Modifiers {
+        let mut modifiers = window::Modifiers::empty();
+
+        if self.shift {
+            modifiers.insert(window::Modifiers::SHIFT);
+        }
+        if self.ctrl {
+            modifiers.insert(window::Modifiers::CONTROL);
+        }
+        if self.alt {
+            modifiers.insert(window::Modifiers::ALT);
+        }
+        if self.logo {
+            modifiers.insert(window::Modifiers::LOGO);
+        }
+
+        modifiers
+    }
+}
+
+impl Cast<window::MouseButton> for ui::MouseButton {
+    #[inline]
+    fn cast(self) -> window::MouseButton {
+        match self {
+            MouseButton::Left => window::MouseButton::Left,
+            MouseButton::Right => window::MouseButton::Right,
+            MouseButton::Middle => window::MouseButton::Middle,
+            MouseButton::X1 => window::MouseButton::Other(VK_XBUTTON1.0),
+            MouseButton::X2 => window::MouseButton::Other(VK_XBUTTON2.0),
+        }
+    }
+}
+
+pub type Result<T> = std::result::Result<T, MichiuError>;
+
+#[derive(Debug, Error)]
+pub enum MichiuError {
+    #[error("window error: {0}")]
+    Window(#[from] window::MichiuError),
+
+    #[error("ui error: {0}")]
+    Ui(#[from] ui::MichiuError),
 }

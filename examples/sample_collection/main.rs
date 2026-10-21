@@ -3,7 +3,7 @@
 
 use crate::logger::logger;
 use michiu::{
-    AutoSyncMode, MichiuApp, MichiuAppBuilder,
+    AutoSyncMode, Cast, MichiuApp, MichiuAppBuilder,
     ui::{
         CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
         prelude::*,
@@ -58,15 +58,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hwnd = handle.hwnd();
 
     let client_rect = handle.client_rect();
-    let width = client_rect.width as f32;
-    let height = client_rect.height as f32;
 
     // レンダラーを作成
-    let renderer = pollster::block_on(MichiuRenderer::new(
-        hwnd,
-        LayoutSize::new(width, height),
-        scale_factor,
-    ))?;
+    let renderer = pollster::block_on(MichiuRenderer::new(hwnd, client_rect.cast(), scale_factor))?;
 
     let inspector = MichiuInspector::new();
     let _sub = inspector.subscribe(None);

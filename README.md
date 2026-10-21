@@ -59,10 +59,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Initialize renderer
     let scale_factor = window.scale_factor() as f32;
     let handle = window.handle().assume_valid();
+    let rect = handle.client_rect();
     // MichiuRenderer::new is async. Use any executor of your choice.
     let renderer = pollster::block_on(MichiuRenderer::new(
         handle.hwnd(),
-        LayoutSize::new(600.0, 500.0),
+        rect.cast(),
         scale_factor,
     ))?;
 

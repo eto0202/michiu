@@ -19,6 +19,7 @@ pollster = "1.0.1"
 michiu_ui = { workspace = true, optional = true }
 michiu_guard = { workspace = true, optional = true }
 michiu_window = { workspace = true, optional = true }
+thiserror = "2.0.20"
 
 [dependencies.windows]
 version = "0.62.2"

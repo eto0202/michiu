@@ -120,7 +120,7 @@ pub struct ImageExternalTexture {
 }
 
 impl ImageExternalTexture {
-    pub fn new(path: impl AsRef<Path>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(path: impl AsRef<Path>) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let path_ref = path.as_ref();
 
         let file_name = Self::extract_file_name(path_ref);
@@ -147,7 +147,9 @@ impl ImageExternalTexture {
         })
     }
 
-    pub fn to_ycbcr_tiff(path: impl AsRef<Path>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn to_ycbcr_tiff(
+        path: impl AsRef<Path>,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let path_ref = path.as_ref();
 
         let file_name = Self::extract_file_name(path_ref);

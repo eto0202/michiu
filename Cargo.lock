@@ -2619,6 +2619,7 @@ dependencies = [
  "michiu_ui",
  "michiu_window",
  "pollster",
+ "thiserror 2.0.21",
  "windows",
 ]
 
