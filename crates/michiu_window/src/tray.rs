@@ -13,13 +13,12 @@ use windows::{
             },
             WindowsAndMessaging::{
                 AppendMenuW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CreatePopupMenu,
-                CreateWindowExW, DefWindowProcW, DestroyMenu, GWLP_USERDATA, GetCursorPos,
-                GetWindowLongPtrW, HICON, HWND_TOPMOST, IDC_ARROW, LoadCursorW, MF_STRING,
-                PostMessageW, RegisterClassExW, RegisterWindowMessageW, SW_SHOW, SWP_NOACTIVATE,
-                SWP_NOSIZE, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-                TPM_LEFTALIGN, TrackPopupMenu, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND,
-                WM_LBUTTONDBLCLK, WM_NCCREATE, WM_NCDESTROY, WM_NULL, WM_RBUTTONUP, WM_USER,
-                WNDCLASSEXW,
+                CreateWindowExW, DefWindowProcW, DestroyMenu, GWLP_USERDATA, GetCursorPos, HICON,
+                HWND_TOPMOST, IDC_ARROW, LoadCursorW, MF_STRING, PostMessageW, RegisterClassExW,
+                RegisterWindowMessageW, SW_SHOW, SWP_NOACTIVATE, SWP_NOSIZE, SetForegroundWindow,
+                SetWindowLongPtrW, SetWindowPos, ShowWindow, TPM_LEFTALIGN, TrackPopupMenu,
+                WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_LBUTTONDBLCLK, WM_NCCREATE,
+                WM_NCDESTROY, WM_NULL, WM_RBUTTONUP, WM_USER, WNDCLASSEXW,
             },
         },
     },
@@ -27,7 +26,8 @@ use windows::{
 };
 
 use crate::{
-    MichiuIcon, PreferredAppMode, set_app_theme, utils::{get_window_userdata, lparam_to_u32, size_of_u32, take_window_userdata, wparam_loword},
+    MichiuIcon, PreferredAppMode, set_app_theme,
+    utils::{get_window_userdata, lparam_to_u32, size_of_u32, take_window_userdata, wparam_loword},
 };
 use crate::{
     WindowHandle,

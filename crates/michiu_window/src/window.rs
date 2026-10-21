@@ -1,6 +1,7 @@
 use crate::error::{MichiuError, Result};
 use crate::utils::{
-    get_window_ex_style, get_window_userdata_mut, get_window_style, round_to_i32, set_window_ex_style, set_window_style, size_of_u32,
+    get_window_ex_style, get_window_style, get_window_userdata_mut, round_to_i32,
+    set_window_ex_style, set_window_style, size_of_u32,
 };
 use crate::{
     CursorIcon, FileDropTarget, ImeRelayServer, LogicalSize, MichiuTray, MichiuWindowBuilder,
@@ -59,17 +60,16 @@ use windows::{
             Shell::SetWindowSubclass,
             WindowsAndMessaging::{
                 CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, ClipCursor, CreateWindowExW,
-                DefWindowProcW, DestroyWindow, GWL_EXSTYLE, GWL_STYLE, GWLP_USERDATA,
-                GetClientRect, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, HICON,
-                HWND_TOP, IDC_ARROW, IsWindow, LoadCursorW, MINMAXINFO, RegisterClassExW, SW_HIDE,
-                SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-                SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
-                WINDOW_EX_STYLE, WINDOW_STYLE, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY,
-                WM_SETICON, WNDCLASSEXW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_DLGFRAME,
-                WS_EX_APPWINDOW, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_LAYERED,
-                WS_EX_NOREDIRECTIONBITMAP, WS_EX_STATICEDGE, WS_EX_TRANSPARENT, WS_MAXIMIZE,
-                WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME,
-                WS_VISIBLE,
+                DefWindowProcW, DestroyWindow, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW,
+                GetWindowRect, GetWindowThreadProcessId, HICON, HWND_TOP, IDC_ARROW, IsWindow,
+                LoadCursorW, MINMAXINFO, RegisterClassExW, SW_HIDE, SW_SHOW, SWP_FRAMECHANGED,
+                SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW,
+                SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE,
+                WINDOW_STYLE, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY, WM_SETICON, WNDCLASSEXW,
+                WS_BORDER, WS_CAPTION, WS_CHILD, WS_DLGFRAME, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE,
+                WS_EX_DLGMODALFRAME, WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_EX_STATICEDGE,
+                WS_EX_TRANSPARENT, WS_MAXIMIZE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+                WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME, WS_VISIBLE,
             },
         },
     },

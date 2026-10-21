@@ -227,11 +227,13 @@
 use crate::{
     guard::Validated,
     ui::{CapacityConfig, CharIndex, ImeState, prelude::*, raw_wheel_delta_to_logical_pixels},
-    window::{WindowHandle, prelude::*},
+    window::{ImeStateUpdate, PhysicalPoint, PhysicalSize, WheelDelta, WindowHandle, prelude::*},
 };
 use thiserror::Error;
 use windows::Win32::UI::{
-    Input::KeyboardAndMouse::{VK_XBUTTON1, VK_XBUTTON2},
+    Input::KeyboardAndMouse::{
+        VIRTUAL_KEY, VK_LBUTTON, VK_PACKET, VK_PROCESSKEY, VK_XBUTTON1, VK_XBUTTON2,
+    },
     WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL},
 };
 
@@ -667,7 +669,18 @@ impl MichiuApp {
         if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
                 MichiuEvent::Resized(phy_size) => {
-                    let size = phy_size.assume_valid().into_inner();
+                    let result = phy_size
+                        .validate_with(MichiuValidator::window_bounds)
+                        .map(Validated::into_inner);
+
+                    let size = match result {
+                        Ok(size) => size,
+                        Err(e) => {
+                            debug_eprintln!("Debug: invalid window bounds: {:?}", e);
+                            PhysicalSize::new(1, 1)
+                        }
+                    };
+
                     let width = size.width.cast_unsigned();
                     let height = size.height.cast_unsigned();
                     // レンダラーのリサイズとレイアウト物理サイズの更新
@@ -679,26 +692,37 @@ impl MichiuApp {
                     needs_update_window = true;
                 }
                 MichiuEvent::CursorMoved { position } => {
-                    let pos = position.assume_valid().into_inner();
-                    let phys_pos = pos.cast();
-                    let logical_pos = pos.cast_scaled(self.window.scale_factor());
+                    let result = position
+                        .validate_with(MichiuValidator::cursor_bounds)
+                        .map(Validated::into_inner);
 
-                    self.context
-                        .inject_action(EventAction::PointerMove(logical_pos));
+                    match result {
+                        Ok(pos) => {
+                            let phys_pos = pos.cast();
+                            let logical_pos = pos.cast_scaled(self.window.scale_factor());
 
-                    if self.config.external_visual_support {
-                        ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
-                            &mut self.context,
-                            raw.msg,
-                            raw.wparam,
-                            raw.lparam,
-                            phys_pos,
-                            self.renderer.scale_factor(),
-                        );
+                            self.context
+                                .inject_action(EventAction::PointerMove(logical_pos));
+
+                            if self.config.external_visual_support {
+                                ext_consumed =
+                                    MichiuRenderer::dispatch_raw_input_to_external_visual(
+                                        &mut self.context,
+                                        raw.msg,
+                                        raw.wparam,
+                                        raw.lparam,
+                                        phys_pos,
+                                        self.renderer.scale_factor(),
+                                    );
+                            }
+
+                            consumed = has_hovered || ext_consumed;
+                            needs_redraw = true;
+                        }
+                        Err(e) => {
+                            debug_eprintln!("Debug: cursor out of bounds: {:?}", e);
+                        }
                     }
-
-                    consumed = has_hovered || ext_consumed;
-                    needs_redraw = true;
                 }
                 MichiuEvent::CursorLeft => {
                     // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
@@ -759,120 +783,141 @@ impl MichiuApp {
                 } => {
                     let mut shortcut_handled = false;
 
-                    let key_code = key_code.assume_valid().into_inner();
-                    let key = key_code.into();
-                    let modifiers = modifiers.cast();
-                    let state = state.cast();
+                    let result = key_code
+                        .validate_with(MichiuValidator::keyboard_input)
+                        .map(Validated::into_inner);
 
-                    if modifiers.ctrl
-                        && self.config.default_shortcuts
-                        && state == ElementState::Pressed
-                    {
-                        match raw.wparam.0 as i32 {
-                            // Ctrl + C
-                            0x43 if let Some(selected_text) = self.context.get_selected_text() => {
-                                let _ = set_win32_clipboard(&selected_text);
-                                shortcut_handled = true;
-                            }
-                            // Ctrl + V
-                            0x56 if has_focused
-                                && let Some(pasted_text) = get_win32_clipboard() =>
+                    match result {
+                        Ok(key_code) => {
+                            let key = key_code.into();
+                            let modifiers = modifiers.cast();
+                            let state = state.cast();
+
+                            if modifiers.ctrl
+                                && self.config.default_shortcuts
+                                && state == ElementState::Pressed
                             {
-                                self.context
-                                    .inject_action(EventAction::Paste(pasted_text.into()));
-                                shortcut_handled = true;
+                                match raw.wparam.0 as i32 {
+                                    // Ctrl + C
+                                    0x43 if let Some(selected_text) =
+                                        self.context.get_selected_text() =>
+                                    {
+                                        let _ = set_win32_clipboard(&selected_text);
+                                        shortcut_handled = true;
+                                    }
+                                    // Ctrl + V
+                                    0x56 if has_focused
+                                        && let Some(pasted_text) = get_win32_clipboard() =>
+                                    {
+                                        self.context
+                                            .inject_action(EventAction::Paste(pasted_text.into()));
+                                        shortcut_handled = true;
+                                    }
+                                    // Ctrl + X (切り取り)
+                                    0x58 if let Some(selected_text) =
+                                        self.context.get_selected_text() =>
+                                    {
+                                        let _ = set_win32_clipboard(&selected_text);
+                                        self.context.inject_action(EventAction::Cut);
+                                        shortcut_handled = true;
+                                    }
+                                    // Ctrl + Z (Undo)
+                                    0x5A if has_focused => {
+                                        self.context.inject_action(EventAction::Undo);
+                                        shortcut_handled = true;
+                                    }
+                                    // Ctrl + Y (Redo)
+                                    0x59 if has_focused => {
+                                        self.context.inject_action(EventAction::Redo);
+                                        shortcut_handled = true;
+                                    }
+                                    _ => {}
+                                }
                             }
-                            // Ctrl + X (切り取り)
-                            0x58 if let Some(selected_text) = self.context.get_selected_text() => {
-                                let _ = set_win32_clipboard(&selected_text);
-                                self.context.inject_action(EventAction::Cut);
-                                shortcut_handled = true;
-                            }
-                            // Ctrl + Z (Undo)
-                            0x5A if has_focused => {
-                                self.context.inject_action(EventAction::Undo);
-                                shortcut_handled = true;
-                            }
-                            // Ctrl + Y (Redo)
-                            0x59 if has_focused => {
-                                self.context.inject_action(EventAction::Redo);
-                                shortcut_handled = true;
-                            }
-                            _ => {}
+
+                            self.context.inject_action(EventAction::KeyboardKey {
+                                key,
+                                state,
+                                modifiers,
+                            });
+
+                            consumed = has_focused || shortcut_handled;
+                            needs_redraw = true;
+                        }
+                        Err(MichiuError::Invalidkey(
+                            KeyValidationError::ImeProcessKey | KeyValidationError::PacketKey,
+                        )) => {
+                            // IME中や文字直接入力は無視
+                        }
+                        Err(e) => {
+                            debug_eprintln!("Debug: invalid key event: {:?}", e);
                         }
                     }
-
-                    self.context.inject_action(EventAction::KeyboardKey {
-                        key,
-                        state,
-                        modifiers,
-                    });
-
-                    consumed = has_focused || shortcut_handled;
-                    needs_redraw = true;
                 }
                 MichiuEvent::MouseWheel {
                     raw_delta_x,
                     raw_delta_y,
                 } => {
-                    let mut pt = windows::Win32::Foundation::POINT {
-                        x: (raw.lparam.0 & 0xffff) as i16 as i32,
-                        y: ((raw.lparam.0 >> 16) & 0xffff) as i16 as i32,
-                    };
-                    let _ = unsafe {
-                        windows::Win32::Graphics::Gdi::ScreenToClient(
-                            self.handle.hwnd(),
-                            &raw mut pt,
-                        )
-                    };
+                    let dx = raw_delta_x
+                        .validate_with(MichiuValidator::wheel_event)
+                        .map_or(WheelDelta(0), Validated::into_inner);
+                    let dy = raw_delta_y
+                        .validate_with(MichiuValidator::wheel_event)
+                        .map_or(WheelDelta(0), Validated::into_inner);
 
-                    // 横スクロール時は、右チルト（プラス値）された際に
-                    // 右方向へスクロール（オフセット加算）させるため、符号の方向性を補正
-                    let scroll_x = {
-                        let x = raw_delta_x.assume_valid().into_inner();
-                        -raw_wheel_delta_to_logical_pixels(x.raw() as f32)
-                    };
+                    // 両方 0 なら何もしない
+                    if !(dx.0 == 0 && dy.0 == 0) {
+                        // 横スクロール時は、右チルト（プラス値）された際に
+                        // 右方向へスクロール（オフセット加算）させるため、符号の方向性を補正
+                        let scroll_x = -raw_wheel_delta_to_logical_pixels(dx.raw() as f32);
+                        let scroll_y = raw_wheel_delta_to_logical_pixels(dy.raw() as f32);
 
-                    let scroll_y = {
-                        let y = raw_delta_y.assume_valid().into_inner();
-                        raw_wheel_delta_to_logical_pixels(y.raw() as f32)
-                    };
+                        self.context
+                            .inject_action(EventAction::MouseWheel { scroll_x, scroll_y });
 
-                    self.context
-                        .inject_action(EventAction::MouseWheel { scroll_x, scroll_y });
+                        if self.config.external_visual_support {
+                            let mut pt = windows::Win32::Foundation::POINT {
+                                x: (raw.lparam.0 & 0xffff) as i16 as i32,
+                                y: ((raw.lparam.0 >> 16) & 0xffff) as i16 as i32,
+                            };
+                            let _ = unsafe {
+                                windows::Win32::Graphics::Gdi::ScreenToClient(
+                                    self.handle.hwnd(),
+                                    &raw mut pt,
+                                )
+                            };
 
-                    if self.config.external_visual_support {
-                        let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
-                        ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
-                            &mut self.context,
-                            raw.msg,
-                            raw.wparam,
-                            raw.lparam,
-                            phys_pos,
-                            self.renderer.scale_factor(),
-                        );
+                            let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
+                            ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
+                                &mut self.context,
+                                raw.msg,
+                                raw.wparam,
+                                raw.lparam,
+                                phys_pos,
+                                self.renderer.scale_factor(),
+                            );
+                        }
+
+                        consumed = has_hovered || ext_consumed;
+                        needs_redraw = true;
                     }
-
-                    consumed = has_hovered || ext_consumed;
-                    needs_redraw = true;
                 }
                 MichiuEvent::Ime(ime) => {
-                    let ime = ime.clone().assume_valid().into_inner();
-                    let ime_state = ImeState {
-                        is_open: ime.is_open,
-                        conversion_mode: ime.conversion_mode,
-                        sentence_mode: ime.sentence_mode,
-                        keyboard_layout_id: ime.keyboard_layout_id,
-                        composition_text: ime.composition_text.into(),
-                        result_text: ime.result_text.into(),
-                        caret_position: ime.caret_position.map(Cast::cast),
-                        composition_cursor: CharIndex(ime.composition_cursor),
-                        composition_attrs: ime.composition_attrs,
-                    };
+                    let reslut = ime
+                        .clone()
+                        .validate_with(MichiuValidator::ime_event)
+                        .map(Validated::into_inner);
 
-                    self.context.inject_action(EventAction::Ime(ime_state));
-                    consumed = has_focused;
-                    needs_redraw = true;
+                    match reslut {
+                        Ok(ime) => {
+                            self.context.inject_action(EventAction::Ime(ime.cast()));
+                            consumed = has_focused;
+                            needs_redraw = true;
+                        }
+                        Err(e) => {
+                            debug_eprintln!("Debug: invalid ime event: {:?}", e);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -1656,6 +1701,47 @@ impl Cast<window::MouseButton> for ui::MouseButton {
     }
 }
 
+// ===================================================================
+// ===================================================================
+
+impl Cast<ui::ImeState> for window::ImeStateUpdate {
+    #[inline]
+    fn cast(self) -> ui::ImeState {
+        ImeState {
+            is_open: self.is_open,
+            conversion_mode: self.conversion_mode,
+            sentence_mode: self.sentence_mode,
+            keyboard_layout_id: self.keyboard_layout_id,
+            composition_text: self.composition_text.into(),
+            result_text: self.result_text.into(),
+            caret_position: self.caret_position.map(Cast::cast),
+            composition_cursor: CharIndex(self.composition_cursor),
+            composition_attrs: self.composition_attrs,
+        }
+    }
+}
+
+pub trait CastIme<Target> {
+    fn cast_ime(self, window_id: WindowId) -> Target;
+}
+
+impl CastIme<window::ImeStateUpdate> for ui::ImeState {
+    fn cast_ime(self, window_id: WindowId) -> window::ImeStateUpdate {
+        window::ImeStateUpdate {
+            window_id: window_id.id(),
+            is_open: self.is_open,
+            conversion_mode: self.conversion_mode,
+            sentence_mode: self.sentence_mode,
+            keyboard_layout_id: self.keyboard_layout_id,
+            composition_text: self.composition_text.into(),
+            result_text: self.result_text.into(),
+            caret_position: self.caret_position.map(Cast::cast),
+            composition_cursor: self.composition_cursor.0,
+            composition_attrs: self.composition_attrs,
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, MichiuError>;
 
 #[derive(Debug, Error)]
@@ -1665,4 +1751,227 @@ pub enum MichiuError {
 
     #[error("ui error: {0}")]
     Ui(#[from] ui::MichiuError),
+
+    #[error("invalid size: {0}")]
+    InvalidSize(#[from] SizeValidationError),
+
+    #[error("invalid point: {0}")]
+    InvalidPoint(#[from] PointValidationError),
+
+    #[error("invalid key: {0}")]
+    Invalidkey(#[from] KeyValidationError),
+
+    #[error("invalid key: {0}")]
+    InvalidWheel(#[from] WheelValidationError),
+
+    #[error("invalid ime: {0}")]
+    InvalidIme(#[from] ImeValidationError),
+}
+
+// 最大テクスチャサイズの目安
+pub(crate) const MAX_WINDOW_DIMENSION: i32 = 16_384;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SizeValidationError {
+    #[error("window size contains negative values (width: {width}, height: {height})")]
+    Negative { width: i32, height: i32 },
+
+    #[error("window size is zero (window may be minimized)")]
+    Zero { width: i32, height: i32 },
+
+    #[error(
+        "window size exceeds maximum allowed dimension {MAX_WINDOW_DIMENSION} (width: {width}, height: {height})"
+    )]
+    TooLarge { width: i32, height: i32 },
+}
+
+// Win32の仮想スクリーンとしてあり得る最大境界
+pub(crate) const MIN_CURSOR_COORD: i32 = -32_768;
+pub(crate) const MAX_CURSOR_COORD: i32 = 32_767;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum PointValidationError {
+    #[error("cursor position is out of reasonable virtual bounds ({x}, {y})")]
+    OutOfBounds { x: i32, y: i32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum KeyValidationError {
+    #[error("key code is zero or undefined")]
+    Zero,
+
+    #[error("key code exceeds 8-bit virtual key range: {0:#X}")]
+    OutOfRange(u16),
+
+    #[error("mouse button code received in keyboard event: {0:#X}")]
+    MouseButton(u16),
+
+    #[error("IME is processing the key (VK_PROCESSKEY)")]
+    ImeProcessKey,
+
+    #[error("packet/unicode injection key (VK_PACKET)")]
+    PacketKey,
+}
+
+// 1フレームあたりの妥当な最大デルタ
+pub(crate) const MAX_REASONABLE_DELTA: i32 = 6_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum WheelValidationError {
+    #[error("wheel delta was likely unpacked without sign extension (value: {0})")]
+    SignExtensionBug(i32),
+
+    #[error("wheel delta exceeds reasonable physical limits (value: {0})")]
+    TooFast(i32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ImeValidationError {
+    #[error(
+        "composition cursor is invalid or points out of text bounds (cursor: {cursor}, text_len: {text_len})"
+    )]
+    CursorOutOfBounds { cursor: usize, text_len: usize },
+
+    #[error(
+        "composition attributes length does not match text length (attrs: {attrs_len}, text: {text_len})"
+    )]
+    AttributeLengthMismatch { attrs_len: usize, text_len: usize },
+
+    #[error("text contains invalid control characters or null bytes")]
+    CorruptedText,
+}
+
+pub struct MichiuValidator;
+impl MichiuValidator {
+    pub fn window_bounds(size: PhysicalSize) -> Result<PhysicalSize> {
+        let (w, h) = (size.width, size.height);
+        if w < 0 || h < 0 {
+            return Err(MichiuError::InvalidSize(SizeValidationError::Negative {
+                width: w,
+                height: h,
+            }));
+        }
+        if w == 0 || h == 0 {
+            return Err(MichiuError::InvalidSize(SizeValidationError::Zero {
+                width: w,
+                height: h,
+            }));
+        }
+        if w > MAX_WINDOW_DIMENSION || h > MAX_WINDOW_DIMENSION {
+            return Err(MichiuError::InvalidSize(SizeValidationError::TooLarge {
+                width: w,
+                height: h,
+            }));
+        }
+        Ok(size)
+    }
+
+    pub fn cursor_bounds(point: PhysicalPoint) -> Result<PhysicalPoint> {
+        let (x, y) = (point.x, point.y);
+
+        // 仮想スクリーンの範囲を逸脱していないかチェック
+        if !(MIN_CURSOR_COORD..=MAX_CURSOR_COORD).contains(&x)
+            || !(MIN_CURSOR_COORD..=MAX_CURSOR_COORD).contains(&y)
+        {
+            return Err(MichiuError::InvalidPoint(
+                PointValidationError::OutOfBounds { x, y },
+            ));
+        }
+
+        Ok(point)
+    }
+
+    pub fn keyboard_input(key_code: VIRTUAL_KEY) -> Result<VIRTUAL_KEY> {
+        let code = key_code.0;
+
+        // 範囲チェック (0 または 256 以上)
+        if code == 0 {
+            return Err(MichiuError::Invalidkey(KeyValidationError::Zero));
+        }
+        if code > 0xFF {
+            return Err(MichiuError::Invalidkey(KeyValidationError::OutOfRange(
+                code,
+            )));
+        }
+
+        // マウスボタンの混入チェック
+        if (VK_LBUTTON.0..=VK_XBUTTON2.0).contains(&code) {
+            return Err(MichiuError::Invalidkey(KeyValidationError::MouseButton(
+                code,
+            )));
+        }
+
+        // IME・特殊入力のチェック
+        if key_code == VK_PROCESSKEY {
+            return Err(MichiuError::Invalidkey(KeyValidationError::ImeProcessKey));
+        }
+        if key_code == VK_PACKET {
+            return Err(MichiuError::Invalidkey(KeyValidationError::PacketKey));
+        }
+
+        Ok(key_code)
+    }
+
+    pub fn wheel_event(raw_delta: WheelDelta) -> Result<WheelDelta> {
+        let val = raw_delta.0;
+
+        // 1. 符号なし拡張バグの検知 (0xFF88 などが 65000 付近になるのを弾く)
+        if (32_768..=65_535).contains(&val) {
+            return Err(MichiuError::InvalidWheel(
+                WheelValidationError::SignExtensionBug(val),
+            ));
+        }
+
+        // 極端な値 (-6000 ..= 6000 を超えるものは弾く)
+        if val.abs() > MAX_REASONABLE_DELTA {
+            return Err(MichiuError::InvalidWheel(WheelValidationError::TooFast(
+                val,
+            )));
+        }
+
+        Ok(raw_delta)
+    }
+
+    pub fn ime_event(ime: ImeStateUpdate) -> Result<ImeStateUpdate> {
+        // Null文字の混入
+        if ime.composition_text.contains('\0') || ime.result_text.contains('\0') {
+            return Err(MichiuError::InvalidIme(ImeValidationError::CorruptedText));
+        }
+
+        let char_count = ime.composition_text.chars().count();
+
+        // カーソル位置
+        // 末尾 (cursor == char_count) は正常
+        if ime.composition_cursor > char_count {
+            return Err(MichiuError::InvalidIme(
+                ImeValidationError::CursorOutOfBounds {
+                    cursor: ime.composition_cursor,
+                    text_len: char_count,
+                },
+            ));
+        }
+
+        // 属性配列の長さ一致
+        if !ime.composition_text.is_empty()
+            && !ime.composition_attrs.is_empty()
+            && ime.composition_attrs.len() != char_count
+        {
+            return Err(MichiuError::InvalidIme(
+                ImeValidationError::AttributeLengthMismatch {
+                    attrs_len: ime.composition_attrs.len(),
+                    text_len: char_count,
+                },
+            ));
+        }
+
+        Ok(ime)
+    }
+}
+
+#[macro_export]
+macro_rules! debug_eprintln {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        eprintln!($($arg)*);
+    };
 }
