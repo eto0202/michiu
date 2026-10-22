@@ -254,11 +254,9 @@ impl ReactiveStore {
         let id = if let Some(i) = id {
             i
         } else {
-            let Some(i) = TopologyStore::find_root_entity(
-                topo_entities,
-                topo_parents,
-                topo_flat_dfs_sequence,
-            ) else {
+            let Some(i) =
+                TopologyStore::find_root(topo_entities, topo_parents, topo_flat_dfs_sequence)
+            else {
                 return;
             };
             i

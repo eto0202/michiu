@@ -436,7 +436,7 @@ impl EventStore {
         };
 
         // ウィンドウのルート要素を解決
-        let root = TopologyStore::find_root_entity(
+        let root = TopologyStore::find_root(
             &cx.topology.topo_entities,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,

@@ -390,8 +390,8 @@ impl Entity {
     /// Get the handle of the parent entity.
     #[inline]
     #[must_use]
-    pub fn parent_entity(self) -> Option<Entity> {
-        with_context(|cx| cx.parent_entity(self))
+    pub fn parent(self) -> Option<Entity> {
+        with_context(|cx| cx.parent(self))
     }
 
     /// Get the list of handles for the child entities.

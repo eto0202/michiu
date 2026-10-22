@@ -1757,7 +1757,7 @@ impl Pipeline {
         }
 
         let root_id = cx
-            .find_root_entity()
+            .find_root()
             .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
 
         let focused_id = cx.interaction_id(InteractionState::Focused);

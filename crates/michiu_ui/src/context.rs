@@ -41,7 +41,7 @@
 //!
 //! * `cx.current()`: Retrieves the entity that triggered the event
 //! * `cx.query_first::<T>()` / `cx.try_query_first::<T>()`: Searches for other entities using a marker tag
-//! * `cx.find_root_entity()`: Retrieves the root entity
+//! * `cx.find_root()`: Retrieves the root entity
 //! * `cx.pointer_position()` / `cx.window_last_size()`: Retrieves the current pointer position or window dimensions
 //!
 //! For additional methods, please refer to the [`Context`] method documentation.
@@ -363,7 +363,7 @@ impl Context {
     /// Retrieves the parent entity of the specified entity.
     #[track_caller]
     #[inline]
-    pub fn parent_entity(&self, e: Entity) -> Option<Entity> {
+    pub fn parent(&self, e: Entity) -> Option<Entity> {
         self.topology
             .topo_parents
             .find(e)
@@ -581,14 +581,14 @@ impl Context {
 
     /// Get the absolute coordinates of the specified entity on the screen.
     #[inline]
-    pub fn rect(&self, id: Entity) -> Option<LayoutRect> {
-        self.outputs.out_rects.find(id).copied()
+    pub fn rect(&self, e: Entity) -> Option<LayoutRect> {
+        self.outputs.out_rects.find(e).copied()
     }
 
     /// Get the on-screen clipping boundary of the specified entity.
     #[inline]
-    pub fn clip_rect(&self, id: Entity) -> Option<LayoutRect> {
-        self.outputs.out_clip_rects.find(id).copied()
+    pub fn clip_rect(&self, e: Entity) -> Option<LayoutRect> {
+        self.outputs.out_clip_rects.find(e).copied()
     }
 
     /// Gets the selected text within the currently focused entity.
@@ -606,15 +606,15 @@ impl Context {
     /// Get current scroll position
     #[inline]
     #[must_use]
-    pub fn scroll_offset(&self, id: Entity) -> Option<LayoutPoint> {
-        self.states.scroll.sc_offsets.find(id).copied()
+    pub fn scroll_offset(&self, e: Entity) -> Option<LayoutPoint> {
+        self.states.scroll.sc_offsets.find(e).copied()
     }
 
     /// Moves relative to the current scroll position.
     #[inline]
-    pub fn scroll_by(&mut self, id: Entity, dx: f32, dy: f32) -> bool {
+    pub fn scroll_by(&mut self, e: Entity, dx: f32, dy: f32) -> bool {
         ScrollStore::scroll_by(
-            id,
+            e,
             dx,
             dy,
             self.window.win_last_size,
@@ -653,9 +653,9 @@ impl Context {
 
     /// Provides a signal context to the specified entity, or to the root entity if None is specified.
     #[inline]
-    pub fn provide<T: Send + 'static>(&mut self, id: Option<Entity>, read_signal: ReadSignal<T>) {
+    pub fn provide<T: Send + 'static>(&mut self, e: Option<Entity>, read_signal: ReadSignal<T>) {
         ReactiveStore::provide::<T>(
-            id,
+            e,
             read_signal,
             &mut self.reactive.react_providers,
             &self.topology.topo_entities,
@@ -798,9 +798,9 @@ impl Context {
 
     /// Resolve [`CursorIcon`] by traversing the parent tree from the currently hovered entity.
     #[inline]
-    pub fn resolve_cursor(&self, hovered_id: Entity) -> CursorIcon {
+    pub fn resolve_cursor(&self, hovered: Entity) -> CursorIcon {
         RenderStore::resolve_cursor(
-            hovered_id,
+            hovered,
             &self.events.evt_interaction_states,
             &self.topology.topo_parents,
             &self.renders.rnd_visual,
@@ -878,24 +878,24 @@ impl Context {
 
     /// Set the focus trigger ([`ActiveFocusTrigger`]).
     #[inline]
-    pub fn auto_focus_switch_by_trigger(&mut self, id: Entity, trigger: ActiveFocusTrigger) {
-        FocusStore::auto_focus_switch_by_trigger(self, id, trigger);
+    pub fn auto_focus_switch_by_trigger(&mut self, e: Entity, trigger: ActiveFocusTrigger) {
+        FocusStore::auto_focus_switch_by_trigger(self, e, trigger);
     }
 
     /// Sets the pseudo-class ([`StateFlag`]).
     #[inline]
-    pub fn set_states(&mut self, id: Entity, flag: &StateFlag, actived: bool) {
-        Pipeline::set_states(self, id, flag, actived);
+    pub fn set_states(&mut self, e: Entity, flag: &StateFlag, actived: bool) {
+        Pipeline::set_states(self, e, flag, actived);
     }
 
     /// Sets the interaction state ([`InteractionState`]).
     #[inline]
-    pub fn interaction_states(&mut self, id: Option<Entity>, interaction: InteractionState) {
+    pub fn interaction_states(&mut self, e: Option<Entity>, interaction: InteractionState) {
         match interaction {
-            InteractionState::Hovered => self.events.evt_interaction_states.hovered = id,
-            InteractionState::Focused => self.events.evt_interaction_states.focused = id,
-            InteractionState::Pressed => self.events.evt_interaction_states.pressed = id,
-            InteractionState::Dragged => self.events.evt_interaction_states.dragged = id,
+            InteractionState::Hovered => self.events.evt_interaction_states.hovered = e,
+            InteractionState::Focused => self.events.evt_interaction_states.focused = e,
+            InteractionState::Pressed => self.events.evt_interaction_states.pressed = e,
+            InteractionState::Dragged => self.events.evt_interaction_states.dragged = e,
         }
     }
 
@@ -931,8 +931,8 @@ impl Context {
 
     /// Resolves and returns the `Entity` of the top-level root entity within the window.
     #[inline]
-    pub fn find_root_entity(&self) -> Option<Entity> {
-        TopologyStore::find_root_entity(
+    pub fn find_root(&self) -> Option<Entity> {
+        TopologyStore::find_root(
             &self.topology.topo_entities,
             &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,

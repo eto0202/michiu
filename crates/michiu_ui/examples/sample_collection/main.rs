@@ -5,9 +5,7 @@ use crate::{
     window::{create_renderer, create_window, message_loop, register_class, show_window},
 };
 use michiu_ui::{
-    CapacityConfig,
-    CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
-    prelude::*,
+    CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual, prelude::*,
 };
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},

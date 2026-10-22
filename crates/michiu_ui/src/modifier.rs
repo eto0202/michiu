@@ -114,7 +114,7 @@ unsafe impl Send for ModInner {}
 unsafe impl Sync for ModInner {}
 
 impl Modifier {
-    /// Creates a new style.
+    /// Creates a new modifier.
     ///
     /// Prefer using [`crate::ts`] functions for a cleaner syntax.
     #[inline]
@@ -4760,66 +4760,66 @@ impl Modifier {
     /// Sets the style that is applied when the cursor hovers over an entity.
     #[inline]
     #[must_use]
-    pub fn hovered(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.apply_interaction_mod(style, ComponentMask::STATE_HOVERED, ModTarget::Hovered)
+    pub fn hovered(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.apply_interaction_mod(m, ComponentMask::STATE_HOVERED, ModTarget::Hovered)
     }
 
-    /// Sets the style to be applied when an entity receives focus.
+    /// Sets the m to be applied when an entity receives focus.
     #[inline]
     #[must_use]
-    pub fn focused(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.apply_interaction_mod(style, ComponentMask::STATE_FOCUSED, ModTarget::Focused)
+    pub fn focused(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.apply_interaction_mod(m, ComponentMask::STATE_FOCUSED, ModTarget::Focused)
     }
 
-    /// Sets a style that is applied only when the focus is accessed via the keyboard.
+    /// Sets a m that is applied only when the focus is accessed via the keyboard.
     #[inline]
     #[must_use]
-    pub fn focused_visible(self, style: impl IntoModValue<Modifier>) -> Self {
+    pub fn focused_visible(self, m: impl IntoModValue<Modifier>) -> Self {
         self.apply_interaction_mod(
-            style,
+            m,
             ComponentMask::STATE_FOCUSED_VISIBLE,
             ModTarget::FocusedVisible,
         )
     }
 
-    /// Sets the style to be applied when the left mouse button is pressed down over an entity.
+    /// Sets the m to be applied when the left mouse button is pressed down over an entity.
     #[inline]
     #[must_use]
-    pub fn pressed(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.apply_interaction_mod(style, ComponentMask::STATE_PRESSED, ModTarget::Pressed)
+    pub fn pressed(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.apply_interaction_mod(m, ComponentMask::STATE_PRESSED, ModTarget::Pressed)
     }
 
     /// Sets the style to apply when an entity is disabled.
     #[inline]
     #[must_use]
-    pub fn disabled(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.apply_interaction_mod(style, ComponentMask::STATE_DISABLED, ModTarget::Disabled)
+    pub fn disabled(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.apply_interaction_mod(m, ComponentMask::STATE_DISABLED, ModTarget::Disabled)
     }
 
     /// Sets the style to be applied when the entity is active.
     #[inline]
     #[must_use]
-    pub fn actived(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.apply_interaction_mod(style, ComponentMask::STATE_ACTIVED, ModTarget::Actived)
+    pub fn actived(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.apply_interaction_mod(m, ComponentMask::STATE_ACTIVED, ModTarget::Actived)
     }
 
     /// Sets the style to be applied when an entity is toggled and selected.
     #[inline]
     #[must_use]
-    pub fn selected(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.apply_interaction_mod(style, ComponentMask::STATE_SELECTED, ModTarget::Selected)
+    pub fn selected(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.apply_interaction_mod(m, ComponentMask::STATE_SELECTED, ModTarget::Selected)
     }
 
     /// Sets the style to apply when an entity is currently being dragged.
     #[inline]
     #[must_use]
-    pub fn dragged(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.apply_interaction_mod(style, ComponentMask::STATE_DRAGGED, ModTarget::Dragged)
+    pub fn dragged(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.apply_interaction_mod(m, ComponentMask::STATE_DRAGGED, ModTarget::Dragged)
     }
 
     // 子孫要素のインタラクション状態に連動して自身のスタイルを変化させる伝播設定
     #[inline]
-    fn interaction_within(self, name: InteractionName, style: impl IntoModValue<Modifier>) -> Self {
+    fn interaction_within(self, name: InteractionName, m: impl IntoModValue<Modifier>) -> Self {
         let (state_flag, target) = match name {
             InteractionName::Hover => (
                 ComponentMask::STYLE_INTERACTION_WITHIN,
@@ -4858,76 +4858,76 @@ impl Modifier {
                 ModTarget::AnyWithin,
             ),
         };
-        self.apply_interaction_mod(style, state_flag, target)
+        self.apply_interaction_mod(m, state_flag, target)
     }
 
     /// Sets the style that is applied when a descendant entity is in hover state.
     #[inline]
     #[must_use]
-    pub fn hovered_within(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_within(InteractionName::Hover, style)
+    pub fn hovered_within(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_within(InteractionName::Hover, m)
     }
 
     /// Sets the style that is applied when a descendant entity is in focus state.
     #[inline]
     #[must_use]
-    pub fn focused_within(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_within(InteractionName::Focus, style)
+    pub fn focused_within(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_within(InteractionName::Focus, m)
     }
 
     /// Sets a style that is applied only when the descendant entity has keyboard focus.
     #[inline]
     #[must_use]
-    pub fn focused_visible_within(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_within(InteractionName::FocusVisible, style)
+    pub fn focused_visible_within(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_within(InteractionName::FocusVisible, m)
     }
 
     /// Sets the style that is applied when a descendant entity is in press state.
     #[inline]
     #[must_use]
-    pub fn pressed_within(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_within(InteractionName::Press, style)
+    pub fn pressed_within(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_within(InteractionName::Press, m)
     }
 
     /// Sets the style that is applied when a descendant entity is in disable state.
     #[inline]
     #[must_use]
-    pub fn disabled_within(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_within(InteractionName::Disable, style)
+    pub fn disabled_within(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_within(InteractionName::Disable, m)
     }
 
     /// Sets the style that is applied when a descendant entity is in active state.
     #[inline]
     #[must_use]
-    pub fn actived_within(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_within(InteractionName::Active, style)
+    pub fn actived_within(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_within(InteractionName::Active, m)
     }
 
     /// Sets the style that is applied when a descendant entity is in select state.
     #[inline]
     #[must_use]
-    pub fn selected_within(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_within(InteractionName::Select, style)
+    pub fn selected_within(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_within(InteractionName::Select, m)
     }
 
     /// Sets the style that is applied when a descendant entity is in drag state.
     #[inline]
     #[must_use]
-    pub fn dragged_within(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_within(InteractionName::Drag, style)
+    pub fn dragged_within(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_within(InteractionName::Drag, m)
     }
 
     /// Sets the style that is applied when a descendant entity is in interactive state.
     #[inline]
     #[must_use]
-    pub fn all_within(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_within(InteractionName::All, style)
+    pub fn all_within(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_within(InteractionName::All, m)
     }
 
     // 直近の親要素のインタラクション状態に連動して自身のスタイルを変化させる
     #[inline]
     #[must_use]
-    fn interaction_parent(self, name: InteractionName, style: impl IntoModValue<Modifier>) -> Self {
+    fn interaction_parent(self, name: InteractionName, m: impl IntoModValue<Modifier>) -> Self {
         let (state_flag, target) = match name {
             InteractionName::Hover => (
                 ComponentMask::STYLE_INTERACTION_PARENT,
@@ -4966,64 +4966,64 @@ impl Modifier {
                 ModTarget::AnyParent,
             ),
         };
-        self.apply_interaction_mod(style, state_flag, target)
+        self.apply_interaction_mod(m, state_flag, target)
     }
 
     /// Sets the style that is applied when a most recent parent entity is in hover state.
     #[inline]
     #[must_use]
-    pub fn hovered_parent(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_parent(InteractionName::Hover, style)
+    pub fn hovered_parent(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_parent(InteractionName::Hover, m)
     }
 
     /// Sets the style that is applied when a most recent parent entity is in focus state.
     #[inline]
     #[must_use]
-    pub fn focused_parent(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_parent(InteractionName::Focus, style)
+    pub fn focused_parent(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_parent(InteractionName::Focus, m)
     }
 
     /// Sets the style that is applied when a most recent parent entity is in keyboard focus state.
     #[inline]
     #[must_use]
-    pub fn focused_visible_parent(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_parent(InteractionName::FocusVisible, style)
+    pub fn focused_visible_parent(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_parent(InteractionName::FocusVisible, m)
     }
     /// Sets the style that is applied when a most recent parent entity is in press state.
     #[inline]
     #[must_use]
-    pub fn pressed_parent(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_parent(InteractionName::Press, style)
+    pub fn pressed_parent(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_parent(InteractionName::Press, m)
     }
     /// Sets the style that is applied when a most recent parent entity is in disable state.
     #[inline]
     #[must_use]
-    pub fn disabled_parent(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_parent(InteractionName::Disable, style)
+    pub fn disabled_parent(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_parent(InteractionName::Disable, m)
     }
     /// Sets the style that is applied when a most recent parent entity is in active state.
     #[inline]
     #[must_use]
-    pub fn actived_parent(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_parent(InteractionName::Active, style)
+    pub fn actived_parent(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_parent(InteractionName::Active, m)
     }
     /// Sets the style that is applied when a most recent parent entity is in select state.
     #[inline]
     #[must_use]
-    pub fn selected_parent(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_parent(InteractionName::Select, style)
+    pub fn selected_parent(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_parent(InteractionName::Select, m)
     }
     /// Sets the style that is applied when a most recent parent entity is in drag state.
     #[inline]
     #[must_use]
-    pub fn dragged_parent(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_parent(InteractionName::Drag, style)
+    pub fn dragged_parent(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_parent(InteractionName::Drag, m)
     }
     /// Sets the style that is applied when a most recent parent entity is in interactive state.
     #[inline]
     #[must_use]
-    pub fn all_parent(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.interaction_parent(InteractionName::All, style)
+    pub fn all_parent(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.interaction_parent(InteractionName::All, m)
     }
 
     /// Sets the resizing permissions for the entity's top, right, bottom, and left
@@ -5393,20 +5393,16 @@ impl Modifier {
     /// Sets the style to apply to the original entity while it is being dnd dragged.
     #[inline]
     #[must_use]
-    pub fn dnd_draggable_original(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.apply_interaction_mod(
-            style,
-            ComponentMask::STATE_DND_DRAGGING,
-            ModTarget::DndDragging,
-        )
+    pub fn dnd_draggable_original(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.apply_interaction_mod(m, ComponentMask::STATE_DND_DRAGGING, ModTarget::DndDragging)
     }
 
     /// Sets the style to apply to the placeholder while it is being dnd dragged.
     #[inline]
     #[must_use]
-    pub fn dnd_draggable_placeholder(self, style: impl IntoModValue<Modifier>) -> Self {
+    pub fn dnd_draggable_placeholder(self, m: impl IntoModValue<Modifier>) -> Self {
         self.apply_interaction_mod(
-            style,
+            m,
             ComponentMask::STATE_DND_DRAG_OVER,
             ModTarget::DndDragOver,
         )
@@ -5415,12 +5411,8 @@ impl Modifier {
     /// Sets the style to be applied to the dnd drop zone when a dnd dragged entity is hovering over it.
     #[inline]
     #[must_use]
-    pub fn dnd_drag_over(self, style: impl IntoModValue<Modifier>) -> Self {
-        self.apply_interaction_mod(
-            style,
-            ComponentMask::STATE_DND_DRAG_IN,
-            ModTarget::DndDragIn,
-        )
+    pub fn dnd_drag_over(self, m: impl IntoModValue<Modifier>) -> Self {
+        self.apply_interaction_mod(m, ComponentMask::STATE_DND_DRAG_IN, ModTarget::DndDragIn)
     }
 
     /// Sets the transparency of pointer events (such as mouse interactions).
@@ -6084,11 +6076,11 @@ impl Modifier {
     #[expect(clippy::too_many_lines, clippy::unreachable)]
     fn apply_interaction_mod(
         mut self,
-        style: impl IntoModValue<Modifier>,
+        m: impl IntoModValue<Modifier>,
         state_flag: u128,
         target: ModTarget,
     ) -> Self {
-        match style.into_mod_value() {
+        match m.into_mod_value() {
             // 静的に構築されたスタイルが渡された場合
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);

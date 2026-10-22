@@ -29,7 +29,7 @@ pub fn container() -> Entity {
         let menu_style = ii().flex().top(top).left(left);
 
         let Some(e) = cx.try_query_first::<a11y::AContextMenu>() else {
-            let root = cx.find_root_entity().expect("Not Found Root Entity");
+            let root = cx.find_root().expect("Not Found Root Entity");
             let menu = context_menu().modify(menu_style);
             let _ = root.child(menu);
             return;

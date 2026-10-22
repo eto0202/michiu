@@ -126,7 +126,7 @@ impl<L: ExternalData> DataWatcher<L> {
                                     // 一応チェック
                                     if thread_version.load(Ordering::SeqCst) == current_version {
                                         write_sig.set(parsed_data);
-                                        if let Some(root) = cx.find_root_entity() {
+                                        if let Some(root) = cx.find_root() {
                                             cx.mark_dirty(root);
                                         }
                                     }
@@ -377,7 +377,7 @@ impl<L: ExternalData> ExternalDataSetBuilder<L> {
                                             let mut current_set = read_sig.get();
                                             current_set.insert(key, new_output);
                                             write_sig.set(current_set);
-                                            if let Some(root) = cx.find_root_entity() {
+                                            if let Some(root) = cx.find_root() {
                                                 cx.mark_dirty(root);
                                             }
                                         }

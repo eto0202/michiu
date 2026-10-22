@@ -592,7 +592,7 @@ impl TopologyStore {
 
     /// ウィンドウ内の最上位ルート要素の `Entity` を自律解決して返します。
     #[inline]
-    pub(crate) fn find_root_entity(
+    pub(crate) fn find_root(
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
