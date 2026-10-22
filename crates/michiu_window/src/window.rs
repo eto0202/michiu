@@ -1,8 +1,9 @@
 use crate::error::{MichiuError, Result};
 use crate::utils::{
-    get_window_ex_style, get_window_style, get_window_userdata_mut, round_to_i32,
-    set_window_ex_style, set_window_style, size_of_u32,
+    get_window_ex_style, get_window_style, get_window_userdata, get_window_userdata_mut,
+    round_to_i32, set_window_ex_style, set_window_style, size_of_u32, take_window_userdata,
 };
+use crate::win32_ext::LParamExt;
 use crate::{
     CursorIcon, FileDropTarget, ImeRelayServer, LogicalSize, MichiuTray, MichiuWindowBuilder,
     PhysicalPoint, PhysicalSize, PreferredAppMode, WindowHandle, ZOrder, translate_and_dispatch,
@@ -977,88 +978,70 @@ unsafe extern "system" fn global_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     if msg == WM_NCCREATE {
-        let create_struct = lparam.0 as *const CREATESTRUCTW;
-        if !create_struct.is_null() {
-            let context_ptr = unsafe { (*create_struct).lpCreateParams.cast::<CreationContext>() };
-            if !context_ptr.is_null() {
-                let context = unsafe { &mut *context_ptr };
-                unsafe {
-                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, context.state as isize);
-                }
-                context.was_taken = true; // 所有権がWndProc側に移ったことをマーク
+        // lpCreateParams は生ポインタなので as_mut で安全に取り出せる
+        if let Some(cs) = unsafe { lparam.to_ref::<CREATESTRUCTW>() }
+            && let Some(context) = unsafe { cs.lpCreateParams.cast::<CreationContext>().as_mut() }
+        {
+            #[allow(clippy::as_conversions)]
+            let state_isize = context.state as isize;
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, state_isize);
+            }
+            context.was_taken = true; // 所有権がWndProc側に移ったことをマーク
+        }
+
+        // 非クライアント領域（タイトルバーや境界線、スクロールバー等）の自動DPIスケーリングを有効化
+        let _ = unsafe { EnableNonClientDpiScaling(hwnd) };
+    }
+
+    // 登録された WindowState を取得（null チェックも内包）
+    let state = get_window_userdata_mut::<WindowState>(hwnd);
+
+    // カスタムメッセージフィルターの実行
+    if let Some(state) = state {
+        if let Some(ref filter) = state.message_filter
+            && let Some(result) = (filter.0)(hwnd, msg, wparam, lparam)
+        {
+            // WM_NCDESTROY だけは絶対にここでバイパスしてはならない
+            // バイパスすると WindowState のメモリ解放がスキップされ DefWindowProcW も呼ばれなくなる
+            if msg != WM_NCDESTROY {
+                return result;
             }
         }
 
-        // 非クライアント領域（タイトルバーや境界線、スクロールバー等）の自動DPIスケーリングを有効化（Windows 10 1607以降）
-        unsafe {
-            let _ = EnableNonClientDpiScaling(hwnd);
-        }
-    }
-
-    // 登録された WindowState を取得
-    let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState };
-
-    // カスタムメッセージフィルターの実行
-    let mut custom_result = None;
-    if !state_ptr.is_null() {
-        let state = unsafe { &*state_ptr };
-        if let Some(ref filter) = state.message_filter {
-            custom_result = (filter.0)(hwnd, msg, wparam, lparam);
-        }
-    }
-
-    // フィルターが値を返した場合、処理をバイパスしてリターンする
-    if let Some(result) = custom_result {
-        // WM_NCDESTROY だけは絶対にここでバイパスしてはならない
-        // バイパスすると WindowState のメモリ解放がスキップされ DefWindowProcW も呼ばれなくなる
-        if msg != WM_NCDESTROY {
-            return result;
-        }
-    }
-
-    if !state_ptr.is_null() {
-        let state = unsafe { &mut *state_ptr };
-
+        // 通常のメッセージディスパッチ
         if let Some(result) = translate_and_dispatch(hwnd, msg, wparam, lparam, state)
             && msg != WM_NCDESTROY
         {
             return result;
         }
-    }
 
-    if msg == WM_GETMINMAXINFO {
-        let mmi = lparam.0 as *mut MINMAXINFO;
+        if msg == WM_GETMINMAXINFO {
+            if let Some(mmi) = unsafe { lparam.to_mut::<MINMAXINFO>() } {
+                // 現在このウィンドウが存在しているモニターのDPIをリアルタイムに取得
+                let dpi = unsafe { GetDpiForWindow(hwnd) };
+                let scale_factor = f64::from(dpi) / 96.0;
 
-        if !mmi.is_null() && !state_ptr.is_null() {
-            let state = unsafe { &*state_ptr };
-            let mmi = unsafe { &mut *mmi };
+                // 最小サイズ制限の動的スケーリング適用
+                if let Some(logical_min) = state.min_inner_size {
+                    let physical_min = logical_min.to_physical(scale_factor);
+                    mmi.ptMinTrackSize.x = physical_min.width;
+                    mmi.ptMinTrackSize.y = physical_min.height;
+                }
 
-            // 現在このウィンドウが存在しているモニターのDPIをリアルタイムに取得
-            let dpi = unsafe { GetDpiForWindow(hwnd) };
-            let scale_factor = f64::from(dpi) / 96.0;
-
-            // 最小サイズ制限の動的スケーリング適用
-            if let Some(logical_min) = state.min_inner_size {
-                let physical_min = logical_min.to_physical(scale_factor);
-                mmi.ptMinTrackSize.x = physical_min.width;
-                mmi.ptMinTrackSize.y = physical_min.height;
+                // 最大サイズ制限の動的スケーリング適用
+                if let Some(logical_max) = state.max_inner_size {
+                    let physical_max = logical_max.to_physical(scale_factor);
+                    mmi.ptMaxTrackSize.x = physical_max.width;
+                    mmi.ptMaxTrackSize.y = physical_max.height;
+                }
             }
-
-            // 最大サイズ制限の動的スケーリング適用
-            if let Some(logical_max) = state.max_inner_size {
-                let physical_max = logical_max.to_physical(scale_factor);
-                mmi.ptMaxTrackSize.x = physical_max.width;
-                mmi.ptMaxTrackSize.y = physical_max.height;
-            }
+            return LRESULT(0); // OSのデフォルト処理をスキップ
         }
-        return LRESULT(0); // OSのデフォルト処理をスキップ
     }
 
     if msg == WM_NCDESTROY {
-        let old_ptr = unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) as *mut WindowState };
-        if !old_ptr.is_null() {
-            let _boxed_filter = unsafe { Box::from_raw(old_ptr) };
-        }
+        let _ = unsafe { take_window_userdata::<WindowState>(hwnd) };
     }
 
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }

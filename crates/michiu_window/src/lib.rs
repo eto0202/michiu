@@ -294,8 +294,9 @@ mod ime;
 mod message;
 mod tray;
 mod types;
-mod window;
 mod utils;
+mod win32_ext;
+mod window;
 
 #[doc(inline)]
 pub use builder::*;
@@ -324,6 +325,6 @@ pub use window::*;
 pub mod prelude {
     pub use crate::{
         LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuError, MichiuEvent, MichiuEventPump,
-        MichiuRawEvent, MichiuWindow, MichiuWindowBuilder, WindowHandle, WindowId,
+        MichiuRawEvent, MichiuWindow, MichiuWindowBuilder, WindowHandle, WindowId, win32_ext::*,
     };
 }

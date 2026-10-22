@@ -1,50 +1,10 @@
 use windows::Win32::{
-    Foundation::{HWND, LPARAM, WPARAM},
+    Foundation::HWND,
     UI::WindowsAndMessaging::{
         GWL_STYLE, GWLP_USERDATA, GetWindowLongPtrW, SetWindowLongPtrW, WINDOW_EX_STYLE,
         WINDOW_STYLE,
     },
 };
-
-/// LPARAM から下位4バイトを u32 として取り出す
-#[inline]
-pub(crate) fn lparam_to_u32(lparam: LPARAM) -> u32 {
-    let b = lparam.0.to_le_bytes();
-    u32::from_le_bytes([b[0], b[1], b[2], b[3]])
-}
-
-/// LPARAM から符号付きの (x, y) 座標を取り出す
-#[inline]
-pub(crate) fn get_x_y_lparam(lparam: LPARAM) -> (i32, i32) {
-    let b = lparam.0.to_le_bytes();
-    let x = i16::from_le_bytes([b[0], b[1]]);
-    let y = i16::from_le_bytes([b[2], b[3]]);
-    (i32::from(x), i32::from(y))
-}
-
-/// LPARAM から符号なしの (width, height) を取り出す
-#[inline]
-pub(crate) fn get_size_lparam(lparam: LPARAM) -> (i32, i32) {
-    let b = lparam.0.to_le_bytes();
-    let width = u16::from_le_bytes([b[0], b[1]]);
-    let height = u16::from_le_bytes([b[2], b[3]]);
-    (i32::from(width), i32::from(height))
-}
-
-/// WPARAM の下位16ビットを u16 で取り出す
-#[inline]
-pub(crate) fn wparam_loword(wparam: WPARAM) -> u16 {
-    let b = wparam.0.to_le_bytes();
-    u16::from_le_bytes([b[0], b[1]])
-}
-
-/// WPARAM の上位16ビットを符号付き i16 で取り出す
-#[inline]
-pub(crate) fn get_wheel_delta(wparam: WPARAM) -> i32 {
-    let b = wparam.0.to_le_bytes();
-    let delta = i16::from_le_bytes([b[2], b[3]]);
-    i32::from(delta)
-}
 
 /// 型 T のバイトサイズを u32 で取得する
 /// 構造体のサイズが 4GB を超えることはほぼあり得ないためキャストを集約

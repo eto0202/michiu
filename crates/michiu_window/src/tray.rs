@@ -27,7 +27,8 @@ use windows::{
 
 use crate::{
     MichiuIcon, PreferredAppMode, set_app_theme,
-    utils::{get_window_userdata, lparam_to_u32, size_of_u32, take_window_userdata, wparam_loword},
+    utils::{get_window_userdata, size_of_u32, take_window_userdata},
+    win32_ext::{LParamExt, WParamExt},
 };
 use crate::{
     WindowHandle,
@@ -285,7 +286,7 @@ unsafe extern "system" fn tray_wnd_proc(
     if let Some(data) = get_window_userdata::<TrayInternalData>(hwnd) {
         // トレイアイコンでのマウス操作
         if msg == WM_TRAY_CALLBACK {
-            let event = lparam_to_u32(lparam);
+            let event = lparam.to_u32();
             match event {
                 // 左クリックをダブルクリック（またはシングルクリック）
                 WM_LBUTTONDBLCLK => {
@@ -377,7 +378,7 @@ unsafe extern "system" fn tray_wnd_proc(
 
         if msg == WM_COMMAND {
             // wparamの下位16ビットには、クリックされたメニュー項目のIDが含まれている
-            let clicked_id = u32::from(wparam_loword(wparam));
+            let clicked_id = wparam.to_loword_u32();
 
             // 一致するIDを持つアイテムを検索し、そのコールバックを実行します。
             if let Some(cb) = data

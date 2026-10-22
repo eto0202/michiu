@@ -230,11 +230,14 @@ use crate::{
     window::{ImeStateUpdate, PhysicalPoint, PhysicalSize, WheelDelta, WindowHandle, prelude::*},
 };
 use thiserror::Error;
-use windows::Win32::UI::{
-    Input::KeyboardAndMouse::{
-        VIRTUAL_KEY, VK_LBUTTON, VK_PACKET, VK_PROCESSKEY, VK_XBUTTON1, VK_XBUTTON2,
+use windows::Win32::{
+    Graphics::Gdi::ScreenToClient,
+    UI::{
+        Input::KeyboardAndMouse::{
+            VIRTUAL_KEY, VK_LBUTTON, VK_PACKET, VK_PROCESSKEY, VK_XBUTTON1, VK_XBUTTON2,
+        },
+        WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL},
     },
-    WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL},
 };
 
 #[cfg(feature = "ui")]
@@ -755,9 +758,9 @@ impl MichiuApp {
                     }
 
                     if self.config.external_visual_support {
-                        let x = (raw.lparam.0 & 0xffff) as i16 as f32;
-                        let y = ((raw.lparam.0 >> 16) & 0xffff) as i16 as f32;
+                        let (x, y) = raw.lparam.to_point_f32();
                         let phys_pos = LayoutPoint::new(x, y);
+
                         ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                             &mut self.context,
                             raw.msg,
@@ -797,7 +800,7 @@ impl MichiuApp {
                                 && self.config.default_shortcuts
                                 && state == ElementState::Pressed
                             {
-                                match raw.wparam.0 as i32 {
+                                match i32::try_from(raw.wparam.0).unwrap_or(0) {
                                     // Ctrl + C
                                     0x43 if let Some(selected_text) =
                                         self.context.get_selected_text() =>
@@ -876,16 +879,8 @@ impl MichiuApp {
                             .inject_action(EventAction::MouseWheel { scroll_x, scroll_y });
 
                         if self.config.external_visual_support {
-                            let mut pt = windows::Win32::Foundation::POINT {
-                                x: (raw.lparam.0 & 0xffff) as i16 as i32,
-                                y: ((raw.lparam.0 >> 16) & 0xffff) as i16 as i32,
-                            };
-                            let _ = unsafe {
-                                windows::Win32::Graphics::Gdi::ScreenToClient(
-                                    self.handle.hwnd(),
-                                    &raw mut pt,
-                                )
-                            };
+                            let mut pt = raw.lparam.to_point();
+                            let _ = unsafe { ScreenToClient(self.handle.hwnd(), &raw mut pt) };
 
                             let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
                             ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
