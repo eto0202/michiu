@@ -5,7 +5,7 @@ use crate::{
 use michiu_ui::prelude::*;
 use std::time::Duration;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(28.0).p(16.0)).children([section_inherit(), section_self(), section_within()])
 }
 
@@ -17,19 +17,21 @@ fn wrapper_style() -> Modifier {
     ii().w_full().gap(16.0)
 }
 
-fn item(label: &'static str, style: Modifier) -> Element {
-    flex(style
-        .p(12.0)
-        .r(4.0)
-        .justify_center()
-        .items_center()
-        .border_solid(1.0)
-        .border_color(dynamic(|t: &Theme| t.border))
-        .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover))))
+fn item(label: &'static str, style: Modifier) -> Entity {
+    flex(
+        style
+            .p(12.0)
+            .r(4.0)
+            .justify_center()
+            .items_center()
+            .border_solid(1.0)
+            .border_color(dynamic(|t: &Theme| t.border))
+            .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover))),
+    )
     .label(label, label_style())
 }
 
-fn section_inherit() -> Element {
+fn section_inherit() -> Entity {
     let item_1 = item("Focus 3", ii().focusable_inherit_keyboard());
     let item_2 = item("Focus 4", ii().focusable_inherit_keyboard());
     let item_3 = item("Focus 5", ii().focusable_inherit_keyboard());
@@ -46,7 +48,7 @@ fn section_inherit() -> Element {
     v_flex(parent_focused).children([section_title("Keyboard & Inherit"), wrapper])
 }
 
-fn section_self() -> Element {
+fn section_self() -> Entity {
     let item_1 = item(
         "Focus 7",
         ii().focusable_self_keyboard().focused(
@@ -84,7 +86,7 @@ fn section_self() -> Element {
     v_flex(section_style()).children([section_title("Keyboard & SelfStyle"), wrapper])
 }
 
-fn section_within() -> Element {
+fn section_within() -> Entity {
     let item_1 = item(
         "Focus 12",
         ii().focusable_self_keyboard().focused(

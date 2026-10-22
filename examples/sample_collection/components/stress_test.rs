@@ -5,11 +5,11 @@ use smallvec::SmallVec;
 
 use crate::app::{sidebar, theme::Theme};
 
-pub type ChildrenVec = SmallVec<[Element; 10]>;
+pub type ChildrenVec = SmallVec<[Entity; 10]>;
 
 const DIGITS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     h_flex_d(|t: &Theme| {
         sidebar::scrollbar(t)
             .p(16.0)
@@ -17,22 +17,22 @@ pub fn container() -> Element {
             .size_full()
             .overflow_scroll()
     })
-    .children(element_1())
+    .children(entity_1())
 }
 
 #[inline]
-fn element_1() -> Vec<Element> {
+fn entity_1() -> Vec<Entity> {
     let mut children = Vec::new();
 
     for _ in 0..100 {
-        let el = v_flex(ii()).children(element_2());
-        children.push(el);
+        let e = v_flex(ii()).children(entity_2());
+        children.push(e);
     }
     children
 }
 
 #[inline]
-fn base_el(i: i32) -> Element {
+fn base_el(i: i32) -> Entity {
     let label_str = DIGITS.get(i as usize).copied().unwrap_or("");
 
     flex(ii().hovered(ii().bg_color(dynamic(|t: &Theme| t.primary))))
@@ -42,49 +42,49 @@ fn base_el(i: i32) -> Element {
                 .text_color(dynamic(|t: &Theme| t.text))
                 .pressed_parent(ii().font_size(20.0)),
         )
-        .on_click_with(|cx| println!("Current ID: {:?}", cx.current().id()))
+        .on_click_with(|cx| println!("Current ID: {:?}", cx.current()))
 }
 
 #[inline]
-fn element_2() -> ChildrenVec {
+fn entity_2() -> ChildrenVec {
     let mut children = SmallVec::new();
 
     for _ in 0..5 {
-        let el = v_flex(ii()).children(element_3());
-        children.push(el);
+        let e = v_flex(ii()).children(entity_3());
+        children.push(e);
     }
     children
 }
 
 #[inline]
-fn element_3() -> ChildrenVec {
+fn entity_3() -> ChildrenVec {
     let mut children = SmallVec::new();
 
     for _ in 0..5 {
-        let el = v_flex(ii()).children(element_4());
-        children.push(el);
+        let e = v_flex(ii()).children(entity_4());
+        children.push(e);
     }
     children
 }
 
 #[inline]
-fn element_4() -> ChildrenVec {
+fn entity_4() -> ChildrenVec {
     let mut children = SmallVec::new();
 
     for _ in 0..5 {
-        let el = v_flex(ii()).children(element_5());
-        children.push(el);
+        let e = v_flex(ii()).children(entity_5());
+        children.push(e);
     }
     children
 }
 
 #[inline]
-fn element_5() -> ChildrenVec {
+fn entity_5() -> ChildrenVec {
     let mut children = SmallVec::new();
 
     for i in 0..10 {
-        let el = v_flex(ii()).child(base_el(i));
-        children.push(el);
+        let e = v_flex(ii()).child(base_el(i));
+        children.push(e);
     }
     children
 }

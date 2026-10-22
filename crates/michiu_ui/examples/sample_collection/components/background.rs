@@ -1,6 +1,6 @@
 pub use michiu_ui::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     flex(ii().flex().grow().p(16.0).items_center().justify_center()).child(
         h_flex(
             ii().w_full()
@@ -21,7 +21,7 @@ pub fn container() -> Element {
     )
 }
 
-fn step_1() -> Element {
+fn step_1() -> Entity {
     v_flex(ii()).children([
         flex(
             hover_opacity()
@@ -34,7 +34,7 @@ fn step_1() -> Element {
     ])
 }
 
-fn step_2() -> Element {
+fn step_2() -> Entity {
     h_flex(ii()).children([
         step_3().modify(ii().width(pct(38.2)).h_full()),
         flex(
@@ -47,7 +47,7 @@ fn step_2() -> Element {
     ])
 }
 
-fn step_3() -> Element {
+fn step_3() -> Entity {
     v_flex(ii()).children([
         step_4().modify(ii().w_full().height(pct(38.2))),
         flex(
@@ -59,7 +59,7 @@ fn step_3() -> Element {
     ])
 }
 
-fn step_4() -> Element {
+fn step_4() -> Entity {
     h_flex(ii()).children([
         flex(
             hover_opacity()
@@ -71,7 +71,7 @@ fn step_4() -> Element {
     ])
 }
 
-fn step_5() -> Element {
+fn step_5() -> Entity {
     v_flex(ii()).children([
         flex(
             hover_opacity()
@@ -83,7 +83,7 @@ fn step_5() -> Element {
     ])
 }
 
-fn step_6() -> Element {
+fn step_6() -> Entity {
     h_flex(ii()).children([
         step_7().modify(ii().width(pct(38.2)).h_full()),
         flex(
@@ -95,7 +95,7 @@ fn step_6() -> Element {
     ])
 }
 
-fn step_7() -> Element {
+fn step_7() -> Entity {
     flex(hover_opacity().size_full().bg_color(Color::RED))
 }
 

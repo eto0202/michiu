@@ -1,11 +1,11 @@
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, BaseVisualPropertiesSecondary, ByteIndex,
     CapacityConfig, CharIndex, Color, ComponentMask, Context, DEFAULT_FLEX, DebugStore,
-    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, InputContents, InputContentsSparse,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Entity, InputContents, InputContentsSparse,
     LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, MichiuString, ParentsSecondary, RectsSecondary,
     RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry,
     ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore,
-    ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse,
+    ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary, TaffyTreeEntity, TextBufferSparse,
     TextContentsSparse, TextEngine, TextLayoutSize, TextSpansSparse, TopologyStore, UserSelect,
     VisualPropertiesSecondary, define_sparse_secondary,
 };
@@ -83,7 +83,7 @@ impl TextEditStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.edit_selections.remove(id);
         self.edit_selection_start_index.remove(id);
         self.edit_selected_rects.remove(id);
@@ -123,7 +123,7 @@ impl TextEditStore {
 
     #[inline]
     pub(crate) fn clear_selection_highlight_rect(
-        id: EntityId,
+        id: Entity,
         topo_active_masks: &mut ActiveMasksSecondary,
         cont_input_contents: &mut InputContentsSparse,
         cont_text_spans: &mut TextSpansSparse,
@@ -252,7 +252,7 @@ impl TextEditStore {
     /// 現在の選択範囲に基づき描画用の物理選択矩形を計算してキャッシュを更新
     #[inline]
     pub(crate) fn update_selection_rects(
-        id: EntityId,
+        id: Entity,
         buffer: &Rc<Buffer>,
         edit_selected_rects: &mut SelectedRectsSparse,
         edit_selections: &TextSelectionsSparse,
@@ -310,7 +310,7 @@ impl TextEditStore {
 
     #[track_caller]
     pub(crate) fn handle_user_select_text(
-        id: EntityId,
+        id: Entity,
         pointer_pos: LayoutPoint,
         pressed_shift: bool,
         sys_text_engine: &mut TextEngine,
@@ -412,7 +412,7 @@ impl TextEditStore {
 
     #[track_caller]
     pub(crate) fn handle_text_selection_click(
-        id: EntityId,
+        id: Entity,
         start_pos: ByteIndex,
         local: LayoutPoint,
         buffer: &Rc<Buffer>,
@@ -426,7 +426,7 @@ impl TextEditStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -518,7 +518,7 @@ impl TextEditStore {
     /// 指定されたテキスト要素の内容をすべて選択状態に
     #[track_caller]
     pub(crate) fn handle_select_all(
-        id: EntityId,
+        id: Entity,
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
@@ -529,7 +529,7 @@ impl TextEditStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -637,7 +637,7 @@ impl TextEditStore {
 
     #[track_caller]
     pub(crate) fn apply_input_update(
-        id: EntityId,
+        id: Entity,
         op: InputOp,
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
@@ -649,7 +649,7 @@ impl TextEditStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -811,7 +811,7 @@ impl TextEditStore {
     /// 現在のテキスト・IME状態・フォントサイズから、
     /// キャレットの物理座標や最終表示テキスト、レイアウト矩形を正確に再計算して `SoA` を更新。
     pub(crate) fn update_input_caret_position(
-        id: EntityId,
+        id: Entity,
         win_scale_factor: f32,
         win_last_size: Option<LayoutSize>,
         sys_text_engine: &mut TextEngine,
@@ -822,7 +822,7 @@ impl TextEditStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -938,7 +938,7 @@ impl TextEditStore {
 
     #[inline]
     pub(crate) fn ime_caret_info(
-        id: EntityId,
+        id: Entity,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &mut TextContentsSparse,
@@ -1121,7 +1121,7 @@ impl TextEditStore {
 
 impl Context {
     #[inline]
-    pub(crate) fn apply_input_update(&mut self, id: EntityId, op: InputOp) {
+    pub(crate) fn apply_input_update(&mut self, id: Entity, op: InputOp) {
         TextEditStore::apply_input_update(
             id,
             op,

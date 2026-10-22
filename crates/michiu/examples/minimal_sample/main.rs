@@ -54,7 +54,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     })?;
 
     while pump.wait_event(|event, _, raw| {
-        let (resp) = app.standard_handle_window_event(&event, &raw);
+        let resp = app.standard_handle_window_event(&event, &raw);
 
         if resp.needs_redraw {
             app.redraw_requested();

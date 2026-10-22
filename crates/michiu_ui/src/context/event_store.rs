@@ -1,10 +1,10 @@
 use crate::{
     ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC,
-    DEFAULT_FLEX, DndStore, ElementState, EntityId, EventListeners, FocusStore, InputContents,
-    InputOp, LayoutPoint, MichiuError, MichiuString, Modifiers, MouseButton, OptionTraceExt,
-    Overflow, Pipeline, RenderStore, ResizeStore, ResolvedGeometry, ScrollStore, ScrollbarStore,
-    SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEditStore, TextEngine,
-    TextLayoutSize, TextSelectionsSparse, TopologyStore, EventAction, UserSelect, VirtualKey,
+    DEFAULT_FLEX, DndStore, ElementState, Entity, EventAction, EventListeners, FocusStore,
+    InputContents, InputOp, LayoutPoint, MichiuError, MichiuString, Modifiers, MouseButton,
+    OptionTraceExt, Overflow, Pipeline, RenderStore, ResizeStore, ResolvedGeometry, ScrollStore,
+    ScrollbarStore, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEditStore,
+    TextEngine, TextLayoutSize, TextSelectionsSparse, TopologyStore, UserSelect, VirtualKey,
     define_vec, handle_on_click, handle_on_cursor_moved, handle_on_hover, handle_on_keyboard_input,
     handle_on_mouse_enter, handle_on_mouse_input, handle_on_mouse_leave, handle_on_mouse_wheel,
     handle_on_right_click, soa::MichiuSoA,
@@ -12,13 +12,13 @@ use crate::{
 use slotmap::SparseSecondaryMap;
 use std::ops::Range;
 
-/// 実行時にウィンドウ内で現在アクティブになっている各状態の `EntityId` を管理。
+/// 実行時にウィンドウ内で現在アクティブになっている各状態の `Entity` を管理。
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ActiveInteractionStates {
-    pub hovered: Option<EntityId>,
-    pub focused: Option<EntityId>,
-    pub pressed: Option<EntityId>,
-    pub dragged: Option<EntityId>,
+    pub hovered: Option<Entity>,
+    pub focused: Option<Entity>,
+    pub pressed: Option<Entity>,
+    pub dragged: Option<Entity>,
 }
 
 impl ActiveInteractionStates {
@@ -27,7 +27,7 @@ impl ActiveInteractionStates {
         Self::default()
     }
 
-    pub(crate) fn clear_entity(&mut self, id: EntityId) {
+    pub(crate) fn clear_entity(&mut self, id: Entity) {
         if self.hovered == Some(id) {
             self.hovered = None;
         }
@@ -47,16 +47,16 @@ define_vec!(pub struct PendingActions(EventAction));
 
 #[derive(Debug, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
-pub struct EventListenersSparse(SparseSecondaryMap<EntityId, EventListeners>);
+pub struct EventListenersSparse(SparseSecondaryMap<Entity, EventListeners>);
 
 impl MichiuSoA for EventListenersSparse {
     type Item = EventListeners;
     #[inline]
-    fn find(&self, id: EntityId) -> Option<&Self::Item> {
+    fn find(&self, id: Entity) -> Option<&Self::Item> {
         self.0.get(id)
     }
     #[inline]
-    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+    fn find_mut(&mut self, id: Entity) -> Option<&mut Self::Item> {
         self.0.get_mut(id)
     }
 }
@@ -105,7 +105,7 @@ impl EventStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.evt_listeners.remove(id);
         self.evt_interaction_states.clear_entity(id);
     }
@@ -132,7 +132,7 @@ impl EventStore {
 }
 
 impl EventStore {
-    fn resolve_hover_state(cx: &mut Context, target_id: Option<EntityId>) {
+    fn resolve_hover_state(cx: &mut Context, target_id: Option<Entity>) {
         let old_id = cx.events.evt_interaction_states.hovered;
 
         if old_id == target_id {
@@ -160,7 +160,7 @@ impl EventStore {
     #[inline]
     fn propagate_cursor_move_events(
         cx: &mut Context,
-        target_id: Option<EntityId>,
+        target_id: Option<Entity>,
         logical_pos: LayoutPoint,
     ) {
         let Some(id) = target_id else {
@@ -277,12 +277,12 @@ impl EventStore {
             // 異なるホバー状態になった場合、旧要素のカーソル上書きを破棄し本来のスタイルに即時強制リセット
             if Some(prev_id) != now_id {
                 // スタイルの再解決を叩き、上書きされていた vis.cursor を本来のカーソル（通常ホバー/ベース等）へ復旧
-                RenderStore::resolve_element_style_state(
+                RenderStore::resolve_entity_style_state(
                     prev_id,
                     false,
                     cx.window.win_last_size,
                     &cx.system.sys_text_buffers,
-                    &cx.reactive.react_element_effects,
+                    &cx.reactive.react_entity_effects,
                     &cx.contents.cont_input_contents,
                     &mut cx.topology.topo_active_masks,
                     &mut cx.topology.topo_is_sort_dirty,
@@ -443,8 +443,8 @@ impl EventStore {
         )
         .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
 
-        let src_id = drag_state.source_entity;
-        let placeholder_id = drag_state.placeholder_entity;
+        let src_id = drag_state.source;
+        let placeholder_id = drag_state.placeholder;
 
         let drag_prop = *cx.states.dnd.dnd_drag_properties.at(src_id);
 
@@ -514,7 +514,7 @@ impl EventStore {
         if let Some(pointer_pos) = cx.events.evt_current_pointer_position
             && let Some(target_id) = current_hovered
         {
-            let clicked_scrollbar = ScrollbarStore::hit_decision_element_scrollbar(
+            let clicked_scrollbar = ScrollbarStore::hit_decision_entity_scrollbar(
                 target_id,
                 pointer_pos,
                 cx.window.win_last_size,
@@ -583,7 +583,7 @@ impl EventStore {
 
         // フォーカスの解決
         if !FocusStore::should_prevent_focus_steal(cx, target_id) {
-            let is_focusable = FocusStore::restrict_focusable_element(
+            let is_focusable = FocusStore::restrict_focusable_entity(
                 target_id,
                 &cx.topology.topo_active_masks,
                 &cx.renders.rnd_visual,
@@ -1022,7 +1022,7 @@ impl EventStore {
     }
 
     fn handle_paste(
-        focused_id: EntityId,
+        focused_id: Entity,
         text: &MichiuString,
         contents: &mut InputContents,
         edit_selections: &mut TextSelectionsSparse,
@@ -1158,7 +1158,7 @@ impl EventStore {
     }
 
     fn handle_undo(
-        focused_id: EntityId,
+        focused_id: Entity,
         prev_sel: Range<ByteIndex>,
         prev_text: MichiuString,
         contents: &mut InputContents,
@@ -1238,7 +1238,7 @@ impl EventStore {
     }
 
     fn handle_redo(
-        focused_id: EntityId,
+        focused_id: Entity,
         next_sel: Range<ByteIndex>,
         next_text: MichiuString,
         contents: &mut InputContents,
@@ -1315,7 +1315,7 @@ impl EventStore {
     }
 
     fn inject_cut_internal(
-        focused_id: EntityId,
+        focused_id: Entity,
         range: Range<ByteIndex>,
         contents: &mut InputContents,
         edit_selections: &mut TextSelectionsSparse,

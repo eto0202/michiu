@@ -4,7 +4,7 @@ use crate::{
 };
 pub use michiu::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(24.0).p(16.0)).children([
         style_container(),
         weight_container(),
@@ -22,7 +22,7 @@ fn wrapper_style() -> Modifier {
     ii().w_full().gap((24.0, 10.0)).p(6.0)
 }
 
-fn item(label: &'static str, change: bool, style: Modifier) -> Element {
+fn item(label: &'static str, change: bool, style: Modifier) -> Entity {
     let s = style
         .p(10.0)
         .r(4.0)
@@ -40,7 +40,7 @@ fn item(label: &'static str, change: bool, style: Modifier) -> Element {
     flex(new).label(label, label_style())
 }
 
-fn style_container() -> Element {
+fn style_container() -> Entity {
     let solid = item("solid", false, ii().outline_solid(2.0));
     let dashed = item("dashed", false, ii().outline_dashed(2.0));
     let dotted = item("dotted", false, ii().outline_dotted(2.0));
@@ -52,7 +52,7 @@ fn style_container() -> Element {
     ])
 }
 
-fn weight_container() -> Element {
+fn weight_container() -> Entity {
     let one = item("1.0 px", false, ii().outline_solid(1.0));
     let two = item("2.0 px", false, ii().outline_solid(2.0));
     let four = item("4.0 px", false, ii().outline_solid(4.0));
@@ -64,7 +64,7 @@ fn weight_container() -> Element {
     ])
 }
 
-fn length_container() -> Element {
+fn length_container() -> Entity {
     let top_only = item(
         "top only",
         true,
@@ -99,7 +99,7 @@ fn length_container() -> Element {
     ])
 }
 
-fn align_container() -> Element {
+fn align_container() -> Entity {
     let start = item(
         "Start",
         false,
@@ -128,7 +128,7 @@ fn align_container() -> Element {
     ])
 }
 
-fn offset_container() -> Element {
+fn offset_container() -> Entity {
     let one = item("1.0 px", false, ii().outline_solid(2.0).outline_offset(1.0));
     let two = item("2.0 px", false, ii().outline_solid(2.0).outline_offset(2.0));
     let four = item("4.0 px", false, ii().outline_solid(2.0).outline_offset(4.0));

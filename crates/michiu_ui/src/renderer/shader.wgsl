@@ -457,7 +457,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     // 背景色・グラデーション・サンプリングの取得
-    var element_color = vec4<f32>(0.0);
+    var entity_color = vec4<f32>(0.0);
 
     if mode == 2.0 {
         // テキスト描画（R8Unormアトラスフォントの Alpha サンプリング、PMA着色）
@@ -465,7 +465,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let alpha = tex_color.r * opacity;
         // let raw_alpha = pow(tex_color.r, 0.75);
         // let alpha = raw_alpha * opacity;
-        element_color = vec4<f32>(color_linear.rgb * alpha, alpha);
+        entity_color = vec4<f32>(color_linear.rgb * alpha, alpha);
     } else if mode == 4.0 {
         // 外部テクスチャサンプリング
         var tex_color = textureSample(t_texture, s_sampler, in.uv);
@@ -489,9 +489,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // アルファチャンネルの PMA 合成
         if alpha_mode < 0.5 {
-            element_color = vec4<f32>(tex_color.rgb * tex_color.a * linear_opacity, tex_color.a * linear_opacity);
+            entity_color = vec4<f32>(tex_color.rgb * tex_color.a * linear_opacity, tex_color.a * linear_opacity);
         } else {
-            element_color = tex_color * linear_opacity;
+            entity_color = tex_color * linear_opacity;
         }
     } else {
         // 通常（Solid / グラデーション描画、PMA）
@@ -504,7 +504,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let t = clamp(proj * 0.5 + 0.5, 0.0, 1.0);
             base_color = mix(color_linear, gradient_end_linear, t);
         }
-        element_color = vec4<f32>(base_color.rgb * base_color.a * opacity, base_color.a * opacity);
+        entity_color = vec4<f32>(base_color.rgb * base_color.a * opacity, base_color.a * opacity);
     }
 
     // 枠線（Border）と本体背景、および影（BoxShadow）の PMA 合成
@@ -513,11 +513,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if has_border {
         let b_pma = vec4<f32>(border_color_linear.rgb * border_color_linear.a * opacity, border_color_linear.a * opacity);
         // 枠線のピクセル割合に応じて、本体の背景を奥側に押しやる
-        element_color = mix(element_color, b_pma, border_alpha);
+        entity_color = mix(entity_color, b_pma, border_alpha);
     }
 
     // 本体（背景 + 枠線）の物理アルファ付きカラーを算出
-    var base_with_outline = element_color * box_alpha;
+    var base_with_outline = entity_color * box_alpha;
 
     // 本体の外枠領域（1.0 - base_with_outline.a）に対して、アウトラインを重ねて合成
     if has_outline {

@@ -1,7 +1,7 @@
 use crate::error::{MichiuError, Result};
 use crate::utils::{
-    get_window_ex_style, get_window_style, get_window_userdata, get_window_userdata_mut,
-    round_to_i32, set_window_ex_style, set_window_style, size_of_u32, take_window_userdata,
+    get_window_ex_style, get_window_style, get_window_userdata_mut, round_to_i32,
+    set_window_ex_style, set_window_style, size_of_u32, take_window_userdata,
 };
 use crate::win32_ext::LParamExt;
 use crate::{

@@ -1,17 +1,17 @@
-use crate::{DebugStore, EntityId, MichiuError, OptionTraceExt, Result};
+use crate::{DebugStore, Entity, MichiuError, OptionTraceExt, Result};
 
 pub trait MichiuSoA {
     type Item;
 
-    fn find(&self, id: EntityId) -> Option<&Self::Item>;
+    fn find(&self, id: Entity) -> Option<&Self::Item>;
 
-    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item>;
+    fn find_mut(&mut self, id: Entity) -> Option<&mut Self::Item>;
 
     /// # Errors
     ///
-    /// Returns [`MichiuError::ComponentNotFound`] If `EntityId` is not found.
+    /// Returns [`MichiuError::ComponentNotFound`] If `Entity` is not found.
     #[inline]
-    fn require(&self, id: EntityId) -> Result<&Self::Item> {
+    fn require(&self, id: Entity) -> Result<&Self::Item> {
         self.find(id).ok_or_else(|| MichiuError::ComponentNotFound {
             id,
             component: std::any::type_name::<Self>(),
@@ -20,9 +20,9 @@ pub trait MichiuSoA {
 
     /// # Errors
     ///
-    /// Returns [`MichiuError::ComponentNotFound`] If `EntityId` is not found.
+    /// Returns [`MichiuError::ComponentNotFound`] If `Entity` is not found.
     #[inline]
-    fn require_mut(&mut self, id: EntityId) -> Result<&mut Self::Item> {
+    fn require_mut(&mut self, id: Entity) -> Result<&mut Self::Item> {
         let component = std::any::type_name::<Self>();
         self.find_mut(id)
             .ok_or(MichiuError::ComponentNotFound { id, component })
@@ -32,7 +32,7 @@ pub trait MichiuSoA {
     #[inline]
     #[track_caller]
     #[allow(clippy::panic)]
-    fn at(&self, id: EntityId) -> &Self::Item {
+    fn at(&self, id: Entity) -> &Self::Item {
         self.find(id).unwrap_or_else(|| {
             let type_name = std::any::type_name::<Self>();
             let caller = std::panic::Location::caller();
@@ -43,7 +43,7 @@ pub trait MichiuSoA {
                     Target Entity : {id:?}\n\
                     SoA Container : {type_name}\n\
                     Possible causes :\n\
-                        - The entity was already despawned (dangling EntityId).\n\
+                        - The entity was already despawned (dangling Entity).\n\
                         - The component was not attached to this entity during spawn.\n\
                         - The component was removed before this access.\n\
                 "
@@ -54,7 +54,7 @@ pub trait MichiuSoA {
     #[inline]
     #[track_caller]
     #[allow(clippy::panic)]
-    fn at_mut(&mut self, id: EntityId) -> &mut Self::Item {
+    fn at_mut(&mut self, id: Entity) -> &mut Self::Item {
         self.find_mut(id).unwrap_or_else(|| {
             let type_name = std::any::type_name::<Self>();
             let caller = std::panic::Location::caller();
@@ -65,7 +65,7 @@ pub trait MichiuSoA {
                     Target Entity : {id:?}\n\
                     SoA Container : {type_name}\n\
                     Possible causes :\n\
-                        - The entity was already despawned (dangling EntityId).\n\
+                        - The entity was already despawned (dangling Entity).\n\
                         - The component was not attached to this entity during spawn.\n\
                         - The component was removed before this access.\n\
                 "
@@ -76,7 +76,7 @@ pub trait MichiuSoA {
     /// Fallback to the default value
     #[inline]
     #[track_caller]
-    fn find_or_default(&self, id: EntityId, debug: &mut DebugStore) -> Self::Item
+    fn find_or_default(&self, id: Entity, debug: &mut DebugStore) -> Self::Item
     where
         Self::Item: Default + Clone + std::fmt::Debug + Send + Sync + 'static,
     {
@@ -90,7 +90,7 @@ pub trait MichiuSoA {
     #[track_caller]
     fn find_or<'a>(
         &'a self,
-        id: EntityId,
+        id: Entity,
         fallback: &'a Self::Item,
         debug: &mut DebugStore,
     ) -> &'a Self::Item
@@ -120,7 +120,7 @@ pub trait MichiuSoA {
     }
 
     #[inline]
-    fn contains(&self, id: EntityId) -> bool {
+    fn contains(&self, id: Entity) -> bool {
         self.find(id).is_some()
     }
 }
@@ -139,14 +139,14 @@ macro_rules! define_secondary {
     ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty) $(;)?) => {
         $(#[$meta])*
         #[derive(Debug, Default, Clone, derive_more::Deref, derive_more::DerefMut)]
-        $vis struct $name(pub(crate) slotmap::SecondaryMap<$crate::EntityId, $item>);
+        $vis struct $name(pub(crate) slotmap::SecondaryMap<$crate::Entity, $item>);
 
         impl $crate::MichiuSoA for $name {
             type Item = $item;
             #[inline]
-            fn find(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
+            fn find(&self, id: $crate::Entity) -> Option<&Self::Item> { self.0.get(id) }
             #[inline]
-            fn find_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
+            fn find_mut(&mut self, id: $crate::Entity) -> Option<&mut Self::Item> { self.0.get_mut(id) }
         }
     };
 
@@ -162,14 +162,14 @@ macro_rules! define_sparse_secondary {
     ($(#[$meta:meta])* $vis:vis struct $name:ident($item:ty) $(;)?) => {
         $(#[$meta])*
         #[derive(Debug, Default, Clone, derive_more::Deref, derive_more::DerefMut)]
-        $vis struct $name(pub(crate) slotmap::SparseSecondaryMap<$crate::EntityId, $item>);
+        $vis struct $name(pub(crate) slotmap::SparseSecondaryMap<$crate::Entity, $item>);
 
         impl $crate::MichiuSoA for $name {
             type Item = $item;
             #[inline]
-            fn find(&self, id: $crate::EntityId) -> Option<&Self::Item> { self.0.get(id) }
+            fn find(&self, id: $crate::Entity) -> Option<&Self::Item> { self.0.get(id) }
             #[inline]
-            fn find_mut(&mut self, id: $crate::EntityId) -> Option<&mut Self::Item> { self.0.get_mut(id) }
+            fn find_mut(&mut self, id: $crate::Entity) -> Option<&mut Self::Item> { self.0.get_mut(id) }
         }
     };
 

@@ -1,19 +1,19 @@
 use crate::app::theme::Theme;
 use michiu::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().p(16.0).gap(16.0)).children([section_top(), section_buttom()])
 }
 
-fn section_top() -> Element {
+fn section_top() -> Entity {
     h_flex(ii().gap(16.0)).children([scroll_container_1(), scroll_container_2()])
 }
 
-fn section_buttom() -> Element {
+fn section_buttom() -> Entity {
     h_flex(ii().gap(16.0)).children([scroll_container_3(), scroll_container_4()])
 }
 
-fn scroll_container_1() -> Element {
+fn scroll_container_1() -> Entity {
     flex(ii().r(4.0).size(320.0).border_solid(1.0).overflow_scroll())
         .modify_d(|t: &Theme| {
             ii().border_color(t.border)
@@ -42,7 +42,7 @@ fn scroll_container_1() -> Element {
         .child(scroll_item("Overlay"))
 }
 
-fn scroll_container_2() -> Element {
+fn scroll_container_2() -> Entity {
     flex(ii().r(4.0).size(320.0).border_solid(1.0).overflow_scroll())
         .modify_d(|t: &Theme| {
             ii().border_color(t.border)
@@ -67,7 +67,7 @@ fn scroll_container_2() -> Element {
         .child(scroll_item("Layout"))
 }
 
-fn scroll_container_3() -> Element {
+fn scroll_container_3() -> Entity {
     flex(ii().r(4.0).size(320.0).border_solid(1.0).overflow_scroll())
         .modify_d(|t: &Theme| {
             ii().border_color(t.border)
@@ -96,7 +96,7 @@ fn scroll_container_3() -> Element {
         .child(scroll_item("Auto"))
 }
 
-fn scroll_container_4() -> Element {
+fn scroll_container_4() -> Entity {
     flex(ii().r(4.0).size(320.0).border_solid(1.0).overflow_scroll())
         .modify_d(|t: &Theme| {
             ii().border_color(t.border)
@@ -125,7 +125,7 @@ fn scroll_container_4() -> Element {
         .child(scroll_item("Transient"))
 }
 
-fn scroll_item(label: &'static str) -> Element {
+fn scroll_item(label: &'static str) -> Entity {
     flex(ii().r(4.0).p(16.0).size(500.0).shrink_0().justify_center()).child(
         flex(
             ii().justify_center()

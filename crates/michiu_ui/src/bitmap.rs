@@ -1,4 +1,4 @@
-/// Flags that indicate an element's state, style, or whether it contains content.
+/// Flags that indicate an entities state, modifier, or whether it contains content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ComponentMask(pub u128);
 

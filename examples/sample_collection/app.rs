@@ -6,7 +6,7 @@ pub mod theme;
 use crate::app::theme::Theme;
 use michiu::prelude::*;
 
-pub fn create_root() -> Element {
+pub fn create_root() -> Entity {
     let (theme, _) = create_signal(Theme::dark());
     let (comp_type, _) = create_signal(ComponentType::Div);
 

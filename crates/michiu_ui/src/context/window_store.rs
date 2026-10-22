@@ -1,4 +1,4 @@
-use crate::{EntityId, LayoutRect, LayoutSize};
+use crate::{Entity, LayoutRect, LayoutSize};
 use windows::Win32::UI::Input::Ime::HIMC;
 
 #[derive(Clone)]
@@ -37,7 +37,7 @@ impl WindowStore {
 
     #[allow(clippy::unused_self)]
     #[inline]
-    pub(crate) fn despawn(&mut self, _id: EntityId) {}
+    pub(crate) fn despawn(&mut self, _id: Entity) {}
 }
 
 impl WindowStore {

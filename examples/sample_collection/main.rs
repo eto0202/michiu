@@ -173,7 +173,7 @@ fn redraw_requested(app: &mut MichiuApp) {
 
     let layout_start = std::time::Instant::now();
     app.context
-        .sync_layout(app.root_id(), app.renderer.layout_size());
+        .sync_layout(app.root(), app.renderer.layout_size());
     let layout_elapsed = layout_start.elapsed();
 
     let comp_start = std::time::Instant::now();

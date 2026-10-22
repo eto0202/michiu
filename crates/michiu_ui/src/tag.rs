@@ -1,5 +1,5 @@
 use crate::{
-    EntityId, FlatDfsSequenceVec, ParentsSecondary,
+    Entity, FlatDfsSequenceVec, ParentsSecondary,
     a11y::{A11yInferenceTag, InferenceFn},
 };
 use rustc_hash::FxHashMap;
@@ -9,8 +9,8 @@ use std::any::TypeId;
 /// Registry for Managing Tags
 #[derive(Default, Debug, Clone)]
 pub struct MichiuTagRegistry {
-    pub type_to_entities: FxHashMap<TypeId, SmallVec<[EntityId; 1]>>,
-    pub entity_to_types: FxHashMap<EntityId, SmallVec<[TypeId; 4]>>,
+    pub type_to_entities: FxHashMap<TypeId, SmallVec<[Entity; 1]>>,
+    pub entity_to_types: FxHashMap<Entity, SmallVec<[TypeId; 4]>>,
     pub inference_handlers: FxHashMap<TypeId, InferenceFn>,
 }
 
@@ -22,9 +22,9 @@ impl MichiuTagRegistry {
         registry
     }
 
-    /// 特定の型 `T` に紐づく `EntityId` を追加する
+    /// 特定の型 `T` に紐づく `Entity` を追加する
     #[inline]
-    pub(crate) fn register_entity<T: 'static>(&mut self, id: EntityId) {
+    pub(crate) fn register_entity<T: 'static>(&mut self, id: Entity) {
         let type_id = TypeId::of::<T>();
         self.type_to_entities.entry(type_id).or_default().push(id);
         self.entity_to_types.entry(id).or_default().push(type_id);
@@ -40,11 +40,11 @@ impl MichiuTagRegistry {
 
     /// 削除
     #[inline]
-    pub(crate) fn unregister_entity(&mut self, id: EntityId) {
+    pub(crate) fn unregister_entity(&mut self, id: Entity) {
         // そのエンティティがどの型に登録されていたかを取得してインデックスから削除
         if let Some(associated_types) = self.entity_to_types.remove(&id) {
             for type_id in associated_types {
-                // 紐づいていた型の SmallVec から、該当の EntityId を削除
+                // 紐づいていた型の SmallVec から、該当の Entity を削除
                 if let Some(entities) = self.type_to_entities.get_mut(&type_id) {
                     entities.retain(|i| *i != id);
                 }
@@ -54,7 +54,7 @@ impl MichiuTagRegistry {
 
     /// 検索
     #[inline]
-    pub(crate) fn get_entities<T: 'static>(&self) -> Option<&SmallVec<[EntityId; 1]>> {
+    pub(crate) fn get_entities<T: 'static>(&self) -> Option<&SmallVec<[Entity; 1]>> {
         self.type_to_entities.get(&TypeId::of::<T>())
     }
 
@@ -62,10 +62,10 @@ impl MichiuTagRegistry {
     #[inline]
     pub(crate) fn query_descendants_of_type<'a, T: 'static>(
         &'a self,
-        parent: EntityId,
+        parent: Entity,
         topo_parents: &'a ParentsSecondary,
         topo_flat_dfs_sequence: &'a FlatDfsSequenceVec,
-    ) -> Box<dyn Iterator<Item = EntityId> + 'a> {
+    ) -> Box<dyn Iterator<Item = Entity> + 'a> {
         let type_id = TypeId::of::<T>();
 
         // 親エンティティのインデックスを探す
@@ -98,14 +98,14 @@ impl MichiuTagRegistry {
         Box::new(iter)
     }
 
-    /// 自分自身の子孫の中で、最初に見つかった型 T の `EntityId` を返す
+    /// 自分自身の子孫の中で、最初に見つかった型 T の `Entity` を返す
     #[inline]
     pub(crate) fn query_first_descendant_of_type<T: 'static>(
         &self,
-        parent: EntityId,
+        parent: Entity,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-    ) -> Option<EntityId> {
+    ) -> Option<Entity> {
         let type_id = TypeId::of::<T>();
 
         // 親の位置
@@ -136,8 +136,8 @@ impl MichiuTagRegistry {
     #[allow(unused)]
     #[inline]
     fn is_descendant_of(
-        mut id: EntityId,
-        target_parent: EntityId,
+        mut id: Entity,
+        target_parent: Entity,
         topo_parents: &ParentsSecondary,
     ) -> bool {
         while let Some(&Some(parent)) = topo_parents.get(id) {
@@ -150,10 +150,7 @@ impl MichiuTagRegistry {
     }
 
     #[inline]
-    pub(crate) fn collect_a11y_inferences(
-        &self,
-        entity_id: EntityId,
-    ) -> SmallVec<[InferenceFn; 1]> {
+    pub(crate) fn collect_a11y_inferences(&self, entity_id: Entity) -> SmallVec<[InferenceFn; 1]> {
         let mut fns = SmallVec::new();
         if let Some(type_ids) = self.entity_to_types.get(&entity_id) {
             for type_id in type_ids {

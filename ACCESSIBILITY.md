@@ -33,11 +33,11 @@ For specific instructions on how to use the accessibility APIs provided by the l
 This library integrates **[AccessKit](https://accesskit.dev/)** as an accessibility abstraction layer. This enables it to work with the OS-native **Windows UI Automation (UIA)** and provides the following:
 
 1. **Default Semantics**:
-   - Through automatic inference, it conveys the appropriate default _Role_ and _State_ to UIA via AccessKit based on the attributes and capabilities of the `Element`.
+   - Through automatic inference, it conveys the appropriate default _Role_ and _State_ to UIA via AccessKit based on the attributes and capabilities of the `Entity`.
 2. **Focus and Keyboard Navigation**:
    - Provides a focus navigation mechanism compliant with OS standards via the `focusable` API.
 3. **Developer APIs**:
-   - Provides APIs for assigning accessibility labels and descriptions to each `Element`.
+   - Provides APIs for assigning accessibility labels and descriptions to each `Entity`.
 
 ---
 
@@ -82,7 +82,7 @@ Use Microsoft tools to verify that nodes are being correctly passed to the UIA v
 
 Try navigating the app without using the mouse.
 
-- **Tab / Shift+Tab**: Does focus move sequentially to all interactive elements?
+- **Tab / Shift+Tab**: Does focus move sequentially to all interactive entities?
 - **Focus Visualization**: Is a border displayed that makes it immediately clear where the focus is currently located? Outlines are typically used for this.
   - Example:
   ```rust
@@ -156,11 +156,11 @@ If possible, please include details such as “detection results from Accessibil
 本ライブラリは、アクセシビリティ抽象化レイヤーとして **[AccessKit](https://accesskit.dev/)** を統合しています。これにより、OS ネイティブの **Windows UI Automation (UIA)** と連携し、以下を提供します：
 
 1. **デフォルトのセマンティクス**:
-   - 自動推論により、`Element` が持つ属性および機能に応じてデフォルトで適切な Role や State を AccessKit 経由で UIA に伝達します。
+   - 自動推論により、`Entity` が持つ属性および機能に応じてデフォルトで適切な Role や State を AccessKit 経由で UIA に伝達します。
 2. **フォーカスとキーボードナビゲーション**:
    - `focusable` API を通じて OS 標準に沿ったフォーカス移動の仕組みを提供します。
 3. **開発者向け API**:
-   - 各 `Element` に対して、アクセシビリティラベルや説明文を付与するための API を提供します。
+   - 各 `Entity` に対して、アクセシビリティラベルや説明文を付与するための API を提供します。
 
 ---
 

@@ -4,9 +4,7 @@
 #![allow(clippy::expect_used)]
 
 use michiu_guard::{Unvalidated, Validated};
-use michiu_window::{
-    MichiuComContext, MichiuWindow, MichiuWindowBuilder, WindowHandle,
-};
+use michiu_window::{MichiuComContext, MichiuWindow, MichiuWindowBuilder, WindowHandle};
 
 // cargo run --example error_showcase
 

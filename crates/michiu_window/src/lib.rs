@@ -115,7 +115,7 @@
 //!
 //! ## Thread-Affinity and Concurrency Model
 //!
-//! Windows GUI elements are strictly **thread-affine**; raw Win32 APIs that manipulate
+//! Windows GUI entities are strictly **thread-affine**; raw Win32 APIs that manipulate
 //! windows must be executed exclusively on the UI thread that created them.
 //!
 //! To resolve this constraint without losing Rust's memory safety, `michiu_window` separates

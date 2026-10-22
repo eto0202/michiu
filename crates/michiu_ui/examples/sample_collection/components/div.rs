@@ -1,7 +1,7 @@
 use crate::app::theme::Theme;
 use michiu_ui::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     // false = row, true = col
     let (is_column, set_is_column) = create_signal(false);
 
@@ -33,7 +33,7 @@ pub fn container() -> Element {
         })
 }
 
-fn flex_container() -> Element {
+fn flex_container() -> Entity {
     let (is_row, set_is_row) = create_signal(false);
 
     div_n()
@@ -62,16 +62,17 @@ fn flex_container() -> Element {
         })
 }
 
-fn div_container() -> Element {
-    flex(ii()
-        .grow()
-        .r(4.0)
-        .p(20.0)
-        .gap(20.0)
-        .border_dashed(1.0)
-        .border_color(dynamic(|t: &Theme| t.border))
-        .overflow_hidden()
-        .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover))))
+fn div_container() -> Entity {
+    flex(
+        ii().grow()
+            .r(4.0)
+            .p(20.0)
+            .gap(20.0)
+            .border_dashed(1.0)
+            .border_color(dynamic(|t: &Theme| t.border))
+            .overflow_hidden()
+            .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover))),
+    )
     .label("div", label_style())
 }
 

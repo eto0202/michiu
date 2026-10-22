@@ -5,9 +5,9 @@ pub struct CapacityConfig {
     pub react_signals: usize,
     pub react_effects: usize,
     pub react_subscribers: usize,
-    pub react_element_effects: usize,
-    pub react_effect_to_element: usize,
-    pub react_pending_element_effects: usize,
+    pub react_entity_effects: usize,
+    pub react_effect_to_entity: usize,
+    pub react_pending_entity_effects: usize,
     pub react_providers: usize,
     pub evt_listeners: usize,
     pub evt_pending_actions: usize,
@@ -94,9 +94,9 @@ impl CapacityConfig {
             react_signals: base * 2,
             react_effects: base * 2,
             react_subscribers: base * 4, // 依存関係は掛け算になりやすい
-            react_element_effects: base,
-            react_effect_to_element: base,
-            react_pending_element_effects: base / 10, // 保留中のものは少ない
+            react_entity_effects: base,
+            react_effect_to_entity: base,
+            react_pending_entity_effects: base / 10, // 保留中のものは少ない
 
             evt_listeners: base / 2,
 
@@ -127,9 +127,9 @@ impl CapacityConfig {
         react_signals: 0,
         react_effects: 0,
         react_subscribers: 0,
-        react_element_effects: 0,
-        react_effect_to_element: 0,
-        react_pending_element_effects: 0,
+        react_entity_effects: 0,
+        react_effect_to_entity: 0,
+        react_pending_entity_effects: 0,
         react_providers: 0,
         evt_listeners: 0,
         evt_pending_actions: 0,

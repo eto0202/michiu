@@ -226,7 +226,7 @@ impl CursorIcon {
     /// - if the file cannot be opened (e.g. not found, permission denied).
     /// - if the image format is unsupported or unrecognized.
     /// - if the file is corrupted or failed to decode.
-    /// 
+    ///
     /// Returns [`MichiuError::CursorCreationFailed`]:
     /// - If the underlying Windows API fails to allocate resources or create the icon.
     pub fn create_from_path(

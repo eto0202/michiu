@@ -3,11 +3,11 @@ use michiu::ui::{FocusTrigger, external_visual};
 
 use crate::{CratesVisual, GitHubVisual};
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().p(10.0).r(4.0).size_full()).child_d(|github: &GitHubVisual| webview2(github))
 }
 
-fn webview2(github: &GitHubVisual) -> Element {
+fn webview2(github: &GitHubVisual) -> Entity {
     let (is_active, set_is_active) = create_signal(false);
     let (is_opacity, set_is_opacity) = create_signal(false);
 
@@ -18,7 +18,7 @@ fn webview2(github: &GitHubVisual) -> Element {
                 .focusable_self(FocusTrigger::Both)
                 .r(4.0)
                 .resizable_bottom(true)
-                .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
+                .dnd_droppable(DndDropTarget::Child, DndDragMode::Interactive)
                 .overflow_hidden();
 
             is_opacity.get_else(base.clone().opacity_50(), base.opacity_100())
@@ -36,7 +36,7 @@ fn webview2(github: &GitHubVisual) -> Element {
                     .bg_color(Color::DARK_GRAY)
                     .opacity(0.9)
                     .resizable_all(true)
-                    .dnd_draggable_root(DndDragPayload::Element, true)
+                    .dnd_draggable_root(DndDragMode::Interactive, true)
                     .dnd_draggable_original(ii().opacity_0())
                     .dnd_draggable_placeholder(
                         ii().size(100.0)

@@ -8,12 +8,12 @@ use crate::{
     BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType, CapacityConfig,
     ChildrenSecondary, ClipRectsSecondary, ComponentMask, Context, DespawnedQueueVec,
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPropertiesSparse,
-    DndDropPropertiesSparse, EffectId, EffectToElementSecondary, EffectiveZindicesSecondary,
-    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, ExternalTextureSparse,
+    DndDropPropertiesSparse, EffectId, EffectToEntitySecondary, EffectiveZindicesSecondary,
+    ElementState, EntitiesSlot, Entity, EntityEffectsSecondary, ExternalTextureSparse,
     ExternalVisualSparse, FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse,
     InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize,
     MichiuRenderer, MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary,
-    PendingActions, PendingDcompRelease, PendingElementEffectsVec, PrevClipRectsSecondary,
+    PendingActions, PendingDcompRelease, PendingEntityEffectsVec, PrevClipRectsSecondary,
     PrevRectsSecondary, ProvidersSparseSecondary, QuadInstance, RectsSecondary, RenderData,
     ResizingState, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
     ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse, SelectedRectsSparse,
@@ -46,7 +46,7 @@ use windows_core::Interface;
 #[cfg(feature = "trace-error")]
 #[derive(Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
-pub(crate) struct InspecterSecondary(SecondaryMap<EntityId, MichiuTraceRecord>);
+pub(crate) struct InspecterSecondary(SecondaryMap<Entity, MichiuTraceRecord>);
 
 #[cfg(feature = "trace-error")]
 #[derive(Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
@@ -62,7 +62,7 @@ pub struct DebugStore {
     pub(crate) boot_time: Instant,
     pub(crate) frame: u64,
     // グローバルなエラー用にルート要素のIDを持っておく。
-    pub(crate) dbg_root: Option<EntityId>,
+    pub(crate) dbg_root: Option<Entity>,
     pub(crate) dbg_tx: Option<InspectorSender>,
     // メインスレッドでループ中に溜めておく一時キュー
     pub(crate) dbg_trace_queue: MichiuTraceVec,
@@ -70,7 +70,7 @@ pub struct DebugStore {
 
 #[cfg(not(feature = "trace-error"))]
 pub(crate) struct DebugStore {
-    pub(crate) dbg_root: Option<EntityId>,
+    pub(crate) dbg_root: Option<Entity>,
 }
 #[cfg(not(feature = "trace-error"))]
 impl DebugStore {
@@ -145,7 +145,7 @@ impl DebugStore {
     }
 
     #[inline]
-    pub fn dbg_root_mut(&mut self) -> &mut Option<EntityId> {
+    pub fn dbg_root_mut(&mut self) -> &mut Option<Entity> {
         &mut self.dbg_root
     }
 
@@ -322,7 +322,7 @@ impl MichiuInspector {
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn get(&self, id: EntityId) -> Option<MichiuTraceRecord> {
+    pub fn get(&self, id: Entity) -> Option<MichiuTraceRecord> {
         self.storage.read().get(id).cloned()
     }
 }
@@ -352,12 +352,12 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Creating a root element and recording a raw pointer to `Context`
+    /// Creating a root entity and recording a raw pointer to `Context`
     #[cfg(feature = "trace-lifecycle")]
-    BuildElement {
+    BuildEntity {
         old: Option<usize>,
         current: usize,
-        root: EntityId,
+        root: Entity,
         add: Option<&'static str>,
     },
 
@@ -369,18 +369,18 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record Element Spawns
+    /// Record Entity Spawns
     #[cfg(feature = "trace-entity")]
     EntitySpawn {
-        parent: Option<EntityId>,
+        parent: Option<Entity>,
         node_id: taffy::NodeId,
         add: Option<&'static str>,
     },
 
-    /// Record element style resolution
+    /// Record entity modifier resolution
     #[cfg(feature = "trace-entity")]
-    EntityStyle {
-        stage: StyleStage,
+    EntityModifier {
+        stage: ModifierStage,
         mask: ComponentMask,
         style: Option<Arc<ModInner>>,
         resolved_visual: Option<Arc<VisualProperty>>,
@@ -391,13 +391,13 @@ pub enum MichiuTrace {
     /// Record hit tests
     #[cfg(feature = "trace-lifecycle")]
     HitTest {
-        found: Option<EntityId>,
+        found: Option<Entity>,
         hit_x: f32,
         hit_y: f32,
         add: Option<&'static str>,
     },
 
-    /// Recording Element Reactivity
+    /// Recording Entity Reactivity
     #[cfg(feature = "trace-entity")]
     EntityReactive {
         signal: Option<SignalId>,
@@ -406,14 +406,14 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record the occurrence of element events
+    /// Record the occurrence of entity events
     #[cfg(feature = "trace-lifecycle")]
     Event {
         kinds: Arc<TraceEventList>,
         add: Option<&'static str>,
     },
 
-    /// Track changes to an element's pseudo-classes
+    /// Track changes to an entities pseudo-classes
     #[cfg(feature = "trace-entity")]
     EntityStateUpdate {
         flag: ComponentMask,
@@ -422,7 +422,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record the animations associated with an element
+    /// Record the animations associated with an entity
     #[cfg(feature = "trace-entity")]
     EntityAnimation {
         kinds: FrameKinds,
@@ -431,14 +431,14 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record the moment a dirty flag is set on an element
+    /// Record the moment a dirty flag is set on an entity
     #[cfg(feature = "trace-entity")]
     EntityDirtyQueue(Arc<DirtyQueueTrace>),
 
     /// Recording the Construction of a DFS-Ordered Array
     #[cfg(feature = "trace-lifecycle")]
     Dfs {
-        after: Arc<[EntityId]>,
+        after: Arc<[Entity]>,
         add: Option<&'static str>,
     },
 
@@ -449,13 +449,13 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Updating the ExternalVisual Element
+    /// Updating the ExternalVisual Entity
     #[cfg(feature = "trace-entity")]
     EntityExternalVisual {
         add: Option<&'static str>,
     },
 
-    /// Record the text layout calculations for an element
+    /// Record the text layout calculations for an entity
     #[cfg(feature = "trace-entity")]
     EntityText {
         add: Option<&'static str>,
@@ -471,7 +471,7 @@ pub enum MichiuTrace {
     /// Logging the creation of a sorted array based on visibility and z-index
     #[cfg(feature = "trace-lifecycle")]
     Sorted {
-        after: Arc<[EntityId]>,
+        after: Arc<[Entity]>,
         add: Option<&'static str>,
     },
 
@@ -502,7 +502,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Recording the total number of elements and the number of elements with the “dirty” flag
+    /// Recording the total number of entities and the number of entities with the “dirty” flag
     #[cfg(feature = "trace-lifecycle")]
     ClearDirtyEntities {
         total_entities: usize,
@@ -512,7 +512,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record the EntityId of the despawned entity
+    /// Record the Entity of the despawned entity
     #[cfg(feature = "trace-entity")]
     EntityDespawn {
         add: Option<&'static str>,
@@ -560,7 +560,7 @@ pub enum StyleState {
 // ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum StyleStage {
+pub enum ModifierStage {
     Build,
     ResolvedVisual,
     ResolvedLayout,
@@ -572,8 +572,8 @@ pub enum StyleStage {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTrace {
-    pub id: EntityId,
-    pub parent: Option<EntityId>,
+    pub id: Entity,
+    pub parent: Option<Entity>,
     pub node_id: taffy::NodeId,
     pub add: Option<&'static str>,
 }
@@ -584,7 +584,7 @@ pub struct SpawnTrace {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DirtyQueueTrace {
     pub kinds: QueueDirtyKinds,
-    pub dirty_entities: Option<Vec<EntityId>>,
+    pub dirty_entities: Option<Vec<Entity>>,
     pub sort: Option<bool>,
     pub structure: Option<bool>,
     pub add: Option<&'static str>,
@@ -608,9 +608,9 @@ pub enum ReactiveKinds {
     None,
     /// Creating a Signal
     CreateSignal,
-    /// Provides a signal context for the specified element or the root element
+    /// Provides a signal context for the specified entity or the root entity
     Provide,
-    /// Searching for Root Elements
+    /// Searching for Root Entity
     FindRoot,
     /// Traverse the tree backward toward the parent and resolve `ReadSignal`
     FindReadSignal,
@@ -628,7 +628,7 @@ pub enum ReactiveKinds {
     ResolveEffect,
     /// Link Effects by Category
     RegisterEffect,
-    /// Register dynamic effects on elements and perform an initial evaluation
+    /// Register dynamic effects on entities and perform an initial evaluation
     CreateEffect,
     /// Complete the evaluation of all pending effects
     PendingEffect,
@@ -692,9 +692,9 @@ pub enum RenderStage {
     None,
     /// Rendering Phase Begins
     Start,
-    /// Calculating the Effective `z_index`, Visibility, and Sorting Elements Based on These Factors
+    /// Calculating the Effective `z_index`, Visibility, and Sorting Entities Based on These Factors
     SortedEntities,
-    /// Cache all characters contained in the specified element in the atlas
+    /// Cache all characters contained in the specified entity in the atlas
     FirstGlyphsCache,
     /// If the Atlas is cleared, rebuild the Atlas and recache it.
     FullGlyphsCache,
@@ -721,7 +721,7 @@ pub struct RendererViewTrace {
 pub struct InstanceKinds {
     pub has_external_visual_ready: bool,
     pub has_external_texture: bool,
-    pub has_normal_element: bool,
+    pub has_normal_entity: bool,
     pub has_selection_highlight: bool,
     pub has_background: bool,
     pub has_text: bool,
@@ -844,7 +844,7 @@ pub enum MichiuInfo {
 #[cfg(feature = "trace-error")]
 #[derive(Clone)]
 pub struct MichiuTraceRecord {
-    pub id: Option<EntityId>,
+    pub id: Option<Entity>,
     pub frame: u64,
     pub time: TimeStamp,
     pub func: &'static str,
@@ -917,7 +917,7 @@ macro_rules! _make_record {
 #[macro_export]
 macro_rules! trace_error {
     (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<$crate::EntityId> = None;
+        let id: Option<$crate::Entity> = None;
         $crate::trace_error!(id, $debug, $trace_fn);
     };
 
@@ -948,7 +948,7 @@ macro_rules! trace_error {
 #[macro_export]
 macro_rules! trace_lifecycle {
     (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<$crate::EntityId> = None;
+        let id: Option<$crate::Entity> = None;
         $crate::trace_lifecycle!(id, $debug, $trace_fn);
     };
 
@@ -979,7 +979,7 @@ macro_rules! trace_lifecycle {
 #[macro_export]
 macro_rules! trace_entity {
     (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<$crate::EntityId> = None;
+        let id: Option<$crate::Entity> = None;
         $crate::trace!(id, $debug, $trace_fn);
     };
 
@@ -1088,15 +1088,15 @@ pub struct WindowStoreSnapshot {
 
 #[derive(Clone)]
 pub struct SystemStoreSnapshot {
-    pub sys_text_buffers: SparseSecondaryMap<EntityId, Buffer>,
+    pub sys_text_buffers: SparseSecondaryMap<Entity, Buffer>,
 }
 
 #[derive(Clone)]
 pub struct ReactiveStoreSnapshot {
     pub react_subscribers: SubscribersSecondary,
-    pub react_element_effects: ElementEffectsSecondary,
-    pub react_effect_to_element: EffectToElementSecondary,
-    pub react_pending_element_effects: PendingElementEffectsVec,
+    pub react_entity_effects: EntityEffectsSecondary,
+    pub react_effect_to_entity: EffectToEntitySecondary,
+    pub react_pending_entity_effects: PendingEntityEffectsVec,
     pub react_providers: ProvidersSparseSecondary,
 }
 
@@ -1175,7 +1175,7 @@ pub struct TextEditStoreSnapshot {
 pub struct LayoutStoreSnapshot {
     pub scrollbar: ScrollbarStoreSnapshot,
     pub lay_dirty_entities: DirtyLayoutEntitiesVec,
-    pub lay_taffy_tree: SendTaffyTree<EntityId>,
+    pub lay_taffy_tree: SendTaffyTree<Entity>,
     pub lay_taffy_nodes: TaffyNodesSecondary,
     pub lay_basic: BasicLayoutsSecondary,
     pub lay_flex: FlexLayoutsSecondary,
@@ -1249,11 +1249,11 @@ pub struct WgpuRendererSnapshot {
     pub config_bind_group: wgpu::BindGroup,
     pub config_bind_group_layout: wgpu::BindGroupLayout,
     pub atlas: TextureAtlas,
-    pub temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
+    pub temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
     pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
-    pub webview_static_caches: FxHashMap<EntityId, wgpu::TextureView>,
+    pub webview_static_caches: FxHashMap<Entity, wgpu::TextureView>,
     pub render_data: RenderData,
-    pub external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
+    pub external_bind_groups: FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)>,
 }
 
 #[derive(Clone)]
@@ -1268,7 +1268,7 @@ pub struct ComposedRendererSnapshot {
     pub wgpu_visual: usize,
     pub webview_env: Option<usize>,
     pub promoted_visuals: Vec<PromotedVisualSnapshot>,
-    pub pending_removals: Vec<(EntityId, Option<wgpu::Texture>, Option<MichiuError>)>,
+    pub pending_removals: Vec<(Entity, Option<wgpu::Texture>, Option<MichiuError>)>,
     pub pending_dcomp_releases: Vec<PendingDcompRelease>,
     pub current_backdrop: Backdrop,
     pub resize_cooldown_frames: u32,
@@ -1276,7 +1276,7 @@ pub struct ComposedRendererSnapshot {
 
 #[derive(Debug, Clone)]
 pub struct PromotedVisualSnapshot {
-    pub entity_id: EntityId,
+    pub entity_id: Entity,
     pub visual: usize,
     pub transform: Option<usize>,
     pub webview_controller: Option<usize>,
@@ -1310,9 +1310,9 @@ impl ContextSnapshot {
             },
             reactive: ReactiveStoreSnapshot {
                 react_subscribers: cx.reactive.react_subscribers.clone(),
-                react_element_effects: cx.reactive.react_element_effects.clone(),
-                react_effect_to_element: cx.reactive.react_effect_to_element.clone(),
-                react_pending_element_effects: cx.reactive.react_pending_element_effects.clone(),
+                react_entity_effects: cx.reactive.react_entity_effects.clone(),
+                react_effect_to_entity: cx.reactive.react_effect_to_entity.clone(),
+                react_pending_entity_effects: cx.reactive.react_pending_entity_effects.clone(),
                 react_providers: cx.reactive.react_providers.clone(),
             },
             events: EventStoreSnapshot {
@@ -1479,9 +1479,9 @@ pub enum MichiuError {
         "Entity {id:?} not found.\n\
             Possible causes:\n\
             - The entity was already despawned/destroyed (dangling ID).\n\
-            - An uninitialized or dummy EntityId was used."
+            - An uninitialized or dummy Entity was used."
     )]
-    EntityNotFound { id: EntityId },
+    EntityNotFound { id: Entity },
 
     #[error(
         "Roor entity not found.\n\
@@ -1510,7 +1510,7 @@ pub enum MichiuError {
         "Tag {type_name:?} not found.\n\
             Possible causes:\n\
             - The tag is not set, or the name is incorrect.\n\
-            - The TypeId/EntityId was already despawned/destroyed (dangling ID)."
+            - The TypeId/Entity was already despawned/destroyed (dangling ID)."
     )]
     TagNotFound { type_name: &'static str },
 
@@ -1521,10 +1521,7 @@ pub enum MichiuError {
             - The component was removed/detached from the entity.\n\
             - The entity does not possess this property."
     )]
-    ComponentNotFound {
-        id: EntityId,
-        component: &'static str,
-    },
+    ComponentNotFound { id: Entity, component: &'static str },
 
     #[error(
         "Signal {0:?} not found.\n\
@@ -1539,11 +1536,11 @@ pub enum MichiuError {
     EffectDisposed(EffectId),
 
     #[error(
-        "No active UI element found in the current thread.\n\
+        "No active UI entity found in the current thread.\n\
             Possible causes:\n\
-            - Called a function that requires an element context outside of element build/update lifecycle."
+            - Called a function that requires an entity context outside of entity build/update lifecycle."
     )]
-    NoActiveElement,
+    NoActiveEntity,
 
     #[error(
         "No active effect found in the current thread.\n\
@@ -1557,7 +1554,7 @@ pub enum MichiuError {
     )]
     ScopeViolation { caller: &'static str },
 
-    #[error("'{caller}' Not supported dynamic nested elements inside")]
+    #[error("'{caller}' Not supported dynamic nested entities inside")]
     UnsupportedDynamicNesting { caller: &'static str },
 
     #[error("Downcast failed: Expected type `{expected}`, but the actual type did not match.")]
@@ -1693,30 +1690,25 @@ pub enum MichiuError {
 pub trait OptionTraceExt<T> {
     /// 値があれば返し、None ならトレースを記録して即座にフラッシュしたあとパニックする
     #[track_caller]
-    fn unwrap_or_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, err: F) -> T
+    fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
     where
         F: FnOnce() -> MichiuError;
 
     /// 値があれば返し、None ならトレースを記録して Default 値を返す
     #[track_caller]
-    fn unwrap_or_default_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T
+    fn unwrap_or_default_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T
     where
         T: Default + Debug + Send + Sync + 'static;
 
     /// 値があれば返し、None ならトレースを記録して指定のフォールバック値を返す
     #[track_caller]
-    fn unwrap_or_fallback_trace(
-        self,
-        id: Option<EntityId>,
-        fallback: T,
-        debug: &mut DebugStore,
-    ) -> T
+    fn unwrap_or_fallback_trace(self, id: Option<Entity>, fallback: T, debug: &mut DebugStore) -> T
     where
         T: Clone + Debug + Send + Sync + 'static;
 
     /// 値があれば返し、None ならトレースを記録してクロージャでフォールバック値を生成する
     #[track_caller]
-    fn unwrap_or_else_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, f: F) -> T
+    fn unwrap_or_else_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, f: F) -> T
     where
         T: Default + Clone + Debug + Send + Sync + 'static,
         F: FnOnce() -> T;
@@ -1726,7 +1718,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
     #[allow(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, err: F) -> T
+    fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
     where
         F: FnOnce() -> MichiuError,
     {
@@ -1754,7 +1746,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
     #[track_caller]
     #[inline]
-    fn unwrap_or_default_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T
+    fn unwrap_or_default_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T
     where
         T: Default + Debug + Send + Sync + 'static,
     {
@@ -1780,12 +1772,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
     #[track_caller]
     #[inline]
-    fn unwrap_or_fallback_trace(
-        self,
-        id: Option<EntityId>,
-        fallback: T,
-        debug: &mut DebugStore,
-    ) -> T
+    fn unwrap_or_fallback_trace(self, id: Option<Entity>, fallback: T, debug: &mut DebugStore) -> T
     where
         T: Clone + Debug + Send + Sync + 'static,
     {
@@ -1811,7 +1798,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
     #[track_caller]
     #[inline]
-    fn unwrap_or_else_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, f: F) -> T
+    fn unwrap_or_else_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, f: F) -> T
     where
         T: Default + Clone + Debug + Send + Sync + 'static,
         F: FnOnce() -> T,
@@ -1841,14 +1828,14 @@ impl<T> OptionTraceExt<T> for Option<T> {
 pub trait ResultTraceExt<T> {
     /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
     #[track_caller]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
 impl<T> ResultTraceExt<T> for Result<T> {
     #[allow(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T {
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
         match self {
             Ok(val) => val,
             Err(e) => {
@@ -1874,14 +1861,14 @@ impl<T> ResultTraceExt<T> for Result<T> {
 pub trait TaffyResultTraceExt<T> {
     /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
     #[track_caller]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
 impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
     #[allow(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T {
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
         match self {
             Ok(val) => val,
             Err(e) => {
@@ -1907,14 +1894,14 @@ impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
 pub trait WindowsResultTraceExt<T> {
     /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
     #[track_caller]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
 impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
     #[allow(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T {
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
         match self {
             Ok(val) => val,
             Err(e) => {

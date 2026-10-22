@@ -3,13 +3,13 @@ use crate::{
     BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
     CapacityConfig, CascadeInteractionState, ChildrenSecondary, ClipRectsSecondary, Color,
     ComponentMask, Context, CursorIcon, DEFAULT_BASIC, DebugStore, DirtyLayoutEntitiesVec,
-    EdgeInsets, EffectCategory, ElementEffectsSecondary, EntitiesSlot, EntityId, FocusTrigger,
+    EdgeInsets, EffectCategory, EntitiesSlot, Entity, EntityEffectsSecondary, FocusTrigger,
     Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionScope,
-    InteractionStyles, LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, OutputStore,
-    ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList, RectsSecondary,
-    ScrollbarDisplay, ScrollbarStylesSparse, ModTarget, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TargetStyle, TextBufferSparse, Modifier, TopologyStore, TransitionValue,
-    UserSelect, Val, VisualProperty, define_secondary, define_sparse_secondary, define_vec,
+    InteractionStyles, LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, ModTarget, Modifier,
+    OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList,
+    RectsSecondary, ScrollbarDisplay, ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntity, TargetStyle, TextBufferSparse, TopologyStore, TransitionValue, UserSelect,
+    Val, VisualProperty, define_secondary, define_sparse_secondary, define_vec,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -39,20 +39,20 @@ define_secondary!(pub struct InteractionPropertiesSecondary(InteractionStyles));
 define_sparse_secondary!(pub struct ActiveTransitionsSparse(Vec<ActiveTransition>));
 define_sparse_secondary!(pub struct ActiveAnimationsSparse(Vec<ActiveAnimation>));
 
-define_vec!(pub struct DirtyRenderEntitiesVec(EntityId));
+define_vec!(pub struct DirtyRenderEntitiesVec(Entity));
 
 impl VisualPropertiesSecondary {
     #[inline]
-    pub(crate) fn auto_wrap(&self, id: EntityId) -> bool {
+    pub(crate) fn auto_wrap(&self, id: Entity) -> bool {
         self.find(id).and_then(|v| v.auto_wrap).unwrap_or(false)
     }
     #[inline]
-    pub(crate) fn font(&self, id: EntityId) -> FontDate {
+    pub(crate) fn font(&self, id: Entity) -> FontDate {
         self.find(id).map(|v| v.font.clone()).unwrap_or_default()
     }
 
     #[inline]
-    pub(crate) fn user_select(&self, id: EntityId) -> UserSelect {
+    pub(crate) fn user_select(&self, id: Entity) -> UserSelect {
         self.find(id)
             .and_then(|v| v.user_select)
             .unwrap_or_default()
@@ -61,7 +61,7 @@ impl VisualPropertiesSecondary {
     #[inline]
     pub(crate) fn pointer_events(
         &self,
-        id: EntityId,
+        id: Entity,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
     ) -> PointerEvents {
         self.find(id)
@@ -71,12 +71,12 @@ impl VisualPropertiesSecondary {
     }
 
     #[inline]
-    pub(crate) fn focusable(&self, id: EntityId) -> Focusable {
+    pub(crate) fn focusable(&self, id: Entity) -> Focusable {
         self.find(id).and_then(|v| v.focusable).unwrap_or_default()
     }
 }
 
-pub type ActiveExternalVisualHashSet = FxHashSet<EntityId>;
+pub type ActiveExternalVisualHashSet = FxHashSet<Entity>;
 
 pub struct RenderStore {
     pub(crate) rnd_dirty_entities: DirtyRenderEntitiesVec,
@@ -150,7 +150,7 @@ impl RenderStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.rnd_dirty_entities.retain(|&x| x != id);
         self.rnd_visual.remove(id);
         self.rnd_base_visual.remove(id);
@@ -164,7 +164,7 @@ impl RenderStore {
 impl RenderStore {
     #[inline]
     pub(crate) fn mark_render_dirty(
-        id: EntityId,
+        id: Entity,
         topo_active_masks: &mut ActiveMasksSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
     ) {
@@ -195,7 +195,7 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn get_visual_property_mut<'a>(
-        id: EntityId,
+        id: Entity,
         target: ModTarget,
         rnd_base_visual: &'a mut BaseVisualPropertiesSecondary,
         rnd_interaction: &'a mut InteractionPropertiesSecondary,
@@ -266,7 +266,7 @@ impl RenderStore {
     /// 指定された動的状態に切り替わる際、
     /// その要素に割り当てられている状態スタイルがレイアウトの再計算を必要とするか判定。
     pub(crate) fn does_state_require_layout(
-        id: EntityId,
+        id: Entity,
         state_flag: u128,
         rnd_interaction: &InteractionPropertiesSecondary,
     ) -> bool {
@@ -293,7 +293,7 @@ impl RenderStore {
 
     #[track_caller]
     pub(crate) fn resolv_focus_style(
-        id: EntityId,
+        id: Entity,
         active_mask: &ComponentMask,
         flag: u128,
         topo_parents: &ParentsSecondary,
@@ -409,7 +409,7 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn apply_basic_layout_cascade(
-        id: EntityId,
+        id: Entity,
         target_layout: &mut BasicLayout,
         active_mask: &ComponentMask,
         resolved_focus: Option<&Modifier>,
@@ -471,7 +471,7 @@ impl RenderStore {
 
     #[inline]
     pub(crate) fn apply_interaction_cascades(
-        id: EntityId,
+        id: Entity,
         target: &mut TargetStyle,
         active_mask: &ComponentMask,
         resolved_focus: Option<&Modifier>,
@@ -533,13 +533,13 @@ impl RenderStore {
 
     /// 補間されたアニメーション値を `SoA` のアクティブプロパティへ安全に上書きします
     pub(crate) fn apply_animation_value(
-        id: EntityId,
+        id: Entity,
         property: PropertyList,
         value: &TransitionValue,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_visual: &mut VisualPropertiesSecondary,
@@ -602,7 +602,7 @@ impl RenderStore {
     }
 
     fn trigger_keyframe_animations_if_needed(
-        id: EntityId,
+        id: Entity,
         rnd_active_animations: &mut ActiveAnimationsSparse,
         rnd_visual: &VisualPropertiesSecondary,
     ) {
@@ -655,12 +655,12 @@ impl RenderStore {
     }
 
     /// 状態の変更を検知しアニメーションが必要な箇所を自動的に開始・制御
-    pub(crate) fn resolve_element_style_state(
-        id: EntityId,
+    pub(crate) fn resolve_entity_style_state(
+        id: Entity,
         allow_transition: bool,
         win_last_size: Option<LayoutSize>,
         sys_text_buffers: &TextBufferSparse,
-        react_element_effects: &ElementEffectsSecondary,
+        react_entity_effects: &EntityEffectsSecondary,
         cont_input_contents: &InputContentsSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_is_sort_dirty: &mut bool,
@@ -668,7 +668,7 @@ impl RenderStore {
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_base_basic: &BaseBasicLayoutsSecondary,
@@ -685,7 +685,7 @@ impl RenderStore {
             id,
             allow_transition,
             sys_text_buffers,
-            react_element_effects,
+            react_entity_effects,
             cont_input_contents,
             topo_active_masks,
             topo_is_sort_dirty,
@@ -707,7 +707,7 @@ impl RenderStore {
             id,
             allow_transition,
             win_last_size,
-            react_element_effects,
+            react_entity_effects,
             topo_entities,
             topo_active_masks,
             topo_parents,
@@ -732,16 +732,16 @@ impl RenderStore {
 
     #[track_caller]
     fn resolve_layout_styles(
-        id: EntityId,
+        id: Entity,
         allow_transition: bool,
         win_last_size: Option<LayoutSize>,
-        react_element_effects: &ElementEffectsSecondary,
+        react_entity_effects: &EntityEffectsSecondary,
         topo_entities: &EntitiesSlot,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_base_basic: &BaseBasicLayoutsSecondary,
@@ -817,7 +817,7 @@ impl RenderStore {
                 prop,
                 start,
                 end,
-                react_element_effects,
+                react_entity_effects,
                 rnd_active_transitions,
                 rnd_base_visual,
             )
@@ -891,10 +891,10 @@ impl RenderStore {
 
     #[track_caller]
     fn resolve_visual_styles(
-        id: EntityId,
+        id: Entity,
         allow_transition: bool,
         sys_text_buffers: &TextBufferSparse,
-        react_element_effects: &ElementEffectsSecondary,
+        react_entity_effects: &EntityEffectsSecondary,
         cont_input_contents: &InputContentsSparse,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_is_sort_dirty: &mut bool,
@@ -902,7 +902,7 @@ impl RenderStore {
         topo_parents: &ParentsSecondary,
         topo_children: &ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
@@ -1018,7 +1018,7 @@ impl RenderStore {
                 prop,
                 start,
                 end,
-                react_element_effects,
+                react_entity_effects,
                 rnd_active_transitions,
                 rnd_base_visual,
             )
@@ -1193,11 +1193,11 @@ impl RenderStore {
 
     /// 必要に応じてトランジションを起動、または上書き（逆再生含む）します
     pub(crate) fn trigger_transition_if_needed(
-        id: EntityId,
+        id: Entity,
         property_list: PropertyList,
         start_value: TransitionValue,
         end_value: TransitionValue,
-        react_element_effects: &ElementEffectsSecondary,
+        react_entity_effects: &EntityEffectsSecondary,
         rnd_active_transitions: &mut ActiveTransitionsSparse,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
     ) -> bool {
@@ -1205,7 +1205,7 @@ impl RenderStore {
         let is_style_evaluating = crate::signal::ACTIVE_EFFECT.with(|cell| {
             if let Some(effect_id) = cell.get() {
                 // 現在走っているエフェクトがいずれかの要素の StyleCategory::Style のものであるか走査
-                react_element_effects.values().any(|list| {
+                react_entity_effects.values().any(|list| {
                     list.iter()
                         .any(|(cat, eff_id)| *eff_id == effect_id && *cat == EffectCategory::Style)
                 })
@@ -1282,7 +1282,7 @@ impl RenderStore {
     /// 現在ホバーされている要素から親ツリーを遡り、適用するべき物理的な `CursorIcon` を正確に解決します。
     #[track_caller]
     pub(crate) fn resolve_cursor(
-        hovered_id: EntityId,
+        hovered_id: Entity,
         evt_interaction_states: &ActiveInteractionStates,
         topo_parents: &ParentsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
@@ -1340,7 +1340,7 @@ impl RenderStore {
     /// 指定された要素の実効トランスフォームを親に遡りながら動的に解決
     #[track_caller]
     pub(crate) fn resolve_effective_transform(
-        id: EntityId,
+        id: Entity,
         topo_parents: &ParentsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> [[f32; 4]; 4] {
@@ -1427,7 +1427,7 @@ impl RenderStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
@@ -1518,7 +1518,7 @@ impl RenderStore {
         topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
@@ -1641,7 +1641,7 @@ impl RenderStore {
     }
 
     #[inline]
-    pub fn active_webviews_mut(&mut self) -> &mut FxHashSet<EntityId> {
+    pub fn active_webviews_mut(&mut self) -> &mut FxHashSet<Entity> {
         &mut self.rnd_active_external_visual
     }
 
@@ -1675,7 +1675,7 @@ impl Context {
     #[inline]
     pub(crate) fn get_visual_property_mut(
         &mut self,
-        id: EntityId,
+        id: Entity,
         target: ModTarget,
     ) -> &mut VisualProperty {
         RenderStore::get_visual_property_mut(
@@ -1688,13 +1688,13 @@ impl Context {
 
     /// 状態の変更を検知し、アニメーション（トランジション）が必要な箇所を自動的に開始・制御します。
     #[inline]
-    pub(crate) fn resolve_element_style_state(&mut self, id: EntityId, allow_transition: bool) {
-        RenderStore::resolve_element_style_state(
+    pub(crate) fn resolve_entity_style_state(&mut self, id: Entity, allow_transition: bool) {
+        RenderStore::resolve_entity_style_state(
             id,
             allow_transition,
             self.window.win_last_size,
             &self.system.sys_text_buffers,
-            &self.reactive.react_element_effects,
+            &self.reactive.react_entity_effects,
             &self.contents.cont_input_contents,
             &mut self.topology.topo_active_masks,
             &mut self.topology.topo_is_sort_dirty,

@@ -10,7 +10,7 @@ impl Default for Gap {
     }
 }
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     let (gap, _) = create_signal(Gap::default());
     let (flex_direction, _) = create_signal(FlexDirection::default());
     let (flex_wrap, _) = create_signal(FlexWrap::default());
@@ -29,15 +29,16 @@ pub fn container() -> Element {
         .children([main_aria(), setting_aria()])
 }
 
-fn common_inner() -> [Element; 9] {
+fn common_inner() -> [Entity; 9] {
     let inner = |label: &'static str| {
-        flex(ii()
-            .border_solid(1.0)
-            .r(4.0)
-            .size((80.0, 40.0))
-            .shrink_0()
-            .justify_center()
-            .border_color(dynamic(|t: &Theme| t.border)))
+        flex(
+            ii().border_solid(1.0)
+                .r(4.0)
+                .size((80.0, 40.0))
+                .shrink_0()
+                .justify_center()
+                .border_color(dynamic(|t: &Theme| t.border)),
+        )
         .label(
             label,
             ii().text_color(dynamic(|t: &Theme| t.text)).font_size(14.0),
@@ -49,13 +50,14 @@ fn common_inner() -> [Element; 9] {
         inner("2"),
         inner("3"),
         inner("4"),
-        flex(ii()
-            .border_solid(1.0)
-            .r(4.0)
-            .min_size((80.0, 40.0))
-            .justify_center()
-            .align_self(dynamic(|f: &AlignSelf| (*f).into()))
-            .border_color(dynamic(|t: &Theme| t.border)))
+        flex(
+            ii().border_solid(1.0)
+                .r(4.0)
+                .min_size((80.0, 40.0))
+                .justify_center()
+                .align_self(dynamic(|f: &AlignSelf| (*f).into()))
+                .border_color(dynamic(|t: &Theme| t.border)),
+        )
         .label(
             "AlignSelf 5",
             ii().text_color(dynamic(|t: &Theme| t.text)).font_size(14.0),
@@ -67,21 +69,22 @@ fn common_inner() -> [Element; 9] {
     ]
 }
 
-fn main_aria() -> Element {
+fn main_aria() -> Entity {
     v_flex(ii().gap(8.0).shrink().min_height(0.0).overflow_hidden())
         .label(
             "Results",
             ii().text_color(dynamic(|t: &Theme| t.text)).font_size(16.0),
         )
         .child(|| {
-            flex(ii()
-                .gap(use_provided::<Gap>().get().0)
-                .flex_direction(use_provided::<FlexDirection>().get())
-                .flex_wrap_internal(use_provided::<FlexWrap>().get())
-                .align_self(use_provided::<AlignSelf>().get())
-                .align_items(use_provided::<AlignItems>().get())
-                .align_content(use_provided::<AlignContent>().get())
-                .justify_content(use_provided::<JustifyContent>().get()))
+            flex(
+                ii().gap(use_provided::<Gap>().get().0)
+                    .flex_direction(use_provided::<FlexDirection>().get())
+                    .flex_wrap_internal(use_provided::<FlexWrap>().get())
+                    .align_self(use_provided::<AlignSelf>().get())
+                    .align_items(use_provided::<AlignItems>().get())
+                    .align_content(use_provided::<AlignContent>().get())
+                    .justify_content(use_provided::<JustifyContent>().get()),
+            )
             .modify_d(|t: &Theme| {
                 ii().p(8.0)
                     .r(4.0)
@@ -109,7 +112,7 @@ fn main_aria() -> Element {
         })
 }
 
-fn setting_aria() -> Element {
+fn setting_aria() -> Entity {
     v_flex(ii().gap(8.0).m_t(auto()).shrink_0())
         .label(
             "Setting",
@@ -118,7 +121,7 @@ fn setting_aria() -> Element {
         .child(table())
 }
 
-fn table() -> Element {
+fn table() -> Entity {
     let (gap, set_gap) = create_signal(String::from("8"));
 
     let label = ii().font_size(12.0).text_color(dynamic(|t: &Theme| t.text));

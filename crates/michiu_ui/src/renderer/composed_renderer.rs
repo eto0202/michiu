@@ -35,7 +35,7 @@
 //!    Inspects each `ExternalVisual` to determine stability (e.g., active resizing, transition cooldowns, or animation state). The evaluated flag governs freeze-capture eligibility.
 //!
 //! 4. **External Visual State Hook ([`ExternalVisual::update`](crate::ExternalVisual::update))**:
-//!    Supplies stability flags and device handles via [`VisualUpdateContext`](crate::VisualUpdateContext) to invoke element update callbacks:
+//!    Supplies stability flags and device handles via [`VisualUpdateContext`](crate::VisualUpdateContext) to invoke entity update callbacks:
 //!
 //!    ```rust,ignore
 //!    pub struct VisualUpdateContext<'a> {
@@ -136,7 +136,7 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 use crate::{
-    Backdrop, ComponentMask, Context, EntityId, ExternalVisual, ExternalVisualMetadata,
+    Backdrop, ComponentMask, Context, Entity, ExternalVisual, ExternalVisualMetadata,
     InteractionState, LayoutPoint, LayoutSize, MichiuError, MichiuSoA, PropertyList,
     RawWgpuRenderer, VisualUpdateContext, WgpuRenderer, WindowsResultTraceExt, flush_trace,
 };
@@ -195,14 +195,14 @@ pub struct MichiuRenderer {
 
 #[derive(Debug, Clone)]
 pub struct PendingDcompRelease {
-    pub entity_id: EntityId,
+    pub entity_id: Entity,
     pub frames_left: u32,
 }
 
 #[derive(Debug, Clone)]
 pub struct PromotedVisual {
     /// 昇格した要素の ID
-    pub entity_id: EntityId,
+    pub entity_id: Entity,
     /// `DirectComposition` 側の Visual オブジェクト
     pub visual: IDCompositionVisual2,
     /// 適用しているトランスフォームオブジェクト (COM参照を維持するために保持)
@@ -376,7 +376,7 @@ impl MichiuRenderer {
             let mut current_promoted_ids = Vec::new();
 
             // ループの前にスナップショットを取得
-            let visual_entries: Vec<(EntityId, Arc<dyn ExternalVisual>)> = cx
+            let visual_entries: Vec<(Entity, Arc<dyn ExternalVisual>)> = cx
                 .contents
                 .cont_external_visual
                 .iter()
@@ -389,8 +389,8 @@ impl MichiuRenderer {
                 let metadata = visual_entry.metadata();
 
                 // 安定状態の判定
-                let is_interactive = is_element_interactive(cx, id);
-                let is_transitioning = is_element_transitioning(cx, id);
+                let is_interactive = is_entity_interactive(cx, id);
+                let is_transitioning = is_entity_transitioning(cx, id);
                 let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
                 let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
                     || (rect.height - prev_rect.height).abs() > 0.01;
@@ -514,7 +514,7 @@ impl MichiuRenderer {
     #[track_caller]
     fn sync_visual_layout_and_clip(
         &self,
-        id: EntityId,
+        id: Entity,
         visual: &IDCompositionVisual2,
         metadata: ExternalVisualMetadata,
         cx: &mut Context,
@@ -834,13 +834,13 @@ pub struct RawMichiuRenderer<'a> {
 }
 
 #[track_caller]
-fn is_element_interactive(cx: &Context, id: EntityId) -> bool {
+fn is_entity_interactive(cx: &Context, id: Entity) -> bool {
     let is_focused = cx.interaction_id(InteractionState::Focused) == Some(id);
     let is_pressed = cx.interaction_id(InteractionState::Pressed) == Some(id);
     is_focused || is_pressed
 }
 
-fn is_element_transitioning(cx: &Context, id: EntityId) -> bool {
+fn is_entity_transitioning(cx: &Context, id: Entity) -> bool {
     cx.renders
         .rnd_active_transitions
         .find(id)

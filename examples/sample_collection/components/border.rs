@@ -4,7 +4,7 @@ use crate::{
 };
 pub use michiu::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(24.0).p(16.0)).children([
         style_container(),
         weight_container(),
@@ -40,7 +40,7 @@ fn base(change: bool) -> Modifier {
     }
 }
 
-fn style_container() -> Element {
+fn style_container() -> Entity {
     let solid = flex(base(false).border_solid(2.0)).label("solid", label_style());
     let dashed = flex(base(false).border_dashed(2.0)).label("dashed", label_style());
     let dotted = flex(base(false).border_dotted(2.0)).label("dotted", label_style());
@@ -52,7 +52,7 @@ fn style_container() -> Element {
     ])
 }
 
-fn weight_container() -> Element {
+fn weight_container() -> Entity {
     let one = flex(base(false).border_solid(1.0)).label("1.0 px", label_style());
     let two = flex(base(false).border_solid(2.0)).label("2.0 px", label_style());
     let four = flex(base(false).border_solid(4.0)).label("4.0 px", label_style());
@@ -64,7 +64,7 @@ fn weight_container() -> Element {
     ])
 }
 
-fn length_container() -> Element {
+fn length_container() -> Entity {
     let top_only = flex(
         base(false)
             .border_solid(2.0)
@@ -87,7 +87,7 @@ fn length_container() -> Element {
     ])
 }
 
-fn align_container() -> Element {
+fn align_container() -> Entity {
     let start = flex(
         base(false)
             .border_solid(2.0)
@@ -118,7 +118,7 @@ fn align_container() -> Element {
     ])
 }
 
-fn color_container() -> Element {
+fn color_container() -> Entity {
     let red =
         flex(base(true).border_solid(2.0).border_color(Color::RED)).label("Red", label_style());
     let yellow = flex(base(true).border_solid(2.0).border_color(Color::YELLOW))

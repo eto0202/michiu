@@ -1,12 +1,12 @@
 use crate::app::theme::Theme;
 pub use michiu::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(16.0).p(16.0).r(4.0))
         .children([all_section_relative().child(all_section_absolute())])
 }
 
-fn all_section_relative() -> Element {
+fn all_section_relative() -> Entity {
     // 上下: resizable_y(value)
     // 左右： resizable_x(value)
     // 四辺全て： resizable_all(value)
@@ -33,7 +33,7 @@ fn all_section_relative() -> Element {
         .label("Relative", label_style())
 }
 
-fn all_section_absolute() -> Element {
+fn all_section_absolute() -> Entity {
     let layout = ii()
         .resizable_all(true)
         .absolute()

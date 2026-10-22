@@ -1,6 +1,5 @@
 use crate::{
-    Context, Element, ElementState, EntityId, ImeState, LayoutPoint, Modifiers, MouseButton,
-    VirtualKey,
+    Context, ElementState, Entity, ImeState, LayoutPoint, Modifiers, MouseButton, VirtualKey,
 };
 use std::path::PathBuf;
 
@@ -15,7 +14,7 @@ macro_rules! define_event_dispatchers {
             #[allow(dead_code)]
             pub(crate) fn $fn_name(
                 cx: &mut Context,
-                id: EntityId,
+                id: Entity,
                 $($arg_name : $arg_type),*
             ) {
                 // events.evt_listeners から該当のハンドラを一時的に take する
@@ -25,7 +24,7 @@ macro_rules! define_event_dispatchers {
                     .get_mut(id)
                     .and_then(|l| l.$field_name.take())
                 {
-                    let _guard = crate::ActiveElementGuard::new(id);
+                    let _guard = crate::ActiveEntityGuard::new(id);
 
                     // コールバックを安全に実行
                     handler(cx, $($arg_name),*);
@@ -53,17 +52,17 @@ pub type FileDropCallback = Box<dyn FnMut(&mut Context, Vec<PathBuf>) + 'static>
 pub type FileDragCallback = Box<dyn FnMut(&mut Context) + 'static>;
 pub type SimpleCallback = Box<dyn FnMut(&mut Context) + 'static>;
 
-// 各コールバックの引数: (context, ドラッグ元のElement, 現在ホバーまたはドロップされた対象のElement)
+// 各コールバックの引数: (context, ドラッグ元のEntity, 現在ホバーまたはドロップされた対象のEntity)
 // 失敗時は対象が None
-pub type EntityDragCallback = Box<dyn FnMut(&mut Context, Element, Option<Element>) + 'static>;
-pub type IdDragCallback = Box<dyn FnMut(&mut Context, EntityId, Option<EntityId>) + 'static>;
-pub type EntityDropCallback = Box<dyn FnMut(&mut Context, Element, Option<Element>) + 'static>;
-pub type IdDropCallback = Box<dyn FnMut(&mut Context, EntityId, Option<EntityId>) + 'static>;
-// ドラッグ開始時のコールバック型。生成されたプレースホルダーの Element を受け取れます。
+pub type InteractiveDragCallback = Box<dyn FnMut(&mut Context, Entity, Option<Entity>) + 'static>;
+pub type PassiveDragCallback = Box<dyn FnMut(&mut Context, Entity, Option<Entity>) + 'static>;
+pub type InteractiveDropCallback = Box<dyn FnMut(&mut Context, Entity, Option<Entity>) + 'static>;
+pub type PassiveDropCallback = Box<dyn FnMut(&mut Context, Entity, Option<Entity>) + 'static>;
+// ドラッグ開始時のコールバック型。生成されたプレースホルダーの Entity を受け取れます。
 // 引数: (context, ドラッグ元のオリジナル要素, 生成されたプレースホルダー要素)
-pub type DragStartCallback = Box<dyn FnMut(&mut Context, Element, Element) + 'static>;
+pub type DragStartCallback = Box<dyn FnMut(&mut Context, Entity, Entity) + 'static>;
 
-/// Events bound to individual elements.
+/// Events bound to individual entities.
 #[derive(Default)]
 #[allow(clippy::struct_field_names)]
 pub struct EventListeners {
@@ -87,10 +86,10 @@ pub struct EventListeners {
     pub on_file_dropped: Option<FileDropCallback>,
     pub on_file_drag_enter: Option<FileDragCallback>,
     pub on_file_drag_leave: Option<FileDragCallback>,
-    pub on_dnd_entity_drag: Option<EntityDragCallback>,
-    pub on_dnd_id_drag: Option<IdDragCallback>,
-    pub on_dnd_entity_drop: Option<EntityDropCallback>,
-    pub on_dnd_id_drop: Option<IdDropCallback>,
+    pub on_dnd_drag_interactive: Option<InteractiveDragCallback>,
+    pub on_dnd_drag_passive: Option<PassiveDragCallback>,
+    pub on_dnd_drop_interactive: Option<InteractiveDropCallback>,
+    pub on_dnd_drop_passive: Option<PassiveDropCallback>,
     pub on_dnd_drag_start: Option<DragStartCallback>,
 }
 
@@ -124,11 +123,11 @@ define_event_dispatchers! {
     handle_on_file_drag_leave, on_file_drag_leave;
 
     // ドラッグ＆ドロップ
-    handle_on_dnd_entity_drag, on_dnd_entity_drag, origin: Element, target: Option<Element>;
-    handle_on_dnd_id_drag, on_dnd_id_drag, origin_id: EntityId, target_id: Option<EntityId>;
-    handle_on_dnd_entity_drop, on_dnd_entity_drop, origin: Element, target: Option<Element>;
-    handle_on_dnd_id_drop, on_dnd_id_drop, origin_id: EntityId, target_id: Option<EntityId>;
-    handle_on_dnd_drag_start, on_dnd_drag_start, origin: Element, placeholder: Element;
+    handle_on_dnd_drag_interactive, on_dnd_drag_interactive, origin: Entity, target: Option<Entity>;
+    handle_on_dnd_drag_passive, on_dnd_drag_passive, origin_id: Entity, target_id: Option<Entity>;
+    handle_on_dnd_drop_interactive, on_dnd_drop_interactive, origin: Entity, target: Option<Entity>;
+    handle_on_dnd_drop_passive, on_dnd_drop_passive, origin_id: Entity, target_id: Option<Entity>;
+    handle_on_dnd_drag_start, on_dnd_drag_start, origin: Entity, placeholder: Entity;
 }
 
 impl std::fmt::Debug for EventListeners {
@@ -189,39 +188,39 @@ impl std::fmt::Debug for EventListeners {
             .field("on_active", &self.on_active.as_ref().map(|_| "FnMut"))
             .field("on_select", &self.on_select.as_ref().map(|_| "FnMut"))
             .field(
-                "on_dnd_entity_drag",
+                "on_dnd_drag_interactive",
                 &self
-                    .on_dnd_entity_drag
+                    .on_dnd_drag_interactive
                     .as_ref()
-                    .map(|_| "FnMut(EntityId, Option<EntityId>)"),
+                    .map(|_| "FnMut(Entity, Option<Entity>)"),
             )
             .field(
-                "on_dnd_id_drag",
+                "on_dnd_drag_passive",
                 &self
-                    .on_dnd_id_drag
+                    .on_dnd_drag_passive
                     .as_ref()
-                    .map(|_| "FnMut(EntityId, Option<EntityId>)"),
+                    .map(|_| "FnMut(Entity, Option<Entity>)"),
             )
             .field(
-                "on_dnd_entity_drop",
+                "on_dnd_drop_interactive",
                 &self
-                    .on_dnd_entity_drop
+                    .on_dnd_drop_interactive
                     .as_ref()
-                    .map(|_| "FnMut(EntityId, Option<EntityId>)"),
+                    .map(|_| "FnMut(Entity, Option<Entity>)"),
             )
             .field(
-                "on_dnd_id_drop",
+                "on_dnd_drop_passive",
                 &self
-                    .on_dnd_id_drop
+                    .on_dnd_drop_passive
                     .as_ref()
-                    .map(|_| "FnMut(EntityId, Option<EntityId>)"),
+                    .map(|_| "FnMut(Entity, Option<Entity>)"),
             )
             .field(
                 "on_dnd_drag_start",
                 &self
                     .on_dnd_drag_start
                     .as_ref()
-                    .map(|_| "FnMut(EntityId, Element)"),
+                    .map(|_| "FnMut(Entity, Entity)"),
             )
             .finish()
     }

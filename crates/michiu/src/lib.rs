@@ -354,14 +354,14 @@ pub struct MichiuApp {
     /// Used for redraw requests, changing cursor icons, switching views, and obtaining a Win32 `HWND`, among other things.
     pub handle: Validated<WindowHandle>,
 
-    /// The `EntityId` of the root element.
+    /// The `Entity` of the root entity.
     ///
     /// Private for security reasons.
     ///
     /// Set using [`MichiuApp::set_root`], [`MichiuApp::build_ui`],
     /// or [`MichiuAppBuilder::build_with_ui`],
-    /// and retrieve using [`MichiuApp::root_id`] or [`MichiuApp::try_root_id`].
-    root_id: Option<EntityId>,
+    /// and retrieve using [`MichiuApp::root`] or [`MichiuApp::try_root`].
+    root: Option<Entity>,
 
     /// Operation policy settings specified in the builder
     /// (such as automatic cursor resolution and enabling shortcuts).
@@ -404,7 +404,7 @@ pub struct MichiuApp {
 ///
 /// ## Why are there three flags?
 /// ### `consumed` (event interception)
-/// Indicates whether a UI element (such as a button or input field) has processed this action.
+/// Indicates whether a UI entity (such as a button or input field) has processed this action.
 ///
 /// For example, when typing in a text input field, if this flag is `true`,
 /// the subsequent processing is interrupted with a `return` to prevent global shortcuts—such
@@ -429,7 +429,7 @@ pub struct MichiuApp {
 pub struct MichiuEventResponse {
     /// Whether this event was consumed by the UI (or `ExternalVisual`).
     ///
-    /// If `true`, it means a UI element was clicked or a text input field has focus.
+    /// If `true`, it means a UI entity was clicked or a text input field has focus.
     ///
     /// Use this to skip application-specific keyboard shortcuts, game controls, and similar actions.
     pub consumed: bool,
@@ -448,60 +448,59 @@ pub struct MichiuEventResponse {
 }
 
 impl MichiuApp {
-    /// It builds the UI tree and automatically registers it as the root element.
+    /// It builds the UI tree and automatically registers it as the root entity.
     ///
     /// Since `set_root` is called automatically,
-    /// you can use `root_id` in subsequent processing to retrieve the `EntityId` of the root element.
+    /// you can use `root_id` in subsequent processing to retrieve the `Entity` of the root entity.
     #[inline]
-    pub fn build_ui<F>(&mut self, f: F) -> EntityId
+    pub fn build_ui<F>(&mut self, f: F) -> Entity
     where
-        F: FnOnce() -> Element,
+        F: FnOnce() -> Entity,
     {
         let root = build_ui(&mut self.context, f);
-        let id = root.id();
-        self.set_root(id);
-        id
+        self.set_root(root);
+        root
     }
 
-    /// Register the root element.
-    /// From this point on, you can retrieve the root element using [`MichiuApp::root_id`].
+    /// Register the root entity.
+    /// From this point on, you can retrieve the root entity using [`MichiuApp::root_id`].
     #[inline]
-    pub fn set_root(&mut self, root_id: EntityId) {
-        self.root_id = Some(root_id);
+    pub fn set_root(&mut self, root_id: Entity) {
+        self.root = Some(root_id);
     }
 
-    /// Retrieves the `EntityId` of the root element.
+    /// Retrieves the `Entity` of the root entity.
     ///
     /// To avoid a panic, use [`MichiuApp::try_root_id`] instead.
     ///
     /// # Panics
     ///
-    /// Panics if the root element has not yet been registered.
+    /// Panics if the root entity has not yet been registered.
     ///
-    /// Please register the root element in advance by calling [`MichiuApp::build_ui`],
+    /// Please register the root entity in advance by calling [`MichiuApp::build_ui`],
     /// [`MichiuAppBuilder::build_with_ui`], or
     /// [`MichiuApp::set_root`].
     ///
-    /// If this error occurs even though the root element has been registered correctly,
+    /// If this error occurs even though the root entity has been registered correctly,
     /// please report it to [GitHub Issues](https://github.com/eto0202/michiu/issues).
     #[must_use]
     #[inline]
     #[allow(clippy::expect_used)]
-    pub fn root_id(&self) -> EntityId {
-        self.root_id.expect(
+    pub fn root(&self) -> Entity {
+        self.root.expect(
             "The root ID was not found.\
              Possible cause:\
                 - The root ID was not registered. Call `build_ui`, `build_with_ui`, or `set_root` first.",
         )
     }
 
-    /// Retrieves the `EntityId` of the root element.
+    /// Retrieves the `Entity` of the root entity.
     ///
     /// Returns `None` if it has not yet been registered.
     #[must_use]
     #[inline]
-    pub fn try_root_id(&self) -> Option<EntityId> {
-        self.root_id
+    pub fn try_root(&self) -> Option<Entity> {
+        self.root
     }
 
     /// Thread-safely requests a redraw of the window.
@@ -934,7 +933,7 @@ impl MichiuApp {
     ///
     /// # Rendering Pipeline Executed
     /// 1. **Frame Start (`begin_frame`)**: Drains the event queue and updates interaction states (e.g., hover).
-    /// 2. **Cursor Shape Update**: Synchronizes the mouse cursor icon based on the latest hover element.
+    /// 2. **Cursor Shape Update**: Synchronizes the mouse cursor icon based on the latest hover entity.
     /// 3. **System Frame Update (`tick_system_frame`)**: Advances animations and auto-drag states.
     /// 4. **Layout Synchronization (`sync_layout`)**: Recalculates layout in two passes to resolve scrollbars.
     /// 5. **Composition Update (`update_composition_tree`)**: Synchronizes `DirectComposition` for external visuals and the background.
@@ -950,18 +949,18 @@ impl MichiuApp {
     /// you can bypass this method and invoke the internal phase methods directly.
     ///
     /// # Panics
-    /// In debug builds, this method panics if the root element (`root_id`) has not been registered.
+    /// In debug builds, this method panics if the root entity (`root_id`) has not been registered.
     ///
     /// In release builds, it returns early without performing any operations.
     pub fn standard_redraw(&mut self) {
         debug_assert!(
-            self.try_root_id().is_some(),
+            self.try_root().is_some(),
             "The root ID was not found.\
              Possible cause:\
                - The root ID was not registered. Call `build_ui`, `build_with_ui`, or `set_root` first."
         );
 
-        let Some(root_id) = self.try_root_id() else {
+        let Some(root_id) = self.try_root() else {
             return;
         };
 
@@ -990,16 +989,16 @@ impl MichiuApp {
         }
     }
 
-    /// Updates the window cursor icon based on the currently hovered UI element.
+    /// Updates the window cursor icon based on the currently hovered UI entity.
     ///
-    /// This standard method resolves the appropriate cursor icon for the hovered element and automatic applies it to the OS.
+    /// This standard method resolves the appropriate cursor icon for the hovered entity and automatic applies it to the OS.
     /// Normally, this is executed automatically within [`standard_redraw`](Self::standard_redraw).
     /// Call this manually if you are constructing a custom rendering pipeline.
     ///
     /// # Behavior
     /// 1. **Configuration Guard**: If [`MichiuBuilderConfig::auto_resolve_cursor`] is `false`, this method returns immediately without doing anything.
-    /// 2. **Hover Lookup**: Queries the latest hovered element (`InteractionState::Hovered`) from [`Context`].
-    /// 3. **Fallback**: If no element is hovered, or if the hovered element specifies no custom cursor, it falls back to the default system cursor ([`CursorIcon::Default`]).
+    /// 2. **Hover Lookup**: Queries the latest hovered entity (`InteractionState::Hovered`) from [`Context`].
+    /// 3. **Fallback**: If no entity is hovered, or if the hovered entity specifies no custom cursor, it falls back to the default system cursor ([`CursorIcon::Default`]).
     /// 4. **OS Synchronization**: Converts the resolved icon into a native Win32 `HCURSOR` and updates the window's cursor via the underlying `SetCursor` API.
     ///
     /// # When to Call
@@ -1068,7 +1067,7 @@ pub struct MichiuBuilderConfig {
     /// - **Purpose**: Set to `true` if you want to support assistive technologies such as screen readers.
     pub accessibility_support: bool,
 
-    /// Whether to automatically update the window's cursor icon based on the element being hovered over.
+    /// Whether to automatically update the window's cursor icon based on the entity being hovered over.
     ///
     /// - **Default**: `true`
     /// - **Purpose**: Set to `false` if you want to draw your own cursor or keep the OS cursor shape fixed.
@@ -1161,8 +1160,8 @@ impl MichiuAppBuilder {
     /// 2. Build the app using this method (or [`build_with_ui`](Self::build_with_ui)) and assemble the UI.
     /// 3. Only after everything is ready should you call **`handle.set_visible(true)`** to display the app.
     ///
-    /// # Regarding the State of the Root Element
-    /// At the time this method is called, the root element ([`root_id`](MichiuApp::try_root_id)) remains `None`.
+    /// # Regarding the State of the Root Entity
+    /// At the time this method is called, the root entity ([`root_id`](MichiuApp::try_root_id)) remains `None`.
     ///
     /// Be sure to register the UI using [`MichiuApp::build_ui`] or [`MichiuApp::set_root`] before starting the event loop.
     ///
@@ -1184,7 +1183,7 @@ impl MichiuAppBuilder {
     ///     .with_accessibility_support(true)
     ///     .build(renderer)?;
     ///
-    /// // Build UI and register the root element
+    /// // Build UI and register the root entity
     /// app.build_ui(move || {
     ///     // UI tree
     /// });
@@ -1221,14 +1220,14 @@ impl MichiuAppBuilder {
                 context,
                 renderer,
                 handle,
-                root_id: None,
+                root: None,
                 config: self.config,
             },
             pump,
         ))
     }
 
-    /// Uses the builder to create [`MichiuApp`] and [`MichiuEventPump`], and performs the construction and registration of the root UI element in a single step.
+    /// Uses the builder to create [`MichiuApp`] and [`MichiuEventPump`], and performs the construction and registration of the root UI entity in a single step.
     ///
     /// This is a convenient shortcut equivalent to calling [`MichiuApp::build_ui`] after calling [`build`](Self::build).
     ///
@@ -1262,14 +1261,14 @@ impl MichiuAppBuilder {
         ui_fn: F,
     ) -> window::Result<(MichiuApp, MichiuEventPump)>
     where
-        F: FnOnce() -> Element,
+        F: FnOnce() -> Entity,
     {
         let (mut app, pump) = self.build(renderer)?;
         app.build_ui::<F>(ui_fn);
         Ok((app, pump))
     }
 
-    /// Whether to automatically update the window's cursor icon based on the element being hovered over.
+    /// Whether to automatically update the window's cursor icon based on the entity being hovered over.
     ///
     /// - **Default**: `true`
     /// - **Purpose**: Set to `false` if you want to draw your own cursor or keep the OS cursor shape fixed.

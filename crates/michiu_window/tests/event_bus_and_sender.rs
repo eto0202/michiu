@@ -3,7 +3,7 @@
 #![allow(clippy::panic)]
 
 use michiu_window::{
-    MichiuEventBus, LogicalSize, MichiuAnyEvent, MichiuEventPump, MichiuWindowBuilder, MichiuWindow,
+    LogicalSize, MichiuAnyEvent, MichiuEventBus, MichiuEventPump, MichiuWindow, MichiuWindowBuilder,
 };
 use std::time::{Duration, Instant};
 

@@ -30,7 +30,7 @@ use michiu_ui::prelude::*;
 struct AppState {
    renderer: MichiuRenderer,
    context: Context,
-   root_id: EntityId,
+   root_id: Entity,
 }
 
 // 1. 任意の方法でウィンドウを作成し、HWND とスケールファクターを取得
@@ -164,7 +164,7 @@ wgpu によるUIレンダリング層の下に、外部コンポーネントが�
 
 `Context` の内部は、フラットなDOD（Data-Oriented Design）で設計されています。
 
-`Element` の実体は肥大なUIオブジェクトではなく、内部にあるSoAのキー（[`EntityId`]）です。そのため Rust の所有権や借用規則に縛られることなく、要件に合わせて以下の4つのアプローチを自由に選択・混用できます。
+`Entity` の実体は肥大なUIオブジェクトではなく、内部にあるSoAのキー（[`Entity`]）です。そのため Rust の所有権や借用規則に縛られることなく、要件に合わせて以下の4つのアプローチを自由に選択・混用できます。
 
 | アプローチ           | メリット                               | 推奨ユースケース                       |
 | :------------------- | :------------------------------------- | :------------------------------------- |
@@ -187,18 +187,18 @@ div_n().on_click(move || set_count.set(count.get() + 1))
 
 #### 2. Direct アプローチ（ローカル変数の直接キャプチャ）
 
-`Element` をそのまま イベントハンドラ (例: `on_click` ) クロージャ内へ `move` して、命令的に操作します。
+`Entity` をそのまま イベントハンドラ (例: `on_click` ) クロージャ内へ `move` して、命令的に操作します。
 
 ```rust
 # use michiu_ui::prelude::*;
-let el = h_flex(ii().bg_color(Color::BLUE));
+let e = h_flex(ii().bg_color(Color::BLUE));
 
 let mut count = 0u32;
 
-el.label(move || format!("Direct: {count}"), ii())
+e.label(move || format!("Direct: {count}"), ii())
   .on_click(move || {
        count += 1;
-       el.set_contents(div_n().label(move || format!("Direct: {count}"), ii()))
+       e.set_contents(div_n().label(move || format!("Direct: {count}"), ii()))
          .modify(ii().bg_color(Color::RED));
   })
 ```
@@ -238,9 +238,9 @@ let mut count = 0u32;
 let left = flex(ii()).tag::<a11y::AButton>();
 
 let right = flex(ii()).label("Click", ii()).on_click_with(move |cx| {
-    let el = cx.query_first::<a11y::AButton>();
+    let e = cx.query_first::<a11y::AButton>();
     count += 1;
-    el.set_contents(div_n().label(move || format!("Tag: {count}"), ii()));
+    e.set_contents(div_n().label(move || format!("Tag: {count}"), ii()));
 });
 
 h_flex(ii()).children([left, right])
@@ -268,7 +268,7 @@ h_flex(ii()).children([left, right])
 use michiu_ui::prelude::*;
 
 // 1. ルート（または上位ノード）でシグナルを生成して provide
-pub fn create_root() -> Element {
+pub fn create_root() -> Entity {
     let (theme, _) = create_signal(Theme::dark());
     let (search_text, _) = create_signal(SearchText(String::new()));
 
@@ -283,7 +283,7 @@ pub fn create_root() -> Element {
 }
 
 // 2. 下流の任意のコンポーネントで購読
-fn some_label() -> Element {
+fn some_label() -> Entity {
     // provide された Theme から primary カラーを購読（自動追従）
     div_n().label("Hello", ii().text_color(dynamic(|t: &Theme| t.primary)))
 }
@@ -303,7 +303,7 @@ fn some_label() -> Element {
 # 動的スタイリングとパフォーマンスガイド
 
 `michiu_ui` では、テーマ変更や状態遷移に応じた動的なスタイル指定として、
-「スタイル全体の動的評価（`modify_d` / `style`）」 と 「プロパティ単位の評価（`dynamic`）」 の2系統を提供しています。
+「スタイル全体の動的評価（`modify_d` / `modify`）」 と 「プロパティ単位の評価（`dynamic`）」 の2系統を提供しています。
 
 ---
 
@@ -312,7 +312,7 @@ fn some_label() -> Element {
 以下の2つの記述は、ライブラリ内部において全く同一の挙動および再評価コストを持ちます。
 
 ```rust
-// パターン A: 通常の style メソッドに引数なしの動的クロージャを渡す
+// パターン A: 通常の modify メソッドに引数なしの動的クロージャを渡す
 .modify(move || {
     let t = use_provided::<Theme>().get();
     ii().bg_color(t.background)
@@ -382,7 +382,7 @@ div(ii().w_full().p_y(4.0))
 | 動的なプロパティが数個                 | `dynamic(\|t: &T\|)`            |
 | 多数の動的なプロパティ                 | `modify_d(\|t: &T\|)`            |
 | 動的なプロパティと条件分岐の組み合わせ | `modify_d`                       |
-| 静的スタイルと一部だけ動的なプロパティ | `style` + `dynamic`             |
+| 静的スタイルと一部だけ動的なプロパティ | `modify` + `dynamic`             |
 | 静的・動的なプロパティがともに多数     | `modify(静的)` + `modify_d(動的)` |
 
 ---
@@ -394,9 +394,9 @@ div(ii().w_full().p_y(4.0))
 - [**レンダラーの実装**](crate::renderer) - DirectComposition サーフェス管理と wgpu による描画コマンドの生成
 - [**`Context` の構造**](crate::context) - 全体状態の保持、ストレージ管理、ライフサイクル制御
 - [**`pipeline` モジュール**](crate::pipeline) - フレーム進行のオーケストレーター
-- [**UIの構築とスタイリング**](crate::element) - [`build_ui`] によるウィジェットツリー構築と `ii()`（スタイルビルダー）のプロパティ一覧
+- [**UIの構築とスタイリング**](crate::entity) - [`build_ui`] によるウィジェットツリー構築と `ii()`（スタイルビルダー）のプロパティ一覧
 - [**リアクティビティ**](crate::signal) - [`create_signal`] によるリアクティブプログラミングモデルと依存関係の追跡
-- [**Tag機能**](crate::tag) - Element への識別タグ付与とツリー探索・クエリ
+- [**Tag機能**](crate::tag) - Entity への識別タグ付与とツリー探索・クエリ
 - [**アクセシビリティ**](crate::context::acce_store) - AccessKit との連携およびツリー同期
 - [**外部要素の埋め込み**](crate::external) - 画像や動画、外部ファイル、`IDCompositionVisual2` の統合
 - [**デバッグツール**](crate::context::debug_store) - エラーを含むログの収集やライフサイクルの可視化

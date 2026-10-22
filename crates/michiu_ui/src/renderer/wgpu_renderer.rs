@@ -43,7 +43,7 @@
 //! Updates the dynamic texture atlas and text layout cache through `RendererView`, generating batches segregated into foreground and background passes.
 //!
 //! #### Step 2: Building the Instance Buffer
-//! `michiu_ui` avoids per-element vertex buffer allocations.
+//! `michiu_ui` avoids per-entity vertex buffer allocations.
 //! All UI primitives (rectangles, rounded panels, borders, text quads) are transformed into [`QuadInstance`] data mapped over a single 1x1 quad mesh. Properties such as bounds, corners, SDF parameters, and colors are packed into `instance_staging`.
 //!
 //! #### Step 3: VRAM Upload
@@ -53,7 +53,7 @@
 //! Instantiates a command encoder, binds the shared quad buffers and viewport uniforms (`config_bind_group`), and iterates through render batches:
 //!
 //! * **Dynamic Pipeline Switching**:
-//!   * `BatchType::Normal`: Standard UI elements using Pre-Multiplied Alpha (PMA) compositing.
+//!   * `BatchType::Normal`: Standard UI entities using Pre-Multiplied Alpha (PMA) compositing.
 //!   * `BatchType::Punchout`: Transparent cutouts for `ExternalVisual`s using `Zero` + `OneMinusSrcAlpha` blending.
 //!   * *Note: Pipeline bindings are cached and only re-bound on batch type transitions to minimize driver state changes.*
 //! * **Dynamic Texture Binding**:
@@ -106,7 +106,7 @@
 
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, DEFAULT_BASIC,
-    DEFAULT_FLEX, DrawBatch, EdgeInsets, EntityId, LayoutSize, MichiuError, MichiuSoA, Pipeline,
+    DEFAULT_FLEX, DrawBatch, EdgeInsets, Entity, LayoutSize, MichiuError, MichiuSoA, Pipeline,
     QuadInstance, RenderData, RendererView, TextCacheKey, TextCacheValue, TextureAtlas, Vertex,
     VisualProperty,
 };
@@ -139,13 +139,13 @@ pub struct WgpuRenderer {
     pub(crate) config_bind_group_layout: wgpu::BindGroupLayout,
 
     pub(crate) atlas: TextureAtlas,
-    pub(crate) temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
+    pub(crate) temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
     pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
 
     pub(crate) render_data: RenderData,
 
     // 外部テクスチャ用の `BindGroup` キャッシュ
-    pub(crate) external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
+    pub(crate) external_bind_groups: FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)>,
 }
 
 #[repr(C)]
@@ -794,7 +794,7 @@ impl WgpuRenderer {
         &'a self,
         rpass: &mut wgpu::RenderPass<'a>,
         batch: &DrawBatch,
-        entity_ids: &[EntityId],
+        entity_ids: &[Entity],
     ) {
         if let Some(&first_id) = entity_ids.get(batch.instance_offset) {
             // 外部テクスチャのキャッシュが存在する場合
@@ -812,7 +812,7 @@ impl WgpuRenderer {
     #[track_caller]
     fn build_quad_instance_for_entity(
         cx: &mut Context,
-        entity_id: EntityId,
+        entity_id: Entity,
         instance: &QuadInstance,
     ) -> (QuadInstance, bool) {
         let basic =
@@ -1081,7 +1081,7 @@ impl WgpuRenderer {
 
     #[inline]
     #[must_use]
-    pub fn temp_uv_map(&self) -> &SecondaryMap<EntityId, [f32; 4]> {
+    pub fn temp_uv_map(&self) -> &SecondaryMap<Entity, [f32; 4]> {
         &self.temp_uv_map
     }
 
@@ -1099,9 +1099,7 @@ impl WgpuRenderer {
 
     #[inline]
     #[must_use]
-    pub fn external_bind_groups(
-        &self,
-    ) -> &FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)> {
+    pub fn external_bind_groups(&self) -> &FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)> {
         &self.external_bind_groups
     }
 
@@ -1147,8 +1145,8 @@ pub struct RawWgpuRenderer<'a> {
     pub config_bind_group: &'a mut wgpu::BindGroup,
     pub config_bind_group_layout: &'a mut wgpu::BindGroupLayout,
     pub atlas: &'a mut TextureAtlas,
-    pub temp_uv_map: &'a mut SecondaryMap<EntityId, [f32; 4]>,
+    pub temp_uv_map: &'a mut SecondaryMap<Entity, [f32; 4]>,
     pub text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
     pub render_data: &'a mut RenderData,
-    pub external_bind_groups: &'a mut FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
+    pub external_bind_groups: &'a mut FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)>,
 }

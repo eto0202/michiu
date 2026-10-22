@@ -7,7 +7,7 @@ use crate::{
 use michiu::prelude::*;
 use std::time::Duration;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(28.0).p(16.0)).children([
         section_normal(),
         section_pseudo(),
@@ -31,14 +31,14 @@ fn item_style() -> Modifier {
         .items_center()
 }
 
-fn section_normal() -> Element {
+fn section_normal() -> Entity {
     let wrapper =
         h_flex(wrapper_style()).children([signal_btn(), direct_btn(), event_btn(), tag_btn()]);
 
     v_flex(section_style()).children([section_title("Button"), wrapper])
 }
 
-fn signal_btn() -> Element {
+fn signal_btn() -> Entity {
     let (count, set_count) = create_signal(0u32);
 
     h_flex(
@@ -50,8 +50,8 @@ fn signal_btn() -> Element {
     .label(move || format!("Signal: {}", count.get()), label_style())
 }
 
-fn direct_btn() -> Element {
-    let el = h_flex(
+fn direct_btn() -> Entity {
+    let e = h_flex(
         item_style()
             .border_solid(2.0)
             .border_color(dynamic(|t: &Theme| t.border)),
@@ -64,20 +64,20 @@ fn direct_btn() -> Element {
 
     let mut count = 0u32;
 
-    el.label(
+    e.label(
         move || format!("Direct: {}.{}", count / 10, count % 10),
         &style,
     )
     .on_click(move || {
         count += 1;
-        el.set_contents(div_n().label(
+        e.set_contents(div_n().label(
             move || format!("Direct: {}.{}", count / 10, count % 10),
             &style,
         ));
     })
 }
 
-fn event_btn() -> Element {
+fn event_btn() -> Entity {
     let style = ii()
         .text_color(dynamic(|t: &Theme| t.surface))
         .font_size(16.0)
@@ -95,7 +95,7 @@ fn event_btn() -> Element {
         })
 }
 
-fn tag_btn() -> Element {
+fn tag_btn() -> Entity {
     struct MichiuTag;
 
     let style = ii()
@@ -115,9 +115,9 @@ fn tag_btn() -> Element {
             style.clone().pressed_parent(ii().text_color(Color::WHITE)),
         )
         .on_click_with(move |cx| {
-            if let Some(el) = cx.try_query_first::<MichiuTag>() {
+            if let Some(e) = cx.try_query_first::<MichiuTag>() {
                 count += 1;
-                el.set_contents(div_n().label(move || format!("Tag: {count}"), &style));
+                e.set_contents(div_n().label(move || format!("Tag: {count}"), &style));
             }
         });
 
@@ -130,7 +130,7 @@ fn tag_btn() -> Element {
     .children([left, right])
 }
 
-fn section_pseudo() -> Element {
+fn section_pseudo() -> Entity {
     let wrapper = h_flex(wrapper_style()).children([
         hovered_btn(),
         pressed_btn(),
@@ -142,7 +142,7 @@ fn section_pseudo() -> Element {
     v_flex(section_style()).children([section_title("Button Pseudo Class"), wrapper])
 }
 
-fn hovered_btn() -> Element {
+fn hovered_btn() -> Entity {
     h_flex(
         item_style()
             .shadow_color(Color::BLACK)
@@ -154,7 +154,7 @@ fn hovered_btn() -> Element {
     .label("Hovered", label_style())
 }
 
-fn pressed_btn() -> Element {
+fn pressed_btn() -> Entity {
     h_flex(
         ii().p(12.0)
             .r(4.0)
@@ -174,7 +174,7 @@ fn pressed_btn() -> Element {
     )
 }
 
-fn dragged_btn() -> Element {
+fn dragged_btn() -> Entity {
     h_flex(item_style())
         .modify_d(|t: &Theme| {
             ii().bg_color(t.background_hover).dragged(
@@ -186,7 +186,7 @@ fn dragged_btn() -> Element {
         .label("Dragged", label_style())
 }
 
-fn actived_btn() -> Element {
+fn actived_btn() -> Entity {
     let (is_active, set_is_active) = create_signal(false);
 
     h_flex(item_style())
@@ -206,7 +206,7 @@ fn actived_btn() -> Element {
         })
 }
 
-pub fn selected_btn() -> Element {
+pub fn selected_btn() -> Entity {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum Option {
         A,
@@ -239,7 +239,7 @@ pub fn selected_btn() -> Element {
     ])
 }
 
-fn transition_btn(ms: u64, label_text: &'static str) -> Element {
+fn transition_btn(ms: u64, label_text: &'static str) -> Entity {
     h_flex(item_style().box_shadow(shadow().blur(4.0).color(Color::BLACK).spread(1.0))).child(
         h_flex(
             ii().w_full()
@@ -257,7 +257,7 @@ fn transition_btn(ms: u64, label_text: &'static str) -> Element {
     )
 }
 
-fn section_transition() -> Element {
+fn section_transition() -> Entity {
     let wrapper = h_flex(wrapper_style()).children([
         transition_btn(150, "150 ms"),
         transition_btn(300, "300 ms"),

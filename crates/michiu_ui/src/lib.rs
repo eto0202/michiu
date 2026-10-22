@@ -19,7 +19,7 @@
 //!
 //! ## Summary
 //!
-//! The pipeline in this crate consists primarily of four core elements:
+//! The pipeline in this crate consists primarily of four core entities:
 //!
 //! 1. **Preparing the Renderer**:
 //!    [`MichiuRenderer`] is a backend integrating DirectComposition and wgpu (DirectX 12). It is initialized asynchronously by passing a `HWND` created by any windowing backend.
@@ -39,7 +39,7 @@
 //! struct AppState {
 //!     renderer: MichiuRenderer,
 //!     context: Context,
-//!     root_id: EntityId,
+//!     root_id: Entity,
 //! }
 //!
 //! // 1. Create a window and retrieve the HWND and scale factor
@@ -170,7 +170,7 @@
 //! ### 2. State Management via Data-Oriented Design (DOD)
 //! The internal architecture of `Context` is built on a flat Data-Oriented Design.
 //!
-//! An `Element` is not a heavy, heap-allocated UI object; it is merely a lightweight index key ([`EntityId`]) pointing into an internal Structure of Arrays (SoA).
+//! An `Entity` is not a heavy, heap-allocated UI object; it is merely a lightweight index key ([`Entity`]) pointing into an internal Structure of Arrays (SoA).
 //! Because of this, you are free from Rust's typical self-referential borrowing constraints and can freely mix four distinct paradigms:
 //!
 //! | Approach | Key Benefit | Recommended Use Case |
@@ -178,7 +178,7 @@
 //! | **1. Signal** | Complete state/view separation | Complex business logic, global state |
 //! | **2. Direct** | Zero boilerplate, low overhead | Simple toggles, ephemeral local state |
 //! | **3. Event Context** | Self-contained components | Handling reactions to user events |
-//! | **4. Tag Query** | Type-safe loose coupling | Direct manipulation of sibling or external elements |
+//! | **4. Tag Query** | Type-safe loose coupling | Direct manipulation of sibling or external entities |
 //!
 //! #### 1. Signal Approach (Declarative & Reactive)
 //! Value updates automatically propagate to subscribing property closures (inspired by SolidJS and Leptos).
@@ -192,22 +192,22 @@
 //! ```
 //!
 //! #### 2. Direct Approach (Local Variable Capture)
-//! Move the `Element` directly into an event closure (such as `on_click`) to manipulate it imperatively.
+//! Move the `Entity` directly into an event closure (such as `on_click`) to manipulate it imperatively.
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
-//! let el = h_flex(ii().bg_color(Color::BLUE));
+//! let e = h_flex(ii().bg_color(Color::BLUE));
 //! let mut count = 0u32;
 //!
-//! el.label(move || format!("Direct: {count}"), ii())
+//! e.label(move || format!("Direct: {count}"), ii())
 //!   .on_click(move || {
 //!        count += 1;
-//!        el.set_contents(div_n().label(move || format!("Direct: {count}"), ii()))
+//!        e.set_contents(div_n().label(move || format!("Direct: {count}"), ii()))
 //!          .modify(ii().bg_color(Color::RED));
 //!   })
 //! ```
 //!
-//! #### 3. Event Context Approach (Current Element Manipulation)
+//! #### 3. Event Context Approach (Current Entity Manipulation)
 //! Access the event target (`cx.current()`) directly from the handler argument `cx: &mut Context` (`_with` variants).
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
@@ -224,11 +224,11 @@
 //! ```
 //!
 //! #### 4. Tag Query Approach (Type-Safe Tree Lookups)
-//! The Tag system attaches zero-sized marker types to elements, allowing you to query and mutate them from anywhere in the tree without knowing the hierarchy.
+//! The Tag system attaches zero-sized marker types to entities, allowing you to query and mutate them from anywhere in the tree without knowing the hierarchy.
 //!
 //! In conventional declarative UIs, modifying an ancestor or sibling from a deeply nested child requires lifting state and **prop drilling** callbacks through every intermediate layer.
 //!
-//! In `michiu_ui`, thanks to flat ID management, an isolated child component can directly and imperatively mutate other elements across the tree.
+//! In `michiu_ui`, thanks to flat ID management, an isolated child component can directly and imperatively mutate other entities across the tree.
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
@@ -237,9 +237,9 @@
 //! let left = flex(ii()).tag::<a11y::AButton>();
 //!
 //! let right = flex(ii()).label("Click", ii()).on_click_with(move |cx| {
-//!     let el = cx.query_first::<a11y::AButton>();
+//!     let e = cx.query_first::<a11y::AButton>();
 //!     count += 1;
-//!     el.set_contents(div_n().label(move || format!("Tag: {count}"), ii()));
+//!     e.set_contents(div_n().label(move || format!("Tag: {count}"), ii()));
 //! });
 //!
 //! h_flex(ii()).children([left, right])
@@ -247,7 +247,7 @@
 //!
 //! #### Advantages
 //! 1. **Complete Decoupling**:
-//!    The triggering element (`right`) needs zero knowledge of the tree layout; it only targets elements tagged with `a11y::AButton`.
+//!    The triggering entity (`right`) needs zero knowledge of the tree layout; it only targets entities tagged with `a11y::AButton`.
 //! 2. **Unified Accessibility (a11y)**:
 //!    Marker types like [`a11y::AButton`] serve double duty: they convey UI Automation roles (via AccessKit) and act as type-safe query keys. Custom tags can be created using the [`A11yInferenceTag`](crate::a11y::A11yInferenceTag) trait.
 //!
@@ -263,7 +263,7 @@
 //! use michiu_ui::prelude::*;
 //!
 //! // 1. Create and provide signals at the root
-//! pub fn create_root() -> Element {
+//! pub fn create_root() -> Entity {
 //!     let (theme, _) = create_signal(Theme::dark());
 //!     let (search_text, _) = create_signal(SearchText(String::new()));
 //!
@@ -278,7 +278,7 @@
 //! }
 //!
 //! // 2. Subscribe from any nested child
-//! fn some_label() -> Element {
+//! fn some_label() -> Entity {
 //!     label("Hello", ii().text_color(dynamic(|t: &Theme| t.primary)))
 //! }
 //! ```
@@ -384,21 +384,21 @@
 //! * [**Renderer Implementation**](crate::renderer) - DirectComposition surface management and rendering command generation via wgpu
 //! * [**`Context` Structure**](crate::context) - Global state maintenance, storage management, and lifecycle control
 //! * [**`pipeline` module**](crate::pipeline) - Frame progression orchestrator
-//! * [**UI Construction and Styling**](crate::element) - Widget tree construction via [`build_ui`] and the list of properties for `ii()` (style builder)
+//! * [**UI Construction and Styling**](crate::entity) - Widget tree construction via [`build_ui`] and the list of properties for `ii()` (style builder)
 //! * [**Reactivity**](crate::signal) - Reactive programming model and dependency tracking via [`create_signal`]
-//! * [**Tag Feature**](crate::tag) - Assigning identification tags to elements, and tree traversal and querying
+//! * [**Tag Feature**](crate::tag) - Assigning identification tags to entities, and tree traversal and querying
 //! * [**Accessibility**](crate::context::acce_store) - Integration with AccessKit and tree synchronization
-//! * [**Embedding External Elements**](crate::external) - Integration of images, videos, external files, and `IDCompositionVisual2`
+//! * [**Embedding External entities**](crate::external) - Integration of images, videos, external files, and `IDCompositionVisual2`
 //! * [**Debugging Tools**](crate::context::debug_store) - Collection of logs (including errors) and visualization of the lifecycle
 
 mod bitmap;
 pub mod context;
-pub mod element;
+pub mod entity;
 pub mod external;
+mod modifier;
 mod option;
 pub mod renderer;
 pub mod signal;
-mod style;
 pub mod tag;
 mod types;
 mod utils;
@@ -408,9 +408,11 @@ pub use bitmap::*;
 #[doc(inline)]
 pub use context::*;
 #[doc(inline)]
-pub use element::*;
+pub use entity::*;
 #[doc(inline)]
 pub use external::*;
+#[doc(inline)]
+pub use modifier::*;
 #[doc(inline)]
 pub use option::*;
 #[doc(inline)]
@@ -419,8 +421,6 @@ pub use renderer::*;
 pub use signal::*;
 #[doc(inline)]
 pub use soa::MichiuSoA;
-#[doc(inline)]
-pub use style::*;
 #[doc(inline)]
 pub use tag::*;
 #[doc(inline)]
@@ -438,16 +438,16 @@ pub mod accessibility {
 pub mod prelude {
     pub use crate::{
         bitmap::PropertyList,
-        context::{Context, EntityId, MichiuInspector},
-        dnd::{DndDragPayload, DndDropTarget},
-        element::{Element, build_ui},
+        context::{Context, MichiuInspector},
+        dnd::{DndDragMode, DndDropTarget},
+        entity::{Entity, build_ui},
         input::InputContents,
         m,
+        modifier::Modifier,
         pipeline::{EventAction, TickType},
         renderer::MichiuRenderer,
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
-        style::Modifier,
         types::{
             AnimationCurve, Backdrop, BorderAlignment, BorderStyle, Color, CursorIcon, Display,
             ElementState, InteractionState, KeyframeAnimation, LayoutPoint, LayoutRect, LayoutSize,

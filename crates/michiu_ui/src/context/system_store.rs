@@ -1,5 +1,5 @@
 use crate::{
-    CapacityConfig, Context, EntityId, InputContents, LayoutPoint, LayoutRect, MichiuError,
+    CapacityConfig, Context, Entity, InputContents, LayoutPoint, LayoutRect, MichiuError,
     MichiuSoA, ResolvedGeometry, TextEngine, UiaValue, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
@@ -27,9 +27,9 @@ pub struct MichiuTaskSender {
 impl MichiuTaskSender {
     /// Sends a closure—a piece of code to be executed on the main thread—from a worker thread or similar.
     /// Since the library automatically wraps it in a `Box`, the caller does not need to call `Box::new`.
-    /// 
+    ///
     /// # Errors
-    /// 
+    ///
     /// Returns [`MichiuError::SendError`] If the receiver has already terminated or dropped the connection.
     pub fn send<F>(&self, f: F) -> Result<(), MichiuError>
     where
@@ -100,7 +100,7 @@ impl SystemStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.sys_text_buffers.borrow_mut().remove(id);
     }
 }
@@ -108,14 +108,14 @@ impl SystemStore {
 impl SystemStore {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
-    pub(crate) fn clear_text_buffer_cache(id: EntityId, sys_text_buffers: &TextBufferSparse) {
+    pub(crate) fn clear_text_buffer_cache(id: Entity, sys_text_buffers: &TextBufferSparse) {
         sys_text_buffers.borrow_mut().remove(id);
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持。
     #[inline]
     pub(crate) fn get_or_create_text_buffer<F>(
-        id: EntityId,
+        id: Entity,
         max_width_opt: Option<f32>,
         sys_text_buffers: &TextBufferSparse,
         create_buffer: F,

@@ -1,8 +1,8 @@
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, AlignItems, BasicLayoutsSecondary,
-    CapacityConfig, DEFAULT_BASIC, DebugStore, EdgeInsets, EntityId, LayoutPoint, LayoutRect,
+    CapacityConfig, DEFAULT_BASIC, DebugStore, EdgeInsets, Entity, LayoutPoint, LayoutRect,
     LayoutSize, LayoutStore, MichiuSoA, ParentsSecondary, Position, ResolvedBasicSecondary,
-    ScrollOffsetsSecondary, TaffyNodesSecondary, TaffyTreeEntityId, TextAlign, TextLayoutSize,
+    ScrollOffsetsSecondary, TaffyNodesSecondary, TaffyTreeEntity, TextAlign, TextLayoutSize,
     UserSelect, Val, VisualPropertiesSecondary, define_secondary,
 };
 use slotmap::SecondaryMap;
@@ -59,7 +59,7 @@ impl OutputStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.out_rects.remove(id);
         self.out_clip_rects.remove(id);
         self.out_prev_rects.remove(id);
@@ -70,7 +70,7 @@ impl OutputStore {
 impl OutputStore {
     #[track_caller]
     pub(crate) fn has_parent_changed(
-        id: EntityId,
+        id: Entity,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         out_rects: &RectsSecondary,
@@ -89,10 +89,10 @@ impl OutputStore {
 
     #[track_caller]
     pub(crate) fn calc_local_rect(
-        id: EntityId,
+        id: Entity,
         window_size: LayoutSize,
         topo_parents: &ParentsSecondary,
-        lay_taffy_tree: &TaffyTreeEntityId,
+        lay_taffy_tree: &TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &RectsSecondary,
@@ -136,7 +136,7 @@ impl OutputStore {
     /// 単位（Px, Percent, Auto）を親要素のサイズまたはウィンドウ基準をベースに物理ピクセルへ解決します。
     #[track_caller]
     pub(crate) fn val_to_px(
-        id: EntityId,
+        id: Entity,
         val: Val,
         is_width: bool,
         win_last_size: Option<LayoutSize>,
@@ -315,7 +315,7 @@ pub(crate) struct ResolvedGeometry {
 impl ResolvedGeometry {
     #[inline]
     pub(crate) fn resolved(
-        id: EntityId,
+        id: Entity,
         sc_offsets: &ScrollOffsetsSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         out_rects: &RectsSecondary,

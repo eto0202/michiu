@@ -1,6 +1,6 @@
-# `element`
+# `entity`
 
-UIツリーを構成する [`Element`] の生成、ツリー構造の組み立て、イベントハンドリング、
+UIツリーを構成する [`Entity`] の生成、ツリー構造の組み立て、イベントハンドリング、
 および [`Modifier`] による宣言的スタイリングを担当するモジュールです。
 
 ---
@@ -8,14 +8,11 @@ UIツリーを構成する [`Element`] の生成、ツリー構造の組み立�
 ## アーキテクチャ
 
 `michiu_ui` には `Button` や `TextInput` といった固定化されたウィジェット構造体は存在しません。
-すべてのノードは単なる [`Element`]（実体は軽量でコピー可能な [`EntityId`]）であり、
+すべてのノードは単なる `Entity` であり、
 その ID が内部のどの SoA にスロットを保持しているかによって、その要素の能力や振る舞いが決定されます。
 
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Element {
-    pub(crate) id: EntityId,
-}
+pub struct Entity(KeyData)
 ```
 
 ### 機能のアタッチ（取り付けあるいは所属・登録）という考え方
@@ -29,10 +26,10 @@ pub struct Element {
 
 ### なぜスタイル（`Modifier`）が分離されているのか？
 
-`Element` に直接 `.bg_color(...)` を生やさず、独立した [`Modifier`]（[`ii()`](<crate::ii()>)）を引数で渡すのには2つの理由があります。
+`Entity` に直接 `.bg_color(...)` を生やさず、独立した [`Modifier`]（[`ii()`](<crate::ii()>)）を引数で渡すのには2つの理由があります。
 
 1.  **DODによる整合性**:
-    `Element` 自体が色やサイズを保持しているわけではなく、内部のスタイル SoA テーブルに ID を登録しているだけです。機能のアタッチと同様に「スタイル定義を外から注入する」という一貫したメンタルモデルに基づいています。
+    `Entity` 自体が色やサイズを保持しているわけではなく、内部のスタイル SoA テーブルに ID を登録しているだけです。機能のアタッチと同様に「スタイル定義を外から注入する」という一貫したメンタルモデルに基づいています。
 2.  **スタイルの再利用性と可読性（CoWによるゼロコスト共有）**:
     CSS クラスのようにスタイル定義を変数として共通化し、複数の要素へ自由に適用できます。
     `Modifier` の内部は [`Arc`] で包まれているため、クローンしてもメモリの再確保は発生せず、プロパティを変更・上書きした時のみ CoW（`Arc::make_mut`） によって安全かつ最小のコストで分岐されます。
@@ -51,7 +48,7 @@ pub struct Element {
 ## UI構築の基本ステップ
 
 1.  `Context` を初期化します。
-2.  [`build_ui`] を使用してUIツリーを宣言します（ルート要素 `Element` を返す必要があります）。
+2.  [`build_ui`] を使用してUIツリーを宣言します（ルート要素 `Entity` を返す必要があります）。
 3.  要素生成関数（`div`, `h_flex` 等）でベース要素を初期化します。
 4.  `modify()` または `modify_d()`（あるいは生成時引数）でスタイルを適用します。
 5.  子要素、テキスト、入力、イベントハンドラ等の機能をアタッチします。
@@ -74,14 +71,14 @@ let root = build_ui(&mut context, || {
 
 ## 要素生成プリミティブ（組み込み関数一覧）
 
-| 関数                             | 初期設定される `Display` / レイアウト属性 | 主な用途                                       |
-| :------------------------------- | :---------------------------------------- | :--------------------------------------------- |
-| **`div(style)` / `div_d`**       | `Display::Block`                          | 一般的なブロック要素                           |
-| **`div_n()`**                    | `NO_STYLE: Option<Modifier> = None`      | スタイル処理を完全にスキップする最軽量コンテナ |
-| **`flex(style)` / `flex_d`**     | `Display::Flex`                           | 自由なFlexboxコンテナ                          |
-| **`h_flex(style)` / `h_flex_d`** | `Display::Flex` + `FlexDirection::Row`    | **水平方向（横並び）** コンテナ                |
-| **`v_flex(style)` / `v_flex_d`** | `Display::Flex` + `FlexDirection::Column` | **垂直方向（縦並び）** コンテナ                |
-| **`hidden_box(style)`**          | `Display::None`                           | 条件付きレンダリングや非表示領域               |
+| 関数                                | 初期設定される `Display` / レイアウト属性 | 主な用途                                       |
+| :---------------------------------- | :---------------------------------------- | :--------------------------------------------- |
+| **`div(modifier)` / `div_d`**       | `Display::Block`                          | 一般的なブロック要素                           |
+| **`div_n()`**                       | `NO_STYLE: Option<Modifier> = None`       | スタイル処理を完全にスキップする最軽量コンテナ |
+| **`flex(modifier)` / `flex_d`**     | `Display::Flex`                           | 自由なFlexboxコンテナ                          |
+| **`h_flex(modifier)` / `h_flex_d`** | `Display::Flex` + `FlexDirection::Row`    | **水平方向（横並び）** コンテナ                |
+| **`v_flex(modifier)` / `v_flex_d`** | `Display::Flex` + `FlexDirection::Column` | **垂直方向（縦並び）** コンテナ                |
+| **`hidden_box(modifier)`**          | `Display::None`                           | 条件付きレンダリングや非表示領域               |
 
 ---
 
@@ -118,8 +115,8 @@ let root = build_ui(&mut context, || {
 ### 3. ドラッグ＆ドロップ属性（`draggable` / `droppable`）
 
 - **`DndDragPayload` の挙動の違い**:
-  - `Element`: ドロップ確定時にライブラリがツリー構造（SoA）を自動的に書き換えて要素を移動。
-  - `EntityId`: ツリー構造は変更せず、DnDイベント（ID通知）のみを発火。
+  - `Entity`: ドロップ確定時にライブラリがツリー構造（SoA）を自動的に書き換えて要素を移動。
+  - `Entity`: ツリー構造は変更せず、DnDイベント（ID通知）のみを発火。
 - **プレースホルダー配置**:
   - `.dnd_draggable_root(...)`: プレースホルダーをルート直下に生成し、絶対配置でカーソルに追従。
   - `.dnd_draggable_parent(...)`: 任意の親要素の子として追加し、絶対配置でカーソルに追従。
@@ -134,7 +131,7 @@ let root = build_ui(&mut context, || {
 - **カーソル優先順位**: `resizable_cursor`（最優先） > `cursor(...)`（要素個別） > `cursor_global(...)`（自身および子孫のベースカーソル）
 - **マテリアル (`backdrop`)**: Mica や Acrylic を適用（ウィンドウ背景色は透過である必要があります）。
 - **デバッグ支援 (`debug...`)**: 枠線色をあらかじめ設定したボーダーやアウトラインを提供するショートハンド。
-- **スタイルのマージ**: `.merge(other_style)` で別の `Modifier` を合成。
+- **スタイルのマージ**: `.merge(other_modifier)` で別の `Modifier` を合成。
 
 ---
 
@@ -144,16 +141,16 @@ let root = build_ui(&mut context, || {
 
 見た目は似ていますが、内部の SoA 構造およびツリー階層が明確に異なります。
 
-- **`el.text(content)` / `text_d`（自身をテキスト化）**:
-  **自身（`el`）の ID** がテキストコンテンツ SoA に直接登録されます。要素自身がテキスト計測（`measure_content`）の対象となり、自身が直接マウスイベントを受け取ります。動的変更時はテキストプロパティ自体が更新されます。
+- **`entity.text(content)` / `text_d`（自身をテキスト化）**:
+  **自身（`entity`）** がテキストコンテンツ SoA に直接登録されます。要素自身がテキスト計測（`measure_content`）の対象となり、自身が直接マウスイベントを受け取ります。動的変更時はテキストプロパティ自体が更新されます。
   ※ ショートハンド `text(content)` は `div_n().text(content)` と同等です。
-- **`el.label(content, style)` / `label_d`（テキスト子要素の自動生成）**:
-  **新しく生成された子要素の ID** がテキスト SoA に登録され、`el` の子要素としてぶら下がります。
+- **`entity.label(content, modifier)` / `label_d`（テキスト子要素の自動生成）**:
+  **新しく生成された子要素** がテキスト SoA に登録され、`entity` の子要素としてぶら下がります。
   この子要素には自動的に `PointerEvents::None` が設定されるため、親のクリック判定を遮りません。ボタン枠の中にテキストを中央配置する場合などに最適です。動的変更時は子要素が差し替えられます。
 
 ### 2. 子要素の追加と動的差し替え
 
-- **単一/複数追加**: `.child(el)`, `.children([el1, el2])`（動的版: `.child_d`, `.children_d`）
+- **単一/複数追加**: `.child(entity)`, `.children([entity_1, entity_2])`（動的版: `.child_d`, `.children_d`）
 - **動的コンテンツ差し替え (`set_contents`)**:
   親要素を破棄せず、子要素のみを丸ごと差し替えます。以前の子要素に紐づいていた古いエフェクトは安全に破棄されます。
 
@@ -174,46 +171,46 @@ let root = build_ui(&mut context, || {
 
 - **登録**: `.tag::<MyTag>()`, `.tag_a11y::<CustomInferenceTag>()`（自作の `trait A11yInferenceTag` 登録用）
 - **自身の子孫から探索**:
-  - `el.query_descendant::<T>()` / `el.try_query_descendant::<T>()`
-  - `el.query_descendants::<T>()`（マッチした全要素を `Vec` で取得）
-  - `el.for_each_descendants::<T>(|child| ...)`（クロージャによる遅延生成・走査）
+  - `entity.query_descendant::<T>()` / `entity.try_query_descendant::<T>()`
+  - `entity.query_descendants::<T>()`（マッチした全要素を `Vec` で取得）
+  - `entity.for_each_descendants::<T>(|child| ...)`（クロージャによる遅延生成・走査）
   - 全体や特定の要素を起点に検索する場合は `cx.query_first::<T>()` などの `Context` メソッドを使用します。
 
 ### 6. イベントハンドラ一覧
 
 すべてのハンドラには通常版と `_with` 版（`|cx|` 付き）が存在します。同種のハンドラが重複して登録された場合、定義順にすべて順次実行されます。
 
-| カテゴリ                 | メソッド                                              | 発火契機・補足                           |
-| :----------------------- | :---------------------------------------------------- | :--------------------------------------- |
-| **ポインタ・マウス**     | `on_click`, `on_click_with`                           | 同一要素上で押して離された時             |
-|                          | `on_right_click`, `on_right_click_with`               | 右クリック確定時                         |
-|                          | `on_mouse_input`, `on_mouse_input_with`               | マウスボタンの押下・離上                 |
-|                          | `on_mouse_enter`, `on_mouse_enter_with`               | ポインタの侵入                           |
-|                          | `on_mouse_leave`, `on_mouse_leave_with`               | ポインタの離脱                           |
-|                          | `on_cursor_moved`, `on_cursor_moved_with`             | 要素上でのカーソル移動                   |
-|                          | `on_mouse_wheel`, `on_mouse_wheel_with`               | ホイール回転（消費時はバブリング停止）   |
-|                          | `on_drag`, `on_drag_with`                             | マウスドラッグ中                         |
-|                          | `on_hover`, `on_hover_with`                           | ホバー継続中                             |
-| **キーボード・テキスト** | `on_char_input`, `on_char_input_with`                 | 文字入力確定時                           |
-|                          | `on_keyboard_input`, `on_keyboard_input_with`         | キーの物理押下・離上                     |
-|                          | `on_ime`, `on_ime_with`                               | IME 変換イベント                         |
-| **ファイルD&D**          | `on_file_dropped`, `on_file_dropped_with`             | OSからのファイルドロップ確定             |
-|                          | `on_file_drag_enter`, `on_file_drag_enter_with`       | ファイルドラッグの要素侵入               |
-|                          | `on_file_drag_leave`, `on_file_drag_leave_with`       | ファイルドラッグの要素離脱               |
-| **状態遷移**             | `on_focus`, `on_focus_with`                           | フォーカス獲得時（`focus(true)` に連動） |
-|                          | `on_blur`, `on_blur_with`                             | フォーカス喪失時                         |
-|                          | `on_disable`, `on_disable_with`                       | 無効化時（`disable(true)` に連動）       |
-|                          | `on_active`, `on_active_with`                         | 有効化時（`active(true)` に連動）        |
-|                          | `on_select`, `on_select_with`                         | 選択状態変化時（`select(true)` に連動）  |
-| **アプリ内DnD**          | `on_dnd_drag_start`, `on_dnd_drag_start_with`         | ドラッグ閾値超過による開始               |
-|                          | `on_dnd_element_drag(_with)`, `on_dnd_id_drag(_with)` | ドラッグ中（Payload種別で分岐）          |
-|                          | `on_dnd_element_drop(_with)`, `on_dnd_id_drop(_with)` | ドロップ確定時                           |
+| カテゴリ                 | メソッド                                                       | 発火契機・補足                           |
+| :----------------------- | :------------------------------------------------------------- | :--------------------------------------- |
+| **ポインタ・マウス**     | `on_click`, `on_click_with`                                    | 同一要素上で押して離された時             |
+|                          | `on_right_click`, `on_right_click_with`                        | 右クリック確定時                         |
+|                          | `on_mouse_input`, `on_mouse_input_with`                        | マウスボタンの押下・離上                 |
+|                          | `on_mouse_enter`, `on_mouse_enter_with`                        | ポインタの侵入                           |
+|                          | `on_mouse_leave`, `on_mouse_leave_with`                        | ポインタの離脱                           |
+|                          | `on_cursor_moved`, `on_cursor_moved_with`                      | 要素上でのカーソル移動                   |
+|                          | `on_mouse_wheel`, `on_mouse_wheel_with`                        | ホイール回転（消費時はバブリング停止）   |
+|                          | `on_drag`, `on_drag_with`                                      | マウスドラッグ中                         |
+|                          | `on_hover`, `on_hover_with`                                    | ホバー継続中                             |
+| **キーボード・テキスト** | `on_char_input`, `on_char_input_with`                          | 文字入力確定時                           |
+|                          | `on_keyboard_input`, `on_keyboard_input_with`                  | キーの物理押下・離上                     |
+|                          | `on_ime`, `on_ime_with`                                        | IME 変換イベント                         |
+| **ファイルD&D**          | `on_file_dropped`, `on_file_dropped_with`                      | OSからのファイルドロップ確定             |
+|                          | `on_file_drag_enter`, `on_file_drag_enter_with`                | ファイルドラッグの要素侵入               |
+|                          | `on_file_drag_leave`, `on_file_drag_leave_with`                | ファイルドラッグの要素離脱               |
+| **状態遷移**             | `on_focus`, `on_focus_with`                                    | フォーカス獲得時（`focus(true)` に連動） |
+|                          | `on_blur`, `on_blur_with`                                      | フォーカス喪失時                         |
+|                          | `on_disable`, `on_disable_with`                                | 無効化時（`disable(true)` に連動）       |
+|                          | `on_active`, `on_active_with`                                  | 有効化時（`active(true)` に連動）        |
+|                          | `on_select`, `on_select_with`                                  | 選択状態変化時（`select(true)` に連動）  |
+| **アプリ内DnD**          | `on_dnd_drag_start`, `on_dnd_drag_start_with`                  | ドラッグ閾値超過による開始               |
+|                          | `on_dnd_drag_interactive(_with)`, `on_dnd_drag_passive(_with)` | ドラッグ中（Mode種別で分岐）             |
+|                          | `on_dnd_drop_interactive(_with)`, `on_dnd_drop_passive(_with)` | ドロップ確定時                           |
 
 ---
 
 ## スレッド安全性と実行コンテキスト
 
-- **[`Element`] のメソッド**: 内部の SoA ストアと直接通信するため、メインスレッド（UIスレッド）限定です。
+- **[`Entity`] のメソッド**: 内部の SoA ストアと直接通信するため、メインスレッド（UIスレッド）限定です。
 - **[`Modifier`]**: 中身はスレッドセーフな [`Arc`] であり、単純なデータ構造であるためスレッド間を自由に転送可能です。値の書き換えは常に `Arc::make_mut` を通じて排他参照が得られた時のみ実行されるため、データ競合のリスクはありません。
   ```rust
     #[derive(Debug, Clone, Default)]

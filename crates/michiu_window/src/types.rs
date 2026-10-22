@@ -2,7 +2,7 @@ use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
 
 use crate::utils::round_to_i32;
 
-/// Describes the state of a physical input element (e.g., Keyboard Key, Mouse Button).
+/// Describes the state of a physical input entity (e.g., Keyboard Key, Mouse Button).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ElementState {
     /// The element is currently pressed down.

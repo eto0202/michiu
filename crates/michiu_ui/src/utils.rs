@@ -1,5 +1,5 @@
 use crate::{
-    BoxShadow, Color, Convert, Element, ExternalTexture, ExternalVisual, FlexDirection,
+    BoxShadow, Color, Convert, Entity, ExternalTexture, ExternalVisual, FlexDirection,
     InputContents, IntoHexColor, IntoLayoutPoint, ModValue, Modifier, Prop, ReadSignal,
     WriteSignal, with_context,
 };
@@ -10,7 +10,7 @@ use std::borrow::Cow;
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn example() -> Element {
+/// # fn example() -> Entity {
 ///     div(
 ///         ii().size_full()
 ///             .p(8.0)
@@ -38,7 +38,7 @@ pub fn ii() -> Modifier {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn example() -> Element {
+/// # fn example() -> Entity {
 ///     div(
 ///         m!().size_full()
 ///             .p(8.0)
@@ -60,7 +60,7 @@ macro_rules! m {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn example() -> Element {
+/// # fn example() -> Entity {
 ///     let (count, set_count) = create_signal(0u32);
 ///     div(
 ///         ii().size_full()
@@ -75,7 +75,7 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
     with_context(|cx| cx.create_signal(initial_value))
 }
 
-/// Retrieves context signals ([`ReadSignal<T>`]) provided by ancestor elements, including itself.
+/// Retrieves context signals ([`ReadSignal<T>`]) provided by ancestor entities, including itself.
 ///
 /// Travers the UI tree upward and searches for and returns signals of type `T` provided via `.provide()`.
 ///
@@ -90,7 +90,7 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
 /// # Related Features
 /// - [`use_provided_setter`]: Retrieves a [`WriteSignal<T>`] to update the context’s value.
 /// - [`dynamic`](crate::dynamic): Directly binds the context’s value to a single style property.
-/// - [`modify_d`](crate::Element::modify_d): Dynamically applies an entire style block based on the context’s value.
+/// - [`modify_d`](crate::Entity::modify_d): Dynamically applies an entire style block based on the context’s value.
 ///
 /// # Examples
 /// ```no_run
@@ -100,7 +100,7 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
 ///     color: Color,
 /// }
 ///
-/// fn root() -> Element {
+/// fn root() -> Entity {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
@@ -130,7 +130,7 @@ pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
 /// # Related Features
 /// - [`use_provided_setter`]: Retrieves a [`WriteSignal<T>`] to update the context’s value.
 /// - [`dynamic`](crate::dynamic): Directly binds the context’s value to a single style property.
-/// - [`modify_d`](crate::Element::modify_d): Dynamically applies an entire style block based on the context’s value.
+/// - [`modify_d`](crate::Entity::modify_d): Dynamically applies an entire style block based on the context’s value.
 ///
 /// # Examples
 /// ```no_run
@@ -140,7 +140,7 @@ pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
 ///     color: Color,
 /// }
 ///
-/// fn root() -> Element {
+/// fn root() -> Entity {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
@@ -176,7 +176,7 @@ pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
 /// # Related Features
 /// - [`use_provided_setter`]: Retrieves a [`WriteSignal<T>`] to update the context’s value.
 /// - [`dynamic`](crate::dynamic): Directly binds the context’s value to a single style property.
-/// - [`modify_d`](crate::Element::modify_d): Dynamically applies an entire style block based on the context’s value.
+/// - [`modify_d`](crate::Entity::modify_d): Dynamically applies an entire style block based on the context’s value.
 ///
 /// # Examples
 /// ```no_run
@@ -186,7 +186,7 @@ pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
 ///     color: Color,
 /// }
 ///
-/// fn root() -> Element {
+/// fn root() -> Entity {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
@@ -300,21 +300,21 @@ pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
 
 /// A container that applies a style and generates content.
 ///
-/// It is the same as `Element::new().modify(style)`.
+/// It is the same as `Entity::new().modify(style)`.
 ///
 /// Default is Flex Box.
 ///
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> Element {
+/// # fn examples() -> Entity {
 ///    flex(ii().justify_center())
 /// # }
 /// ```
 #[inline]
-pub fn flex(m: impl Into<Prop<Modifier>>) -> Element {
-    let el = Element::new();
-    el.modify(m)
+pub fn flex(m: impl Into<Prop<Modifier>>) -> Entity {
+    let e = Entity::new();
+    e.modify(m)
 }
 
 /// A block container that applies a style and generates content.
@@ -322,14 +322,14 @@ pub fn flex(m: impl Into<Prop<Modifier>>) -> Element {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> Element {
+/// # fn examples() -> Entity {
 ///    div(ii().size(100.0))
 /// # }
 /// ```
 #[inline]
-pub fn div(m: impl Into<Prop<Modifier>>) -> Element {
-    let el = Element::new();
-    el.modify(ii().block()).modify(m)
+pub fn div(m: impl Into<Prop<Modifier>>) -> Entity {
+    let e = Entity::new();
+    e.modify(ii().block()).modify(m)
 }
 
 pub const NO_STYLE: Option<Modifier> = None;
@@ -339,13 +339,13 @@ pub const NO_STYLE: Option<Modifier> = None;
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> Element {
+/// # fn examples() -> Entity {
 ///    div_n().modify(ii())
 /// # }
 /// ```
 #[inline]
 #[must_use]
-pub fn div_n() -> Element {
+pub fn div_n() -> Entity {
     flex(NO_STYLE)
 }
 
@@ -354,14 +354,14 @@ pub fn div_n() -> Element {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> Element {
+/// # fn examples() -> Entity {
 ///    h_flex(ii().border_solid(1.0))
 /// # }
 /// ```
 #[inline]
-pub fn h_flex(m: impl Into<Prop<Modifier>>) -> Element {
-    let el = Element::new();
-    el.modify(ii().flex().flex_direction(FlexDirection::Row))
+pub fn h_flex(m: impl Into<Prop<Modifier>>) -> Entity {
+    let e = Entity::new();
+    e.modify(ii().flex().flex_direction(FlexDirection::Row))
         .modify(m)
 }
 
@@ -370,22 +370,22 @@ pub fn h_flex(m: impl Into<Prop<Modifier>>) -> Element {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> Element {
+/// # fn examples() -> Entity {
 ///    h_flex(ii().outline_solid(1.0))
 /// # }
 /// ```
 #[inline]
-pub fn v_flex(m: impl Into<Prop<Modifier>>) -> Element {
-    let el = Element::new();
-    el.modify(ii().flex().flex_direction(FlexDirection::Column))
+pub fn v_flex(m: impl Into<Prop<Modifier>>) -> Entity {
+    let e = Entity::new();
+    e.modify(ii().flex().flex_direction(FlexDirection::Column))
         .modify(m)
 }
 
 /// Not Implemented
 #[inline]
-pub fn grid_box(m: impl Into<Prop<Modifier>>) -> Element {
-    let el = Element::new();
-    el.modify(ii().grid()).modify(m)
+pub fn grid_box(m: impl Into<Prop<Modifier>>) -> Entity {
+    let e = Entity::new();
+    e.modify(ii().grid()).modify(m)
 }
 
 /// Hidden Container
@@ -393,14 +393,14 @@ pub fn grid_box(m: impl Into<Prop<Modifier>>) -> Element {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> Element {
+/// # fn examples() -> Entity {
 ///    hidden_box(ii().size_full())
 /// # }
 /// ```
 #[inline]
-pub fn hidden_box(m: impl Into<Prop<Modifier>>) -> Element {
-    let el = Element::new();
-    el.modify(ii().hidden()).modify(m)
+pub fn hidden_box(m: impl Into<Prop<Modifier>>) -> Entity {
+    let e = Entity::new();
+    e.modify(ii().hidden()).modify(m)
 }
 
 /// Text Container
@@ -408,12 +408,12 @@ pub fn hidden_box(m: impl Into<Prop<Modifier>>) -> Element {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> Element {
+/// # fn examples() -> Entity {
 ///    text("examples").modify(ii().font_size(20.0))
 /// # }
 /// ```
 #[inline]
-pub fn text(content: impl Into<Prop<Cow<'static, str>>>) -> Element {
+pub fn text(content: impl Into<Prop<Cow<'static, str>>>) -> Entity {
     div_n().text(content)
 }
 
@@ -422,7 +422,7 @@ pub fn text(content: impl Into<Prop<Cow<'static, str>>>) -> Element {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> Element {
+/// # fn examples() -> Entity {
 ///    let (read_text, write_text) = create_signal(String::new());
 ///
 ///    input(
@@ -432,7 +432,7 @@ pub fn text(content: impl Into<Prop<Cow<'static, str>>>) -> Element {
 /// # }
 /// ```
 #[inline]
-pub fn input(contents: impl Into<Prop<InputContents>>) -> Element {
+pub fn input(contents: impl Into<Prop<InputContents>>) -> Entity {
     div_n().input(contents)
 }
 
@@ -441,7 +441,7 @@ pub fn input(contents: impl Into<Prop<InputContents>>) -> Element {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> Element {
+/// # fn examples() -> Entity {
 ///    let (text, set_text) = create_signal(String::new());
 ///
 ///    input_area(
@@ -451,19 +451,19 @@ pub fn input(contents: impl Into<Prop<InputContents>>) -> Element {
 /// # }
 /// ```
 #[inline]
-pub fn input_area(contents: impl Into<Prop<InputContents>>) -> Element {
+pub fn input_area(contents: impl Into<Prop<InputContents>>) -> Entity {
     div_n().input_area(contents)
 }
 
 /// External Texture Container
 #[inline]
-pub fn external_texture(texture: impl ExternalTexture + 'static) -> Element {
+pub fn external_texture(texture: impl ExternalTexture + 'static) -> Entity {
     div_n().external_texture(texture)
 }
 
 /// External Visual Container
 #[inline]
-pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
+pub fn external_visual(visual: impl ExternalVisual + 'static) -> Entity {
     div_n().external_visual(visual)
 }
 
@@ -477,7 +477,7 @@ pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
 ///     color: Color,
 /// }
 ///
-/// fn root() -> Element {
+/// fn root() -> Entity {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
@@ -486,12 +486,12 @@ pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
 /// }
 /// ```
 #[inline]
-pub fn flex_d<P, F>(f: F) -> Element
+pub fn flex_d<P, F>(f: F) -> Entity
 where
     P: Clone + 'static,
     F: Fn(&P) -> Modifier + Send + Sync + 'static,
 {
-    Element::new().modify_d(f)
+    Entity::new().modify_d(f)
 }
 
 /// A block container that dynamically resolves `Modifier` from provider `P` and applies the style
@@ -504,7 +504,7 @@ where
 ///     color: Color,
 /// }
 ///
-/// fn root() -> Element {
+/// fn root() -> Entity {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
@@ -513,12 +513,12 @@ where
 /// }
 /// ```
 #[inline]
-pub fn div_d<P, F>(f: F) -> Element
+pub fn div_d<P, F>(f: F) -> Entity
 where
     P: Clone + 'static,
     F: Fn(&P) -> Modifier + Send + Sync + 'static,
 {
-    Element::new().modify(ii().block()).modify_d(f)
+    Entity::new().modify(ii().block()).modify_d(f)
 }
 
 /// A horizontal flex container that dynamically resolves `Modifier` from provider `P` and applies the style
@@ -531,7 +531,7 @@ where
 ///     color: Color,
 /// }
 ///
-/// fn root() -> Element {
+/// fn root() -> Entity {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
@@ -540,14 +540,14 @@ where
 /// }
 /// ```
 #[inline]
-pub fn h_flex_d<P, F>(f: F) -> Element
+pub fn h_flex_d<P, F>(f: F) -> Entity
 where
     P: Clone + 'static,
     F: Fn(&P) -> Modifier + Send + Sync + 'static,
 {
     // レイアウトの基本形式（フレックス）は静的に適用し、
     // プロバイダー依存の残りのスタイルは style_c で一括解決します
-    Element::new()
+    Entity::new()
         .modify(ii().flex().flex_direction(FlexDirection::Row))
         .modify_d(f)
 }
@@ -562,7 +562,7 @@ where
 ///     color: Color,
 /// }
 ///
-/// fn root() -> Element {
+/// fn root() -> Entity {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
@@ -571,12 +571,12 @@ where
 /// }
 /// ```
 #[inline]
-pub fn v_flex_d<P, F>(f: F) -> Element
+pub fn v_flex_d<P, F>(f: F) -> Entity
 where
     P: Clone + 'static,
     F: Fn(&P) -> Modifier + Send + Sync + 'static,
 {
-    Element::new()
+    Entity::new()
         .modify(ii().flex().flex_direction(FlexDirection::Column))
         .modify_d(f)
 }
@@ -592,7 +592,7 @@ where
 ///    Big,
 /// }
 ///
-/// fn root() -> Element {
+/// fn root() -> Entity {
 ///     let (order, _) = create_signal(MichiuOrder::Small);
 ///     div_n().provide(order)
 ///            .child(
@@ -604,7 +604,7 @@ where
 /// }
 /// ```
 #[inline]
-pub fn text_d<P, F, S>(f: F) -> Element
+pub fn text_d<P, F, S>(f: F) -> Entity
 where
     P: Clone + 'static,
     F: Fn(&P) -> S + Send + Sync + 'static,
@@ -613,7 +613,7 @@ where
     div_n().text_d(f)
 }
 
-/// A container that dynamically resolves, generates, and applies input field elements from provider `P`.
+/// A container that dynamically resolves, generates, and applies input field entities from provider `P`.
 ///
 /// # Examples
 /// ```no_run
@@ -623,7 +623,7 @@ where
 ///     color: Color,
 /// }
 ///
-/// fn root() -> Element {
+/// fn root() -> Entity {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     let (read_text, write_text) = create_signal(String::new());
 ///
@@ -637,7 +637,7 @@ where
 /// }
 /// ```
 #[inline]
-pub fn input_d<P, F>(f: F) -> Element
+pub fn input_d<P, F>(f: F) -> Entity
 where
     P: Clone + 'static,
     F: Fn(&P) -> InputContents + Send + Sync + 'static,
@@ -645,9 +645,9 @@ where
     div_n().input_d(f)
 }
 
-/// A container that dynamically resolves, generates, and applies input area elements from provider `P`.
+/// A container that dynamically resolves, generates, and applies input area entities from provider `P`.
 #[inline]
-pub fn input_area_d<P, F>(f: F) -> Element
+pub fn input_area_d<P, F>(f: F) -> Entity
 where
     P: Clone + 'static,
     F: Fn(&P) -> InputContents + Send + Sync + 'static,

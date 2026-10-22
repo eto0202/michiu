@@ -36,12 +36,12 @@
 //! * [`sync_layout`](Context::sync_layout): Executes two-pass Flexbox layout resolution
 //! * [`update_accessibility`](Context::update_accessibility): Synchronizes the AccessKit tree
 //!
-//! ### 2. Element Manipulation Within Event Handlers
+//! ### 2. Entity Manipulation Within Event Handlers
 //! In `_with`-style handlers (such as `on_click_with`), the context is provided via the `cx: &mut Context` parameter:
 //!
-//! * `cx.current()`: Retrieves the element that triggered the event
-//! * `cx.query_first::<T>()` / `cx.try_query_first::<T>()`: Searches for other elements using a marker tag
-//! * `cx.find_root_entity()`: Retrieves the root element
+//! * `cx.current()`: Retrieves the entity that triggered the event
+//! * `cx.query_first::<T>()` / `cx.try_query_first::<T>()`: Searches for other entities using a marker tag
+//! * `cx.find_root_entity()`: Retrieves the root entity
 //! * `cx.pointer_position()` / `cx.window_last_size()`: Retrieves the current pointer position or window dimensions
 //!
 //! For additional methods, please refer to the [`Context`] method documentation.
@@ -156,39 +156,12 @@ pub use window_store::*;
 #[cfg(feature = "trace-lifecycle")]
 use crate::trace_lifecycle;
 use crate::{
-    BasicLayout, ComponentMask, CursorIcon, Element, FlexLayout, GridLayout, InteractionState,
+    BasicLayout, ComponentMask, CursorIcon, Entity, FlexLayout, GridLayout, InteractionState,
     LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
     a11y::A11yInferenceTag, bind_context, handle_on_click,
 };
-use slotmap::new_key_type;
 use std::{borrow::Cow, sync::Arc};
 use windows::Win32::Foundation::HWND;
-
-new_key_type! {
-    /// A unique generation management ID that identifies each element ([`Element`]) within the UI.
-    pub struct EntityId;
-}
-
-impl EntityId {
-    #[must_use]
-    #[inline]
-    pub fn into_el(self) -> Element {
-        Element::from(self)
-    }
-}
-
-impl From<EntityId> for accesskit::NodeId {
-    fn from(value: EntityId) -> Self {
-        Self(value.0.as_ffi())
-    }
-}
-
-impl From<accesskit::NodeId> for EntityId {
-    #[inline]
-    fn from(value: accesskit::NodeId) -> Self {
-        Self(slotmap::KeyData::from_ffi(value.0))
-    }
-}
 
 /// A central database maintaining the entire state of the UI application, serving as the core struct that aggregates pipeline operations.
 ///
@@ -369,7 +342,7 @@ impl Context {
     /// 親を持たないルート要素の破棄に使用。
     #[allow(unused)]
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         TopologyStore::despawn_internal(
             id,
             &mut self.window,
@@ -387,55 +360,55 @@ impl Context {
         );
     }
 
-    /// Retrieves the parent element of the specified element.
+    /// Retrieves the parent entity of the specified entity.
     #[track_caller]
     #[inline]
-    pub fn parent_element(&self, el: Element) -> Option<Element> {
+    pub fn parent_entity(&self, e: Entity) -> Option<Entity> {
         self.topology
             .topo_parents
-            .find(el.id)
-            .and_then(|f| f.map(Element::from))
+            .find(e)
+            .and_then(|f| f.map(Entity::from))
     }
 
-    /// Get the list of handles for the child elements.
+    /// Get the list of handles for the child entities.
     #[inline]
-    pub fn children_list(&self, el: Element) -> impl Iterator<Item = Element> + '_ {
-        let list = self.topology.topo_children.find(el.id);
-        list.into_iter().flatten().copied().map(Element::from)
+    pub fn children_list(&self, e: Entity) -> impl Iterator<Item = Entity> + '_ {
+        let list = self.topology.topo_children.find(e);
+        list.into_iter().flatten().copied()
     }
 
-    /// Retrieves the total number of active elements on the screen.
+    /// Retrieves the total number of active entities on the screen.
     #[inline]
     pub fn active_entities(&self) -> usize {
         self.topology.topo_active_entities.len()
     }
 
-    /// Get the [`BasicLayout`] currently set for the specified element.
+    /// Get the [`BasicLayout`] currently set for the specified entity.
     #[inline]
     #[must_use]
-    pub fn try_basic_layout(&self, el: Element) -> Option<BasicLayout> {
-        self.layouts.lay_basic.find(el.id).copied()
+    pub fn try_basic_layout(&self, e: Entity) -> Option<BasicLayout> {
+        self.layouts.lay_basic.find(e).copied()
     }
 
-    /// Get the [`FlexLayout`] currently set for the specified element.
+    /// Get the [`FlexLayout`] currently set for the specified entity.
     #[inline]
     #[must_use]
-    pub fn get_flex_layout(&self, el: Element) -> Option<FlexLayout> {
-        self.layouts.lay_flex.find(el.id).copied()
+    pub fn get_flex_layout(&self, e: Entity) -> Option<FlexLayout> {
+        self.layouts.lay_flex.find(e).copied()
     }
 
-    /// Get the [`GridLayout`] currently set for the specified element.
+    /// Get the [`GridLayout`] currently set for the specified entity.
     #[inline]
     #[must_use]
-    pub fn get_grid_layout(&self, el: Element) -> Option<GridLayout> {
-        self.layouts.lay_grid.find(el.id).cloned()
+    pub fn get_grid_layout(&self, e: Entity) -> Option<GridLayout> {
+        self.layouts.lay_grid.find(e).cloned()
     }
 
-    /// Get the [`VisualProperty`] currently set for the specified element.
+    /// Get the [`VisualProperty`] currently set for the specified entity.
     #[inline]
     #[must_use]
-    pub fn get_visual_property(&self, el: Element) -> Option<VisualProperty> {
-        self.renders.rnd_visual.find(el.id).cloned()
+    pub fn get_visual_property(&self, e: Entity) -> Option<VisualProperty> {
+        self.renders.rnd_visual.find(e).cloned()
     }
 
     /// Sets whether the window has been resized.
@@ -444,77 +417,77 @@ impl Context {
         self.window.win_is_resized = resized;
     }
 
-    /// Determines whether the specified element is currently being hovered over.
+    /// Determines whether the specified entity is currently being hovered over.
     #[track_caller]
     #[inline]
-    pub fn is_hovered(&self, el: Element) -> bool {
+    pub fn is_hovered(&self, e: Entity) -> bool {
         self.topology
             .topo_active_masks
-            .at(el.id)
+            .at(e)
             .has(ComponentMask::STATE_HOVERED)
     }
 
-    /// Determine if the specified element currently has focus.
+    /// Determine if the specified entity currently has focus.
     #[track_caller]
     #[inline]
-    pub fn is_focused(&self, el: Element) -> bool {
+    pub fn is_focused(&self, e: Entity) -> bool {
         self.topology
             .topo_active_masks
-            .at(el.id)
+            .at(e)
             .has(ComponentMask::STATE_FOCUSED)
     }
 
-    /// Determine if the specified element is currently pressed.
+    /// Determine if the specified entity is currently pressed.
     #[track_caller]
     #[inline]
-    pub fn is_pressed(&self, el: Element) -> bool {
+    pub fn is_pressed(&self, e: Entity) -> bool {
         self.topology
             .topo_active_masks
-            .at(el.id)
+            .at(e)
             .has(ComponentMask::STATE_PRESSED)
     }
 
-    /// Determine if the specified element is currently disabled.
+    /// Determine if the specified entity is currently disabled.
     #[track_caller]
     #[inline]
-    pub fn is_disabled(&self, el: Element) -> bool {
+    pub fn is_disabled(&self, e: Entity) -> bool {
         self.topology
             .topo_active_masks
-            .at(el.id)
+            .at(e)
             .has(ComponentMask::STATE_DISABLED)
     }
 
-    /// Determine if the specified element is currently actived.
+    /// Determine if the specified entity is currently actived.
     #[track_caller]
     #[inline]
-    pub fn is_actived(&self, el: Element) -> bool {
+    pub fn is_actived(&self, e: Entity) -> bool {
         self.topology
             .topo_active_masks
-            .at(el.id)
+            .at(e)
             .has(ComponentMask::STATE_ACTIVED)
     }
 
-    /// Determine if the specified element is currently selected.
+    /// Determine if the specified entity is currently selected.
     #[track_caller]
     #[inline]
-    pub fn is_selected(&self, el: Element) -> bool {
+    pub fn is_selected(&self, e: Entity) -> bool {
         self.topology
             .topo_active_masks
-            .at(el.id)
+            .at(e)
             .has(ComponentMask::STATE_SELECTED)
     }
 
-    /// Determine if the specified element is currently dragged.
+    /// Determine if the specified entity is currently dragged.
     #[track_caller]
     #[inline]
-    pub fn is_dragged(&self, el: Element) -> bool {
+    pub fn is_dragged(&self, e: Entity) -> bool {
         self.topology
             .topo_active_masks
-            .at(el.id)
+            .at(e)
             .has(ComponentMask::STATE_DRAGGED)
     }
 
-    /// Determine if there is a redraw request (for elements marked as dirty).
+    /// Determine if there is a redraw request (for entities marked as dirty).
     #[inline]
     pub fn has_dirty(&self) -> bool {
         !self.renders.rnd_dirty_entities.is_empty()
@@ -522,27 +495,23 @@ impl Context {
             || self.topology.topo_is_structure_dirty
     }
 
-    /// Gets the element currently executing the event handler.
+    /// Gets the entity currently executing the event handler.
     #[inline]
-    pub fn try_current(&self) -> Option<Element> {
-        crate::signal::ACTIVE_ELEMENT
-            .with(std::cell::Cell::get)
-            .map(Element::from)
+    pub fn try_current(&self) -> Option<Entity> {
+        crate::signal::ACTIVE_ENTITY.with(std::cell::Cell::get)
     }
 
-    /// Gets the element currently executing the event handler.
+    /// Gets the entity currently executing the event handler.
     #[track_caller]
     #[inline]
-    pub fn current(&mut self) -> Element {
-        let el = self
-            .try_current()
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::NoActiveElement);
-        Element::from(el.id)
+    pub fn current(&mut self) -> Entity {
+        self.try_current()
+            .unwrap_or_trace(None, &mut self.debug, || MichiuError::NoActiveEntity)
     }
 
-    /// Mark the specified element as drity, causing it to redraw and re-render.
+    /// Mark the specified entity as drity, causing it to redraw and re-render.
     #[inline]
-    pub fn mark_dirty(&mut self, id: EntityId) {
+    pub fn mark_dirty(&mut self, id: Entity) {
         TopologyStore::mark_dirty(
             id,
             &mut self.topology.topo_active_masks,
@@ -555,9 +524,9 @@ impl Context {
         );
     }
 
-    /// Mark the specified element as drity, causing it to redraw.
+    /// Mark the specified entity as drity, causing it to redraw.
     #[inline]
-    pub fn mark_layout_dirty(&mut self, id: EntityId) {
+    pub fn mark_layout_dirty(&mut self, id: Entity) {
         LayoutStore::mark_layout_dirty(
             id,
             &mut self.topology.topo_active_masks,
@@ -569,9 +538,9 @@ impl Context {
         );
     }
 
-    /// Mark the specified element as drity, causing it to re-render.
+    /// Mark the specified entity as drity, causing it to re-render.
     #[inline]
-    pub fn mark_render_dirty(&mut self, id: EntityId) {
+    pub fn mark_render_dirty(&mut self, id: Entity) {
         RenderStore::mark_render_dirty(
             id,
             &mut self.topology.topo_active_masks,
@@ -610,19 +579,19 @@ impl Context {
         );
     }
 
-    /// Get the absolute coordinates of the specified element on the screen.
+    /// Get the absolute coordinates of the specified entity on the screen.
     #[inline]
-    pub fn rect(&self, id: EntityId) -> Option<LayoutRect> {
+    pub fn rect(&self, id: Entity) -> Option<LayoutRect> {
         self.outputs.out_rects.find(id).copied()
     }
 
-    /// Get the on-screen clipping boundary of the specified element.
+    /// Get the on-screen clipping boundary of the specified entity.
     #[inline]
-    pub fn clip_rect(&self, id: EntityId) -> Option<LayoutRect> {
+    pub fn clip_rect(&self, id: Entity) -> Option<LayoutRect> {
         self.outputs.out_clip_rects.find(id).copied()
     }
 
-    /// Gets the selected text within the currently focused element.
+    /// Gets the selected text within the currently focused entity.
     #[inline]
     pub fn get_selected_text(&self) -> Option<String> {
         TextEditStore::get_selected_text(
@@ -637,13 +606,13 @@ impl Context {
     /// Get current scroll position
     #[inline]
     #[must_use]
-    pub fn scroll_offset(&self, id: EntityId) -> Option<LayoutPoint> {
+    pub fn scroll_offset(&self, id: Entity) -> Option<LayoutPoint> {
         self.states.scroll.sc_offsets.find(id).copied()
     }
 
     /// Moves relative to the current scroll position.
     #[inline]
-    pub fn scroll_by(&mut self, id: EntityId, dx: f32, dy: f32) -> bool {
+    pub fn scroll_by(&mut self, id: Entity, dx: f32, dy: f32) -> bool {
         ScrollStore::scroll_by(
             id,
             dx,
@@ -682,9 +651,9 @@ impl Context {
         )
     }
 
-    /// Provides a signal context to the specified element, or to the root element if None is specified.
+    /// Provides a signal context to the specified entity, or to the root entity if None is specified.
     #[inline]
-    pub fn provide<T: Send + 'static>(&mut self, id: Option<EntityId>, read_signal: ReadSignal<T>) {
+    pub fn provide<T: Send + 'static>(&mut self, id: Option<Entity>, read_signal: ReadSignal<T>) {
         ReactiveStore::provide::<T>(
             id,
             read_signal,
@@ -700,100 +669,97 @@ impl Context {
     #[track_caller]
     #[inline]
     pub fn use_provided_setter<T: Send + 'static>(&mut self) -> WriteSignal<T> {
-        let element_id =
-            ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
-                .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
-                    caller: "use_provided_setter",
-                });
+        let entity = ReactiveStore::resolve_entity_effect(&self.reactive.react_effect_to_entity)
+            .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+                caller: "use_provided_setter",
+            });
 
         ReactiveStore::use_provided_setter_from::<T>(
-            element_id,
+            entity,
             &self.reactive.react_providers,
             &self.topology.topo_parents,
         )
-        .unwrap_or_trace(Some(element_id), &mut self.debug, || {
-            MichiuError::EntityNotFound { id: element_id }
+        .unwrap_or_trace(Some(entity), &mut self.debug, || {
+            MichiuError::EntityNotFound { id: entity }
         })
     }
 
-    /// Identify the target element from the current thread-local `Context`
+    /// Identify the target entity from the current thread-local `Context`
     /// and resolve the [`ReadSignal`] of type `T` by traversing the parent tree.
     #[track_caller]
     #[inline]
     pub fn use_provided<T: Clone + 'static>(&mut self) -> ReadSignal<T> {
-        let element_id =
-            ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)
-                .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
-                    caller: "use_provided_setter",
-                });
+        let entity = ReactiveStore::resolve_entity_effect(&self.reactive.react_effect_to_entity)
+            .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+                caller: "use_provided_setter",
+            });
 
         ReactiveStore::use_provided_from::<T>(
-            element_id,
+            entity,
             &self.reactive.react_providers,
             &self.topology.topo_parents,
         )
-        .unwrap_or_trace(Some(element_id), &mut self.debug, || {
-            MichiuError::EntityNotFound { id: element_id }
+        .unwrap_or_trace(Some(entity), &mut self.debug, || {
+            MichiuError::EntityNotFound { id: entity }
         })
     }
 
-    /// Identify the target element from the current thread-local `Context`
+    /// Identify the target entity from the current thread-local `Context`
     /// and resolve the [`ReadSignal`] of type `T` by traversing the parent tree.
     #[inline]
     pub fn try_use_provided<T: Clone + 'static>(&self) -> Option<ReadSignal<T>> {
-        let element_id =
-            ReactiveStore::resolve_element_effect(&self.reactive.react_effect_to_element)?;
+        let entity = ReactiveStore::resolve_entity_effect(&self.reactive.react_effect_to_entity)?;
         ReactiveStore::use_provided_from::<T>(
-            element_id,
+            entity,
             &self.reactive.react_providers,
             &self.topology.topo_parents,
         )
     }
 
-    /// This element will be tagged `T`.
+    /// This entity will be tagged `T`.
     ///
-    /// Multiple tags can be attached to the same element.
+    /// Multiple tags can be attached to the same entity.
     ///
     /// You can also use `A11yInferenceTag` for accessibility.
     #[inline]
-    pub fn tag<T: 'static>(&mut self, el: Element) {
-        TopologyStore::tag::<T>(el, &mut self.topology.topo_tag_registry);
+    pub fn tag<T: 'static>(&mut self, e: Entity) {
+        TopologyStore::tag::<T>(e, &mut self.topology.topo_tag_registry);
     }
 
     /// Configure the user-defined inference tags used when building the accessibility tree.
     ///
     /// `A11yInferenceTag` overrides only the default inferences.
-    /// It does not override the [`Element::a11y`] roles.
+    /// It does not override the [`Entity::a11y`] roles.
     #[inline]
-    pub fn tag_a11y<T: A11yInferenceTag + 'static>(&mut self, el: Element) {
-        TopologyStore::tag_a11y::<T>(el, &mut self.topology.topo_tag_registry);
+    pub fn tag_a11y<T: A11yInferenceTag + 'static>(&mut self, e: Entity) {
+        TopologyStore::tag_a11y::<T>(e, &mut self.topology.topo_tag_registry);
     }
 
-    /// Get the first element with the tag `T` found.
+    /// Get the first entity with the tag `T` found.
     #[inline]
     #[must_use]
-    pub fn try_query_first<T: 'static>(&self) -> Option<Element> {
+    pub fn try_query_first<T: 'static>(&self) -> Option<Entity> {
         TopologyStore::try_query_first::<T>(&self.topology.topo_tag_registry)
     }
 
-    /// Get the first element with the tag `T` found.
+    /// Get the first entity with the tag `T` found.
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn query_first<T: 'static>(&mut self) -> Element {
+    pub fn query_first<T: 'static>(&mut self) -> Entity {
         TopologyStore::query_first::<T>(&mut self.topology.topo_tag_registry, &mut self.debug)
     }
 
-    /// Get all elements with the tag `T`.
+    /// Get all entities with the tag `T`.
     #[inline]
-    pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = Element> + '_ {
+    pub fn query_all<T: 'static>(&self) -> impl Iterator<Item = Entity> + '_ {
         TopologyStore::query_all::<T>(&self.topology.topo_tag_registry)
     }
 
-    /// Retrieve the first element of type `T` found among the descendants.
+    /// Retrieve the first entity of type `T` found among the descendants.
     #[inline]
     #[must_use]
-    pub fn try_query_descendant<T: 'static>(&self, parent: EntityId) -> Option<Element> {
+    pub fn try_query_descendant<T: 'static>(&self, parent: Entity) -> Option<Entity> {
         TopologyStore::try_query_descendant::<T>(
             parent,
             &self.topology.topo_tag_registry,
@@ -802,11 +768,11 @@ impl Context {
         )
     }
 
-    /// Retrieve the first element of type `T` found among the descendants.
+    /// Retrieve the first entity of type `T` found among the descendants.
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn query_descendant<T: 'static>(&mut self, parent: EntityId) -> Element {
+    pub fn query_descendant<T: 'static>(&mut self, parent: Entity) -> Entity {
         TopologyStore::query_descendant::<T>(
             parent,
             &self.topology.topo_tag_registry,
@@ -816,12 +782,12 @@ impl Context {
         )
     }
 
-    /// Search for an element of type `T` among its descendants.
+    /// Search for an entity of type `T` among its descendants.
     #[inline]
     pub fn query_descendants<T: 'static>(
         &self,
-        parent: EntityId,
-    ) -> impl Iterator<Item = Element> + '_ {
+        parent: Entity,
+    ) -> impl Iterator<Item = Entity> + '_ {
         TopologyStore::query_descendants::<T>(
             parent,
             &self.topology.topo_tag_registry,
@@ -830,9 +796,9 @@ impl Context {
         )
     }
 
-    /// Resolve [`CursorIcon`] by traversing the parent tree from the currently hovered element.
+    /// Resolve [`CursorIcon`] by traversing the parent tree from the currently hovered entity.
     #[inline]
-    pub fn resolve_cursor(&self, hovered_id: EntityId) -> CursorIcon {
+    pub fn resolve_cursor(&self, hovered_id: Entity) -> CursorIcon {
         RenderStore::resolve_cursor(
             hovered_id,
             &self.events.evt_interaction_states,
@@ -890,9 +856,9 @@ impl Context {
         }
     }
 
-    /// Get the `EntityId` of the entity currently being interacted with.
+    /// Get the `Entity` of the entity currently being interacted with.
     #[inline]
-    pub fn interaction_id(&self, interaction: InteractionState) -> Option<EntityId> {
+    pub fn interaction_id(&self, interaction: InteractionState) -> Option<Entity> {
         match interaction {
             InteractionState::Hovered => self.events.evt_interaction_states.hovered,
             InteractionState::Focused => self.events.evt_interaction_states.focused,
@@ -901,30 +867,30 @@ impl Context {
         }
     }
 
-    /// Programmatically click the specified element.
+    /// Programmatically click the specified entity.
     #[inline]
-    pub fn trigger_element_click(&mut self, el: Element) {
-        if !self.topology.topo_entities.contains_key(el.id) || self.is_disabled(el) {
+    pub fn trigger_entity_click(&mut self, e: Entity) {
+        if !self.topology.topo_entities.contains_key(e) || self.is_disabled(e) {
             return;
         }
-        handle_on_click(self, el.id);
+        handle_on_click(self, e);
     }
 
     /// Set the focus trigger ([`ActiveFocusTrigger`]).
     #[inline]
-    pub fn auto_focus_switch_by_trigger(&mut self, id: EntityId, trigger: ActiveFocusTrigger) {
+    pub fn auto_focus_switch_by_trigger(&mut self, id: Entity, trigger: ActiveFocusTrigger) {
         FocusStore::auto_focus_switch_by_trigger(self, id, trigger);
     }
 
     /// Sets the pseudo-class ([`StateFlag`]).
     #[inline]
-    pub fn set_states(&mut self, id: EntityId, flag: &StateFlag, actived: bool) {
+    pub fn set_states(&mut self, id: Entity, flag: &StateFlag, actived: bool) {
         Pipeline::set_states(self, id, flag, actived);
     }
 
     /// Sets the interaction state ([`InteractionState`]).
     #[inline]
-    pub fn interaction_states(&mut self, id: Option<EntityId>, interaction: InteractionState) {
+    pub fn interaction_states(&mut self, id: Option<Entity>, interaction: InteractionState) {
         match interaction {
             InteractionState::Hovered => self.events.evt_interaction_states.hovered = id,
             InteractionState::Focused => self.events.evt_interaction_states.focused = id,
@@ -945,7 +911,7 @@ impl Context {
         Pipeline::begin_frame(self);
     }
 
-    /// Moves the keyboard focus to the next element.
+    /// Moves the keyboard focus to the next entity.
     #[inline]
     pub fn cycle_keyboard_focus(&mut self, reverse: bool) {
         EventStore::cycle_keyboard_focus_internal(self, reverse);
@@ -963,9 +929,9 @@ impl Context {
         self.window.win_last_size
     }
 
-    /// Resolves and returns the `EntityId` of the top-level root element within the window.
+    /// Resolves and returns the `Entity` of the top-level root entity within the window.
     #[inline]
-    pub fn find_root_entity(&self) -> Option<EntityId> {
+    pub fn find_root_entity(&self) -> Option<Entity> {
         TopologyStore::find_root_entity(
             &self.topology.topo_entities,
             &self.topology.topo_parents,
@@ -979,9 +945,9 @@ impl Context {
         self.events.evt_current_pointer_position
     }
 
-    /// Retrieves the first valid element found at the specified coordinates.
+    /// Retrieves the first valid entity found at the specified coordinates.
     #[inline]
-    pub fn hit_test(&mut self, point: LayoutPoint) -> Option<EntityId> {
+    pub fn hit_test(&mut self, point: LayoutPoint) -> Option<Entity> {
         TopologyStore::hit_test(
             point,
             self.window.win_last_size,
@@ -1003,7 +969,7 @@ impl Context {
 
     /// Perform layout calculations and synchronization.
     #[inline]
-    pub fn sync_layout(&mut self, root: EntityId, window_size: LayoutSize) {
+    pub fn sync_layout(&mut self, root: Entity, window_size: LayoutSize) {
         Pipeline::sync_layout(self, root, window_size);
     }
 

@@ -1,4 +1,4 @@
-use crate::{ExternalData, ExternalDataSet, ReadSignal, Modifier};
+use crate::{ExternalData, ExternalDataSet, Modifier, ReadSignal};
 use lightningcss::{
     printer::PrinterOptions,
     properties::{Property, position::ZIndex, size::Size},

@@ -8,11 +8,11 @@ use michiu_ui::{
 use std::{path::Path, sync::OnceLock};
 use tiff_reader::TiffFile;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(16.0).p(16.0).r(4.0).size_full()).children([image_list()])
 }
 
-fn image_list() -> Element {
+fn image_list() -> Entity {
     let png_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/examples/sample_collection/assets/screen_shot_1.png"

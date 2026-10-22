@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::app::theme::Theme;
 use michiu_ui::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(24.0).p(16.0)).children([
         self_group(),
         inherit_group(),
@@ -12,7 +12,7 @@ pub fn container() -> Element {
     ])
 }
 
-fn group_container(label: &'static str) -> Element {
+fn group_container(label: &'static str) -> Entity {
     v_flex(
         ii().size_full()
             .r(4.0)
@@ -27,11 +27,11 @@ fn group_container(label: &'static str) -> Element {
     )
 }
 
-fn items() -> Element {
+fn items() -> Entity {
     h_flex(ii().gap(16.0))
 }
 
-fn item(label: &'static str, style: Modifier) -> Element {
+fn item(label: &'static str, style: Modifier) -> Entity {
     flex(
         ii().r(4.0)
             .size(80.0)
@@ -45,7 +45,7 @@ fn item(label: &'static str, style: Modifier) -> Element {
     )
 }
 
-fn self_group() -> Element {
+fn self_group() -> Entity {
     group_container("Self").child(items().children([
         item("Scale", ii().transform_scale(0.95, 0.95)),
         item("Rotate", ii().transform_rotate(0.5)),
@@ -54,7 +54,7 @@ fn self_group() -> Element {
     ]))
 }
 
-fn inherit_group() -> Element {
+fn inherit_group() -> Entity {
     group_container("Inherit (child moved using absolute positioning)").child(
         items().child(
             item("Parent", ii().transform_rotate(0.5)).child(
@@ -69,7 +69,7 @@ fn inherit_group() -> Element {
     )
 }
 
-fn trans_item(label: &'static str, style: Modifier) -> Element {
+fn trans_item(label: &'static str, style: Modifier) -> Entity {
     flex(
         ii().r(4.0)
             .size(80.0)
@@ -84,7 +84,7 @@ fn trans_item(label: &'static str, style: Modifier) -> Element {
     )
 }
 
-fn transition_group() -> Element {
+fn transition_group() -> Entity {
     group_container("Transition").child(items().children([
         trans_item("Scale", ii().transform_scale(0.95, 0.95)),
         trans_item("Rotate", ii().transform_rotate(0.5)),
@@ -92,7 +92,7 @@ fn transition_group() -> Element {
     ]))
 }
 
-fn animation_group() -> Element {
+fn animation_group() -> Entity {
     group_container("Animation").child(
         items().child(
             flex(

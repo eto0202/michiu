@@ -4,7 +4,7 @@ use crate::{app::theme::Theme, components::section_title};
 use michiu_ui::VirtualKey;
 pub use michiu_ui::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(16.0).p(16.0)).children([
         basic_container(),
         restrict_container(),
@@ -21,7 +21,7 @@ fn wrapper_style() -> Modifier {
     ii().w_full().gap((16.0, 10.0)).p(6.0)
 }
 
-fn input_item(d: &'static str, el: Element) -> Element {
+fn input_item(d: &'static str, e: Entity) -> Entity {
     let desc = div_n().label(
         d,
         ii().text_color(dynamic(|t: &Theme| t.text))
@@ -29,17 +29,18 @@ fn input_item(d: &'static str, el: Element) -> Element {
             .font_weight(400),
     );
 
-    let wrapper = flex(ii()
-        .flex()
-        .items_center()
-        .p((6.0, 4.0))
-        .r(4.0)
-        .size((160.0, 40.0))
-        .bg_color(dynamic(|t: &Theme| t.background_hover))
-        .border_solid(1.0)
-        .border_color(dynamic(|t: &Theme| t.border)));
+    let wrapper = flex(
+        ii().flex()
+            .items_center()
+            .p((6.0, 4.0))
+            .r(4.0)
+            .size((160.0, 40.0))
+            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .border_solid(1.0)
+            .border_color(dynamic(|t: &Theme| t.border)),
+    );
 
-    v_flex(ii().gap(6.0).justify_center().items_center()).children([desc, wrapper.child(el)])
+    v_flex(ii().gap(6.0).justify_center().items_center()).children([desc, wrapper.child(e)])
 }
 
 fn input_style(family: &'static str) -> Modifier {
@@ -53,7 +54,7 @@ fn input_style(family: &'static str) -> Modifier {
         .overflow_hidden()
 }
 
-fn basic_container() -> Element {
+fn basic_container() -> Entity {
     let (read_1, write_1) = create_signal(String::new());
     let basic_1 = input_item(
         "Font Family : Segoe UI",
@@ -98,7 +99,7 @@ fn basic_container() -> Element {
     ])
 }
 
-fn restrict_container() -> Element {
+fn restrict_container() -> Entity {
     let (read_1, write_1) = create_signal(String::new());
     let basic_1 = input_item(
         "Numeric only",
@@ -135,14 +136,14 @@ fn restrict_container() -> Element {
     ])
 }
 
-fn btn_container() -> Element {
+fn btn_container() -> Entity {
     v_flex(section_style()).children([
         section_title("Input with button"),
         h_flex(wrapper_style()).children([spin_box(), password_box(), search_box()]),
     ])
 }
 
-fn spin_box() -> Element {
+fn spin_box() -> Entity {
     let btn = ii()
         .justify_center()
         .items_center()
@@ -222,11 +223,11 @@ fn spin_box() -> Element {
     .children([btn_left, input_center, btn_right])
 }
 
-fn password_box() -> Element {
+fn password_box() -> Entity {
     let (read_text, write_text) = create_signal(String::new());
     let (is_mask, set_is_mask) = create_signal(true);
 
-    let suffix_element = text("👁")
+    let suffix_entity = text("👁")
         .modify_d(move |t: &Theme| {
             let base_style = ii()
                 .text_color(t.text_muted)
@@ -278,13 +279,13 @@ fn password_box() -> Element {
                     .cursor_text()
                     .overflow_hidden(),
             ),
-            suffix_element,
+            suffix_entity,
         ]),
     )
 }
 
 #[expect(clippy::too_many_lines)]
-fn search_box() -> Element {
+fn search_box() -> Entity {
     let (read_text, write_text) = create_signal(String::new());
     let (menu_open, set_menu_open) = create_signal(false);
     let (read_history, write_history) = create_signal::<Vec<String>>(vec![]);
@@ -484,19 +485,20 @@ fn search_box() -> Element {
     .children([input_left, btn_right, candidate])
 }
 
-fn multiline_container() -> Element {
+fn multiline_container() -> Entity {
     let (read, write) = create_signal(String::new());
-    let area = flex(ii()
-        .flex()
-        .p((6.0, 6.0))
-        .r(4.0)
-        .size((400.0, 100.0))
-        .min_size((200.0, 40.0))
-        .resizable_right(true)
-        .resizable_bottom(true)
-        .bg_color(dynamic(|t: &Theme| t.background_hover))
-        .border_solid(1.0)
-        .border_color(dynamic(|t: &Theme| t.border)))
+    let area = flex(
+        ii().flex()
+            .p((6.0, 6.0))
+            .r(4.0)
+            .size((400.0, 100.0))
+            .min_size((200.0, 40.0))
+            .resizable_right(true)
+            .resizable_bottom(true)
+            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .border_solid(1.0)
+            .border_color(dynamic(|t: &Theme| t.border)),
+    )
     .child(
         input_area(InputContents::new((read, write))).modify(
             ii().size_full()

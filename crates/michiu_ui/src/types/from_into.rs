@@ -1,11 +1,11 @@
 #![allow(clippy::cast_precision_loss)]
 
 use crate::{
-    AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display,
-    Element, FlexDirection, FlexWrap, FocusTrigger, Focusable, GridAutoFlow, GridLine,
-    GridPlacement, InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length,
-    LinearGradient, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size,
-    Stretch, ModValue, TextAlign, Modifier, Transform, Val,
+    AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display, Entity,
+    FlexDirection, FlexWrap, FocusTrigger, Focusable, GridAutoFlow, GridLine, GridPlacement,
+    InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length, LinearGradient, ModValue,
+    Modifier, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch,
+    TextAlign, Transform, Val,
 };
 use std::borrow::Cow;
 use taffy::{ExpandedDimension, ExpandedLengthPercentage, ExpandedLengthPercentageAuto};
@@ -775,21 +775,21 @@ where
     }
 }
 
-impl From<Element> for Prop<Element> {
-    fn from(el: Element) -> Self {
-        Self::Static(el)
+impl From<Entity> for Prop<Entity> {
+    fn from(e: Entity) -> Self {
+        Self::Static(e)
     }
 }
 
-impl From<ReadSignal<Element>> for Prop<Element> {
-    fn from(sig: ReadSignal<Element>) -> Self {
+impl From<ReadSignal<Entity>> for Prop<Entity> {
+    fn from(sig: ReadSignal<Entity>) -> Self {
         Self::Dynamic(Box::new(move || sig.get()))
     }
 }
 
-impl<F> From<F> for Prop<Element>
+impl<F> From<F> for Prop<Entity>
 where
-    F: Fn() -> Element + 'static,
+    F: Fn() -> Entity + 'static,
 {
     fn from(f: F) -> Self {
         Self::Dynamic(Box::new(f))

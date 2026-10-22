@@ -17,9 +17,9 @@ See our [Language Policy](https://github.com/eto0202/michiu/blob/main/LANGUAGE_P
 
 <!-- Please briefly describe the nature of the problem that occurred -->
 
-### Target Components / Element
+### Target Components / Entity
 
-<!-- UI element experiencing an issue -->
+<!-- UI entity experiencing an issue -->
 
 ### Environment
 

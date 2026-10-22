@@ -1,27 +1,25 @@
 use crate::app::theme::Theme;
 pub use michiu::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     // 親コンテナを先に生成して ID を確定
     let container = v_flex(
         ii().gap(16.0)
             .size_full()
             .p(16.0)
             .r(4.0)
-            .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
+            .dnd_droppable(DndDropTarget::Child, DndDragMode::Interactive)
             .dnd_drag_over(ii().bg_color(dynamic(|t: &Theme| t.background_hover))),
     )
     .label("Droppable", label_style());
-    let parent_id = container.id();
 
     // 確定した ID を引き渡して子を生成しアタッチ
-    let section = section_draggable(parent_id);
-    let section_id = section.id();
+    let section = section_draggable(container);
 
-    container.child(section.child(item_draggable(section_id)))
+    container.child(section.child(item_draggable(section)))
 }
 
-fn section_draggable(parent_id: EntityId) -> Element {
+fn section_draggable(parent_id: Entity) -> Entity {
     // 静的レイアウトスタイル
     let layout = ii()
         .p(16.0)
@@ -31,8 +29,8 @@ fn section_draggable(parent_id: EntityId) -> Element {
         .left(50.0)
         .size(300.0)
         .border_solid(1.0)
-        .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
-        .dnd_draggable_parent(parent_id, DndDragPayload::Element, true)
+        .dnd_droppable(DndDropTarget::Child, DndDragMode::Interactive)
+        .dnd_draggable_parent(parent_id, DndDragMode::Interactive, true)
         .dnd_draggable_original(ii().hidden())
         .dnd_draggable_placeholder(ii().p(16.0).border_solid(1.0));
 
@@ -48,7 +46,7 @@ fn section_draggable(parent_id: EntityId) -> Element {
         .label("Draggable & Droppable", label_style())
 }
 
-fn item_draggable(parent_id: EntityId) -> Element {
+fn item_draggable(parent_id: Entity) -> Entity {
     // ラベルテキストを制御するシグナルを定義
     let (label_text, set_label_text) = create_signal("Draggable".to_string());
 
@@ -60,7 +58,7 @@ fn item_draggable(parent_id: EntityId) -> Element {
         .left(50.0)
         .size(150.0)
         .border_solid(1.0)
-        .dnd_draggable_parent(parent_id, DndDragPayload::Element, true)
+        .dnd_draggable_parent(parent_id, DndDragMode::Interactive, true)
         .dnd_draggable_original(ii().p(16.0).border_dashed(1.0).opacity_50())
         .dnd_draggable_placeholder(ii().p(16.0).border_solid(1.0));
 
@@ -76,7 +74,7 @@ fn item_draggable(parent_id: EntityId) -> Element {
         .on_dnd_drag_start(move |_, _| {
             set_label_text.set("Dragging...".to_string());
         })
-        .on_dnd_element_drop(move |_, _| {
+        .on_dnd_drop_interactive(move |_, _| {
             set_label_text.set("Draggable".to_string());
         })
 }

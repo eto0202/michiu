@@ -7,7 +7,7 @@
 
 ### 🚀 Features
 
-- Add `a11y_label` to `Element`
+- Add `a11y_label` to `Entity`
 - Add ‘context_menu’ sample
 - Add a custom title bar to the `examples/sample_collection`
 - Fix the custom title bar in `examples/sample_collection`

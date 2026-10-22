@@ -12,7 +12,7 @@
 //!
 //! 1. `inject_action`: Enqueuing and normalizing input events
 //! 2. `begin_frame`: Draining the event queue and resolving interactions and edits
-//! 3. `update_state`: Local element state mutation via bitmasks and style propagation
+//! 3. `update_state`: Local entity state mutation via bitmasks and style propagation
 //! 4. `set_states`: Translating `StateFlag` into component masks
 //! 5. `sync_layout`: Two-pass layout computation coordinating Taffy, scrollbars, and IME
 //! 6. `tick_system_frame`: Advancing clock progression for animations, transitions, and auto-scrolling
@@ -35,37 +35,37 @@
 //! Frame inception. Uses `std::mem::take` on `evt_pending_actions` to iterate and dispatch events from oldest to newest.
 //!
 //! #### A. `PointerMove` Processing Flow
-//! 1. **Resize Drag Synchronization** (`ResizeStore::sync_resizing_drag`): If an element/window is currently being resize-dragged, returns early to bypass hover evaluation.
+//! 1. **Resize Drag Synchronization** (`ResizeStore::sync_resizing_drag`): If an entity/window is currently being resize-dragged, returns early to bypass hover evaluation.
 //! 2. **Scrollbar Drag Synchronization** (`ScrollStore::sync_scrollbar_drag`): Handles active scrollbar thumb dragging.
 //! 3. **Sorted Hit Testing** (`TopologyStore::hit_test`):
-//!    Evaluates `topo_is_sort_dirty` and lazily reconstructs the sorted entity array (`topo_sorted_entities`) taking visibility, transforms, and z-index into account. Hit testing performs reverse traversal (`rev()`) starting from the topmost element.
-//! 4. **Resize Boundary Detection** (`ResizeStore::found_resize_hover`): Traverses upward from the hit element to its ancestors to determine if the pointer hovers over a resizable border.
+//!    Evaluates `topo_is_sort_dirty` and lazily reconstructs the sorted entity array (`topo_sorted_entities`) taking visibility, transforms, and z-index into account. Hit testing performs reverse traversal (`rev()`) starting from the topmost entity.
+//! 4. **Resize Boundary Detection** (`ResizeStore::found_resize_hover`): Traverses upward from the hit entity to its ancestors to determine if the pointer hovers over a resizable border.
 //! 5. **Apply Cursor Style** (`ResizeStore::apply_resizable_cursor_style`): Sets the directional resize cursor when over an active boundary.
-//! 6. **Restore Normal Cursor** (`RenderStore::resolve_element_style_state`): Resets to the element's default cursor once the pointer leaves the boundary.
+//! 6. **Restore Normal Cursor** (`RenderStore::resolve_entity_style_state`): Resets to the entity's default cursor once the pointer leaves the boundary.
 //! 7. **Text Selection Drag Tracking**:
-//!    If the element is in a `pressed` state and configured with `UserSelect::Text`, synchronizes the text buffer and updates the selection highlight range (`TextEditStore::handle_text_selection_click`).
+//!    If the entity is in a `pressed` state and configured with `UserSelect::Text`, synchronizes the text buffer and updates the selection highlight range (`TextEditStore::handle_text_selection_click`).
 //! 8. **Hover State Resolution** (`EventStore::resolve_hover_state`):
-//!    Executes `Pipeline::update_state` across previous and newly hovered elements, triggering `on_mouse_leave`, `on_mouse_enter`, and `on_hover`.
+//!    Executes `Pipeline::update_state` across previous and newly hovered entities, triggering `on_mouse_leave`, `on_mouse_enter`, and `on_hover`.
 //! 9. **Cursor Movement Propagation** (`handle_on_cursor_moved`).
 //! 10. **D&D Drag Session Updates** (`DndStore::propagate_dnd_drag_events`):
 //!     Initiates a drag session once movement exceeds the drag threshold (`handle_on_dnd_drag_start`) and emits `handle_on_drag`.
 //! 11. **D&D Placeholder Tracking and Drop Target Intrusion**:
-//!     * Computes inset-based relative coordinates relative to the root element to position the placeholder (`update_inset_based_relative_local`).
+//!     * Computes inset-based relative coordinates relative to the root entity to position the placeholder (`update_inset_based_relative_local`).
 //!     * Detects drop targets under active pointer intrusion (`detect_drop_target_during_intrusion`).
-//!     * Emits `handle_on_dnd_entity_drag` or `handle_on_dnd_id_drag` depending on the `DndDragPayload`.
+//!     * Emits `handle_on_dnd_drag_interactive` or `handle_on_dnd_drag_passive` depending on the `DndDragPayload`.
 //!
 //! #### B. `PointerButton` Processing Flow
 //! * **Pressed**:
 //!   1. **Resize Drag Initiation** (Left-click only): Confirms resize drag start and returns early to prevent child activation.
-//!   2. **Scrollbar Hit Check**: If clicked on a scrollbar, consumes the event and returns early to prevent event pass-through to underlying elements.
-//!   3. **Pressing General Elements**: Updates the pressed state bit via `Pipeline::update_state`. Starts text selection if applicable.
+//!   2. **Scrollbar Hit Check**: If clicked on a scrollbar, consumes the event and returns early to prevent event pass-through to underlying entities.
+//!   3. **Pressing General Entities**: Updates the pressed state bit via `Pipeline::update_state`. Starts text selection if applicable.
 //!   4. **Focus Resolution**: Evaluates focus theft guards (`should_prevent_focus_steal`) and shifts focus (firing `on_blur` and `on_focus`). Drops focus if the target is non-focusable.
 //!   5. Emits `handle_on_mouse_input`.
 //! * **Released**:
 //!   1. **Finalize Resize Drag**: Terminates the resize session and emits a synthetic `PointerMove` to refresh the cursor state.
 //!   2. **D&D Drop Execution**: Rewrites tree topology (removes and reinserts dragged entities, restores subtrees), invokes drop handlers, and despawns placeholders.
 //!   3. **Scrollbar Update**: Sets dirty flags following drag termination.
-//!   4. **Click Resolution**: If released over the original pressed element, fires `handle_on_click` or `handle_on_right_click`.
+//!   4. **Click Resolution**: If released over the original pressed entity, fires `handle_on_click` or `handle_on_right_click`.
 //!
 //! #### C. Additional Action Dispatches
 //! * **`PointerDoubleClick`**: Performs hit testing against text word boundaries to execute double-click word selection.
@@ -77,7 +77,7 @@
 //!
 //! ---
 //!
-//! ### 3. `update_state(cx: &mut Context, id: EntityId, state_flag: u128, actived: bool)`
+//! ### 3. `update_state(cx: &mut Context, id: Entity, state_flag: u128, actived: bool)`
 //!
 //! Evaluates interaction state transitions via bitmasks, performing immediate dynamic style resolution with minimal layout invalidation.
 //!
@@ -93,7 +93,7 @@
 //!
 //! ---
 //!
-//! ### 4. `set_states(cx: &mut Context, id: EntityId, flag: &StateFlag, actived: bool)`
+//! ### 4. `set_states(cx: &mut Context, id: Entity, flag: &StateFlag, actived: bool)`
 //!
 //! Translates [`StateFlag`] variants into `ComponentMask` bits (`u128`) and invokes `update_state`.
 //!
@@ -102,11 +102,11 @@
 //!
 //! ---
 //!
-//! ### 5. `sync_layout(cx: &mut Context, root: EntityId, window_size: LayoutSize)`
+//! ### 5. `sync_layout(cx: &mut Context, root: Entity, window_size: LayoutSize)`
 //!
 //! A two-pass layout solver coordinating scrollbar-induced viewport shifts and IME positioning.
 //!
-//! 1. **Flushing Pending Effects** (`evaluate_pending_element_effects`):
+//! 1. **Flushing Pending Effects** (`evaluate_pending_entity_effects`):
 //!    Executes all uncommitted signal effects prior to initiating layout measurement.
 //! 2. **Early Return Verification**:
 //!    Skips execution entirely if structural topology (`topo_is_structure_dirty`), style dirty flags (`lay_dirty_entities`), and window dimensions remain unchanged.
@@ -120,7 +120,7 @@
 //! 9. **Taffy Pass 2 (Final Resolution)**:
 //!    Recomputes the final layout using cached measurements, accounting for content areas deducted by newly visible scrollbars.
 //! 10. **IME & Caret Synchronization**:
-//!     If an input element retains focus, calls the Win32 **IMM32** API (`sync_imm_window_position`) to align the OS IME candidate window directly beneath the resolved caret coordinates.
+//!     If an input entity retains focus, calls the Win32 **IMM32** API (`sync_imm_window_position`) to align the OS IME candidate window directly beneath the resolved caret coordinates.
 //! 11. **Scroll Boundary Clamping**: Automatically clamps container scroll offsets that exceed new boundaries following container resizing.
 //!
 //! ---
@@ -151,7 +151,7 @@
 //! 5. **Text & Decoration Instance Assembly**:
 //!    * Text selection highlight rects
 //!    * Text background quads + per-glyph instance metrics + foreground passes
-//!    * Fallback rendering for standalone border elements lacking backgrounds
+//!    * Fallback rendering for standalone border entities lacking backgrounds
 //!    * Blinking caret instances for active inputs
 //! 6. **Batch Flush**: Concludes by flushing standard UI quad instance batches.
 //!
@@ -188,7 +188,7 @@ use crate::{
     ActiveMasksSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary,
     BatchType, BoxSizing, ClipRectsSecondary, Color, ComponentMask, Context, CornerRadius,
     DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets,
-    ElementState, EntityId, EventStore, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
+    ElementState, Entity, EventStore, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
     ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState,
     InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
     MichiuError, MichiuSoA, Modifiers, MouseButton, OptionTraceExt, OutputStore, ParentsSecondary,
@@ -196,7 +196,7 @@ use crate::{
     RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
     ResolvedGeometry, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
     ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
-    TaffyResultTraceExt, TaffyTreeEntityId, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
+    TaffyResultTraceExt, TaffyTreeEntity, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
     TopologyStore, TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context,
     handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
     handle_on_ime, handle_on_select,
@@ -479,7 +479,7 @@ impl Pipeline {
     /// 各インタラクション状態（ステート）を更新し、レイアウト変更を伴うか自動的に判別して Dirty フラグを制御する共通ヘルパー
     #[track_caller]
     #[inline]
-    pub(crate) fn update_state(cx: &mut Context, id: EntityId, state_flag: u128, actived: bool) {
+    pub(crate) fn update_state(cx: &mut Context, id: Entity, state_flag: u128, actived: bool) {
         let mask = cx.topology.topo_active_masks.at_mut(id); // 絶対に生きてるはず
 
         if mask.has(state_flag) == actived {
@@ -492,13 +492,13 @@ impl Pipeline {
             mask.unset(state_flag);
         }
 
-        let resolve_element = |cx: &mut Context, id: EntityId| {
-            RenderStore::resolve_element_style_state(
+        let resolve_entity = |cx: &mut Context, id: Entity| {
+            RenderStore::resolve_entity_style_state(
                 id,
                 true,
                 cx.window.win_last_size,
                 &cx.system.sys_text_buffers,
-                &cx.reactive.react_element_effects,
+                &cx.reactive.react_entity_effects,
                 &cx.contents.cont_input_contents,
                 &mut cx.topology.topo_active_masks,
                 &mut cx.topology.topo_is_sort_dirty,
@@ -538,7 +538,7 @@ impl Pipeline {
             );
         };
 
-        let mark_dirty = |cx: &mut Context, id: EntityId| {
+        let mark_dirty = |cx: &mut Context, id: Entity| {
             if RenderStore::does_state_require_layout(id, state_flag, &cx.renders.rnd_interaction) {
                 LayoutStore::mark_layout_dirty(
                     id,
@@ -558,7 +558,7 @@ impl Pipeline {
         };
 
         // 状態変化の発生時に即座に動的なスタイルを解決する
-        resolve_element(cx, id);
+        resolve_entity(cx, id);
 
         // 親から子方向へのスタイル解決の伝播
         for child_id in cx.topology.topo_children.at(id).clone() {
@@ -569,7 +569,7 @@ impl Pipeline {
                 .has(ComponentMask::STYLE_INTERACTION_PARENT);
 
             if has_parent {
-                resolve_element(cx, child_id);
+                resolve_entity(cx, child_id);
                 mark_dirty(cx, child_id);
             }
         }
@@ -586,7 +586,7 @@ impl Pipeline {
 
                 // 先祖要素が within スタイルを持っている場合のみそのスタイル評価を実行
                 if has_within {
-                    resolve_element(cx, parent_id);
+                    resolve_entity(cx, parent_id);
                     mark_dirty(cx, parent_id);
                 }
             }
@@ -609,7 +609,7 @@ impl Pipeline {
     }
 
     #[inline]
-    pub(crate) fn set_states(cx: &mut Context, id: EntityId, flag: &StateFlag, actived: bool) {
+    pub(crate) fn set_states(cx: &mut Context, id: Entity, flag: &StateFlag, actived: bool) {
         match flag {
             StateFlag::Hovered => {
                 Pipeline::update_state(cx, id, ComponentMask::STATE_HOVERED, actived);
@@ -649,7 +649,7 @@ impl Pipeline {
 
     #[track_caller]
     #[inline]
-    pub(crate) fn sync_layout(cx: &mut Context, root: EntityId, window_size: LayoutSize) {
+    pub(crate) fn sync_layout(cx: &mut Context, root: Entity, window_size: LayoutSize) {
         let _context_guard = bind_context(cx);
 
         #[cfg(feature = "trace-lifecycle")]
@@ -659,8 +659,8 @@ impl Pipeline {
         });
 
         // トポロジーが完全に完成したビルド完了後、または同期直前に、溜めてある初回評価を一挙に実行
-        ReactiveStore::evaluate_pending_element_effects(
-            &mut cx.reactive.react_pending_element_effects,
+        ReactiveStore::evaluate_pending_entity_effects(
+            &mut cx.reactive.react_pending_entity_effects,
             &cx.reactive.react_effects,
         );
 
@@ -774,7 +774,7 @@ impl Pipeline {
         // 計測関数をクロージャとして定義
         let measure_func = |layout: taffy::LayoutInput,
                             _node_id: taffy::NodeId,
-                            context: Option<&mut EntityId>,
+                            context: Option<&mut Entity>,
                             _style: &taffy::Style|
          -> taffy::LayoutOutput {
             // 幅と高さの両方がすでにスタイル（known_dims）として解決されている場合はそれを最優先する
@@ -948,7 +948,7 @@ impl Pipeline {
                 },
                 |layout: taffy::LayoutInput,
                  _node_id: taffy::NodeId,
-                 context: Option<&mut EntityId>,
+                 context: Option<&mut Entity>,
                  _style: &taffy::Style|
                  -> taffy::LayoutOutput {
                     context
@@ -1230,7 +1230,7 @@ impl Pipeline {
             let is_dirty_text = mask.has_text_content() && mask.has_queued_layout_or_render();
 
             if is_dirty_text {
-                let cleared = Pipeline::scan_and_register_element_glyphs(
+                let cleared = Pipeline::scan_and_register_entity_glyphs(
                     view,
                     buffer,
                     &mut cx.system.sys_text_engine,
@@ -1267,7 +1267,7 @@ impl Pipeline {
                 let has_text_content = cx.topology.topo_active_masks.at(id).has_text_content();
 
                 if has_text_content {
-                    let _ = Pipeline::scan_and_register_element_glyphs(
+                    let _ = Pipeline::scan_and_register_entity_glyphs(
                         view,
                         buffer,
                         &mut cx.system.sys_text_engine,
@@ -1297,7 +1297,7 @@ impl Pipeline {
 
         let mut has_external_visual_ready = false;
         let mut has_external_texture = false;
-        let mut has_normal_element = false;
+        let mut has_normal_entity = false;
         let mut has_selection_highlight = false;
         let mut has_background = false;
         let mut has_text = false;
@@ -1475,7 +1475,7 @@ impl Pipeline {
 
                     #[cfg(feature = "trace-lifecycle")]
                     {
-                        has_normal_element = true;
+                        has_normal_entity = true;
                     }
                 }
             } else {
@@ -1652,7 +1652,7 @@ impl Pipeline {
             stage: RenderStage::CollectDate(InstanceKinds {
                 has_external_visual_ready,
                 has_external_texture,
-                has_normal_element,
+                has_normal_entity,
                 has_selection_highlight,
                 has_background,
                 has_text,
@@ -1712,7 +1712,7 @@ impl Pipeline {
         for i in 0..count {
             debug_assert!(
                 i < cx.topology.topo_flat_dfs_sequence.len(),
-                "【Michiu A11y Error】Do not delete tree elements inside `inference()`! "
+                "【Michiu A11y Error】Do not delete tree entities inside `inference()`! "
             );
 
             let id = cx.topology.topo_flat_dfs_sequence[i];
@@ -1747,7 +1747,7 @@ impl Pipeline {
         debug_assert_eq!(
             cx.topology.topo_flat_dfs_sequence.len(),
             count,
-            "【Michiu A11y Error】Do not spawn new elements inside `inference()`!"
+            "【Michiu A11y Error】Do not spawn new entities inside `inference()`!"
         );
 
         // バッファが空ならワーカーへ送らずに保持して抜ける
@@ -1835,8 +1835,8 @@ impl Pipeline {
     // 全スクロールバー関連IDを一括抽出
     #[inline]
     fn scrollbar_el_ids(
-        bar_styles: &SparseSecondaryMap<EntityId, ScrollBarState>,
-    ) -> HashSet<EntityId> {
+        bar_styles: &SparseSecondaryMap<Entity, ScrollBarState>,
+    ) -> HashSet<Entity> {
         bar_styles
             .values()
             .flat_map(|sb_state| {
@@ -1855,8 +1855,8 @@ impl Pipeline {
     /// Taffy永続ツリーへのスタイル差分同期
     #[track_caller]
     fn sync_dirty_styles_to_taffy(
-        scrollbar_el_ids: &HashSet<EntityId>,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        scrollbar_el_ids: &HashSet<Entity>,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_dirty_entities: &DirtyLayoutEntitiesVec,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -1889,14 +1889,14 @@ impl Pipeline {
     }
 
     /// 物理位置を算出して、rects / `clip_rects` と入力状態へマウント
-    fn update_element_output_rect_and_clip(
-        id: EntityId,
+    fn update_entity_output_rect_and_clip(
+        id: Entity,
         window_size: LayoutSize,
         cont_input_contents: &mut InputContentsSparse,
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy_tree: &TaffyTreeEntityId,
+        lay_taffy_tree: &TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &mut RectsSecondary,
@@ -1939,7 +1939,7 @@ impl Pipeline {
 
     /// 1回目の出力領域決定（静的キャッシュバイパス判定含む）
     fn resolve_first_pass_rects(
-        scrollbar_el_ids: &HashSet<EntityId>,
+        scrollbar_el_ids: &HashSet<Entity>,
         window_size: LayoutSize,
         window_resized: bool,
         cont_input_contents: &mut InputContentsSparse,
@@ -1947,7 +1947,7 @@ impl Pipeline {
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        lay_taffy_tree: &TaffyTreeEntityId,
+        lay_taffy_tree: &TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &mut RectsSecondary,
@@ -1990,7 +1990,7 @@ impl Pipeline {
             }
 
             // キャッシュが無効な場合は共通ヘルパーで再計算
-            Pipeline::update_element_output_rect_and_clip(
+            Pipeline::update_entity_output_rect_and_clip(
                 id,
                 window_size,
                 cont_input_contents,
@@ -2016,7 +2016,7 @@ impl Pipeline {
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequenceVec,
-        lay_taffy_tree: &TaffyTreeEntityId,
+        lay_taffy_tree: &TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &mut RectsSecondary,
@@ -2027,7 +2027,7 @@ impl Pipeline {
         topo_active_entities.clear();
 
         for &id in topo_flat_dfs_sequence {
-            Pipeline::update_element_output_rect_and_clip(
+            Pipeline::update_entity_output_rect_and_clip(
                 id,
                 window_size,
                 cont_input_contents,
@@ -2071,7 +2071,7 @@ impl Pipeline {
     }
 
     fn text_size_to_align_offset(
-        id: EntityId,
+        id: Entity,
         params: &CommonParameters,
         buffer: &Buffer,
         flex: &FlexLayout,
@@ -2098,7 +2098,7 @@ impl Pipeline {
     /// 指定された要素に含まれるすべての文字をアトラスにキャッシュ
     /// このフレームでアトラスの一括クリアが起きた場合は true
     #[inline]
-    fn scan_and_register_element_glyphs(
+    fn scan_and_register_entity_glyphs(
         view: &mut RendererView,
         buffer: &Buffer,
         sys_text_engine: &mut TextEngine,
@@ -2129,7 +2129,7 @@ impl Pipeline {
 
     #[inline]
     fn resolve_text_color(
-        id: EntityId,
+        id: Entity,
         visual: &VisualProperty,
         cont_input_contents: &InputContentsSparse,
     ) -> Color {
@@ -2159,11 +2159,7 @@ impl Pipeline {
 
     /// パンチアウト用インスタンスを追加
     #[inline]
-    fn push_punchout_instance(
-        id: EntityId,
-        render_data: &mut RenderData,
-        params: &CommonParameters,
-    ) {
+    fn push_punchout_instance(id: Entity, render_data: &mut RenderData, params: &CommonParameters) {
         let punchout_instance = QuadInstance {
             rect: params.geom.rect,
             transform: params.transform,
@@ -2179,7 +2175,7 @@ impl Pipeline {
 
     /// 前面装飾用インスタンスを追加
     #[inline]
-    fn push_front_instance(id: EntityId, render_data: &mut RenderData, params: &CommonParameters) {
+    fn push_front_instance(id: Entity, render_data: &mut RenderData, params: &CommonParameters) {
         let front_instance = QuadInstance {
             rect: params.geom.rect,
             transform: params.transform,
@@ -2202,7 +2198,7 @@ impl Pipeline {
     /// 静止時用前面インスタンスを追加
     #[inline]
     fn push_static_front_instance(
-        id: EntityId,
+        id: Entity,
         render_data: &mut RenderData,
         params: &CommonParameters,
     ) {
@@ -2228,7 +2224,7 @@ impl Pipeline {
     /// 選択されているテキストの背景ハイライトを計算してインスタンスを追加
     #[inline]
     fn push_selection_highlight_instances(
-        id: EntityId,
+        id: Entity,
         render_data: &mut RenderData,
         params: &CommonParameters,
         align_offset: LayoutPoint,
@@ -2266,7 +2262,7 @@ impl Pipeline {
     /// 一般要素の背景のインスタンスを追加
     #[inline]
     fn push_background_instance(
-        id: EntityId,
+        id: Entity,
         render_data: &mut RenderData,
         params: &CommonParameters,
         visual: &VisualProperty,
@@ -2303,7 +2299,7 @@ impl Pipeline {
     /// テキスト用背面インスタンスを追加
     #[inline]
     fn push_text_background_instances(
-        id: EntityId,
+        id: Entity,
         render_data: &mut RenderData,
         params: &CommonParameters,
         buffer: &Buffer,
@@ -2349,7 +2345,7 @@ impl Pipeline {
     /// 文字ごとのインスタンスを追加
     #[inline]
     fn push_text_metric_instances(
-        id: EntityId,
+        id: Entity,
         view: &mut RendererView,
         params: &CommonParameters,
         buffer: &Buffer,
@@ -2422,7 +2418,7 @@ impl Pipeline {
 
     /// テキスト用前面インスタンスを追加
     fn push_text_front_instances(
-        id: EntityId,
+        id: Entity,
         render_data: &mut RenderData,
         params: &CommonParameters,
         spans: &[TextSpan],
@@ -2538,7 +2534,7 @@ impl Pipeline {
     /// キャレット用インスタンスを追加
     #[inline]
     fn push_caret_instance(
-        id: EntityId,
+        id: Entity,
         render_data: &mut RenderData,
         params: &CommonParameters,
         flex: &FlexLayout,
@@ -2596,7 +2592,7 @@ impl Pipeline {
     /// ボーダーのみ描画が必要な要素のためのフォールバック用インスタンスを追加
     #[inline]
     fn push_fallback_border_instance(
-        id: EntityId,
+        id: Entity,
         render_data: &mut RenderData,
         params: &CommonParameters,
     ) {
@@ -2624,7 +2620,7 @@ impl Pipeline {
     #[track_caller]
     #[inline]
     fn push_external_texture_instance(
-        id: EntityId,
+        id: Entity,
         render_data: &mut RenderData,
         params: &CommonParameters,
         cont_external_textures: &ExternalTextureSparse,

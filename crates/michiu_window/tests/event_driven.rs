@@ -2,7 +2,7 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::panic)]
 
-use michiu_window::{MichiuEventPump, LogicalSize, MichiuWindowBuilder, MichiuWindow};
+use michiu_window::{LogicalSize, MichiuEventPump, MichiuWindow, MichiuWindowBuilder};
 use std::{
     sync::mpsc,
     time::{Duration, Instant},

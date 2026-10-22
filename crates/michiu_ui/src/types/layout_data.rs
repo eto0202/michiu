@@ -1,10 +1,10 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
-    Display, EdgeInsets, EntityId, FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow,
+    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow,
     GridLine, GridPlacement, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow,
-    Length, LinearGradient, MichiuSoA, Point, PointerEvents, Position, Rect, Size, ModTarget,
-    TextAlign, Modifier, Transition, UserSelect, Val, VisualPropertiesSecondary,
+    Length, LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents, Position, Rect,
+    Size, TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
 };
 use std::{
     borrow::Cow,
@@ -473,7 +473,7 @@ impl VisualProperty {
     /// 現在の描画用データを取得 (Copy可能なプリミティブのみ)
     #[inline]
     pub(crate) fn get_current_style(
-        id: EntityId,
+        id: Entity,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> CurrentStyle {
         rnd_visual
@@ -503,7 +503,7 @@ impl VisualProperty {
     /// 目標値を参照経由で構築
     #[inline]
     pub(crate) fn get_target_style(
-        id: EntityId,
+        id: Entity,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
     ) -> TargetStyle {
         rnd_base_visual

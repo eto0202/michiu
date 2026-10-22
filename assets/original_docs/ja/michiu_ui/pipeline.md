@@ -42,7 +42,7 @@ OSやウィンドウメッセージから届いた生のアクションを `cx.e
     `topo_is_sort_dirty` フラグを評価し、必要であれば可視性・トランスフォーム・z-indexを考慮したソート配列（`topo_sorted_entities`）を再構築。ヒット判定は最前面から `rev()`（逆順走査）で実行。
 4.  **リサイズ境界の探索** (`ResizeStore::found_resize_hover`): ヒット要素から先祖へ遡上し、リサイズ可能境界にいるかを判定。
 5.  **カーソル形状の適用** (`ResizeStore::apply_resizable_cursor_style`): 境界上ならリサイズ用カーソルをセット。
-6.  **通常カーソルの復帰** (`RenderStore::resolve_element_style_state`): 境界から外れた場合は要素本来のカーソルへリセット。
+6.  **通常カーソルの復帰** (`RenderStore::resolve_entity_style_state`): 境界から外れた場合は要素本来のカーソルへリセット。
 7.  **テキスト選択のドラッグ追従**:
     要素が押下状態（`pressed`）かつ `UserSelect::Text` の場合、テキストバッファを同期し、選択ハイライト範囲を更新 (`TextEditStore::handle_text_selection_click`)。
 8.  **ホバー状態の解決** (`EventStore::resolve_hover_state`):
@@ -53,7 +53,7 @@ OSやウィンドウメッセージから届いた生のアクションを `cx.e
 11. **D&D プレースホルダーの移動と侵入検知**:
     - ルート要素基準で相対ローカル座標を逆算して追従 (`update_inset_based_relative_local`)。
     - ホバー侵入中のドロップターゲットを検知 (`detect_drop_target_during_intrusion`)。
-    - `DndDragPayload` に応じて `handle_on_dnd_entity_drag` または `handle_on_dnd_id_drag` を発火。
+    - `DndDragPayload` に応じて `handle_on_dnd_drag_interactive` または `handle_on_dnd_drag_passive` を発火。
 
 #### B. `PointerButton` の処理フロー
 
@@ -80,7 +80,7 @@ OSやウィンドウメッセージから届いた生のアクションを `cx.e
 
 ---
 
-### 3. `update_state(cx: &mut Context, id: EntityId, state_flag: u128, actived: bool)`
+### 3. `update_state(cx: &mut Context, id: Entity, state_flag: u128, actived: bool)`
 
 インタラクション状態の変化をビットマスクで評価し、最小限のレイアウト汚染とスタイル解決を即座に実行します。
 
@@ -96,7 +96,7 @@ OSやウィンドウメッセージから届いた生のアクションを `cx.e
 
 ---
 
-### 4. `set_states(cx: &mut Context, id: EntityId, flag: &StateFlag, actived: bool)`
+### 4. `set_states(cx: &mut Context, id: Entity, flag: &StateFlag, actived: bool)`
 
 [`StateFlag`] 列挙型を、低レイヤの `ComponentMask` ビット（`u128`）へとマッピングして `update_state` を呼び出します。
 
@@ -105,11 +105,11 @@ OSやウィンドウメッセージから届いた生のアクションを `cx.e
 
 ---
 
-### 5. `sync_layout(cx: &mut Context, root: EntityId, window_size: LayoutSize)`
+### 5. `sync_layout(cx: &mut Context, root: Entity, window_size: LayoutSize)`
 
 スクロールバーの出現に伴うコンテンツ領域の変動を同期させる2パスのレイアウト計算です。
 
-1.  **保留エフェクトのフラッシュ** (`evaluate_pending_element_effects`):
+1.  **保留エフェクトのフラッシュ** (`evaluate_pending_entity_effects`):
     レイアウト計算に突入する前に、蓄積されているすべてのシグナル・エフェクトを一挙に評価完了させます。
 2.  **早期リターン判定**:
     構造ダーティ (`topo_is_structure_dirty`)、スタイルダーティ (`lay_dirty_entities`)、ウィンドウサイズ変動のいずれも無ければ完全にスキップ。

@@ -5,7 +5,7 @@ use crate::{
 use michiu_ui::GlobalCursorIcon;
 pub use michiu_ui::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(20.0).p(16.0)).children([
         cursor_container(),
         resize_container(),
@@ -22,19 +22,21 @@ fn wrapper_style() -> Modifier {
     ii().w_full().gap((20.0, 10.0)).p(6.0)
 }
 
-fn item(label: &'static str, style: Modifier) -> Element {
-    flex(style
-        .p(10.0)
-        .r(4.0)
-        .size((150.0, 60.0))
-        .justify_center()
-        .items_center()
-        .border_dashed(2.0)
-        .border_color(dynamic(|t: &Theme| t.border)))
+fn item(label: &'static str, style: Modifier) -> Entity {
+    flex(
+        style
+            .p(10.0)
+            .r(4.0)
+            .size((150.0, 60.0))
+            .justify_center()
+            .items_center()
+            .border_dashed(2.0)
+            .border_color(dynamic(|t: &Theme| t.border)),
+    )
     .label(label, label_style())
 }
 
-fn cursor_container() -> Element {
+fn cursor_container() -> Entity {
     let default = item("Default", ii().cursor_default());
     let grab = item("Grab", ii().cursor_grab());
     let grabbing = item("Grabbing", ii().cursor_grabbing());
@@ -47,7 +49,7 @@ fn cursor_container() -> Element {
     ])
 }
 
-fn resize_container() -> Element {
+fn resize_container() -> Entity {
     let item = item(
         "Resizable",
         ii().min_size((150.0, 60.0))
@@ -61,7 +63,7 @@ fn resize_container() -> Element {
     ])
 }
 
-fn global_container() -> Element {
+fn global_container() -> Entity {
     let item1 = item("Not Style", ii());
     let item2 = item("Local Text", ii().cursor_text());
 
@@ -81,7 +83,7 @@ fn global_container() -> Element {
     ])
 }
 
-fn custom_container() -> Element {
+fn custom_container() -> Entity {
     let grab_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/examples/sample_collection/assets/cursor_grab.png"

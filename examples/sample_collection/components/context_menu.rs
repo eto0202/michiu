@@ -4,7 +4,7 @@ use michiu::{prelude::*, ui::a11y};
 const WIDTH: f32 = 150.0;
 const HEIGHT: f32 = 250.0;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(
         ii().gap(16.0)
             .p(16.0)
@@ -28,13 +28,13 @@ pub fn container() -> Element {
 
         let menu_style = ii().flex().top(top).left(left);
 
-        let Some(el) = cx.try_query_first::<a11y::AContextMenu>() else {
-            let root = cx.find_root_entity().expect("Not Found Root EntityId");
+        let Some(e) = cx.try_query_first::<a11y::AContextMenu>() else {
+            let root = cx.find_root_entity().expect("Not Found Root Entity");
             let menu = context_menu().modify(menu_style);
-            let _ = root.into_el().child(menu);
+            let _ = root.child(menu);
             return;
         };
-        let _ = el.modify(menu_style);
+        let _ = e.modify(menu_style);
     })
     .on_click_with(|cx| {
         let _ = cx.query_first::<a11y::AContextMenu>().modify(ii().hidden());
@@ -45,7 +45,7 @@ pub fn container() -> Element {
     )
 }
 
-fn context_menu() -> Element {
+fn context_menu() -> Entity {
     v_flex(
         ii().absolute()
             .r(4.0)
@@ -61,7 +61,7 @@ fn context_menu() -> Element {
     .children(menu_item())
 }
 
-fn menu_item() -> [Element; 8] {
+fn menu_item() -> [Entity; 8] {
     let item = |label: &'static str| {
         flex(
             ii().r(3.0)

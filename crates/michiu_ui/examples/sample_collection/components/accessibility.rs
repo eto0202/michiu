@@ -2,14 +2,14 @@ use michiu_ui::{accessibility::*, prelude::*};
 
 use crate::app::theme::Theme;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(16.0).p(16.0))
         // `a11y`, `a11y_with`, and `a11y_role` take precedence over `tag` and `tag_a11y`
         .a11y(Node::new(Role::GenericContainer))
         .children([role_group(), tag_group()])
 }
 
-fn role_group() -> Element {
+fn role_group() -> Entity {
     v_flex(ii().p(8.0).gap(16.0))
         .a11y_with(Node::new(Role::Group), |n| n.set_label("Role Group"))
         .label("Role", ii())
@@ -27,7 +27,7 @@ fn role_group() -> Element {
         )
 }
 
-fn role_button() -> Element {
+fn role_button() -> Entity {
     flex(
         ii().r(4.0)
             .p(8.0)
@@ -42,7 +42,7 @@ fn role_button() -> Element {
     )
 }
 
-fn label_button() -> Element {
+fn label_button() -> Entity {
     flex(
         ii().r(4.0)
             .p(8.0)
@@ -57,7 +57,7 @@ fn label_button() -> Element {
     )
 }
 
-fn tag_group() -> Element {
+fn tag_group() -> Entity {
     v_flex(ii().p(8.0).gap(16.0))
         .tag::<a11y::AContainer>() // Use the library's standard tags
         .label("Tag", ii())
@@ -73,7 +73,7 @@ fn tag_group() -> Element {
         )
 }
 
-fn tag_button() -> Element {
+fn tag_button() -> Entity {
     flex(
         ii().r(4.0)
             .p(8.0)
@@ -88,9 +88,9 @@ fn tag_button() -> Element {
     )
     .on_click_with(|cx| {
         // Even tags intended for inference can be used as regular tags.
-        let els = cx.query_all::<a11y::AButton>();
-        for el in els {
-            println!("has AAnyButton: {:?}", el.id())
+        let entities = cx.query_all::<a11y::AButton>();
+        for e in entities {
+            println!("has AAnyButton: {:?}", e)
         }
     })
 }
@@ -103,7 +103,7 @@ impl A11yInferenceTag for UserMichiuButton {
     }
 }
 
-fn user_tag_button() -> Element {
+fn user_tag_button() -> Entity {
     flex(
         ii().r(4.0)
             .p(8.0)
@@ -118,9 +118,9 @@ fn user_tag_button() -> Element {
         ii().font_size(18.0).text_color(dynamic(|t: &Theme| t.text)),
     )
     .on_click_with(|cx| {
-        let els = cx.query_all::<UserMichiuButton>();
-        for el in els {
-            println!("has UserMichiuButton: {:?}", el.id())
+        let entities = cx.query_all::<UserMichiuButton>();
+        for e in entities {
+            println!("has UserMichiuButton: {:?}", e)
         }
     })
 }

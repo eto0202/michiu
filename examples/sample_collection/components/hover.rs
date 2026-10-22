@@ -5,7 +5,7 @@ use crate::{
 use michiu::prelude::*;
 use std::time::Duration;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(28.0).p(16.0)).children([section_hover(), section_hover_transition()])
 }
 
@@ -28,7 +28,7 @@ fn item_style() -> Modifier {
         .border_color(dynamic(|t: &Theme| t.border))
 }
 
-fn section_hover() -> Element {
+fn section_hover() -> Entity {
     let item_1 = flex(item_style().hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover))))
         .label("Background", label_style());
 
@@ -51,7 +51,7 @@ fn section_hover() -> Element {
     v_flex(section_style()).children([section_title("Hover"), wrapper])
 }
 
-fn transition_item(ms: u64, label_text: &'static str) -> Element {
+fn transition_item(ms: u64, label_text: &'static str) -> Entity {
     flex(
         item_style()
             .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)))
@@ -60,7 +60,7 @@ fn transition_item(ms: u64, label_text: &'static str) -> Element {
     .label(label_text, label_style())
 }
 
-fn section_hover_transition() -> Element {
+fn section_hover_transition() -> Entity {
     let wrapper = h_flex(wrapper_style()).children([
         transition_item(150, "150 ms"),
         transition_item(300, "300 ms"),

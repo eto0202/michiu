@@ -11,6 +11,7 @@ pub mod draggable;
 pub mod external_visual;
 pub mod flexbox;
 pub mod focusable;
+pub mod gradient;
 pub mod hover;
 pub mod image;
 pub mod input;
@@ -21,12 +22,11 @@ pub mod scrollbar;
 pub mod size;
 pub mod stress_test;
 pub mod transform;
-pub mod gradient;
 
 use crate::app::theme::Theme;
 use michiu_ui::prelude::*;
 
-pub fn section_title(text_val: &'static str) -> Element {
+pub fn section_title(text_val: &'static str) -> Entity {
     text(text_val).modify(
         ii().text_color(dynamic(|t: &Theme| t.text_muted))
             .font_size(14.0)

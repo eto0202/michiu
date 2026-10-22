@@ -5,7 +5,9 @@ use crate::{
     window::{create_renderer, create_window, message_loop, register_class, show_window},
 };
 use michiu_ui::{
-    CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual, prelude::*,
+    CapacityConfig,
+    CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
+    prelude::*,
 };
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
@@ -28,7 +30,7 @@ mod window;
 struct AppState {
     renderer: MichiuRenderer,
     context: Context,
-    root_id: EntityId,
+    root: Entity,
 }
 
 #[derive(Clone)]
@@ -128,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_state = Box::new(AppState {
         renderer,
         context,
-        root_id: root.id(),
+        root,
     });
 
     unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(app_state) as isize) };

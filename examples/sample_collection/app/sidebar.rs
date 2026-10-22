@@ -3,7 +3,7 @@ pub use michiu::prelude::*;
 use michiu::ui::a11y;
 use strum::IntoEnumIterator;
 
-pub fn sidebar() -> Element {
+pub fn sidebar() -> Entity {
     v_flex(
         ii().width(170.0)
             .h_full()
@@ -21,7 +21,7 @@ pub fn sidebar() -> Element {
     ])
 }
 
-fn controll_header() -> Element {
+fn controll_header() -> Entity {
     h_flex(
         ii().justify_between()
             .items_center()
@@ -32,7 +32,7 @@ fn controll_header() -> Element {
     )
 }
 
-fn header_label() -> Element {
+fn header_label() -> Entity {
     text("Components").modify_d(|t: &Theme| {
         ii().font_size(14.0)
             .text_color(t.text_muted)
@@ -40,7 +40,7 @@ fn header_label() -> Element {
     })
 }
 
-fn sort_toggle() -> Element {
+fn sort_toggle() -> Entity {
     flex_d(|t: &Theme| {
         ii().p_x(8.0)
             .p_y(2.0)
@@ -63,7 +63,7 @@ fn sort_toggle() -> Element {
     .child(toggle_label())
 }
 
-fn toggle_label() -> Element {
+fn toggle_label() -> Entity {
     text_d(|order: &SidebarSortOrder| match order {
         SidebarSortOrder::Ascending => "A-Z ↑",
         SidebarSortOrder::Descending => "Z-A ↓",
@@ -76,7 +76,7 @@ fn toggle_label() -> Element {
     })
 }
 
-fn list_container() -> Element {
+fn list_container() -> Entity {
     v_flex_d(|t: &Theme| scrollbar(t).grow().overflow_y_scroll())
         .tag::<a11y::AList>()
         .child(move || {
@@ -101,7 +101,7 @@ fn list_container() -> Element {
             }
 
             // リストアイテム
-            let items: Vec<Element> = comp_types
+            let items: Vec<Entity> = comp_types
                 .into_iter()
                 .map(|comp_type| sidebar_item(comp_type.to_string(), comp_type))
                 .collect();
@@ -110,7 +110,7 @@ fn list_container() -> Element {
         })
 }
 
-fn sidebar_item(name: String, item_type: ComponentType) -> Element {
+fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
     h_flex_d(move |t: &Theme| {
         let active_bg = t.border_hover;
         let hover_bg = t.background_hover;

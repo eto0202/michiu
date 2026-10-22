@@ -1,15 +1,14 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, AnimationCurve, Backdrop, BasicLayout, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
-    CursorIcon, Direction, Display, DndDragPayload, DndDragPlaceholderParent, DndDragProperty,
-    DndDropProperty, DndDropTarget, EdgeInsets, EntityId, FlexDirection, FlexLayout, FlexWrap,
+    CursorIcon, Direction, Display, DndDragMode, DndDragPlaceholderParent, DndDragProperty,
+    DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout, FlexWrap,
     FocusTrigger, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement,
     InteractionName, InteractionStyles, IntoModConvert, IntoModCornerRadius, IntoModPoint,
-    IntoModRect, IntoModResizable, IntoModSize, IntoModValue, JustifyContent,
-    KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LinearGradient, MichiuSoA, Overflow,
-    PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
-    TargetStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, fill,
-    pct,
+    IntoModRect, IntoModResizable, IntoModSize, IntoModValue, JustifyContent, KeyframeAnimation,
+    LayoutOverflow, LayoutPoint, Length, LinearGradient, MichiuSoA, Overflow, PointerEvents,
+    Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle,
+    TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, fill, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 use taffy::{GridTemplateAreas, GridTemplateComponent, TrackSizingFunction};
@@ -51,7 +50,7 @@ impl ModInner {
     }
 }
 
-type DynamicSettersType = Vec<Arc<dyn Fn(&mut Context, EntityId, ModTarget) + Send + Sync>>;
+type DynamicSettersType = Vec<Arc<dyn Fn(&mut Context, Entity, ModTarget) + Send + Sync>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModTarget {
@@ -237,7 +236,7 @@ impl Modifier {
 
     /// Normally, you don't need to change this value.
     ///
-    /// This is an internal flag that specifies whether a child element of a block layout is a table element.
+    /// This is an internal flag that specifies whether a child entity of a block layout is a table entity.
     ///
     /// See the Taffy documentation for detailed specifications.
     ///
@@ -266,7 +265,7 @@ impl Modifier {
         self
     }
 
-    /// Set whether it is a replacement element.
+    /// Set whether it is a replacement entity.
     ///
     /// [`taffy::Style::item_is_replaced`]
     #[inline]
@@ -293,7 +292,7 @@ impl Modifier {
         self
     }
 
-    /// This sets the basis for calculating element sizes ([`BoxSizing`]).
+    /// This sets the basis for calculating entity sizes ([`BoxSizing`]).
     ///
     /// Default is [`BoxSizing::BorderBox`].
     #[inline]
@@ -334,7 +333,7 @@ impl Modifier {
         self.box_sizing(BoxSizing::ContentBox)
     }
 
-    /// Sets the inline direction for text and elements.
+    /// Sets the inline direction for text and entities.
     ///
     /// Default is [`Direction::Ltr`]
     #[inline]
@@ -510,7 +509,7 @@ impl Modifier {
         self
     }
 
-    /// This setting determines how child elements are displayed when they extend beyond the element's boundaries.
+    /// This setting determines how child entities are displayed when they extend beyond the entity's boundaries.
     ///
     /// ```rust
     /// use michiu_ui::Overflow;
@@ -696,7 +695,7 @@ impl Modifier {
         self.overflow_y(Overflow::Clip)
     }
 
-    /// Sets the position (Relative, Absolute) for elements.
+    /// Sets the position (Relative, Absolute) for entities.
     ///
     /// Default is [`Position::Relative`]
     #[inline]
@@ -760,7 +759,7 @@ impl Modifier {
         self
     }
 
-    /// Set the element to absolute positioning ([`Position::Absolute`]) and simultaneously set the position inset.
+    /// Set the entity to absolute positioning ([`Position::Absolute`]) and simultaneously set the position inset.
     #[inline]
     #[must_use]
     pub fn absolute_inset(self, value: impl IntoModRect<Val>) -> Self {
@@ -907,7 +906,7 @@ impl Modifier {
         }
     }
 
-    /// Sets the basic size (width, height) of the element.
+    /// Sets the basic size (width, height) of the entity.
     #[inline]
     #[must_use]
     pub fn size(mut self, value: impl IntoModSize<Val>) -> Self {
@@ -930,35 +929,35 @@ impl Modifier {
         self
     }
 
-    /// Set both the width and height of the element to 100% (the entire parent element).
+    /// Set both the width and height of the entity to 100% (the entire parent entity).
     #[inline]
     #[must_use]
     pub fn size_full(self) -> Self {
         self.size(pct(100.0))
     }
 
-    /// Set both the width and height of the element to 50% (half the size of its parent element).
+    /// Set both the width and height of the entity to 50% (half the size of its parent entity).
     #[inline]
     #[must_use]
     pub fn size_half(self) -> Self {
         self.size(pct(50.0))
     }
 
-    /// Set both the width and height of the element to Auto.
+    /// Set both the width and height of the entity to Auto.
     #[inline]
     #[must_use]
     pub fn size_auto(self) -> Self {
         self.size(auto())
     }
 
-    /// Set both the width and height of the element to Stretch.
+    /// Set both the width and height of the entity to Stretch.
     #[inline]
     #[must_use]
     pub fn size_fill(self) -> Self {
         self.size(fill())
     }
 
-    /// Sets only the width of the element (the height will retain its existing value).
+    /// Sets only the width of the entity (the height will retain its existing value).
     #[inline]
     #[must_use]
     pub fn width(mut self, value: impl IntoModConvert<Val>) -> Self {
@@ -980,42 +979,42 @@ impl Modifier {
         }
     }
 
-    /// Sets only the width of the element (the height will retain its existing value).
+    /// Sets only the width of the entity (the height will retain its existing value).
     #[inline]
     #[must_use]
     pub fn w(self, value: impl IntoModConvert<Val>) -> Self {
         self.width(value)
     }
 
-    /// Set the width of the element to 100% (the entire parent element).
+    /// Set the width of the entity to 100% (the entire parent entity).
     #[inline]
     #[must_use]
     pub fn w_full(self) -> Self {
         self.width(pct(100.0))
     }
 
-    /// Set the width of the element to 50% (half the size of its parent element).
+    /// Set the width of the entity to 50% (half the size of its parent entity).
     #[inline]
     #[must_use]
     pub fn w_half(self) -> Self {
         self.width(pct(50.0))
     }
 
-    /// Set the width of the element to Auto.
+    /// Set the width of the entity to Auto.
     #[inline]
     #[must_use]
     pub fn w_auto(self) -> Self {
         self.width(auto())
     }
 
-    /// Set the width of the element to Stretch.
+    /// Set the width of the entity to Stretch.
     #[inline]
     #[must_use]
     pub fn w_fill(self) -> Self {
         self.width(fill())
     }
 
-    /// Sets only the height of the element (the width will retain its existing value).
+    /// Sets only the height of the entity (the width will retain its existing value).
     #[inline]
     #[must_use]
     pub fn height(mut self, value: impl IntoModConvert<Val>) -> Self {
@@ -1037,35 +1036,35 @@ impl Modifier {
         }
     }
 
-    /// Sets only the height of the element (the width will retain its existing value).
+    /// Sets only the height of the entity (the width will retain its existing value).
     #[inline]
     #[must_use]
     pub fn h(self, value: impl IntoModConvert<Val>) -> Self {
         self.height(value)
     }
 
-    /// Set the height of the element to 100% (the entire parent element).
+    /// Set the height of the entity to 100% (the entire parent entity).
     #[inline]
     #[must_use]
     pub fn h_full(self) -> Self {
         self.height(pct(100.0))
     }
 
-    /// Set the height of the element to 50% (half the size of its parent element).
+    /// Set the height of the entity to 50% (half the size of its parent entity).
     #[inline]
     #[must_use]
     pub fn h_half(self) -> Self {
         self.height(pct(50.0))
     }
 
-    /// Set the height of the element to Auto.
+    /// Set the height of the entity to Auto.
     #[inline]
     #[must_use]
     pub fn h_auto(self) -> Self {
         self.height(auto())
     }
 
-    /// Set the height of the element to Stretch.
+    /// Set the height of the entity to Stretch.
     #[inline]
     #[must_use]
     pub fn h_fill(self) -> Self {
@@ -2611,7 +2610,7 @@ impl Modifier {
         self
     }
 
-    /// Sets the gap (offset) between the element and its outline.
+    /// Sets the gap (offset) between the entity and its outline.
     #[inline]
     #[must_use]
     pub fn outline_offset(mut self, value: impl IntoModValue<f32>) -> Self {
@@ -2838,7 +2837,7 @@ impl Modifier {
         self.align_items(AlignItems::SelfEnd)
     }
 
-    /// Sets the cross axis alignment of individual elements.
+    /// Sets the cross axis alignment of individual entities.
     ///
     /// Default is [`AlignSelf::Stretch`]
     #[inline]
@@ -2863,105 +2862,105 @@ impl Modifier {
         self
     }
 
-    /// Sets the cross axis alignment of individual elements to a auto ([`None`]).
+    /// Sets the cross axis alignment of individual entities to a auto ([`None`]).
     #[inline]
     #[must_use]
     pub fn self_auto(self) -> Self {
         self.align_self(None)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::Start`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::Start`].
     #[inline]
     #[must_use]
     pub fn self_start(self) -> Self {
         self.align_self(AlignSelf::Start)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::End`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::End`].
     #[inline]
     #[must_use]
     pub fn self_end(self) -> Self {
         self.align_self(AlignSelf::End)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::FlexStart`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::FlexStart`].
     #[inline]
     #[must_use]
     pub fn self_flex_start(self) -> Self {
         self.align_self(AlignSelf::FlexStart)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::FlexEnd`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::FlexEnd`].
     #[inline]
     #[must_use]
     pub fn self_flex_end(self) -> Self {
         self.align_self(AlignSelf::FlexEnd)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::Center`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::Center`].
     #[inline]
     #[must_use]
     pub fn self_center(self) -> Self {
         self.align_self(AlignSelf::Center)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::Baseline`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::Baseline`].
     #[inline]
     #[must_use]
     pub fn self_baseline(self) -> Self {
         self.align_self(AlignSelf::Baseline)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::Stretch`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::Stretch`].
     #[inline]
     #[must_use]
     pub fn self_stretch(self) -> Self {
         self.align_self(AlignSelf::Stretch)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::SafeStart`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::SafeStart`].
     #[inline]
     #[must_use]
     pub fn self_start_safe(self) -> Self {
         self.align_self(AlignSelf::SafeStart)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::SafeEnd`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::SafeEnd`].
     #[inline]
     #[must_use]
     pub fn self_end_safe(self) -> Self {
         self.align_self(AlignSelf::SafeEnd)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::SafeFlexStart`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::SafeFlexStart`].
     #[inline]
     #[must_use]
     pub fn self_flex_start_safe(self) -> Self {
         self.align_self(AlignSelf::SafeFlexStart)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::SafeFlexEnd`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::SafeFlexEnd`].
     #[inline]
     #[must_use]
     pub fn self_flex_end_safe(self) -> Self {
         self.align_self(AlignSelf::SafeFlexEnd)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::SafeCenter`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::SafeCenter`].
     #[inline]
     #[must_use]
     pub fn self_center_safe(self) -> Self {
         self.align_self(AlignSelf::SafeCenter)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::SelfStart`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::SelfStart`].
     #[inline]
     #[must_use]
     pub fn self_self_start(self) -> Self {
         self.align_self(AlignSelf::SelfStart)
     }
 
-    /// Sets the cross axis alignment of individual elements to a [`AlignSelf::SelfEnd`].
+    /// Sets the cross axis alignment of individual entities to a [`AlignSelf::SelfEnd`].
     #[inline]
     #[must_use]
     pub fn self_self_end(self) -> Self {
@@ -3077,7 +3076,7 @@ impl Modifier {
         self.justify_items(AlignItems::Baseline)
     }
 
-    /// Sets the axis alignment of individual elements.
+    /// Sets the axis alignment of individual entities.
     ///
     /// Default is [`AlignSelf::Stretch`]
     #[inline]
@@ -3102,91 +3101,91 @@ impl Modifier {
         self
     }
 
-    /// Sets the axis alignment of individual elements to auto ([`None`]).
+    /// Sets the axis alignment of individual entities to auto ([`None`]).
     #[inline]
     #[must_use]
     pub fn justify_self_auto(self) -> Self {
         self.justify_self(None)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::Baseline`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::Baseline`].
     #[inline]
     #[must_use]
     pub fn justify_self_baseline(self) -> Self {
         self.justify_self(AlignSelf::Baseline)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::Center`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::Center`].
     #[inline]
     #[must_use]
     pub fn justify_self_center(self) -> Self {
         self.justify_self(AlignSelf::Center)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::SafeCenter`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::SafeCenter`].
     #[inline]
     #[must_use]
     pub fn justify_self_center_safe(self) -> Self {
         self.justify_self(AlignSelf::SafeCenter)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::End`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::End`].
     #[inline]
     #[must_use]
     pub fn justify_self_end(self) -> Self {
         self.justify_self(AlignSelf::End)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::SafeEnd`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::SafeEnd`].
     #[inline]
     #[must_use]
     pub fn justify_self_end_safe(self) -> Self {
         self.justify_self(AlignSelf::SafeEnd)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::Start`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::Start`].
     #[inline]
     #[must_use]
     pub fn justify_self_start(self) -> Self {
         self.justify_self(AlignSelf::Start)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::SafeStart`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::SafeStart`].
     #[inline]
     #[must_use]
     pub fn justify_self_start_safe(self) -> Self {
         self.justify_self(AlignSelf::SafeStart)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::Stretch`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::Stretch`].
     #[inline]
     #[must_use]
     pub fn justify_self_stretch(self) -> Self {
         self.justify_self(AlignSelf::Stretch)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::FlexStart`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::FlexStart`].
     #[inline]
     #[must_use]
     pub fn justify_self_flex_start(self) -> Self {
         self.justify_self(AlignSelf::FlexStart)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::FlexEnd`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::FlexEnd`].
     #[inline]
     #[must_use]
     pub fn justify_self_flex_end(self) -> Self {
         self.justify_self(AlignSelf::FlexEnd)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::SafeFlexStart`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::SafeFlexStart`].
     #[inline]
     #[must_use]
     pub fn justify_self_flex_start_safe(self) -> Self {
         self.justify_self(AlignSelf::SafeFlexStart)
     }
 
-    /// Sets the axis alignment of individual elements to a [`AlignSelf::SafeFlexEnd`].
+    /// Sets the axis alignment of individual entities to a [`AlignSelf::SafeFlexEnd`].
     #[inline]
     #[must_use]
     pub fn justify_self_flex_end_safe(self) -> Self {
@@ -3439,7 +3438,7 @@ impl Modifier {
         self.justify_content(JustifyContent::SafeFlexEnd)
     }
 
-    /// Sets the spacing between child elements in the row and column directions.
+    /// Sets the spacing between child entities in the row and column directions.
     #[inline]
     #[must_use]
     pub fn gap(mut self, value: impl IntoModSize<Val>) -> Self {
@@ -3462,28 +3461,28 @@ impl Modifier {
         self
     }
 
-    /// Sets the spacing between child elements in the row and column directions to 0.
+    /// Sets the spacing between child entities in the row and column directions to 0.
     #[inline]
     #[must_use]
     pub fn gap_0(self) -> Self {
         self.gap(0.0)
     }
 
-    /// Sets the spacing between child elements in the row and column directions to auto.
+    /// Sets the spacing between child entities in the row and column directions to auto.
     #[inline]
     #[must_use]
     pub fn gap_auto(self) -> Self {
         self.gap(auto())
     }
 
-    /// Sets the spacing between child elements in the row and column directions to stretch.
+    /// Sets the spacing between child entities in the row and column directions to stretch.
     #[inline]
     #[must_use]
     pub fn gap_fill(self) -> Self {
         self.gap(fill())
     }
 
-    /// Sets the row-gap (vertical) spacing between child elements.
+    /// Sets the row-gap (vertical) spacing between child entities.
     #[inline]
     #[must_use]
     pub fn gap_row(mut self, value: impl IntoModConvert<Val>) -> Self {
@@ -3505,7 +3504,7 @@ impl Modifier {
         }
     }
 
-    /// Sets the column-gap (horizontal) spacing between child elements.
+    /// Sets the column-gap (horizontal) spacing between child entities.
     #[inline]
     #[must_use]
     pub fn gap_col(mut self, value: impl IntoModConvert<Val>) -> Self {
@@ -3527,14 +3526,14 @@ impl Modifier {
         }
     }
 
-    /// Sets the row-gap (vertical) spacing between child elements.
+    /// Sets the row-gap (vertical) spacing between child entities.
     #[inline]
     #[must_use]
     pub fn gap_y(self, value: impl IntoModConvert<Val>) -> Self {
         self.gap_row(value)
     }
 
-    /// Sets the column-gap (horizontal) spacing between child elements.
+    /// Sets the column-gap (horizontal) spacing between child entities.
     #[inline]
     #[must_use]
     pub fn gap_x(self, value: impl IntoModConvert<Val>) -> Self {
@@ -3667,7 +3666,7 @@ impl Modifier {
         self.flex_direction(FlexDirection::RowReverse)
     }
 
-    /// Sets whether child elements are wrapped to multiple lines.
+    /// Sets whether child entities are wrapped to multiple lines.
     ///
     /// Default is [`FlexWrap::NoWrap`]
     #[inline]
@@ -3694,42 +3693,42 @@ impl Modifier {
         self
     }
 
-    /// Sets whether child elements are wrapped to multiple lines to  [`FlexWrap::Wrap`].
+    /// Sets whether child entities are wrapped to multiple lines to  [`FlexWrap::Wrap`].
     #[inline]
     #[must_use]
     pub fn flex_wrap(self) -> Self {
         self.flex_wrap_internal(FlexWrap::Wrap)
     }
 
-    /// Sets whether child elements are wrapped to multiple lines to  [`FlexWrap::NoWrap`].
+    /// Sets whether child entities are wrapped to multiple lines to  [`FlexWrap::NoWrap`].
     #[inline]
     #[must_use]
     pub fn flex_nowrap(self) -> Self {
         self.flex_wrap_internal(FlexWrap::NoWrap)
     }
 
-    /// Sets whether child elements are wrapped to multiple lines to  [`FlexWrap::WrapReverse`].
+    /// Sets whether child entities are wrapped to multiple lines to  [`FlexWrap::WrapReverse`].
     #[inline]
     #[must_use]
     pub fn flex_wrap_reverse(self) -> Self {
         self.flex_wrap_internal(FlexWrap::WrapReverse)
     }
 
-    /// Sets whether child elements are wrapped to multiple lines to  [`FlexWrap::Balance`].
+    /// Sets whether child entities are wrapped to multiple lines to  [`FlexWrap::Balance`].
     #[inline]
     #[must_use]
     pub fn flex_wrap_balance(self) -> Self {
         self.flex_wrap_internal(FlexWrap::Balance)
     }
 
-    /// Sets whether child elements are wrapped to multiple lines to  [`FlexWrap::BalanceReverse`].
+    /// Sets whether child entities are wrapped to multiple lines to  [`FlexWrap::BalanceReverse`].
     #[inline]
     #[must_use]
     pub fn flex_wrap_balance_reverse(self) -> Self {
         self.flex_wrap_internal(FlexWrap::BalanceReverse)
     }
 
-    /// Sets the base dimensions that serve as the basis for the child elements.
+    /// Sets the base dimensions that serve as the basis for the child entities.
     #[inline]
     #[must_use]
     pub fn basis(mut self, value: impl IntoModConvert<Val>) -> Self {
@@ -3752,35 +3751,35 @@ impl Modifier {
         self
     }
 
-    /// Sets the base dimensions that serve as the basis for the child elements to 0.
+    /// Sets the base dimensions that serve as the basis for the child entities to 0.
     #[inline]
     #[must_use]
     pub fn basis_0(self) -> Self {
         self.basis(0.0)
     }
 
-    /// Sets the base dimensions that serve as the basis for the child elements to auto.
+    /// Sets the base dimensions that serve as the basis for the child entities to auto.
     #[inline]
     #[must_use]
     pub fn basis_auto(self) -> Self {
         self.basis(auto())
     }
 
-    /// Sets the base dimensions that serve as the basis for the child elements to stretch.
+    /// Sets the base dimensions that serve as the basis for the child entities to stretch.
     #[inline]
     #[must_use]
     pub fn basis_fill(self) -> Self {
         self.basis(fill())
     }
 
-    /// Sets the base dimensions that serve as the basis for the child elements to 100%.
+    /// Sets the base dimensions that serve as the basis for the child entities to 100%.
     #[inline]
     #[must_use]
     pub fn basis_full(self) -> Self {
         self.basis(pct(100.0))
     }
 
-    /// Sets the element's flex-grow ratio.
+    /// Sets the entity's flex-grow ratio.
     ///
     /// Accepts a boolean (true/false) or a number (f32/i32).
     #[inline]
@@ -3805,21 +3804,21 @@ impl Modifier {
         self
     }
 
-    /// Set the element to stretch (`flex_grow(1.0)`).
+    /// Set the entity to stretch (`flex_grow(1.0)`).
     #[inline]
     #[must_use]
     pub fn grow(self) -> Self {
         self.flex_grow(1.0)
     }
 
-    /// Sets the element not to stretch (`flex_grow(0.0)`).
+    /// Sets the entity not to stretch (`flex_grow(0.0)`).
     #[inline]
     #[must_use]
     pub fn grow_0(self) -> Self {
         self.flex_grow(0.0)
     }
 
-    /// Sets the element's shrinking ratio (flex-shrink).
+    /// Sets the entity's shrinking ratio (flex-shrink).
     /// Accepts a boolean (true/false) or a number (f32/i32).
     #[inline]
     #[must_use]
@@ -3843,21 +3842,21 @@ impl Modifier {
         self
     }
 
-    /// Makes the element shrinkable (`flex_shrink(1.0)`)
+    /// Makes the entity shrinkable (`flex_shrink(1.0)`)
     #[inline]
     #[must_use]
     pub fn shrink(self) -> Self {
         self.flex_shrink(1.0)
     }
 
-    /// Sets the element is never scaled down (`flex_shrink(0.0)`).
+    /// Sets the entity is never scaled down (`flex_shrink(0.0)`).
     #[inline]
     #[must_use]
     pub fn shrink_0(self) -> Self {
         self.flex_shrink(0.0)
     }
 
-    /// Sets the background color of the element.
+    /// Sets the background color of the entity.
     ///
     /// Prefer using
     /// [`crate::rgb`], [`crate::rgba`], [`crate::hex`], [`crate::hsl`], [`crate::hsla`] functions for a cleaner syntax.
@@ -3883,7 +3882,7 @@ impl Modifier {
         self
     }
 
-    /// Sets the color of the element's border.
+    /// Sets the color of the entity's border.
     ///
     /// Prefer using
     /// [`crate::rgb`], [`crate::rgba`], [`crate::hex`], [`crate::hsl`], [`crate::hsla`] functions for a cleaner syntax.
@@ -3909,7 +3908,7 @@ impl Modifier {
         self
     }
 
-    /// Sets the radius of the element's corner rounding.
+    /// Sets the radius of the entity's corner rounding.
     #[inline]
     #[must_use]
     pub fn corner_radius(mut self, value: impl IntoModCornerRadius) -> Self {
@@ -3932,21 +3931,21 @@ impl Modifier {
         self
     }
 
-    /// Sets the radius of the element's corner rounding.
+    /// Sets the radius of the entity's corner rounding.
     #[inline]
     #[must_use]
     pub fn rounded(self, value: impl IntoModCornerRadius) -> Self {
         self.corner_radius(value)
     }
 
-    /// Sets the radius of the element's corner rounding.
+    /// Sets the radius of the entity's corner rounding.
     #[inline]
     #[must_use]
     pub fn r(self, value: impl IntoModCornerRadius) -> Self {
         self.corner_radius(value)
     }
 
-    /// Sets the radius of the element's corner rounding to (`corner_radius(9999.0)`).
+    /// Sets the radius of the entity's corner rounding to (`corner_radius(9999.0)`).
     #[inline]
     #[must_use]
     pub fn r_full(self) -> Self {
@@ -4005,7 +4004,7 @@ impl Modifier {
         self.corner_radius((current.top_left, val, val, current.bottom_left))
     }
 
-    /// Sets the opacity (0 to 1) of the entire element.
+    /// Sets the opacity (0 to 1) of the entire entity.
     #[inline]
     #[must_use]
     pub fn opacity(mut self, value: impl IntoModValue<f32>) -> Self {
@@ -4028,28 +4027,28 @@ impl Modifier {
         self
     }
 
-    /// Sets the opacityof the entire element to 0%.
+    /// Sets the opacityof the entire entity to 0%.
     #[inline]
     #[must_use]
     pub fn opacity_0(self) -> Self {
         self.opacity(0.0)
     }
 
-    /// Sets the opacityof the entire element to 50%.
+    /// Sets the opacityof the entire entity to 50%.
     #[inline]
     #[must_use]
     pub fn opacity_50(self) -> Self {
         self.opacity(0.5)
     }
 
-    /// Sets the opacityof the entire element to 100%.
+    /// Sets the opacityof the entire entity to 100%.
     #[inline]
     #[must_use]
     pub fn opacity_100(self) -> Self {
         self.opacity(1.0)
     }
 
-    /// Sets a shadow ([`BoxShadow`]) to be placed outside the element.
+    /// Sets a shadow ([`BoxShadow`]) to be placed outside the entity.
     #[inline]
     #[must_use]
     pub fn box_shadow(mut self, value: impl IntoModValue<BoxShadow>) -> Self {
@@ -4261,7 +4260,7 @@ impl Modifier {
         self.z_index(1)
     }
 
-    /// Sets the cursor icon ([`CursorIcon`]) that appears when the cursor hovers over an element.
+    /// Sets the cursor icon ([`CursorIcon`]) that appears when the cursor hovers over an entity.
     #[inline]
     #[must_use]
     pub fn cursor(mut self, value: impl IntoModValue<CursorIcon>) -> Self {
@@ -4284,42 +4283,42 @@ impl Modifier {
         self
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Default(None)`.
+    /// Sets the cursor icon that appears when the cursor hovers over an entity to `CursorIcon::Default(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_default(self) -> Self {
         self.cursor(CursorIcon::Default(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Grab(None)`.
+    /// Sets the cursor icon that appears when the cursor hovers over an entity to `CursorIcon::Grab(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_grab(self) -> Self {
         self.cursor(CursorIcon::Grab(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Grabbing(None)`.
+    /// Sets the cursor icon that appears when the cursor hovers over an entity to `CursorIcon::Grabbing(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_grabbing(self) -> Self {
         self.cursor(CursorIcon::Grabbing(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::NotAllowed(None)`.
+    /// Sets the cursor icon that appears when the cursor hovers over an entity to `CursorIcon::NotAllowed(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_not_allowed(self) -> Self {
         self.cursor(CursorIcon::NotAllowed(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Pointer(None)`.
+    /// Sets the cursor icon that appears when the cursor hovers over an entity to `CursorIcon::Pointer(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_pointer(self) -> Self {
         self.cursor(CursorIcon::Pointer(None))
     }
 
-    /// Sets the cursor icon that appears when the cursor hovers over an element to `CursorIcon::Text(None)`.
+    /// Sets the cursor icon that appears when the cursor hovers over an entity to `CursorIcon::Text(None)`.
     #[inline]
     #[must_use]
     pub fn cursor_text(self) -> Self {
@@ -4374,10 +4373,10 @@ impl Modifier {
         self.cursor_global(GlobalCursorIcon::Grabbing(None))
     }
 
-    /// Applies a backdrop effect (such as an acrylic effect) to the element.
+    /// Applies a backdrop effect (such as an acrylic effect) to the entity.
     ///
     /// For this effect to work, transparency must be enabled in your OS settings,
-    /// and the background color of this element must be set to semi-transparent (or transparent).
+    /// and the background color of this entity must be set to semi-transparent (or transparent).
     ///
     /// Default is [`Backdrop::None`]
     #[inline]
@@ -4402,35 +4401,35 @@ impl Modifier {
         self
     }
 
-    /// Applies a [`Backdrop::Acrylic`] effect to the element.
+    /// Applies a [`Backdrop::Acrylic`] effect to the entity.
     #[inline]
     #[must_use]
     pub fn backdrop_acrylic(self) -> Self {
         self.backdrop(Backdrop::Acrylic)
     }
 
-    /// Applies a [`Backdrop::Mica`] effect to the element.
+    /// Applies a [`Backdrop::Mica`] effect to the entity.
     #[inline]
     #[must_use]
     pub fn backdrop_mica(self) -> Self {
         self.backdrop(Backdrop::Mica)
     }
 
-    /// Applies a [`Backdrop::MicaAlt`] effect to the element.
+    /// Applies a [`Backdrop::MicaAlt`] effect to the entity.
     #[inline]
     #[must_use]
     pub fn backdrop_mica_alt(self) -> Self {
         self.backdrop(Backdrop::MicaAlt)
     }
 
-    /// Applies a [`Backdrop::None`] effect to the element.
+    /// Applies a [`Backdrop::None`] effect to the entity.
     #[inline]
     #[must_use]
     pub fn backdrop_none(self) -> Self {
         self.backdrop(Backdrop::None)
     }
 
-    /// Sets the base color of the text rendered within the element.
+    /// Sets the base color of the text rendered within the entity.
     #[inline]
     #[must_use]
     pub fn text_color(mut self, value: impl IntoModValue<Color>) -> Self {
@@ -4549,10 +4548,7 @@ impl Modifier {
     /// Not implemented
     #[inline]
     #[must_use]
-    pub fn grid_auto_columns(
-        mut self,
-        value: impl IntoModValue<Vec<TrackSizingFunction>>,
-    ) -> Self {
+    pub fn grid_auto_columns(mut self, value: impl IntoModValue<Vec<TrackSizingFunction>>) -> Self {
         match value.into_mod_value() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -4761,14 +4757,14 @@ impl Modifier {
         self
     }
 
-    /// Sets the style that is applied when the cursor hovers over an element.
+    /// Sets the style that is applied when the cursor hovers over an entity.
     #[inline]
     #[must_use]
     pub fn hovered(self, style: impl IntoModValue<Modifier>) -> Self {
         self.apply_interaction_mod(style, ComponentMask::STATE_HOVERED, ModTarget::Hovered)
     }
 
-    /// Sets the style to be applied when an element receives focus.
+    /// Sets the style to be applied when an entity receives focus.
     #[inline]
     #[must_use]
     pub fn focused(self, style: impl IntoModValue<Modifier>) -> Self {
@@ -4786,35 +4782,35 @@ impl Modifier {
         )
     }
 
-    /// Sets the style to be applied when the left mouse button is pressed down over an element.
+    /// Sets the style to be applied when the left mouse button is pressed down over an entity.
     #[inline]
     #[must_use]
     pub fn pressed(self, style: impl IntoModValue<Modifier>) -> Self {
         self.apply_interaction_mod(style, ComponentMask::STATE_PRESSED, ModTarget::Pressed)
     }
 
-    /// Sets the style to apply when an element is disabled.
+    /// Sets the style to apply when an entity is disabled.
     #[inline]
     #[must_use]
     pub fn disabled(self, style: impl IntoModValue<Modifier>) -> Self {
         self.apply_interaction_mod(style, ComponentMask::STATE_DISABLED, ModTarget::Disabled)
     }
 
-    /// Sets the style to be applied when the element is active.
+    /// Sets the style to be applied when the entity is active.
     #[inline]
     #[must_use]
     pub fn actived(self, style: impl IntoModValue<Modifier>) -> Self {
         self.apply_interaction_mod(style, ComponentMask::STATE_ACTIVED, ModTarget::Actived)
     }
 
-    /// Sets the style to be applied when an element is toggled and selected.
+    /// Sets the style to be applied when an entity is toggled and selected.
     #[inline]
     #[must_use]
     pub fn selected(self, style: impl IntoModValue<Modifier>) -> Self {
         self.apply_interaction_mod(style, ComponentMask::STATE_SELECTED, ModTarget::Selected)
     }
 
-    /// Sets the style to apply when an element is currently being dragged.
+    /// Sets the style to apply when an entity is currently being dragged.
     #[inline]
     #[must_use]
     pub fn dragged(self, style: impl IntoModValue<Modifier>) -> Self {
@@ -4823,11 +4819,7 @@ impl Modifier {
 
     // 子孫要素のインタラクション状態に連動して自身のスタイルを変化させる伝播設定
     #[inline]
-    fn interaction_within(
-        self,
-        name: InteractionName,
-        style: impl IntoModValue<Modifier>,
-    ) -> Self {
+    fn interaction_within(self, name: InteractionName, style: impl IntoModValue<Modifier>) -> Self {
         let (state_flag, target) = match name {
             InteractionName::Hover => (
                 ComponentMask::STYLE_INTERACTION_WITHIN,
@@ -4869,63 +4861,63 @@ impl Modifier {
         self.apply_interaction_mod(style, state_flag, target)
     }
 
-    /// Sets the style that is applied when a descendant element is in hover state.
+    /// Sets the style that is applied when a descendant entity is in hover state.
     #[inline]
     #[must_use]
     pub fn hovered_within(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_within(InteractionName::Hover, style)
     }
 
-    /// Sets the style that is applied when a descendant element is in focus state.
+    /// Sets the style that is applied when a descendant entity is in focus state.
     #[inline]
     #[must_use]
     pub fn focused_within(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_within(InteractionName::Focus, style)
     }
 
-    /// Sets a style that is applied only when the descendant element has keyboard focus.
+    /// Sets a style that is applied only when the descendant entity has keyboard focus.
     #[inline]
     #[must_use]
     pub fn focused_visible_within(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_within(InteractionName::FocusVisible, style)
     }
 
-    /// Sets the style that is applied when a descendant element is in press state.
+    /// Sets the style that is applied when a descendant entity is in press state.
     #[inline]
     #[must_use]
     pub fn pressed_within(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_within(InteractionName::Press, style)
     }
 
-    /// Sets the style that is applied when a descendant element is in disable state.
+    /// Sets the style that is applied when a descendant entity is in disable state.
     #[inline]
     #[must_use]
     pub fn disabled_within(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_within(InteractionName::Disable, style)
     }
 
-    /// Sets the style that is applied when a descendant element is in active state.
+    /// Sets the style that is applied when a descendant entity is in active state.
     #[inline]
     #[must_use]
     pub fn actived_within(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_within(InteractionName::Active, style)
     }
 
-    /// Sets the style that is applied when a descendant element is in select state.
+    /// Sets the style that is applied when a descendant entity is in select state.
     #[inline]
     #[must_use]
     pub fn selected_within(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_within(InteractionName::Select, style)
     }
 
-    /// Sets the style that is applied when a descendant element is in drag state.
+    /// Sets the style that is applied when a descendant entity is in drag state.
     #[inline]
     #[must_use]
     pub fn dragged_within(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_within(InteractionName::Drag, style)
     }
 
-    /// Sets the style that is applied when a descendant element is in interactive state.
+    /// Sets the style that is applied when a descendant entity is in interactive state.
     #[inline]
     #[must_use]
     pub fn all_within(self, style: impl IntoModValue<Modifier>) -> Self {
@@ -4935,11 +4927,7 @@ impl Modifier {
     // 直近の親要素のインタラクション状態に連動して自身のスタイルを変化させる
     #[inline]
     #[must_use]
-    fn interaction_parent(
-        self,
-        name: InteractionName,
-        style: impl IntoModValue<Modifier>,
-    ) -> Self {
+    fn interaction_parent(self, name: InteractionName, style: impl IntoModValue<Modifier>) -> Self {
         let (state_flag, target) = match name {
             InteractionName::Hover => (
                 ComponentMask::STYLE_INTERACTION_PARENT,
@@ -4981,64 +4969,64 @@ impl Modifier {
         self.apply_interaction_mod(style, state_flag, target)
     }
 
-    /// Sets the style that is applied when a most recent parent element is in hover state.
+    /// Sets the style that is applied when a most recent parent entity is in hover state.
     #[inline]
     #[must_use]
     pub fn hovered_parent(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_parent(InteractionName::Hover, style)
     }
 
-    /// Sets the style that is applied when a most recent parent element is in focus state.
+    /// Sets the style that is applied when a most recent parent entity is in focus state.
     #[inline]
     #[must_use]
     pub fn focused_parent(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_parent(InteractionName::Focus, style)
     }
 
-    /// Sets the style that is applied when a most recent parent element is in keyboard focus state.
+    /// Sets the style that is applied when a most recent parent entity is in keyboard focus state.
     #[inline]
     #[must_use]
     pub fn focused_visible_parent(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_parent(InteractionName::FocusVisible, style)
     }
-    /// Sets the style that is applied when a most recent parent element is in press state.
+    /// Sets the style that is applied when a most recent parent entity is in press state.
     #[inline]
     #[must_use]
     pub fn pressed_parent(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_parent(InteractionName::Press, style)
     }
-    /// Sets the style that is applied when a most recent parent element is in disable state.
+    /// Sets the style that is applied when a most recent parent entity is in disable state.
     #[inline]
     #[must_use]
     pub fn disabled_parent(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_parent(InteractionName::Disable, style)
     }
-    /// Sets the style that is applied when a most recent parent element is in active state.
+    /// Sets the style that is applied when a most recent parent entity is in active state.
     #[inline]
     #[must_use]
     pub fn actived_parent(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_parent(InteractionName::Active, style)
     }
-    /// Sets the style that is applied when a most recent parent element is in select state.
+    /// Sets the style that is applied when a most recent parent entity is in select state.
     #[inline]
     #[must_use]
     pub fn selected_parent(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_parent(InteractionName::Select, style)
     }
-    /// Sets the style that is applied when a most recent parent element is in drag state.
+    /// Sets the style that is applied when a most recent parent entity is in drag state.
     #[inline]
     #[must_use]
     pub fn dragged_parent(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_parent(InteractionName::Drag, style)
     }
-    /// Sets the style that is applied when a most recent parent element is in interactive state.
+    /// Sets the style that is applied when a most recent parent entity is in interactive state.
     #[inline]
     #[must_use]
     pub fn all_parent(self, style: impl IntoModValue<Modifier>) -> Self {
         self.interaction_parent(InteractionName::All, style)
     }
 
-    /// Sets the resizing permissions for the element's top, right, bottom, and left
+    /// Sets the resizing permissions for the entity's top, right, bottom, and left
     #[inline]
     #[must_use]
     pub fn resizable(mut self, value: impl IntoModResizable) -> Self {
@@ -5216,14 +5204,14 @@ impl Modifier {
     }
 
     /// During dnd dragging,
-    /// attach the placeholder as a child of the root element and have it follow the cursor using absolute positioning.
+    /// attach the placeholder as a child of the root entity and have it follow the cursor using absolute positioning.
     ///
     /// The second argument determines whether or not to perform coordinate updates.
     #[inline]
     #[must_use]
     pub fn dnd_draggable_root(
         mut self,
-        mode: impl IntoModValue<DndDragPayload>,
+        mode: impl IntoModValue<DndDragMode>,
         update_position: impl IntoModValue<bool>,
     ) -> Self {
         let m_val = mode.into_mod_value();
@@ -5245,7 +5233,7 @@ impl Modifier {
 
                 let get_m = match m_getter {
                     ModValue::Static(m) => {
-                        Box::new(move || m) as Box<dyn Fn() -> DndDragPayload + Send + Sync>
+                        Box::new(move || m) as Box<dyn Fn() -> DndDragMode + Send + Sync>
                     }
                     ModValue::Dynamic(g) => g,
                 };
@@ -5277,15 +5265,15 @@ impl Modifier {
     }
 
     /// During dnd dragging,
-    /// attach the placeholder as a child of a specific parent element and have it follow using absolute positioning.
+    /// attach the placeholder as a child of a specific parent entity and have it follow using absolute positioning.
     ///
     /// The third argument determines whether or not to perform coordinate updates.
     #[inline]
     #[must_use]
     pub fn dnd_draggable_parent(
         mut self,
-        parent_id: impl IntoModValue<EntityId>,
-        mode: impl IntoModValue<DndDragPayload>,
+        parent_id: impl IntoModValue<Entity>,
+        mode: impl IntoModValue<DndDragMode>,
         update_position: impl IntoModValue<bool>,
     ) -> Self {
         let p_val = parent_id.into_mod_value();
@@ -5308,13 +5296,13 @@ impl Modifier {
 
                 let get_p = match p_getter {
                     ModValue::Static(p) => {
-                        Box::new(move || p) as Box<dyn Fn() -> EntityId + Send + Sync>
+                        Box::new(move || p) as Box<dyn Fn() -> Entity + Send + Sync>
                     }
                     ModValue::Dynamic(g) => g,
                 };
                 let get_m = match m_getter {
                     ModValue::Static(m) => {
-                        Box::new(move || m) as Box<dyn Fn() -> DndDragPayload + Send + Sync>
+                        Box::new(move || m) as Box<dyn Fn() -> DndDragMode + Send + Sync>
                     }
                     ModValue::Dynamic(g) => g,
                 };
@@ -5346,13 +5334,13 @@ impl Modifier {
         self
     }
 
-    /// Indicates that the element is accepting drag-and-drop operations, and sets the ingestion method and behavior.
+    /// Indicates that the entity is accepting drag-and-drop operations, and sets the ingestion method and behavior.
     #[inline]
     #[must_use]
     pub fn dnd_droppable(
         mut self,
         target: impl IntoModValue<DndDropTarget>,
-        mode: impl IntoModValue<DndDragPayload>,
+        mode: impl IntoModValue<DndDragMode>,
     ) -> Self {
         let t_val = target.into_mod_value();
         let m_val = mode.into_mod_value();
@@ -5378,7 +5366,7 @@ impl Modifier {
                 };
                 let get_m = match m_getter {
                     ModValue::Static(m) => {
-                        Box::new(move || m) as Box<dyn Fn() -> DndDragPayload + Send + Sync>
+                        Box::new(move || m) as Box<dyn Fn() -> DndDragMode + Send + Sync>
                     }
                     ModValue::Dynamic(g) => g,
                 };
@@ -5402,7 +5390,7 @@ impl Modifier {
         self
     }
 
-    /// Sets the style to apply to the original element while it is being dnd dragged.
+    /// Sets the style to apply to the original entity while it is being dnd dragged.
     #[inline]
     #[must_use]
     pub fn dnd_draggable_original(self, style: impl IntoModValue<Modifier>) -> Self {
@@ -5424,7 +5412,7 @@ impl Modifier {
         )
     }
 
-    /// Sets the style to be applied to the dnd drop zone when a dnd dragged element is hovering over it.
+    /// Sets the style to be applied to the dnd drop zone when a dnd dragged entity is hovering over it.
     #[inline]
     #[must_use]
     pub fn dnd_drag_over(self, style: impl IntoModValue<Modifier>) -> Self {
@@ -5476,7 +5464,7 @@ impl Modifier {
         self.pointer_events(PointerEvents::Auto)
     }
 
-    /// Apply an affine transformation (translation, scaling, rotation) to the element.
+    /// Apply an affine transformation (translation, scaling, rotation) to the entity.
     #[inline]
     #[must_use]
     pub fn transform(mut self, value: impl IntoModValue<Transform>) -> Self {
@@ -5499,7 +5487,7 @@ impl Modifier {
         self
     }
 
-    /// Sets the reference point for when an element transforms.
+    /// Sets the reference point for when an entity transforms.
     #[inline]
     #[must_use]
     pub fn transform_origin(mut self, point: impl IntoModPoint<f32>) -> Self {
@@ -5522,7 +5510,7 @@ impl Modifier {
         self
     }
 
-    /// Apply an affine transformation to the element to a scale.
+    /// Apply an affine transformation to the entity to a scale.
     #[inline]
     #[must_use]
     pub fn transform_scale(self, x: f32, y: f32) -> Self {
@@ -5535,7 +5523,7 @@ impl Modifier {
         self.transform(current.scale(x, y))
     }
 
-    /// Apply an affine transformation to the element to a translate.
+    /// Apply an affine transformation to the entity to a translate.
     #[inline]
     #[must_use]
     pub fn transform_translate(self, x: f32, y: f32) -> Self {
@@ -5548,7 +5536,7 @@ impl Modifier {
         self.transform(current.translate(x, y))
     }
 
-    /// Apply an affine transformation to the element to a rotate.
+    /// Apply an affine transformation to the entity to a rotate.
     #[inline]
     #[must_use]
     pub fn transform_rotate(self, radians: f32) -> Self {
@@ -5945,7 +5933,7 @@ impl Modifier {
         self
     }
 
-    /// Allow focus on the element and set the behavior of style inheritance.
+    /// Allow focus on the entity and set the behavior of style inheritance.
     ///
     /// Default is [`Focusable::None`]
     ///
@@ -5972,7 +5960,7 @@ impl Modifier {
         self
     }
 
-    /// Makes the element focusable and inherits the focus style of its parent.
+    /// Makes the entity focusable and inherits the focus style of its parent.
     ///
     /// Default is [`FocusTrigger::Both`]
     #[inline]
@@ -5981,28 +5969,28 @@ impl Modifier {
         self.focusable(Focusable::Inherit(trigger))
     }
 
-    /// Makes the element focusable and inherits the focus style of its parent.
+    /// Makes the entity focusable and inherits the focus style of its parent.
     #[inline]
     #[must_use]
     pub fn focusable_inherit_both(self) -> Self {
         self.focusable(Focusable::Inherit(FocusTrigger::Both))
     }
 
-    /// Makes the element mouse focusable and inherits the focus style of its parent.
+    /// Makes the entity mouse focusable and inherits the focus style of its parent.
     #[inline]
     #[must_use]
     pub fn focusable_inherit_mouse(self) -> Self {
         self.focusable(Focusable::Inherit(FocusTrigger::Mouse))
     }
 
-    /// Makes the element keyboard focusable and inherits the focus style of its parent.
+    /// Makes the entity keyboard focusable and inherits the focus style of its parent.
     #[inline]
     #[must_use]
     pub fn focusable_inherit_keyboard(self) -> Self {
         self.focusable(Focusable::Inherit(FocusTrigger::Keyboard))
     }
 
-    /// Makes the element focusable and uses its own focus style.
+    /// Makes the entity focusable and uses its own focus style.
     ///
     /// /// Default is [`FocusTrigger::Both`]
     #[inline]
@@ -6011,35 +5999,35 @@ impl Modifier {
         self.focusable(Focusable::SelfStyle(trigger))
     }
 
-    /// Makes the element focusable and uses its own focus style.
+    /// Makes the entity focusable and uses its own focus style.
     #[inline]
     #[must_use]
     pub fn focusable_self_both(self) -> Self {
         self.focusable(Focusable::SelfStyle(FocusTrigger::Both))
     }
 
-    /// Makes the element mouse focusable and uses its own focus style.
+    /// Makes the entity mouse focusable and uses its own focus style.
     #[inline]
     #[must_use]
     pub fn focusable_self_mouse(self) -> Self {
         self.focusable(Focusable::SelfStyle(FocusTrigger::Mouse))
     }
 
-    /// Makes the element keyboard focusable and uses its own focus style.
+    /// Makes the entity keyboard focusable and uses its own focus style.
     #[inline]
     #[must_use]
     pub fn focusable_self_keyboard(self) -> Self {
         self.focusable(Focusable::SelfStyle(FocusTrigger::Keyboard))
     }
 
-    /// Makes the element unfocusable.
+    /// Makes the entity unfocusable.
     #[inline]
     #[must_use]
     pub fn focusable_none(self) -> Self {
         self.focusable(Focusable::None)
     }
 
-    /// This setting prevents the element from taking focus from the currently active element when it is clicked.
+    /// This setting prevents the entity from taking focus from the currently active entity when it is clicked.
     #[inline]
     #[must_use]
     pub fn prevent_focus_steal(mut self, value: impl IntoModValue<bool>) -> Self {
@@ -6062,8 +6050,8 @@ impl Modifier {
         self
     }
 
-    /// This setting prevents a descendant element from stealing focus
-    /// from the currently active element when it is clicked.
+    /// This setting prevents a descendant entity from stealing focus
+    /// from the currently active entity when it is clicked.
     #[inline]
     #[must_use]
     pub fn prevent_focus_steal_within(mut self, value: impl IntoModValue<bool>) -> Self {

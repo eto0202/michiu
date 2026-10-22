@@ -1,7 +1,7 @@
 use crate::components::section_title;
 pub use michiu_ui::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(ii().gap(24.0).p(16.0)).children([
         rgb_container(),
         rgba_container(),
@@ -19,16 +19,18 @@ fn wrapper_style() -> Modifier {
     ii().w_full().gap((24.0, 10.0)).p(6.0)
 }
 
-fn item(label: &'static str, style: Modifier) -> Element {
+fn item(label: &'static str, style: Modifier) -> Entity {
     let (show_popup, set_show_popup) = create_signal(false);
     let (popup_pos, set_popup_pos) = create_signal(LayoutPoint::ZERO);
 
-    flex(style
-        .p(10.0)
-        .r(4.0)
-        .size((70.0, 70.0))
-        .justify_center()
-        .items_center())
+    flex(
+        style
+            .p(10.0)
+            .r(4.0)
+            .size((70.0, 70.0))
+            .justify_center()
+            .items_center(),
+    )
     .on_mouse_enter(move || set_show_popup.set(true))
     .on_mouse_leave(move || set_show_popup.set(false))
     .on_cursor_moved(move |pos| set_popup_pos.set(pos))
@@ -38,15 +40,16 @@ fn item(label: &'static str, style: Modifier) -> Element {
             let offset_x = pos.x + 12.0;
             let offset_y = pos.y + 12.0;
 
-            flex(ii()
-                .absolute()
-                .z_1()
-                .left(offset_x)
-                .top(offset_y)
-                .p((6.0, 10.0))
-                .r(4.0)
-                .bg_color(rgba(20, 20, 20, 0.95))
-                .pointer_events_none())
+            flex(
+                ii().absolute()
+                    .z_1()
+                    .left(offset_x)
+                    .top(offset_y)
+                    .p((6.0, 10.0))
+                    .r(4.0)
+                    .bg_color(rgba(20, 20, 20, 0.95))
+                    .pointer_events_none(),
+            )
             .label(
                 label,
                 ii().text_color(rgba(210, 210, 210, 0.95))
@@ -59,7 +62,7 @@ fn item(label: &'static str, style: Modifier) -> Element {
     })
 }
 
-fn rgb_container() -> Element {
+fn rgb_container() -> Entity {
     let red = item("rgb(255, 0, 0)", ii().bg_color(rgb(255, 0, 0)));
     let yellow = item_direct("rgb(255, 255, 0)", ii().bg_color(rgb(255, 255, 0)));
     let white = item_event("rgb(255, 255, 255)", ii().bg_color(rgb(255, 255, 255)));
@@ -74,7 +77,7 @@ fn rgb_container() -> Element {
     ])
 }
 
-fn rgba_container() -> Element {
+fn rgba_container() -> Entity {
     let black1 = item("rgba(0, 0, 0, 0.2)", ii().bg_color(rgba(0, 0, 0, 0.2)));
     let black2 = item("rgba(0, 0, 0, 0.4)", ii().bg_color(rgba(0, 0, 0, 0.4)));
     let black3 = item("rgba(0, 0, 0, 0.6)", ii().bg_color(rgba(0, 0, 0, 0.6)));
@@ -87,7 +90,7 @@ fn rgba_container() -> Element {
     ])
 }
 
-fn hex_container() -> Element {
+fn hex_container() -> Entity {
     let red = item("hex(\"#ff0000\")", ii().bg_color(hex("#ff0000")));
     let green = item("hex(0x00FF00)", ii().bg_color(hex(0x00_FF00)));
     let blue = item("hex(0x0000ff)", ii().bg_color(hex(0x00_00ff)));
@@ -100,7 +103,7 @@ fn hex_container() -> Element {
     ])
 }
 
-fn hsl_container() -> Element {
+fn hsl_container() -> Entity {
     let primary = item(
         "hsl(318.0, 56.0, 59.0)",
         ii().bg_color(hsl(318.0, 56.0, 59.0)),
@@ -126,7 +129,7 @@ fn hsl_container() -> Element {
     ])
 }
 
-fn hsla_container() -> Element {
+fn hsla_container() -> Entity {
     let primary = item(
         "hsla(318.0, 56.0, 59.0, 1.0)",
         ii().bg_color(hsla(318.0, 56.0, 59.0, 1.0)),
@@ -155,38 +158,42 @@ fn hsla_container() -> Element {
 }
 
 // こういう実装方法も可能
-fn item_direct(label: &'static str, style: Modifier) -> Element {
-    let el = flex(style
-        .p(10.0)
-        .r(4.0)
-        .size((70.0, 70.0))
-        .justify_center()
-        .items_center()
-        .relative());
+fn item_direct(label: &'static str, style: Modifier) -> Entity {
+    let e = flex(
+        style
+            .p(10.0)
+            .r(4.0)
+            .size((70.0, 70.0))
+            .justify_center()
+            .items_center()
+            .relative(),
+    );
 
-    let el_enter = el;
-    let el_move = el;
-    let el_leave = el;
+    let e_enter = e;
+    let e_move = e;
+    let e_leave = e;
 
-    el.on_mouse_enter(move || {
-        el_enter.set_contents(create_tooltip(label, LayoutPoint::ZERO));
+    e.on_mouse_enter(move || {
+        e_enter.set_contents(create_tooltip(label, LayoutPoint::ZERO));
     })
     .on_cursor_moved(move |pos| {
-        el_move.set_contents(create_tooltip(label, pos));
+        e_move.set_contents(create_tooltip(label, pos));
     })
     .on_mouse_leave(move || {
-        el_leave.set_contents(div_n());
+        e_leave.set_contents(div_n());
     })
 }
 
-fn item_event(label: &'static str, style: Modifier) -> Element {
-    flex(style
-        .p(10.0)
-        .r(4.0)
-        .size((70.0, 70.0))
-        .justify_center()
-        .items_center()
-        .relative())
+fn item_event(label: &'static str, style: Modifier) -> Entity {
+    flex(
+        style
+            .p(10.0)
+            .r(4.0)
+            .size((70.0, 70.0))
+            .justify_center()
+            .items_center()
+            .relative(),
+    )
     .on_mouse_enter_with(move |cx| {
         cx.current()
             .set_contents(create_tooltip(label, LayoutPoint::ZERO));
@@ -199,49 +206,52 @@ fn item_event(label: &'static str, style: Modifier) -> Element {
     })
 }
 
-fn item_tag(label: &'static str, style: Modifier) -> Element {
+fn item_tag(label: &'static str, style: Modifier) -> Entity {
     struct SuperMichiu;
     struct HyperMichiu;
     struct UltraMichiu;
 
-    flex(style
-        .p(10.0)
-        .r(4.0)
-        .size((70.0, 70.0))
-        .justify_center()
-        .items_center()
-        .relative())
+    flex(
+        style
+            .p(10.0)
+            .r(4.0)
+            .size((70.0, 70.0))
+            .justify_center()
+            .items_center()
+            .relative(),
+    )
     .tag::<SuperMichiu>()
     .tag::<HyperMichiu>()
     .tag::<UltraMichiu>()
     .on_mouse_enter_with(move |cx| {
-        if let Some(el) = cx.try_query_first::<SuperMichiu>() {
-            el.set_contents(create_tooltip(label, LayoutPoint::ZERO));
+        if let Some(e) = cx.try_query_first::<SuperMichiu>() {
+            e.set_contents(create_tooltip(label, LayoutPoint::ZERO));
         }
     })
     .on_cursor_moved_with(move |cx, pos| {
-        let el = cx.query_first::<HyperMichiu>();
-        el.set_contents(create_tooltip(label, pos));
+        let e = cx.query_first::<HyperMichiu>();
+        e.set_contents(create_tooltip(label, pos));
     })
     .on_mouse_leave_with(move |cx| {
-        let el = cx.query_first::<UltraMichiu>();
-        el.set_contents(div_n());
+        let e = cx.query_first::<UltraMichiu>();
+        e.set_contents(div_n());
     })
 }
 
-fn create_tooltip(label: &'static str, pos: LayoutPoint) -> Element {
+fn create_tooltip(label: &'static str, pos: LayoutPoint) -> Entity {
     let offset_x = pos.x + 12.0;
     let offset_y = pos.y + 12.0;
 
-    flex(ii()
-        .absolute()
-        .z_1()
-        .left(offset_x)
-        .top(offset_y)
-        .p((6.0, 10.0))
-        .r(4.0)
-        .bg_color(rgba(20, 20, 20, 0.95))
-        .pointer_events_none())
+    flex(
+        ii().absolute()
+            .z_1()
+            .left(offset_x)
+            .top(offset_y)
+            .p((6.0, 10.0))
+            .r(4.0)
+            .bg_color(rgba(20, 20, 20, 0.95))
+            .pointer_events_none(),
+    )
     .label(
         label,
         ii().text_color(rgba(210, 210, 210, 0.95))

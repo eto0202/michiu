@@ -1,7 +1,7 @@
 #[cfg(feature = "trace-error")]
 use crate::trace_error;
 use crate::{
-    Context, DebugStore, Effects, MichiuError, MichiuTrace, OptionTraceExt, MichiuTaskSender,
+    Context, DebugStore, Effects, MichiuError, MichiuTaskSender, MichiuTrace, OptionTraceExt,
     with_context,
 };
 use slotmap::new_key_type;
@@ -19,20 +19,20 @@ new_key_type! {
 thread_local! {
     // 現在メインスレッド上で評価中のエフェクトIDを記録するスレッドローカル
     pub(crate) static ACTIVE_EFFECT: Cell<Option<EffectId>> = const { Cell::new(None) };
-    // 現在メインスレッド上で処理中のEntityId
-    pub(crate) static ACTIVE_ELEMENT: Cell<Option<crate::EntityId>> = const { Cell::new(None) };
+    // 現在メインスレッド上で処理中のEntity
+    pub(crate) static ACTIVE_ENTITY: Cell<Option<crate::Entity>> = const { Cell::new(None) };
 }
 
-/// Automatically restore `ACTIVE_ELEMENT` when exiting the scope
-pub struct ActiveElementGuard {
-    prev: Option<crate::EntityId>,
+/// Automatically restore `ACTIVE_ENTITY` when exiting the scope
+pub struct ActiveEntityGuard {
+    prev: Option<crate::Entity>,
 }
 
-impl ActiveElementGuard {
+impl ActiveEntityGuard {
     #[inline]
     #[must_use]
-    pub fn new(id: crate::EntityId) -> Self {
-        let prev = ACTIVE_ELEMENT.with(|cell| {
+    pub fn new(id: crate::Entity) -> Self {
+        let prev = ACTIVE_ENTITY.with(|cell| {
             let prev = cell.get();
             cell.set(Some(id));
             prev
@@ -41,10 +41,10 @@ impl ActiveElementGuard {
     }
 }
 
-impl Drop for ActiveElementGuard {
+impl Drop for ActiveEntityGuard {
     #[inline]
     fn drop(&mut self) {
-        ACTIVE_ELEMENT.with(|cell| cell.set(self.prev));
+        ACTIVE_ENTITY.with(|cell| cell.set(self.prev));
     }
 }
 

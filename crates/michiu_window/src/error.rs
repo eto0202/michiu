@@ -100,7 +100,7 @@ pub enum MichiuError {
     InvalidHandleState { reason: &'static str },
 
     /// Attempted to access a window from a thread other than the one that created it.
-    /// Windows UI elements are thread-affine and cannot be manipulated from foreign threads.
+    /// Windows UI entities are thread-affine and cannot be manipulated from foreign threads.
     #[error(
         "Thread mismatch: Window must be accessed from thread {expected}, but was accessed from {actual}."
     )]
@@ -243,7 +243,7 @@ impl MichiuError {
             ),
 
             Self::ThreadMismatch { .. } => Some(
-                "Windows GUI elements are thread-affine. You must interact with the window \
+                "Windows GUI entities are thread-affine. You must interact with the window \
                 only from the thread that created it (typically the thread that runs the main message loop).",
             ),
 

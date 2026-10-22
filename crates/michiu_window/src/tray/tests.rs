@@ -122,7 +122,8 @@ fn test_tray_builder_normal() {
 
     let builder = MichiuTrayBuilder::new().with_icon(icon);
 
-    let validated_result: Result<Validated<MichiuTrayBuilder>> = builder.into_unvalidated().try_into();
+    let validated_result: Result<Validated<MichiuTrayBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(
         validated_result.is_ok(),
         "TrayBuilder validation should succeed"
@@ -240,9 +241,11 @@ fn test_tray_wnd_proc_messaging_normal() {
             .on_right_click(move || {
                 right_clicked_clone.store(true, Ordering::SeqCst);
             })
-            .with_menu_item(MichiuTrayMenuItem::new("Test MenuItem").with_on_click(move || {
-                menu_clicked_clone.store(true, Ordering::SeqCst);
-            }));
+            .with_menu_item(
+                MichiuTrayMenuItem::new("Test MenuItem").with_on_click(move || {
+                    menu_clicked_clone.store(true, Ordering::SeqCst);
+                }),
+            );
 
         // Tray の構築
         let validated_builder = builder.into_unvalidated().try_into();

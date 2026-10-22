@@ -2,7 +2,7 @@ use crate::app::{SearchText, theme::Theme};
 pub use michiu_ui::{accessibility::*, prelude::*};
 use std::time::Duration;
 
-pub fn header() -> Element {
+pub fn header() -> Entity {
     h_flex(
         ii().w_full()
             .height(40.0)
@@ -16,7 +16,7 @@ pub fn header() -> Element {
     .a11y_role(Role::Header)
 }
 
-fn search_box() -> Element {
+fn search_box() -> Entity {
     let input_wrapper = h_flex(
         ii().justify_center()
             .items_center()
@@ -53,7 +53,7 @@ fn search_box() -> Element {
         })
         .a11y_role(Role::SearchInput);
 
-    let suffix_element = text("✕")
+    let suffix_entity = text("✕")
         .modify_d(move |t: &Theme| {
             let input_text = use_provided::<SearchText>().get();
 
@@ -76,10 +76,10 @@ fn search_box() -> Element {
         })
         .a11y_with(Node::new(Role::Button), |n| n.set_label("Clean Button"));
 
-    input_wrapper.child(text_input).child(suffix_element)
+    input_wrapper.child(text_input).child(suffix_entity)
 }
 
-fn toggle_btn() -> Element {
+fn toggle_btn() -> Entity {
     let mode_change = || {
         let t = use_provided::<Theme>().get();
         let set_t = use_provided_setter::<Theme>();

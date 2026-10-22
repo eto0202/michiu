@@ -3,7 +3,7 @@
 #![allow(clippy::panic)]
 
 use michiu_window::{
-    MichiuComContext, LogicalSize, MichiuEventPump, MichiuWindowBuilder, WindowHandle, MichiuWindow,
+    LogicalSize, MichiuComContext, MichiuEventPump, MichiuWindow, MichiuWindowBuilder, WindowHandle,
 };
 use std::{
     sync::mpsc::{self, Receiver, Sender},
