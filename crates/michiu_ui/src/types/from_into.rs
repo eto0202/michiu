@@ -5,7 +5,7 @@ use crate::{
     Element, FlexDirection, FlexWrap, FocusTrigger, Focusable, GridAutoFlow, GridLine,
     GridPlacement, InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length,
     LinearGradient, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size,
-    Stretch, StyleValue, TextAlign, ThisStyle, Transform, Val,
+    Stretch, ModValue, TextAlign, Modifier, Transform, Val,
 };
 use std::borrow::Cow;
 use taffy::{ExpandedDimension, ExpandedLengthPercentage, ExpandedLengthPercentageAuto};
@@ -754,21 +754,21 @@ impl From<Option<()>> for Prop<Option<Cow<'static, str>>> {
     }
 }
 
-impl From<ThisStyle> for Prop<ThisStyle> {
-    fn from(s: ThisStyle) -> Self {
+impl From<Modifier> for Prop<Modifier> {
+    fn from(s: Modifier) -> Self {
         Self::Static(s)
     }
 }
 
-impl From<ReadSignal<ThisStyle>> for Prop<ThisStyle> {
-    fn from(sig: ReadSignal<ThisStyle>) -> Self {
+impl From<ReadSignal<Modifier>> for Prop<Modifier> {
+    fn from(sig: ReadSignal<Modifier>) -> Self {
         Self::Dynamic(Box::new(move || sig.get()))
     }
 }
 
-impl<F> From<F> for Prop<ThisStyle>
+impl<F> From<F> for Prop<Modifier>
 where
-    F: Fn() -> ThisStyle + 'static,
+    F: Fn() -> Modifier + 'static,
 {
     fn from(f: F) -> Self {
         Self::Dynamic(Box::new(f))
@@ -886,20 +886,20 @@ where
     }
 }
 
-impl From<&ThisStyle> for Prop<ThisStyle> {
+impl From<&Modifier> for Prop<Modifier> {
     #[inline]
-    fn from(s: &ThisStyle) -> Self {
+    fn from(s: &Modifier) -> Self {
         Self::Static(s.clone())
     }
 }
 
-/// StyleValue（スレッド安全なクロージャ付き）から Prop への透過変換をサポート
-impl<T: 'static> From<StyleValue<T>> for Prop<T> {
+/// ModValue（スレッド安全なクロージャ付き）から Prop への透過変換をサポート
+impl<T: 'static> From<ModValue<T>> for Prop<T> {
     #[inline]
-    fn from(val: StyleValue<T>) -> Self {
+    fn from(val: ModValue<T>) -> Self {
         match val {
-            StyleValue::Static(v) => Prop::Static(v),
-            StyleValue::Dynamic(getter) => {
+            ModValue::Static(v) => Prop::Static(v),
+            ModValue::Dynamic(getter) => {
                 // スレッド安全な動的ゲッターを実行時に評価する Prop::Dynamic に変換
                 Prop::Dynamic(Box::new(getter))
             }
@@ -931,659 +931,659 @@ where
     }
 }
 
-pub trait IntoStyleValue<T> {
-    fn into_style_value(self) -> StyleValue<T>;
+pub trait IntoModValue<T> {
+    fn into_mod_value(self) -> ModValue<T>;
 }
 
-impl<T: Send + Sync + 'static> IntoStyleValue<T> for T {
-    fn into_style_value(self) -> StyleValue<T> {
-        StyleValue::Static(self)
+impl<T: Send + Sync + 'static> IntoModValue<T> for T {
+    fn into_mod_value(self) -> ModValue<T> {
+        ModValue::Static(self)
     }
 }
 
-impl<T: Send + Sync + 'static> IntoStyleValue<T> for StyleValue<T> {
-    fn into_style_value(self) -> StyleValue<T> {
+impl<T: Send + Sync + 'static> IntoModValue<T> for ModValue<T> {
+    fn into_mod_value(self) -> ModValue<T> {
         self
     }
 }
 
-pub trait IntoStyleRect<T> {
-    fn into_style_rect(self) -> StyleValue<Rect<T>>;
+pub trait IntoModRect<T> {
+    fn into_mod_rect(self) -> ModValue<Rect<T>>;
 }
 
-impl<T: Send + Sync + 'static> IntoStyleRect<T> for StyleValue<Rect<T>> {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
+impl<T: Send + Sync + 'static> IntoModRect<T> for ModValue<Rect<T>> {
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
         self
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Rect<T> {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Static(self)
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for Rect<T> {
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self)
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for f32
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for f32
 where
     f32: IntoRect<T>,
 {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Static(self.into_rect())
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for i32
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for i32
 where
     i32: IntoRect<T>,
 {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Static(self.into_rect())
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Pixel
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for Pixel
 where
     Pixel: IntoRect<T>,
 {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Static(self.into_rect())
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Percent
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for Percent
 where
     Percent: IntoRect<T>,
 {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Static(self.into_rect())
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Auto
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for Auto
 where
     Auto: IntoRect<T>,
 {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Static(self.into_rect())
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for Stretch
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for Stretch
 where
     Stretch: IntoRect<T>,
 {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Static(self.into_rect())
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
     }
 }
 
-impl<V, H, T> IntoStyleRect<T> for (V, H)
+impl<V, H, T> IntoModRect<T> for (V, H)
 where
     (V, H): IntoRect<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Static(self.into_rect())
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
     }
 }
 
-impl<Top, Right, Bottom, Left, T> IntoStyleRect<T> for (Top, Right, Bottom, Left)
+impl<Top, Right, Bottom, Left, T> IntoModRect<T> for (Top, Right, Bottom, Left)
 where
     (Top, Right, Bottom, Left): IntoRect<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Static(self.into_rect())
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
     }
 }
 
-pub trait IntoStyleSize<T> {
-    fn into_style_size(self) -> StyleValue<Size<T>>;
+pub trait IntoModSize<T> {
+    fn into_mod_size(self) -> ModValue<Size<T>>;
 }
 
-impl<T: Send + Sync + 'static> IntoStyleSize<T> for StyleValue<Size<T>> {
-    fn into_style_size(self) -> StyleValue<Size<T>> {
+impl<T: Send + Sync + 'static> IntoModSize<T> for ModValue<Size<T>> {
+    fn into_mod_size(self) -> ModValue<Size<T>> {
         self
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Size<T> {
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Static(self)
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for Size<T> {
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self)
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for f32
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for f32
 where
     f32: IntoSize<T>,
 {
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Static(self.into_size())
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for i32
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for i32
 where
     i32: IntoSize<T>,
 {
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Static(self.into_size())
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Pixel
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for Pixel
 where
     Pixel: IntoSize<T>,
 {
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Static(self.into_size())
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Percent
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for Percent
 where
     Percent: IntoSize<T>,
 {
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Static(self.into_size())
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Auto
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for Auto
 where
     Auto: IntoSize<T>,
 {
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Static(self.into_size())
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for Stretch
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for Stretch
 where
     Stretch: IntoSize<T>,
 {
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Static(self.into_size())
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
     }
 }
 
-impl<W, H, T> IntoStyleSize<T> for (W, H)
+impl<W, H, T> IntoModSize<T> for (W, H)
 where
     (W, H): IntoSize<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Static(self.into_size())
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
     }
 }
 
-pub trait IntoStylePoint<T> {
-    fn into_style_point(self) -> StyleValue<Point<T>>;
+pub trait IntoModPoint<T> {
+    fn into_mod_point(self) -> ModValue<Point<T>>;
 }
 
-impl<T: Send + Sync + 'static> IntoStylePoint<T> for StyleValue<Point<T>> {
-    fn into_style_point(self) -> StyleValue<Point<T>> {
+impl<T: Send + Sync + 'static> IntoModPoint<T> for ModValue<Point<T>> {
+    fn into_mod_point(self) -> ModValue<Point<T>> {
         self
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Point<T> {
-    fn into_style_point(self) -> StyleValue<Point<T>> {
-        StyleValue::Static(self)
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for Point<T> {
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self)
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for f32
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for f32
 where
     f32: IntoPoint<T>,
 {
-    fn into_style_point(self) -> StyleValue<Point<T>> {
-        StyleValue::Static(self.into_point())
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for i32
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for i32
 where
     i32: IntoPoint<T>,
 {
-    fn into_style_point(self) -> StyleValue<Point<T>> {
-        StyleValue::Static(self.into_point())
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Pixel
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for Pixel
 where
     Pixel: IntoPoint<T>,
 {
-    fn into_style_point(self) -> StyleValue<Point<T>> {
-        StyleValue::Static(self.into_point())
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Percent
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for Percent
 where
     Percent: IntoPoint<T>,
 {
-    fn into_style_point(self) -> StyleValue<Point<T>> {
-        StyleValue::Static(self.into_point())
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Auto
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for Auto
 where
     Auto: IntoPoint<T>,
 {
-    fn into_style_point(self) -> StyleValue<Point<T>> {
-        StyleValue::Static(self.into_point())
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStylePoint<T> for Stretch
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for Stretch
 where
     Stretch: IntoPoint<T>,
 {
-    fn into_style_point(self) -> StyleValue<Point<T>> {
-        StyleValue::Static(self.into_point())
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
     }
 }
 
-impl<W, H, T> IntoStylePoint<T> for (W, H)
+impl<W, H, T> IntoModPoint<T> for (W, H)
 where
     (W, H): IntoPoint<T> + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
-    fn into_style_point(self) -> StyleValue<Point<T>> {
-        StyleValue::Static(self.into_point())
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
     }
 }
 
-pub trait IntoStyleCornerRadius {
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius>;
+pub trait IntoModCornerRadius {
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius>;
 }
 
-impl IntoStyleCornerRadius for StyleValue<CornerRadius> {
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
+impl IntoModCornerRadius for ModValue<CornerRadius> {
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
         self
     }
 }
 
-impl IntoStyleCornerRadius for CornerRadius {
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Static(self)
+impl IntoModCornerRadius for CornerRadius {
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Static(self)
     }
 }
 
-impl IntoStyleCornerRadius for f32 {
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Static(self.into_corner_radius())
+impl IntoModCornerRadius for f32 {
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Static(self.into_corner_radius())
     }
 }
 
-impl IntoStyleCornerRadius for i32 {
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Static(self.into_corner_radius())
+impl IntoModCornerRadius for i32 {
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Static(self.into_corner_radius())
     }
 }
 
-impl<V, H> IntoStyleCornerRadius for (V, H)
+impl<V, H> IntoModCornerRadius for (V, H)
 where
     (V, H): IntoCornerRadius + Send + Sync + 'static,
 {
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Static(self.into_corner_radius())
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Static(self.into_corner_radius())
     }
 }
 
-impl<TL, TR, BR, BL> IntoStyleCornerRadius for (TL, TR, BR, BL)
+impl<TL, TR, BR, BL> IntoModCornerRadius for (TL, TR, BR, BL)
 where
     (TL, TR, BR, BL): IntoCornerRadius + Send + Sync + 'static,
 {
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Static(self.into_corner_radius())
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Static(self.into_corner_radius())
     }
 }
 
-pub trait IntoStyleConvert<T> {
-    fn into_style_convert(self) -> StyleValue<T>;
+pub trait IntoModConvert<T> {
+    fn into_mod_convert(self) -> ModValue<T>;
 }
 
-impl IntoStyleConvert<Val> for StyleValue<Val> {
-    fn into_style_convert(self) -> StyleValue<Val> {
+impl IntoModConvert<Val> for ModValue<Val> {
+    fn into_mod_convert(self) -> ModValue<Val> {
         self
     }
 }
-impl IntoStyleConvert<Val> for Val {
-    fn into_style_convert(self) -> StyleValue<Val> {
-        StyleValue::Static(self)
+impl IntoModConvert<Val> for Val {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(self)
     }
 }
-impl IntoStyleConvert<Val> for f32 {
-    fn into_style_convert(self) -> StyleValue<Val> {
-        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+impl IntoModConvert<Val> for f32 {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
     }
 }
-impl IntoStyleConvert<Val> for i32 {
-    fn into_style_convert(self) -> StyleValue<Val> {
-        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+impl IntoModConvert<Val> for i32 {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
     }
 }
-impl IntoStyleConvert<Val> for Pixel {
-    fn into_style_convert(self) -> StyleValue<Val> {
-        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+impl IntoModConvert<Val> for Pixel {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
     }
 }
-impl IntoStyleConvert<Val> for Percent {
-    fn into_style_convert(self) -> StyleValue<Val> {
-        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+impl IntoModConvert<Val> for Percent {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
     }
 }
-impl IntoStyleConvert<Val> for Auto {
-    fn into_style_convert(self) -> StyleValue<Val> {
-        StyleValue::Static(<Self as Convert<Val>>::convert(self))
-    }
-}
-
-impl IntoStyleConvert<Val> for Stretch {
-    fn into_style_convert(self) -> StyleValue<Val> {
-        StyleValue::Static(<Self as Convert<Val>>::convert(self))
+impl IntoModConvert<Val> for Auto {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
     }
 }
 
-impl IntoStyleConvert<Length> for StyleValue<Length> {
-    fn into_style_convert(self) -> StyleValue<Length> {
+impl IntoModConvert<Val> for Stretch {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+
+impl IntoModConvert<Length> for ModValue<Length> {
+    fn into_mod_convert(self) -> ModValue<Length> {
         self
     }
 }
-impl IntoStyleConvert<Length> for Length {
-    fn into_style_convert(self) -> StyleValue<Length> {
-        StyleValue::Static(self)
+impl IntoModConvert<Length> for Length {
+    fn into_mod_convert(self) -> ModValue<Length> {
+        ModValue::Static(self)
     }
 }
-impl IntoStyleConvert<Length> for f32 {
-    fn into_style_convert(self) -> StyleValue<Length> {
-        StyleValue::Static(<Self as Convert<Length>>::convert(self))
+impl IntoModConvert<Length> for f32 {
+    fn into_mod_convert(self) -> ModValue<Length> {
+        ModValue::Static(<Self as Convert<Length>>::convert(self))
     }
 }
-impl IntoStyleConvert<Length> for i32 {
-    fn into_style_convert(self) -> StyleValue<Length> {
-        StyleValue::Static(<Self as Convert<Length>>::convert(self))
+impl IntoModConvert<Length> for i32 {
+    fn into_mod_convert(self) -> ModValue<Length> {
+        ModValue::Static(<Self as Convert<Length>>::convert(self))
     }
 }
-impl IntoStyleConvert<Length> for Pixel {
-    fn into_style_convert(self) -> StyleValue<Length> {
-        StyleValue::Static(<Self as Convert<Length>>::convert(self))
+impl IntoModConvert<Length> for Pixel {
+    fn into_mod_convert(self) -> ModValue<Length> {
+        ModValue::Static(<Self as Convert<Length>>::convert(self))
     }
 }
-impl IntoStyleConvert<Length> for Percent {
-    fn into_style_convert(self) -> StyleValue<Length> {
-        StyleValue::Static(<Self as Convert<Length>>::convert(self))
+impl IntoModConvert<Length> for Percent {
+    fn into_mod_convert(self) -> ModValue<Length> {
+        ModValue::Static(<Self as Convert<Length>>::convert(self))
     }
 }
 
-impl IntoStyleConvert<f32> for StyleValue<f32> {
-    fn into_style_convert(self) -> StyleValue<f32> {
+impl IntoModConvert<f32> for ModValue<f32> {
+    fn into_mod_convert(self) -> ModValue<f32> {
         self
     }
 }
-impl IntoStyleConvert<f32> for f32 {
-    fn into_style_convert(self) -> StyleValue<f32> {
-        StyleValue::Static(self)
+impl IntoModConvert<f32> for f32 {
+    fn into_mod_convert(self) -> ModValue<f32> {
+        ModValue::Static(self)
     }
 }
-impl IntoStyleConvert<f32> for i32 {
-    fn into_style_convert(self) -> StyleValue<f32> {
-        StyleValue::Static(<Self as Convert<f32>>::convert(self))
+impl IntoModConvert<f32> for i32 {
+    fn into_mod_convert(self) -> ModValue<f32> {
+        ModValue::Static(<Self as Convert<f32>>::convert(self))
     }
 }
-impl IntoStyleConvert<f32> for bool {
-    fn into_style_convert(self) -> StyleValue<f32> {
-        StyleValue::Static(<Self as Convert<f32>>::convert(self))
-    }
-}
-
-impl IntoStyleValue<Option<AlignItems>> for AlignItems {
-    fn into_style_value(self) -> StyleValue<Option<AlignItems>> {
-        StyleValue::Static(Some(self))
+impl IntoModConvert<f32> for bool {
+    fn into_mod_convert(self) -> ModValue<f32> {
+        ModValue::Static(<Self as Convert<f32>>::convert(self))
     }
 }
 
-impl IntoStyleValue<Option<AlignSelf>> for AlignSelf {
-    fn into_style_value(self) -> StyleValue<Option<AlignSelf>> {
-        StyleValue::Static(Some(self))
+impl IntoModValue<Option<AlignItems>> for AlignItems {
+    fn into_mod_value(self) -> ModValue<Option<AlignItems>> {
+        ModValue::Static(Some(self))
     }
 }
 
-impl IntoStyleValue<Option<AlignContent>> for AlignContent {
-    fn into_style_value(self) -> StyleValue<Option<AlignContent>> {
-        StyleValue::Static(Some(self))
+impl IntoModValue<Option<AlignSelf>> for AlignSelf {
+    fn into_mod_value(self) -> ModValue<Option<AlignSelf>> {
+        ModValue::Static(Some(self))
     }
 }
 
-impl IntoStyleValue<Option<JustifyContent>> for JustifyContent {
-    fn into_style_value(self) -> StyleValue<Option<JustifyContent>> {
-        StyleValue::Static(Some(self))
+impl IntoModValue<Option<AlignContent>> for AlignContent {
+    fn into_mod_value(self) -> ModValue<Option<AlignContent>> {
+        ModValue::Static(Some(self))
     }
 }
 
-impl IntoStyleValue<Cow<'static, str>> for &'static str {
+impl IntoModValue<Option<JustifyContent>> for JustifyContent {
+    fn into_mod_value(self) -> ModValue<Option<JustifyContent>> {
+        ModValue::Static(Some(self))
+    }
+}
+
+impl IntoModValue<Cow<'static, str>> for &'static str {
     #[inline]
-    fn into_style_value(self) -> StyleValue<Cow<'static, str>> {
-        StyleValue::Static(Cow::Borrowed(self))
+    fn into_mod_value(self) -> ModValue<Cow<'static, str>> {
+        ModValue::Static(Cow::Borrowed(self))
     }
 }
 
-impl IntoStyleValue<Cow<'static, str>> for String {
+impl IntoModValue<Cow<'static, str>> for String {
     #[inline]
-    fn into_style_value(self) -> StyleValue<Cow<'static, str>> {
-        StyleValue::Static(Cow::Owned(self))
+    fn into_mod_value(self) -> ModValue<Cow<'static, str>> {
+        ModValue::Static(Cow::Owned(self))
     }
 }
 
-pub trait IntoStyleResizable {
-    fn into_style_resizable(self) -> StyleValue<[bool; 4]>;
+pub trait IntoModResizable {
+    fn into_mod_resizable(self) -> ModValue<[bool; 4]>;
 }
 
-impl IntoStyleResizable for StyleValue<[bool; 4]> {
+impl IntoModResizable for ModValue<[bool; 4]> {
     #[inline]
-    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
+    fn into_mod_resizable(self) -> ModValue<[bool; 4]> {
         self
     }
 }
 
-impl IntoStyleResizable for [bool; 4] {
+impl IntoModResizable for [bool; 4] {
     #[inline]
-    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
-        StyleValue::Static(self)
+    fn into_mod_resizable(self) -> ModValue<[bool; 4]> {
+        ModValue::Static(self)
     }
 }
 
-impl IntoStyleResizable for (bool, bool, bool, bool) {
+impl IntoModResizable for (bool, bool, bool, bool) {
     #[inline]
-    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
-        StyleValue::Static([self.0, self.1, self.2, self.3])
+    fn into_mod_resizable(self) -> ModValue<[bool; 4]> {
+        ModValue::Static([self.0, self.1, self.2, self.3])
     }
 }
 
-impl IntoStyleResizable for ReadSignal<[bool; 4]> {
+impl IntoModResizable for ReadSignal<[bool; 4]> {
     #[inline]
-    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
-        StyleValue::Dynamic(Box::new(move || self.get()))
+    fn into_mod_resizable(self) -> ModValue<[bool; 4]> {
+        ModValue::Dynamic(Box::new(move || self.get()))
     }
 }
 
-impl IntoStyleResizable for ReadSignal<(bool, bool, bool, bool)> {
+impl IntoModResizable for ReadSignal<(bool, bool, bool, bool)> {
     #[inline]
-    fn into_style_resizable(self) -> StyleValue<[bool; 4]> {
-        StyleValue::Dynamic(Box::new(move || {
+    fn into_mod_resizable(self) -> ModValue<[bool; 4]> {
+        ModValue::Dynamic(Box::new(move || {
             let t = self.get();
             [t.0, t.1, t.2, t.3]
         }))
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleValue<T> for ReadSignal<T> {
+impl<T: Clone + Send + Sync + 'static> IntoModValue<T> for ReadSignal<T> {
     #[inline]
-    fn into_style_value(self) -> StyleValue<T> {
-        StyleValue::Dynamic(Box::new(move || self.get()))
+    fn into_mod_value(self) -> ModValue<T> {
+        ModValue::Dynamic(Box::new(move || self.get()))
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for ReadSignal<Rect<T>> {
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for ReadSignal<Rect<T>> {
     #[inline]
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get()))
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Dynamic(Box::new(move || self.get()))
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for ReadSignal<Val>
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for ReadSignal<Val>
 where
     Val: IntoRect<T>,
 {
     #[inline]
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Dynamic(Box::new(move || self.get().into_rect()))
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for ReadSignal<Length>
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for ReadSignal<Length>
 where
     Length: IntoRect<T>,
 {
     #[inline]
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Dynamic(Box::new(move || self.get().into_rect()))
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleRect<T> for ReadSignal<f32>
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for ReadSignal<f32>
 where
     f32: IntoRect<T>,
 {
     #[inline]
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Dynamic(Box::new(move || self.get().into_rect()))
     }
 }
 
-impl<V, H, T> IntoStyleRect<T> for ReadSignal<(V, H)>
+impl<V, H, T> IntoModRect<T> for ReadSignal<(V, H)>
 where
     (V, H): IntoRect<T> + Clone + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     #[inline]
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Dynamic(Box::new(move || self.get().into_rect()))
     }
 }
 
-impl<Top, Right, Bottom, Left, T> IntoStyleRect<T> for ReadSignal<(Top, Right, Bottom, Left)>
+impl<Top, Right, Bottom, Left, T> IntoModRect<T> for ReadSignal<(Top, Right, Bottom, Left)>
 where
     (Top, Right, Bottom, Left): IntoRect<T> + Clone + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     #[inline]
-    fn into_style_rect(self) -> StyleValue<Rect<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_rect()))
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Dynamic(Box::new(move || self.get().into_rect()))
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for ReadSignal<Size<T>> {
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for ReadSignal<Size<T>> {
     #[inline]
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get()))
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Dynamic(Box::new(move || self.get()))
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for ReadSignal<Val>
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for ReadSignal<Val>
 where
     Val: IntoSize<T>,
 {
     #[inline]
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_size()))
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Dynamic(Box::new(move || self.get().into_size()))
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for ReadSignal<Length>
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for ReadSignal<Length>
 where
     Length: IntoSize<T>,
 {
     #[inline]
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_size()))
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Dynamic(Box::new(move || self.get().into_size()))
     }
 }
 
-impl<T: Clone + Send + Sync + 'static> IntoStyleSize<T> for ReadSignal<f32>
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for ReadSignal<f32>
 where
     f32: IntoSize<T>,
 {
     #[inline]
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_size()))
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Dynamic(Box::new(move || self.get().into_size()))
     }
 }
 
-impl<W, H, T> IntoStyleSize<T> for ReadSignal<(W, H)>
+impl<W, H, T> IntoModSize<T> for ReadSignal<(W, H)>
 where
     (W, H): IntoSize<T> + Clone + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     #[inline]
-    fn into_style_size(self) -> StyleValue<Size<T>> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_size()))
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Dynamic(Box::new(move || self.get().into_size()))
     }
 }
 
-impl IntoStyleCornerRadius for ReadSignal<CornerRadius> {
+impl IntoModCornerRadius for ReadSignal<CornerRadius> {
     #[inline]
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Dynamic(Box::new(move || self.get()))
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Dynamic(Box::new(move || self.get()))
     }
 }
 
-impl IntoStyleCornerRadius for ReadSignal<f32> {
+impl IntoModCornerRadius for ReadSignal<f32> {
     #[inline]
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
     }
 }
 
-impl IntoStyleCornerRadius for ReadSignal<i32> {
+impl IntoModCornerRadius for ReadSignal<i32> {
     #[inline]
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
     }
 }
 
-impl<V, H> IntoStyleCornerRadius for ReadSignal<(V, H)>
+impl<V, H> IntoModCornerRadius for ReadSignal<(V, H)>
 where
     (V, H): IntoCornerRadius + Clone + Send + Sync + 'static,
 {
     #[inline]
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
     }
 }
 
-impl<TL, TR, BR, BL> IntoStyleCornerRadius for ReadSignal<(TL, TR, BR, BL)>
+impl<TL, TR, BR, BL> IntoModCornerRadius for ReadSignal<(TL, TR, BR, BL)>
 where
     (TL, TR, BR, BL): IntoCornerRadius + Clone + Send + Sync + 'static,
 {
     #[inline]
-    fn into_style_corner_radius(self) -> StyleValue<CornerRadius> {
-        StyleValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
+    fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
+        ModValue::Dynamic(Box::new(move || self.get().into_corner_radius()))
     }
 }
 
-impl<S, T> IntoStyleConvert<T> for ReadSignal<S>
+impl<S, T> IntoModConvert<T> for ReadSignal<S>
 where
     S: Convert<T> + Clone + Send + Sync + 'static,
     T: Send + Sync + 'static,
 {
     #[inline]
-    fn into_style_convert(self) -> StyleValue<T> {
-        StyleValue::Dynamic(Box::new(move || self.get().convert()))
+    fn into_mod_convert(self) -> ModValue<T> {
+        ModValue::Dynamic(Box::new(move || self.get().convert()))
     }
 }
 

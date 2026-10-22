@@ -4,7 +4,7 @@ use strum::IntoEnumIterator;
 
 pub fn sidebar() -> Element {
     v_flex(
-        ts().width(170.0)
+        ii().width(170.0)
             .h_full()
             .min_width(170.0)
             .max_width(pct(40.0))
@@ -21,7 +21,7 @@ pub fn sidebar() -> Element {
 
 fn controll_header() -> Element {
     h_flex(
-        ts().justify_between()
+        ii().justify_between()
             .items_center()
             .shrink_0()
             .p(10.0)
@@ -31,8 +31,8 @@ fn controll_header() -> Element {
 }
 
 fn header_label() -> Element {
-    text("Components").style_d(|t: &Theme| {
-        ts().font_size(14.0)
+    text("Components").modify_d(|t: &Theme| {
+        ii().font_size(14.0)
             .text_color(t.text_muted)
             .font_family(t.font_family.clone())
     })
@@ -40,14 +40,14 @@ fn header_label() -> Element {
 
 fn sort_toggle() -> Element {
     flex_d(|t: &Theme| {
-        ts().p_x(8.0)
+        ii().p_x(8.0)
             .p_y(2.0)
             .r(2.0)
             .bg_color(t.surface)
             .border_solid(1.0)
             .border_color(t.border)
             .cursor_pointer()
-            .hovered(ts().bg_color(t.background_hover))
+            .hovered(ii().bg_color(t.background_hover))
     })
     .on_click(move || {
         let order = use_provided::<SidebarSortOrder>();
@@ -66,8 +66,8 @@ fn toggle_label() -> Element {
         SidebarSortOrder::Ascending => "A-Z ↑",
         SidebarSortOrder::Descending => "Z-A ↓",
     })
-    .style_d(|t: &Theme| {
-        ts().text_color(t.text_muted)
+    .modify_d(|t: &Theme| {
+        ii().text_color(t.text_muted)
             .font_size(14.0)
             .font_family(t.font_family.clone())
             .pointer_events_none()
@@ -102,7 +102,7 @@ fn list_container() -> Element {
             .map(|comp_type| sidebar_item(comp_type.to_string(), comp_type))
             .collect();
 
-        v_flex(ts().w_full()).children(items)
+        v_flex(ii().w_full()).children(items)
     })
 }
 
@@ -128,16 +128,16 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Element {
             Color::TRANSPARENT
         };
 
-        ts().justify_center()
+        ii().justify_center()
             .items_center()
             .p(10.0)
             .bg_color(bg)
             .border_left(BorderStyle::Solid, 4.0)
             .border_color(border_color)
-            .hovered(ts().bg_color(h_bg))
+            .hovered(ii().bg_color(h_bg))
     })
     .label_d(name, move |t: &Theme| {
-        ts().text_color(t.text).font_size(t.font_size_base)
+        ii().text_color(t.text).font_size(t.font_size_base)
     })
     .on_click_with(move |cx| {
         let setter = cx.use_provided_setter::<ComponentType>();
@@ -145,26 +145,26 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Element {
     })
 }
 
-pub fn scrollbar(t: &Theme) -> ThisStyle {
-    ts().scrollbar_always()
+pub fn scrollbar(t: &Theme) -> Modifier {
+    ii().scrollbar_always()
         .scrollbar_mode(ScrollbarMode::Overlay)
         .scrollbar(
             ScrollbarStyle::new(10.0)
                 .v_thumb(
-                    ts().m_y(4.0)
+                    ii().m_y(4.0)
                         .p_r(5.0)
                         .width(7.0)
                         .r_full()
                         .bg_color(t.border)
-                        .hovered(ts().bg_color(t.border_hover)),
+                        .hovered(ii().bg_color(t.border_hover)),
                 )
                 .h_thumb(
-                    ts().m_x(4.0)
+                    ii().m_x(4.0)
                         .p_b(5.0)
                         .height(7.0)
                         .r_full()
                         .bg_color(t.border)
-                        .hovered(ts().bg_color(t.border_hover)),
+                        .hovered(ii().bg_color(t.border_hover)),
                 ),
         )
 }

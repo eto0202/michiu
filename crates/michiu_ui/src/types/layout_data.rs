@@ -3,8 +3,8 @@ use crate::{
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
     Display, EdgeInsets, EntityId, FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow,
     GridLine, GridPlacement, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow,
-    Length, LinearGradient, MichiuSoA, Point, PointerEvents, Position, Rect, Size, StyleTarget,
-    TextAlign, ThisStyle, Transition, UserSelect, Val, VisualPropertiesSecondary,
+    Length, LinearGradient, MichiuSoA, Point, PointerEvents, Position, Rect, Size, ModTarget,
+    TextAlign, Modifier, Transition, UserSelect, Val, VisualPropertiesSecondary,
 };
 use std::{
     borrow::Cow,
@@ -646,74 +646,74 @@ impl VisualProperty {
 }
 
 /// インタラクション（動的状態）ごとにオーバーライドして適用される、追加のスタイル表現。
-/// 滅多に使われない、かつ再帰的な構造を持つため、StyleInner の直下ではなくこの構造体に隠蔽して管理。
+/// 滅多に使われない、かつ再帰的な構造を持つため、ModInner の直下ではなくこの構造体に隠蔽して管理。
 #[derive(Debug, Clone, Default)]
 pub struct InteractionStyles {
-    pub hovered: Option<ThisStyle>,
-    pub focused: Option<ThisStyle>,
-    pub focused_visible: Option<ThisStyle>,
-    pub pressed: Option<ThisStyle>,
-    pub disabled: Option<ThisStyle>,
-    pub actived: Option<ThisStyle>,
-    pub selected: Option<ThisStyle>,
-    pub dragged: Option<ThisStyle>,
+    pub hovered: Option<Modifier>,
+    pub focused: Option<Modifier>,
+    pub focused_visible: Option<Modifier>,
+    pub pressed: Option<Modifier>,
+    pub disabled: Option<Modifier>,
+    pub actived: Option<Modifier>,
+    pub selected: Option<Modifier>,
+    pub dragged: Option<Modifier>,
 
-    pub dragging: Option<ThisStyle>,
-    pub drag_in: Option<ThisStyle>,
-    pub drag_over: Option<ThisStyle>,
+    pub dragging: Option<Modifier>,
+    pub drag_in: Option<Modifier>,
+    pub drag_over: Option<Modifier>,
 
-    pub hovered_within: Option<ThisStyle>,
-    pub focused_within: Option<ThisStyle>,
-    pub focused_visible_within: Option<ThisStyle>,
-    pub pressed_within: Option<ThisStyle>,
-    pub disabled_within: Option<ThisStyle>,
-    pub actived_within: Option<ThisStyle>,
-    pub selected_within: Option<ThisStyle>,
-    pub dragged_within: Option<ThisStyle>,
-    pub any_within: Option<ThisStyle>, // All（いずれかのインタラクションがあればON）
+    pub hovered_within: Option<Modifier>,
+    pub focused_within: Option<Modifier>,
+    pub focused_visible_within: Option<Modifier>,
+    pub pressed_within: Option<Modifier>,
+    pub disabled_within: Option<Modifier>,
+    pub actived_within: Option<Modifier>,
+    pub selected_within: Option<Modifier>,
+    pub dragged_within: Option<Modifier>,
+    pub any_within: Option<Modifier>, // All（いずれかのインタラクションがあればON）
 
-    pub hovered_parent: Option<ThisStyle>,
-    pub focused_parent: Option<ThisStyle>,
-    pub focused_visible_parent: Option<ThisStyle>,
-    pub pressed_parent: Option<ThisStyle>,
-    pub disabled_parent: Option<ThisStyle>,
-    pub actived_parent: Option<ThisStyle>,
-    pub selected_parent: Option<ThisStyle>,
-    pub dragged_parent: Option<ThisStyle>,
-    pub any_parent: Option<ThisStyle>,
+    pub hovered_parent: Option<Modifier>,
+    pub focused_parent: Option<Modifier>,
+    pub focused_visible_parent: Option<Modifier>,
+    pub pressed_parent: Option<Modifier>,
+    pub disabled_parent: Option<Modifier>,
+    pub actived_parent: Option<Modifier>,
+    pub selected_parent: Option<Modifier>,
+    pub dragged_parent: Option<Modifier>,
+    pub any_parent: Option<Modifier>,
 }
 
 impl InteractionStyles {
-    /// 与えられた疑似状態（StyleTarget）に対応する Option<ThisStyle> フィールドの実体可変参照を取得します
+    /// 与えられた疑似状態（ModTarget）に対応する Option<Modifier> フィールドの実体可変参照を取得します
     #[track_caller]
     #[expect(clippy::unreachable)]
     #[inline]
-    pub(crate) fn get_style_target_mut(&mut self, target: StyleTarget) -> &mut ThisStyle {
+    pub(crate) fn get_mod_target_mut(&mut self, target: ModTarget) -> &mut Modifier {
         match target {
-            StyleTarget::Hovered => self.hovered.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Focused => self.focused.get_or_insert_with(ThisStyle::new),
-            StyleTarget::FocusedVisible => self.focused_visible.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Pressed => self.pressed.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Disabled => self.disabled.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Actived => self.actived.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Selected => self.selected.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Dragged => self.dragged.get_or_insert_with(ThisStyle::new),
-            StyleTarget::DndDragging => self.dragging.get_or_insert_with(ThisStyle::new),
-            StyleTarget::DndDragIn => self.drag_in.get_or_insert_with(ThisStyle::new),
-            StyleTarget::DndDragOver => self.drag_over.get_or_insert_with(ThisStyle::new),
+            ModTarget::Hovered => self.hovered.get_or_insert_with(Modifier::new),
+            ModTarget::Focused => self.focused.get_or_insert_with(Modifier::new),
+            ModTarget::FocusedVisible => self.focused_visible.get_or_insert_with(Modifier::new),
+            ModTarget::Pressed => self.pressed.get_or_insert_with(Modifier::new),
+            ModTarget::Disabled => self.disabled.get_or_insert_with(Modifier::new),
+            ModTarget::Actived => self.actived.get_or_insert_with(Modifier::new),
+            ModTarget::Selected => self.selected.get_or_insert_with(Modifier::new),
+            ModTarget::Dragged => self.dragged.get_or_insert_with(Modifier::new),
+            ModTarget::DndDragging => self.dragging.get_or_insert_with(Modifier::new),
+            ModTarget::DndDragIn => self.drag_in.get_or_insert_with(Modifier::new),
+            ModTarget::DndDragOver => self.drag_over.get_or_insert_with(Modifier::new),
 
-            StyleTarget::HoveredWithin => self.hovered_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::FocusedWithin => self.focused_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::FocusedVisibleWithin => self
+            ModTarget::HoveredWithin => self.hovered_within.get_or_insert_with(Modifier::new),
+            ModTarget::FocusedWithin => self.focused_within.get_or_insert_with(Modifier::new),
+            ModTarget::FocusedVisibleWithin => self
                 .focused_visible_within
-                .get_or_insert_with(ThisStyle::new),
-            StyleTarget::PressedWithin => self.pressed_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::DisabledWithin => self.disabled_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::ActivedWithin => self.actived_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::SelectedWithin => self.selected_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::DraggedWithin => self.dragged_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::AnyWithin => self.any_within.get_or_insert_with(ThisStyle::new),
-            StyleTarget::Base => {
+                .get_or_insert_with(Modifier::new),
+            ModTarget::PressedWithin => self.pressed_within.get_or_insert_with(Modifier::new),
+            ModTarget::DisabledWithin => self.disabled_within.get_or_insert_with(Modifier::new),
+            ModTarget::ActivedWithin => self.actived_within.get_or_insert_with(Modifier::new),
+            ModTarget::SelectedWithin => self.selected_within.get_or_insert_with(Modifier::new),
+            ModTarget::DraggedWithin => self.dragged_within.get_or_insert_with(Modifier::new),
+            ModTarget::AnyWithin => self.any_within.get_or_insert_with(Modifier::new),
+            ModTarget::Base => {
                 unreachable!(
                     "\n\
                     Internal invariant violated. This is a bug in michiu_ui.\n\
@@ -726,22 +726,22 @@ impl InteractionStyles {
                 )
             }
 
-            StyleTarget::HoveredParent => self.hovered_parent.get_or_insert_with(ThisStyle::new),
-            StyleTarget::FocusedParent => self.focused_parent.get_or_insert_with(ThisStyle::new),
-            StyleTarget::FocusedVisibleParent => self
+            ModTarget::HoveredParent => self.hovered_parent.get_or_insert_with(Modifier::new),
+            ModTarget::FocusedParent => self.focused_parent.get_or_insert_with(Modifier::new),
+            ModTarget::FocusedVisibleParent => self
                 .focused_visible_parent
-                .get_or_insert_with(ThisStyle::new),
-            StyleTarget::PressedParent => self.pressed_parent.get_or_insert_with(ThisStyle::new),
-            StyleTarget::DisabledParent => self.disabled_parent.get_or_insert_with(ThisStyle::new),
-            StyleTarget::ActivedParent => self.actived_parent.get_or_insert_with(ThisStyle::new),
-            StyleTarget::SelectedParent => self.selected_parent.get_or_insert_with(ThisStyle::new),
-            StyleTarget::DraggedParent => self.dragged_parent.get_or_insert_with(ThisStyle::new),
-            StyleTarget::AnyParent => self.any_parent.get_or_insert_with(ThisStyle::new),
+                .get_or_insert_with(Modifier::new),
+            ModTarget::PressedParent => self.pressed_parent.get_or_insert_with(Modifier::new),
+            ModTarget::DisabledParent => self.disabled_parent.get_or_insert_with(Modifier::new),
+            ModTarget::ActivedParent => self.actived_parent.get_or_insert_with(Modifier::new),
+            ModTarget::SelectedParent => self.selected_parent.get_or_insert_with(Modifier::new),
+            ModTarget::DraggedParent => self.dragged_parent.get_or_insert_with(Modifier::new),
+            ModTarget::AnyParent => self.any_parent.get_or_insert_with(Modifier::new),
         }
     }
 
     pub(crate) fn override_with(&mut self, other: &Self, _mask: ComponentMask) {
-        let merge = |target: &mut Option<ThisStyle>, source: &Option<ThisStyle>| {
+        let merge = |target: &mut Option<Modifier>, source: &Option<Modifier>| {
             if let Some(src) = source {
                 if let Some(dst) = target {
                     let dst_inner = Arc::make_mut(&mut dst.inner);
@@ -815,7 +815,7 @@ impl InteractionStyles {
         &self,
         scope: InteractionScope,
         state: CascadeInteractionState,
-    ) -> Option<&ThisStyle> {
+    ) -> Option<&Modifier> {
         match scope {
             InteractionScope::SelfTarget => match state {
                 CascadeInteractionState::Focused => self.focused.as_ref(),
@@ -864,7 +864,7 @@ impl InteractionStyles {
     }
 
     #[inline]
-    pub(crate) fn get_self_style(&self, flag: u128) -> Option<&ThisStyle> {
+    pub(crate) fn get_self_style(&self, flag: u128) -> Option<&Modifier> {
         match flag {
             ComponentMask::STATE_HOVERED => self.hovered.as_ref(),
             ComponentMask::STATE_FOCUSED => self.focused.as_ref(),

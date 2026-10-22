@@ -1,7 +1,7 @@
 # `element`
 
 UIツリーを構成する [`Element`] の生成、ツリー構造の組み立て、イベントハンドリング、
-および [`ThisStyle`] による宣言的スタイリングを担当するモジュールです。
+および [`Modifier`] による宣言的スタイリングを担当するモジュールです。
 
 ---
 
@@ -27,15 +27,15 @@ pub struct Element {
 - **`.on_click(...)`**: イベント SoA にリスナーが登録され、クリック可能なインタラクション性を獲得する。
 - **`.draggable(...)`**: DnD SoA に登録され、ドラッグ移動の能力を獲得する。
 
-### なぜスタイル（`ThisStyle`）が分離されているのか？
+### なぜスタイル（`Modifier`）が分離されているのか？
 
-`Element` に直接 `.bg_color(...)` を生やさず、独立した [`ThisStyle`]（[`ts()`](<crate::ts()>)）を引数で渡すのには2つの理由があります。
+`Element` に直接 `.bg_color(...)` を生やさず、独立した [`Modifier`]（[`ii()`](<crate::ii()>)）を引数で渡すのには2つの理由があります。
 
 1.  **DODによる整合性**:
     `Element` 自体が色やサイズを保持しているわけではなく、内部のスタイル SoA テーブルに ID を登録しているだけです。機能のアタッチと同様に「スタイル定義を外から注入する」という一貫したメンタルモデルに基づいています。
 2.  **スタイルの再利用性と可読性（CoWによるゼロコスト共有）**:
     CSS クラスのようにスタイル定義を変数として共通化し、複数の要素へ自由に適用できます。
-    `ThisStyle` の内部は [`Arc`] で包まれているため、クローンしてもメモリの再確保は発生せず、プロパティを変更・上書きした時のみ CoW（`Arc::make_mut`） によって安全かつ最小のコストで分岐されます。
+    `Modifier` の内部は [`Arc`] で包まれているため、クローンしてもメモリの再確保は発生せず、プロパティを変更・上書きした時のみ CoW（`Arc::make_mut`） によって安全かつ最小のコストで分岐されます。
 
 ---
 
@@ -53,20 +53,20 @@ pub struct Element {
 1.  `Context` を初期化します。
 2.  [`build_ui`] を使用してUIツリーを宣言します（ルート要素 `Element` を返す必要があります）。
 3.  要素生成関数（`div`, `h_flex` 等）でベース要素を初期化します。
-4.  `style()` または `style_d()`（あるいは生成時引数）でスタイルを適用します。
+4.  `modify()` または `modify_d()`（あるいは生成時引数）でスタイルを適用します。
 5.  子要素、テキスト、入力、イベントハンドラ等の機能をアタッチします。
 
 ```rust
 use michiu_ui::prelude::*;
 
 let root = build_ui(&mut context, || {
-    h_flex(ts().p(12.0).size(500.0).bg_color(Color::WHITE))
+    h_flex(ii().p(12.0).size(500.0).bg_color(Color::WHITE))
         .child(
-            div(ts().size((40.0, 40.0)).bg_color(Color::BLUE))
-                .hovered(ts().bg_color(Color::RED))
+            div(ii().size((40.0, 40.0)).bg_color(Color::BLUE))
+                .hovered(ii().bg_color(Color::RED))
                 .on_click(|| println!("Clicked!"))
         )
-        .label("Button Text", ts().text_color(Color::BLACK))
+        .label("Button Text", ii().text_color(Color::BLACK))
 });
 ```
 
@@ -77,7 +77,7 @@ let root = build_ui(&mut context, || {
 | 関数                             | 初期設定される `Display` / レイアウト属性 | 主な用途                                       |
 | :------------------------------- | :---------------------------------------- | :--------------------------------------------- |
 | **`div(style)` / `div_d`**       | `Display::Block`                          | 一般的なブロック要素                           |
-| **`div_n()`**                    | `NO_STYLE: Option<ThisStyle> = None`      | スタイル処理を完全にスキップする最軽量コンテナ |
+| **`div_n()`**                    | `NO_STYLE: Option<Modifier> = None`      | スタイル処理を完全にスキップする最軽量コンテナ |
 | **`flex(style)` / `flex_d`**     | `Display::Flex`                           | 自由なFlexboxコンテナ                          |
 | **`h_flex(style)` / `h_flex_d`** | `Display::Flex` + `FlexDirection::Row`    | **水平方向（横並び）** コンテナ                |
 | **`v_flex(style)` / `v_flex_d`** | `Display::Flex` + `FlexDirection::Column` | **垂直方向（縦並び）** コンテナ                |
@@ -85,9 +85,9 @@ let root = build_ui(&mut context, || {
 
 ---
 
-## スタイリング（`ThisStyle` / `ts()`）の仕様
+## スタイリング（`Modifier` / `ii()`）の仕様
 
-スタイルは `.style()` または `.style_d()` で適用します。静的な `ThisStyle` と動的クロージャの両方を受け入れ、混用も可能です。
+スタイルは `.modify()` または `.modify_d()` で適用します。静的な `Modifier` と動的クロージャの両方を受け入れ、混用も可能です。
 同じプロパティを複数回設定した場合、後に設定したプロパティが優先（後勝ち上書き）されます。
 
 ### 1. 疑似クラス（インタラクションスタイル）
@@ -134,7 +134,7 @@ let root = build_ui(&mut context, || {
 - **カーソル優先順位**: `resizable_cursor`（最優先） > `cursor(...)`（要素個別） > `cursor_global(...)`（自身および子孫のベースカーソル）
 - **マテリアル (`backdrop`)**: Mica や Acrylic を適用（ウィンドウ背景色は透過である必要があります）。
 - **デバッグ支援 (`debug...`)**: 枠線色をあらかじめ設定したボーダーやアウトラインを提供するショートハンド。
-- **スタイルのマージ**: `.merge(other_style)` で別の `ThisStyle` を合成。
+- **スタイルのマージ**: `.merge(other_style)` で別の `Modifier` を合成。
 
 ---
 
@@ -214,10 +214,10 @@ let root = build_ui(&mut context, || {
 ## スレッド安全性と実行コンテキスト
 
 - **[`Element`] のメソッド**: 内部の SoA ストアと直接通信するため、メインスレッド（UIスレッド）限定です。
-- **[`ThisStyle`]**: 中身はスレッドセーフな [`Arc`] であり、単純なデータ構造であるためスレッド間を自由に転送可能です。値の書き換えは常に `Arc::make_mut` を通じて排他参照が得られた時のみ実行されるため、データ競合のリスクはありません。
+- **[`Modifier`]**: 中身はスレッドセーフな [`Arc`] であり、単純なデータ構造であるためスレッド間を自由に転送可能です。値の書き換えは常に `Arc::make_mut` を通じて排他参照が得られた時のみ実行されるため、データ競合のリスクはありません。
   ```rust
     #[derive(Debug, Clone, Default)]
-    pub struct ThisStyle {
-        pub(crate) inner: Arc<StyleInner>,
+    pub struct Modifier {
+        pub(crate) inner: Arc<ModInner>,
     }
   ```

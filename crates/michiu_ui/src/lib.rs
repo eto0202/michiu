@@ -62,14 +62,14 @@
 //!     let (count, set_count) = create_signal(0u32);
 //!
 //!     flex(
-//!         ts().size_full()
+//!         ii().size_full()
 //!             .justify_center()
 //!             .bg_color(rgb(22, 24, 29)),
 //!     )
 //!     .on_click(move || set_count.set(count.get() + 1))
 //!     .label(
 //!         move || format!("Count: {}", count.get()),
-//!         ts().text_color(rgb(156, 158, 163)),
+//!         ii().text_color(rgb(156, 158, 163)),
 //!     )
 //! });
 //!
@@ -188,7 +188,7 @@
 //! let (count, set_count) = create_signal(0u32);
 //!
 //! div_n().on_click(move || set_count.set(count.get() + 1))
-//!        .label(move || format!("Signal: {}", count.get()), ts())
+//!        .label(move || format!("Signal: {}", count.get()), ii())
 //! ```
 //!
 //! #### 2. Direct Approach (Local Variable Capture)
@@ -196,14 +196,14 @@
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
-//! let el = h_flex(ts().bg_color(Color::BLUE));
+//! let el = h_flex(ii().bg_color(Color::BLUE));
 //! let mut count = 0u32;
 //!
-//! el.label(move || format!("Direct: {count}"), ts())
+//! el.label(move || format!("Direct: {count}"), ii())
 //!   .on_click(move || {
 //!        count += 1;
-//!        el.set_contents(div_n().label(move || format!("Direct: {count}"), ts()))
-//!          .style(ts().bg_color(Color::RED));
+//!        el.set_contents(div_n().label(move || format!("Direct: {count}"), ii()))
+//!          .modify(ii().bg_color(Color::RED));
 //!   })
 //! ```
 //!
@@ -214,12 +214,12 @@
 //!
 //! let mut count = 0u32;
 //!
-//! h_flex(ts().bg_color(Color::BLUE))
-//!     .label(move || format!("Event: {count}"), ts())
+//! h_flex(ii().bg_color(Color::BLUE))
+//!     .label(move || format!("Event: {count}"), ii())
 //!     .on_click_with(move |cx| {
 //!          count += 1;
-//!          cx.current().set_contents(div_n().label(move || format!("Event: {count}"), ts()))
-//!            .style(ts().bg_color(Color::RED));
+//!          cx.current().set_contents(div_n().label(move || format!("Event: {count}"), ii()))
+//!            .modify(ii().bg_color(Color::RED));
 //!     })
 //! ```
 //!
@@ -234,15 +234,15 @@
 //!
 //! let mut count = 0u32;
 //!
-//! let left = flex(ts()).tag::<a11y::AButton>();
+//! let left = flex(ii()).tag::<a11y::AButton>();
 //!
-//! let right = flex(ts()).label("Click", ts()).on_click_with(move |cx| {
+//! let right = flex(ii()).label("Click", ii()).on_click_with(move |cx| {
 //!     let el = cx.query_first::<a11y::AButton>();
 //!     count += 1;
-//!     el.set_contents(div_n().label(move || format!("Tag: {count}"), ts()));
+//!     el.set_contents(div_n().label(move || format!("Tag: {count}"), ii()));
 //! });
 //!
-//! h_flex(ts()).children([left, right])
+//! h_flex(ii()).children([left, right])
 //! ```
 //!
 //! #### Advantages
@@ -267,7 +267,7 @@
 //!     let (theme, _) = create_signal(Theme::dark());
 //!     let (search_text, _) = create_signal(SearchText(String::new()));
 //!
-//!     v_flex(move || ts().size_full().bg_color(theme.get().background))
+//!     v_flex(move || ii().size_full().bg_color(theme.get().background))
 //!         .provide(theme)
 //!         .provide(search_text)
 //!         .children([
@@ -279,7 +279,7 @@
 //!
 //! // 2. Subscribe from any nested child
 //! fn some_label() -> Element {
-//!     label("Hello", ts().text_color(dynamic(|t: &Theme| t.primary)))
+//!     label("Hello", ii().text_color(dynamic(|t: &Theme| t.primary)))
 //! }
 //! ```
 //!
@@ -294,24 +294,24 @@
 //!
 //! # Dynamic Styling and Performance Guide
 //!
-//! `michiu_ui` offers two patterns for dynamic styling: **block-level evaluation (`style_d` / `style`)** and **per-property evaluation (`dynamic`)**.
+//! `michiu_ui` offers two patterns for dynamic styling: **block-level evaluation (`modify_d` / `style`)** and **per-property evaluation (`dynamic`)**.
 //!
 //! ---
 //!
-//! ## 1. Equivalence of `style(move || ...)` and `style_d`
+//! ## 1. Equivalence of `modify(move || ...)` and `modify_d`
 //!
 //! The following two patterns are identical in internal behavior and performance:
 //!
 //! ```rust,ignore
 //! // Pattern A: Passing a closure directly to `style`
-//! .style(move || {
+//! .modify(move || {
 //!     let t = use_provided::<Theme>().get();
-//!     ts().bg_color(t.background)
+//!     ii().bg_color(t.background)
 //! })
 //!
-//! // Pattern B: Using the `style_d` shorthand
-//! .style_d(|t: &Theme| {
-//!     ts().bg_color(t.background)
+//! // Pattern B: Using the `modify_d` shorthand
+//! .modify_d(|t: &Theme| {
+//!     ii().bg_color(t.background)
 //! })
 //! ```
 //!
@@ -320,13 +320,13 @@
 //!
 //! ---
 //!
-//! ## 2. Block-Level (`style_d`) vs. Per-Property (`dynamic`)
+//! ## 2. Block-Level (`modify_d`) vs. Per-Property (`dynamic`)
 //!
-//! | Metric | Block-Level (`style_d`) | Per-Property (`dynamic`) |
+//! | Metric | Block-Level (`modify_d`) | Per-Property (`dynamic`) |
 //! | :--- | :--- | :--- |
-//! | **Evaluation Unit** | Entire `ThisStyle` object | Individual properties (color, size, etc.) |
+//! | **Evaluation Unit** | Entire `Modifier` object | Individual properties (color, size, etc.) |
 //! | **Tree Traversals (`use_provided`)** | **Once** (resolved at start of closure) | **Once per property** (resolved individually) |
-//! | **Re-evaluation Behavior** | Regenerates `ThisStyle` and bulk-merges (`override_with`) the SoA | Executes individual dynamic setters directly into SoA fields |
+//! | **Re-evaluation Behavior** | Regenerates `Modifier` and bulk-merges (`override_with`) the SoA | Executes individual dynamic setters directly into SoA fields |
 //! | **Memory & CPU Characteristics** | Optimized for bulk memory assignment and cache efficiency | Zero struct allocations; minimal overhead |
 //!
 //! > **Note:**
@@ -339,25 +339,25 @@
 //!
 //! ### Rule A: Few dynamic values (1–2 properties)
 //! * **Recommended**: **`dynamic()` per property**
-//! * **Reason**: Bypasses `ThisStyle` generation and SoA re-merging entirely.
+//! * **Reason**: Bypasses `Modifier` generation and SoA re-merging entirely.
 //!
 //! ```rust,ignore
-//! div(ts().bg_color(dynamic(|t: &Theme| t.background)))
+//! div(ii().bg_color(dynamic(|t: &Theme| t.background)))
 //! ```
 //!
 //! ### Rule B: Many dynamic values (borders, backgrounds, text colors, etc.)
-//! * **Recommended**: **`style_d()` block-level**
+//! * **Recommended**: **`modify_d()` block-level**
 //! * **Reason**:
 //!   - **Ancestral lookup reduction**: Resolves `use_provided` only once, saving CPU cycles on deep trees.
 //!   - **Cache locality**: Direct bulk assignment beats sequential call-stack evaluation of multiple closures.
 //!   - **Readability**: Keeps static layout and dynamic styling cleanly separated.
 //!
 //! ```rust,ignore
-//! div(ts().w_full().p_y(4.0))
-//!     .style_d(|t: &Theme| {
-//!         ts().border_color(t.border)
+//! div(ii().w_full().p_y(4.0))
+//!     .modify_d(|t: &Theme| {
+//!         ii().border_color(t.border)
 //!             .bg_color(t.background)
-//!             .pressed(ts().border_color(t.primary).bg_color(t.background_hover))
+//!             .pressed(ii().border_color(t.primary).bg_color(t.background_hover))
 //!     })
 //! ```
 //!
@@ -367,13 +367,13 @@
 //!
 //! | Scenario | Recommended Approach |
 //! | :--- | :--- |
-//! | Fully static styles | `style(ts())` |
-//! | Styles with conditional logic | `style(\|\| ts())` |
+//! | Fully static styles | `modify(ii())` |
+//! | Styles with conditional logic | `modify(\|\| ii())` |
 //! | 1–2 dynamic properties | `dynamic(\|t: &T\|)` |
-//! | Many dynamic properties | `style_d(\|t: &T\|)` |
-//! | Dynamic properties + conditional logic | `style_d` |
+//! | Many dynamic properties | `modify_d(\|t: &T\|)` |
+//! | Dynamic properties + conditional logic | `modify_d` |
 //! | Static layout + few dynamic properties | `style` + `dynamic` |
-//! | Extensive static + dynamic properties | `style(static)` + `style_d(dynamic)` |
+//! | Extensive static + dynamic properties | `modify(static)` + `modify_d(dynamic)` |
 //!
 //! ---
 //!
@@ -384,7 +384,7 @@
 //! * [**Renderer Implementation**](crate::renderer) - DirectComposition surface management and rendering command generation via wgpu
 //! * [**`Context` Structure**](crate::context) - Global state maintenance, storage management, and lifecycle control
 //! * [**`pipeline` module**](crate::pipeline) - Frame progression orchestrator
-//! * [**UI Construction and Styling**](crate::element) - Widget tree construction via [`build_ui`] and the list of properties for `ts()` (style builder)
+//! * [**UI Construction and Styling**](crate::element) - Widget tree construction via [`build_ui`] and the list of properties for `ii()` (style builder)
 //! * [**Reactivity**](crate::signal) - Reactive programming model and dependency tracking via [`create_signal`]
 //! * [**Tag Feature**](crate::tag) - Assigning identification tags to elements, and tree traversal and querying
 //! * [**Accessibility**](crate::context::acce_store) - Integration with AccessKit and tree synchronization
@@ -442,11 +442,12 @@ pub mod prelude {
         dnd::{DndDragPayload, DndDropTarget},
         element::{Element, build_ui},
         input::InputContents,
+        m,
         pipeline::{EventAction, TickType},
         renderer::MichiuRenderer,
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
-        style::ThisStyle,
+        style::Modifier,
         types::{
             AnimationCurve, Backdrop, BorderAlignment, BorderStyle, Color, CursorIcon, Display,
             ElementState, InteractionState, KeyframeAnimation, LayoutPoint, LayoutRect, LayoutSize,
@@ -454,9 +455,9 @@ pub mod prelude {
         },
         utils::{
             auto, blur, create_signal, div, div_n, dynamic, external_texture, fill, flex, flex_d,
-            get_win32_clipboard, grid_box, h_flex, h_flex_d, hex, hidden_box, hsl, hsla, input,
+            get_win32_clipboard, grid_box, h_flex, h_flex_d, hex, hidden_box, hsl, hsla, ii, input,
             input_area, input_area_d, input_d, offset, pct, px, rgb, rgba, set_win32_clipboard,
-            shadow, spread, text, text_d, ts, use_provided, use_provided_setter, v_flex, v_flex_d,
+            shadow, spread, text, text_d, use_provided, use_provided_setter, v_flex, v_flex_d,
         },
     };
 }

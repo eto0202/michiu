@@ -1,7 +1,7 @@
 //! # `element`
 //!
 //! This module is responsible for generating the [`Element`] that make up the UI tree, assembling the tree hierarchy, handling events,
-//! and providing declarative styling via [`ThisStyle`].
+//! and providing declarative styling via [`Modifier`].
 //!
 //! ---
 //!
@@ -26,14 +26,14 @@
 //! * **`.on_click(...)`**: Registers a listener into the Event SoA, granting the element clickable interactivity.
 //! * **`.draggable(...)`**: Registers the ID into the DnD SoA, granting the element drag-and-drop capability.
 //!
-//! ### Why is Style (`ThisStyle`) Separated?
-//! Rather than exposing styling methods like `.bg_color(...)` directly on `Element`, passing an independent [`ThisStyle`] ([`ts()`](crate::ts)) as an argument serves two primary purposes:
+//! ### Why is Style (`Modifier`) Separated?
+//! Rather than exposing styling methods like `.bg_color(...)` directly on `Element`, passing an independent [`Modifier`] ([`ii()`](crate::ts)) as an argument serves two primary purposes:
 //!
 //! 1. **Architectural Consistency via DOD**:
 //!    `Element` does not own color or layout fields; it merely holds a key into the internal style SoA tables. Passing styles externally aligns with the unified mental model of injecting definitions from the outside.
 //! 2. **Style Reusability and Readability (Zero-Cost Sharing via CoW)**:
 //!    Styles can be centralized into reusable variables similar to CSS classes and applied across multiple elements.
-//!    Because `ThisStyle` is internally wrapped in an [`Arc`], cloning incurs no heap reallocations. Branching occurs only when properties are mutated or overridden, handled safely and at minimal cost via **CoW (`Arc::make_mut`)**.
+//!    Because `Modifier` is internally wrapped in an [`Arc`], cloning incurs no heap reallocations. Branching occurs only when properties are mutated or overridden, handled safely and at minimal cost via **CoW (`Arc::make_mut`)**.
 //!
 //! ---
 //!
@@ -51,20 +51,20 @@
 //! 1. Initialize `Context`.
 //! 2. Declare the UI tree using [`build_ui`] (must return a root [`Element`]).
 //! 3. Initialize base elements using layout primitives (`div`, `h_flex`, etc.).
-//! 4. Apply styles using `.style()` or `.style_d()` (or via factory arguments).
+//! 4. Apply styles using `.modify()` or `.style_d()` (or via factory arguments).
 //! 5. Attach child elements, text, inputs, and event handlers.
 //!
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
 //! let root = build_ui(&mut context, || {
-//!     h_flex(ts().p(12.0).size(500.0).bg_color(Color::WHITE))
+//!     h_flex(ii().p(12.0).size(500.0).bg_color(Color::WHITE))
 //!         .child(
-//!             div(ts().size((40.0, 40.0)).bg_color(Color::BLUE))
-//!                 .hovered(ts().bg_color(Color::RED))
+//!             div(ii().size((40.0, 40.0)).bg_color(Color::BLUE))
+//!                 .hovered(ii().bg_color(Color::RED))
 //!                 .on_click(|| println!("Clicked!"))
 //!         )
-//!         .label("Button Text", ts().text_color(Color::BLACK))
+//!         .label("Button Text", ii().text_color(Color::BLACK))
 //! });
 //! ```
 //!
@@ -75,7 +75,7 @@
 //! | Function | Initial `Display` / Layout Attribute | Primary Use Case |
 //! | :--- | :--- | :--- |
 //! | **`div(style)` / `div_d`** | `Display::Block` | Standard block element |
-//! | **`div_n()`** | `NO_STYLE: Option<ThisStyle> = None` | lightweight container completely bypassing style processing |
+//! | **`div_n()`** | `NO_STYLE: Option<Modifier> = None` | lightweight container completely bypassing style processing |
 //! | **`flex(style)` / `flex_d`** | `Display::Flex` | General-purpose Flexbox container |
 //! | **`h_flex(style)` / `h_flex_d`** | `Display::Flex` + `FlexDirection::Row` | **Horizontal (row)** layout container |
 //! | **`v_flex(style)` / `v_flex_d`** | `Display::Flex` + `FlexDirection::Column` | **Vertical (column)** layout container |
@@ -83,13 +83,13 @@
 //!
 //! ---
 //!
-//! ## Styling Specifications (`ThisStyle` / `ts()`)
+//! ## Styling Specifications (`Modifier` / `ii()`)
 //!
-//! Styles are applied via `.style()` or `.style_d()`. Both static `ThisStyle` instances and dynamic closures are supported and can be mixed.
+//! Styles are applied via `.modify()` or `.style_d()`. Both static `Modifier` instances and dynamic closures are supported and can be mixed.
 //! If the same property is chained multiple times, **subsequent declarations override earlier ones (last write wins)**.
 //!
 //! ### 1. Pseudo-Classes (Interaction Styles)
-//! Styles that adapt to user interaction can be defined by nesting `ThisStyle` one level deep (pseudo-classes nested deeper than one level are ignored).
+//! Styles that adapt to user interaction can be defined by nesting `Modifier` one level deep (pseudo-classes nested deeper than one level are ignored).
 //!
 //! * **Core Pseudo-Classes**:
 //!   `.hovered(...)`, `.focused(...)`, `.focused_visible(...)` (active only during keyboard navigation), `.pressed(...)`, `.disabled(...)`, `.actived(...)`, `.selected(...)`, `.dragged(...)`
@@ -202,11 +202,11 @@
 //! ## Thread Safety and Execution Context
 //!
 //! * **[`Element`] Methods**: Must execute exclusively on the **main thread (UI thread)** to interact with underlying SoA storage directly.
-//! * **[`ThisStyle`]**: Wrapped in a thread-safe [`Arc`]. Being a pure data representation, it can be transferred safely across threads. Mutations execute strictly through `Arc::make_mut` only when an exclusive borrow can be formed, eliminating data races entirely.
+//! * **[`Modifier`]**: Wrapped in a thread-safe [`Arc`]. Being a pure data representation, it can be transferred safely across threads. Mutations execute strictly through `Arc::make_mut` only when an exclusive borrow can be formed, eliminating data races entirely.
 //!    ```rust
 //!    #[derive(Debug, Clone, Default)]
-//!    pub struct ThisStyle {
-//!        pub(crate) inner: Arc<StyleInner>,
+//!    pub struct Modifier {
+//!        pub(crate) inner: Arc<ModInner>,
 //!    }
 //!    ```
 
@@ -215,8 +215,8 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
-    ExternalVisual, IntoOptionProp, MichiuError, MichiuSoA, MichiuTrace, ReadSignal,
-    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, Val,
+    ExternalVisual, IntoOptionProp, MichiuError, MichiuSoA, MichiuTrace, ModTarget, Modifier,
+    ReadSignal, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, SystemStore, Val,
     a11y::A11yInferenceTag, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
@@ -239,7 +239,7 @@ thread_local! {
 ///
 /// let mut cx = Context::new();
 /// let root = build_ui(&mut cx, || {
-///     div(ts().bg_color(Color::GREEN))
+///     div(ii().bg_color(Color::GREEN))
 ///         .child(div_n()) // empty container
 /// });
 ///
@@ -511,23 +511,23 @@ impl Element {
 
     /// Applies styles.
     #[must_use]
-    pub fn style(self, style: impl Into<Prop<ThisStyle>>) -> Self {
-        match style.into() {
+    pub fn modify(self, m: impl Into<Prop<Modifier>>) -> Self {
+        match m.into() {
             Prop::None => {}
-            Prop::Static(s) => {
+            Prop::Static(m) => {
                 let id = self.id;
                 with_context(|cx| {
                     // 静的なスタイルプロパティを通常通りマウント
                     // 静的チェーンはマージ（merge = true）
-                    with_context(|cx| Element::style_internal(cx, id, &s, true));
+                    with_context(|cx| Element::modify_internal(cx, id, &m, true));
 
                     // 動的なセッターが存在する場合、それらを単一のエフェクトとして登録
-                    if !s.inner.dynamic_setters.is_empty() {
-                        let setters = s.inner.dynamic_setters.clone();
+                    if !m.inner.dynamic_setters.is_empty() {
+                        let setters = m.inner.dynamic_setters.clone();
                         cx.create_element_effect(id, EffectCategory::Style, move |cx| {
                             // すべての動的セッターを実行
                             for setter in &setters {
-                                setter(cx, id, StyleTarget::Base);
+                                setter(cx, id, ModTarget::Base);
                             }
                             // 状態が変化したため、最後に必ずスタイル解決
                             cx.resolve_element_style_state(id, false);
@@ -539,15 +539,15 @@ impl Element {
                 let id = self.id;
                 with_context(|cx| {
                     cx.create_element_effect(id, EffectCategory::Style, move |cx| {
-                        let s = f();
+                        let m = f();
 
                         // 動的評価された最新スタイルは蓄積を避けるため置換（merge = false）
                         // 修正: 動的評価されたスタイルもマージ（true）としてマウント
-                        Element::style_internal(cx, id, &s, true);
+                        Element::modify_internal(cx, id, &m, true);
 
                         // 動的スタイルが自身の中で動的なプロバイダーを含む場合も評価
-                        for setter in &s.inner.dynamic_setters {
-                            setter(cx, id, StyleTarget::Base);
+                        for setter in &m.inner.dynamic_setters {
+                            setter(cx, id, ModTarget::Base);
                         }
                         cx.resolve_element_style_state(id, false);
                     });
@@ -584,7 +584,7 @@ impl Element {
     ///         .provide(theme)
     ///         .child(
     ///             div_n().style_d(|t: &Theme| {
-    ///                 ts().bg_color(t.bg_color)
+    ///                 ii().bg_color(t.bg_color)
     ///                     .text_color(t.text_color)
     ///             })
     ///         )
@@ -592,10 +592,10 @@ impl Element {
     /// ```
     #[must_use]
     #[inline]
-    pub fn style_d<P, F>(self, f: F) -> Self
+    pub fn modify_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
-        F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+        F: Fn(&P) -> Modifier + Send + Sync + 'static,
     {
         // 1引数のクロージャを、プロバイダー探索とシグナル購読（.get()）を内包した
         // 引数なしの Prop::Dynamic クロージャへラップして既存の style メソッドへ委譲
@@ -605,12 +605,12 @@ impl Element {
             f(&val)
         }));
 
-        self.style(dynamic_prop)
+        self.modify(dynamic_prop)
     }
 
     /// スタイルの適用
-    pub(crate) fn style_internal(cx: &mut Context, id: EntityId, style: &ThisStyle, merge: bool) {
-        let inner = &style.inner;
+    pub(crate) fn modify_internal(cx: &mut Context, id: EntityId, m: &Modifier, merge: bool) {
+        let inner = &m.inner;
         let mask = inner.mask;
 
         // topo_active_masks にスタイル側のマスクをマージするが、
@@ -856,30 +856,30 @@ impl Element {
     pub fn label(
         self,
         content: impl Into<Prop<Cow<'static, str>>>,
-        style: impl Into<Prop<ThisStyle>>,
+        modify: impl Into<Prop<Modifier>>,
     ) -> Self {
-        let style = match style.into() {
-            Prop::None => Prop::Static(ThisStyle::new().pointer_events_none()),
+        let style = match modify.into() {
+            Prop::None => Prop::Static(Modifier::new().pointer_events_none()),
             Prop::Static(s) => Prop::Static(s.pointer_events_none()),
             Prop::Dynamic(f) => Prop::Dynamic(Box::new(move || f().pointer_events_none())),
         };
-        let label_el = div_n().text(content).style(style);
+        let label_el = div_n().text(content).modify(style);
         self.child(label_el)
     }
 
     /// Dynamically resolve styles from provider `P` and add text labels.
     #[must_use]
     #[inline]
-    pub fn label_d<P, F>(self, content: impl Into<Prop<Cow<'static, str>>>, style: F) -> Self
+    pub fn label_d<P, F>(self, content: impl Into<Prop<Cow<'static, str>>>, modify: F) -> Self
     where
         P: Clone + 'static,
-        F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+        F: Fn(&P) -> Modifier + Send + Sync + 'static,
     {
         // スタイル側のみ、1引数のクロージャをプロバイダー解決を伴う Prop::Dynamic へラップ
         let style_prop = Prop::Dynamic(Box::new(move || {
             let signal = with_context(|cx| cx.use_provided::<P>());
             let val = signal.get();
-            style(&val)
+            modify(&val)
         }));
 
         self.label(content, style_prop)
@@ -1213,7 +1213,7 @@ impl Element {
                 .inset((0.0, 0.0, 0.0, crate::auto()))
                 .pointer_events_auto(); // イベントを透過させない
 
-            Element::style_internal(cx, v_track, &track_style, merge);
+            Element::modify_internal(cx, v_track, &track_style, merge);
 
             // 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
             let v_thumb = if let Some(v_thumb) = state.v_thumb_id {
@@ -1243,7 +1243,7 @@ impl Element {
                 .inset((0.0, crate::auto(), crate::auto(), crate::auto()))
                 .pointer_events_auto();
 
-            Element::style_internal(cx, v_thumb, &thumb_style, merge);
+            Element::modify_internal(cx, v_thumb, &thumb_style, merge);
 
             // 横スクロールバー (H-Track)
             let h_track = if let Some(h_track) = state.h_track_id {
@@ -1266,7 +1266,7 @@ impl Element {
                 .inset((crate::auto(), 0.0, 0.0, 0.0))
                 .pointer_events_auto();
 
-            Element::style_internal(cx, h_track, &track_style, merge);
+            Element::modify_internal(cx, h_track, &track_style, merge);
 
             // B-1. 横つまみ (H-Thumb、H-Track の子要素としてアタッチ)
             let h_thumb = if let Some(h_thumb) = state.h_thumb_id {
@@ -1295,7 +1295,7 @@ impl Element {
                 .inset((crate::auto(), crate::auto(), crate::auto(), 0.0))
                 .pointer_events_auto();
 
-            Element::style_internal(cx, h_thumb, &thumb_style, merge);
+            Element::modify_internal(cx, h_thumb, &thumb_style, merge);
         }
 
         if changed {

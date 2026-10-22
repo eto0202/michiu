@@ -25,7 +25,7 @@ fn element_1() -> Vec<Element> {
     let mut children = Vec::new();
 
     for _ in 0..100 {
-        let el = v_flex(ts()).children(element_2());
+        let el = v_flex(ii()).children(element_2());
         children.push(el);
     }
     children
@@ -35,12 +35,12 @@ fn element_1() -> Vec<Element> {
 fn base_el(i: i32) -> Element {
     let label_str = DIGITS.get(i as usize).copied().unwrap_or("");
 
-    flex(ts().hovered(ts().bg_color(dynamic(|t: &Theme| t.primary))))
+    flex(ii().hovered(ii().bg_color(dynamic(|t: &Theme| t.primary))))
         .label(
             label_str,
-            ts().font_size(16.0)
+            ii().font_size(16.0)
                 .text_color(dynamic(|t: &Theme| t.text))
-                .pressed_parent(ts().font_size(20.0)),
+                .pressed_parent(ii().font_size(20.0)),
         )
         .on_click_with(|cx| println!("Current ID: {:?}", cx.current().id()))
 }
@@ -50,7 +50,7 @@ fn element_2() -> ChildrenVec {
     let mut children = SmallVec::new();
 
     for _ in 0..5 {
-        let el = v_flex(ts()).children(element_3());
+        let el = v_flex(ii()).children(element_3());
         children.push(el);
     }
     children
@@ -61,7 +61,7 @@ fn element_3() -> ChildrenVec {
     let mut children = SmallVec::new();
 
     for _ in 0..5 {
-        let el = v_flex(ts()).children(element_4());
+        let el = v_flex(ii()).children(element_4());
         children.push(el);
     }
     children
@@ -72,7 +72,7 @@ fn element_4() -> ChildrenVec {
     let mut children = SmallVec::new();
 
     for _ in 0..5 {
-        let el = v_flex(ts()).children(element_5());
+        let el = v_flex(ii()).children(element_5());
         children.push(el);
     }
     children
@@ -83,7 +83,7 @@ fn element_5() -> ChildrenVec {
     let mut children = SmallVec::new();
 
     for i in 0..10 {
-        let el = v_flex(ts()).child(base_el(i));
+        let el = v_flex(ii()).child(base_el(i));
         children.push(el);
     }
     children

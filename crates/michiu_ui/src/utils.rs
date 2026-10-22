@@ -1,6 +1,6 @@
 use crate::{
     BoxShadow, Color, Convert, Element, ExternalTexture, ExternalVisual, FlexDirection,
-    InputContents, IntoHexColor, IntoLayoutPoint, Prop, ReadSignal, StyleValue, ThisStyle,
+    InputContents, IntoHexColor, IntoLayoutPoint, ModValue, Modifier, Prop, ReadSignal,
     WriteSignal, with_context,
 };
 use std::borrow::Cow;
@@ -12,16 +12,45 @@ use std::borrow::Cow;
 /// # use crate::prelude::*;
 /// # fn example() -> Element {
 ///     div(
-///         ts().size_full()
+///         ii().size_full()
 ///             .p(8.0)
 ///             .bg_color(rgb(209, 92, 174))
 ///     )
 /// # }
 /// ```
+///
+/// # Why `ii()` ?
+///
+/// - Because `m()` is prone to namespace conflicts.
+/// - Because it’s highly legible (the von Restorff effect).
+/// - Because it’s faster to type.
+/// - Because `michiu_ui` contains a lot of `i`s.
+///
+/// For those who don't like `ii()` -> [`m!`] , [`Modifier::new()`]
 #[inline]
 #[must_use]
-pub fn ts() -> ThisStyle {
-    ThisStyle::new()
+pub fn ii() -> Modifier {
+    Modifier::new()
+}
+
+/// Creates a new style.
+///
+/// # Examples
+/// ```no_run
+/// # use crate::prelude::*;
+/// # fn example() -> Element {
+///     div(
+///         m!().size_full()
+///             .p(8.0)
+///             .bg_color(rgb(209, 92, 174))
+///     )
+/// # }
+/// ```
+#[macro_export]
+macro_rules! m {
+    () => {
+        $crate::Modifier::new()
+    };
 }
 
 /// Generates signals directly from the `Context`.
@@ -34,12 +63,12 @@ pub fn ts() -> ThisStyle {
 /// # fn example() -> Element {
 ///     let (count, set_count) = create_signal(0u32);
 ///     div(
-///         ts().size_full()
+///         ii().size_full()
 ///             .p(8.0)
 ///             .bg_color(rgb(209, 92, 174))
 ///     )
 ///     .on_click(move || set_count.set(count.get() + 1))
-///     .label(move || format!("Count: {}", count.get()), ts())
+///     .label(move || format!("Count: {}", count.get()), ii())
 /// # }
 /// ```
 pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, WriteSignal<T>) {
@@ -61,7 +90,7 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
 /// # Related Features
 /// - [`use_provided_setter`]: Retrieves a [`WriteSignal<T>`] to update the context’s value.
 /// - [`dynamic`](crate::dynamic): Directly binds the context’s value to a single style property.
-/// - [`style_d`](crate::Element::style_d): Dynamically applies an entire style block based on the context’s value.
+/// - [`modify_d`](crate::Element::modify_d): Dynamically applies an entire style block based on the context’s value.
 ///
 /// # Examples
 /// ```no_run
@@ -77,7 +106,7 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
 ///            .child(
 ///                 div(|| {
 ///                     let theme = use_provided::<Theme>().get();
-///                     ts().bg_color(theme.color)
+///                     ii().bg_color(theme.color)
 ///                 })
 ///                 .on_click(|| {
 ///                     let set_theme = use_provided_setter::<Theme>();
@@ -101,7 +130,7 @@ pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
 /// # Related Features
 /// - [`use_provided_setter`]: Retrieves a [`WriteSignal<T>`] to update the context’s value.
 /// - [`dynamic`](crate::dynamic): Directly binds the context’s value to a single style property.
-/// - [`style_d`](crate::Element::style_d): Dynamically applies an entire style block based on the context’s value.
+/// - [`modify_d`](crate::Element::modify_d): Dynamically applies an entire style block based on the context’s value.
 ///
 /// # Examples
 /// ```no_run
@@ -117,7 +146,7 @@ pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
 ///            .child(
 ///                 div(|| {
 ///                     let theme = use_provided::<Theme>().get();
-///                     ts().bg_color(theme.color)
+///                     ii().bg_color(theme.color)
 ///                 })
 ///                 .on_click(|| {
 ///                     let set_theme = use_provided_setter::<Theme>();
@@ -147,7 +176,7 @@ pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
 /// # Related Features
 /// - [`use_provided_setter`]: Retrieves a [`WriteSignal<T>`] to update the context’s value.
 /// - [`dynamic`](crate::dynamic): Directly binds the context’s value to a single style property.
-/// - [`style_d`](crate::Element::style_d): Dynamically applies an entire style block based on the context’s value.
+/// - [`modify_d`](crate::Element::modify_d): Dynamically applies an entire style block based on the context’s value.
 ///
 /// # Examples
 /// ```no_run
@@ -161,17 +190,17 @@ pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
-///                 div(ts().bg_color(dynamic(|t: &Theme| t.color)))
+///                 div(ii().bg_color(dynamic(|t: &Theme| t.color)))
 ///             )
 /// }
 /// ```
-pub fn dynamic<P, V, F>(selector: F) -> StyleValue<V>
+pub fn dynamic<P, V, F>(selector: F) -> ModValue<V>
 where
     P: Clone + 'static,
     V: 'static,
     F: Fn(&P) -> V + Send + Sync + 'static,
 {
-    StyleValue::Dynamic(Box::new(move || {
+    ModValue::Dynamic(Box::new(move || {
         // ここでプロバイダーの ReadSignal に対する `.get()` を実行することで、
         // 呼び出し元のスタイルエフェクトに自動的に依存関係が購読される
         let signal = with_context(|cx| cx.use_provided::<P>());
@@ -185,8 +214,8 @@ where
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> ThisStyle {
-///    ts().bg_color(rgb(209, 92, 174))
+/// # fn examples() -> Modifier {
+///    ii().bg_color(rgb(209, 92, 174))
 /// # }
 /// ```
 #[inline]
@@ -206,8 +235,8 @@ pub fn rgb(r: u8, g: u8, b: u8) -> Color {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> ThisStyle {
-///    ts().bg_color(rgba(209, 92, 174, 0.5))
+/// # fn examples() -> Modifier {
+///    ii().bg_color(rgba(209, 92, 174, 0.5))
 /// # }
 /// ```
 #[inline]
@@ -226,8 +255,8 @@ pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> ThisStyle {
-///    ts().bg_color(hex("#ff0000"))
+/// # fn examples() -> Modifier {
+///    ii().bg_color(hex("#ff0000"))
 ///        .border_color(hex(0x00_FF00))
 ///        .text_color(hex(0x00_00ff))
 ///        .outline_color(hex("00000080"))
@@ -244,8 +273,8 @@ pub fn hex(value: impl IntoHexColor) -> Color {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> ThisStyle {
-///    ts().bg_color(hsl(318.0, 56.0, 59.0))
+/// # fn examples() -> Modifier {
+///    ii().bg_color(hsl(318.0, 56.0, 59.0))
 /// # }
 /// ```
 #[inline]
@@ -259,8 +288,8 @@ pub fn hsl(h: f32, s: f32, l: f32) -> Color {
 /// # Examples
 /// ```no_run
 /// # use crate::prelude::*;
-/// # fn examples() -> ThisStyle {
-///    ts().bg_color(hsla(318.0, 56.0, 59.0, 0.5))
+/// # fn examples() -> Modifier {
+///    ii().bg_color(hsla(318.0, 56.0, 59.0, 0.5))
 /// # }
 /// ```
 #[inline]
@@ -271,7 +300,7 @@ pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
 
 /// A container that applies a style and generates content.
 ///
-/// It is the same as `Element::new().style(style)`.
+/// It is the same as `Element::new().modify(style)`.
 ///
 /// Default is Flex Box.
 ///
@@ -279,13 +308,13 @@ pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
 /// ```no_run
 /// # use crate::prelude::*;
 /// # fn examples() -> Element {
-///    flex(ts().justify_center())
+///    flex(ii().justify_center())
 /// # }
 /// ```
 #[inline]
-pub fn flex(style: impl Into<Prop<ThisStyle>>) -> Element {
+pub fn flex(m: impl Into<Prop<Modifier>>) -> Element {
     let el = Element::new();
-    el.style(style)
+    el.modify(m)
 }
 
 /// A block container that applies a style and generates content.
@@ -294,16 +323,16 @@ pub fn flex(style: impl Into<Prop<ThisStyle>>) -> Element {
 /// ```no_run
 /// # use crate::prelude::*;
 /// # fn examples() -> Element {
-///    div(ts().size(100.0))
+///    div(ii().size(100.0))
 /// # }
 /// ```
 #[inline]
-pub fn div(style: impl Into<Prop<ThisStyle>>) -> Element {
+pub fn div(m: impl Into<Prop<Modifier>>) -> Element {
     let el = Element::new();
-    el.style(ts().block()).style(style)
+    el.modify(ii().block()).modify(m)
 }
 
-pub const NO_STYLE: Option<ThisStyle> = None;
+pub const NO_STYLE: Option<Modifier> = None;
 
 /// An empty container with no style.
 ///
@@ -311,7 +340,7 @@ pub const NO_STYLE: Option<ThisStyle> = None;
 /// ```no_run
 /// # use crate::prelude::*;
 /// # fn examples() -> Element {
-///    div_n().style(ts())
+///    div_n().modify(ii())
 /// # }
 /// ```
 #[inline]
@@ -326,14 +355,14 @@ pub fn div_n() -> Element {
 /// ```no_run
 /// # use crate::prelude::*;
 /// # fn examples() -> Element {
-///    h_flex(ts().border_solid(1.0))
+///    h_flex(ii().border_solid(1.0))
 /// # }
 /// ```
 #[inline]
-pub fn h_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
+pub fn h_flex(m: impl Into<Prop<Modifier>>) -> Element {
     let el = Element::new();
-    el.style(ts().flex().flex_direction(FlexDirection::Row))
-        .style(style)
+    el.modify(ii().flex().flex_direction(FlexDirection::Row))
+        .modify(m)
 }
 
 /// Vertical flex container.
@@ -342,21 +371,21 @@ pub fn h_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
 /// ```no_run
 /// # use crate::prelude::*;
 /// # fn examples() -> Element {
-///    h_flex(ts().outline_solid(1.0))
+///    h_flex(ii().outline_solid(1.0))
 /// # }
 /// ```
 #[inline]
-pub fn v_flex(style: impl Into<Prop<ThisStyle>>) -> Element {
+pub fn v_flex(m: impl Into<Prop<Modifier>>) -> Element {
     let el = Element::new();
-    el.style(ts().flex().flex_direction(FlexDirection::Column))
-        .style(style)
+    el.modify(ii().flex().flex_direction(FlexDirection::Column))
+        .modify(m)
 }
 
 /// Not Implemented
 #[inline]
-pub fn grid_box(style: impl Into<Prop<ThisStyle>>) -> Element {
+pub fn grid_box(m: impl Into<Prop<Modifier>>) -> Element {
     let el = Element::new();
-    el.style(ts().grid()).style(style)
+    el.modify(ii().grid()).modify(m)
 }
 
 /// Hidden Container
@@ -365,13 +394,13 @@ pub fn grid_box(style: impl Into<Prop<ThisStyle>>) -> Element {
 /// ```no_run
 /// # use crate::prelude::*;
 /// # fn examples() -> Element {
-///    hidden_box(ts().size_full())
+///    hidden_box(ii().size_full())
 /// # }
 /// ```
 #[inline]
-pub fn hidden_box(style: impl Into<Prop<ThisStyle>>) -> Element {
+pub fn hidden_box(m: impl Into<Prop<Modifier>>) -> Element {
     let el = Element::new();
-    el.style(ts().hidden()).style(style)
+    el.modify(ii().hidden()).modify(m)
 }
 
 /// Text Container
@@ -380,7 +409,7 @@ pub fn hidden_box(style: impl Into<Prop<ThisStyle>>) -> Element {
 /// ```no_run
 /// # use crate::prelude::*;
 /// # fn examples() -> Element {
-///    text("examples").style(ts().font_size(20.0))
+///    text("examples").modify(ii().font_size(20.0))
 /// # }
 /// ```
 #[inline]
@@ -438,7 +467,7 @@ pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
     div_n().external_visual(visual)
 }
 
-/// A generic container that dynamically resolves `ThisStyle` from provider `P` and applies the style
+/// A generic container that dynamically resolves `Modifier` from provider `P` and applies the style
 ///
 /// # Examples
 /// ```no_run
@@ -452,7 +481,7 @@ pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
-///                 flex_d(|t: &Theme| ts().bg_color(theme.color))
+///                 flex_d(|t: &Theme| ii().bg_color(theme.color))
 ///             )
 /// }
 /// ```
@@ -460,12 +489,12 @@ pub fn external_visual(visual: impl ExternalVisual + 'static) -> Element {
 pub fn flex_d<P, F>(f: F) -> Element
 where
     P: Clone + 'static,
-    F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+    F: Fn(&P) -> Modifier + Send + Sync + 'static,
 {
-    Element::new().style_d(f)
+    Element::new().modify_d(f)
 }
 
-/// A block container that dynamically resolves `ThisStyle` from provider `P` and applies the style
+/// A block container that dynamically resolves `Modifier` from provider `P` and applies the style
 ///
 /// # Examples
 /// ```no_run
@@ -479,7 +508,7 @@ where
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
-///                 div_d(|t: &Theme| ts().bg_color(theme.color))
+///                 div_d(|t: &Theme| ii().bg_color(theme.color))
 ///             )
 /// }
 /// ```
@@ -487,12 +516,12 @@ where
 pub fn div_d<P, F>(f: F) -> Element
 where
     P: Clone + 'static,
-    F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+    F: Fn(&P) -> Modifier + Send + Sync + 'static,
 {
-    Element::new().style(ts().block()).style_d(f)
+    Element::new().modify(ii().block()).modify_d(f)
 }
 
-/// A horizontal flex container that dynamically resolves `ThisStyle` from provider `P` and applies the style
+/// A horizontal flex container that dynamically resolves `Modifier` from provider `P` and applies the style
 ///
 /// # Examples
 /// ```no_run
@@ -506,7 +535,7 @@ where
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
-///                 h_flex_d(|t: &Theme| ts().bg_color(theme.color))
+///                 h_flex_d(|t: &Theme| ii().bg_color(theme.color))
 ///             )
 /// }
 /// ```
@@ -514,16 +543,16 @@ where
 pub fn h_flex_d<P, F>(f: F) -> Element
 where
     P: Clone + 'static,
-    F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+    F: Fn(&P) -> Modifier + Send + Sync + 'static,
 {
     // レイアウトの基本形式（フレックス）は静的に適用し、
     // プロバイダー依存の残りのスタイルは style_c で一括解決します
     Element::new()
-        .style(ts().flex().flex_direction(FlexDirection::Row))
-        .style_d(f)
+        .modify(ii().flex().flex_direction(FlexDirection::Row))
+        .modify_d(f)
 }
 
-/// A vertical flex container that dynamically resolves `ThisStyle` from provider `P` and applies the style
+/// A vertical flex container that dynamically resolves `Modifier` from provider `P` and applies the style
 ///
 /// # Examples
 /// ```no_run
@@ -537,7 +566,7 @@ where
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
-///                 v_flex_d(|t: &Theme| ts().bg_color(theme.color))
+///                 v_flex_d(|t: &Theme| ii().bg_color(theme.color))
 ///             )
 /// }
 /// ```
@@ -545,11 +574,11 @@ where
 pub fn v_flex_d<P, F>(f: F) -> Element
 where
     P: Clone + 'static,
-    F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+    F: Fn(&P) -> Modifier + Send + Sync + 'static,
 {
     Element::new()
-        .style(ts().flex().flex_direction(FlexDirection::Column))
-        .style_d(f)
+        .modify(ii().flex().flex_direction(FlexDirection::Column))
+        .modify_d(f)
 }
 
 /// A container that dynamically resolves and applies text from provider `P`.
@@ -670,19 +699,19 @@ pub struct Stretch;
 /// # use crate::prelude::*;
 /// # fn examples() {
 /// // All Directions (f32, i32, px, pct, auto, fill)
-/// ts().p(10.0);
-/// ts().p(10);
-/// ts().p(pct(5.0));
-/// ts().p(auto());
-/// ts().p(fill());
+/// ii().p(10.0);
+/// ii().p(10);
+/// ii().p(pct(5.0));
+/// ii().p(auto());
+/// ii().p(fill());
 ///
 /// // (vertical, horizontal)
-/// ts().p((10.0, 20.0));
-/// ts().p((px(10.0), pct(50.0)));
+/// ii().p((10.0, 20.0));
+/// ii().p((px(10.0), pct(50.0)));
 ///
 /// // (top, right, bottom, left)
-/// ts().p((10.0, 20.0, 30.0, 40.0));
-/// ts().p((px(10.0), pct(20.0), auto(), fill()));
+/// ii().p((10.0, 20.0, 30.0, 40.0));
+/// ii().p((px(10.0), pct(20.0), auto(), fill()));
 /// # }
 /// ```
 #[inline]
@@ -698,19 +727,19 @@ pub fn px(val: f32) -> Pixel {
 /// # use crate::prelude::*;
 /// # fn examples() {
 /// // All Directions (f32, i32, px, pct, auto, fill)
-/// ts().p(10.0);
-/// ts().p(10);
-/// ts().p(pct(5.0));
-/// ts().p(auto());
-/// ts().p(fill());
+/// ii().p(10.0);
+/// ii().p(10);
+/// ii().p(pct(5.0));
+/// ii().p(auto());
+/// ii().p(fill());
 ///
 /// // (vertical, horizontal)
-/// ts().p((10.0, 20.0));
-/// ts().p((px(10.0), pct(50.0)));
+/// ii().p((10.0, 20.0));
+/// ii().p((px(10.0), pct(50.0)));
 ///
 /// // (top, right, bottom, left)
-/// ts().p((10.0, 20.0, 30.0, 40.0));
-/// ts().p((px(10.0), pct(20.0), auto(), fill()));
+/// ii().p((10.0, 20.0, 30.0, 40.0));
+/// ii().p((px(10.0), pct(20.0), auto(), fill()));
 /// # }
 /// ```
 #[inline]
@@ -726,19 +755,19 @@ pub fn pct(val: f32) -> Percent {
 /// # use crate::prelude::*;
 /// # fn examples() {
 /// // All Directions (f32, i32, px, pct, auto, fill)
-/// ts().p(10.0);
-/// ts().p(10);
-/// ts().p(pct(5.0));
-/// ts().p(auto());
-/// ts().p(fill());
+/// ii().p(10.0);
+/// ii().p(10);
+/// ii().p(pct(5.0));
+/// ii().p(auto());
+/// ii().p(fill());
 ///
 /// // (vertical, horizontal)
-/// ts().p((10.0, 20.0));
-/// ts().p((px(10.0), pct(50.0)));
+/// ii().p((10.0, 20.0));
+/// ii().p((px(10.0), pct(50.0)));
 ///
 /// // (top, right, bottom, left)
-/// ts().p((10.0, 20.0, 30.0, 40.0));
-/// ts().p((px(10.0), pct(20.0), auto(), fill()));
+/// ii().p((10.0, 20.0, 30.0, 40.0));
+/// ii().p((px(10.0), pct(20.0), auto(), fill()));
 /// # }
 /// ```
 #[inline]
@@ -754,19 +783,19 @@ pub fn auto() -> Auto {
 /// # use crate::prelude::*;
 /// # fn examples() {
 /// // All Directions (f32, i32, px, pct, auto, fill)
-/// ts().p(10.0);
-/// ts().p(10);
-/// ts().p(pct(5.0));
-/// ts().p(auto());
-/// ts().p(fill());
+/// ii().p(10.0);
+/// ii().p(10);
+/// ii().p(pct(5.0));
+/// ii().p(auto());
+/// ii().p(fill());
 ///
 /// // (vertical, horizontal)
-/// ts().p((10.0, 20.0));
-/// ts().p((px(10.0), pct(50.0)));
+/// ii().p((10.0, 20.0));
+/// ii().p((px(10.0), pct(50.0)));
 ///
 /// // (top, right, bottom, left)
-/// ts().p((10.0, 20.0, 30.0, 40.0));
-/// ts().p((px(10.0), pct(20.0), auto(), fill()));
+/// ii().p((10.0, 20.0, 30.0, 40.0));
+/// ii().p((px(10.0), pct(20.0), auto(), fill()));
 /// # }
 /// ```
 #[inline]

@@ -455,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_remedy_hints() {
+    fn test_error_remedy_hinii() {
         // バリデーションエラーにおける remedy の分岐を検証
         let err_transparent = MichiuError::ValidationError {
             parameter: "transparent",

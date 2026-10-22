@@ -9,7 +9,7 @@ use std::{path::Path, sync::OnceLock};
 use tiff_reader::TiffFile;
 
 pub fn container() -> Element {
-    v_flex(ts().gap(16.0).p(16.0).r(4.0).size_full()).children([image_list()])
+    v_flex(ii().gap(16.0).p(16.0).r(4.0).size_full()).children([image_list()])
 }
 
 fn image_list() -> Element {
@@ -47,11 +47,11 @@ fn image_list() -> Element {
 
     let thumbnail = |screen_shot: ImageExternalTexture| {
         external_texture(screen_shot.clone())
-            .style(
-                ts().r(4.0)
+            .modify(
+                ii().r(4.0)
                     .size((size.width / 7.0, size.height / 7.0))
                     .hovered(
-                        ts().outline_solid(2.0)
+                        ii().outline_solid(2.0)
                             .outline_color(dynamic(|t: &Theme| t.primary)),
                     ),
             )
@@ -60,9 +60,9 @@ fn image_list() -> Element {
             })
     };
 
-    h_flex(ts().size_full()).children([
+    h_flex(ii().size_full()).children([
         v_flex(
-            ts().gap(8.0)
+            ii().gap(8.0)
                 .h_full()
                 .w(250.0)
                 .items_center()
@@ -78,7 +78,7 @@ fn image_list() -> Element {
             thumbnail(screen_shot_5.clone()),
         ]),
         v_flex(
-            ts().size_full()
+            ii().size_full()
                 .p(16.0)
                 .gap(16.0)
                 .items_center()
@@ -86,9 +86,9 @@ fn image_list() -> Element {
         )
         .children([
             div_n().child(move || {
-                let base = ts().size((size.width / 2.0, size.height / 2.0));
+                let base = ii().size((size.width / 2.0, size.height / 2.0));
                 if let Some(img) = selected_image.get() {
-                    external_texture(img).style(&base)
+                    external_texture(img).modify(&base)
                 } else {
                     flex(&base)
                 }
@@ -100,8 +100,8 @@ fn image_list() -> Element {
                     String::new()
                 }
             })
-            .style(
-                ts().text_center()
+            .modify(
+                ii().text_center()
                     .user_select(UserSelect::Text)
                     .text_color(dynamic(|t: &Theme| t.text_muted)),
             ),

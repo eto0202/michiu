@@ -158,7 +158,7 @@ impl<L: ExternalData> DataWatcher<L> {
 
 /// A trait for parsing and constructing external data.
 pub trait ExternalData: Send + Sync + 'static {
-    /// Data types stored in the signal (`ThisStyle`, `HashMap<String, ThisStyle>`, custom data).
+    /// Data types stored in the signal (`Modifier`, `HashMap<String, Modifier>`, custom data).
     type Output: Clone + Send + 'static;
 
     /// Construct data from the source string and file path.

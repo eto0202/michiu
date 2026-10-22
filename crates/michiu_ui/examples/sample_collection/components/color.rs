@@ -2,7 +2,7 @@ use crate::components::section_title;
 pub use michiu_ui::prelude::*;
 
 pub fn container() -> Element {
-    v_flex(ts().gap(24.0).p(16.0)).children([
+    v_flex(ii().gap(24.0).p(16.0)).children([
         rgb_container(),
         rgba_container(),
         hex_container(),
@@ -11,15 +11,15 @@ pub fn container() -> Element {
     ])
 }
 
-fn section_style() -> ThisStyle {
-    ts().gap(12.0)
+fn section_style() -> Modifier {
+    ii().gap(12.0)
 }
 
-fn wrapper_style() -> ThisStyle {
-    ts().w_full().gap((24.0, 10.0)).p(6.0)
+fn wrapper_style() -> Modifier {
+    ii().w_full().gap((24.0, 10.0)).p(6.0)
 }
 
-fn item(label: &'static str, style: ThisStyle) -> Element {
+fn item(label: &'static str, style: Modifier) -> Element {
     let (show_popup, set_show_popup) = create_signal(false);
     let (popup_pos, set_popup_pos) = create_signal(LayoutPoint::ZERO);
 
@@ -38,7 +38,7 @@ fn item(label: &'static str, style: ThisStyle) -> Element {
             let offset_x = pos.x + 12.0;
             let offset_y = pos.y + 12.0;
 
-            flex(ts()
+            flex(ii()
                 .absolute()
                 .z_1()
                 .left(offset_x)
@@ -49,7 +49,7 @@ fn item(label: &'static str, style: ThisStyle) -> Element {
                 .pointer_events_none())
             .label(
                 label,
-                ts().text_color(rgba(210, 210, 210, 0.95))
+                ii().text_color(rgba(210, 210, 210, 0.95))
                     .font_size(16.0)
                     .font_weight(400),
             )
@@ -60,13 +60,13 @@ fn item(label: &'static str, style: ThisStyle) -> Element {
 }
 
 fn rgb_container() -> Element {
-    let red = item("rgb(255, 0, 0)", ts().bg_color(rgb(255, 0, 0)));
-    let yellow = item_direct("rgb(255, 255, 0)", ts().bg_color(rgb(255, 255, 0)));
-    let white = item_event("rgb(255, 255, 255)", ts().bg_color(rgb(255, 255, 255)));
-    let lightblue = item_tag("rgb(0, 255, 255)", ts().bg_color(rgb(0, 255, 255)));
+    let red = item("rgb(255, 0, 0)", ii().bg_color(rgb(255, 0, 0)));
+    let yellow = item_direct("rgb(255, 255, 0)", ii().bg_color(rgb(255, 255, 0)));
+    let white = item_event("rgb(255, 255, 255)", ii().bg_color(rgb(255, 255, 255)));
+    let lightblue = item_tag("rgb(0, 255, 255)", ii().bg_color(rgb(0, 255, 255)));
 
-    let blue = item("rgb(0, 0, 255)", ts().bg_color(rgb(0, 0, 255)));
-    let green = item("rgb(0, 255, 0)", ts().bg_color(rgb(0, 255, 0)));
+    let blue = item("rgb(0, 0, 255)", ii().bg_color(rgb(0, 0, 255)));
+    let green = item("rgb(0, 255, 0)", ii().bg_color(rgb(0, 255, 0)));
 
     v_flex(section_style()).children([
         section_title("RGB"),
@@ -75,11 +75,11 @@ fn rgb_container() -> Element {
 }
 
 fn rgba_container() -> Element {
-    let black1 = item("rgba(0, 0, 0, 0.2)", ts().bg_color(rgba(0, 0, 0, 0.2)));
-    let black2 = item("rgba(0, 0, 0, 0.4)", ts().bg_color(rgba(0, 0, 0, 0.4)));
-    let black3 = item("rgba(0, 0, 0, 0.6)", ts().bg_color(rgba(0, 0, 0, 0.6)));
-    let black4 = item("rgba(0, 0, 0, 0.8)", ts().bg_color(rgba(0, 0, 0, 0.8)));
-    let black5 = item("rgba(0, 0, 0, 1.0)", ts().bg_color(rgba(0, 0, 0, 1.0)));
+    let black1 = item("rgba(0, 0, 0, 0.2)", ii().bg_color(rgba(0, 0, 0, 0.2)));
+    let black2 = item("rgba(0, 0, 0, 0.4)", ii().bg_color(rgba(0, 0, 0, 0.4)));
+    let black3 = item("rgba(0, 0, 0, 0.6)", ii().bg_color(rgba(0, 0, 0, 0.6)));
+    let black4 = item("rgba(0, 0, 0, 0.8)", ii().bg_color(rgba(0, 0, 0, 0.8)));
+    let black5 = item("rgba(0, 0, 0, 1.0)", ii().bg_color(rgba(0, 0, 0, 1.0)));
 
     v_flex(section_style()).children([
         section_title("RGBA"),
@@ -88,11 +88,11 @@ fn rgba_container() -> Element {
 }
 
 fn hex_container() -> Element {
-    let red = item("hex(\"#ff0000\")", ts().bg_color(hex("#ff0000")));
-    let green = item("hex(0x00FF00)", ts().bg_color(hex(0x00_FF00)));
-    let blue = item("hex(0x0000ff)", ts().bg_color(hex(0x00_00ff)));
-    let white = item("hex(\"00000080\")", ts().bg_color(hex("00000080")));
-    let black = item("hex(\"0xFFFFFF80\")", ts().bg_color(hex("0xFFFFFF80")));
+    let red = item("hex(\"#ff0000\")", ii().bg_color(hex("#ff0000")));
+    let green = item("hex(0x00FF00)", ii().bg_color(hex(0x00_FF00)));
+    let blue = item("hex(0x0000ff)", ii().bg_color(hex(0x00_00ff)));
+    let white = item("hex(\"00000080\")", ii().bg_color(hex("00000080")));
+    let black = item("hex(\"0xFFFFFF80\")", ii().bg_color(hex("0xFFFFFF80")));
 
     v_flex(section_style()).children([
         section_title("HEX"),
@@ -103,21 +103,21 @@ fn hex_container() -> Element {
 fn hsl_container() -> Element {
     let primary = item(
         "hsl(318.0, 56.0, 59.0)",
-        ts().bg_color(hsl(318.0, 56.0, 59.0)),
+        ii().bg_color(hsl(318.0, 56.0, 59.0)),
     );
     let hsl_1 = item(
         "hsl(318.0, 0.0, 59.0)",
-        ts().bg_color(hsl(318.0, 0.0, 59.0)),
+        ii().bg_color(hsl(318.0, 0.0, 59.0)),
     );
     let hsl_2 = item(
         "hsl(318.0, 56.0, 0.0)",
-        ts().bg_color(hsl(318.0, 56.0, 0.0)),
+        ii().bg_color(hsl(318.0, 56.0, 0.0)),
     );
-    let hsl_3 = item("hsl(0.0, 56.0, 59.0)", ts().bg_color(hsl(0.0, 56.0, 59.0)));
-    let hsl_4 = item("hsl(318.0, 0.0, 0.0)", ts().bg_color(hsl(318.0, 0.0, 0.0)));
+    let hsl_3 = item("hsl(0.0, 56.0, 59.0)", ii().bg_color(hsl(0.0, 56.0, 59.0)));
+    let hsl_4 = item("hsl(318.0, 0.0, 0.0)", ii().bg_color(hsl(318.0, 0.0, 0.0)));
     let hsl_5 = item(
         "hsl(318.0, 100.0, 100.0)",
-        ts().bg_color(hsl(318.0, 100.0, 100.0)),
+        ii().bg_color(hsl(318.0, 100.0, 100.0)),
     );
 
     v_flex(section_style()).children([
@@ -129,23 +129,23 @@ fn hsl_container() -> Element {
 fn hsla_container() -> Element {
     let primary = item(
         "hsla(318.0, 56.0, 59.0, 1.0)",
-        ts().bg_color(hsla(318.0, 56.0, 59.0, 1.0)),
+        ii().bg_color(hsla(318.0, 56.0, 59.0, 1.0)),
     );
     let hsla_1 = item(
         "hsla(318.0, 56.0, 59.0, 0.8)",
-        ts().bg_color(hsla(318.0, 56.0, 59.0, 0.8)),
+        ii().bg_color(hsla(318.0, 56.0, 59.0, 0.8)),
     );
     let hsla_2 = item(
         "hsla(318.0, 56.0, 59.0, 0.6)",
-        ts().bg_color(hsla(318.0, 56.0, 59.0, 0.6)),
+        ii().bg_color(hsla(318.0, 56.0, 59.0, 0.6)),
     );
     let hsla_3 = item(
         "hsla(318.0, 56.0, 59.0, 0.4)",
-        ts().bg_color(hsla(318.0, 56.0, 59.0, 0.4)),
+        ii().bg_color(hsla(318.0, 56.0, 59.0, 0.4)),
     );
     let hsla_4 = item(
         "hsla(318.0, 56.0, 59.0, 0.2)",
-        ts().bg_color(hsla(318.0, 56.0, 59.0, 0.2)),
+        ii().bg_color(hsla(318.0, 56.0, 59.0, 0.2)),
     );
 
     v_flex(section_style()).children([
@@ -155,7 +155,7 @@ fn hsla_container() -> Element {
 }
 
 // こういう実装方法も可能
-fn item_direct(label: &'static str, style: ThisStyle) -> Element {
+fn item_direct(label: &'static str, style: Modifier) -> Element {
     let el = flex(style
         .p(10.0)
         .r(4.0)
@@ -179,7 +179,7 @@ fn item_direct(label: &'static str, style: ThisStyle) -> Element {
     })
 }
 
-fn item_event(label: &'static str, style: ThisStyle) -> Element {
+fn item_event(label: &'static str, style: Modifier) -> Element {
     flex(style
         .p(10.0)
         .r(4.0)
@@ -199,7 +199,7 @@ fn item_event(label: &'static str, style: ThisStyle) -> Element {
     })
 }
 
-fn item_tag(label: &'static str, style: ThisStyle) -> Element {
+fn item_tag(label: &'static str, style: Modifier) -> Element {
     struct SuperMichiu;
     struct HyperMichiu;
     struct UltraMichiu;
@@ -233,7 +233,7 @@ fn create_tooltip(label: &'static str, pos: LayoutPoint) -> Element {
     let offset_x = pos.x + 12.0;
     let offset_y = pos.y + 12.0;
 
-    flex(ts()
+    flex(ii()
         .absolute()
         .z_1()
         .left(offset_x)
@@ -244,7 +244,7 @@ fn create_tooltip(label: &'static str, pos: LayoutPoint) -> Element {
         .pointer_events_none())
     .label(
         label,
-        ts().text_color(rgba(210, 210, 210, 0.95))
+        ii().text_color(rgba(210, 210, 210, 0.95))
             .font_size(16.0)
             .font_weight(400),
     )

@@ -83,7 +83,7 @@
 //!
 //!     // 2. The developer must validate it before passing it to the framework.
 //!     let validated_path = unvalidated_path.validate_with(|path| {
-//!         if path.exists() && path.is_file() {
+//!         if path.exisii() && path.is_file() {
 //!             Ok(path)
 //!         } else {
 //!             Err("Invalid file dropped")
@@ -176,7 +176,7 @@ impl<T> Unvalidated<T> {
     /// // Validate and transform `String` into `PathBuf` in a single step
     /// let validated_path = raw_path_str.validate_with(|path_str| {
     ///     let path = PathBuf::from(path_str);
-    ///     if path.exists() && path.is_file() {
+    ///     if path.exisii() && path.is_file() {
     ///         Ok(path)
     ///     } else {
     ///         Err("Dropped path must be an existing file")

@@ -11,7 +11,7 @@ pub use michiu_ui::prelude::*;
 use strum::IntoEnumIterator;
 
 pub fn main_area() -> Element {
-    let main_contents = v_flex(ts().size_full().overflow_hidden().p(20.0));
+    let main_contents = v_flex(ii().size_full().overflow_hidden().p(20.0));
 
     // 全ての ComponentType の要素を起動時に一度だけ spawn してマウント
     let mut children = Vec::new();
@@ -22,10 +22,10 @@ pub fn main_area() -> Element {
         let styled_child = flex_d(move |active: &ComponentType| {
             if *active == comp_type {
                 // 表示状態のスタイル
-                ts().size_full().flex() // hidden() と対応させる
+                ii().size_full().flex() // hidden() と対応させる
             } else {
                 // Display::None を適用して Context 内に常駐
-                ts().hidden()
+                ii().hidden()
             }
         })
         .child(child_el);
@@ -73,7 +73,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
 
 fn wrapper(el: Element) -> Element {
     v_flex_d(|t: &Theme| {
-        ts().size_full()
+        ii().size_full()
             .r(4.0)
             .overflow_hidden()
             .border_dashed(1.0)

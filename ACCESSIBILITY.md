@@ -86,8 +86,8 @@ Try navigating the app without using the mouse.
 - **Focus Visualization**: Is a border displayed that makes it immediately clear where the focus is currently located? Outlines are typically used for this.
   - Example:
   ```rust
-    ts().focusable_self_keyboard().focused(
-        ts().outline_solid(2.0)
+    ii().focusable_self_keyboard().focused(
+        ii().outline_solid(2.0)
             .outline_offset(2.0)
             .outline_color(Color::WHITE),
     )
@@ -209,8 +209,8 @@ Microsoft 製のツールを使って、AccessKit 経由で UIA に正しくノ�
 - **フォーカスの可視化**: 現在どこにフォーカスがあるか一目でわかる枠線が表示されるか。一般的にはアウトラインを使用します。
   - 例:
   ```rust
-    ts().focusable_self_keyboard().focused(
-        ts().outline_solid(2.0)
+    ii().focusable_self_keyboard().focused(
+        ii().outline_solid(2.0)
             .outline_offset(2.0)
             .outline_color(Color::WHITE),
     )

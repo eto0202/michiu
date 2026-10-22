@@ -6,14 +6,14 @@ pub fn container() -> Element {
     let (is_column, set_is_column) = create_signal(false);
 
     div_n()
-        .style(move || {
-            let base = ts()
+        .modify(move || {
+            let base = ii()
                 .h_full()
                 .flex()
                 .gap(20.0)
                 .p(16.0)
                 .overflow_hidden()
-                .hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover)));
+                .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
 
             // シグナル状態に応じて flex_direction を動的に切り替え
             let is_col = is_column.get();
@@ -37,8 +37,8 @@ fn flex_container() -> Element {
     let (is_row, set_is_row) = create_signal(false);
 
     div_n()
-        .style(move || {
-            let base = ts()
+        .modify(move || {
+            let base = ii()
                 .flex()
                 .grow()
                 .r(4.0)
@@ -47,7 +47,7 @@ fn flex_container() -> Element {
                 .border_dashed(1.0)
                 .border_color(dynamic(|t: &Theme| t.border))
                 .overflow_hidden()
-                .hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover)));
+                .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
 
             let is_row = is_row.get();
             if is_row {
@@ -63,7 +63,7 @@ fn flex_container() -> Element {
 }
 
 fn div_container() -> Element {
-    flex(ts()
+    flex(ii()
         .grow()
         .r(4.0)
         .p(20.0)
@@ -71,12 +71,12 @@ fn div_container() -> Element {
         .border_dashed(1.0)
         .border_color(dynamic(|t: &Theme| t.border))
         .overflow_hidden()
-        .hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover))))
+        .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover))))
     .label("div", label_style())
 }
 
-fn label_style() -> ThisStyle {
-    ts().text_color(dynamic(|t: &Theme| t.text_muted))
+fn label_style() -> Modifier {
+    ii().text_color(dynamic(|t: &Theme| t.text_muted))
         .font_size(30.0)
         .self_start()
 }

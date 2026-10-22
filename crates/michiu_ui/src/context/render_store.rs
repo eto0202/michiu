@@ -7,8 +7,8 @@ use crate::{
     Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionScope,
     InteractionStyles, LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, OutputStore,
     ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList, RectsSecondary,
-    ScrollbarDisplay, ScrollbarStylesSparse, StyleTarget, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntityId, TargetStyle, TextBufferSparse, ThisStyle, TopologyStore, TransitionValue,
+    ScrollbarDisplay, ScrollbarStylesSparse, ModTarget, SystemStore, TaffyNodesSecondary,
+    TaffyTreeEntityId, TargetStyle, TextBufferSparse, Modifier, TopologyStore, TransitionValue,
     UserSelect, Val, VisualProperty, define_secondary, define_sparse_secondary, define_vec,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
@@ -196,11 +196,11 @@ impl RenderStore {
     #[inline]
     pub(crate) fn get_visual_property_mut<'a>(
         id: EntityId,
-        target: StyleTarget,
+        target: ModTarget,
         rnd_base_visual: &'a mut BaseVisualPropertiesSecondary,
         rnd_interaction: &'a mut InteractionPropertiesSecondary,
     ) -> &'a mut VisualProperty {
-        if target == StyleTarget::Base {
+        if target == ModTarget::Base {
             rnd_base_visual.at_mut(id)
         } else {
             if !rnd_interaction.contains_key(id) {
@@ -208,7 +208,7 @@ impl RenderStore {
             }
             // 上で入れたばっかだから Some のはず
             let styles = rnd_interaction.at_mut(id);
-            let style_ref = styles.get_style_target_mut(target);
+            let style_ref = styles.get_mod_target_mut(target);
             &mut Arc::make_mut(&mut style_ref.inner).visual_property
         }
     }
@@ -299,7 +299,7 @@ impl RenderStore {
         topo_parents: &ParentsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
-    ) -> Option<ThisStyle> {
+    ) -> Option<Modifier> {
         if !active_mask.has(flag) {
             return None;
         }
@@ -352,9 +352,9 @@ impl RenderStore {
     pub(crate) fn cascade_self_interaction(
         interaction: &InteractionStyles,
         active_mask: &ComponentMask,
-        resolved_focus: Option<&ThisStyle>,
-        resolved_focus_visible: Option<&ThisStyle>,
-        mut apply: impl FnMut(&ThisStyle),
+        resolved_focus: Option<&Modifier>,
+        resolved_focus_visible: Option<&Modifier>,
+        mut apply: impl FnMut(&Modifier),
     ) {
         for state in CascadeInteractionState::ALL {
             if !active_mask.has(state.mask()) {
@@ -380,7 +380,7 @@ impl RenderStore {
         interaction: &InteractionStyles,
         scope: InteractionScope,
         mut has_relation_state: impl FnMut(u128) -> bool,
-        mut apply: impl FnMut(&ThisStyle),
+        mut apply: impl FnMut(&Modifier),
     ) {
         for state in CascadeInteractionState::ALL {
             let Some(style) = interaction.get_scope_style(scope, state) else {
@@ -412,8 +412,8 @@ impl RenderStore {
         id: EntityId,
         target_layout: &mut BasicLayout,
         active_mask: &ComponentMask,
-        resolved_focus: Option<&ThisStyle>,
-        resolved_focus_visible: Option<&ThisStyle>,
+        resolved_focus: Option<&Modifier>,
+        resolved_focus_visible: Option<&Modifier>,
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -474,8 +474,8 @@ impl RenderStore {
         id: EntityId,
         target: &mut TargetStyle,
         active_mask: &ComponentMask,
-        resolved_focus: Option<&ThisStyle>,
-        resolved_focus_visible: Option<&ThisStyle>,
+        resolved_focus: Option<&Modifier>,
+        resolved_focus_visible: Option<&Modifier>,
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
@@ -1676,7 +1676,7 @@ impl Context {
     pub(crate) fn get_visual_property_mut(
         &mut self,
         id: EntityId,
-        target: StyleTarget,
+        target: ModTarget,
     ) -> &mut VisualProperty {
         RenderStore::get_visual_property_mut(
             id,

@@ -14,7 +14,7 @@ pub fn create_root() -> Element {
     let (sort_order, _) = create_signal(SidebarSortOrder::Ascending);
 
     v_flex(move || {
-        ts().size_full()
+        ii().size_full()
             .bg_color(theme.get().background)
             .backdrop_acrylic() // 背景色は不透明のため見た目は変化しない
     })
@@ -24,7 +24,7 @@ pub fn create_root() -> Element {
     .provide(sort_order)
     .children([
         header::header(),
-        h_flex(ts().grow().size_full().overflow_hidden())
+        h_flex(ii().grow().size_full().overflow_hidden())
             .children([sidebar::sidebar(), main_area::main_area()]),
     ])
 }

@@ -1,5 +1,5 @@
 #[cfg(feature = "trace-entity")]
-use crate::{ActiveAnimation, ActiveTransition, BasicLayout, StyleInner, VisualProperty};
+use crate::{ActiveAnimation, ActiveTransition, BasicLayout, ModInner, VisualProperty};
 #[allow(unused)]
 use crate::{
     ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveExternalVisualHashSet,
@@ -382,7 +382,7 @@ pub enum MichiuTrace {
     EntityStyle {
         stage: StyleStage,
         mask: ComponentMask,
-        style: Option<Arc<StyleInner>>,
+        style: Option<Arc<ModInner>>,
         resolved_visual: Option<Arc<VisualProperty>>,
         resolved_layout: Option<Arc<BasicLayout>>,
         add: Option<&'static str>,

@@ -4,10 +4,10 @@ use michiu_ui::{CssMapSet, CssSetSignalExt};
 use crate::app::theme::Theme;
 
 pub fn container() -> Element {
-    v_flex(ts().gap(16.0).p(16.0).r(4.0)).children([css_flex(), merge_border()])
+    v_flex(ii().gap(16.0).p(16.0).r(4.0)).children([css_flex(), merge_border()])
 }
 
-// flex_1 と flex_2 は同じ ThisStyle を持つ
+// flex_1 と flex_2 は同じ Modifier を持つ
 pub fn css_flex() -> Element {
     div_n().child(move || {
         let css = use_provided::<CssMapSet>().sheet("global");
@@ -28,7 +28,7 @@ pub fn merge_border() -> Element {
         let cursor = css.class("global", "merge-cursor");
 
         flex(border.border_dashed(2.0)) // マージ
-            .child(flex(ts()
+            .child(flex(ii()
                 // width: 100%; 追加
                 .p(16.0) // 追加
                 .border_bottom(BorderStyle::Dashed, 2.0) // マージ

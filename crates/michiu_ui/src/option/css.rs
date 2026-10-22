@@ -1,4 +1,4 @@
-use crate::{ExternalData, ExternalDataSet, ReadSignal, ThisStyle};
+use crate::{ExternalData, ExternalDataSet, ReadSignal, Modifier};
 use lightningcss::{
     printer::PrinterOptions,
     properties::{Property, position::ZIndex, size::Size},
@@ -15,25 +15,25 @@ use lightningcss::{
 use std::{collections::HashMap, path::Path};
 
 #[derive(Debug, Default, Clone, derive_more::Deref, derive_more::DerefMut)]
-pub struct CssMap(HashMap<String, ThisStyle>);
+pub struct CssMap(HashMap<String, Modifier>);
 
 impl CssMap {
     /// Retrieves a style based on the class name. If the style does not exist, returns an empty style.
     #[inline]
     #[must_use]
-    pub fn class(&self, name: &str) -> ThisStyle {
+    pub fn class(&self, name: &str) -> Modifier {
         self.0.get(name).cloned().unwrap_or_default()
     }
 }
 
 pub trait CssSignalExt {
     /// Retrieves the styles for a specified class based on the signal's current state.
-    fn class(&self, name: &str) -> ThisStyle;
+    fn class(&self, name: &str) -> Modifier;
 }
 
 impl CssSignalExt for ReadSignal<CssMap> {
     #[inline]
-    fn class(&self, name: &str) -> ThisStyle {
+    fn class(&self, name: &str) -> Modifier {
         self.get().class(name)
     }
 }
@@ -51,7 +51,7 @@ impl CssMapSet {
 
 pub trait CssSetSignalExt {
     /// Retrieve styles based on the sheet name and class name.
-    fn class(&self, sheet_key: &str, class_name: &str) -> ThisStyle;
+    fn class(&self, sheet_key: &str, class_name: &str) -> Modifier;
 
     /// Retrieve the specified `CssMap` from the key.
     fn sheet(&self, sheet_key: &str) -> CssMap;
@@ -59,7 +59,7 @@ pub trait CssSetSignalExt {
 
 impl CssSetSignalExt for ReadSignal<CssMapSet> {
     #[inline]
-    fn class(&self, sheet_key: &str, class_name: &str) -> ThisStyle {
+    fn class(&self, sheet_key: &str, class_name: &str) -> Modifier {
         self.get()
             .get(sheet_key)
             .map(|css_map| css_map.class(class_name))
@@ -72,7 +72,7 @@ impl CssSetSignalExt for ReadSignal<CssMapSet> {
     }
 }
 
-/// A loader that parses CSS and maps it to a `HashMap<String, ThisStyle>`.
+/// A loader that parses CSS and maps it to a `HashMap<String, Modifier>`.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CssLoader;
 
@@ -86,11 +86,11 @@ impl ExternalData for CssLoader {
     }
 }
 
-/// Scan the abstract syntax tree of lightningcss to generate a map of class names and `ThisStyle` values.
+/// Scan the abstract syntax tree of lightningcss to generate a map of class names and `Modifier` values.
 #[expect(clippy::print_stderr, clippy::expect_used, clippy::missing_panics_doc)]
 #[must_use]
 pub fn parse_css_to_classes(css_content: &str) -> CssMap {
-    let mut classes: HashMap<String, ThisStyle> = HashMap::new();
+    let mut classes: HashMap<String, Modifier> = HashMap::new();
 
     let stylesheet = StyleSheet::parse(css_content, ParserOptions::default()).unwrap_or_else(|e| {
         // ホットリロード中はタイピング途中で文法が崩れることは普通なので、エラーは握りつぶしつつ警告ログのみ表示する。
@@ -106,7 +106,7 @@ pub fn parse_css_to_classes(css_content: &str) -> CssMap {
         if let CssRule::Style(style_rule) = rule {
             for selector in &style_rule.selectors.0 {
                 let mut class_name = None;
-                let mut target = crate::StyleTarget::Base;
+                let mut target = crate::ModTarget::Base;
 
                 for component in selector.iter() {
                     match component {
@@ -115,14 +115,14 @@ pub fn parse_css_to_classes(css_content: &str) -> CssMap {
                         }
                         Component::NonTSPseudoClass(pseudo) => {
                             target = match pseudo {
-                                PseudoClass::Hover => crate::StyleTarget::Hovered,
-                                PseudoClass::Focus => crate::StyleTarget::Focused,
-                                PseudoClass::Active => crate::StyleTarget::Pressed,
-                                PseudoClass::Disabled => crate::StyleTarget::Disabled,
-                                PseudoClass::Checked => crate::StyleTarget::Selected,
-                                PseudoClass::FocusVisible => crate::StyleTarget::FocusedVisible,
-                                PseudoClass::FocusWithin => crate::StyleTarget::FocusedWithin,
-                                _ => crate::StyleTarget::Base,
+                                PseudoClass::Hover => crate::ModTarget::Hovered,
+                                PseudoClass::Focus => crate::ModTarget::Focused,
+                                PseudoClass::Active => crate::ModTarget::Pressed,
+                                PseudoClass::Disabled => crate::ModTarget::Disabled,
+                                PseudoClass::Checked => crate::ModTarget::Selected,
+                                PseudoClass::FocusVisible => crate::ModTarget::FocusedVisible,
+                                PseudoClass::FocusWithin => crate::ModTarget::FocusedWithin,
+                                _ => crate::ModTarget::Base,
                             };
                         }
                         _ => {}
@@ -146,10 +146,10 @@ pub fn parse_css_to_classes(css_content: &str) -> CssMap {
 }
 
 fn apply_declarations_to_style(
-    mut style: ThisStyle,
+    mut style: Modifier,
     declarations: &[Property],
-    target: crate::StyleTarget,
-) -> ThisStyle {
+    target: crate::ModTarget,
+) -> Modifier {
     for decl in declarations {
         match decl {
             Property::BackgroundColor(color) => {
@@ -328,11 +328,11 @@ fn apply_declarations_to_style(
             Property::FlexWrap(fw, _) => {
                 use lightningcss::properties::flex::FlexWrap as CssFw;
                 style = match fw {
-                    CssFw::Wrap => map_style_prop(style, target, ThisStyle::flex_wrap),
+                    CssFw::Wrap => map_style_prop(style, target, Modifier::flex_wrap),
                     CssFw::WrapReverse => {
-                        map_style_prop(style, target, ThisStyle::flex_wrap_reverse)
+                        map_style_prop(style, target, Modifier::flex_wrap_reverse)
                     }
-                    CssFw::NoWrap => map_style_prop(style, target, ThisStyle::flex_nowrap),
+                    CssFw::NoWrap => map_style_prop(style, target, Modifier::flex_nowrap),
                 };
             }
 
@@ -525,12 +525,12 @@ fn apply_declarations_to_style(
                 if let FilterList::Filters(list) = filters {
                     for f in list {
                         match f {
-                            // filter: opacity() ➔ そのまま ThisStyle::opacity にバインド
+                            // filter: opacity() ➔ そのまま Modifier::opacity にバインド
                             Filter::Opacity(val) => {
                                 let opacity_f32 = parse_number_or_percentage(val);
                                 style = map_style_prop(style, target, |s| s.opacity(opacity_f32));
                             }
-                            // filter: brightness(0.85) ➔ 擬似的に ThisStyle::opacity にフォールバック適用
+                            // filter: brightness(0.85) ➔ 擬似的に Modifier::opacity にフォールバック適用
                             Filter::Brightness(val) => {
                                 let brightness_f32 = parse_number_or_percentage(val);
                                 style =
@@ -823,9 +823,9 @@ fn parse_border_side_width(
 // モノモルファイズの削減
 #[expect(clippy::expect_used)]
 #[inline]
-fn map_style_prop<F>(style: ThisStyle, target: crate::StyleTarget, f: F) -> ThisStyle
+fn map_style_prop<F>(style: Modifier, target: crate::ModTarget, f: F) -> Modifier
 where
-    F: FnOnce(ThisStyle) -> ThisStyle,
+    F: FnOnce(Modifier) -> Modifier,
 {
     let mut f = Some(f);
 
@@ -839,17 +839,17 @@ where
 
 // map_style_prop_impl は1度しかコンパイルされない
 fn map_style_prop_impl(
-    style: ThisStyle,
-    target: crate::StyleTarget,
-    f: &mut dyn FnMut(ThisStyle) -> ThisStyle,
-) -> ThisStyle {
+    style: Modifier,
+    target: crate::ModTarget,
+    f: &mut dyn FnMut(Modifier) -> Modifier,
+) -> Modifier {
     match target {
-        crate::StyleTarget::Base => f(style),
-        crate::StyleTarget::Hovered => style.hovered(f(ThisStyle::new())),
-        crate::StyleTarget::Focused => style.focused(f(ThisStyle::new())),
-        crate::StyleTarget::Pressed => style.pressed(f(ThisStyle::new())),
-        crate::StyleTarget::Disabled => style.disabled(f(ThisStyle::new())),
-        crate::StyleTarget::FocusedWithin => style.focused_within(f(ThisStyle::new())),
+        crate::ModTarget::Base => f(style),
+        crate::ModTarget::Hovered => style.hovered(f(Modifier::new())),
+        crate::ModTarget::Focused => style.focused(f(Modifier::new())),
+        crate::ModTarget::Pressed => style.pressed(f(Modifier::new())),
+        crate::ModTarget::Disabled => style.disabled(f(Modifier::new())),
+        crate::ModTarget::FocusedWithin => style.focused_within(f(Modifier::new())),
         _ => style,
     }
 }

@@ -5,7 +5,7 @@ use crate::{
 pub use michiu::prelude::*;
 
 pub fn container() -> Element {
-    v_flex(ts().gap(24.0).p(16.0)).children([
+    v_flex(ii().gap(24.0).p(16.0)).children([
         style_container(),
         weight_container(),
         length_container(),
@@ -14,16 +14,16 @@ pub fn container() -> Element {
     ])
 }
 
-fn section_style() -> ThisStyle {
-    ts().grow().gap(14.0)
+fn section_style() -> Modifier {
+    ii().grow().gap(14.0)
 }
 
-fn wrapper_style() -> ThisStyle {
-    ts().w_full().gap(14.0)
+fn wrapper_style() -> Modifier {
+    ii().w_full().gap(14.0)
 }
 
-fn base(change: bool) -> ThisStyle {
-    let s = ts()
+fn base(change: bool) -> Modifier {
+    let s = ii()
         .p(12.0)
         .r(4.0)
         .size((170.0, 75.0))
@@ -31,7 +31,7 @@ fn base(change: bool) -> ThisStyle {
         .items_center()
         .p(10.0)
         .r(4.0)
-        .hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover)));
+        .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
 
     if change {
         s

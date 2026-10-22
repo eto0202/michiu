@@ -31,24 +31,24 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let (count, set_count) = create_signal(0u32);
 
         flex(
-            ts().size_full()
+            ii().size_full()
                 .justify_center()
                 .items_center()
                 .bg_color(rgb(22, 24, 29)),
         )
         .child(
             flex(
-                ts().r(6.0)
+                ii().r(6.0)
                     .size((200.0, 100.0))
                     .border_solid(2.0)
                     .border_color(rgb(209, 92, 174))
                     .justify_center()
-                    .pressed(ts().transform_scale(0.98, 0.98)),
+                    .pressed(ii().transform_scale(0.98, 0.98)),
             )
             .on_click(move || set_count.set(count.get() + 1))
             .label(
                 move || format!("Count: {}", count.get()),
-                ts().text_color(rgb(156, 158, 163)).font_size(22.0),
+                ii().text_color(rgb(156, 158, 163)).font_size(22.0),
             ),
         )
     })?;

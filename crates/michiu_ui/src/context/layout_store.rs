@@ -6,8 +6,8 @@ use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayout, CapacityConfig, ChildrenSecondary,
     ComponentMask, Context, DebugStore, EdgeInsets, EntityId, FlexDirection, FlexLayout,
     GridLayout, InteractionPropertiesSecondary, InteractionStyles, LayoutRect, Length, MichiuSoA,
-    ParentsSecondary, PropertyList, Rect, RenderStore, StyleTarget, TaffyResultTraceExt, TextAlign,
-    ThisStyle, VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
+    ParentsSecondary, PropertyList, Rect, RenderStore, ModTarget, TaffyResultTraceExt, TextAlign,
+    Modifier, VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::sync::Arc;
@@ -239,11 +239,11 @@ impl LayoutStore {
     /// ターゲット状態に応じた `BasicLayout` の可変参照を引き出す
     pub(crate) fn get_basic_layout_mut<'a>(
         id: EntityId,
-        target: StyleTarget,
+        target: ModTarget,
         lay_base_basic: &'a mut BaseBasicLayoutsSecondary,
         rnd_interaction: &'a mut InteractionPropertiesSecondary,
     ) -> &'a mut BasicLayout {
-        if target == StyleTarget::Base {
+        if target == ModTarget::Base {
             lay_base_basic.at_mut(id)
         } else {
             if !rnd_interaction.contains_key(id) {
@@ -251,18 +251,18 @@ impl LayoutStore {
             }
             // 上で入れたばっかだから Some のはず
             let styles = rnd_interaction.at_mut(id);
-            let style_ref = styles.get_style_target_mut(target);
+            let style_ref = styles.get_mod_target_mut(target);
             &mut Arc::make_mut(&mut style_ref.inner).basic_layout
         }
     }
 
     pub(crate) fn get_flex_layout_mut<'a>(
         id: EntityId,
-        target: StyleTarget,
+        target: ModTarget,
         lay_flex: &'a mut FlexLayoutsSecondary,
         rnd_interaction: &'a mut InteractionPropertiesSecondary,
     ) -> &'a mut FlexLayout {
-        if target == StyleTarget::Base {
+        if target == ModTarget::Base {
             lay_flex.at_mut(id)
         } else {
             if !rnd_interaction.contains_key(id) {
@@ -270,7 +270,7 @@ impl LayoutStore {
             }
             // 上で入れたばっかだから Some のはず
             let styles = rnd_interaction.at_mut(id);
-            let style_ref = styles.get_style_target_mut(target);
+            let style_ref = styles.get_mod_target_mut(target);
             &mut Arc::make_mut(&mut style_ref.inner).flex_layout
         }
     }
@@ -308,7 +308,7 @@ impl LayoutStore {
         basic: &mut BasicLayout,
         flex: &mut FlexLayout,
         grid: &mut Option<GridLayout>,
-        focused_resolved: &[Option<ThisStyle>; 2],
+        focused_resolved: &[Option<Modifier>; 2],
         is_transitioning: (bool, bool),
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
@@ -650,7 +650,7 @@ impl Context {
     pub(crate) fn get_basic_layout_mut(
         &mut self,
         id: EntityId,
-        target: StyleTarget,
+        target: ModTarget,
     ) -> &mut BasicLayout {
         LayoutStore::get_basic_layout_mut(
             id,
@@ -664,7 +664,7 @@ impl Context {
     pub(crate) fn get_flex_layout_mut(
         &mut self,
         id: EntityId,
-        target: StyleTarget,
+        target: ModTarget,
     ) -> &mut FlexLayout {
         LayoutStore::get_flex_layout_mut(
             id,

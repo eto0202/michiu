@@ -484,7 +484,7 @@ fn test_tray_show_balloon_normal() {
 }
 
 #[test]
-fn test_tray_show_balloon_limits() {
+fn test_tray_show_balloon_limiii() {
     run_on_clean_thread(|| {
         // システム標準アイコンをロード
         let hicon_sys = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap() };

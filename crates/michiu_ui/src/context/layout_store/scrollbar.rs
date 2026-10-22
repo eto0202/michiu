@@ -7,7 +7,7 @@ use crate::{
     ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse, ScrollOffsetsSecondary,
     ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyResultTraceExt,
-    TaffyTreeEntityId, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
+    TaffyTreeEntityId, Modifier, Val, VisualPropertiesSecondary, WindowStore,
     define_sparse_secondary,
 };
 use slotmap::SparseSecondaryMap;
@@ -42,13 +42,13 @@ pub struct ScrollbarStyle {
     /// スクロールバーの表示モード
     pub mode: ScrollbarMode,
     /// 縦スクロールバー（Y軸）のトラック（レール）部分のスタイル
-    pub v_track: Option<ThisStyle>,
+    pub v_track: Option<Modifier>,
     /// 縦スクロールバー（Y軸）のサム（つまみ）部分のスタイル
-    pub v_thumb: Option<ThisStyle>,
+    pub v_thumb: Option<Modifier>,
     /// 横スクロールバー（X軸）のトラック（レール）部分のスタイル
-    pub h_track: Option<ThisStyle>,
+    pub h_track: Option<Modifier>,
     /// 横スクロールバー（X軸）のサム（つまみ）部分のスタイル
-    pub h_thumb: Option<ThisStyle>,
+    pub h_thumb: Option<Modifier>,
 }
 
 impl Default for ScrollbarStyle {
@@ -92,25 +92,25 @@ impl ScrollbarStyle {
     }
 
     #[must_use]
-    pub fn v_track(mut self, style: ThisStyle) -> Self {
+    pub fn v_track(mut self, style: Modifier) -> Self {
         self.v_track = Some(style);
         self
     }
 
     #[must_use]
-    pub fn v_thumb(mut self, style: ThisStyle) -> Self {
+    pub fn v_thumb(mut self, style: Modifier) -> Self {
         self.v_thumb = Some(style);
         self
     }
 
     #[must_use]
-    pub fn h_track(mut self, style: ThisStyle) -> Self {
+    pub fn h_track(mut self, style: Modifier) -> Self {
         self.h_track = Some(style);
         self
     }
 
     #[must_use]
-    pub fn h_thumb(mut self, style: ThisStyle) -> Self {
+    pub fn h_thumb(mut self, style: Modifier) -> Self {
         self.h_thumb = Some(style);
         self
     }

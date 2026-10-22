@@ -4,7 +4,7 @@ use std::time::Duration;
 
 pub fn header() -> Element {
     h_flex(
-        ts().w_full()
+        ii().w_full()
             .height(40.0)
             .shrink_0()
             .justify_center()
@@ -18,7 +18,7 @@ pub fn header() -> Element {
 
 fn search_box() -> Element {
     let input_wrapper = h_flex(
-        ts().justify_center()
+        ii().justify_center()
             .items_center()
             .size((pct(35.0), 26.0))
             .max_size((600.0, 26.0))
@@ -40,8 +40,8 @@ fn search_box() -> Element {
                 .caret_color(t.text)
                 .caret_width(1.0)
         })
-        .style_d(|t: &Theme| {
-            ts().grow()
+        .modify_d(|t: &Theme| {
+            ii().grow()
                 .h_auto()
                 .bg_color(Color::TRANSPARENT)
                 .font_size(t.font_size_base)
@@ -54,15 +54,15 @@ fn search_box() -> Element {
         .a11y_role(Role::SearchInput);
 
     let suffix_element = text("✕")
-        .style_d(move |t: &Theme| {
+        .modify_d(move |t: &Theme| {
             let input_text = use_provided::<SearchText>().get();
 
             let has_text = !input_text.0.is_empty();
-            let base_style = ts()
+            let base_style = ii()
                 .text_color(t.text_muted)
                 .font_size(t.font_size_base)
                 .pointer_events_auto()
-                .hovered(ts().text_color(t.text));
+                .hovered(ii().text_color(t.text));
 
             if has_text {
                 base_style.opacity(1.0)
@@ -95,7 +95,7 @@ fn toggle_btn() -> Element {
         // ダーク（Active）時はアクセントカラーや hover 色を、ライト時は標準の境界色を割り当てます
         let track_color = if t.is_dark { t.surface } else { t.border };
 
-        ts().r(4.0)
+        ii().r(4.0)
             .items_center()
             .size((50.0, 26.0))
             .bg_color(track_color)
@@ -103,7 +103,7 @@ fn toggle_btn() -> Element {
             .right(160.0)
             .focusable_self_keyboard()
             .focused(
-                ts().outline_solid(1.0)
+                ii().outline_solid(1.0)
                     .outline_offset(2.0)
                     .outline_color(dynamic(|t: &Theme| t.text)),
             )
@@ -111,12 +111,12 @@ fn toggle_btn() -> Element {
     .on_click(mode_change);
 
     let btn_inner = h_flex_d(|t: &Theme| {
-        ts().r(4.0)
+        ii().r(4.0)
             .m_l(4.0)
             .height(20.0)
             .width(20.0)
             .bg_color(t.primary)
-            .actived(ts().transform_translate(22.0, 0.0))
+            .actived(ii().transform_translate(22.0, 0.0))
             .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
     })
     .active(dynamic(|t: &Theme| t.is_dark))
@@ -127,22 +127,22 @@ fn toggle_btn() -> Element {
 
 fn window_controll() -> Element {
     let base_btn = |label: &'static str| {
-        flex(ts().h_full().justify_center().items_center().w(47.0)).label(
+        flex(ii().h_full().justify_center().items_center().w(47.0)).label(
             label,
-            ts().font_size(14.0).text_color(dynamic(|t: &Theme| t.text)),
+            ii().font_size(14.0).text_color(dynamic(|t: &Theme| t.text)),
         )
     };
 
-    let style = ts().hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover)));
+    let style = ii().hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
 
-    h_flex(ts().absolute().right(0.0).h_full().w(141.0)).children([
-        base_btn("－").style(&style).on_click_with(|cx| {
+    h_flex(ii().absolute().right(0.0).h_full().w(141.0)).children([
+        base_btn("－").modify(&style).on_click_with(|cx| {
             let handle = cx.use_provided::<WindowHandle>().get();
             handle.set_minimize();
         }),
-        base_btn("▢").style(&style),
+        base_btn("▢").modify(&style),
         base_btn("✕")
-            .style(ts().hovered(ts().bg_color(rgb(232, 17, 35))))
+            .modify(ii().hovered(ii().bg_color(rgb(232, 17, 35))))
             .on_click_with(|cx| {
                 let handle = cx.use_provided::<WindowHandle>().get();
                 handle.destroy();
