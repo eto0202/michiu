@@ -44,7 +44,7 @@
 //! ```no_run
 //! use michiu::prelude::*;
 //!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! fn main() -> Result<()> {
 //!     // Preventing Screen Blur
 //!     let _ = MichiuWindow::init_dpi_awareness();
 //!     // COM Initialization for WinRT/DirectComposition
@@ -279,10 +279,11 @@ pub mod accessibility {
 ///
 /// ```no_run
 /// # use michiu::prelude::*;
-/// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+/// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
 /// let (mut app, mut pump) = MichiuAppBuilder::new(window)
 ///     .build_with_ui(renderer, move || {
 ///         // Building the UI Tree
+///         div_n()
 ///     })?;
 /// # Ok(())
 /// # }
@@ -305,7 +306,7 @@ pub mod accessibility {
 /// # Examples
 /// ```no_run
 /// # use michiu::prelude::*;
-/// # fn event_loop(mut app: MichiuApp, mut pump: MichiuEventPump) -> Result<(), Box<dyn std::error::Error>> {
+/// # fn event_loop(mut app: MichiuApp, mut pump: MichiuEventPump) -> Result<()> {
 /// while pump.wait_event(|event, _, raw| {
 ///     let resp = app.standard_handle_window_event(&event, &raw);
 ///     if resp.needs_redraw {
@@ -384,7 +385,7 @@ pub struct MichiuApp {
 /// # Examples
 /// ```no_run
 /// # use michiu::prelude::*;
-/// # fn handle(app: &mut MichiuApp, event: MichiuAnyEvent, raw: RawEvent) {
+/// # fn handle(app: &mut MichiuApp, event: MichiuAnyEvent, raw: MichiuRawEvent) {
 /// let resp = app.standard_handle_window_event(&event, &raw);
 ///
 /// // When a normal redraw is required
@@ -587,7 +588,7 @@ impl MichiuApp {
     /// # Examples
     /// ```no_run
     /// # use michiu::prelude::*;
-    /// # fn run(mut app: MichiuApp, mut pump: MichiuEventPump) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(mut app: MichiuApp, mut pump: MichiuEventPump) -> Result<()> {
     /// while pump.wait_event(|event, _, raw| {
     ///     // Process events using the standard handler
     ///     let resp = app.standard_handle_window_event(&event, &raw);
@@ -870,9 +871,11 @@ impl MichiuApp {
                         .map_or(WheelDelta(0), Validated::into_inner);
 
                     // 両方 0 なら何もしない
+                    #[expect(clippy::as_conversions, clippy::cast_precision_loss)]
                     if !(dx.0 == 0 && dy.0 == 0) {
                         // 横スクロール時は、右チルト（プラス値）された際に
                         // 右方向へスクロール（オフセット加算）させるため、符号の方向性を補正
+
                         let scroll_x = -raw_wheel_delta_to_logical_pixels(dx.raw() as f32);
                         let scroll_y = raw_wheel_delta_to_logical_pixels(dy.raw() as f32);
 
@@ -1115,12 +1118,13 @@ impl Default for MichiuBuilderConfig {
 /// # Examples
 /// ```no_run
 /// # use michiu::prelude::*;
-/// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+/// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
 /// let (mut app, mut pump) = MichiuAppBuilder::new(window)
 ///     .with_auto_resolve_cursor(true)
 ///     .with_default_shortcuts(true)
 ///     .build_with_ui(renderer, move || {
 ///         // Root UI tree
+///         div_n()
 ///     })?;
 /// # Ok(())
 /// # }
@@ -1178,7 +1182,7 @@ impl MichiuAppBuilder {
     /// # Examples
     /// ```no_run
     /// # use michiu::prelude::*;
-    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
     /// let (mut app, mut pump) = MichiuAppBuilder::new(window)
     ///     .with_accessibility_support(true)
     ///     .build(renderer)?;
@@ -1186,6 +1190,7 @@ impl MichiuAppBuilder {
     /// // Build UI and register the root entity
     /// app.build_ui(move || {
     ///     // UI tree
+    ///     div_n()
     /// });
     ///
     /// // Make the window visible AFTER initialization
@@ -1245,10 +1250,11 @@ impl MichiuAppBuilder {
     /// # Examples
     /// ```no_run
     /// # use michiu::prelude::*;
-    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
     /// let (mut app, mut pump) = MichiuAppBuilder::new(window)
     ///     .build_with_ui(renderer, move || {
     ///         // Root UI tree is automatically registered as the application root
+    ///         div_n()
     ///     })?;
     ///
     /// # Ok(())
@@ -1334,7 +1340,7 @@ impl MichiuAppBuilder {
     /// # Examples
     /// ```no_run
     /// # use michiu::prelude::*;
-    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
     /// let inspector = MichiuInspector::new();
     /// let sub = inspector.subscribe(None); // Default buffer size: 128
     ///
@@ -1373,7 +1379,7 @@ impl MichiuAppBuilder {
     /// ```no_run
     /// # use michiu::prelude::*;
     /// # use michiu::ui::CapacityConfig;
-    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
     /// let (app, pump) = MichiuAppBuilder::new(window)
     ///     .with_capacity_config(CapacityConfig::from_base_nodes(1024))
     ///     .build(renderer)?;
@@ -1399,6 +1405,7 @@ pub trait Cast<Target> {
 
 impl Cast<ui::LayoutSize> for window::LogicalSize {
     #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
     fn cast(self) -> LayoutSize {
         ui::LayoutSize::new(self.width as f32, self.height as f32)
     }
@@ -1406,6 +1413,7 @@ impl Cast<ui::LayoutSize> for window::LogicalSize {
 
 impl Cast<ui::LayoutSize> for window::PhysicalSize {
     #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_precision_loss)]
     fn cast(self) -> LayoutSize {
         ui::LayoutSize::new(self.width as f32, self.height as f32)
     }
@@ -1413,6 +1421,7 @@ impl Cast<ui::LayoutSize> for window::PhysicalSize {
 
 impl Cast<ui::LayoutPoint> for window::LogicalPoint {
     #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
     fn cast(self) -> ui::LayoutPoint {
         ui::LayoutPoint {
             x: self.x as f32,
@@ -1423,6 +1432,7 @@ impl Cast<ui::LayoutPoint> for window::LogicalPoint {
 
 impl Cast<ui::LayoutPoint> for window::PhysicalPoint {
     #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_precision_loss)]
     fn cast(self) -> ui::LayoutPoint {
         ui::LayoutPoint {
             x: self.x as f32,
@@ -1433,24 +1443,29 @@ impl Cast<ui::LayoutPoint> for window::PhysicalPoint {
 
 impl Cast<ui::LayoutRect> for window::LogicalRect {
     #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
     fn cast(self) -> ui::LayoutRect {
         ui::LayoutRect {
-            x: self.left as f32,
-            y: self.top as f32,
-            width: (self.right - self.left) as f32,
-            height: (self.bottom - self.top) as f32,
+            // 原点は常に小さい方（左・上）を取る
+            x: self.left.min(self.right) as f32,
+            y: self.top.min(self.bottom) as f32,
+            // サイズは常に絶対差を取るのでに負数にならない
+            width: (self.right - self.left).abs() as f32,
+            height: (self.bottom - self.top).abs() as f32,
         }
     }
 }
 
 impl Cast<ui::LayoutRect> for window::PhysicalRect {
     #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_precision_loss)]
     fn cast(self) -> ui::LayoutRect {
         ui::LayoutRect {
-            x: self.left as f32,
-            y: self.top as f32,
-            width: (self.right - self.left) as f32,
-            height: (self.bottom - self.top) as f32,
+            x: self.left.min(self.right) as f32,
+            y: self.top.min(self.bottom) as f32,
+            // abs_diff は 2つの整数の絶対差を u32 で返す
+            width: self.right.abs_diff(self.left) as f32,
+            height: self.bottom.abs_diff(self.top) as f32,
         }
     }
 }
@@ -1471,8 +1486,8 @@ impl Cast<window::PhysicalSize> for ui::LayoutSize {
     #[inline]
     fn cast(self) -> window::PhysicalSize {
         window::PhysicalSize {
-            width: self.width as i32,
-            height: self.height as i32,
+            width: f32_round_to_i32(self.width).max(0),
+            height: f32_round_to_i32(self.height).max(0),
         }
     }
 }
@@ -1491,8 +1506,8 @@ impl Cast<window::PhysicalPoint> for ui::LayoutPoint {
     #[inline]
     fn cast(self) -> window::PhysicalPoint {
         window::PhysicalPoint {
-            x: self.x as i32,
-            y: self.y as i32,
+            x: f32_round_to_i32(self.x),
+            y: f32_round_to_i32(self.y),
         }
     }
 }
@@ -1512,17 +1527,41 @@ impl Cast<window::LogicalRect> for ui::LayoutRect {
 impl Cast<window::PhysicalRect> for ui::LayoutRect {
     #[inline]
     fn cast(self) -> window::PhysicalRect {
+        let x1 = self.x;
+        let x2 = self.x + self.width;
+        let y1 = self.y;
+        let y2 = self.y + self.height;
+
         window::PhysicalRect {
-            left: self.x as i32,
-            top: self.y as i32,
-            right: (self.x + self.width) as i32,
-            bottom: (self.y + self.height) as i32,
+            // min を left/top、max を right/bottom に割り当てることで万が一幅や高さがマイナスでも正常な矩形を維持する
+            left: f32_round_to_i32(x1.min(x2)),
+            top: f32_round_to_i32(y1.min(y2)),
+            right: f32_round_to_i32(x1.max(x2)),
+            bottom: f32_round_to_i32(y1.max(y2)),
         }
     }
 }
 
+#[inline]
+#[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+fn f32_round_to_i32(val: f32) -> i32 {
+    val.round() as i32
+}
+
 // ===================================================================
 // ===================================================================
+
+#[inline]
+#[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+fn f64_round_to_i32(val: f64) -> i32 {
+    val.round() as i32
+}
+
+#[inline]
+#[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+fn f64_to_f32(val: f64) -> f32 {
+    val as f32
+}
 
 pub trait CastScaled<Target> {
     fn cast_scaled(self, scale_factor: f64) -> Target;
@@ -1533,9 +1572,10 @@ pub trait CastScaled<Target> {
 impl CastScaled<ui::LayoutSize> for window::PhysicalSize {
     #[inline]
     fn cast_scaled(self, scale_factor: f64) -> ui::LayoutSize {
+        let scale = scale_factor.max(0.001); // ゼロ除算防止
         ui::LayoutSize::new(
-            (f64::from(self.width) / scale_factor) as f32,
-            (f64::from(self.height) / scale_factor) as f32,
+            f64_to_f32(f64::from(self.width) / scale),
+            f64_to_f32(f64::from(self.height) / scale),
         )
     }
 }
@@ -1543,9 +1583,10 @@ impl CastScaled<ui::LayoutSize> for window::PhysicalSize {
 impl CastScaled<ui::LayoutPoint> for window::PhysicalPoint {
     #[inline]
     fn cast_scaled(self, scale_factor: f64) -> ui::LayoutPoint {
+        let scale = scale_factor.max(0.001);
         ui::LayoutPoint {
-            x: (f64::from(self.x) / scale_factor) as f32,
-            y: (f64::from(self.y) / scale_factor) as f32,
+            x: f64_to_f32(f64::from(self.x) / scale),
+            y: f64_to_f32(f64::from(self.y) / scale),
         }
     }
 }
@@ -1553,11 +1594,19 @@ impl CastScaled<ui::LayoutPoint> for window::PhysicalPoint {
 impl CastScaled<ui::LayoutRect> for window::PhysicalRect {
     #[inline]
     fn cast_scaled(self, scale_factor: f64) -> ui::LayoutRect {
+        let scale = scale_factor.max(0.001);
+        let x1 = f64::from(self.left) / scale;
+        let x2 = f64::from(self.right) / scale;
+        let y1 = f64::from(self.top) / scale;
+        let y2 = f64::from(self.bottom) / scale;
+
         ui::LayoutRect {
-            x: (f64::from(self.left) / scale_factor) as f32,
-            y: (f64::from(self.top) / scale_factor) as f32,
-            width: (f64::from(self.right - self.left) / scale_factor) as f32,
-            height: (f64::from(self.bottom - self.top) / scale_factor) as f32,
+            // 原点は常に最小値（左・上）を取り反転を正規化
+            x: f64_to_f32(x1.min(x2)),
+            y: f64_to_f32(y1.min(y2)),
+            // サイズは常に絶対差（正数）を保証
+            width: f64_to_f32((x2 - x1).abs()),
+            height: f64_to_f32((y2 - y1).abs()),
         }
     }
 }
@@ -1568,8 +1617,9 @@ impl CastScaled<window::PhysicalSize> for ui::LayoutSize {
     #[inline]
     fn cast_scaled(self, scale_factor: f64) -> window::PhysicalSize {
         window::PhysicalSize {
-            width: (f64::from(self.width) * scale_factor).round() as i32,
-            height: (f64::from(self.height) * scale_factor).round() as i32,
+            // 四捨五入してスナップかつ負数を防止
+            width: f64_round_to_i32(f64::from(self.width) * scale_factor).max(0),
+            height: f64_round_to_i32(f64::from(self.height) * scale_factor).max(0),
         }
     }
 }
@@ -1578,8 +1628,8 @@ impl CastScaled<window::PhysicalPoint> for ui::LayoutPoint {
     #[inline]
     fn cast_scaled(self, scale_factor: f64) -> window::PhysicalPoint {
         window::PhysicalPoint {
-            x: (f64::from(self.x) * scale_factor).round() as i32,
-            y: (f64::from(self.y) * scale_factor).round() as i32,
+            x: f64_round_to_i32(f64::from(self.x) * scale_factor),
+            y: f64_round_to_i32(f64::from(self.y) * scale_factor),
         }
     }
 }
@@ -1587,16 +1637,17 @@ impl CastScaled<window::PhysicalPoint> for ui::LayoutPoint {
 impl CastScaled<window::PhysicalRect> for ui::LayoutRect {
     #[inline]
     fn cast_scaled(self, scale_factor: f64) -> window::PhysicalRect {
-        let left = (f64::from(self.x) * scale_factor).round() as i32;
-        let top = (f64::from(self.y) * scale_factor).round() as i32;
-        let right = (f64::from(self.x + self.width) * scale_factor).round() as i32;
-        let bottom = (f64::from(self.y + self.height) * scale_factor).round() as i32;
+        let x1 = f64_round_to_i32(f64::from(self.x) * scale_factor);
+        let x2 = f64_round_to_i32(f64::from(self.x + self.width) * scale_factor);
+        let y1 = f64_round_to_i32(f64::from(self.y) * scale_factor);
+        let y2 = f64_round_to_i32(f64::from(self.y + self.height) * scale_factor);
 
         window::PhysicalRect {
-            left,
-            top,
-            right,
-            bottom,
+            // min を left/top、max を right/bottom にして Win32 互換を保つ
+            left: x1.min(x2),
+            top: y1.min(y2),
+            right: x1.max(x2),
+            bottom: y1.max(y2),
         }
     }
 }
@@ -1762,9 +1813,6 @@ pub enum MichiuError {
     InvalidIme(#[from] ImeValidationError),
 }
 
-// 最大テクスチャサイズの目安
-pub(crate) const MAX_WINDOW_DIMENSION: i32 = 16_384;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum SizeValidationError {
     #[error("window size contains negative values (width: {width}, height: {height})")]
@@ -1774,14 +1822,10 @@ pub enum SizeValidationError {
     Zero { width: i32, height: i32 },
 
     #[error(
-        "window size exceeds maximum allowed dimension {MAX_WINDOW_DIMENSION} (width: {width}, height: {height})"
+        "window size exceeds maximum allowed dimension `16_384` (width: {width}, height: {height})"
     )]
     TooLarge { width: i32, height: i32 },
 }
-
-// Win32の仮想スクリーンとしてあり得る最大境界
-pub(crate) const MIN_CURSOR_COORD: i32 = -32_768;
-pub(crate) const MAX_CURSOR_COORD: i32 = 32_767;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum PointValidationError {
@@ -1806,9 +1850,6 @@ pub enum KeyValidationError {
     #[error("packet/unicode injection key (VK_PACKET)")]
     PacketKey,
 }
-
-// 1フレームあたりの妥当な最大デルタ
-pub(crate) const MAX_REASONABLE_DELTA: i32 = 6_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum WheelValidationError {
@@ -1835,8 +1876,77 @@ pub enum ImeValidationError {
     CorruptedText,
 }
 
+/// A collection of built-in validation helpers for incoming window events.
+///
+/// Provides standard validation routines for raw, unverified data ([`Unvalidated`][crate::guard::Unvalidated])
+/// originating from Win32 APIs, guarding against out-of-bounds panics, integer overflow, and system quirks.
+///
+/// Designed to be passed directly as function pointers into [`validate_with`][crate::guard::Unvalidated::validate_with].
+///
+/// # Available Validators
+///
+/// - [`window_bounds`][Self::window_bounds]: Guards against zero, negative, and oversized dimensions (minimization & GPU limits).
+/// - [`cursor_bounds`][Self::cursor_bounds]: Catches corrupted coordinates outside virtual bounds (preserves valid negative drag coords).
+/// - [`keyboard_input`][Self::keyboard_input]: Filters out IME composition keys (`VK_PROCESSKEY`) and invalid 8-bit keycodes.
+/// - [`wheel_event`][Self::wheel_event]: Detects sign-extension unpacking bugs and runaway scroll deltas.
+/// - [`ime_event`][Self::ime_event]: Prevents null bytes, cursor overflows, and attribute length mismatches.
+///
+/// # Examples
+///
+/// ```
+/// use michiu::prelude::*;
+///
+/// # fn test(event: MichiuEvent) {
+/// match event {
+///     MichiuEvent::Resized(phy_size) => {
+///         let valid_size = phy_size
+///             .validate_with(MichiuValidator::window_bounds)
+///             .map_or(PhysicalSize::new(1, 1), Validated::into_inner);
+///     }
+///     MichiuEvent::CursorMoved { position } => {
+///         if let Ok(pos) = position.validate_with(MichiuValidator::cursor_bounds) {
+///             // Process only valid coordinates
+///         }
+///     }
+///     _ => {}
+/// }
+/// # }
+/// ```
 pub struct MichiuValidator;
 impl MichiuValidator {
+    // 最大テクスチャサイズの目安
+    pub const MAX_WINDOW_DIMENSION: i32 = 16_384;
+
+    // Win32の仮想スクリーンとしてあり得る最大境界
+    pub const MIN_CURSOR_COORD: i32 = -32_768;
+    pub const MAX_CURSOR_COORD: i32 = 32_767;
+
+    // 1フレームあたりの妥当な最大デルタ
+    pub const MAX_REASONABLE_DELTA: i32 = 6_000;
+
+    /// Validates that the physical window size is within a safe, renderable range.
+    ///
+    /// Checks that the dimensions are non-negative, non-zero, and do not exceed
+    /// the maximum allowed texture limit ([`MAX_WINDOW_DIMENSION`](MichiuValidator::MAX_WINDOW_DIMENSION)).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::InvalidSize`] under the following conditions:
+    ///
+    /// - **[`SizeValidationError::Negative`]**: If either `width` or `height` is less than 0.
+    /// - **[`SizeValidationError::Zero`]**: If either `width` or `height` is equal to 0 (e.g., when minimized).
+    /// - **[`SizeValidationError::TooLarge`]**: If either dimension exceeds [`MAX_WINDOW_DIMENSION`](MichiuValidator::MAX_WINDOW_DIMENSION).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::prelude::*;
+    ///
+    /// assert!(MichiuValidator::window_bounds(PhysicalSize::new(800, 600)).is_ok());
+    ///
+    /// assert!(MichiuValidator::window_bounds(PhysicalSize::new(0, 600)).is_err());
+    /// assert!(MichiuValidator::window_bounds(PhysicalSize::new(MichiuValidator::MAX_WINDOW_DIMENSION + 1, 600)).is_err());
+    /// ```
     pub fn window_bounds(size: PhysicalSize) -> Result<PhysicalSize> {
         let (w, h) = (size.width, size.height);
         if w < 0 || h < 0 {
@@ -1851,7 +1961,7 @@ impl MichiuValidator {
                 height: h,
             }));
         }
-        if w > MAX_WINDOW_DIMENSION || h > MAX_WINDOW_DIMENSION {
+        if w > MichiuValidator::MAX_WINDOW_DIMENSION || h > MichiuValidator::MAX_WINDOW_DIMENSION {
             return Err(MichiuError::InvalidSize(SizeValidationError::TooLarge {
                 width: w,
                 height: h,
@@ -1860,12 +1970,36 @@ impl MichiuValidator {
         Ok(size)
     }
 
+    /// Validates that the cursor position is within a reasonable virtual screen boundary.
+    ///
+    /// Checks that the coordinates are within the Win32 virtual screen limits ([`MIN_CURSOR_COORD`](MichiuValidator::MIN_CURSOR_COORD)..=[`MAX_CURSOR_COORD`](MichiuValidator::MAX_CURSOR_COORD)) to prevent corrupted data or integer overflow.
+    ///
+    /// # Notes
+    ///
+    /// Negative coordinates are considered valid to properly support multi-monitor setups (screens positioned to the left or top of the primary monitor) and mouse drag operations captured outside the window.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::InvalidPoint`] ([`PointValidationError::OutOfBounds`])
+    /// if either the X or Y coordinate is outside the allowed virtual bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::prelude::*;
+    ///
+    /// assert!(MichiuValidator::cursor_bounds(PhysicalPoint::new(100, 200)).is_ok());
+    /// assert!(MichiuValidator::cursor_bounds(PhysicalPoint::new(-50, -100)).is_ok());
+    ///
+    /// assert!(MichiuValidator::cursor_bounds(PhysicalPoint::new(MichiuValidator::MAX_CURSOR_COORD + 1, 0)).is_err());
+    /// assert!(MichiuValidator::cursor_bounds(PhysicalPoint::new(0, MichiuValidator::MIN_CURSOR_COORD - 1)).is_err());
+    /// ```
     pub fn cursor_bounds(point: PhysicalPoint) -> Result<PhysicalPoint> {
         let (x, y) = (point.x, point.y);
 
         // 仮想スクリーンの範囲を逸脱していないかチェック
-        if !(MIN_CURSOR_COORD..=MAX_CURSOR_COORD).contains(&x)
-            || !(MIN_CURSOR_COORD..=MAX_CURSOR_COORD).contains(&y)
+        if !(MichiuValidator::MIN_CURSOR_COORD..=MichiuValidator::MAX_CURSOR_COORD).contains(&x)
+            || !(MichiuValidator::MIN_CURSOR_COORD..=MichiuValidator::MAX_CURSOR_COORD).contains(&y)
         {
             return Err(MichiuError::InvalidPoint(
                 PointValidationError::OutOfBounds { x, y },
@@ -1875,6 +2009,43 @@ impl MichiuValidator {
         Ok(point)
     }
 
+    /// Validates that a [`VIRTUAL_KEY`] represents a valid, dispatchable keystroke.
+    ///
+    /// Filters out undefined/corrupted values (outside the 8-bit range), mouse button codes,
+    /// and special keys that should not be handled as physical keystrokes (such as IME compositions).
+    ///
+    /// # Notes
+    ///
+    /// - **IME Input**: When typing with an active IME (e.g., Japanese input), [`VK_PROCESSKEY`] is emitted.
+    ///   This is rejected to prevent triggering UI shortcut keys accidentally.
+    /// - **Text Injection**: [`VK_PACKET`], which is used to inject raw Unicode characters via software keyboards
+    ///   or input tools, is also rejected as it should be handled by text/character input events instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::Invalidkey`] under the following conditions:
+    ///
+    /// - **[`KeyValidationError::Zero`]**: The key code is 0 (undefined).
+    /// - **[`KeyValidationError::OutOfRange`]**: The code exceeds the standard 8-bit virtual key range (`> 0xFF`).
+    /// - **[`KeyValidationError::MouseButton`]**: The code is a mouse button virtual key (`VK_LBUTTON`..=`VK_XBUTTON2`).
+    /// - **[`KeyValidationError::ImeProcessKey`]**: The key is an active IME composition key ([`VK_PROCESSKEY`]).
+    /// - **[`KeyValidationError::PacketKey`]**: The key is a character packet injection ([`VK_PACKET`]).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::prelude::*;
+    /// use windows::Win32::UI::Input::KeyboardAndMouse::*;
+    ///
+    /// assert!(MichiuValidator::keyboard_input(VK_RETURN).is_ok());
+    /// assert!(MichiuValidator::keyboard_input(VK_A).is_ok());
+    ///
+    /// assert!(MichiuValidator::keyboard_input(VIRTUAL_KEY(0)).is_err());
+    /// assert!(MichiuValidator::keyboard_input(VIRTUAL_KEY(0x0100)).is_err());
+    ///
+    /// assert!(MichiuValidator::keyboard_input(VK_PROCESSKEY).is_err());
+    /// assert!(MichiuValidator::keyboard_input(VK_LBUTTON).is_err());
+    /// ```
     pub fn keyboard_input(key_code: VIRTUAL_KEY) -> Result<VIRTUAL_KEY> {
         let code = key_code.0;
 
@@ -1906,10 +2077,38 @@ impl MichiuValidator {
         Ok(key_code)
     }
 
+    /// Validates that a raw mouse wheel delta ([`WheelDelta`]) is within a safe, physical range.
+    ///
+    /// Protects against common Win32 sign-extension bugs (where negative values turn into ~65,000) and runaway scroll values caused by faulty drivers or erratic touchpads.
+    ///
+    /// # Notes
+    ///
+    /// - **Zero Deltas**: A value of `0` is considered valid by this function alone, because Win32 delivers horizontal and vertical wheel messages separately (meaning one axis is normally `0`).
+    ///   Checking whether *both* axes are zero should be handled by the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::InvalidWheel`] under the following conditions:
+    ///
+    /// - **[`WheelValidationError::SignExtensionBug`]**: The value falls within `32_768..=65_535`.
+    ///   This strongly indicates a 16-bit signed `short` was mistakenly unpacked without proper sign extension.
+    /// - **[`WheelValidationError::TooFast`]**: The absolute value exceeds [`MAX_REASONABLE_DELTA`](MichiuValidator::MAX_REASONABLE_DELTA) (~50 notches).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::prelude::*;
+    ///
+    /// assert!(MichiuValidator::wheel_event(WheelDelta(120)).is_ok());
+    /// assert!(MichiuValidator::wheel_event(WheelDelta(-120)).is_ok());
+    ///
+    /// assert!(MichiuValidator::wheel_event(WheelDelta(65416)).is_err());
+    /// assert!(MichiuValidator::wheel_event(WheelDelta(MichiuValidator::MAX_REASONABLE_DELTA + 1)).is_err());
+    /// ```
     pub fn wheel_event(raw_delta: WheelDelta) -> Result<WheelDelta> {
         let val = raw_delta.0;
 
-        // 1. 符号なし拡張バグの検知 (0xFF88 などが 65000 付近になるのを弾く)
+        // 符号なし拡張バグの検知 (0xFF88 などが 65000 付近になるのを弾く)
         if (32_768..=65_535).contains(&val) {
             return Err(MichiuError::InvalidWheel(
                 WheelValidationError::SignExtensionBug(val),
@@ -1917,7 +2116,7 @@ impl MichiuValidator {
         }
 
         // 極端な値 (-6000 ..= 6000 を超えるものは弾く)
-        if val.abs() > MAX_REASONABLE_DELTA {
+        if val.abs() > MichiuValidator::MAX_REASONABLE_DELTA {
             return Err(MichiuError::InvalidWheel(WheelValidationError::TooFast(
                 val,
             )));
@@ -1926,6 +2125,43 @@ impl MichiuValidator {
         Ok(raw_delta)
     }
 
+    /// Validates that an [`ImeStateUpdate`] payload is safe for memory and string access.
+    ///
+    /// Guards against panic-inducing conditions in the UI layer, such as null-byte contamination from Win32 C-strings, out-of-bounds cursor positions (e.g., unsigned overflow from `-1`),
+    /// and length mismatches between composition attributes and text.
+    ///
+    /// # Notes
+    ///
+    /// - **End-of-text Cursor**: A `composition_cursor` pointing exactly at the end of the string (`cursor == char_count`) is valid and indicates the cursor is at the tail.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::InvalidIme`] under the following conditions:
+    ///
+    /// - **[`ImeValidationError::CorruptedText`]**: Either `composition_text` or `result_text`
+    ///   contains embedded null bytes (`\0`).
+    /// - **[`ImeValidationError::CursorOutOfBounds`]**: `composition_cursor` exceeds the character
+    ///   count of `composition_text`.
+    /// - **[`ImeValidationError::AttributeLengthMismatch`]**: The length of `composition_attrs`
+    ///   does not match the character count of `composition_text`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::{prelude::*, window::ImeStateUpdate};
+    ///
+    /// // Valid IME composition state
+    /// let mut ime = ImeStateUpdate::default();
+    /// ime.composition_text = "Typing".into();
+    /// ime.composition_cursor = 6; // Cursor at the end is valid
+    /// assert!(MichiuValidator::ime_event(ime).is_ok());
+    ///
+    /// // Cursor beyond text boundary returns an error
+    /// let mut invalid_ime = ImeStateUpdate::default();
+    /// invalid_ime.composition_text = "Text".into();
+    /// invalid_ime.composition_cursor = 10;
+    /// assert!(MichiuValidator::ime_event(invalid_ime).is_err());
+    /// ```
     pub fn ime_event(ime: ImeStateUpdate) -> Result<ImeStateUpdate> {
         // Null文字の混入
         if ime.composition_text.contains('\0') || ime.result_text.contains('\0') {

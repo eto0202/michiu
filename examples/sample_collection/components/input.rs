@@ -377,7 +377,7 @@ fn search_box() -> Entity {
             .bg_color(t.background_hover);
 
         if menu_open.get() {
-            base.block()
+            base.flex()
         } else {
             base.hidden()
         }
@@ -397,6 +397,7 @@ fn search_box() -> Entity {
 
             let mut item_style = ii()
                 .w_full()
+                .h(30.0)
                 .hovered_within(ii().bg_color(dynamic(|t: &Theme| t.border_hover)));
             if is_last {
                 item_style = item_style.r_bottom(4.0);
@@ -406,8 +407,7 @@ fn search_box() -> Entity {
                 text(h.clone())
                     .modify_d(move |t: &Theme| {
                         let mut s = ii()
-                            .w_full()
-                            .p_y(6.0)
+                            .size_full()
                             .p_l(10.0)
                             .font_size(14.0)
                             .text_color(t.text)
@@ -424,12 +424,12 @@ fn search_box() -> Entity {
                 text("✕")
                     .modify_d(move |t: &Theme| {
                         let mut base_style = ii()
+                            .w(50.0)
                             .h_full()
-                            .w(40.0)
-                            .p((6.0, 14.0))
                             .text_center()
+                            .p_t(3.0)
                             .text_color(t.text_muted)
-                            .font_size(12.0)
+                            .font_size(14.0)
                             .prevent_focus_steal(steal_focus.get())
                             .hovered(ii().text_color(t.primary));
 

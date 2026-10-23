@@ -332,6 +332,13 @@ impl MichiuWindow {
     /// Upon receiving `WM_NCDESTROY`, the heap-allocated closure is automatically and safely freed,
     /// preventing any memory leaks.
     ///
+    /// # Errors
+    ///
+    /// Return [`MichiuError::SubclassSetupFailed`]:
+    /// - The `hwnd` is invalid or points to an already destroyed window.
+    /// - Attempting to subclass a window created on a different thread (cross-thread subclassing is not supported by Win32).
+    /// - An internal memory allocation fails in `comctl32`.
+    ///
     /// # Examples
     ///
     /// ```no_run

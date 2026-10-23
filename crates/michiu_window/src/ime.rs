@@ -6,7 +6,7 @@ use std::{
     io::Write as _,
     net::{TcpListener, TcpStream},
     sync::{
-        Arc, Mutex,
+        Arc,
         mpsc::{Sender, channel},
     },
 };
@@ -259,7 +259,7 @@ pub fn get_active_keyboard_layout_id() -> u32 {
 ///
 /// This structure implements (`serde::Serialize`) and (`serde::Deserialize`) when the `serde`
 /// feature is enabled, allowing seamless serialization into JSON for cross-process communication.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ImeStateUpdate {
     /// The unique ID of the window where this IME state update occurred (HWND as isize).
     pub window_id: isize,
@@ -311,7 +311,8 @@ impl ImeRelayServer {
     /// ```
     pub fn start(port: u16) -> std::io::Result<Self> {
         let (tx, rx) = channel::<ImeStateUpdate>();
-        let clients: Arc<Mutex<Vec<TcpStream>>> = Arc::new(Mutex::new(Vec::new()));
+        let clients: Arc<parking_lot::Mutex<Vec<TcpStream>>> =
+            Arc::new(parking_lot::Mutex::new(Vec::new()));
 
         // 新規接続を待ち受けるリスナースレッド
         let clients_listener = clients.clone();
@@ -321,7 +322,7 @@ impl ImeRelayServer {
             for stream in listener.incoming().flatten() {
                 // スレッドをフリーズさせないよう非ブロッキングに
                 let _ = stream.set_nonblocking(true);
-                let mut guard = clients_listener.lock().unwrap();
+                let mut guard = clients_listener.lock();
                 guard.push(stream);
             }
         });
@@ -346,7 +347,7 @@ impl ImeRelayServer {
                     caret_json,
                 );
 
-                let mut guard = clients.lock().unwrap();
+                let mut guard = clients.lock();
                 // 切断されたクライアントを自動検知してリストから安全に除外 (retain_mut)
                 guard.retain_mut(|stream| {
                     // 本体の書き込み

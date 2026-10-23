@@ -2671,6 +2671,7 @@ version = "0.0.4"
 dependencies = [
  "eframe",
  "michiu_guard",
+ "parking_lot",
  "raw-window-handle",
  "serde",
  "thiserror 2.0.21",

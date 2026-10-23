@@ -328,6 +328,7 @@ pub mod prelude {
         MichiuCustomTrayMenu, MichiuError, MichiuEvent, MichiuEventBus, MichiuEventPump,
         MichiuEventSender, MichiuIcon, MichiuRawEvent, MichiuTray, MichiuTrayBuilder,
         MichiuTrayMenuItem, MichiuWindow, MichiuWindowBuilder, PhysicalPoint, PhysicalRect,
-        PhysicalSize, PreferredAppMode, RawSubclassProc, WindowHandle, WindowId, win32_ext::*,
+        PhysicalSize, PreferredAppMode, RawSubclassProc, WheelDelta, WindowHandle, WindowId,
+        win32_ext::*,
     };
 }

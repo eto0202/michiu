@@ -414,6 +414,7 @@ pub use external::*;
 #[doc(inline)]
 pub use modifier::*;
 #[doc(inline)]
+#[allow(unused)] // なぜか必要
 pub use option::*;
 #[doc(inline)]
 pub use renderer::*;
