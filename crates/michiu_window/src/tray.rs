@@ -266,7 +266,7 @@ impl MichiuTray {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 unsafe extern "system" fn tray_wnd_proc(
     hwnd: HWND,
     msg: u32,

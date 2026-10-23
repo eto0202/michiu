@@ -1,5 +1,5 @@
-#![allow(clippy::ref_as_ptr)]
-#![allow(clippy::inline_always)]
+#![expect(clippy::ref_as_ptr)]
+#![expect(clippy::inline_always)]
 
 use crate::error::{MichiuError, Result};
 use crate::{MichiuAnyEvent, MichiuEvent, MichiuRawEvent, WindowId, dispatch_to_active_handler};
@@ -310,7 +310,7 @@ impl FileDropTarget {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[expect(clippy::not_unsafe_ptr_arg_deref)]
 impl IDropTarget_Impl for FileDropTarget_Impl {
     fn DragEnter(
         &self,
@@ -417,9 +417,9 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
     }
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::expect_used)]
-#[allow(clippy::panic)]
+#[expect(clippy::unwrap_used)]
+#[expect(clippy::expect_used)]
+#[expect(clippy::panic)]
 #[cfg(test)]
 mod tests {
     use std::os::windows::ffi::OsStrExt;

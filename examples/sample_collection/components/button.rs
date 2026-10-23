@@ -1,5 +1,3 @@
-#![allow(clippy::pedantic, clippy::restriction)]
-
 use crate::{
     app::theme::Theme,
     components::{label_style, section_title},

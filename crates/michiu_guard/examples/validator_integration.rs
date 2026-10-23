@@ -1,5 +1,5 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::print_stdout)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::print_stdout)]
 
 use michiu_guard::{Unvalidated, Validate as MichiuValidate, Validated};
 use validator::Validate as ValidatorValidate;

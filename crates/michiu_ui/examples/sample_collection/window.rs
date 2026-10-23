@@ -1,4 +1,4 @@
-#![allow(clippy::pedantic, clippy::restriction, unused_must_use)]
+#![expect(clippy::pedantic, unused_must_use)]
 
 use michiu_ui::{
     ElementState, ImeState, Modifiers, MouseButton, VirtualKey, prelude::*,

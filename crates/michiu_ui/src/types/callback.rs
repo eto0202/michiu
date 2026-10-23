@@ -64,7 +64,6 @@ pub type DragStartCallback = Box<dyn FnMut(&mut Context, Entity, Entity) + 'stat
 
 /// Events bound to individual entities.
 #[derive(Default)]
-#[allow(clippy::struct_field_names)]
 pub struct EventListeners {
     pub on_click: Option<ClickCallback>,
     pub on_right_click: Option<SimpleCallback>,
@@ -131,7 +130,6 @@ define_event_dispatchers! {
 }
 
 impl std::fmt::Debug for EventListeners {
-    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventListeners")
             .field("on_click", &self.on_click.as_ref().map(|_| "FnMut"))

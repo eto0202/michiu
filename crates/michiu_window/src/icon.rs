@@ -228,9 +228,9 @@ impl MichiuIcon {
     }
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::expect_used)]
-#[allow(clippy::panic)]
+#[expect(clippy::unwrap_used)]
+#[expect(clippy::expect_used)]
+#[expect(clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;

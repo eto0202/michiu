@@ -488,7 +488,7 @@ impl MichiuApp {
     /// please report it to [GitHub Issues](https://github.com/eto0202/michiu/issues).
     #[must_use]
     #[inline]
-    #[allow(clippy::expect_used)]
+    #[expect(clippy::expect_used)]
     pub fn root(&self) -> Entity {
         self.root.expect(
             "The root ID was not found.\
@@ -625,7 +625,7 @@ impl MichiuApp {
     /// # Ok(())
     /// # }
     /// ```
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     pub fn standard_handle_window_event(
         &mut self,
         event: &MichiuAnyEvent,
@@ -1044,7 +1044,7 @@ pub enum AutoSyncMode {
 /// Configuration for the standard pipeline of [`MichiuApp`].
 ///
 /// This is typically specified using the `with_*` methods of [`MichiuAppBuilder`].
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy)]
 pub struct MichiuBuilderConfig {
     /// Whether to automatically dispatch raw input messages to `ExternalVisual`.
@@ -1129,7 +1129,6 @@ impl Default for MichiuBuilderConfig {
 /// # Ok(())
 /// # }
 /// ```
-#[allow(clippy::struct_excessive_bools)]
 pub struct MichiuAppBuilder {
     pub config: MichiuBuilderConfig,
     pub window: MichiuWindow,

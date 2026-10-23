@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 pub use michiu_ui::prelude::*;
 use smallvec::SmallVec;
 

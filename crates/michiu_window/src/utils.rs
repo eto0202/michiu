@@ -66,7 +66,7 @@ pub(crate) fn set_window_ex_style(hwnd: HWND, ex_style: WINDOW_EX_STYLE) {
 
 /// `GWLP_USERDATA` から読み取り専用の参照 (&T) を取得する
 #[inline]
-#[allow(clippy::as_conversions)]
+#[expect(clippy::as_conversions)]
 pub(crate) fn get_window_userdata<'a, T>(hwnd: HWND) -> Option<&'a T> {
     let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const T };
     if ptr.is_null() {
@@ -78,7 +78,7 @@ pub(crate) fn get_window_userdata<'a, T>(hwnd: HWND) -> Option<&'a T> {
 
 /// `GWLP_USERDATA` からポインタを取り出して &mut T に安全に変換する
 #[inline]
-#[allow(clippy::as_conversions)]
+#[expect(clippy::as_conversions)]
 pub(crate) fn get_window_userdata_mut<'a, T>(hwnd: HWND) -> Option<&'a mut T> {
     let ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut T };
     if ptr.is_null() {
@@ -90,7 +90,7 @@ pub(crate) fn get_window_userdata_mut<'a, T>(hwnd: HWND) -> Option<&'a mut T> {
 
 /// `GWLP_USERDATA` を 0 にリセットし、保持されていた Box<T> を取り出して返す
 #[inline]
-#[allow(clippy::as_conversions)]
+#[expect(clippy::as_conversions)]
 pub(crate) unsafe fn take_window_userdata<T>(hwnd: HWND) -> Option<Box<T>> {
     // 0 をセットしつつ、元のポインタを取得する
     let old_val = unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) };

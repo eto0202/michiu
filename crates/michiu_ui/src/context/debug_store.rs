@@ -1,6 +1,6 @@
 #[cfg(feature = "trace-entity")]
 use crate::{ActiveAnimation, ActiveTransition, BasicLayout, ModInner, VisualProperty};
-#[allow(unused)]
+#[expect(unused)]
 use crate::{
     ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveExternalVisualHashSet,
     ActiveInteractionStates, ActiveMasksSecondary, ActiveResizeHoverOption,
@@ -19,7 +19,7 @@ use crate::{
     ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse, SelectedRectsSparse,
     SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
     SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey, TextCacheValue,
-    TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas, UiaPropertiesSparse,
+    TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas,
     VirtualKey, VisualPropertiesSecondary, WebviewEntitiesVec,
 };
 use cosmic_text::Buffer;
@@ -100,7 +100,7 @@ impl DebugStore {
         }
     }
 
-    #[allow(unused)]
+    #[expect(unused)]
     #[inline]
     #[must_use]
     pub(crate) fn with_inspector(inspector: &MichiuInspector) -> Self {
@@ -245,7 +245,7 @@ impl Default for MichiuInspector {
 
 #[cfg(feature = "trace-error")]
 impl MichiuInspector {
-    #[allow(unused)]
+    #[expect(unused)]
     #[inline]
     #[must_use]
     pub fn new() -> Self {
@@ -1715,7 +1715,7 @@ pub trait OptionTraceExt<T> {
 }
 
 impl<T> OptionTraceExt<T> for Option<T> {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
     fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
@@ -1832,7 +1832,7 @@ pub trait ResultTraceExt<T> {
 }
 
 impl<T> ResultTraceExt<T> for Result<T> {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
     fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
@@ -1865,7 +1865,7 @@ pub trait TaffyResultTraceExt<T> {
 }
 
 impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
     fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
@@ -1898,7 +1898,7 @@ pub trait WindowsResultTraceExt<T> {
 }
 
 impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
     fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {

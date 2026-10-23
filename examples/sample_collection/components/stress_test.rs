@@ -1,9 +1,6 @@
-#![allow(unused)]
-
-pub use michiu::prelude::*;
-use smallvec::SmallVec;
-
 use crate::app::{sidebar, theme::Theme};
+use michiu::prelude::*;
+use smallvec::SmallVec;
 
 pub type ChildrenVec = SmallVec<[Entity; 10]>;
 

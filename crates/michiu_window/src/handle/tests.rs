@@ -1,6 +1,6 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
+#![expect(clippy::panic)]
 
 use super::*;
 use crate::{MichiuComContext, MichiuEventPump, MichiuWindow, MichiuWindowBuilder};

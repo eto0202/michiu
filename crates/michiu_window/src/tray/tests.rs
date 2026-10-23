@@ -1,6 +1,5 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
 #![expect(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 
 use super::*;

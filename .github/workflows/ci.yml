@@ -27,8 +27,22 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Run tests
-        run: cargo test --workspace --all-targets
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Auto-commit formatted code
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: auto-format with rustfmt"
 
       - name: Lint check (Clippy)
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Run tests with nextest
+        run: cargo nextest run --profile ci
+
+      - name: Run doctests
+        run: cargo test --doc

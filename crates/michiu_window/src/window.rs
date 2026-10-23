@@ -93,11 +93,11 @@ pub struct MichiuWindow {
     hwnd: HWND,
     hinstance: HINSTANCE,
     thread_id: u32,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     tray: Option<MichiuTray>,
     #[allow(dead_code)]
     drop_target: Option<IDropTarget>,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     ime_relay: Option<Arc<ImeRelayServer>>,
     _marker: PhantomData<*const ()>, // !Send and !Sync
 }
@@ -139,7 +139,7 @@ impl MichiuWindow {
     /// # Ok(())
     /// # }
     /// ```
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     pub fn build(builder: Validated<MichiuWindowBuilder<'_>>) -> Result<Self> {
         let hmodule = unsafe { GetModuleHandleW(None).map_err(MichiuError::UnexpectedOsError)? };
         let hinstance = HINSTANCE(hmodule.0);
@@ -992,7 +992,7 @@ unsafe extern "system" fn global_wnd_proc(
         if let Some(cs) = unsafe { lparam.to_ref::<CREATESTRUCTW>() }
             && let Some(context) = unsafe { cs.lpCreateParams.cast::<CreationContext>().as_mut() }
         {
-            #[allow(clippy::as_conversions)]
+            #[expect(clippy::as_conversions)]
             let state_isize = context.state as isize;
             unsafe {
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, state_isize);
@@ -1550,7 +1550,7 @@ pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
     }
 }
 
-#[allow(unused)]
+#[expect(unused)]
 pub(crate) fn apply_cursor_icon_impl(hwnd: HWND, cursor: crate::CursorIcon) -> LRESULT {
     let hcursor = if let CursorIcon::Other(h) = cursor {
         h

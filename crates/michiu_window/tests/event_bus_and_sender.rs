@@ -1,6 +1,5 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
 
 use michiu_window::{
     LogicalSize, MichiuAnyEvent, MichiuEventBus, MichiuEventPump, MichiuWindow, MichiuWindowBuilder,

@@ -527,8 +527,8 @@ impl<'de> serde::Deserialize<'de> for ImeStateUpdate {
     }
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::unwrap_used)]
+#[expect(clippy::expect_used)]
 #[cfg(test)]
 mod tests {
     use michiu_guard::Validate;

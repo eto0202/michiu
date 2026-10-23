@@ -96,7 +96,7 @@ impl LParamExt for LPARAM {
     }
 
     #[inline]
-    #[allow(clippy::as_conversions)]
+    #[expect(clippy::as_conversions)]
     unsafe fn to_ref<'a, T>(self) -> Option<&'a T> {
         let ptr = self.0 as *const T;
         if ptr.is_null() {
@@ -107,7 +107,6 @@ impl LParamExt for LPARAM {
     }
 
     #[inline]
-    #[allow(clippy::as_conversions)]
     unsafe fn to_mut<'a, T>(self) -> Option<&'a mut T> {
         let ptr = self.to_mut_ptr::<T>();
         if ptr.is_null() {
@@ -118,13 +117,12 @@ impl LParamExt for LPARAM {
     }
 
     #[inline]
-    #[allow(clippy::as_conversions)]
+    #[expect(clippy::as_conversions)]
     fn to_mut_ptr<T>(self) -> *mut T {
         self.0 as *mut T
     }
 
     #[inline]
-    #[allow(clippy::as_conversions)]
     unsafe fn take_box<T>(self) -> Option<Box<T>> {
         let ptr = self.to_mut_ptr::<T>();
         if ptr.is_null() {

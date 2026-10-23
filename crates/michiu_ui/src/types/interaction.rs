@@ -35,7 +35,7 @@ pub enum ElementState {
     Released,
 }
 
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Modifiers {
     pub shift: bool,

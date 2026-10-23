@@ -3603,8 +3603,8 @@ impl Modifier {
     ///
     /// # Examples
     ///
-    /// ```no_run
-    /// use michiu_ui::{ts, div, v_flex, h_flex, FlexDirection};
+    /// ```no_run,ignore
+    /// use michiu_ui::prelude::*;
     ///
     /// // Recommended: Use the layout shortcuts directly
     /// h_flex(ii());

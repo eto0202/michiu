@@ -340,7 +340,7 @@ impl Context {
     }
 
     /// 親を持たないルート要素の破棄に使用。
-    #[allow(unused)]
+    #[expect(unused)]
     #[inline]
     pub(crate) fn despawn(&mut self, id: Entity) {
         TopologyStore::despawn_internal(

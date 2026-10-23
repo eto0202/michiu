@@ -278,7 +278,7 @@ impl Drop for MichiuEventPump {
 /// the `WndProc` bypasses further processing (such as `DefWindowProcW`) and returns immediately.
 /// If `None` is returned, processing is not bypassed;
 /// instead, the message is passed directly to the OS's default handling.
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 pub(crate) fn translate_and_dispatch(
     hwnd: HWND,
     msg: u32,

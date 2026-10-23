@@ -9,7 +9,7 @@ use std::borrow::Cow;
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn example() -> Entity {
 ///     div(
 ///         ii().size_full()
@@ -37,7 +37,7 @@ pub fn ii() -> Modifier {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn example() -> Entity {
 ///     div(
 ///         m!().size_full()
@@ -59,7 +59,7 @@ macro_rules! m {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn example() -> Entity {
 ///     let (count, set_count) = create_signal(0u32);
 ///     div(
@@ -94,7 +94,7 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// #[derive(Debug, Clone)]
 /// struct Theme {
 ///     color: Color,
@@ -134,7 +134,7 @@ pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// #[derive(Debug, Clone)]
 /// struct Theme {
 ///     color: Color,
@@ -180,7 +180,7 @@ pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// #[derive(Debug, Clone)]
 /// struct Theme {
 ///     color: Color,
@@ -213,7 +213,7 @@ where
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Modifier {
 ///    ii().bg_color(rgb(209, 92, 174))
 /// # }
@@ -234,7 +234,7 @@ pub fn rgb(r: u8, g: u8, b: u8) -> Color {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Modifier {
 ///    ii().bg_color(rgba(209, 92, 174, 0.5))
 /// # }
@@ -254,7 +254,7 @@ pub fn rgba(r: u8, g: u8, b: u8, a: f32) -> Color {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Modifier {
 ///    ii().bg_color(hex("#ff0000"))
 ///        .border_color(hex(0x00_FF00))
@@ -272,7 +272,7 @@ pub fn hex(value: impl IntoHexColor) -> Color {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Modifier {
 ///    ii().bg_color(hsl(318.0, 56.0, 59.0))
 /// # }
@@ -287,7 +287,7 @@ pub fn hsl(h: f32, s: f32, l: f32) -> Color {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Modifier {
 ///    ii().bg_color(hsla(318.0, 56.0, 59.0, 0.5))
 /// # }
@@ -306,7 +306,7 @@ pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Entity {
 ///    flex(ii().justify_center())
 /// # }
@@ -321,7 +321,7 @@ pub fn flex(m: impl Into<Prop<Modifier>>) -> Entity {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Entity {
 ///    div(ii().size(100.0))
 /// # }
@@ -338,7 +338,7 @@ pub const NO_STYLE: Option<Modifier> = None;
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Entity {
 ///    div_n().modify(ii())
 /// # }
@@ -353,7 +353,7 @@ pub fn div_n() -> Entity {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Entity {
 ///    h_flex(ii().border_solid(1.0))
 /// # }
@@ -369,7 +369,7 @@ pub fn h_flex(m: impl Into<Prop<Modifier>>) -> Entity {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Entity {
 ///    h_flex(ii().outline_solid(1.0))
 /// # }
@@ -392,7 +392,7 @@ pub fn grid_box(m: impl Into<Prop<Modifier>>) -> Entity {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Entity {
 ///    hidden_box(ii().size_full())
 /// # }
@@ -407,7 +407,7 @@ pub fn hidden_box(m: impl Into<Prop<Modifier>>) -> Entity {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Entity {
 ///    text("examples").modify(ii().font_size(20.0))
 /// # }
@@ -421,7 +421,7 @@ pub fn text(content: impl Into<Prop<Cow<'static, str>>>) -> Entity {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Entity {
 ///    let (read_text, write_text) = create_signal(String::new());
 ///
@@ -440,7 +440,7 @@ pub fn input(contents: impl Into<Prop<InputContents>>) -> Entity {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// # fn examples() -> Entity {
 ///    let (text, set_text) = create_signal(String::new());
 ///
@@ -471,7 +471,7 @@ pub fn external_visual(visual: impl ExternalVisual + 'static) -> Entity {
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// #[derive(Debug, Clone)]
 /// struct Theme {
 ///     color: Color,
@@ -481,7 +481,7 @@ pub fn external_visual(visual: impl ExternalVisual + 'static) -> Entity {
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
-///                 flex_d(|t: &Theme| ii().bg_color(theme.color))
+///                 flex_d(|t: &Theme| ii().bg_color(t.color))
 ///             )
 /// }
 /// ```
@@ -498,7 +498,7 @@ where
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// #[derive(Debug, Clone)]
 /// struct Theme {
 ///     color: Color,
@@ -508,7 +508,7 @@ where
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
-///                 div_d(|t: &Theme| ii().bg_color(theme.color))
+///                 div_d(|t: &Theme| ii().bg_color(t.color))
 ///             )
 /// }
 /// ```
@@ -525,7 +525,7 @@ where
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// #[derive(Debug, Clone)]
 /// struct Theme {
 ///     color: Color,
@@ -535,7 +535,7 @@ where
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
-///                 h_flex_d(|t: &Theme| ii().bg_color(theme.color))
+///                 h_flex_d(|t: &Theme| ii().bg_color(t.color))
 ///             )
 /// }
 /// ```
@@ -556,7 +556,7 @@ where
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// #[derive(Debug, Clone)]
 /// struct Theme {
 ///     color: Color,
@@ -566,7 +566,7 @@ where
 ///     let (theme, _) = create_signal(Theme { color: Color::BLUE });
 ///     div_n().provide(theme)
 ///            .child(
-///                 v_flex_d(|t: &Theme| ii().bg_color(theme.color))
+///                 v_flex_d(|t: &Theme| ii().bg_color(t.color))
 ///             )
 /// }
 /// ```
@@ -585,7 +585,7 @@ where
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// pub enum MichiuOrder {
 ///    Small,
@@ -617,7 +617,7 @@ where
 ///
 /// # Examples
 /// ```no_run
-/// # use crate::prelude::*;
+/// # use michiu_ui::prelude::*;
 /// #[derive(Debug, Clone)]
 /// struct Theme {
 ///     color: Color,
@@ -631,7 +631,7 @@ where
 ///            .child(
 ///                 input_d(move |t: &Theme| {
 ///                     InputContents::new((read_text, write_text))
-///                         .placeholder_color(t.text_muted)
+///                         .placeholder_color(t.color)
 /// })
 ///             )
 /// }
@@ -695,8 +695,8 @@ pub struct Stretch;
 /// Generates actual values.
 ///
 /// # Examples
-/// ```no_run
-/// # use crate::prelude::*;
+/// ```no_run,ignore
+/// # use michiu_ui::prelude::*;
 /// # fn examples() {
 /// // All Directions (f32, i32, px, pct, auto, fill)
 /// ii().p(10.0);
@@ -723,8 +723,8 @@ pub fn px(val: f32) -> Pixel {
 /// Generates a percentage value.
 ///
 /// # Examples
-/// ```no_run
-/// # use crate::prelude::*;
+/// ```no_run,ignore
+/// # use michiu_ui::prelude::*;
 /// # fn examples() {
 /// // All Directions (f32, i32, px, pct, auto, fill)
 /// ii().p(10.0);
@@ -751,8 +751,8 @@ pub fn pct(val: f32) -> Percent {
 /// Generate `Auto`
 ///
 /// # Examples
-/// ```no_run
-/// # use crate::prelude::*;
+/// ```no_run,ignore
+/// # use michiu_ui::prelude::*;
 /// # fn examples() {
 /// // All Directions (f32, i32, px, pct, auto, fill)
 /// ii().p(10.0);
@@ -779,8 +779,8 @@ pub fn auto() -> Auto {
 /// Generate `Stretch`
 ///
 /// # Examples
-/// ```no_run
-/// # use crate::prelude::*;
+/// ```no_run,ignore
+/// # use michiu_ui::prelude::*;
 /// # fn examples() {
 /// // All Directions (f32, i32, px, pct, auto, fill)
 /// ii().p(10.0);

@@ -1,7 +1,6 @@
-#![allow(clippy::print_stdout)]
-#![allow(clippy::print_stderr)]
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
+#![expect(clippy::print_stdout)]
+#![expect(clippy::print_stderr)]
+#![expect(clippy::unwrap_used)]
 
 use michiu_window::{
     LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuEvent, MichiuEventPump, MichiuIcon,

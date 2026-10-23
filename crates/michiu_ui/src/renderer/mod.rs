@@ -449,7 +449,7 @@ pub(crate) struct Vertex {
 }
 
 // 1x1 の矩形 (Unit Quad)
-#[allow(unused)]
+#[expect(unused)]
 pub(crate) const VERTICES: &[Vertex] = &[
     Vertex {
         position: [0.0, 0.0],
@@ -465,5 +465,5 @@ pub(crate) const VERTICES: &[Vertex] = &[
     }, // 左下
 ];
 
-#[allow(unused)]
+#[expect(unused)]
 pub(crate) const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];

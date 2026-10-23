@@ -261,7 +261,7 @@ pub enum RoundingMode {
 }
 
 /// 入力ロジックプロパティ
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct InputContents {
     pub(crate) text: (ReadSignal<String>, WriteSignal<String>),

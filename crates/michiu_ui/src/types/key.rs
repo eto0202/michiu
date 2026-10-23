@@ -223,7 +223,7 @@ impl VirtualKey {
 }
 
 impl From<VirtualKey> for VIRTUAL_KEY {
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     #[inline]
     fn from(vk: VirtualKey) -> Self {
         Self(vk.0 as u16)
@@ -238,7 +238,7 @@ impl From<VIRTUAL_KEY> for VirtualKey {
 }
 
 impl VirtualKey {
-    #[allow(clippy::cast_possible_truncation)]
+    #[expect(clippy::cast_possible_truncation)]
     #[inline]
     #[must_use]
     pub fn to_windows(self) -> VIRTUAL_KEY {

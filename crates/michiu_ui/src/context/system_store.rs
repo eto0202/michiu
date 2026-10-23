@@ -1,6 +1,6 @@
 use crate::{
     CapacityConfig, Context, Entity, InputContents, LayoutPoint, LayoutRect, MichiuError,
-    MichiuSoA, ResolvedGeometry, TextEngine, UiaValue, define_sparse_secondary,
+    MichiuSoA, ResolvedGeometry, TextEngine, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -49,7 +49,6 @@ impl MichiuTaskSender {
 }
 
 define_sparse_secondary!(pub struct TextBufferSparseInner(Rc<Buffer>));
-define_sparse_secondary!(pub struct UiaPropertiesSparse(Vec<(i32, UiaValue)>));
 
 pub type TextBufferSparse = RefCell<TextBufferSparseInner>;
 pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;

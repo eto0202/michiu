@@ -1,4 +1,4 @@
-#![allow(clippy::pedantic, clippy::restriction)]
+#![expect(clippy::pedantic)]
 
 use michiu::prelude::*;
 

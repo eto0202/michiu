@@ -381,8 +381,8 @@ impl SysErrorInfo {
     }
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::print_stdout)]
+#[expect(clippy::unwrap_used)]
+#[expect(clippy::print_stdout)]
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -217,8 +217,8 @@ pub struct GridLine<T> {
 pub struct LinearGradient {
     pub start_color: Color,
     pub end_color: Color,
-    pub angle: f32,                // ラジアン単位の角度
-    pub(crate) _padding: [f32; 3], // アライメント
+    pub angle: f32,               // ラジアン単位の角度
+    pub(crate) padding: [f32; 3], // アライメント
 }
 
 impl LinearGradient {
@@ -229,18 +229,9 @@ impl LinearGradient {
             start_color,
             end_color,
             angle: angle_degrees.to_radians(),
-            _padding: [0.0; 3],
+            padding: [0.0; 3],
         }
     }
-}
-
-/// Not Implemented
-#[derive(Debug, Clone, PartialEq)]
-pub enum UiaValue {
-    String(String),
-    Bool(bool),
-    Int(i32),
-    Double(f64),
 }
 
 /// Windows 11's Native System Background Blur Effect
@@ -274,4 +265,87 @@ pub enum BorderAlignment {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    use std::f32::consts::PI;
+
+    #[test]
+    fn test_is_row() {
+        assert!(FlexDirection::Row.is_row());
+        assert!(FlexDirection::RowReverse.is_row());
+        assert!(!FlexDirection::Column.is_row());
+        assert!(!FlexDirection::ColumnReverse.is_row());
+    }
+
+    #[test]
+    fn test_is_col() {
+        assert!(FlexDirection::Column.is_col());
+        assert!(FlexDirection::ColumnReverse.is_col());
+        assert!(!FlexDirection::Row.is_col());
+        assert!(!FlexDirection::RowReverse.is_col());
+    }
+
+    #[test]
+    fn test_row_and_col_are_mutually_exclusive() {
+        let directions = [
+            FlexDirection::Row,
+            FlexDirection::RowReverse,
+            FlexDirection::Column,
+            FlexDirection::ColumnReverse,
+        ];
+
+        for dir in directions {
+            assert_ne!(
+                dir.is_row(),
+                dir.is_col(),
+                "{dir:?} should not be both or neither"
+            );
+        }
+    }
+
+    #[test]
+    fn test_linear_gradient_new() {
+        let start = Color::RED;
+        let end = Color::BLUE;
+        let deg = 180.0;
+
+        let grad = LinearGradient::new(start, end, deg);
+
+        // カラーが正しくセットされているか
+        assert_eq!(grad.start_color, start);
+        assert_eq!(grad.end_color, end);
+
+        // 角度がラジアンに変換されているか
+        let expected_rad = PI;
+        assert!(
+            (grad.angle - expected_rad).abs() < 1e-6,
+            "expected {expected_rad}, but got {}",
+            grad.angle
+        );
+
+        // パディングがゼロクリアされているか
+        assert_eq!(grad.padding.map(f32::to_bits), [0; 3]);
+    }
+
+    #[test]
+    fn test_linear_gradient_angle_variations() {
+        let dummy = Color::default();
+
+        // 代表的な角度の変換チェック
+        let cases = [
+            (0.0, 0.0),
+            (90.0, PI / 2.0),
+            (360.0, 2.0 * PI),
+            (-90.0, -PI / 2.0),
+        ];
+
+        for (deg, expected_rad) in cases {
+            let grad = LinearGradient::new(dummy, dummy, deg);
+            assert!(
+                (grad.angle - expected_rad).abs() < 1e-6,
+                "deg {deg}: expected {expected_rad}, got {}",
+                grad.angle
+            );
+        }
+    }
+}

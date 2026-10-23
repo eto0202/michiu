@@ -20,7 +20,7 @@ use windows::Win32::{
 /// It ensures that all specified Win32 styles and custom configurations are mutually consistent
 /// during validation. Any conflicting styles (e.g., transparent window with OS borders enabled)
 /// are caught at compile-time or run-time before the window is physically allocated by the OS.
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct MichiuWindowBuilder<'a> {
     pub(crate) title: Cow<'static, str>,
@@ -430,7 +430,7 @@ impl Validate for MichiuWindowBuilder<'_> {
     /// # Ok(())
     /// # }
     /// ```
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     #[inline]
     fn validate(self) -> Result<Self> {
         if self.no_redirection_bitmap && self.com_context.is_none() {

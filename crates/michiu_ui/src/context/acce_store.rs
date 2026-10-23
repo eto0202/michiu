@@ -379,7 +379,6 @@ impl AccessibilityStore {
     }
 
     /// `TreeUpdate` 用のデータ収集
-    #[allow(unused_assignments)]
     #[inline]
     pub(crate) fn build_accessibility_snapshot(
         buffer: &mut Vec<NodeSnapshot>,

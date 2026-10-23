@@ -133,7 +133,6 @@ impl MichiuTagRegistry {
         None
     }
 
-    #[allow(unused)]
     #[inline]
     fn is_descendant_of(
         mut id: Entity,

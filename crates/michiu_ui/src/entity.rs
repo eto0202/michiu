@@ -11,11 +11,8 @@
 //! All nodes are simply [`Entity`]s (whose actual values are lightweight, copyable [`Entity`]s),
 //! and the capabilities and behaviors of each entity are determined entirely by which internal SoA holds its slot.
 //!
-//! ```rust
-//! #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-//! pub struct Entity {
-//!     pub(crate) id: Entity,
-//! }
+//! ```no_run,ignore
+//! pub struct Entity(KeyData)
 //! ```
 //!
 //! ### The Concept of Attaching Capabilities (Attachment, Membership, and Registration)
@@ -203,7 +200,7 @@
 //!
 //! * **[`Entity`] Methods**: Must execute exclusively on the **main thread (UI thread)** to interact with underlying SoA storage directly.
 //! * **[`Modifier`]**: Wrapped in a thread-safe [`Arc`]. Being a pure data representation, it can be transferred safely across threads. Mutations execute strictly through `Arc::make_mut` only when an exclusive borrow can be formed, eliminating data races entirely.
-//!    ```rust
+//!    ```no_run,ignore
 //!    #[derive(Debug, Clone, Default)]
 //!    pub struct Modifier {
 //!        pub(crate) inner: Arc<ModInner>,
@@ -236,7 +233,7 @@ thread_local! {
 /// # Examples
 ///
 /// ```rust
-/// use michiu_ui::{build_ui, div, div_n, ts, Color, Context};
+/// use michiu_ui::prelude::*;
 ///
 /// let mut cx = Context::new();
 /// let root = build_ui(&mut cx, || {
@@ -303,7 +300,7 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
 }
 
 // コンテキストを復元するための一時的なガード構造体
-#[allow(unused)]
+#[expect(unused)]
 pub(crate) struct ContextGuard {
     // drop 時にログを出すために自身がバインドしたポインタを保持
     current: *mut Context,
@@ -557,7 +554,7 @@ impl Entity {
     ///
     /// # Examples
     /// ```no_run
-    /// # use crate::prelude::*;
+    /// # use michiu_ui::prelude::*;
     /// #[derive(Debug, Clone)]
     /// struct Theme {
     ///     bg_color: Color,
@@ -573,7 +570,7 @@ impl Entity {
     ///     div_n()
     ///         .provide(theme)
     ///         .child(
-    ///             div_n().style_d(|t: &Theme| {
+    ///             div_n().modify_d(|t: &Theme| {
     ///                 ii().bg_color(t.bg_color)
     ///                     .text_color(t.text_color)
     ///             })

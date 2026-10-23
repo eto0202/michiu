@@ -1,4 +1,4 @@
-#![allow(clippy::cast_precision_loss)]
+#![expect(clippy::cast_precision_loss)]
 
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display, Entity,

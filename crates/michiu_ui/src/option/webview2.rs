@@ -70,7 +70,7 @@ impl WebView2Source {
     }
 }
 
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct WebView2Contents {
     pub source: WebView2Source,
@@ -943,7 +943,7 @@ impl WebView2Visual {
 
 /// f32 をクランプして u8 に変換する
 #[inline]
-#[allow(
+#[expect(
     clippy::as_conversions,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss

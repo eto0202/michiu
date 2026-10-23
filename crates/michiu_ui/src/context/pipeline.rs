@@ -306,7 +306,7 @@ impl Pipeline {
     }
 
     #[track_caller]
-    #[allow(unused)]
+    #[expect(unused)]
     pub(crate) fn begin_frame(cx: &mut Context) {
         let _context_guard = bind_context(cx);
 
@@ -1180,7 +1180,7 @@ impl Pipeline {
         }
     }
 
-    #[allow(unused)]
+    #[expect(unused)]
     #[track_caller]
     #[inline]
     pub(crate) fn collect_render_data(cx: &mut Context, view: &mut RendererView) {

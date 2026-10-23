@@ -31,7 +31,7 @@ pub trait MichiuSoA {
     /// Panic-Prone Immutable Reference Accessors
     #[inline]
     #[track_caller]
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn at(&self, id: Entity) -> &Self::Item {
         self.find(id).unwrap_or_else(|| {
             let type_name = std::any::type_name::<Self>();
@@ -53,7 +53,7 @@ pub trait MichiuSoA {
 
     #[inline]
     #[track_caller]
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     fn at_mut(&mut self, id: Entity) -> &mut Self::Item {
         self.find_mut(id).unwrap_or_else(|| {
             let type_name = std::any::type_name::<Self>();

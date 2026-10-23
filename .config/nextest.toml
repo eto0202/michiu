@@ -1,0 +1,42 @@
+[profile.default]
+# デフォルトでリトライを1回行う
+retries = 1
+# 60秒以上かかったらスローテストとして警告
+slow-timeout = { period = "60s" }
+
+# 特定のテストだけリトライを増やす、並列度を1にする（シリアル実行）などの制御も可能
+[[profile.default.overrides]]
+filter = 'test(test_filter_.*)'
+threads-required = 1 # DBテストなど競合を避けたいテストを直列実行
+
+# CI用設定（--profile ci で適用）
+[profile.ci]
+retries = 2
+# 60秒以上かかったら警告
+slow-timeout = { period = "60s" }
+# JUnit XMLレポートを出力（テスト結果の可視化アクションと連携可能）
+junit = { path = "junit.xml" }
+
+# プロジェクト内のテストをすべて実行
+# cargo nextest run
+
+# 特定のパッケージのみ実行（ワークスペースの場合）
+# cargo nextest run -p my-crate
+
+# 特定のテスト名にマッチするものだけ実行
+# cargo nextest run test_login
+
+# ワークスペース内の全テストを実行
+# cargo nextest run --workspace
+
+# ドキュメントテストだけ標準の cargo test で実行
+# cargo test --doc --workspace
+
+# 失敗したテストだけ自動リトライ
+# cargo nextest run --retries 2
+
+# 失敗したテストだけ再実行
+# cargo nextest run --failed
+
+# 成功したテストも含めてすべての出力を表示
+# cargo nextest run --no-capture
