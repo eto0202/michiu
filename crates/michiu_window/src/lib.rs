@@ -8,34 +8,34 @@
 //! configure and build a simple window, drive the event loop efficiently using `wait_event` ,
 //! and cleanly destroy the window directly from within the loop using its thread-safe handle.
 //! ```no_run
-//! use michiu_window::{init_dpi_awareness, WindowBuilder, Window, Event, EventPump, MichiuEvent};
+//! use michiu_window::prelude::*;
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // 1. Initialize High-DPI support (Per-Monitor v2)
-//!     init_dpi_awareness();
+//!     MichiuWindow::init_dpi_awareness();
 //!
 //!     // 2. Configure, validate, and build a simple window
-//!     let builder = WindowBuilder::new().with_title("Michiu Minimal Window");
+//!     let builder = MichiuWindowBuilder::new().with_title("Michiu Minimal Window");
 //!     // Validate the builder settings here to guarantee window safety.
 //!     let validated = builder.into_unvalidated().try_into()?;
-//!     let window = Window::build(validated)?;
+//!     let window = MichiuWindow::build(validated)?;
 //!     // Explicitly assume the handle is valid (since the window was just built).
 //!     let handle = window.handle().assume_valid();
 //!
-//!     // 3. Initialize the EventPump to drive the message loop on the UI thread
-//!     let mut event_pump = EventPump::new();
+//!     // 3. Initialize the MichiuEventPump to drive the message loop on the UI thread
+//!     let mut event_pump = MichiuEventPump::new();
 //!
 //!     // 4. Event-driven loop using `wait_event()`
 //!     while event_pump.wait_event(|event, _, _| {
-//!        // Note that MichiuEvent also includes a User variant, not just Window.
-//!        if let MichiuEvent::Window { event, .. } = event {
+//!        // Note that MichiuAnyEvent also includes a User variant, not just Window.
+//!        if let MichiuAnyEvent::Window { event, .. } = event {
 //!            match event {
-//!                Event::CloseRequested => {
+//!                MichiuEvent::CloseRequested => {
 //!                    // You can also handle close confirmation logic here.
 //!                    // Destroy the window directly from the event loop using the handle
 //!                    handle.destroy();
 //!                }
-//!                Event::Destroyed => {
+//!                MichiuEvent::Destroyed => {
 //!                    // Post-processing after the window is completely destroyed.
 //!                    // Exit the event loop.
 //!                    handle.quit();
@@ -77,23 +77,23 @@
 //! allowing you to update state and render frames continuously (e.g. 60 FPS rendering cycle).
 //!
 //! ```no_run
-//! use michiu_window::{init_dpi_awareness, WindowBuilder, Window, EventPump, MichiuEvent, Event};
+//! use michiu_window::prelude::*;
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     init_dpi_awareness();
+//!     MichiuWindow::init_dpi_awareness();
 //!
-//!     let builder = WindowBuilder::new().with_title("Michiu Real-Time Window");
-//!     let window = Window::build(builder.into_unvalidated().try_into()?)?;
+//!     let builder = MichiuWindowBuilder::new().with_title("Michiu Real-Time Window");
+//!     let window = MichiuWindow::build(builder.into_unvalidated().try_into()?)?;
 //!     let handle = window.handle().assume_valid();
-//!     let mut event_pump = EventPump::new();
+//!     let mut event_pump = MichiuEventPump::new();
 //!
 //!     // Non-blocking poll; processes all currently pending OS messages instantly
 //!     let mut running = true;
 //!     while running {
 //!         event_pump.poll_event(|event, _, _| {
 //!             match event {
-//!                 MichiuEvent::Window { id, event } => match event {
-//!                     Event::CloseRequested => {
+//!                 MichiuAnyEvent::Window { id, event } => match event {
+//!                     MichiuEvent::CloseRequested => {
 //!                         handle.destroy();
 //!                         running = false;
 //!                     }
@@ -147,16 +147,16 @@
 //! executed safely and asynchronously on the UI thread.
 //!
 //! ```no_run
-//! use michiu_window::{init_dpi_awareness, WindowBuilder, PhysicalSize, Icon};
+//! use michiu_window::prelude::*;
 //! use windows::Win32::Graphics::Gdi::InvalidateRect;
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Always initialize High-DPI support first
-//! init_dpi_awareness();
+//! MichiuWindow::init_dpi_awareness();
 //!
-//! let builder = WindowBuilder::new().with_title("Michiu Window");
+//! let builder = MichiuWindowBuilder::new().with_title("Michiu Window");
 //! let validated = builder.into_unvalidated().try_into()?;
-//! let window = michiu_window::Window::build(validated)?;
+//! let window = michiu_window::MichiuWindow::build(validated)?;
 //!
 //! let window_handle = window.handle().assume_valid();
 //!
@@ -203,7 +203,7 @@
 //!
 //! ```no_run
 //! use std::sync::mpsc;
-//! use michiu_window::{init_dpi_awareness, WindowBuilder, EventPump, MichiuEvent, Event, PhysicalSize};
+//! use michiu_window::prelude::*;
 //!
 //! // Define your centralized application commands
 //! enum AppCommand {
@@ -213,12 +213,12 @@
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Always initialize High-DPI support first
-//! let _ = init_dpi_awareness();
+//! let _ = MichiuWindow::init_dpi_awareness();
 //!
-//! let builder = WindowBuilder::new().with_title("Centralized App");
+//! let builder = MichiuWindowBuilder::new().with_title("Centralized App");
 //! let validated = builder.into_unvalidated().try_into()?;
-//! let window = michiu_window::Window::build(validated)?;
-//! let mut event_pump = EventPump::new();
+//! let window = michiu_window::MichiuWindow::build(validated)?;
+//! let mut event_pump = MichiuEventPump::new();
 //!
 //! // Create a standard MPSC channel
 //! let (tx, rx) = mpsc::channel();
@@ -241,11 +241,11 @@
 //! // Blocks on wait_event (0.0% CPU) when idle!
 //! while event_pump.wait_event(|event, _, _| {
 //!     match event {
-//!         MichiuEvent::Window { id, event } => match event {
-//!             Event::CloseRequested => {
+//!         MichiuAnyEvent::Window { id, event } => match event {
+//!             MichiuEvent::CloseRequested => {
 //!                 handle.destroy();
 //!             }
-//!             Event::Destroyed => {
+//!             MichiuEvent::Destroyed => {
 //!                 handle.quit();
 //!             }
 //!             _ => {}
@@ -324,7 +324,10 @@ pub use window::*;
 #[doc(hidden)]
 pub mod prelude {
     pub use crate::{
-        LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuError, MichiuEvent, MichiuEventPump,
-        MichiuRawEvent, MichiuWindow, MichiuWindowBuilder, WindowHandle, WindowId, win32_ext::*,
+        LogicalPoint, LogicalRect, LogicalSize, MichiuAnyEvent, MichiuComContext,
+        MichiuCustomTrayMenu, MichiuError, MichiuEvent, MichiuEventBus, MichiuEventPump,
+        MichiuEventSender, MichiuIcon, MichiuRawEvent, MichiuTray, MichiuTrayBuilder,
+        MichiuTrayMenuItem, MichiuWindow, MichiuWindowBuilder, PhysicalPoint, PhysicalRect,
+        PhysicalSize, PreferredAppMode, RawSubclassProc, WindowHandle, WindowId, win32_ext::*,
     };
 }

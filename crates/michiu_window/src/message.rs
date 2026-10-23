@@ -492,7 +492,9 @@ pub(crate) fn translate_and_dispatch(
         }
         WM_PAINT => {
             push_win_event(MichiuEvent::RedrawRequested);
-            // DefWindowProcW のデフォルト描画をスキップ
+            if !state.manual_paint_validation {
+                return None;
+            }
             Some(LRESULT(0))
         }
 

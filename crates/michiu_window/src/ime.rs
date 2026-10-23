@@ -50,9 +50,9 @@ impl ImeContext {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, ImeContext};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, ImeContext};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// // Safely acquire the IME context for the window
     /// let ime_ctx = ImeContext::new(window.hwnd())?;
     /// # Ok(())

@@ -252,12 +252,14 @@ pub use michiu_guard as guard;
 #[doc(inline)]
 pub use michiu_window as window;
 
+#[doc(hidden)]
 pub mod prelude {
     pub use crate::guard::{Unvalidated, Validate, Validated};
     pub use crate::ui::prelude::*;
     pub use crate::window::prelude::*;
     pub use crate::*;
 }
+#[doc(hidden)]
 pub mod accessibility {
     pub use crate::ui::accessibility::*;
 }
@@ -977,9 +979,7 @@ impl MichiuApp {
             self.context.update_accessibility();
         }
 
-        if let Some(_ctx) = self.window.begin_paint() {
-            self.renderer.draw(&mut self.context);
-        }
+        self.renderer.draw(&mut self.context);
 
         if self.context.has_active_frame() {
             if self.config.sync_mode == AutoSyncMode::DwmFlush {

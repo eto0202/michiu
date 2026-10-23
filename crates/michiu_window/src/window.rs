@@ -188,6 +188,7 @@ impl MichiuWindow {
             current_cursor: CursorIcon::Default,
             ime_relay: ime_relay.clone(),
             default_composition_window: builder.default_ime_window,
+            manual_paint_validation: builder.manual_paint_validation,
         });
         let state_raw_ptr: *mut WindowState = Box::into_raw(window_state);
 
@@ -806,10 +807,10 @@ impl MichiuWindow {
     /// # Examples
     ///
     /// ```no_run
-    /// use michiu_window::init_dpi_awareness;
+    /// use michiu_window::prelude::*;
     ///
     /// fn main() {
-    ///     if init_dpi_awareness() {
+    ///     if MichiuWindow::init_dpi_awareness() {
     ///         println!("High-DPI Per-Monitor v2 initialized successfully.");
     ///     }
     /// }
@@ -947,6 +948,7 @@ impl std::fmt::Debug for MessageFilter {
 }
 
 /// Runtime state management structure maintained for each window
+#[expect(clippy::struct_excessive_bools)]
 pub(crate) struct WindowState {
     pub(crate) message_filter: Option<MessageFilter>,
     pub(crate) auto_dpi_scaling: bool,
@@ -957,6 +959,7 @@ pub(crate) struct WindowState {
     pub(crate) current_cursor: CursorIcon,
     pub(crate) ime_relay: Option<Arc<ImeRelayServer>>,
     pub(crate) default_composition_window: bool,
+    pub(crate) manual_paint_validation: bool,
 }
 
 #[derive(Debug, Clone, Copy)]

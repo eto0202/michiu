@@ -258,7 +258,7 @@ impl Drop for MichiuComContext {
 /// # use windows::Win32::System::Ole::IDropTarget;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # let com_ctx = MichiuComContext::new_com_single()?;
-/// # let window = MichiuWindow::build(WindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
+/// # let window = MichiuWindow::build(MichiuWindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
 /// let drop_target_impl = FileDropTarget::new(window.hwnd());
 /// // Convert to raw COM IDropTarget interface for invocation
 /// let drop_target: IDropTarget = drop_target_impl.into();
@@ -279,7 +279,7 @@ impl FileDropTarget {
     /// ```no_run
     /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, FileDropTarget, MichiuComContext};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let com_ctx = ComContext::new_com_single()?;
+    /// # let com_ctx = MichiuComContext::new_com_single()?;
     /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
     /// // Create a drop target bound to the window's HWND
     /// let drop_target = FileDropTarget::new(window.hwnd());

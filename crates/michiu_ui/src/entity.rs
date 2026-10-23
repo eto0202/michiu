@@ -703,8 +703,8 @@ impl Entity {
     /// Add a child entity.
     #[must_use]
     #[inline]
-    pub fn child(self, entity: impl Into<Prop<Entity>>) -> Self {
-        match entity.into() {
+    pub fn child(self, e: impl Into<Prop<Entity>>) -> Self {
+        match e.into() {
             Prop::None => {}
             Prop::Static(child) => {
                 with_context(|cx| cx.add_child(self, child));

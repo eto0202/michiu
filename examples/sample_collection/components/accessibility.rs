@@ -4,7 +4,7 @@ use crate::app::theme::Theme;
 
 pub fn container() -> Entity {
     v_flex(ii().gap(16.0).p(16.0))
-        // `a11y`, `a11y_with`, and `a11y_role` take precedence over `tag` and `tag_a11y`
+        // `a11y`, `a11y_with`, `a11y_label`, and `a11y_role` take precedence over `tag` and `tag_a11y`
         .a11y(Node::new(Role::GenericContainer))
         .children([role_group(), tag_group()])
 }

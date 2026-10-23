@@ -154,10 +154,10 @@ impl WindowHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, WindowHandle};
     /// # use std::sync::mpsc;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// let (tx, rx) = mpsc::channel();
     /// let handle = window.handle().assume_valid();
     ///
@@ -475,10 +475,10 @@ impl WindowHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, WindowHandle};
     /// # use windows::Win32::Graphics::Gdi::InvalidateRect;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// let handle = window.handle().assume_valid();
     ///
     /// std::thread::spawn(move || {
@@ -589,9 +589,9 @@ impl WindowHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, WindowHandle};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// let handle = window.handle().assume_valid();
     ///
     /// // Destroy the window thread-safely from a background thread
@@ -750,10 +750,10 @@ impl Validate for WindowHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, WindowHandle};
     /// # use michiu_guard::{Unvalidated, Validated};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// let unvalidated_handle: Unvalidated<WindowHandle> = window.handle();
     ///
     /// // Safe validation check before usage

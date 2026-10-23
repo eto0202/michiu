@@ -64,10 +64,10 @@ impl MichiuIcon {
     /// # Examples
     ///
     /// ```no_run
-    /// use michiu_window::Icon;
+    /// use michiu_window::MichiuIcon;
     ///
     /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let icon = Icon::from_path("assets/app_icon.ico")?;
+    ///     let icon = MichiuIcon::from_path("assets/app_icon.ico")?;
     ///     Ok(())
     /// }
     /// ```
@@ -117,7 +117,7 @@ impl MichiuIcon {
     /// # Examples
     ///
     /// ```no_run
-    /// use michiu_window::Icon;
+    /// use michiu_window::prelude::*;
     /// # const ICO_BYTES: &[u8] = &[
     /// #     0, 0, 1, 0, 1, 0, 16, 16, 2, 0, 1, 0, 1, 0, 176, 0, 0, 0, 22, 0, 0, 0,
     /// #     40, 0, 0, 0, 16, 0, 0, 0, 32, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -128,7 +128,7 @@ impl MichiuIcon {
     /// // const ICO_BYTES: &[u8] = include_bytes!("../assets/app_icon.ico");
     ///
     /// fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let icon = Icon::from_bytes(ICO_BYTES)?;
+    ///     let icon = MichiuIcon::from_bytes(ICO_BYTES)?;
     ///     Ok(())
     /// }
     /// ```
@@ -197,7 +197,7 @@ impl MichiuIcon {
     /// # Examples
     ///
     /// ```no_run
-    /// use michiu_window::Icon;
+    /// use michiu_window::prelude::*;
     /// use windows::Win32::UI::WindowsAndMessaging::{LoadIconW, IDI_APPLICATION};
     ///
     /// fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -207,7 +207,7 @@ impl MichiuIcon {
     ///     };
     ///
     ///     // Safely wrap the system icon as a non-owned Icon wrapper
-    ///     let icon = unsafe { Icon::from_raw(hicon_system) };
+    ///     let icon = unsafe { MichiuIcon::from_raw(hicon_system) };
     ///     Ok(())
     /// }
     /// ```

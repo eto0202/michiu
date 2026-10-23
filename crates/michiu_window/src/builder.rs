@@ -50,6 +50,7 @@ pub struct MichiuWindowBuilder<'a> {
     pub(crate) drag_and_drop: bool,
     pub(crate) ime_expose_port: Option<u16>,
     pub(crate) default_ime_window: bool,
+    pub(crate) manual_paint_validation: bool,
 }
 
 impl Default for MichiuWindowBuilder<'_> {
@@ -83,6 +84,7 @@ impl Default for MichiuWindowBuilder<'_> {
             drag_and_drop: false,
             ime_expose_port: None,
             default_ime_window: true,
+            manual_paint_validation: false,
         }
     }
 }
@@ -217,6 +219,7 @@ impl<'a> MichiuWindowBuilder<'a> {
     #[must_use]
     #[inline]
     pub fn with_no_redirection_bitmap(mut self, is_enabled: bool) -> Self {
+        self.manual_paint_validation = is_enabled;
         self.no_redirection_bitmap = is_enabled;
         self
     }
@@ -375,6 +378,14 @@ impl<'a> MichiuWindowBuilder<'a> {
         self
     }
 
+    /// Whether to automatically validate and clear the drawing area. (Default: `false`)
+    #[must_use]
+    #[inline]
+    pub fn with_manual_paint_validation(mut self, enabled: bool) -> Self {
+        self.manual_paint_validation = enabled;
+        self
+    }
+
     /// Wraps the current builder state into an [`Unvalidated`] wrapper ready for validation.
     #[must_use]
     #[inline]
@@ -415,7 +426,7 @@ impl Validate for MichiuWindowBuilder<'_> {
     ///     .with_inner_size(LogicalSize::new(800.0, 600.0));
     ///
     /// // Safe validation step
-    /// let validated: Validated<WindowBuilder> = builder.into_unvalidated().try_into()?;
+    /// let validated: Validated<MichiuWindowBuilder> = builder.into_unvalidated().try_into()?;
     /// # Ok(())
     /// # }
     /// ```
@@ -427,6 +438,20 @@ impl Validate for MichiuWindowBuilder<'_> {
                 parameter: "no_redirection_bitmap",
                 message: "DirectComposition (no_redirection_bitmap) requires a valid ComContext."
                     .into(),
+            });
+        }
+        if self.no_redirection_bitmap && !self.manual_paint_validation {
+            return Err(MichiuError::ValidationError {
+                parameter: "manual_paint_validation",
+                message: "`manual_paint_validation` must be true when `no_redirection_bitmap` is enabled \
+                     to allow DirectComposition to synchronize live resizing during modal sizing loops.".into(),
+            });
+        }
+        if !self.no_redirection_bitmap && self.manual_paint_validation {
+            return Err(MichiuError::ValidationError {
+                parameter: "manual_paint_validation",
+                message: "`manual_paint_validation` cannot be true when `no_redirection_bitmap` is disabled \
+                     to prevent `WM_PAINT` infinite loops on standard windows.".into(),
             });
         }
         if self.drag_and_drop {

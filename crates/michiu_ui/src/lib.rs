@@ -428,6 +428,7 @@ pub use types::*;
 #[doc(inline)]
 pub use utils::*;
 
+#[doc(hidden)]
 pub mod accessibility {
     pub const NO_A11Y_NODE: crate::Prop<Option<accesskit::Node>> = crate::Prop::None;
     pub use crate::a11y::{self, A11yInferenceTag};

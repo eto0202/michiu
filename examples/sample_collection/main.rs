@@ -181,9 +181,7 @@ fn redraw_requested(app: &mut MichiuApp) {
     let comp_elapsed = comp_start.elapsed();
 
     let draw_start = std::time::Instant::now();
-    if let Some(_ctx) = app.window.begin_paint() {
-        app.renderer.draw(&mut app.context);
-    }
+    app.renderer.draw(&mut app.context);
     let draw_elapsed = draw_start.elapsed();
 
     app.context.update_accessibility();
