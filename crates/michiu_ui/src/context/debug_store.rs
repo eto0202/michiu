@@ -19,8 +19,8 @@ use crate::{
     ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse, SelectedRectsSparse,
     SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
     SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey, TextCacheValue,
-    TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas,
-    VirtualKey, VisualPropertiesSecondary, WebviewEntitiesVec,
+    TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas, VirtualKey,
+    VisualPropertiesSecondary, WebviewEntitiesVec,
 };
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
@@ -100,7 +100,7 @@ impl DebugStore {
         }
     }
 
-    #[expect(unused)]
+    #[allow(unused)]
     #[inline]
     #[must_use]
     pub(crate) fn with_inspector(inspector: &MichiuInspector) -> Self {
@@ -1688,25 +1688,25 @@ pub enum MichiuError {
 // ================================================================
 
 pub trait OptionTraceExt<T> {
-    /// 値があれば返し、None ならトレースを記録して即座にフラッシュしたあとパニックする
+    /// If a value exists, return it; if it is None, log a trace, immediately flush, and then raise a panic.
     #[track_caller]
     fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
     where
         F: FnOnce() -> MichiuError;
 
-    /// 値があれば返し、None ならトレースを記録して Default 値を返す
+    /// If a value exists, return it; if it is None, log a trace and return the default value.
     #[track_caller]
     fn unwrap_or_default_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T
     where
         T: Default + Debug + Send + Sync + 'static;
 
-    /// 値があれば返し、None ならトレースを記録して指定のフォールバック値を返す
+    /// If a value exists, return it; otherwise, log a trace and return the specified fallback value.
     #[track_caller]
     fn unwrap_or_fallback_trace(self, id: Option<Entity>, fallback: T, debug: &mut DebugStore) -> T
     where
         T: Clone + Debug + Send + Sync + 'static;
 
-    /// 値があれば返し、None ならトレースを記録してクロージャでフォールバック値を生成する
+    /// If a value exists, return it; if it is None, log a trace and generate a fallback value using a closure.
     #[track_caller]
     fn unwrap_or_else_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, f: F) -> T
     where
@@ -1826,7 +1826,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
 }
 
 pub trait ResultTraceExt<T> {
-    /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
+    /// If a value exists, return it; if it is `Err`, log a trace, immediately flush, and then panic.
     #[track_caller]
     fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
@@ -1859,7 +1859,7 @@ impl<T> ResultTraceExt<T> for Result<T> {
 }
 
 pub trait TaffyResultTraceExt<T> {
-    /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
+    /// If a value exists, return it; if it is `Err`, log a trace, immediately flush, and then panic.
     #[track_caller]
     fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
@@ -1892,7 +1892,7 @@ impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
 }
 
 pub trait WindowsResultTraceExt<T> {
-    /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
+    /// If a value exists, return it; if it's `Err`, log a trace, immediately flush, and then panic.
     #[track_caller]
     fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
@@ -1921,5 +1921,422 @@ impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
                 panic!("unwrap_or_trace: {e}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "trace-error")]
+    fn create_dummy_record(debug: &DebugStore) -> MichiuTraceRecord {
+        MichiuTraceRecord {
+            id: None,
+            frame: debug.frame,
+            time: debug.since_boot(),
+            func: "test_fn",
+            loc: caller_location(),
+            trace: MichiuTrace::None,
+            #[cfg(feature = "snapshot")]
+            cx: None,
+            #[cfg(feature = "snapshot")]
+            renderer: None,
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_new_and_default() {
+        let store1 = DebugStore::new();
+        assert_eq!(store1.frame, 0);
+        assert!(store1.dbg_root.is_none());
+        assert!(store1.dbg_tx.is_none());
+        assert!(store1.dbg_trace_queue.is_empty());
+
+        let store2 = DebugStore::default();
+        assert_eq!(store2.frame, 0);
+        assert!(store2.dbg_root.is_none());
+        assert!(store2.dbg_tx.is_none());
+        assert!(store2.dbg_trace_queue.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_with_inspector() {
+        let inspector = MichiuInspector::new();
+        let store = DebugStore::with_inspector(&inspector);
+        assert!(store.dbg_tx.is_some());
+        assert_eq!(store.frame, 0);
+        assert!(store.dbg_trace_queue.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_set_inspector() {
+        let inspector = MichiuInspector::new();
+        let mut store = DebugStore::new();
+        assert!(store.dbg_tx.is_none());
+
+        DebugStore::set_inspector(&mut store, &inspector);
+        assert!(store.dbg_tx.is_some());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_take_trace_queue_when_empty() {
+        let mut store = DebugStore::new();
+        assert!(store.take_trace_queue().is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_take_trace_queue_with_elements() {
+        let mut store = DebugStore::new();
+        let record = create_dummy_record(&store);
+        store.dbg_trace_queue.push(record);
+
+        let batch = store.take_trace_queue();
+        assert!(batch.is_some());
+        let batch = batch.unwrap();
+        assert_eq!(batch.len(), 1);
+        assert!(store.dbg_trace_queue.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_take_trace_queue_capacity_retention() {
+        let mut store = DebugStore::new();
+
+        // 1件追加時：取り出し後の新規バッファは最低512のcapacityを確保する
+        let record = create_dummy_record(&store);
+        store.dbg_trace_queue.push(record);
+        let _ = store.take_trace_queue();
+        assert!(store.dbg_trace_queue.capacity() >= 512);
+
+        // 1000件確保時：直前の容量(1000以上)が引き継がれる
+        store.dbg_trace_queue.reserve(1000);
+        let cap_before = store.dbg_trace_queue.capacity();
+        assert!(cap_before >= 1000);
+
+        let record = create_dummy_record(&store);
+        store.dbg_trace_queue.push(record);
+        let _ = store.take_trace_queue();
+        assert!(store.dbg_trace_queue.capacity() >= cap_before);
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_since_boot() {
+        let store = DebugStore::new();
+        let time1 = store.since_boot();
+
+        std::thread::sleep(Duration::from_millis(5));
+        let time2 = store.since_boot();
+
+        match (time1, time2) {
+            (TimeStamp::SinceBoot(d1), TimeStamp::SinceBoot(d2)) => {
+                assert!(d2 > d1);
+            }
+            _ => panic!("Expected TimeStamp::SinceBoot"),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_mut_accessors() {
+        let mut store = DebugStore::new();
+
+        // frame_mut
+        *store.frame_mut() = 42;
+        assert_eq!(store.frame, 42);
+
+        // trace_queue_mut
+        let record = create_dummy_record(&store);
+        store.trace_queue_mut().push(record);
+        assert_eq!(store.dbg_trace_queue.len(), 1);
+
+        // tx_mut
+        let inspector = MichiuInspector::new();
+        *store.tx_mut() = Some(inspector.sender());
+        assert!(store.dbg_tx.is_some());
+        *store.tx_mut() = None;
+        assert!(store.dbg_tx.is_none());
+
+        // boot_time_mut
+        let past = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
+        *store.boot_time_mut() = past;
+        match store.since_boot() {
+            TimeStamp::SinceBoot(d) => assert!(d >= Duration::from_secs(10)),
+            _ => panic!("Expected TimeStamp::SinceBoot"),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_inspector_subscription_and_delivery() {
+        let inspector = MichiuInspector::new();
+        let sub = inspector.subscribe(Some(16));
+
+        let store = DebugStore::new();
+        let mut batch = MichiuTraceVec(Vec::new());
+        batch.push(create_dummy_record(&store));
+
+        inspector.sender().send_batch(batch);
+
+        let received = sub.recv().expect("Failed to receive batch");
+        assert_eq!(received.len(), 1);
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_inspector_subscriber_disconnect() {
+        let inspector = MichiuInspector::new();
+        {
+            let _sub = inspector.subscribe(Some(16));
+            // スコープ終了で sub がドロップされる
+        }
+
+        let store = DebugStore::new();
+        let mut batch = MichiuTraceVec(Vec::new());
+        batch.push(create_dummy_record(&store));
+
+        // ドロップ済みでもメイン側がパニックせず送信を完了できる
+        inspector.sender().send_batch(batch);
+    }
+
+    #[test]
+    fn test_current_fn_macro() {
+        let name = current_fn!();
+        #[cfg(feature = "trace-error")]
+        assert!(name.contains("test_current_fn_macro"));
+        #[cfg(not(feature = "trace-error"))]
+        assert_eq!(name, "");
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_trace_error_macro() {
+        let mut store = DebugStore::new();
+
+        // dbg_tx が None の場合はキューイングされない
+        trace_error!(None, &mut store, || MichiuTrace::Error {
+            detail: MichiuError::RootEntityNotFound,
+            add: None,
+        });
+        assert!(store.dbg_trace_queue.is_empty());
+
+        // dbg_tx を設定した場合はキューイングされる
+        let inspector = MichiuInspector::new();
+        DebugStore::set_inspector(&mut store, &inspector);
+
+        trace_error!(None, &mut store, || MichiuTrace::Error {
+            detail: MichiuError::RootEntityNotFound,
+            add: None,
+        });
+        assert_eq!(store.dbg_trace_queue.len(), 1);
+        assert!(matches!(
+            store.dbg_trace_queue[0].trace,
+            MichiuTrace::Error {
+                detail: MichiuError::RootEntityNotFound,
+                add: None,
+            }
+        ));
+    }
+
+    #[test]
+    fn test_option_unwrap_or_trace_ok() {
+        let mut store = DebugStore::new();
+        let opt = Some(100);
+        let val = opt.unwrap_or_trace(None, &mut store, || MichiuError::RootEntityNotFound);
+        assert_eq!(val, 100);
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_option_unwrap_or_trace_panic_and_record() {
+        let inspector = MichiuInspector::new();
+        let sub = inspector.subscribe(Some(16));
+        let mut store = DebugStore::with_inspector(&inspector);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let opt: Option<i32> = None;
+            opt.unwrap_or_trace(None, &mut store, || MichiuError::RootEntityNotFound);
+        }));
+
+        assert!(result.is_err());
+        let received = sub.recv().expect("Failed to receive flushed error batch");
+        assert_eq!(received.len(), 1);
+        assert!(matches!(
+            received[0].trace,
+            MichiuTrace::Error {
+                detail: MichiuError::RootEntityNotFound,
+                add: None,
+            }
+        ));
+    }
+
+    #[test]
+    fn test_option_unwrap_or_default_trace() {
+        let mut store = DebugStore::new();
+        let opt_some = Some(42);
+        assert_eq!(opt_some.unwrap_or_default_trace(None, &mut store), 42);
+
+        let opt_none: Option<i32> = None;
+        assert_eq!(opt_none.unwrap_or_default_trace(None, &mut store), 0);
+    }
+
+    #[test]
+    fn test_option_unwrap_or_fallback_trace() {
+        let mut store = DebugStore::new();
+        let opt_some = Some("exists");
+        assert_eq!(
+            opt_some.unwrap_or_fallback_trace(None, "fallback", &mut store),
+            "exists"
+        );
+
+        let opt_none: Option<&str> = None;
+        assert_eq!(
+            opt_none.unwrap_or_fallback_trace(None, "fallback", &mut store),
+            "fallback"
+        );
+    }
+
+    #[test]
+    fn test_option_unwrap_or_else_trace() {
+        let mut store = DebugStore::new();
+        let mut fallback_called = false;
+
+        let opt_some = Some(10);
+        let val1 = opt_some.unwrap_or_else_trace(None, &mut store, || {
+            fallback_called = true;
+            99
+        });
+        assert_eq!(val1, 10);
+        assert!(!fallback_called);
+
+        let opt_none: Option<i32> = None;
+        let val2 = opt_none.unwrap_or_else_trace(None, &mut store, || {
+            fallback_called = true;
+            99
+        });
+        assert_eq!(val2, 99);
+        assert!(fallback_called);
+    }
+
+    #[test]
+    fn test_result_unwrap_or_trace() {
+        let mut store = DebugStore::new();
+
+        let ok_res: Result<i32> = Ok(123);
+        assert_eq!(ok_res.unwrap_or_trace(None, &mut store), 123);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let err_res: Result<i32> = Err(MichiuError::RootEntityNotFound);
+            err_res.unwrap_or_trace(None, &mut store);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_taffy_result_unwrap_or_trace() {
+        let mut store = DebugStore::new();
+
+        let ok_res: taffy::TaffyResult<i32> = Ok(10);
+        assert_eq!(ok_res.unwrap_or_trace(None, &mut store), 10);
+
+        let mut tree = taffy::TaffyTree::<()>::new();
+        let leaf = tree.new_leaf(taffy::Style::default()).unwrap();
+        // 子を持たないノードから0番目の子を取得しようとして TaffyError を発生させる
+        let err_res = tree.child_at_index(leaf, 0);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            err_res.unwrap_or_trace(None, &mut store);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_windows_result_unwrap_or_trace() {
+        let mut store = DebugStore::new();
+
+        let ok_res: windows_core::Result<i32> = Ok(20);
+        assert_eq!(ok_res.unwrap_or_trace(None, &mut store), 20);
+
+        let err_res: windows_core::Result<i32> =
+            Err(windows_core::Error::from_hresult(windows_core::HRESULT(-1)));
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            err_res.unwrap_or_trace(None, &mut store);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_michiu_error_traits_boundary() {
+        // Send + Sync + Clone + 'static を満たしていることを静的に検証
+        fn assert_traits<T: Send + Sync + Clone + std::error::Error + 'static>() {}
+        assert_traits::<MichiuError>();
+    }
+
+    #[test]
+    fn test_michiu_error_from_conversions() {
+        // windows_core::Error -> MichiuError
+        let win_err = windows_core::Error::from_hresult(windows_core::HRESULT(-1));
+        let err: MichiuError = win_err.into();
+        assert!(matches!(err, MichiuError::WindowsApiError { .. }));
+
+        // taffy::TaffyError -> MichiuError
+        let mut tree = taffy::TaffyTree::<()>::new();
+        let leaf = tree.new_leaf(taffy::Style::default()).unwrap();
+        let taffy_err = tree.child_at_index(leaf, 0).unwrap_err();
+        let err: MichiuError = taffy_err.into();
+        assert!(matches!(err, MichiuError::TaffyError { .. }));
+    }
+
+    #[test]
+    fn test_michiu_error_source_chain() {
+        use std::error::Error;
+
+        // #[source] を持つバリアントで source() が取得できるか
+        let io_err = Arc::new(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "file not found",
+        ));
+        let err = MichiuError::CanonicalizeFailed {
+            path: PathBuf::from("test/path"),
+            source: Arc::clone(&io_err),
+        };
+        assert!(err.source().is_some());
+
+        // sourceを持たないバリアントでは None が返るか
+        let err_no_source = MichiuError::RootEntityNotFound;
+        assert!(err_no_source.source().is_none());
+    }
+
+    #[test]
+    fn test_michiu_error_display_formatting() {
+        let err = MichiuError::ComponentNotFound {
+            id: slotmap::Key::null(),
+            component: "Transform",
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("Component 'Transform' not found"));
+
+        let err = MichiuError::ScopeViolation {
+            caller: "use_signal",
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("'use_signal' must be called inside"));
+
+        let err = MichiuError::GlyphAllocationFailed {
+            width: 64,
+            height: 64,
+            atlas_w: 1024,
+            atlas_h: 1024,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("64x64"));
+        assert!(msg.contains("1024x1024"));
     }
 }

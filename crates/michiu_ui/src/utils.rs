@@ -117,8 +117,37 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
 /// ```
 #[inline]
 #[must_use]
+#[track_caller]
+#[expect(clippy::panic)]
 pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
-    with_context(|cx| cx.use_provided::<T>())
+    let signal = with_context(|cx| cx.try_use_provided::<T>());
+
+    let Some(signal) = signal else {
+        panic!(
+            "\n=======================================================\n\
+            {RED_BOLD}[Michiu UI Error: Context Not Found]{RESET}\n\
+            Called at: {UNDERLINE}{caller}{RESET}\n\
+            \n\
+            Failed to find context of type:\n\
+              {CYAN}{BOLD}`{type_name}`{RESET}\n\
+            \n\
+            {YELLOW}Possible causes & Solutions:{RESET}\n\
+            1. The context was not provided by any ancestor entity:\n\
+               - Make sure an ancestor calls\n\
+                 {GREEN}`div_n().provide::<{type_name}>()`{RESET}.\n\
+            2. Called outside of an entity builder or reactive context:\n\
+               - `use_provided` must be called inside an Entity's closure, such as\n\
+                 {GREEN}`div(|| {{ let _ = use_provided::<{type_name}>(); ... }})`{RESET},\n\
+                 or inside an active event handler.\n\
+               - If using inside a `Modifier` method, use\n\
+                 {GREEN}`bg_color(dynamic(|t: &{type_name}| t.color))`{RESET}.\n\
+            =======================================================",
+            caller = std::panic::Location::caller(),
+            type_name = std::any::type_name::<T>()
+        );
+    };
+
+    signal
 }
 
 /// From the current thread-local `Context`, we obtain a [`WriteSignal`] for a signal of type `T`,
@@ -157,8 +186,35 @@ pub fn use_provided<T: Clone + 'static>() -> ReadSignal<T> {
 /// ```
 #[inline]
 #[must_use]
+#[track_caller]
+#[expect(clippy::panic)]
 pub fn use_provided_setter<T: Send + 'static>() -> WriteSignal<T> {
-    with_context(|cx| cx.use_provided_setter::<T>())
+    let signal = with_context(|cx| cx.try_use_provided_setter::<T>());
+
+    let Some(signal) = signal else {
+        panic!(
+            "\n=======================================================\n\
+            {RED_BOLD}[Michiu UI Error: Context Not Found]{RESET}\n\
+            Called at: {UNDERLINE}{caller}{RESET}\n\
+            \n\
+            Failed to find context of type:\n\
+              {CYAN}{BOLD}`{type_name}`{RESET}\n\
+            \n\
+            {YELLOW}Possible causes & Solutions:{RESET}\n\
+            1. The context was not provided by any ancestor entity:\n\
+               - Make sure an ancestor calls\n\
+                 {GREEN}`div_n().provide::<{type_name}>()`{RESET}.\n\
+            2. Called outside of an entity builder or reactive context:\n\
+               - `use_provided_setter` must be called inside an Entity's closure, such as\n\
+                 {GREEN}`div(|| {{ let _ = use_provided_setter::<{type_name}>(); ... }})`{RESET},\n\
+                 or inside an active event handler.\n\
+            =======================================================",
+            caller = std::panic::Location::caller(),
+            type_name = std::any::type_name::<T>()
+        );
+    };
+
+    signal
 }
 
 /// Generates dynamic style values that reactively change based on the value of a provider ([`use_provided`](crate::use_provided)).
@@ -940,3 +996,11 @@ pub fn raw_wheel_delta_to_logical_pixels(raw_delta: f32) -> f32 {
         -notches * (scroll_lines as f32) * 30.0
     }
 }
+
+pub(crate) const RED_BOLD: &str = "\x1b[1;31m";
+pub(crate) const CYAN: &str = "\x1b[36m";
+pub(crate) const YELLOW: &str = "\x1b[33m";
+pub(crate) const UNDERLINE: &str = "\x1b[4m";
+pub(crate) const BOLD: &str = "\x1b[1m";
+pub(crate) const RESET: &str = "\x1b[0m";
+pub(crate) const GREEN: &str = "\x1b[32m";

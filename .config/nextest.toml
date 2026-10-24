@@ -4,7 +4,7 @@ retries = 1
 # 60秒以上かかったらスローテストとして警告
 slow-timeout = { period = "60s" }
 
-# 特定のテストだけリトライを増やす、並列度を1にする（シリアル実行）などの制御も可能
+# 特定のテストだけリトライを増やす、並列度を1にするなどの制御も可能
 [[profile.default.overrides]]
 filter = 'test(test_filter_.*)'
 threads-required = 1 # DBテストなど競合を避けたいテストを直列実行

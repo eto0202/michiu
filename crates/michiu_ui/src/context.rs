@@ -684,6 +684,19 @@ impl Context {
         })
     }
 
+    /// From the current thread-local `Context`,
+    /// we obtain a [`WriteSignal`] for a signal of type `T`, automatically resolving it by traversing the parent tree.
+    #[track_caller]
+    #[inline]
+    pub fn try_use_provided_setter<T: Send + 'static>(&mut self) -> Option<WriteSignal<T>> {
+        let entity = ReactiveStore::resolve_entity_effect(&self.reactive.react_effect_to_entity)?;
+        ReactiveStore::use_provided_setter_from::<T>(
+            entity,
+            &self.reactive.react_providers,
+            &self.topology.topo_parents,
+        )
+    }
+
     /// Identify the target entity from the current thread-local `Context`
     /// and resolve the [`ReadSignal`] of type `T` by traversing the parent tree.
     #[track_caller]
@@ -691,7 +704,7 @@ impl Context {
     pub fn use_provided<T: Clone + 'static>(&mut self) -> ReadSignal<T> {
         let entity = ReactiveStore::resolve_entity_effect(&self.reactive.react_effect_to_entity)
             .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
-                caller: "use_provided_setter",
+                caller: "use_provided",
             });
 
         ReactiveStore::use_provided_from::<T>(

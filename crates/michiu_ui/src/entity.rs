@@ -281,20 +281,21 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Entity) -> Entity {
 #[expect(clippy::panic)]
 #[inline]
 pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
-    let ptr = ACTIVE_CONTEXT.get().unwrap_or_else(|| {
+    let Some(ptr) = ACTIVE_CONTEXT.get() else {
+        use crate::{RED_BOLD, RESET, UNDERLINE, YELLOW};
         let caller = std::panic::Location::caller();
         panic!(
             "\n=======================================================\n\
-            [Michiu UI Fatal Error: No Active Context]\n\
-            Called at: {caller}\n\
+            {RED_BOLD}[Michiu UI Fatal Error: No Active Context]{RESET}\n\
+            Called at: {UNDERLINE}{caller}{RESET}\n\
             \n\
-            Possible causes:\n\
+            {YELLOW}Possible causes:{RESET}\n\
              - Calling UI / Reactive APIs from a background thread (must be called on the UI main thread).\n\
              - Accessing Context before it was initialized or after it was dropped.\n\
              - Calling UI methods outside of the application event loop.\n\
             ======================================================="
-            );
-        });
+        );
+    };
     // UIスレッドは単一かつ非同期にまたがらないため、ポインタの生存期間は保証される。
     unsafe { f(&mut *ptr) }
 }

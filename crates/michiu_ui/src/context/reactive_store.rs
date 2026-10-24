@@ -144,6 +144,7 @@ impl ReactiveStore {
         })
     }
 
+    #[track_caller]
     pub(crate) fn resolve_entity_effect(
         react_effect_to_entity: &EffectToEntitySecondary,
     ) -> Option<Entity> {
