@@ -439,7 +439,7 @@ pub mod accessibility {
 #[doc(hidden)]
 pub mod prelude {
     pub use crate::{
-        bitmap::PropertyList,
+        animation::PropertyList,
         context::{Context, MichiuInspector},
         dnd::{DndDragMode, DndDropTarget},
         entity::{Entity, build_ui},

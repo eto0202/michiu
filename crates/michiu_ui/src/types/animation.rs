@@ -1,8 +1,23 @@
-use crate::{BoxShadow, Color, CornerRadius, LayoutPoint, PropertyList};
+use crate::{BoxShadow, Color, CornerRadius, LayoutPoint};
 use std::{
     f32::consts::PI,
     time::{Duration, Instant},
 };
+
+/// Properties for which animations and transitions can be configured
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PropertyList {
+    BackgroundColor,
+    BorderColor,
+    Opacity,
+    Transform,
+    CornerRadius,
+    Width,
+    Height,
+    Size,
+    BoxShadow,
+    Resizable,
+}
 
 /// Values that can be transitioned
 #[derive(Debug, Clone, Copy, PartialEq)]
