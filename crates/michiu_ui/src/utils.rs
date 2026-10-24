@@ -298,6 +298,34 @@ pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Color {
     Color::hsla(h, s, l, a)
 }
 
+/// Generate from Oklab (L: 0.0..1.0, a: -0.4..0.4, b: -0.4..0.4)
+#[inline]
+#[must_use]
+pub fn oklab(l: f32, a: f32, b: f32) -> Color {
+    Color::oklab(l, a, b)
+}
+
+/// Generate it by adding an alpha value to Oklab
+#[inline]
+#[must_use]
+pub fn oklaba(l: f32, a: f32, b: f32, alpha: f32) -> Color {
+    Color::oklaba(l, a, b, alpha)
+}
+
+/// Generate from Oklch (L: 0.0..1.0, Chroma: 0.0..0.4+, Hue: 0..360°)
+#[inline]
+#[must_use]
+pub fn oklch(l: f32, c: f32, h: f32) -> Color {
+    Color::oklch(l, c, h)
+}
+
+/// Generate it by adding an alpha value to Oklch
+#[inline]
+#[must_use]
+pub fn oklcha(l: f32, c: f32, h: f32, alpha: f32) -> Color {
+    Color::oklcha(l, c, h, alpha)
+}
+
 /// A container that applies a style and generates content.
 ///
 /// It is the same as `Entity::new().modify(style)`.
