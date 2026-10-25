@@ -199,3 +199,151 @@ macro_rules! define_smallvec {
         $vis struct $name(pub(crate) smallvec::SmallVec<[$item; $size]>);
     };
 }
+
+#[cfg(test)]
+#[expect(clippy::panic, clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use slotmap::{Key, SlotMap};
+
+    define_secondary!(struct TestSecondary(i32));
+    define_sparse_secondary!(struct TestSparseSecondary(i32));
+    define_slotmap!(struct TestSlotMap(Entity, u32));
+    define_vec!(struct TestVec(i32));
+    define_smallvec!(struct TestSmallVec(i32, 4));
+
+    fn setup_entity() -> (SlotMap<Entity, ()>, Entity) {
+        let mut sm = SlotMap::<Entity, ()>::with_key();
+        let entity = sm.insert(());
+        (sm, entity)
+    }
+
+    #[test]
+    fn test_soa_find_and_contains() {
+        let (_sm, entity) = setup_entity();
+        let missing = Entity::null();
+
+        let mut map = TestSecondary::default();
+        map.insert(entity, 42);
+
+        assert_eq!(map.find(entity), Some(&42));
+        assert!(map.contains(entity));
+
+        assert_eq!(map.find(missing), None);
+        assert!(!map.contains(missing));
+    }
+
+    #[test]
+    fn test_soa_find_mut() {
+        let (_sm, entity) = setup_entity();
+        let missing = Entity::null();
+
+        let mut map = TestSecondary::default();
+        map.insert(entity, 10);
+
+        if let Some(val) = map.find_mut(entity) {
+            *val += 5;
+        }
+        assert_eq!(map.find(entity), Some(&15));
+        assert!(map.find_mut(missing).is_none());
+    }
+
+    #[test]
+    fn test_soa_require_and_require_mut() {
+        let (_sm, entity) = setup_entity();
+        let missing = Entity::null();
+
+        let mut map = TestSecondary::default();
+        map.insert(entity, 100);
+
+        // require
+        assert_eq!(map.require(entity).unwrap(), &100);
+        match map.require(missing) {
+            Err(MichiuError::ComponentNotFound { id, component }) => {
+                assert_eq!(id, missing);
+                assert!(component.contains("TestSecondary"));
+            }
+            _ => panic!("Expected ComponentNotFound error"),
+        }
+
+        // require_mut
+        *map.require_mut(entity).unwrap() = 200;
+        assert_eq!(map.require(entity).unwrap(), &200);
+        assert!(matches!(
+            map.require_mut(missing),
+            Err(MichiuError::ComponentNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn test_soa_at_and_at_mut() {
+        let (_sm, entity) = setup_entity();
+        let missing = Entity::null();
+
+        let mut map = TestSecondary::default();
+        map.insert(entity, 50);
+
+        assert_eq!(*map.at(entity), 50);
+        *map.at_mut(entity) = 60;
+        assert_eq!(*map.at(entity), 60);
+
+        // at の panic 検証
+        let res_at = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = map.at(missing);
+        }));
+        assert!(res_at.is_err());
+
+        // at_mut の panic 検証
+        let res_at_mut = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = map.at_mut(missing);
+        }));
+        assert!(res_at_mut.is_err());
+    }
+
+    #[test]
+    fn test_soa_find_or_default_and_find_or() {
+        let (_sm, entity) = setup_entity();
+        let missing = Entity::null();
+        let mut debug = DebugStore::new();
+
+        let mut map = TestSecondary::default();
+        map.insert(entity, 77);
+
+        // find_or_default
+        assert_eq!(map.find_or_default(entity, &mut debug), 77);
+        assert_eq!(map.find_or_default(missing, &mut debug), 0);
+
+        // find_or
+        let fallback = 999;
+        assert_eq!(map.find_or(entity, &fallback, &mut debug), &77);
+        assert_eq!(map.find_or(missing, &fallback, &mut debug), &999);
+    }
+
+    #[test]
+    fn test_define_macros() {
+        let (_sm, entity) = setup_entity();
+
+        // define_sparse_secondary
+        let mut sparse = TestSparseSecondary::default();
+        sparse.insert(entity, 12);
+        assert_eq!(sparse.find(entity), Some(&12));
+
+        // define_slotmap
+        let mut slot = TestSlotMap::default();
+        let k = slot.insert(100);
+        assert_eq!(slot[k], 100);
+
+        // define_vec (Deref, DerefMut, IntoIterator)
+        let mut v = TestVec::default();
+        v.push(1);
+        v.push(2);
+        assert_eq!(v.len(), 2);
+        assert_eq!((&v).into_iter().copied().collect::<Vec<_>>(), vec![1, 2]);
+
+        // define_smallvec
+        let mut sv = TestSmallVec::default();
+        sv.push(10);
+        assert_eq!(sv.len(), 1);
+        assert_eq!(sv.into_iter().collect::<Vec<_>>(), vec![10]);
+    }
+}
