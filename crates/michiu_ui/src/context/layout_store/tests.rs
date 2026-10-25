@@ -52,6 +52,17 @@ impl TestFixture {
     }
 }
 
+// `LayoutStore::resync_taffy_children_order` の検証
+//
+// `test_resync_taffy_children_order_reorder`
+//  - 親ノードと複数の子ノード（A, B, C）を作成し、Taffy に初期登録。
+//  - `ChildrenSecondary` 側の順序を (C, A, B) に変更して `resync_taffy_children_order` を実行。
+//  - Taffy 側の `lay_taffy_tree.children(parent_node)` の順序が (C, A, B) に正確に同期されることを確認。
+//
+// test_resync_taffy_children_order_empty`
+//  - 子ノードが存在する状態から、`ChildrenSecondary` を空リストに変更して実行。
+//  - Taffy 側の子ノードがすべてデタッチされ、0件になることを確認。
+
 #[test]
 fn test_resync_taffy_children_order_reorder() {
     let mut f = TestFixture::new();
@@ -103,6 +114,24 @@ fn test_resync_taffy_children_order_empty() {
 
     assert_eq!(f.taffy_tree.child_count(p_node), 0);
 }
+
+// `LayoutStore::mark_layout_dirty` & `clear_layout_dirty` の検証
+//
+// `test_mark_layout_dirty_propagation_to_ancestors`
+//  - 親 $\to$ 子 $\to$ 孫 のツリー構造を構築。
+//  - 孫に対して `mark_layout_dirty` を呼び出す。
+//    1. 孫の Taffy ノードが `dirty` 状態になっていること。
+//    2. 孫、子、親のすべてに `ComponentMask::STATE_QUEUED_LAYOUT` がセットされること。
+//    3. `lay_dirty_entities` に `[孫, 子, 親]` の順で追加されること。
+// 
+// `test_mark_layout_dirty_early_break_on_already_dirty`
+//  - 親にあらかじめ `STATE_QUEUED_LAYOUT` をセットしておく。
+//  - 孫に対して `mark_layout_dirty` を呼び出す。
+//  - 親に到達した時点で探索が打ち切られ、親より上の先祖や重複登録が発生しないことを確認。
+// 
+// `test_clear_layout_dirty`
+//  - `STATE_QUEUED_LAYOUT` が付与された複数エンティティをキューに投入。
+//  - `clear_layout_dirty` を呼び出し後、全エンティティのマスクが解除され、`lay_dirty_entities` が空になることを確認。
 
 #[test]
 fn test_mark_layout_dirty_propagation_to_ancestors() {

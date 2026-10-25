@@ -179,6 +179,43 @@ mod tests {
         (sm, entities)
     }
 
+    // `test_register_and_get_entities`
+    //  - 単一エンティティに複数のタグ型（例: `TagA`, `TagB`）を登録。
+    //  - 単一タグ型に複数のエンティティを登録。
+    //  - `get_entities::<T>()` で対応するエンティティ一覧が取得できること。
+    //  - 未登録の型に対しては `None` が返ること。
+    //
+    // `test_unregister_entity`
+    //  - エンティティに複数タグが紐づいた状態で `unregister_entity` を実行。
+    //  - `entity_to_types` から完全に削除されること。
+    //  - 各型の `type_to_entities` リストからも対象エンティティのみが正しく削除され、同タグを持つ他のエンティティは保持されること。
+    //  - 存在しないエンティティの登録解除を呼び出しても安全に処理されること。
+    //
+    // `test_is_descendant_of`
+    //  - 親 $\to$ 子 $\to$ 孫 のツリーを構築。
+    //  - 子および孫が親の「子孫」と判定されること（`true`）。
+    //  - 兄弟ノード、親自身、別サブツリーのノードは「子孫ではない」と判定されること（`false`）。
+    //
+    // `test_query_descendants_of_type`
+    //  - 木構造（ルート、親A、子A1、子A2、親B、子B1）と対応する `FlatDfsSequenceVec` を用意。
+    //  - 子A1 と 子B1 に同一タグ `TagA` を登録。
+    //  - 親A を対象に `query_descendants_of_type::<TagA>` を実行。
+    //  - 親A の子孫である 子A1 のみが抽出され、親B の子孫（子B1）や無関係なノードが混入しないことを確認。
+    //  - DFS順序通りに走査・返却されること。
+    // 
+    // `test_query_descendants_of_type_edge_cases`
+    //  - 親ノードが `FlatDfsSequenceVec` 内に存在しない場合、空イテレータが返ること。
+    //  - 対象タグを持つ子孫が存在しない場合、空イテレータが返ること。
+    // 
+    // `test_query_first_descendant_of_type`
+    //  - 親A の子孫に同一タグを持つエンティティが複数存在する場合（子A1、孫A1_1）、DFS順で最初に出現する要素（子A1）のみが `Some` で返ること。
+    //  - 子孫範囲外を跨ぐ前に正しく探索が打ち切られること。
+    //
+    // `test_collect_a11y_inferences`
+    //  - モックタグに対して `register_a11y_inference` を実行。
+    //  - タグが付与されたエンティティから、該当する推論関数ポインタ（`InferenceFn`）が過不足なく収集されること。
+    //  - 推論ハンドラが未登録のタグのみを持つエンティティでは空の `SmallVec` が返ること。
+
     #[test]
     fn test_register_and_get_entities() {
         let (_sm, e) = setup_entities(2);

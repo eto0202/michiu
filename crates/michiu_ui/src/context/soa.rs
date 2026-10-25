@@ -218,6 +218,26 @@ mod tests {
         (sm, entity)
     }
 
+    // 1. `MichiuSoA` トレイトの基本アクセス（正常系・準正常系）
+    //
+    // `test_soa_find_and_contains`
+    //  - 存在する `Entity` に対し、`find` が `Some(&Item)` を返し、`contains` が `true` を返すこと。
+    //  - 存在しない `Entity` に対し、`find` が `None` を返し、`contains` が `false` を返すこと。
+    //
+    // `test_soa_find_mut`**
+    //  - 存在する `Entity` に対し、`find_mut` 経由で内部の値を変更でき、変更が保持されること。
+    //  - 存在しない `Entity` に対し、`None` が返ること。
+    //
+    // `test_soa_require_and_require_mut`
+    //  - 存在する `Entity` に対し、`Ok(&Item)` / `Ok(&mut Item)` が返ること。
+    //  - 存在しない `Entity` に対し、`Err(MichiuError::ComponentNotFound { id, component })` が返り、`component` にコンテナの型名が含まれること。
+    // 
+    // `test_soa_find_or_default_and_find_or`
+    //  - 存在する `Entity`: 格納されている値が返ること。
+    //  - 存在しない `Entity`: `Default::default()` の値が返ること。
+    //  - 存在する `Entity`: 格納されている値への参照が返ること。
+    //  - 存在しない `Entity`: 指定した `fallback` の参照が返ること。
+
     #[test]
     fn test_soa_find_and_contains() {
         let (_sm, entity) = setup_entity();
@@ -276,6 +296,43 @@ mod tests {
     }
 
     #[test]
+    fn test_soa_find_or_default_and_find_or() {
+        let (_sm, entity) = setup_entity();
+        let missing = Entity::null();
+        let mut debug = DebugStore::new();
+
+        let mut map = TestSecondary::default();
+        map.insert(entity, 77);
+
+        // find_or_default
+        assert_eq!(map.find_or_default(entity, &mut debug), 77);
+        assert_eq!(map.find_or_default(missing, &mut debug), 0);
+
+        // find_or
+        let fallback = 999;
+        assert_eq!(map.find_or(entity, &fallback, &mut debug), &77);
+        assert_eq!(map.find_or(missing, &fallback, &mut debug), &999);
+    }
+
+    // 2. `MichiuSoA` のパニック挙動（異常系）
+    //
+    // `test_soa_at_and_at_mut`**
+    //  - 存在する `Entity` では `&Item` を取得できること。
+    //  - 存在しない `Entity` に対し `at(id)` を呼ぶと、コンテナ型名・Entity ID・発信元情報を含むメッセージでパニックすること。
+    //  - 存在する `Entity` では `&mut Item` を変更できること。
+    //  - 存在しない `Entity` に対し `at_mut(id)` を呼ぶとパニックすること。
+    //
+    // 4. マクロ群の展開と挙動検証
+    //
+    // `test_define_macros`**
+    //  - 単一型引数の呼び出しで `MichiuSoA` が正しく実装され、`Deref`/`DerefMut` が動作すること。
+    //  - 2型引数（カスタムキー）の呼び出しで型が正常に生成されること。
+    //  - 単一型引数の呼び出しで `SparseSecondaryMap` に対する `MichiuSoA` が動作すること。
+    //  - `SlotMap` をラップした型が生成され、挿入・取得および `Deref`/`DerefMut` が動作すること。
+    //  - `define_vec!`: `Vec` の操作（push, len 等）および所有権・参照での `into_iter()` が動作すること。
+    //  - `define_smallvec!`: `SmallVec` の操作および `into_iter()` が動作すること。
+
+    #[test]
     fn test_soa_at_and_at_mut() {
         let (_sm, entity) = setup_entity();
         let missing = Entity::null();
@@ -298,25 +355,6 @@ mod tests {
             let _ = map.at_mut(missing);
         }));
         assert!(res_at_mut.is_err());
-    }
-
-    #[test]
-    fn test_soa_find_or_default_and_find_or() {
-        let (_sm, entity) = setup_entity();
-        let missing = Entity::null();
-        let mut debug = DebugStore::new();
-
-        let mut map = TestSecondary::default();
-        map.insert(entity, 77);
-
-        // find_or_default
-        assert_eq!(map.find_or_default(entity, &mut debug), 77);
-        assert_eq!(map.find_or_default(missing, &mut debug), 0);
-
-        // find_or
-        let fallback = 999;
-        assert_eq!(map.find_or(entity, &fallback, &mut debug), &77);
-        assert_eq!(map.find_or(missing, &fallback, &mut debug), &999);
     }
 
     #[test]

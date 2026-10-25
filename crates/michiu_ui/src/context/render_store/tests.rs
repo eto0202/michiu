@@ -1,6 +1,24 @@
 use super::*;
 use slotmap::SlotMap;
 
+// `RenderStore::mark_render_dirty` & `clear_render_dirty` の検証
+//
+// `test_mark_render_dirty_single_entity`
+//  - 対象エンティティに `mark_render_dirty` を呼び出す。
+//  - `ComponentMask::STATE_QUEUED_RENDER` がセットされ、`rnd_dirty_entities` に追加されること。
+//  - （レイアウトと異なり）親ノードには影響を与えないことを確認。
+//
+// `test_mark_render_dirty_deduplication`
+//  - 同一エンティティに対して複数回 `mark_render_dirty` を呼び出す。
+//  - 二重登録されず、キューの要素数が 1 件のままであることを確認。
+//
+// `test_clear_render_dirty`
+//  - 登録済みエンティティのマスクが正常に解除され、キューがクリアされることを確認。
+//
+// `test_clear_render_dirty_with_despawned_entity`**
+//  - キューの中に、既に `topo_active_masks` から削除された（despawn済みの）`Entity` が混在している状態で `clear_render_dirty` を実行。
+//  - パニックを起こさず正常にスキップされ、キューが空になることを確認。
+
 #[test]
 fn test_mark_render_dirty_single_entity() {
     let mut sm = SlotMap::<Entity, ()>::with_key();

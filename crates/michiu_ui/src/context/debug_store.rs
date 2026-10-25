@@ -1945,6 +1945,46 @@ mod tests {
         }
     }
 
+    // 1. 初期状態の検証
+    // `test_debug_store_new_and_default`
+    //  - `DebugStore::new()` および `DebugStore::default()` で初期化。
+    //  - `frame` が 0、`dbg_root` が `None`、`dbg_tx` が `None`、`dbg_trace_queue` が空であることを確認。
+    //
+    // 2. インスペクター連携
+    // `test_debug_store_with_inspector`
+    //  - `MichiuInspector::new()` を生成し、`DebugStore::with_inspector(&inspector)` で構築。
+    //  - `dbg_tx` が `Some` に設定されることを確認。
+    //
+    // `test_debug_store_set_inspector`
+    //  - デフォルトの `DebugStore` に対し `DebugStore::set_inspector(&mut store, &inspector)` を呼び出す。
+    //  - `dbg_tx` が `None` から `Some` に更新されることを確認。
+    //
+    // 3. トレースキューの取り出し（`take_trace_queue`）
+    // `test_take_trace_queue_when_empty`
+    //  - キューが空の状態で `take_trace_queue()` を呼び出した場合、`None` が返ることを確認。
+    //
+    // `test_take_trace_queue_with_elements`
+    //  - キューにダミーのレコードを追加した状態で `take_trace_queue()` を呼び出す。
+    //  - `Some(batch)` が返り、元の `dbg_trace_queue` が空になることを確認。
+    //
+    // `test_take_trace_queue_capacity_retention`
+    //  - キューをクリアした後の `dbg_trace_queue` の capacity が、直前の容量と 512 の大きい方にリセットされる仕様（`max(512)`）の検証。
+    //    - レコード数 1 の場合：取り出し後の capacity >= 512
+    //    - レコード数 1000 の場合：取り出し後の capacity >= 1000
+    //
+    // 4. 起動経過時間（`since_boot`）
+    // `test_debug_store_since_boot`
+    //  - `store.since_boot()` の戻り値が `TimeStamp::SinceBoot(duration)` であることを確認。
+    //  - 微小なスリープを挟んで取得した値が単調増加していることを確認。
+    //
+    // 5. 可変アクセサ（`_mut`）経由での更新
+    // `test_debug_store_mut_accessors`
+    //  - `frame_mut()`: 値のインクリメントおよび更新確認。
+    //  - `dbg_root_mut()`: `Entity` のセット・リセット確認。
+    //  - `trace_queue_mut()`: 外部からの直接 push / clear 操作の反映確認。
+    //  - `boot_time_mut()`: `Instant` の書き換え確認。
+    //  - `tx_mut()`: 送信チャンネルの直接クリア・設定確認。
+
     #[test]
     #[cfg(feature = "trace-error")]
     fn test_debug_store_new_and_default() {
@@ -2072,6 +2112,26 @@ mod tests {
         }
     }
 
+    // 1. `MichiuInspector` の検証
+    //
+    // `test_inspector_subscription_and_delivery`
+    //  - `MichiuInspector::new()` を生成し、`subscribe()` で受信ハンドルを取得。
+    //  - `inspector.sender().send_batch(...)` でバッチを送信。
+    //  - サブスクライバの `recv()` で送られたバッチが取得できること。
+    //
+    // `test_inspector_storage_and_get`
+    //  - `id: Some(entity)` を持つレコードを含むバッチを送信。
+    //  - ワーカースレッドによる処理後、`inspector.get(entity)` で該当レコードが取得できること。
+    //  - `id: None` のレコードは storage に影響を与えないこと。
+    //
+    // `test_inspector_subscriber_disconnect`
+    //  - サブスクライバを drop した後、再度バッチを送信。
+    //  - ワーカースレッドがパニックせず、内部の送信先リストから切断された購読者が除外されること。
+    //
+    // `test_inspector_sender_buffer_full`
+    //  - 受信しないサブスクライバ（小バッファ `buffer_size: Some(1)`）に対して容量を超えるバッチを送信。
+    //  - メイン側がブロックされずに `send_batch` を完了できること（非同期/ノンブロッキング検証）。
+
     #[test]
     #[cfg(feature = "trace-error")]
     fn test_inspector_subscription_and_delivery() {
@@ -2104,6 +2164,39 @@ mod tests {
         // ドロップ済みでもメイン側がパニックせず送信を完了できる
         inspector.sender().send_batch(batch);
     }
+
+    // 2. トレースマクロ群の検証
+    //
+    // `test_current_fn_macro`
+    //  - `current_fn!()` の戻り値が空でなく、実行中のテスト関数名を含む文字列であること。
+    //
+    // `test_trace_error_macro_with_and_without_tx`
+    //  - `dbg_tx: None` の場合：マクロを実行しても `dbg_trace_queue` が増加しないこと。
+    //  - `dbg_tx: Some` の場合：マクロ実行によりキューにレコードが 1 件追加されること。
+    //  - レコードの `func`, `loc`, `frame`, `id` が意図した値であること。
+    //
+    // `test_trace_lifecycle_and_trace_entity_macros`
+    //  - 有効化された feature の下で、同様に `dbg_tx` の有無に応じてキューへ追加されること。
+    //
+    // 3. `OptionTraceExt` の検証
+    //
+    // `test_option_unwrap_or_trace_some`
+    //  - `Some(v).unwrap_or_trace(...)` が `v` を返し、パニックしないこと。
+    //
+    // `test_option_unwrap_or_trace_none_panics`
+    //  - `None.unwrap_or_trace(...)` が指定エラーメッセージでパニックすること。
+    //  - `dbg_tx: Some` の場合、パニック直前にトレースキューがフラッシュされること。
+    //
+    // `test_option_unwrap_or_default_trace`
+    //  - `Some(v)` の場合は `v` を返す。
+    //  - `None` の場合は `T::default()` を返す（`trace-entity` 有効時はトレースが記録されること）。
+    //
+    // `test_option_unwrap_or_fallback_trace`
+    //  - `Some(v)` の場合は `v` を返し、`None` の場合は指定したフォールバック値を返すこと。
+    //
+    // `test_option_unwrap_or_else_trace`
+    //  - `Some(v)` の場合は `v` を返し、クロージャが実行されないこと。
+    //  - `None` の場合はクロージャを実行した値を返すこと。
 
     #[test]
     fn test_current_fn_macro() {
@@ -2224,6 +2317,20 @@ mod tests {
         assert!(fallback_called);
     }
 
+    // 4. `Result` 系拡張トレイトの検証
+    //
+    // `test_result_unwrap_or_trace` (`michiu_ui::Result`)
+    //  - `Ok(val)`: `val` をそのまま返すこと。
+    //  - `Err(MichiuError)`: パニックし、`dbg_tx` が設定されている場合はエラーレコードが送信されること。
+    //
+    // `test_taffy_result_unwrap_or_trace`
+    //  - `Ok(val)`: `val` をそのまま返すこと。
+    //  - `Err(taffy::TaffyError)`: パニックすること。
+    //
+    // `test_windows_result_unwrap_or_trace`
+    //  - `Ok(val)`: `val` をそのまま返すこと。
+    //  - `Err(windows_core::Error)`: パニックすること。
+
     #[test]
     fn test_result_unwrap_or_trace() {
         let mut store = DebugStore::new();
@@ -2271,6 +2378,28 @@ mod tests {
         }));
         assert!(result.is_err());
     }
+
+    // 5. `MichiuError` の検証
+    // 1. `From` トレイトによる自動型変換（`?` 演算子の連携）
+    // `#[from]` 属性が付与されている外部ライブラリのエラーが、`Into` / `From` で正しく `MichiuError` に変換されるか。
+    //  * `windows_core::Error` $\to$ `MichiuError::WindowsApiError`
+    //  * `taffy::TaffyError` $\to$ `MichiuError::TaffyError`
+    //  * `wgpu::CreateSurfaceError` $\to$ `MichiuError::CreateSurfaceError`
+    //  * `wgpu::RequestAdapterError` $\to$ `MichiuError::RequestAdapterError`
+    //  * `wgpu::RequestDeviceError` $\to$ `MichiuError::RequestDeviceError`
+    //
+    // 2. エラーチェーン（`std::error::Error::source`）の検証
+    // `#[source]` 属性が指定されているバリアントにおいて、`.source()` から元の根本原因エラーを取り出せるか。
+    //  * `source()` が `Some` を返すこと。
+    //  * `Arc` でラップされた `ImageLoadFailed` や `CanonicalizeFailed` などで内部ソースが保持されていること。
+    //
+    // 3. 表示メッセージ（`Display` / `to_string()`）の書式検証
+    // バリアントごとに埋め込んだパラメータ（`Entity`, `SignalId`, `caller` 名など）が、意図通りエラー文字列に反映されているか。
+    //  * 代表的なバリアント（`EntityNotFound`, `ComponentNotFound`, `ScopeViolation`, `GlyphAllocationFailed` など）で文字列書式を確認。
+    //
+    // 4. トレイト境界の保証（`Send` / `Sync` / `Clone`）
+    // UIスレッドやワーカースレッド間を行き来するため、型がスレッドセーフ（`Send + Sync`）かつクローン可能であることを静的に保証する。
+    //  * コンパイル時型アサーション（関数定義による制約チェック）。
 
     #[test]
     fn test_michiu_error_traits_boundary() {

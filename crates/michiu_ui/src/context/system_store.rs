@@ -60,6 +60,19 @@ pub struct SystemStore {
     pub(crate) sys_task_receiver: Receiver<TaskRecv>,
 }
 
+impl Default for SystemStore {
+    fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self::new(
+            MichiuTaskSender {
+                inner: tx,
+                waker: None,
+            },
+            rx,
+        )
+    }
+}
+
 impl SystemStore {
     #[inline]
     #[must_use]
