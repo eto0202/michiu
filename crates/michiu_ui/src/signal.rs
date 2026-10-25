@@ -10,9 +10,9 @@ use std::cell::Cell;
 use std::marker::PhantomData;
 
 new_key_type! {
-    /// 登録されたシグナルを識別する一意なID
+    /// A unique ID that identifies a registered signal
     pub struct SignalId;
-    /// 登録されたエフェクトを識別する一意なID
+    /// A unique ID that identifies a registered effect
     pub struct EffectId;
 }
 
@@ -463,7 +463,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
             prev
         });
 
-        // 実行（内部で get() が呼ばれたシグナルと、この effect_id が自動で紐づきます）
+        // 実行（内部で get() が呼ばれたシグナルと、この effect_id が自動で紐づく）
         effect_closure.0(cx);
 
         // 実行完了後、退避していた元のエフェクトIDを正確に復元する

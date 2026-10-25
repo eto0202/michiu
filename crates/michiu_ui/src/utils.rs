@@ -21,6 +21,7 @@ use std::borrow::Cow;
 ///
 /// # Why `ii()` ?
 ///
+/// - It is an abbreviation for `Mod “i” f “i” er`.
 /// - Because `m()` is prone to namespace conflicts.
 /// - Because it’s highly legible (the von Restorff effect).
 /// - Because it’s faster to type.
