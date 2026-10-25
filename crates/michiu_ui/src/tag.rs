@@ -162,3 +162,231 @@ impl MichiuTagRegistry {
         fns
     }
 }
+
+#[cfg(test)]
+#[expect(clippy::expect_used)]
+mod tests {
+    use super::*;
+    use slotmap::SlotMap;
+
+    struct TagA;
+    struct TagB;
+    struct TagC;
+
+    fn setup_entities(count: usize) -> (SlotMap<Entity, ()>, Vec<Entity>) {
+        let mut sm = SlotMap::<Entity, ()>::with_key();
+        let entities = (0..count).map(|_| sm.insert(())).collect();
+        (sm, entities)
+    }
+
+    #[test]
+    fn test_register_and_get_entities() {
+        let (_sm, e) = setup_entities(2);
+        let mut registry = MichiuTagRegistry::default();
+
+        registry.register_entity::<TagA>(e[0]);
+        registry.register_entity::<TagB>(e[0]);
+        registry.register_entity::<TagA>(e[1]);
+
+        // TagA には e[0], e[1] が登録されている
+        let tag_a_entities = registry.get_entities::<TagA>().expect("TagA should exist");
+        assert_eq!(tag_a_entities.as_slice(), &[e[0], e[1]]);
+
+        // TagB には e[0] のみが登録されている
+        let tag_b_entities = registry.get_entities::<TagB>().expect("TagB should exist");
+        assert_eq!(tag_b_entities.as_slice(), &[e[0]]);
+
+        // 未登録の TagC は None
+        assert!(registry.get_entities::<TagC>().is_none());
+    }
+
+    #[test]
+    fn test_unregister_entity() {
+        let (_sm, e) = setup_entities(2);
+        let mut registry = MichiuTagRegistry::default();
+
+        registry.register_entity::<TagA>(e[0]);
+        registry.register_entity::<TagB>(e[0]);
+        registry.register_entity::<TagA>(e[1]);
+
+        registry.unregister_entity(e[0]);
+
+        // e[0] の逆引きインデックスが削除されていること
+        assert!(!registry.entity_to_types.contains_key(&e[0]));
+
+        // TagA から e[0] が消え、e[1] だけが残っていること
+        let tag_a_entities = registry.get_entities::<TagA>().expect("TagA should exist");
+        assert_eq!(tag_a_entities.as_slice(), &[e[1]]);
+
+        // TagB から e[0] が消え、空になっていること
+        let tag_b_entities = registry.get_entities::<TagB>().expect("TagB should exist");
+        assert!(tag_b_entities.is_empty());
+
+        // 存在しないエンティティの解除呼び出しが安全であること
+        registry.unregister_entity(e[0]);
+    }
+
+    #[test]
+    fn test_is_descendant_of() {
+        let (_sm, e) = setup_entities(4);
+        let root = e[0];
+        let child = e[1];
+        let grandchild = e[2];
+        let sibling = e[3];
+
+        let mut parents = ParentsSecondary::default();
+        parents.insert(root, None);
+        parents.insert(child, Some(root));
+        parents.insert(grandchild, Some(child));
+        parents.insert(sibling, Some(root));
+
+        // 深さ1
+        assert!(MichiuTagRegistry::is_descendant_of(child, root, &parents));
+        // 深さ2
+        assert!(MichiuTagRegistry::is_descendant_of(
+            grandchild, root, &parents
+        ));
+        assert!(MichiuTagRegistry::is_descendant_of(
+            grandchild, child, &parents
+        ));
+
+        // 自分自身、兄弟、逆向きは false
+        assert!(!MichiuTagRegistry::is_descendant_of(root, root, &parents));
+        assert!(!MichiuTagRegistry::is_descendant_of(
+            sibling, child, &parents
+        ));
+        assert!(!MichiuTagRegistry::is_descendant_of(root, child, &parents));
+    }
+
+    #[test]
+    fn test_query_descendants_of_type() {
+        let (_sm, e) = setup_entities(6);
+        // ツリー構造:
+        // root (e[0])
+        //   ├─ parent_a (e[1])
+        //   │    ├─ child_a1 (e[2])  [TagA]
+        //   │    └─ child_a2 (e[3])  [TagB]
+        //   └─ parent_b (e[4])
+        //        └─ child_b1 (e[5])  [TagA]
+        let root = e[0];
+        let parent_a = e[1];
+        let child_a1 = e[2];
+        let child_a2 = e[3];
+        let parent_b = e[4];
+        let child_b1 = e[5];
+
+        let mut parents = ParentsSecondary::default();
+        parents.insert(root, None);
+        parents.insert(parent_a, Some(root));
+        parents.insert(child_a1, Some(parent_a));
+        parents.insert(child_a2, Some(parent_a));
+        parents.insert(parent_b, Some(root));
+        parents.insert(child_b1, Some(parent_b));
+
+        let mut dfs_seq = FlatDfsSequenceVec::default();
+        dfs_seq.extend([root, parent_a, child_a1, child_a2, parent_b, child_b1]);
+
+        let mut registry = MichiuTagRegistry::default();
+        registry.register_entity::<TagA>(child_a1);
+        registry.register_entity::<TagB>(child_a2);
+        registry.register_entity::<TagA>(child_b1);
+
+        // parent_a の子孫で TagA を持つものをクエリ
+        let result: Vec<Entity> = registry
+            .query_descendants_of_type::<TagA>(parent_a, &parents, &dfs_seq)
+            .collect();
+
+        // child_b1 は parent_b の配下なので含まれず、child_a1 のみ返る
+        assert_eq!(result, vec![child_a1]);
+    }
+
+    #[test]
+    fn test_query_descendants_of_type_edge_cases() {
+        let (_sm, e) = setup_entities(3);
+        let root = e[0];
+        let child = e[1];
+        let outside = e[2];
+
+        let mut parents = ParentsSecondary::default();
+        parents.insert(root, None);
+        parents.insert(child, Some(root));
+
+        let mut dfs_seq = FlatDfsSequenceVec::default();
+        dfs_seq.extend([root, child]);
+
+        let mut registry = MichiuTagRegistry::default();
+        registry.register_entity::<TagA>(child);
+
+        // DFS シーケンスに含まれないエンティティを指定した場合は空イテレータ
+        let result: Vec<Entity> = registry
+            .query_descendants_of_type::<TagA>(outside, &parents, &dfs_seq)
+            .collect();
+        assert!(result.is_empty());
+
+        // 一致するタグを持つ子孫が存在しない場合は空イテレータ
+        let result_no_tag: Vec<Entity> = registry
+            .query_descendants_of_type::<TagC>(root, &parents, &dfs_seq)
+            .collect();
+        assert!(result_no_tag.is_empty());
+    }
+
+    #[test]
+    fn test_query_first_descendant_of_type() {
+        let (_sm, e) = setup_entities(4);
+        let root = e[0];
+        let child1 = e[1];
+        let grandchild = e[2];
+        let child2 = e[3];
+
+        let mut parents = ParentsSecondary::default();
+        parents.insert(root, None);
+        parents.insert(child1, Some(root));
+        parents.insert(grandchild, Some(child1));
+        parents.insert(child2, Some(root));
+
+        let mut dfs_seq = FlatDfsSequenceVec::default();
+        dfs_seq.extend([root, child1, grandchild, child2]);
+
+        let mut registry = MichiuTagRegistry::default();
+        registry.register_entity::<TagA>(grandchild);
+        registry.register_entity::<TagA>(child2);
+
+        // root 配下で最初に見つかる TagA は DFS順で grandchild
+        let found = registry.query_first_descendant_of_type::<TagA>(root, &parents, &dfs_seq);
+        assert_eq!(found, Some(grandchild));
+
+        // child1 の配下で探す場合も grandchild
+        let found_in_child1 =
+            registry.query_first_descendant_of_type::<TagA>(child1, &parents, &dfs_seq);
+        assert_eq!(found_in_child1, Some(grandchild));
+
+        // 該当タグがない場合は None
+        let not_found = registry.query_first_descendant_of_type::<TagC>(root, &parents, &dfs_seq);
+        assert_eq!(not_found, None);
+    }
+
+    #[test]
+    fn test_collect_a11y_inferences() {
+        let (_sm, e) = setup_entities(1);
+        let entity = e[0];
+
+        let registry = MichiuTagRegistry::new();
+
+        // 登録されているビルトインのハンドラが存在する場合、その型をエンティティに付与して検証
+        if let Some((&registered_type, &expected_fn)) = registry.inference_handlers.iter().next() {
+            let mut reg = registry.clone();
+            reg.entity_to_types
+                .entry(entity)
+                .or_default()
+                .push(registered_type);
+
+            let collected = reg.collect_a11y_inferences(entity);
+            assert_eq!(collected.len(), 1);
+            assert_eq!(collected[0] as usize, expected_fn as usize);
+        } else {
+            // ハンドラが空の環境でのフォールバック検証
+            let collected = registry.collect_a11y_inferences(entity);
+            assert!(collected.is_empty());
+        }
+    }
+}
