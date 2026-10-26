@@ -1,5 +1,5 @@
 use crate::app::theme::Theme;
-pub use michiu::prelude::*;
+use michiu::prelude::*;
 use michiu::ui::{CssMapSet, CssSetSignalExt};
 
 pub fn container() -> Entity {

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{app::theme::Theme, components::section_title};
 use michiu_ui::VirtualKey;
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 
 pub fn container() -> Entity {
     v_flex(ii().gap(16.0).p(16.0)).children([
@@ -35,7 +35,7 @@ fn input_item(d: &'static str, e: Entity) -> Entity {
             .p((6.0, 4.0))
             .r(4.0)
             .size((160.0, 40.0))
-            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .bg_color(dynamic(|t: &Theme| t.surface))
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     );
@@ -148,9 +148,9 @@ fn spin_box() -> Entity {
         .justify_center()
         .items_center()
         .size(40.0)
-        .hovered(ii().bg_color(dynamic(|t: &Theme| t.border)));
+        .hovered(ii().bg_color(dynamic(|t: &Theme| t.surface_hover)));
     let label = ii()
-        .text_color(dynamic(|t: &Theme| t.secondary))
+        .text_color(dynamic(|t: &Theme| t.accent))
         .font_size(25.0)
         .font_weight(400)
         .pressed_parent(ii().transform_scale(0.9, 0.9));
@@ -182,9 +182,7 @@ fn spin_box() -> Entity {
         });
 
     let input_center = h_flex(
-        ii().items_center()
-            .justify_center()
-            .p((6.0, 4.0))
+        ii().p((6.0, 4.0))
             .size((80.0, 40.0))
             .border_solid((0.0, 1.0))
             .border_color(dynamic(|t: &Theme| t.border))
@@ -205,6 +203,7 @@ fn spin_box() -> Entity {
         .modify(
             ii().flex()
                 .text_center()
+                .items_center()
                 .size_full()
                 .font_size(16.0)
                 .text_color(dynamic(|t: &Theme| t.text))
@@ -216,7 +215,7 @@ fn spin_box() -> Entity {
 
     h_flex(
         ii().r(4.0)
-            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .bg_color(dynamic(|t: &Theme| t.surface))
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     )
@@ -248,7 +247,7 @@ fn password_box() -> Entity {
 
     h_flex_d(|t: &Theme| {
         ii().r(4.0)
-            .bg_color(t.background_hover)
+            .bg_color(t.surface)
             .border_solid(1.0)
             .border_color(t.border)
     })
@@ -303,9 +302,7 @@ fn search_box() -> Entity {
     };
 
     let input_left = h_flex(
-        ii().items_center()
-            .justify_center()
-            .p((4.0, 6.0, 4.0, 10.0))
+        ii().p((4.0, 6.0, 4.0, 10.0))
             .size((200.0, 40.0))
             .outline_solid((0.0, 1.0, 0.0, 0.0))
             .outline_align(BorderAlignment::Center)
@@ -354,7 +351,7 @@ fn search_box() -> Entity {
             .r_right(3.0)
             .size(40.0)
             .prevent_focus_steal(true)
-            .hovered(ii().bg_color(dynamic(|t: &Theme| t.border))),
+            .hovered(ii().bg_color(dynamic(|t: &Theme| t.surface_hover))),
     )
     .label(
         "🔎",
@@ -373,8 +370,8 @@ fn search_box() -> Entity {
             .top(41.0)
             .left(-1.0)
             .border_solid((0.0, 1.0, 1.0, 1.0))
-            .border_color(t.primary)
-            .bg_color(t.background_hover);
+            .border_color(t.accent)
+            .bg_color(t.surface);
 
         if menu_open.get() {
             base.flex()
@@ -398,7 +395,8 @@ fn search_box() -> Entity {
             let mut item_style = ii()
                 .w_full()
                 .h(30.0)
-                .hovered_within(ii().bg_color(dynamic(|t: &Theme| t.border_hover)));
+                .hovered_within(ii().bg_color(dynamic(|t: &Theme| t.surface_hover)))
+                .pressed_within(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
             if is_last {
                 item_style = item_style.r_bottom(4.0);
             }
@@ -424,14 +422,14 @@ fn search_box() -> Entity {
                 text("✕")
                     .modify_d(move |t: &Theme| {
                         let mut base_style = ii()
-                            .w(50.0)
+                            .w(30.0)
                             .h_full()
                             .text_center()
                             .p_t(3.0)
                             .text_color(t.text_muted)
                             .font_size(14.0)
                             .prevent_focus_steal(steal_focus.get())
-                            .hovered(ii().text_color(t.primary));
+                            .hovered(ii().text_color(t.accent));
 
                         if is_last {
                             base_style = base_style.r((0.0, 0.0, 4.0, 0.0));
@@ -471,10 +469,10 @@ fn search_box() -> Entity {
     h_flex_d(move |t: &Theme| {
         let base = ii()
             .r(4.0)
-            .bg_color(t.background_hover)
+            .bg_color(t.surface)
             .border_solid(1.0)
             .border_color(t.border)
-            .focused_within(ii().border_color(t.primary));
+            .focused_within(ii().border_color(t.accent));
 
         if menu_open.get() {
             base.r_bottom(0.0).border_bottom(BorderStyle::Solid, 0.0)
@@ -495,7 +493,7 @@ fn multiline_container() -> Entity {
             .min_size((200.0, 40.0))
             .resizable_right(true)
             .resizable_bottom(true)
-            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .bg_color(dynamic(|t: &Theme| t.surface))
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     )

@@ -1,6 +1,6 @@
 use crate::app::theme::Theme;
 use image::{DynamicImage, ImageBuffer};
-pub use michiu::prelude::*;
+use michiu::prelude::*;
 use michiu::ui::{
     ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
     ExternalTextureMetadata, UserSelect,
@@ -52,7 +52,7 @@ fn image_list() -> Entity {
                     .size((size.width / 7.0, size.height / 7.0))
                     .hovered(
                         ii().outline_solid(2.0)
-                            .outline_color(dynamic(|t: &Theme| t.primary)),
+                            .outline_color(dynamic(|t: &Theme| t.accent)),
                     ),
             )
             .on_click(move || {

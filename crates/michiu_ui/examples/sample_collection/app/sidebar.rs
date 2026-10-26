@@ -1,5 +1,6 @@
 use crate::app::{ComponentType, SearchText, SidebarSortOrder, theme::Theme};
-pub use michiu_ui::prelude::*;
+use michiu_ui::a11y;
+use michiu_ui::prelude::*;
 use strum::IntoEnumIterator;
 
 pub fn sidebar() -> Entity {
@@ -9,10 +10,10 @@ pub fn sidebar() -> Entity {
             .min_width(170.0)
             .max_width(pct(40.0))
             .shrink_0()
-            .border_right(BorderStyle::Solid, 1.0)
-            .border_color(dynamic(|t: &Theme| t.border))
+            .bg_color(dynamic(|t: &Theme| t.sidebar))
             .resizable_right(true),
     )
+    .tag::<a11y::ASidebar>()
     .children([
         controll_header().children([header_label(), sort_toggle()]),
         list_container(),
@@ -26,6 +27,8 @@ fn controll_header() -> Entity {
             .shrink_0()
             .p(10.0)
             .border_bottom(BorderStyle::Solid, 1.0)
+            .border_bottom_align(BorderAlignment::Center)
+            .border_bottom_length(0.9)
             .border_color(dynamic(|t: &Theme| t.border)),
     )
 }
@@ -43,11 +46,9 @@ fn sort_toggle() -> Entity {
         ii().p_x(8.0)
             .p_y(2.0)
             .r(2.0)
-            .bg_color(t.surface)
-            .border_solid(1.0)
-            .border_color(t.border)
+            .bg_color(t.header)
             .cursor_pointer()
-            .hovered(ii().bg_color(t.background_hover))
+            .hovered(ii().bg_color(t.header_hover))
     })
     .on_click(move || {
         let order = use_provided::<SidebarSortOrder>();
@@ -67,7 +68,7 @@ fn toggle_label() -> Entity {
         SidebarSortOrder::Descending => "Z-A ↓",
     })
     .modify_d(|t: &Theme| {
-        ii().text_color(t.text_muted)
+        ii().text_color(t.text)
             .font_size(14.0)
             .font_family(t.font_family.clone())
             .pointer_events_none()
@@ -75,41 +76,43 @@ fn toggle_label() -> Entity {
 }
 
 fn list_container() -> Entity {
-    v_flex_d(|t: &Theme| scrollbar(t).grow().overflow_y_scroll()).child(move || {
-        let order = use_provided::<SidebarSortOrder>().get();
-        let query = use_provided::<SearchText>().get().0.to_lowercase();
+    v_flex_d(|t: &Theme| scrollbar(t).grow().overflow_y_scroll())
+        .tag::<a11y::AList>()
+        .child(move || {
+            let order = use_provided::<SidebarSortOrder>().get();
+            let query = use_provided::<SearchText>().get().0.to_lowercase();
 
-        let mut comp_types: Vec<ComponentType> = ComponentType::iter().collect();
+            let mut comp_types: Vec<ComponentType> = ComponentType::iter().collect();
 
-        // 検索フィルタリング
-        if !query.is_empty() {
-            comp_types.retain(|comp| comp.to_string().to_lowercase().contains(&query));
-        }
-
-        // ソート順制御
-        match order {
-            SidebarSortOrder::Ascending => {
-                comp_types.sort_by_key(|a| a.to_string());
+            // 検索フィルタリング
+            if !query.is_empty() {
+                comp_types.retain(|comp| comp.to_string().to_lowercase().contains(&query));
             }
-            SidebarSortOrder::Descending => {
-                comp_types.sort_by_key(|b| std::cmp::Reverse(b.to_string()));
+
+            // ソート順制御
+            match order {
+                SidebarSortOrder::Ascending => {
+                    comp_types.sort_by_key(|a| a.to_string());
+                }
+                SidebarSortOrder::Descending => {
+                    comp_types.sort_by_key(|b| std::cmp::Reverse(b.to_string()));
+                }
             }
-        }
 
-        // リストアイテム
-        let items: Vec<Entity> = comp_types
-            .into_iter()
-            .map(|comp_type| sidebar_item(comp_type.to_string(), comp_type))
-            .collect();
+            // リストアイテム
+            let items: Vec<Entity> = comp_types
+                .into_iter()
+                .map(|comp_type| sidebar_item(comp_type.to_string(), comp_type))
+                .collect();
 
-        v_flex(ii().w_full()).children(items)
-    })
+            v_flex(ii().w_full()).children(items)
+        })
 }
 
 fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
     h_flex_d(move |t: &Theme| {
-        let active_bg = t.border_hover;
-        let hover_bg = t.background_hover;
+        let active_bg = t.background_hover;
+        let hover_bg = t.sidebar_hover;
 
         let current = use_provided::<ComponentType>().get();
         let is_active = current == item_type;
@@ -123,7 +126,7 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
         let h_bg = if is_active { active_bg } else { hover_bg };
 
         let border_color = if is_active {
-            t.primary_hover
+            t.accent
         } else {
             Color::TRANSPARENT
         };
@@ -136,6 +139,7 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
             .border_color(border_color)
             .hovered(ii().bg_color(h_bg))
     })
+    .tag::<a11y::AListItem>()
     .label_d(name, move |t: &Theme| {
         ii().text_color(t.text).font_size(t.font_size_base)
     })
@@ -146,7 +150,7 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
 }
 
 pub fn scrollbar(t: &Theme) -> Modifier {
-    ii().scrollbar_always()
+    ii().scrollbar_auto()
         .scrollbar_mode(ScrollbarMode::Overlay)
         .scrollbar(
             ScrollbarStyle::new(10.0)

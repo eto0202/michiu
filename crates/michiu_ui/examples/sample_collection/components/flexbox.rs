@@ -1,5 +1,5 @@
 use crate::app::theme::Theme;
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 use michiu_ui::{AlignContent, AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent};
 
 #[derive(Clone, Copy)]
@@ -137,7 +137,7 @@ fn table() -> Entity {
         .p_x(4.0)
         .h(40.0)
         .justify_start()
-        .selected(ii().bg_color(dynamic(|t: &Theme| t.primary)));
+        .selected(ii().bg_color(dynamic(|t: &Theme| t.accent)));
     let col_2 = col_1
         .clone()
         .bg_color(dynamic(|t: &Theme| t.background_hover));

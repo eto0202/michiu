@@ -3,7 +3,7 @@ use crate::{
     components::{label_style, section_title},
 };
 use michiu_ui::GlobalCursorIcon;
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 
 pub fn container() -> Entity {
     v_flex(ii().gap(20.0).p(16.0)).children([

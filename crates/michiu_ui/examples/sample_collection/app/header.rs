@@ -1,5 +1,5 @@
 use crate::app::{SearchText, theme::Theme};
-pub use michiu_ui::{accessibility::*, prelude::*};
+use michiu_ui::{accessibility::*, prelude::*};
 use std::time::Duration;
 
 pub fn header() -> Entity {
@@ -9,11 +9,10 @@ pub fn header() -> Entity {
             .shrink_0()
             .justify_center()
             .items_center()
-            .border_bottom(BorderStyle::Solid, 1.0)
-            .border_color(dynamic(|t: &Theme| t.border)),
+            .bg_color(dynamic(|t: &Theme| t.sidebar)),
     )
     .children([search_box(), toggle_btn()])
-    .a11y_role(Role::Header)
+    .tag::<a11y::AHeader>()
 }
 
 fn search_box() -> Entity {
@@ -22,7 +21,7 @@ fn search_box() -> Entity {
             .items_center()
             .size((pct(35.0), 26.0))
             .max_size((600.0, 26.0))
-            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .bg_color(dynamic(|t: &Theme| t.background))
             .r(4.0)
             .p_x(16.0),
     );
@@ -91,23 +90,20 @@ fn toggle_btn() -> Entity {
         }
     };
 
-    let btn_wrapper = h_flex_d(|t: &Theme| {
-        // ダーク（Active）時はアクセントカラーや hover 色を、ライト時は標準の境界色を割り当てます
-        let track_color = if t.is_dark { t.surface } else { t.border };
-
+    let btn_wrapper = h_flex(
         ii().r(4.0)
             .items_center()
             .size((50.0, 26.0))
-            .bg_color(track_color)
+            .bg_color(dynamic(|t: &Theme| t.background))
             .absolute()
-            .right(10.0)
+            .right(70.0)
             .focusable_self_keyboard()
             .focused(
                 ii().outline_solid(1.0)
                     .outline_offset(2.0)
                     .outline_color(dynamic(|t: &Theme| t.text)),
-            )
-    })
+            ),
+    )
     .on_click(mode_change);
 
     let btn_inner = h_flex_d(|t: &Theme| {
@@ -115,7 +111,7 @@ fn toggle_btn() -> Entity {
             .m_l(4.0)
             .height(20.0)
             .width(20.0)
-            .bg_color(t.primary)
+            .bg_color(t.accent)
             .actived(ii().transform_translate(22.0, 0.0))
             .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
     })

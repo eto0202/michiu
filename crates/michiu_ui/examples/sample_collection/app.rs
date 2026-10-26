@@ -42,7 +42,6 @@ pub enum SidebarSortOrder {
 pub enum ComponentType {
     Button,
     Input,
-    InputArea,
     Scrollbar,
     Border,
     ContextMenu,
@@ -59,8 +58,8 @@ pub enum ComponentType {
     Outline,
     Focusable,
     StressTest,
-    Image,
     ExternalVisual,
+    ExternalTexture,
     Accessibility,
     Size,
     Transform,

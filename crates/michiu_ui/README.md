@@ -2,8 +2,6 @@
 
 This crate handles UI rendering for the `michiu` crate.
 
-Please note that since this is still under development, breaking changes may occur without prior notice.
-
 ## Crates.io
 
 - [michiu](https://crates.io/crates/michiu)
@@ -193,7 +191,7 @@ h_flex(ii()).children([left, right])
 
 #### Additional information
 
-Marker types like [`a11y::AButton`] serve double duty: they convey UI Automation roles (via AccessKit) and act as type-safe query keys. Custom tags can be created using the [`A11yInferenceTag`](crate::a11y::A11yInferenceTag) trait.
+Marker types like `a11y::AButton` serve double duty: they convey UI Automation roles (via AccessKit) and act as type-safe query keys. Custom tags can be created using the `A11yInferenceTag` trait.
 
 ---
 

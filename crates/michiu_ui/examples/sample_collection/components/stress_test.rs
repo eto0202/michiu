@@ -1,7 +1,6 @@
-pub use michiu_ui::prelude::*;
-use smallvec::SmallVec;
-
 use crate::app::{sidebar, theme::Theme};
+use michiu_ui::prelude::*;
+use smallvec::SmallVec;
 
 pub type ChildrenVec = SmallVec<[Entity; 10]>;
 
@@ -33,7 +32,7 @@ fn entity_1() -> Vec<Entity> {
 fn base_el(i: i32) -> Entity {
     let label_str = DIGITS.get(i as usize).copied().unwrap_or("");
 
-    flex(ii().hovered(ii().bg_color(dynamic(|t: &Theme| t.primary))))
+    flex(ii().hovered(ii().bg_color(dynamic(|t: &Theme| t.accent))))
         .label(
             label_str,
             ii().font_size(16.0)

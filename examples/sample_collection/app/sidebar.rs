@@ -1,5 +1,5 @@
 use crate::app::{ComponentType, SearchText, SidebarSortOrder, theme::Theme};
-pub use michiu::prelude::*;
+use michiu::prelude::*;
 use michiu::ui::a11y;
 use strum::IntoEnumIterator;
 
@@ -10,8 +10,7 @@ pub fn sidebar() -> Entity {
             .min_width(170.0)
             .max_width(pct(40.0))
             .shrink_0()
-            .border_right(BorderStyle::Solid, 1.0)
-            .border_color(dynamic(|t: &Theme| t.border))
+            .bg_color(dynamic(|t: &Theme| t.sidebar))
             .resizable_right(true),
     )
     .tag::<a11y::ASidebar>()
@@ -28,6 +27,8 @@ fn controll_header() -> Entity {
             .shrink_0()
             .p(10.0)
             .border_bottom(BorderStyle::Solid, 1.0)
+            .border_bottom_align(BorderAlignment::Center)
+            .border_bottom_length(0.9)
             .border_color(dynamic(|t: &Theme| t.border)),
     )
 }
@@ -45,11 +46,9 @@ fn sort_toggle() -> Entity {
         ii().p_x(8.0)
             .p_y(2.0)
             .r(2.0)
-            .bg_color(t.surface)
-            .border_solid(1.0)
-            .border_color(t.border)
+            .bg_color(t.header)
             .cursor_pointer()
-            .hovered(ii().bg_color(t.background_hover))
+            .hovered(ii().bg_color(t.header_hover))
     })
     .on_click(move || {
         let order = use_provided::<SidebarSortOrder>();
@@ -69,7 +68,7 @@ fn toggle_label() -> Entity {
         SidebarSortOrder::Descending => "Z-A ↓",
     })
     .modify_d(|t: &Theme| {
-        ii().text_color(t.text_muted)
+        ii().text_color(t.text)
             .font_size(14.0)
             .font_family(t.font_family.clone())
             .pointer_events_none()
@@ -112,8 +111,8 @@ fn list_container() -> Entity {
 
 fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
     h_flex_d(move |t: &Theme| {
-        let active_bg = t.border_hover;
-        let hover_bg = t.background_hover;
+        let active_bg = t.background_hover;
+        let hover_bg = t.sidebar_hover;
 
         let current = use_provided::<ComponentType>().get();
         let is_active = current == item_type;
@@ -127,7 +126,7 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
         let h_bg = if is_active { active_bg } else { hover_bg };
 
         let border_color = if is_active {
-            t.primary_hover
+            t.accent
         } else {
             Color::TRANSPARENT
         };

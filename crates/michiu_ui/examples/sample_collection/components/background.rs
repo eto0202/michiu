@@ -1,4 +1,4 @@
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 
 pub fn container() -> Entity {
     flex(ii().flex().grow().p(16.0).items_center().justify_center()).child(

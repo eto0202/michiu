@@ -2,7 +2,7 @@ use crate::{
     app::theme::Theme,
     components::{label_style, section_title},
 };
-pub use michiu::prelude::*;
+use michiu::prelude::*;
 
 pub fn container() -> Entity {
     v_flex(ii().gap(24.0).p(16.0)).children([

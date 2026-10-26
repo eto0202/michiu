@@ -2,7 +2,7 @@ use crate::{
     app::theme::Theme,
     components::{label_style, section_title},
 };
-pub use michiu::prelude::*;
+use michiu::prelude::*;
 use michiu::ui::GlobalCursorIcon;
 
 pub fn container() -> Entity {

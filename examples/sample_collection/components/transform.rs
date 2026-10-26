@@ -36,7 +36,7 @@ fn item(label: &'static str, style: Modifier) -> Entity {
         ii().r(4.0)
             .size(80.0)
             .justify_center()
-            .bg_color(dynamic(|t: &Theme| t.primary))
+            .bg_color(dynamic(|t: &Theme| t.accent))
             .pressed(style),
     )
     .label(
@@ -74,7 +74,7 @@ fn trans_item(label: &'static str, style: Modifier) -> Entity {
         ii().r(4.0)
             .size(80.0)
             .justify_center()
-            .bg_color(dynamic(|t: &Theme| t.primary))
+            .bg_color(dynamic(|t: &Theme| t.accent))
             .trans_transform(Duration::from_millis(200), AnimationCurve::EaseInOutQuad)
             .pressed(style),
     )
@@ -99,7 +99,7 @@ fn animation_group() -> Entity {
                 ii().r(4.0)
                     .size(80.0)
                     .justify_center()
-                    .bg_color(dynamic(|t: &Theme| t.primary))
+                    .bg_color(dynamic(|t: &Theme| t.accent))
                     .animation(KeyframeAnimation::new(
                         PropertyList::Transform,
                         Duration::from_millis(600),

@@ -55,7 +55,7 @@ fn context_menu() -> Entity {
             .items_center()
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border))
-            .bg_color(dynamic(|t: &Theme| t.background_hover)),
+            .bg_color(dynamic(|t: &Theme| t.sidebar)),
     )
     .tag::<a11y::AContextMenu>()
     .children(menu_item())
@@ -67,8 +67,8 @@ fn menu_item() -> [Entity; 8] {
             ii().r(3.0)
                 .size_full()
                 .p_l(8.0)
-                .pressed(ii().bg_color(dynamic(|t: &Theme| t.border_hover)))
-                .hovered(ii().bg_color(dynamic(|t: &Theme| t.border))),
+                .pressed(ii().bg_color(dynamic(|t: &Theme| t.header)))
+                .hovered(ii().bg_color(dynamic(|t: &Theme| t.sidebar_hover))),
         )
         .tag::<a11y::AMenuItem>()
         .on_click_with(|cx| {

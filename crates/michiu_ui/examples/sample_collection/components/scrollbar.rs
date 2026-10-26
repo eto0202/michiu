@@ -26,16 +26,16 @@ fn scroll_container_1() -> Entity {
                                 .p_r(4.0)
                                 .width(8.0)
                                 .r_full()
-                                .bg_color(t.primary)
-                                .hovered(ii().bg_color(t.primary_hover)),
+                                .bg_color(t.accent)
+                                .hovered(ii().bg_color(t.accent_hover)),
                         )
                         .h_thumb(
                             ii().m_x(8.0)
                                 .p_b(4.0)
                                 .height(8.0)
                                 .r_full()
-                                .bg_color(t.primary)
-                                .hovered(ii().bg_color(t.primary_hover)),
+                                .bg_color(t.accent)
+                                .hovered(ii().bg_color(t.accent_hover)),
                         ),
                 )
         })
@@ -53,14 +53,14 @@ fn scroll_container_2() -> Entity {
                         .v_track(ii().bg_color(t.border).m_y(8.0))
                         .v_thumb(
                             ii().width(8.0)
-                                .bg_color(t.primary)
-                                .hovered(ii().bg_color(t.primary_hover)),
+                                .bg_color(t.accent)
+                                .hovered(ii().bg_color(t.accent_hover)),
                         )
                         .h_track(ii().bg_color(t.border).m_x(8.0))
                         .h_thumb(
                             ii().height(8.0)
-                                .bg_color(t.primary)
-                                .hovered(ii().bg_color(t.primary_hover)),
+                                .bg_color(t.accent)
+                                .hovered(ii().bg_color(t.accent_hover)),
                         ),
                 )
         })
@@ -80,16 +80,16 @@ fn scroll_container_3() -> Entity {
                                 .p_r(4.0)
                                 .width(8.0)
                                 .r_full()
-                                .bg_color(t.primary)
-                                .hovered(ii().bg_color(t.primary_hover)),
+                                .bg_color(t.accent)
+                                .hovered(ii().bg_color(t.accent_hover)),
                         )
                         .h_thumb(
                             ii().m_x(8.0)
                                 .p_b(4.0)
                                 .height(8.0)
                                 .r_full()
-                                .bg_color(t.primary)
-                                .hovered(ii().bg_color(t.primary_hover)),
+                                .bg_color(t.accent)
+                                .hovered(ii().bg_color(t.accent_hover)),
                         ),
                 )
         })
@@ -109,16 +109,16 @@ fn scroll_container_4() -> Entity {
                                 .p_r(4.0)
                                 .width(8.0)
                                 .r_full()
-                                .bg_color(t.primary)
-                                .hovered(ii().bg_color(t.primary_hover)),
+                                .bg_color(t.accent)
+                                .hovered(ii().bg_color(t.accent_hover)),
                         )
                         .h_thumb(
                             ii().m_x(8.0)
                                 .p_b(4.0)
                                 .height(8.0)
                                 .r_full()
-                                .bg_color(t.primary)
-                                .hovered(ii().bg_color(t.primary_hover)),
+                                .bg_color(t.accent)
+                                .hovered(ii().bg_color(t.accent_hover)),
                         ),
                 )
         })

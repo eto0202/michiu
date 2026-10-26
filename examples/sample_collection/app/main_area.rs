@@ -7,7 +7,7 @@ use crate::{
         outline, resizable, scrollbar, stress_test, transform,
     },
 };
-pub use michiu::prelude::*;
+use michiu::prelude::*;
 use michiu::ui::a11y;
 use strum::IntoEnumIterator;
 

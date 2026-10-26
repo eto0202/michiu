@@ -1,4 +1,4 @@
-pub use michiu::prelude::*;
+use michiu::prelude::*;
 use michiu::ui::{FocusTrigger, external_visual};
 
 use crate::{CratesVisual, GitHubVisual};

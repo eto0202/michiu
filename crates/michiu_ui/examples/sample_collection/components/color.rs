@@ -1,5 +1,5 @@
 use crate::components::section_title;
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 
 pub fn container() -> Entity {
     v_flex(ii().gap(24.0).p(16.0)).children([

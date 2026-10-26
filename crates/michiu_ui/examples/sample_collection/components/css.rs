@@ -1,4 +1,4 @@
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 use michiu_ui::{CssMapSet, CssSetSignalExt};
 
 use crate::app::theme::Theme;

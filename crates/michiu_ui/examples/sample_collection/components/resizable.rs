@@ -1,5 +1,5 @@
 use crate::app::theme::Theme;
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 
 pub fn container() -> Entity {
     v_flex(ii().gap(16.0).p(16.0).r(4.0))

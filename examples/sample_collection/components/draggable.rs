@@ -1,5 +1,5 @@
 use crate::app::theme::Theme;
-pub use michiu::prelude::*;
+use michiu::prelude::*;
 
 pub fn container() -> Entity {
     // 親コンテナを先に生成して ID を確定

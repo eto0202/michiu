@@ -3,15 +3,16 @@ use crate::{
     app::{ComponentType, theme::Theme},
     components::{
         accessibility, background, border, button, color, context_menu, css, cursor, div,
-        draggable, external_visual, flexbox, focusable, gradient, hover, image, input, outline,
-        resizable, scrollbar, stress_test, transform,
+        draggable, external_texture, external_visual, flexbox, focusable, gradient, hover, input,
+        outline, resizable, scrollbar, stress_test, transform,
     },
 };
-pub use michiu_ui::prelude::*;
+use michiu_ui::a11y;
+use michiu_ui::prelude::*;
 use strum::IntoEnumIterator;
 
 pub fn main_area() -> Entity {
-    let main_contents = v_flex(ii().size_full().overflow_hidden().p(20.0));
+    let main_contents = v_flex(ii().size_full().overflow_hidden().p(20.0)).tag::<a11y::AMain>();
 
     // 全ての ComponentType の要素を起動時に一度だけ spawn してマウント
     let mut children = Vec::new();
@@ -40,7 +41,6 @@ fn create_component_entity(comp_type: ComponentType) -> Entity {
     match comp_type {
         ComponentType::Button => wrapper(button::container()),
         ComponentType::Input => wrapper(input::container()),
-        ComponentType::InputArea => text("InputArea"),
         ComponentType::Background => wrapper(background::container()),
         ComponentType::Div => wrapper(div::container()),
         ComponentType::Flexbox => wrapper(flexbox::container()),
@@ -56,7 +56,7 @@ fn create_component_entity(comp_type: ComponentType) -> Entity {
         ComponentType::Cursor => wrapper(cursor::container()),
         ComponentType::Outline => wrapper(outline::container()),
         ComponentType::Focusable => wrapper(focusable::container()),
-        ComponentType::Image => wrapper(image::container()),
+        ComponentType::ExternalTexture => wrapper(external_texture::container()),
         ComponentType::ExternalVisual => wrapper(external_visual::container()),
         ComponentType::Accessibility => wrapper(accessibility::container()),
         ComponentType::Size => text("Size"),

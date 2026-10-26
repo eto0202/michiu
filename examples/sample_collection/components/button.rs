@@ -42,7 +42,7 @@ fn signal_btn() -> Entity {
     h_flex(
         item_style()
             .border_solid(2.0)
-            .border_color(dynamic(|t: &Theme| t.primary)),
+            .border_color(dynamic(|t: &Theme| t.accent)),
     )
     .on_click(move || set_count.set(count.get() + 1))
     .label(move || format!("Signal: {}", count.get()), label_style())
@@ -56,7 +56,7 @@ fn direct_btn() -> Entity {
     );
 
     let style = ii()
-        .text_color(dynamic(|t: &Theme| t.primary))
+        .text_color(dynamic(|t: &Theme| t.accent))
         .font_size(16.0)
         .font_weight(400);
 
@@ -83,7 +83,7 @@ fn event_btn() -> Entity {
 
     let mut count = 0u32;
 
-    h_flex(item_style().bg_color(dynamic(|t: &Theme| t.primary)))
+    h_flex(item_style().bg_color(dynamic(|t: &Theme| t.accent)))
         .label(move || format!("Event: {count}"), &style)
         .on_click_with(move |cx| {
             count += 1;
@@ -97,7 +97,7 @@ fn tag_btn() -> Entity {
     struct MichiuTag;
 
     let style = ii()
-        .text_color(dynamic(|t: &Theme| t.primary))
+        .text_color(dynamic(|t: &Theme| t.accent))
         .font_size(16.0)
         .font_weight(400);
 
@@ -123,7 +123,7 @@ fn tag_btn() -> Entity {
         item_style()
             .gap(8.0)
             .border_solid(1.0)
-            .border_color(dynamic(|t: &Theme| t.primary)),
+            .border_color(dynamic(|t: &Theme| t.accent)),
     )
     .children([left, right])
 }
@@ -160,7 +160,7 @@ fn pressed_btn() -> Entity {
             .justify_center()
             .items_center()
             .border_dashed(2.0)
-            .border_color(dynamic(|t: &Theme| t.primary))
+            .border_color(dynamic(|t: &Theme| t.accent))
             .pressed(ii().transform_scale(0.96, 0.96)),
     )
     .label(
@@ -192,7 +192,7 @@ fn actived_btn() -> Entity {
             ii().border_color(t.border)
                 .border_solid(2.0)
                 .bg_color(t.surface)
-                .actived(ii().bg_color(t.primary))
+                .actived(ii().bg_color(t.accent))
         })
         .label("Actived", label_style())
         .active(is_active)
@@ -218,7 +218,7 @@ pub fn selected_btn() -> Entity {
         h_flex(item_style().border_dashed(2.0).w_full().justify_center())
             .modify_d(|t: &Theme| {
                 ii().border_color(t.border_hover)
-                    .selected(ii().border_color(t.primary).border_solid(2.0))
+                    .selected(ii().border_color(t.accent).border_solid(2.0))
             })
             .label(label_text, label_style())
             .select(move || selected.get() == opt)
@@ -248,7 +248,7 @@ fn transition_btn(ms: u64, label_text: &'static str) -> Entity {
                 .border_align(BorderAlignment::Center)
                 .border_bottom_length(0.6)
                 .border_color(dynamic(|t: &Theme| t.border))
-                .pressed(ii().border_color(dynamic(|t: &Theme| t.primary)))
+                .pressed(ii().border_color(dynamic(|t: &Theme| t.accent)))
                 .trans_border_color(Duration::from_millis(ms), AnimationCurve::EaseInOutQuad),
         )
         .label(label_text, label_style()),

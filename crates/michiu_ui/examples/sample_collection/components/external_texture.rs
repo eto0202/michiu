@@ -1,6 +1,6 @@
 use crate::app::theme::Theme;
 use image::{DynamicImage, ImageBuffer};
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 use michiu_ui::{
     ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
     ExternalTextureMetadata, UserSelect,
@@ -15,24 +15,24 @@ pub fn container() -> Entity {
 fn image_list() -> Entity {
     let png_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/examples/sample_collection/assets/screen_shot_1.png"
+        "/examples//sample_collection/assets/screen_shot_1.png"
     );
     let jpg_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/examples/sample_collection/assets/screen_shot_2.jpg"
+        "/examples//sample_collection/assets/screen_shot_2.jpg"
     );
     let webp_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/examples/sample_collection/assets/screen_shot_3.webp"
+        "/examples//sample_collection/assets/screen_shot_3.webp"
     );
     let bmp_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/examples/sample_collection/assets/screen_shot_4.bmp"
+        "/examples//sample_collection/assets/screen_shot_4.bmp"
     );
     // YCbCr 形式のため tiff-reader を使用
     let tiff_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/examples/sample_collection/assets/screen_shot_5.tiff"
+        "/examples//sample_collection/assets/screen_shot_5.tiff"
     );
     let screen_shot_1 = ImageExternalTexture::new(png_path).unwrap();
     let screen_shot_2 = ImageExternalTexture::new(jpg_path).unwrap();
@@ -52,7 +52,7 @@ fn image_list() -> Entity {
                     .size((size.width / 7.0, size.height / 7.0))
                     .hovered(
                         ii().outline_solid(2.0)
-                            .outline_color(dynamic(|t: &Theme| t.primary)),
+                            .outline_color(dynamic(|t: &Theme| t.accent)),
                     ),
             )
             .on_click(move || {
@@ -120,7 +120,7 @@ pub struct ImageExternalTexture {
 }
 
 impl ImageExternalTexture {
-    pub fn new(path: impl AsRef<Path>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(path: impl AsRef<Path>) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let path_ref = path.as_ref();
 
         let file_name = Self::extract_file_name(path_ref);
@@ -147,7 +147,9 @@ impl ImageExternalTexture {
         })
     }
 
-    pub fn to_ycbcr_tiff(path: impl AsRef<Path>) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn to_ycbcr_tiff(
+        path: impl AsRef<Path>,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let path_ref = path.as_ref();
 
         let file_name = Self::extract_file_name(path_ref);

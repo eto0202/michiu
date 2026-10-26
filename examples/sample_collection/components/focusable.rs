@@ -54,7 +54,7 @@ fn section_self() -> Entity {
         ii().focusable_self_keyboard().focused(
             ii().outline_dashed(2.0)
                 .outline_offset(2.0)
-                .outline_color(dynamic(|t: &Theme| t.primary)),
+                .outline_color(dynamic(|t: &Theme| t.accent)),
         ),
     );
     let item_2 = item(
@@ -92,7 +92,7 @@ fn section_within() -> Entity {
         ii().focusable_self_keyboard().focused(
             ii().outline_dashed(2.0)
                 .outline_offset(2.0)
-                .outline_color(dynamic(|t: &Theme| t.primary)),
+                .outline_color(dynamic(|t: &Theme| t.accent)),
         ),
     );
 
@@ -104,7 +104,7 @@ fn section_within() -> Entity {
             .p(6.0)
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border))
-            .focused(ii().bg_color(dynamic(|t: &Theme| t.primary)))
+            .focused(ii().bg_color(dynamic(|t: &Theme| t.accent)))
             .focused_within(
                 ii().outline_solid(1.0)
                     .outline_offset(2.0)
