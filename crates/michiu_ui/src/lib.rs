@@ -94,23 +94,23 @@
 //! use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, PAINTSTRUCT};
 //! use windows::Win32::Graphics::Dwm::DwmFlush;
 //!
-//! fn win32_message(app: &mut AppState, hwnd: HWND, event: MyWindowEvent) {
+//! fn win32_message(app: &mut AppState, hwnd: HWND, event: YourWindowEvent) {
 //!     match event {
 //!         // --- 1. Event Received (Mouse, Keyboard, etc.) ---
 //!         // Do not run layout or redraw immediately; queue actions instead
-//!         MyWindowEvent::MouseInput { button, state, modifiers } => {
+//!         YourWindowEvent::MouseInput { button, state, modifiers } => {
 //!             app.context.inject_action(EventAction::PointerButton { button, state, modifiers });
 //!         }
-//!         MyWindowEvent::CursorMoved { x, y } => {
+//!         YourWindowEvent::CursorMoved { x, y } => {
 //!             app.context.inject_action(EventAction::PointerMove(LayoutPoint::new(x, y)));
 //!         }
 //!
 //!         // --- 2. Redraw Requested (WM_PAINT, Resize, VSync, etc.) ---
-//!         MyWindowEvent::RedrawRequested => {
+//!         YourWindowEvent::RedrawRequested => {
 //!             // 1. Flush event queue and update interaction states (hover, focus, click)
 //!             app.context.begin_frame();
 //!
-//!             // 2. Advance timers for animations and automated scrolling/dragging
+//!             // 2. Advance timers for animations and automated dragging
 //!             app.context.tick_system_frame(&TickType::All);
 //!
 //!             // 3. Recalculate layout
@@ -181,7 +181,7 @@
 //! | **4. Tag Query** | Type-safe loose coupling | Direct manipulation of sibling or external entities |
 //!
 //! #### 1. Signal Approach (Declarative & Reactive)
-//! Value updates automatically propagate to subscribing property closures (inspired by SolidJS and Leptos).
+//! Value updates automatically propagate to subscribing property closures.
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
@@ -294,7 +294,7 @@
 //!
 //! # Dynamic Styling and Performance Guide
 //!
-//! `michiu_ui` offers two patterns for dynamic styling: **block-level evaluation (`modify_d` / `style`)** and **per-property evaluation (`dynamic`)**.
+//! `michiu_ui` offers two patterns for dynamic styling: **block-level evaluation (`modify_d` / `modify`)** and **per-property evaluation (`dynamic`)**.
 //!
 //! ---
 //!
@@ -303,7 +303,7 @@
 //! The following two patterns are identical in internal behavior and performance:
 //!
 //! ```rust,ignore
-//! // Pattern A: Passing a closure directly to `style`
+//! // Pattern A: Passing a closure directly to `modify`
 //! .modify(move || {
 //!     let t = use_provided::<Theme>().get();
 //!     ii().bg_color(t.background)
@@ -372,7 +372,7 @@
 //! | 1–2 dynamic properties | `dynamic(\|t: &T\|)` |
 //! | Many dynamic properties | `modify_d(\|t: &T\|)` |
 //! | Dynamic properties + conditional logic | `modify_d` |
-//! | Static layout + few dynamic properties | `style` + `dynamic` |
+//! | Static layout + few dynamic properties | `modify` + `dynamic` |
 //! | Extensive static + dynamic properties | `modify(static)` + `modify_d(dynamic)` |
 //!
 //! ---
