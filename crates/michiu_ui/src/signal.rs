@@ -493,7 +493,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bind_context;
+    use crate::{Entity, bind_context};
     use slotmap::SlotMap;
     use std::sync::{
         Arc,
@@ -549,7 +549,7 @@ mod tests {
 
     #[test]
     fn test_active_entity_guard_lifecycle() {
-        let mut sm = SlotMap::<crate::Entity, ()>::with_key();
+        let mut sm = SlotMap::<Entity, ()>::with_key();
         let e1 = sm.insert(());
         let e2 = sm.insert(());
 

@@ -17,17 +17,9 @@ impl TestContext {
         }
     }
 
-    /// よく使う初期状態のプリセット（例: ウィンドウサイズ設定済み）
-    pub fn with_window_size(mut self, width: f32, height: f32) -> Self {
-        self.ctx.window.win_last_size = Some(LayoutSize { width, height });
-        self
-    }
+    // よく使う初期状態のプリセット（例: ウィンドウサイズ設定済み）
 
-    /// テスト用のダミーエンティティを簡易生成するヘルパー
-    pub fn spawn_dummy_entity(&mut self) -> Entity {
-        // エンティティ生成・トポロジ登録の共通処理
-        todo!()
-    }
+    // テスト用のダミーエンティティを簡易生成するヘルパー
 }
 
 #[cfg(test)]
